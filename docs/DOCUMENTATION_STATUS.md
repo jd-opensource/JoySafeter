@@ -1,6 +1,6 @@
 # Documentation Status
 
-Last code-based review: 2026-07-03.
+Last code-based review: 2026-07-09.
 
 This file tracks the documentation state after the v2 code refactor. The source of truth is the
 current repository, not older design notes.
@@ -9,20 +9,21 @@ current repository, not older design notes.
 
 | Document | Current status |
 | --- | --- |
-| `README.md` / `README_CN.md` | Updated quick start to reflect the `local-redis` profile and current three-service deployment. |
-| `INSTALL.md` / `INSTALL_CN.md` | Updated Docker Compose commands, Redis profile behavior, and frontend setup to use the checked-in Bun lockfile only. |
-| `DEVELOPMENT.md` | Updated local development commands, Bun-based frontend workflow, and current frontend env variables. |
-| `backend/README.md` / `backend/env.example` | Updated service role names, explicit entrypoints, worker responsibilities, current backend layout, and current backend runtime knobs. |
+| `README.md` / `README_CN.md` | Updated quick start to use `deploy.sh doctor` / `deploy.sh local`, current Rust orchestrator deployment, local-development split, runtime collaboration table, primary data flow, and removed stale single-process/service-role wording. |
+| `INSTALL.md` / `INSTALL_CN.md` | Replaced removed `python-orchestrator` and all-in-one Python startup instructions with `deploy.sh doctor/local`, Rust `orchestrator-rs`, prebuilt-image usage, environment checks, and troubleshooting notes. |
+| `DEVELOPMENT.md` | Updated local development commands to run Python API, Rust `orchestrator-rs`, and Python worker as separate processes; refreshed Bun-based frontend workflow and current frontend env variables. |
+| `backend/README.md` / `backend/env.example` | Updated service role names, explicit entrypoints, worker responsibilities, current backend layout, current backend runtime knobs, and the unified Docker deployment entrypoint. |
 | `backend/config/README_OAUTH_LOCAL.md` | Removed the stale bundled mock-server command and documented the current external/self-hosted mock OAuth flow. |
 | `backend/config/oauth_providers.example.yaml` | Updated the example post-login redirect from the removed `/chat` surface to `/managed/quickstart`. |
 | `frontend/README.md` / `frontend/env.example` | Updated App Router structure to the current `/managed/**` product surface and current frontend runtime/server config. |
-| `deploy/README.md` | Updated to the single existing Compose file, removed stale remote-compose instructions, documented cloud Redis vs local Redis, and clarified SkillSpector draft-save vs runtime-gate behavior. |
-| `deploy/.env.example` | Updated the Redis default to match the local compose quickstart while keeping cloud Redis examples, and clarified SkillSpector failure behavior for draft writes vs runtime packing. |
-| `deploy/docker-compose.yml` | Updated top-level usage comments to show the supported Rust orchestrator local stack and removed the stale Python orchestrator service. |
+| `deploy/README.md` | Updated to the single existing Compose file, `doctor/local` workflow, Docker daemon CPU auto-detection, multi-arch image defaults, service collaboration topology, deployment data flow, deployment-mode selection, SkillSpector auto-prepare behavior, migrations, cloud Redis/Postgres notes, command/option matrix, and troubleshooting FAQ. |
+| `deploy/.env.example` | Updated local deployment defaults for multi-arch official images, Docker platform guidance, and `.deps/SkillSpector` as the default SkillSpector source. |
+| `deploy/deploy.sh` | Added `doctor` and `local` commands that prepare env files, detect Docker daemon CPU architecture, set safe multi-arch image defaults, locate Docker socket, prepare SkillSpector, preflight compose/ports, run db migrations, and then start the local stack. Image lifecycle commands now include backend, frontend, Rust orchestrator, and SkillSpector as core deployment images. |
+| `deploy/docker-compose.yml` / deployment Dockerfiles | Updated build args and service image defaults to Docker Official Images multi-arch mirrors, removed stale single-arch defaults, aligned SkillSpector source path with `.deps/SkillSpector`, and removed stale Python-orchestrator health/port exposure from the backend image contract. |
 | `docs/api/openapi.md` | Updated response envelope, mounted router list, API key request/response details, session-first run flow, task-first response shape, and task ID path semantics from current routers/schemas. |
 | `docs/README.md` | Added a docs-level entry point linking status, architecture, tutorials, API notes, hardening, plans, and assets. |
 | `docs/tutorials/*.md` | Updated v2 tutorial navigation to current sidebar labels/routes, clarified new skill naming guidance and SkillSpector runtime-gate semantics, and aligned the Agent example model with the current default Anthropic secret model. |
-| `docs/ARCHITECTURE.md` / `docs/ARCHITECTURE_CN.md` / `docs/*.mmd` | Updated compose command snippets for the supported Rust orchestrator stack, replaced brittle line-number anchors with stable module references, and corrected SkillSpector failure-mode wording. |
+| `docs/ARCHITECTURE.md` / `docs/ARCHITECTURE_CN.md` / `docs/*.mmd` | Updated deployment command snippets for the supported Rust orchestrator stack, added collaboration contracts and failure-ownership routing, replaced brittle line-number anchors with stable module references, and corrected SkillSpector failure-mode wording. |
 | `docs/user-journey-quickstart.drawio` | Updated stale `/chat`, `/settings/models`, `/tools`, `/workspace`, `/runs`, and `/ws/executions` labels to the current managed routes and SSE session stream. |
 | `docs/assets/README.md` | Updated committed asset inventory and screenshot TODOs for the current `/managed/**` UI. |
 | `docs/plans/*.md` | Added status banners marking historical implementation plans and the missing Rust orchestrator source directory where relevant. |
@@ -49,6 +50,7 @@ current repository, not older design notes.
 
 - Backend Python service roles are `api` and `worker`; Rust owns orchestration.
 - Explicit Python ASGI entrypoints are `app.joysafeter_api.main:app` and `app.joysafeter_worker.main:app`.
+- The legacy all-in-one Python startup path and Python orchestrator profile are not present in the current codebase.
 - API routes are mounted under `/api/v1`; notifications use `/ws/notifications`.
 - Programmatic live runs should use the session-first flow: `POST /sessions`, `POST /sessions/{id}/events`
   with `user.message`, then `GET /sessions/{id}/events/stream`. Direct `POST /tasks` returns only
@@ -56,19 +58,26 @@ current repository, not older design notes.
 - Worker currently runs the Redis Stream event consumer and batch persistence path.
 - Frontend's main product surface is under `/managed/**`; root redirects authenticated users to `/managed/quickstart`.
 - Docker Compose has one active file: `deploy/docker-compose.yml`. Local Redis is behind the `local-redis` profile.
-- The supported quick-start orchestrator is Rust via the `rust-orchestrator` profile.
+- The supported quick-start is `cd deploy && ./deploy.sh doctor && ./deploy.sh local`; the orchestrator is Rust via the `rust-orchestrator` profile.
+- Local deployment defaults use Docker Official Images multi-arch mirrors (`public.ecr.aws/docker/library/`) to avoid single-arch image resolution under arm64 Docker daemons.
+- SkillSpector local source defaults to `.deps/SkillSpector`; `deploy.sh doctor/local` prepares it when missing.
+- Collaboration ownership is explicit: API owns product HTTP/SSE/auth, Rust orchestrator owns scheduling/sandbox/gRPC, runner owns in-sandbox execution, worker owns durable event persistence, PostgreSQL owns truth, and Redis owns wakeups/streams/pubsub/commands.
+- Core deployment image lifecycle covers backend, frontend, Rust orchestrator, and SkillSpector. Agent runtime images are single-architecture builds and require an explicit `--arch`; invalid multi-arch runtime push combinations fail before any image build/push starts.
 
 ## Verification Notes
 
 - `git diff --check` passes.
-- Relative Markdown link audit checked 34 Markdown files after excluding dependency,
+- Stale deployment-command scans no longer find runnable references to `python-orchestrator`,
+  the removed Python orchestrator ASGI entrypoint, or the removed all-in-one Python startup path
+  outside historical migration notes.
+- Relative Markdown link audit checked 30 Markdown files after excluding dependency,
   virtualenv, and `skills/**` directories.
 - Ruby YAML parsing succeeds for `deploy/docker-compose.yml`,
   `backend/config/oauth_providers.yaml`, and `backend/config/oauth_providers.example.yaml`.
-  `docker-compose --env-file .env.example --profile local-redis --profile rust-orchestrator
-  config --services` resolves the supported local service set. Full `docker-compose config --quiet`
-  requires local `backend/.env` and `frontend/.env` files; those are intentionally created by the
-  documented setup commands and were not generated during this audit.
+  `./deploy.sh doctor` resolves the local platform, prepares local env files and SkillSpector,
+  validates compose config, and does not start containers. `docker-compose --profile local-redis
+  --profile rust-orchestrator --profile init config` resolves the supported local service set with
+  multi-arch official image defaults.
 - API run-flow notes were checked against `joysafeter_api/api/v1/router.py`,
   `sessions.py`, `tasks.py`, `id_helpers.py`, and `joysafeter_task.py`. In particular,
   `POST /tasks` returns only `id` and `status`, while `POST /sessions/{id}/events` creates
@@ -89,6 +98,13 @@ current repository, not older design notes.
 - Frontend runtime/server env was checked against `frontend/lib/core/config/env.ts`,
   `frontend/services/email/mailer.ts`, and `deploy/docker-compose.yml`; local and Compose
   examples now include the frontend server auth/email variables as well as `NEXT_PUBLIC_*`.
+- Deployment architecture contracts are covered by
+  `deploy/tests/test_local_deploy_architecture_contract.py` and
+  `deploy/tests/test_runtime_dockerfile_contract.py`; both pass under
+  `uv run --project backend --dev pytest ... -q`.
+- `deploy/.env.example` variable reachability was checked against `deploy/**`,
+  `backend/app/**`, `backend/joysafeter_skillspector/**`, and `frontend/**`; no completely
+  unused env keys were found in that scope.
 - Old-platform scans still intentionally match docs that explain removed v1 concepts
   (`CHANGELOG.md`, `docs/ARCHITECTURE*.md`, and selected tutorials). `skills/**` is outside the
   scan scope for this pass.

@@ -87,8 +87,12 @@ Docker Compose 可启动完整本地三服务栈：
 
 ```bash
 cd deploy
-docker compose --profile local-redis --profile rust-orchestrator up -d db redis api orchestrator-rs worker frontend
+./deploy.sh doctor
+./deploy.sh local
 ```
+
+`doctor` 只做 Docker/Compose/env/SkillSpector/socket/端口预检，不启动容器；
+`local` 会自动按 Docker daemon CPU 架构选择平台、运行数据库迁移并启动完整栈。
 
 ## 项目结构
 

@@ -198,14 +198,13 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 
 ```bash
 cd deploy
-cp .env.example .env
-cd ../backend && cp env.example .env
-cd ../frontend && cp env.example .env
-cd ../deploy
-
-# 全本地：PostgreSQL + Redis + Python orchestrator
-docker compose --profile local-redis --profile python-orchestrator up -d --build
+./deploy.sh doctor
+./deploy.sh local
 ```
+
+`doctor` 只做本地环境预检，不启动容器。`local` 会创建缺失的 `.env`，
+按 Docker daemon 的 CPU 架构自动选择 `linux/arm64` 或 `linux/amd64`，
+配置多架构基础镜像，准备 SkillSpector 源码，执行数据库迁移，然后启动完整本地栈。
 
 访问地址：
 
@@ -215,17 +214,31 @@ docker compose --profile local-redis --profile python-orchestrator up -d --build
 | 后端 API | http://localhost:8000 |
 | API 文档 | http://localhost:8000/docs |
 
-后端是同一份代码，通过 `JOYSAFETER_SERVICE_ROLE` 环境变量拆成三个服务，作为独立容器部署：
+后端由两个 Python 服务和 Rust orchestrator 组成，作为独立容器部署：
 
 - `api`：REST `/api/v1/*`、SSE 事件流、通知 WebSocket、鉴权。
-- `orchestrator`：任务调度、gRPC `AgentBridge`、sandbox 生命周期。
+- `orchestrator-rs`：任务调度、gRPC `AgentBridge`、sandbox 生命周期。
 - `worker`：消费 Redis 事件流并将事件落库到 Postgres。
 
 配套基础设施：PostgreSQL、Redis、Envoy（每沙箱出站代理）、skillspector（Skill 安全扫描服务）。
 内置 Redis 服务由 `local-redis` profile 控制；如果使用云 Redis，不启用该 profile，改 `deploy/.env`
 里的 `REDIS_URL` 即可。
-当前 checkout 中 `rust-orchestrator` compose profile 仍是实验入口：其 Dockerfile 依赖
-`backend/app/joysafeter_orchestrator_rs`，但该源码目录当前不存在，因此快速开始支持路径是 Python orchestrator。
+Python orchestrator 已移除；本地和容器化部署都使用 `rust-orchestrator` profile。
+
+运行时协同：
+
+| 参与方 | 职责 |
+|------|------|
+| 前端 | 产品 UI、REST 命令、SSE 订阅 |
+| API | Auth/RBAC、CRUD、任务创建、SkillSpector 写入时扫描、SSE 回放/实时桥接 |
+| Rust `orchestrator-rs` | DB 权威调度、任务租约、沙箱生命周期、runner gRPC、事件发射 |
+| Sandbox runner | 容器内 Claude/Codex/native harness 执行，通过 `AgentBridge` 回连 |
+| Worker | Redis Stream 消费、事件 `seq` 分配、可靠事件落库 |
+| PostgreSQL / Redis | PostgreSQL 是调度/状态权威；Redis 提供唤醒、Streams、Pub/Sub 和命令中继 |
+
+主数据流：浏览器命令 → API → PostgreSQL task 行 + Redis 唤醒 → Rust orchestrator 认领 →
+sandbox runner 执行 → Redis Stream/PubSub 事件 → Worker 可靠落库 + API SSE 投递 → 浏览器。
+完整拓扑、职责所有权和故障归属见 [docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md)。
 
 ### 本地测试一键启动
 
@@ -234,12 +247,18 @@ cd deploy
 ./local-test.sh
 ```
 
+仅当你希望 Python/Node 进程直接跑在宿主机、Docker 只提供 PostgreSQL/Redis 时使用它。
+普通容器化本地部署请使用 `./deploy.sh local`。
+
 ### 常用部署命令
 
 ```bash
-./deploy/local-test.sh                     # 本地测试一键启动
-./deploy/deploy.sh build                   # 构建前后端镜像
-./deploy/deploy.sh build --all             # 构建全部镜像
+cd deploy
+./deploy.sh doctor                         # 本地 Docker/Compose/env 预检
+./deploy.sh local                          # 完整本地 Docker Compose 部署
+./deploy.sh local --arch arm64             # 强制目标平台
+./deploy.sh build                          # 构建核心部署镜像
+./deploy.sh build --all                    # 构建核心 + agent runtime 镜像
 ```
 
 > **环境要求：** Docker + Docker Compose。部署细节请参考 [deploy/README.md](deploy/README.md)。
@@ -279,7 +298,7 @@ flowchart LR
 
 **核心设计原则：**
 
-- **三服务、一份代码** —— `api`、`orchestrator`、`worker` 共享同一份代码，在启动时由 `JOYSAFETER_SERVICE_ROLE` 决定行为（`all` 表示单进程本地开发）
+- **显式服务边界** —— Python 只承载 `api` / `worker` 两个服务；调度、gRPC `AgentBridge` 与沙箱生命周期由 Rust `orchestrator-rs` 服务负责
 - **调度以 DB 为准** —— API 将任务推入 Redis list 作为唤醒信号；orchestrator 用 `FOR UPDATE SKIP LOCKED` 从 Postgres 认领待处理行
 - **持久化与实时投递解耦** —— 两阶段事件总线分别扇出到 Redis Streams（持久，Worker 消费 → `joysafeter_session_events`）和 Redis Pub/Sub（临时，驱动 SSE 扇出到浏览器）
 - **实时事件走 SSE** —— 浏览器订阅 `GET /api/v1/sessions/{id}/events/stream`（先按 `?after_seq` 从 DB 回放，再接实时）；WebSocket 仅用于 `/ws/notifications`
@@ -305,7 +324,7 @@ flowchart LR
 | **前端** | Next.js 16（App Router）, React 19, TypeScript | 服务端渲染，产品界面位于 `/managed/**` |
 | **UI** | Radix UI, Tailwind CSS | 无障碍组件基元 |
 | **状态管理** | Zustand, TanStack Query | 客户端与服务端状态 |
-| **后端** | FastAPI 0.122+, Python 3.12+ | 异步 API + OpenAPI 文档，按 `JOYSAFETER_SERVICE_ROLE` 拆分为三服务 |
+| **后端** | FastAPI 0.122+, Python 3.12+ | 异步 API 与 worker 服务；调度由 Rust `orchestrator-rs` 服务负责 |
 | **Agent 运行时** | Rust `sandbox-runner` + Claude Code / Codex / `ccb` harness | 每会话沙箱执行，经 gRPC `AgentBridge` |
 | **MCP** | mcp 1.20+, fastmcp 2.14+ | 工具协议支持 |
 | **数据库** | PostgreSQL, SQLAlchemy 2.0 | 异步 ORM，Alembic 迁移 |
@@ -321,7 +340,7 @@ flowchart LR
 
 | 标签 | 功能 | 一句话说明 |
 |------|------|-----------|
-| **NEW** | **三服务架构** | 单进程单体拆分为 `api` / `orchestrator` / `worker`，同一份代码由 `JOYSAFETER_SERVICE_ROLE` 选择，作为独立容器部署 |
+| **NEW** | **拆分运行时架构** | 单进程单体拆分为 Python `api` / `worker` 与 Rust `orchestrator-rs`，作为独立容器部署 |
 | **NEW** | **Redis 事件总线** | 两阶段总线扇出到 Redis Streams（持久，Worker 消费）与 Redis Pub/Sub（实时 SSE），取代旧的进程内 WebSocket 总线 |
 | **NEW** | **SSE 实时事件流** | 浏览器订阅 `GET /api/v1/sessions/{id}/events/stream`，支持 `?after_seq` 回放；WebSocket 仅用于通知 |
 | **NEW** | **沙箱 gRPC 执行** | Rust `sandbox-runner` 在每会话容器内运行 harness，经 gRPC `AgentBridge` 协议回连 orchestrator |

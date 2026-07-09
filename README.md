@@ -201,14 +201,14 @@ Claude Managed Agents, only **self-hosted and security-specialized**:
 
 ```bash
 cd deploy
-cp .env.example .env
-cd ../backend && cp env.example .env
-cd ../frontend && cp env.example .env
-cd ../deploy
-
-# Fully local: PostgreSQL + Redis + Rust orchestrator
-docker compose --profile local-redis --profile rust-orchestrator up -d --build
+./deploy.sh doctor
+./deploy.sh local
 ```
+
+`doctor` performs local environment checks without starting containers. `local` creates
+missing `.env` files, auto-detects the Docker daemon CPU architecture, configures
+multi-arch base images, prepares SkillSpector sources, runs database migrations, and then
+starts the full local stack.
 
 Access points:
 
@@ -233,6 +233,22 @@ profile; for cloud Redis, leave that profile off and set `REDIS_URL` in `deploy/
 The Python orchestrator package has been removed. Use the Rust orchestrator
 profile for local and containerized orchestration.
 
+Runtime collaboration:
+
+| Actor | Responsibility |
+|-------|----------------|
+| Frontend | Product UI, REST commands, SSE subscriptions |
+| API | Auth/RBAC, CRUD, task creation, SkillSpector write-time scans, SSE replay/live bridge |
+| Rust `orchestrator-rs` | DB-authoritative scheduling, task leases, sandbox lifecycle, runner gRPC, event emission |
+| Sandbox runner | In-container Claude/Codex/native harness execution through `AgentBridge` |
+| Worker | Redis Stream consumption, event `seq` assignment, durable event persistence |
+| PostgreSQL / Redis | PostgreSQL is scheduling/state truth; Redis provides wakeups, Streams, Pub/Sub, and command relay |
+
+Primary data flow: browser command → API → PostgreSQL task row + Redis wakeup → Rust
+orchestrator claim → sandbox runner execution → Redis Stream/Pub/Sub events → Worker durable
+write + API SSE delivery → browser. Full topology, ownership, and failure routing are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ### Local test one-command startup
 
 ```bash
@@ -240,12 +256,19 @@ cd deploy
 ./local-test.sh
 ```
 
+Use this only when you want Python/Node processes running directly on the host while
+Docker provides PostgreSQL and Redis. For normal containerized local deployment, use
+`./deploy.sh local`.
+
 ### Common deployment commands
 
 ```bash
-./deploy/local-test.sh                     # local test one-command startup
-./deploy/deploy.sh build                   # build frontend + backend images
-./deploy/deploy.sh build --all             # build all images
+cd deploy
+./deploy.sh doctor                         # preflight local Docker/Compose/env setup
+./deploy.sh local                          # full local Docker Compose deployment
+./deploy.sh local --arch arm64             # force a target platform
+./deploy.sh build                          # build core deployment images
+./deploy.sh build --all                    # build core + agent runtime images
 ```
 
 > **Prerequisites:** Docker + Docker Compose. See [deploy/README.md](deploy/README.md) for deployment details.
@@ -309,7 +332,7 @@ flowchart LR
 | **Frontend** | Next.js 16 (App Router), React 19, TypeScript | Server-side rendering, product surface under `/managed/**` |
 | **UI** | Radix UI, Tailwind CSS | Accessible component primitives |
 | **State** | Zustand, TanStack Query | Client & server state |
-| **Backend** | FastAPI 0.122+, Python 3.12+ | Async API with OpenAPI docs, three services split by `JOYSAFETER_SERVICE_ROLE` |
+| **Backend** | FastAPI 0.122+, Python 3.12+ | Async API and worker services; orchestration runs in the Rust `orchestrator-rs` service |
 | **Agent runtime** | Rust `sandbox-runner` + Claude Code / Codex / `ccb` harness | Per-session sandboxed execution over gRPC `AgentBridge` |
 | **MCP** | mcp 1.20+, fastmcp 2.14+ | Tool protocol support |
 | **Database** | PostgreSQL, SQLAlchemy 2.0 | Async ORM with Alembic migrations |

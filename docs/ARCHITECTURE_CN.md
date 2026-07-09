@@ -104,8 +104,35 @@ flowchart TB
 | **skillspector** | `skillspector` | — | 独立的技能安全扫描服务；运行时闸门对不可用扫描状态 fail-closed |
 | **db-init** | `db-init`（profile `init`） | — | 一次性 Alembic 迁移 |
 
-当前支持的本地栈使用 Rust orchestrator profile：
-`docker compose --profile local-redis --profile rust-orchestrator up`。
+当前支持的本地栈使用部署脚本：
+`cd deploy && ./deploy.sh doctor && ./deploy.sh local`。
+
+### 协同契约
+
+每个服务只有一个清晰的所有权边界。跨服务调用应保持这些契约，而不是恢复旧的进程内捷径。
+
+| 参与方 | 拥有什么 | 消费什么 | 发布 / 修改什么 | 不应该做什么 |
+|---|---|---|---|---|
+| 前端 | 产品 UI 状态、鉴权跳转、SSE 订阅 | REST 响应、SSE 事件、通知 WS | 通过 REST 发起用户命令 | 直接访问 Redis、Postgres、orchestrator gRPC 或沙箱容器 |
+| API | Auth/RBAC、REST 校验、CRUD、任务创建、SSE 回放/实时桥接、Skill 写入时扫描调用 | 浏览器请求、DB 状态、Redis Pub/Sub 实时事件 | DB 行、Redis 任务唤醒、Redis 命令中继 | 运行 agent harness、创建沙箱、消费可靠事件 Stream |
+| Rust orchestrator | 调度、任务租约、沙箱生命周期、runner gRPC、控制命令 ACK、事件发射 | DB pending 任务、Redis 唤醒/命令、runner gRPC 流 | task/sandbox/session 状态、Redis Stream 事件、Redis Pub/Sub 广播 | 承载产品 REST API、拥有浏览器鉴权、作为主路径批量持久化事件日志 |
+| 沙箱 runner | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync | gRPC `SetupSandbox` / `StartTask`、注入的 env/secrets/files | gRPC runner 事件/结果、memory sync 消息 | 直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
+| Worker | 可靠事件持久化、`seq` 分配、Redis Stream 恢复/重投 | Redis Stream 消费组 | `joysafeter_session_events`、DB 写入后再发布 Pub/Sub | 调度任务、创建沙箱、暴露用户 API |
+| SkillSpector | 静态 Skill 安全扫描服务 | API/domain service 发送的 Skill 内容 | 供 Skill 领域逻辑消费的扫描 verdict | 自行决定运行时打包；运行时闸门仍在 JoySafeter Skill 逻辑中 |
+| PostgreSQL | 领域状态、task/session/sandbox FSM、事件日志的权威存储 | API/orchestrator/worker/db-init 写入 | 持久化行 | 充当队列或实时扇出总线 |
+| Redis | 唤醒、Streams、Pub/Sub、命令中继、ownership/heartbeat 协调 | API/orchestrator/worker 的 list/stream/pubsub 流量 | 临时消息与可靠 Stream 消息 | 被当作调度权威；pending task 行仍以 Postgres 为准 |
+
+### 故障归属
+
+| 现象 | 首要归属 | 优先检查 |
+|---|---|---|
+| 用户无法登录或 CRUD 资源 | API | `api` 日志、鉴权配置、数据库连通性 |
+| Session 已创建但任务不启动 | Orchestrator | pending task 行、`global_queue` 唤醒、orchestrator 日志、DB lease/fencing 配置 |
+| 沙箱一直未 ready | Orchestrator + Docker 宿主机 | Docker socket 挂载、sandbox 镜像、workspace volume、runner `RunnerReady` 超时 |
+| Agent 在跑但浏览器收不到实时事件 | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`、Redis Pub/Sub、浏览器 `?after_seq` 回放 |
+| 实时能看到事件但刷新后消失 | Worker | Redis Stream pending、worker 日志、Postgres 插入错误、advisory lock 竞争 |
+| Skill 运行时不可用 | Skill domain + SkillSpector | 扫描状态、审批状态、内容漂移、`SKILL_SECURITY_*` 配置 |
+| 沙箱无法访问模型/MCP/目标 | Envoy + orchestrator 沙箱配置 | allowlist、Envoy 配置文件、`JOYSAFETER_GRPC_PUBLIC_URL`、目标 DNS/网络策略 |
 
 ---
 
@@ -240,8 +267,10 @@ MCP 服务器启动钩子已删除。
 - 插入后调用 `publish_session_event_realtime()` → SSE 扇出。
 - **仅在 DB 写入成功后 ACK**——持久化失败则消息重投。
 
-> **注意：** `event_stream_enabled` 默认为**假**。在单进程 `all` 模式下 orchestrator 直接持久化事件；
-> Worker + Stream 链路是拆分、水平扩展部署下的可选模式（compose 文件启用了它）。
+> **注意：** 原始配置里 `event_stream_enabled` 默认为**假**，但当前支持的 Compose 栈会启用它。
+> 在拆分运行时中，Rust `orchestrator-rs` 将事件写入 Redis Stream，再由 Worker 持久化；
+> `JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB=true` 时，如果 Redis Stream 发布失败，orchestrator
+> 可降级为直接 DB 落库。
 
 ---
 
@@ -492,7 +521,7 @@ backend/app/
 proto/joysafeter.proto         # AgentBridge gRPC 契约
 sandbox-runner/                # Rust workspace：types / runtime / runner / ctl
 skills/                        # 30 个技能包（pentest / utility / planning）
-deploy/docker-compose.yml      # 三服务 + 基础设施拓扑（python/rust orchestrator profile）
+deploy/docker-compose.yml      # 三服务 + 基础设施拓扑（Rust orchestrator profile）
 frontend/                      # Next.js App Router UI
 ```
 

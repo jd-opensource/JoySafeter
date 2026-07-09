@@ -11,6 +11,7 @@ x-backend-build: &backend-build
   context: ../backend
   dockerfile: ../deploy/docker/backend.Dockerfile
   args:
+    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
     UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
     GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
@@ -19,15 +20,16 @@ x-orchestrator-rs-build: &orchestrator-rs-build
   context: ..
   dockerfile: deploy/docker/orchestrator-rs.Dockerfile
   args:
-    RUST_IMAGE: ${RUST_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1.85-bookworm}
-    RUNTIME_IMAGE: ${RUNTIME_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/debian:bookworm-slim}
+    RUST_IMAGE: ${RUST_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}
+    RUNTIME_IMAGE: ${RUNTIME_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}
 
 x-skillspector-build: &skillspector-build
   context: ../backend/joysafeter_skillspector
   dockerfile: ../../deploy/docker/skillspector-service.Dockerfile
   additional_contexts:
-    skillspector: ${SKILLSPECTOR_SOURCE_PATH:-../../SkillSpector}
+    skillspector: ${SKILLSPECTOR_SOURCE_PATH:-../.deps/SkillSpector}
   args:
+    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
 
 x-backend-env-files: &backend-env-files
@@ -136,7 +138,8 @@ services:
       SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES: ${SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES:-5242880}
       # Concurrency: scans are CPU-bound (semgrep), so worker count should
       # track the CPU limit below. limit-concurrency sheds load past a small
-      # queue (backend treats a failed scan as fail-open).
+      # queue. Draft-save paths may record failed/scanning and continue, but
+      # runtime packing remains fail-closed for failed/scanning skills.
       SKILLSPECTOR_WORKERS: ${SKILLSPECTOR_WORKERS:-2}
       SKILLSPECTOR_LIMIT_CONCURRENCY: ${SKILLSPECTOR_LIMIT_CONCURRENCY:-4}
     expose:
@@ -157,7 +160,7 @@ services:
       - joysafeter-network
 
   db:
-    image: ${DB_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/postgres:15}
+    image: ${DB_IMAGE:-public.ecr.aws/docker/library/postgres:15}
     container_name: joysafeter-db
     restart: unless-stopped
     environment:
@@ -181,7 +184,7 @@ services:
 
   redis:
     profiles: ["local-redis"]
-    image: ${REDIS_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/redis:alpine3.22}
+    image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis:alpine3.22}
     container_name: joysafeter-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
@@ -244,7 +247,6 @@ services:
       - backend-files:/app/data/files
       - ../skills:/app/skills:ro
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
-      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker:ro
       - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
     networks:
       - joysafeter-network
@@ -278,6 +280,7 @@ services:
       context: ../frontend
       dockerfile: ../deploy/docker/frontend.Dockerfile
       args:
+        BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
         NEXT_PUBLIC_API_URL: ${BACKEND_URL:-http://localhost:8000}
     container_name: joysafeter-frontend
     restart: unless-stopped

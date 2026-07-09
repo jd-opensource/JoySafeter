@@ -109,8 +109,36 @@ flowchart TB
 | **skillspector** | `skillspector` | — | Standalone skill security-scanning service; runtime gate is fail-closed for unusable scan states |
 | **db-init** | `db-init` (profile `init`) | — | One-shot Alembic migrations |
 
-Use the Rust orchestrator profile for the supported local stack:
-`docker compose --profile local-redis --profile rust-orchestrator up`.
+Use the deployment helper for the supported local stack:
+`cd deploy && ./deploy.sh doctor && ./deploy.sh local`.
+
+### Collaboration contracts
+
+Each service has one clear ownership boundary. Cross-service calls should preserve these
+contracts instead of recreating older in-process shortcuts.
+
+| Actor | Owns | Consumes | Publishes / mutates | Must not do |
+|---|---|---|---|---|
+| Frontend | Product UI state, auth redirects, SSE subscriptions | REST responses, SSE events, notification WS | User commands through REST | Talk to Redis, Postgres, orchestrator gRPC, or sandbox containers directly |
+| API | Auth/RBAC, REST validation, CRUD, task creation, SSE replay/live bridge, skill write-time scan calls | Browser requests, DB state, Redis Pub/Sub for live events | DB rows, Redis task wakeup, Redis command relay | Run agent harnesses, create sandboxes, consume durable event streams |
+| Rust orchestrator | Scheduling, task leases, sandbox lifecycle, runner gRPC, control ACKs, event emission | Pending DB tasks, Redis wakeups/commands, runner gRPC streams | Task/sandbox/session state, Redis Stream events, Redis Pub/Sub broadcasts | Serve product REST APIs, own browser auth, batch-persist event logs as the primary path |
+| Sandbox runner | In-container harness execution, tool/MCP invocation, memory/file sync from inside the sandbox | `SetupSandbox` and `StartTask` over gRPC, injected env/secrets/files | Runner events/results over gRPC, memory sync messages | Reach the host network directly, mutate platform DB/Redis, bypass Envoy egress policy |
+| Worker | Durable event persistence, `seq` assignment, Redis Stream recovery/redelivery | Redis Stream consumer group | `joysafeter_session_events`, replay Pub/Sub after DB write | Schedule tasks, create sandboxes, expose user-facing APIs |
+| SkillSpector | Static skill security scanning service | Skill content sent by API/domain service | Scan verdicts consumed by skill domain logic | Decide runtime packaging by itself; runtime gating remains in JoySafeter skill logic |
+| PostgreSQL | Source of truth for domain state, task/session/sandbox FSMs, event log | Writes from API/orchestrator/worker/db-init | Durable rows | Act as a queue or live fan-out bus |
+| Redis | Wakeups, Streams, Pub/Sub, command relay, ownership/heartbeat coordination | API/orchestrator/worker pub/sub/list/stream traffic | Ephemeral and durable-stream messages | Be treated as scheduling truth; pending task rows in Postgres are authoritative |
+
+### Failure ownership
+
+| Symptom | Primary owner | First checks |
+|---|---|---|
+| User cannot log in or CRUD resources | API | `api` logs, auth config, database connectivity |
+| Session created but task never starts | Orchestrator | pending task row, `global_queue` wakeup, orchestrator logs, DB lease/fencing settings |
+| Sandbox never becomes ready | Orchestrator + Docker host | Docker socket mount, sandbox image, workspace volume, runner `RunnerReady` timeout |
+| Agent runs but browser misses live events | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`, Redis Pub/Sub, browser `?after_seq` replay |
+| Events appear live but disappear after refresh | Worker | Redis Stream pending entries, worker logs, Postgres insert errors, advisory-lock contention |
+| Skill cannot be used at runtime | Skill domain + SkillSpector | scan status, approval state, content drift, `SKILL_SECURITY_*` config |
+| Sandbox cannot reach model/MCP/target | Envoy + orchestrator sandbox config | allowlist, Envoy config files, `JOYSAFETER_GRPC_PUBLIC_URL`, target DNS/network policy |
 
 ---
 
@@ -257,9 +285,10 @@ The durable persistence tier. Runs exactly one loop: `EventStreamWorker`
 - After insert, calls `publish_session_event_realtime()` → SSE fan-out.
 - **ACK only after a successful DB write** — if persistence fails, the message is redelivered.
 
-> **Note:** `event_stream_enabled` defaults to **false**. In single-process `all` mode the
-> orchestrator persists events directly; the Worker + Stream path is the opt-in mode for the
-> split, horizontally-scaled deployment (which the compose file enables).
+> **Note:** `event_stream_enabled` defaults to **false** in raw settings, but the supported
+> Compose stack enables it. In the current split runtime, Rust `orchestrator-rs` emits events
+> to Redis Stream and the Worker persists them; `JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB=true`
+> allows the orchestrator to fall back to direct DB persistence if Redis Stream publishing fails.
 
 ---
 
@@ -526,7 +555,7 @@ backend/app/
 proto/joysafeter.proto         # AgentBridge gRPC contract
 sandbox-runner/                # Rust workspace: types / runtime / runner / ctl
 skills/                        # 30 skill packs (pentest / utility / planning)
-deploy/docker-compose.yml      # 3-service + infra topology (python/rust orchestrator profiles)
+deploy/docker-compose.yml      # 3-service + infra topology (Rust orchestrator profile)
 frontend/                      # Next.js App Router UI
 ```
 

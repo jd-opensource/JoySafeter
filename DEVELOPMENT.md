@@ -30,14 +30,15 @@ cd deploy
 ./local-test.sh
 ```
 
-This starts PostgreSQL, Redis, and the backend (`api`, `orchestrator`, `worker`) plus the frontend for local testing.
+This starts PostgreSQL, Redis, Python `api`, Rust `orchestrator-rs`, Python `worker`, and the
+frontend for local testing. The orchestrator process is the Rust binary under
+`backend/app/joysafeter_orchestrator_rs`.
 
 ### 2. Start Backend Manually
 
-The backend is one codebase split into three services by the `JOYSAFETER_SERVICE_ROLE`
-environment variable. For local development you can run everything in a single process with
-`JOYSAFETER_SERVICE_ROLE=all` (the default in `env.example`) via the compatibility entrypoint
-`app.main:app`:
+For manual local development, run the Python API, Rust orchestrator, and Python worker as
+separate processes. The old Python orchestrator and legacy all-in-one compatibility entrypoint
+are not present in the current codebase.
 
 ```bash
 cd backend
@@ -52,27 +53,29 @@ uv sync --dev
 
 # Configure environment
 cp env.example .env
-# Edit .env with your settings (JOYSAFETER_SERVICE_ROLE=all runs all three roles in one process)
+# Edit .env with your settings
 # Note: UV uses Tsinghua mirror by default (configured in uv.toml)
 # You can customize via UV_INDEX_URL environment variable
 
 # Run database migrations
 alembic upgrade head
 
-# Start development server (single-process, all roles)
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Start API
+JOYSAFETER_SERVICE_ROLE=api \
+uv run uvicorn app.joysafeter_api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Backend will be available at http://localhost:8000
+The API will be available at http://localhost:8000.
 
-To run the three services separately (as in the compose deployment), start each with its own
-role and entrypoint:
+In additional terminals, start the Rust orchestrator and worker:
 
 ```bash
-JOYSAFETER_SERVICE_ROLE=api          uv run uvicorn app.joysafeter_api.main:app --port 8000
-JOYSAFETER_SERVICE_ROLE=orchestrator JOYSAFETER_GRPC_HOST=0.0.0.0 JOYSAFETER_GRPC_PORT=9090 \
-  uv run uvicorn app.joysafeter_orchestrator.main:app --host 127.0.0.1 --port 8001 --workers 1
-JOYSAFETER_SERVICE_ROLE=worker       uv run uvicorn app.joysafeter_worker.main:app --port 8002
+cd backend/app/joysafeter_orchestrator_rs
+JOYSAFETER_GRPC_HOST=0.0.0.0 JOYSAFETER_GRPC_PORT=9090 cargo run --release
+
+cd backend
+JOYSAFETER_SERVICE_ROLE=worker \
+uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --workers 1
 ```
 
 #### PyPI 镜像源配置 (PyPI Mirror Configuration)
@@ -269,15 +272,15 @@ alembic downgrade -1
 
 ## Architecture Overview
 
-The backend is a single codebase split into three FastAPI services (`api` / `orchestrator` /
-`worker`) selected at boot by `JOYSAFETER_SERVICE_ROLE`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-for the full design.
+The runtime is split into Python `api`, Rust `orchestrator-rs`, and Python `worker` services.
+`JOYSAFETER_SERVICE_ROLE` selects only the Python service role (`api` or `worker`). See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 ```
 JoySafeter/
 ├── backend/app/
 │   ├── joysafeter_api/            # API service: REST routers, SSE, WS notifications, auth
-│   ├── joysafeter_orchestrator/   # Orchestrator: gRPC AgentBridge, scheduler, sandbox lifecycle, event bus
+│   ├── joysafeter_orchestrator_rs/# Rust orchestrator: gRPC AgentBridge, scheduler, sandbox lifecycle, event bus
 │   ├── joysafeter_worker/         # Worker: Redis Stream consumer → event persistence
 │   ├── joysafeter_domain/         # SQLAlchemy models, schemas, services, state machines
 │   └── joysafeter_shared/         # Cross-service foundation (config, llm, security, storage, cache)
@@ -302,7 +305,7 @@ See `backend/env.example` and `frontend/env.example` for all available configura
 
 | Variable | Description |
 |----------|-------------|
-| `JOYSAFETER_SERVICE_ROLE` | Service role: `api` / `orchestrator` / `worker`, or `all` for single-process dev |
+| `JOYSAFETER_SERVICE_ROLE` | Python service role: `api` or `worker`; the orchestrator is the Rust binary |
 | `POSTGRES_HOST` | PostgreSQL host address |
 | `POSTGRES_PORT` | PostgreSQL port |
 | `POSTGRES_USER` | PostgreSQL username |

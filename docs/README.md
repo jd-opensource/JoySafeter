@@ -6,7 +6,7 @@ Use the repository code as the source of truth when updating these files.
 ## Start Here
 
 - [Documentation status](./DOCUMENTATION_STATUS.md) - current review coverage and known follow-up areas.
-- [Architecture overview](./ARCHITECTURE.md) / [中文架构总览](./ARCHITECTURE_CN.md) - backend services, event flow, sandbox isolation, and deployment shape.
+- [Architecture overview](./ARCHITECTURE.md) / [中文架构总览](./ARCHITECTURE_CN.md) - service collaboration contracts, runtime topology, data flow, sandbox isolation, and deployment shape.
 - [Tutorials](./tutorials/README.md) - step-by-step guides for model secrets, MCP, skills, and running an Agent.
 - [API notes](./api/openapi.md) - current API surface notes and response envelope details.
 

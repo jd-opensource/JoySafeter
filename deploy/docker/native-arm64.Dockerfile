@@ -1,4 +1,5 @@
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/ubuntu:22.04-linuxarm64 AS base
+ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
+FROM ${BASE_IMAGE_REGISTRY}ubuntu:22.04 AS base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
