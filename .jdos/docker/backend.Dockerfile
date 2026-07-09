@@ -59,8 +59,8 @@ ENV PIP_TRUSTED_HOST=${UV_TRUSTED_HOST}
 
 # 时区 & 字符集
 ENV TZ=Asia/Shanghai
-ENV LANG=en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirrors.jd.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && \
     sed -i 's|http://security.ubuntu.com/ubuntu|http://mirrors.jd.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && \
@@ -138,11 +138,11 @@ ENTRYPOINT /bin/sh -c '\
   rm -rf /export/Logs && mkdir -p /export/Logs && chown admin:admin -R /export/Logs && \
   mkdir -p /export/home && chown admin:admin -R /export/home && \
   su -p admin -c "\
-    export JOYSAFETER_SERVICE_ROLE=${JOYSAFETER_SERVICE_ROLE}; \
-    export BACKEND_PORT=${BACKEND_PORT}; \
-    export WORKERS=${WORKERS}; \
+    export JOYSAFETER_SERVICE_ROLE=${JOYSAFETER_SERVICE_ROLE:-all}; \
+    export BACKEND_PORT=${BACKEND_PORT:-8000}; \
+    export WORKERS=${WORKERS:-1}; \
     export BACKEND_APP_MODULE=${BACKEND_APP_MODULE}; \
-    export MIGRATION_ENABLED=${MIGRATION_ENABLED}; \
+    export MIGRATION_ENABLED=${MIGRATION_ENABLED:-false}; \
     export MODE=${MODE}; \
     cd /export/App/backend; ./entrypoint.sh" \
 '
