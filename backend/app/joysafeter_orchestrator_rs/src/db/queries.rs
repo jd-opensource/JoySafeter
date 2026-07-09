@@ -32,6 +32,28 @@ pub async fn claim_pending_tasks(
     .await
 }
 
+/// Claim one queued pending task by id (PENDING -> SCHEDULING).
+///
+/// Redis carries candidate ids, but the database status transition is the
+/// authoritative guard against duplicate delivery, stale queue entries, and
+/// terminal tasks being re-scheduled.
+pub async fn claim_pending_task_by_id(
+    pool: &PgPool,
+    task_id: Uuid,
+) -> Result<Option<JoySafeterTask>, sqlx::Error> {
+    sqlx::query_as::<_, JoySafeterTask>(
+        r#"
+        UPDATE joysafeter_tasks
+        SET status = 'scheduling', started_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND status = 'pending'
+        RETURNING *
+        "#,
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+}
+
 /// Claim the next task for a specific sandbox (SCHEDULING/PENDING → RUNNING).
 pub async fn claim_next_sandbox_task(
     pool: &PgPool,
@@ -843,43 +865,6 @@ pub async fn update_session_sandbox_info(
     .bind(work_dir)
     .execute(pool)
     .await?;
-    Ok(())
-}
-
-/// Try to acquire a PostgreSQL advisory lock (non-blocking).
-///
-/// IMPORTANT: `pg_try_advisory_lock` is a session-level lock — it must be
-/// released on the SAME connection. With a connection pool, separate
-/// `execute(pool)` calls may hit different connections, so the lock is
-/// acquired on one connection but never released (the unlock runs on
-/// another connection and produces "you don't own a lock" warnings).
-///
-/// For watchdog use-cases where the critical section is short, prefer
-/// wrapping all work in a single transaction with `pg_try_advisory_xact_lock`
-/// (which auto-releases on COMMIT/ROLLBACK). This function is kept for
-/// backward compatibility but callers should migrate.
-pub async fn try_advisory_lock(pool: &PgPool, lock_name: &str) -> Result<bool, sqlx::Error> {
-    let row: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock(hashtext($1))")
-        .bind(lock_name)
-        .fetch_one(pool)
-        .await?;
-
-    Ok(row.0)
-}
-
-/// Release a PostgreSQL advisory lock.
-///
-/// NOTE: This is a no-op if the lock was acquired on a different pooled
-/// connection. See `try_advisory_lock` doc. Callers should migrate to
-/// transaction-scoped advisory locks (`pg_try_advisory_xact_lock`).
-pub async fn release_advisory_lock(pool: &PgPool, lock_name: &str) -> Result<(), sqlx::Error> {
-    // Intentionally a no-op now. Session-level advisory locks acquired via
-    // the pool cannot be reliably released because unlock may run on a
-    // different connection. The locks are harmless — they auto-release
-    // when the connection is returned to the pool and eventually closed.
-    // Callers should use transaction-scoped locks instead.
-    let _ = lock_name;
-    let _ = pool;
     Ok(())
 }
 

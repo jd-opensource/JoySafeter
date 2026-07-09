@@ -25,7 +25,7 @@ pub fn build_session_event_payload(
 }
 
 pub async fn publish_session_event_realtime(
-    redis_client: Option<&redis::Client>,
+    redis_client: &redis::Client,
     instance_id: &str,
     session_id: Uuid,
     event_id: Option<Uuid>,
@@ -33,13 +33,10 @@ pub async fn publish_session_event_realtime(
     seq: Option<i64>,
     payload: &Value,
 ) {
-    let Some(client) = redis_client else {
-        return;
-    };
     // Note: redis 0.27's get_multiplexed_async_connection() returns a clone of
     // the internally-managed multipxed connection. It does NOT create a new TCP
     // connection on each call — the underlying connection is pooled/shared.
-    let Ok(mut conn) = client.get_multiplexed_async_connection().await else {
+    let Ok(mut conn) = redis_client.get_multiplexed_async_connection().await else {
         tracing::warn!(
             session_id = %session_id,
             event_type,

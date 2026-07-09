@@ -81,7 +81,9 @@ impl TaskController {
             // DB pending tasks are the durable source of truth; enqueue all on startup.
             let pending_tasks = queries::find_pending_tasks(&self.pool, 500).await?;
             for (task_id,) in &pending_tasks {
-                self.queue.push_to_global(*task_id).await;
+                if let Err(e) = self.queue.push_to_global(*task_id).await {
+                    error!(task_id = %task_id, "Failed to enqueue pending task during startup recovery: {e}");
+                }
             }
 
             // Scheduling tasks -> pending (unconditional, retry increment), matching Python.
@@ -92,15 +94,14 @@ impl TaskController {
             for (task_id,) in &scheduling_tasks {
                 let _ = queries::increment_retry(&self.pool, *task_id).await;
                 // T9 fix: push to global queue so they don't wait 60s for scan
-                self.queue.push_to_global(*task_id).await;
+                if let Err(e) = self.queue.push_to_global(*task_id).await {
+                    error!(task_id = %task_id, "Failed to enqueue reset scheduling task during startup recovery: {e}");
+                }
             }
 
-            // Provisioning sandboxes: 45min with Redis configured, 20min without.
-            let provisioning_minutes: i32 = if self.config.redis_url.is_some() {
-                45
-            } else {
-                20
-            };
+            // Provisioning sandboxes: allow enough time for remote providers
+            // and queued setup work before declaring the sandbox stale.
+            let provisioning_minutes: i32 = 45;
             let stale_provisioning: Vec<(Uuid,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM joysafeter_sandboxes
@@ -319,7 +320,9 @@ impl TaskController {
             } else {
                 warn!(task_id = %task_id, "Task stuck in scheduling (>2min), resetting to pending");
                 let _ = queries::increment_retry(&self.pool, *task_id).await;
-                self.queue.push_to_global(*task_id).await;
+                if let Err(e) = self.queue.push_to_global(*task_id).await {
+                    error!(task_id = %task_id, "Failed to enqueue reset stuck scheduling task: {e}");
+                }
             }
         }
 
@@ -352,7 +355,9 @@ impl TaskController {
         tx.commit().await?;
 
         for (task_id,) in &tasks {
-            self.queue.push_to_global(*task_id).await;
+            if let Err(e) = self.queue.push_to_global(*task_id).await {
+                error!(task_id = %task_id, "Failed to enqueue scanned pending task: {e}");
+            }
         }
         if !tasks.is_empty() {
             debug!("Scanned and re-enqueued {} pending tasks", tasks.len());

@@ -25,12 +25,12 @@ struct Subscriber {
 #[derive(Clone)]
 pub struct SessionBroadcaster {
     channels: Arc<Mutex<HashMap<Uuid, Vec<Subscriber>>>>,
-    redis_client: Option<redis::Client>,
+    redis_client: redis::Client,
     instance_id: String,
 }
 
 impl SessionBroadcaster {
-    pub fn new(redis_client: Option<redis::Client>, instance_id: &str) -> Self {
+    pub fn new(redis_client: redis::Client, instance_id: &str) -> Self {
         Self {
             channels: Arc::new(Mutex::new(HashMap::new())),
             redis_client,
@@ -48,21 +48,19 @@ impl SessionBroadcaster {
             cancel: cancel.clone(),
         });
 
-        // Spawn Redis subscriber for cross-instance events
-        if let Some(ref client) = self.redis_client {
-            let client = client.clone();
-            let instance_id = self.instance_id.clone();
-            let tx_clone = tx.clone();
-            let cancel_clone = cancel.clone();
-            tokio::spawn(async move {
-                if let Err(e) =
-                    redis_subscriber_loop(client, session_id, &instance_id, tx_clone, cancel_clone)
-                        .await
-                {
-                    debug!("Redis subscriber for session {session_id} ended: {e}");
-                }
-            });
-        }
+        // Spawn Redis subscriber for cross-instance events.
+        let client = self.redis_client.clone();
+        let instance_id = self.instance_id.clone();
+        let tx_clone = tx.clone();
+        let cancel_clone = cancel.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                redis_subscriber_loop(client, session_id, &instance_id, tx_clone, cancel_clone)
+                    .await
+            {
+                debug!("Redis subscriber for session {session_id} ended: {e}");
+            }
+        });
 
         rx
     }
@@ -75,35 +73,33 @@ impl SessionBroadcaster {
         // Note: redis 0.27's get_multiplexed_async_connection() returns a clone
         // of the internally-malexed connection. It does NOT create a
         // new TCP connection on each call — the connection is pooled/shared.
-        if let Some(ref client) = self.redis_client {
-            let channel = format!("joysafeter:session_events:{session_id}");
-            let wrapper = serde_json::json!({
-                "source_instance": self.instance_id,
-                "event": event,
-            });
-            match client.get_multiplexed_async_connection().await {
-                Ok(mut conn) => {
-                    if let Err(e) = conn
-                        .publish::<_, _, ()>(
-                            &channel,
-                            serde_json::to_string(&wrapper).unwrap_or_default(),
-                        )
-                        .await
-                    {
-                        tracing::warn!(
-                            session_id = %session_id,
-                            error = %e,
-                            "Failed to publish session event to Redis"
-                        );
-                    }
-                }
-                Err(e) => {
+        let channel = format!("joysafeter:session_events:{session_id}");
+        let wrapper = serde_json::json!({
+            "source_instance": self.instance_id,
+            "event": event,
+        });
+        match self.redis_client.get_multiplexed_async_connection().await {
+            Ok(mut conn) => {
+                if let Err(e) = conn
+                    .publish::<_, _, ()>(
+                        &channel,
+                        serde_json::to_string(&wrapper).unwrap_or_default(),
+                    )
+                    .await
+                {
                     tracing::warn!(
                         session_id = %session_id,
                         error = %e,
-                        "Failed to get Redis connection for session event publish"
+                        "Failed to publish session event to Redis"
                     );
                 }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "Failed to get Redis connection for session event publish"
+                );
             }
         }
     }

@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use bollard::Docker;
 use config::JoySafeterConfig;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -52,44 +52,43 @@ async fn main() -> anyhow::Result<()> {
     let db_pool = db::pool::create_pool(&config.database_url).await?;
     info!("Database pool initialized");
 
-    // Initialize Redis (optional)
+    // Initialize Redis. The Rust orchestrator relies on Redis for API->runtime
+    // task queueing, cross-instance command relay, sandbox ownership, and live
+    // event fan-out. Starting without it would create a half-working runtime.
     let redis_client = match &config.redis_url {
         Some(url) => match redis::Client::open(url.as_str()) {
             Ok(client) => {
                 info!("Redis client initialized");
-                Some(client)
+                client
             }
             Err(e) => {
-                error!("Failed to connect to Redis: {e}");
-                None
+                return Err(anyhow::anyhow!("Failed to initialize Redis client: {e}"));
             }
         },
         None => {
-            info!("Redis not configured, HA coordination disabled");
-            None
+            return Err(anyhow::anyhow!(
+                "REDIS_URL is required for the Rust orchestrator runtime queue"
+            ));
         }
     };
 
     // Initialize Redis coordinator (HA)
-    let redis_coordinator = if let Some(ref client) = redis_client {
+    let redis_coordinator = {
         let coord = kernel::redis_coordinator::RedisCoordinator::new(
-            client.clone(),
+            redis_client.clone(),
             &config.instance_id,
             config.heartbeat_interval,
             config.heartbeat_ttl,
         );
-        if let Err(e) = coord.register_instance().await {
-            warn!("Failed to register instance in Redis: {e}");
-        } else {
-            coord.spawn_heartbeat();
-            info!(
-                "RedisCoordinator registered (instance={})",
-                config.instance_id
-            );
-        }
+        coord.register_instance().await.map_err(|e| {
+            anyhow::anyhow!("Failed to register orchestrator instance in Redis: {e}")
+        })?;
+        coord.spawn_heartbeat();
+        info!(
+            "RedisCoordinator registered (instance={})",
+            config.instance_id
+        );
         Some(Arc::new(coord))
-    } else {
-        None
     };
 
     // Initialize runtime config (hot-reloadable)
@@ -253,12 +252,8 @@ async fn main() -> anyhow::Result<()> {
     // Initialize sandbox bridge registry
     let bridge_registry = kernel::sandbox_bridge::BridgeRegistry::new();
 
-    // Initialize task queue (in-memory wakeups + optional Redis HA wakeups)
-    let queue = if let Some(ref client) = redis_client {
-        kernel::queue::TaskQueue::new().with_redis(client.clone())
-    } else {
-        kernel::queue::TaskQueue::new()
-    };
+    // Initialize Redis-backed task queue.
+    let queue = kernel::queue::TaskQueue::new(redis_client.clone());
 
     // Initialize memory store subscribers
     let memory_subscribers = Arc::new(kernel::memory_sync::MemoryStoreSubscribers::new());
@@ -366,42 +361,34 @@ async fn main() -> anyhow::Result<()> {
 
     // EventStreamPublisher (if Redis stream enabled)
     if config.event_stream_enabled {
-        if let Some(ref client) = redis_client {
-            let stream_pub = events::stream_publisher::EventStreamPublisher::new(
-                client.clone(),
-                &config.event_stream_key,
-                config.event_stream_max_len,
-                Some(event_bus.persister()),
-                config.event_stream_fallback_to_db,
-            );
-            subscriber_handles.push(stream_pub.spawn(event_bus.subscribe()));
-            info!(
-                "EventStreamPublisher started (key={})",
-                config.event_stream_key
-            );
-        }
+        let stream_pub = events::stream_publisher::EventStreamPublisher::new(
+            redis_client.clone(),
+            &config.event_stream_key,
+            config.event_stream_max_len,
+            Some(event_bus.persister()),
+            config.event_stream_fallback_to_db,
+        );
+        subscriber_handles.push(stream_pub.spawn(event_bus.subscribe()));
+        info!(
+            "EventStreamPublisher started (key={})",
+            config.event_stream_key
+        );
     }
 
     // Start command listener (cross-instance relay via Redis)
-    let cmd_listener_handle = if let Some(ref client) = redis_client {
-        let listener = kernel::command_listener::CommandListener::new(
-            client.clone(),
-            &config.instance_id,
-            db_pool.clone(),
-            bridge_registry.clone(),
-            sandbox_provider.clone(),
-            envoy_manager.clone(),
-            image_builder.clone(),
-            redis_coordinator.clone(),
-            memory_subscribers.clone(),
-        );
-        Some(listener.spawn())
-    } else {
-        None
-    };
-    if cmd_listener_handle.is_some() {
-        info!("Command listener started");
-    }
+    let listener = kernel::command_listener::CommandListener::new(
+        redis_client.clone(),
+        &config.instance_id,
+        db_pool.clone(),
+        bridge_registry.clone(),
+        sandbox_provider.clone(),
+        envoy_manager.clone(),
+        image_builder.clone(),
+        redis_coordinator.clone(),
+        memory_subscribers.clone(),
+    );
+    let cmd_listener_handle = listener.spawn();
+    info!("Command listener started");
 
     // Setup SIGHUP handler for config hot-reload
     #[cfg(unix)]
@@ -429,10 +416,7 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let total_tasks = 3
-        + sandbox_ctrl_handles.len()
-        + subscriber_handles.len()
-        + if cmd_listener_handle.is_some() { 1 } else { 0 };
+    let total_tasks = 3 + sandbox_ctrl_handles.len() + subscriber_handles.len() + 1;
     info!(total_tasks, "JoySafeter kernel fully started");
 
     // Wait for shutdown signal
@@ -456,9 +440,7 @@ async fn main() -> anyhow::Result<()> {
     for h in subscriber_handles {
         h.abort();
     }
-    if let Some(h) = cmd_listener_handle {
-        h.abort();
-    }
+    cmd_listener_handle.abort();
 
     // 3. Deregister from Redis
     if let Some(ref coord) = redis_coordinator {

@@ -221,8 +221,8 @@ impl SandboxController {
                                 .unwrap_or(0);
                         if reset_count > 0 {
                             info!(sandbox_id = %sandbox_id, count = reset_count, "Reset tasks to pending after health check cleanup");
-                            // I12 fix: notify scheduler of pending tasks (Python pushes to global queue)
-                            self.queue.notify_global();
+                            // No task ids are returned on this bulk reset; the
+                            // scheduler's DB repair sweep recovers these rows.
                         }
                     }
                 }
@@ -604,7 +604,9 @@ impl SandboxController {
         let _ = self.queue.drain(sandbox_id).await;
         let count = queries::reset_sandbox_tasks_to_pending(&self.pool, sandbox_id).await?;
         for task_id in task_ids {
-            self.queue.push_to_global(task_id).await;
+            if let Err(e) = self.queue.push_to_global(task_id).await {
+                error!(sandbox_id = %sandbox_id, task_id = %task_id, "Failed to enqueue task after provisioning failure: {e}");
+            }
         }
         if count > 0 {
             warn!(sandbox_id = %sandbox_id, count, "Requeued scheduling tasks after provisioning failure");

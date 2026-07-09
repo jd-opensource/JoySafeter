@@ -25,7 +25,7 @@ pub struct EventPersister {
     max_size: usize,
     max_delay: Duration,
     runtime_config: Option<Arc<RuntimeConfig>>,
-    redis_client: Option<redis::Client>,
+    redis_client: redis::Client,
     instance_id: String,
 }
 
@@ -95,7 +95,7 @@ impl EventPersister {
         max_size: usize,
         max_delay_ms: u64,
         runtime_config: Option<Arc<RuntimeConfig>>,
-        redis_client: Option<redis::Client>,
+        redis_client: redis::Client,
         instance_id: String,
     ) -> Self {
         Self {
@@ -261,7 +261,7 @@ impl EventPersister {
                 tracing::debug!(count, "flushed events to DB");
                 for event in inserted {
                     publish_session_event_realtime(
-                        self.redis_client.as_ref(),
+                        &self.redis_client,
                         &self.instance_id,
                         event.session_id,
                         Some(event.id),

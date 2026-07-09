@@ -29,7 +29,7 @@ impl EventBus {
         pool: PgPool,
         config: &JoySafeterConfig,
         runtime_config: Arc<RuntimeConfig>,
-        redis_client: Option<redis::Client>,
+        redis_client: redis::Client,
     ) -> Self {
         let (tx, _) = broadcast::channel(4096);
         let persister = Arc::new(EventPersister::new(

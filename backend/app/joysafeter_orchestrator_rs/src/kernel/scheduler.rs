@@ -5,7 +5,8 @@ use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tokio::time::Instant;
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
@@ -16,11 +17,15 @@ use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::provider::SandboxProvider;
 
-/// Task scheduler — polls DB for pending tasks, resolves sandboxes, dispatches.
+const QUEUE_POP_TIMEOUT: Duration = Duration::from_secs(1);
+const DB_REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Task scheduler — consumes Redis task candidates, claims them in DB, resolves
+/// sandboxes, and dispatches.
 ///
-/// Full parity with Python `TaskScheduler`: semaphores, auto-session creation,
-/// agent archived check, secret injection, environment/networking resolution,
-/// engine_kind image selection, failover on scheduling failure.
+/// Redis is the scheduling wakeup/candidate channel; the DB state transition is
+/// still authoritative. A bounded DB repair sweep recovers pending rows that
+/// predate the queue cutover or whose queue message was lost during an outage.
 
 /// Spawn the scheduler as a background tokio task.
 ///
@@ -52,6 +57,7 @@ pub fn spawn_scheduler(
             max_scheduling = config.max_scheduling_tasks,
             "TaskScheduler started"
         );
+        let mut next_repair_sweep = Instant::now();
 
         loop {
             let available_slots = scheduling_semaphore.available_permits().min(10);
@@ -60,19 +66,68 @@ pub fn spawn_scheduler(
                 continue;
             }
 
-            // Claim pending tasks from DB
-            let tasks = match queries::claim_pending_tasks(&pool, available_slots as i64).await {
-                Ok(tasks) => tasks,
-                Err(e) => {
-                    error!("Failed to claim pending tasks: {e}");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
+            let mut tasks = Vec::new();
+
+            match queue.pop_from_global(QUEUE_POP_TIMEOUT).await {
+                Ok(Some(task_id)) => {
+                    match queries::claim_pending_task_by_id(&pool, task_id).await {
+                        Ok(Some(task)) => tasks.push(task),
+                        Ok(None) => debug!(
+                            task_id = %task_id,
+                            "Ignoring stale global queue entry; task is no longer pending"
+                        ),
+                        Err(e) => error!(task_id = %task_id, "Failed to claim queued task: {e}"),
+                    }
                 }
-            };
+                Ok(None) => {}
+                Err(e) => {
+                    warn!("Failed to pop global Redis task queue: {e}");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+
+            while tasks.len() < available_slots {
+                match queue.try_pop_from_global().await {
+                    Ok(Some(task_id)) => {
+                        match queries::claim_pending_task_by_id(&pool, task_id).await {
+                            Ok(Some(task)) => tasks.push(task),
+                            Ok(None) => debug!(
+                                task_id = %task_id,
+                                "Ignoring stale global queue entry; task is no longer pending"
+                            ),
+                            Err(e) => {
+                                error!(task_id = %task_id, "Failed to claim queued task: {e}");
+                                break;
+                            }
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        warn!("Failed to drain ready global queue entries: {e}");
+                        break;
+                    }
+                }
+            }
+
+            if tasks.is_empty() && Instant::now() >= next_repair_sweep {
+                match queries::claim_pending_tasks(&pool, available_slots as i64).await {
+                    Ok(repaired_tasks) => {
+                        if !repaired_tasks.is_empty() {
+                            warn!(
+                                count = repaired_tasks.len(),
+                                "DB repair sweep claimed pending tasks missing from Redis queue"
+                            );
+                        }
+                        tasks = repaired_tasks;
+                    }
+                    Err(e) => {
+                        error!("Failed to run scheduler DB repair sweep: {e}");
+                    }
+                }
+                next_repair_sweep = Instant::now() + DB_REPAIR_SWEEP_INTERVAL;
+            }
 
             if tasks.is_empty() {
-                // No tasks available, wait briefly then poll again
-                tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
 
@@ -271,8 +326,8 @@ async fn schedule_single_task(
         return Ok(());
     }
 
-    // --- Push to sandbox queue ---
-    queue.push(sandbox_db_id, task_id).await;
+    // --- Push sandbox wakeup ---
+    queue.push(sandbox_db_id, task_id).await?;
 
     // --- Notify bridge if connected ---
     if let Some(bridge) = bridge_registry.get_by_db_id(sandbox_db_id) {

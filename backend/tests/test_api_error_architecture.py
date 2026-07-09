@@ -8,7 +8,13 @@ pytestmark = pytest.mark.no_db
 
 API_V1_FILES = sorted(Path("backend/app/joysafeter_api/api/v1").glob("*.py"))
 SCHEDULER_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/kernel/scheduler.rs")
+RUNTIME_QUEUE_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/kernel/queue.rs")
+ORCHESTRATOR_MAIN_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/main.rs")
+REDIS_COORDINATOR_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/kernel/redis_coordinator.rs")
+RUST_ORCHESTRATOR_SRC = Path("backend/app/joysafeter_orchestrator_rs/src")
 GRPC_SERVER_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/grpc/server.rs")
+DB_QUERIES_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/db/queries.rs")
+SANDBOX_RESOLVER_FILE = Path("backend/app/joysafeter_orchestrator_rs/src/kernel/sandbox_resolver.rs")
 PY_ASYNC_BOUNDARY_ROOTS = (
     Path("backend/app/joysafeter_api"),
     Path("backend/app/joysafeter_domain/services"),
@@ -350,6 +356,59 @@ def test_memory_store_api_does_not_expose_removed_python_subscriber_stream():
     assert 'events/stream' not in text
     assert "memory_store_event_stream" not in text
     assert "StreamingResponse" not in text
+
+
+def test_rust_runtime_queue_has_no_process_local_task_fallback():
+    text = RUNTIME_QUEUE_FILE.read_text()
+    coordinator_text = REDIS_COORDINATOR_FILE.read_text()
+
+    assert "redis_client: Option<redis::Client>" not in text
+    assert "pub fn with_redis" not in text
+    assert "Redis unavailable; runtime queue is not configured" not in text
+    assert "VecDeque" not in text
+    assert "global_notify" not in text
+    assert "InMemoryRedisQueueBackend" not in text
+    assert "falling back to local" not in text
+    assert "rpush::<_, _, ()>(GLOBAL_QUEUE_KEY" in text
+    assert "BLPOP" in text
+    assert "LPOP" in text
+    assert "push_to_global_queue" not in coordinator_text
+    assert "pop_from_global_queue" not in coordinator_text
+    assert "push_to_sandbox_queue" not in coordinator_text
+    assert "pop_from_sandbox_queue" not in coordinator_text
+
+
+def test_rust_scheduler_consumes_redis_queue_before_db_repair_sweep():
+    text = SCHEDULER_FILE.read_text()
+
+    assert "queue.pop_from_global" in text
+    assert "queue.try_pop_from_global" in text
+    assert "claim_pending_task_by_id" in text
+    assert "DB_REPAIR_SWEEP_INTERVAL" in text
+    assert "claim_pending_tasks(&pool, available_slots as i64)" in text
+
+
+def test_rust_orchestrator_requires_redis_runtime_queue():
+    text = ORCHESTRATOR_MAIN_FILE.read_text()
+
+    assert "REDIS_URL is required for the Rust orchestrator runtime queue" in text
+    assert "Redis not configured, HA coordination disabled" not in text
+    assert "TaskQueue::new()" not in text
+    assert "TaskQueue::new(redis_client.clone())" in text
+    assert "if let Some(ref client) = redis_client" not in text
+    assert "runtime queue" in text
+
+
+def test_rust_orchestrator_does_not_keep_removed_compatibility_shims():
+    db_queries_text = DB_QUERIES_FILE.read_text()
+    sandbox_resolver_text = SANDBOX_RESOLVER_FILE.read_text()
+    rust_sources = "\n".join(path.read_text() for path in sorted(RUST_ORCHESTRATOR_SRC.rglob("*.rs")))
+
+    assert "try_advisory_lock" not in db_queries_text
+    assert "release_advisory_lock" not in db_queries_text
+    assert "pg_try_advisory_lock" not in db_queries_text
+    assert not re.search(r"pub\s+fn\s+image_for_provider\s*\(", sandbox_resolver_text)
+    assert "redis_client: Option<redis::Client>" not in rust_sources
 
 
 def test_api_v1_async_error_boundaries_use_shared_contract_builders():

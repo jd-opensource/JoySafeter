@@ -1510,43 +1510,18 @@ async fn handle_reconnect_with_event_loop(
     }
 }
 
-// Keep the old function as a convenience alias (not used in hot path)
-async fn handle_reconnect_active_task(
-    pool: &PgPool,
-    _event_bus: &EventBus,
-    bridge: &Arc<SandboxBridge>,
-    _tx: &mpsc::Sender<OrchestratorMessage>,
-    sandbox_db_id: Uuid,
-    active_task_id: Uuid,
-    _linked_session_id: Option<Uuid>,
-    _config: &JoySafeterConfig,
-) {
-    // Simplified version without stream access — only sets up bridge state.
-    // Full version is handle_reconnect_with_event_loop which has stream access.
-    let task = match queries::get_task(pool, active_task_id).await {
-        Ok(Some(t)) => t,
-        _ => return,
-    };
-    if task.sandbox_id != Some(sandbox_db_id) {
-        return;
-    }
-    let status = crate::db::models::TaskStatus::from_str(&task.status);
-    if status.as_ref().map(|s| s.is_terminal()).unwrap_or(false) {
-        return;
-    }
-
-    bridge.setup_done.store(true, Ordering::Relaxed);
-    *bridge.current_task_id.lock().await = Some(active_task_id);
-}
-
 async fn rescue_orphaned_tasks(pool: &PgPool, sandbox_db_id: Uuid, queue: &TaskQueue) {
     match queries::find_running_tasks_for_sandbox(pool, sandbox_db_id).await {
         Ok(tasks) => {
             for task in tasks {
                 if let Ok(true) = queries::increment_retry(pool, task.id).await {
                     // Fix 6.2: actually push to global queue (was just logging before)
-                    queue.push_to_global(task.id).await;
-                    info!(task_id = %task.id, "Orphaned task reset and re-queued");
+                    match queue.push_to_global(task.id).await {
+                        Ok(()) => info!(task_id = %task.id, "Orphaned task reset and re-queued"),
+                        Err(e) => {
+                            error!(task_id = %task.id, "Failed to enqueue rescued orphaned task: {e}")
+                        }
+                    }
                 }
             }
         }
@@ -1791,7 +1766,9 @@ async fn execute_sandbox_cleanup(
             let q_clone = q.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(delay).await;
-                q_clone.push_to_global(tid).await;
+                if let Err(e) = q_clone.push_to_global(tid).await {
+                    error!(task_id = %tid, "Failed to enqueue delayed retry task: {e}");
+                }
             });
         }
     }

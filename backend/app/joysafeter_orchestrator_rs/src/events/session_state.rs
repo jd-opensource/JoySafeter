@@ -14,12 +14,12 @@ use super::realtime::publish_session_event_realtime;
 /// Mirrors the Python `SessionStateSubscriber`.
 pub struct SessionStateSubscriber {
     pool: PgPool,
-    redis_client: Option<redis::Client>,
+    redis_client: redis::Client,
     instance_id: String,
 }
 
 impl SessionStateSubscriber {
-    pub fn new(pool: PgPool, redis_client: Option<redis::Client>, instance_id: String) -> Self {
+    pub fn new(pool: PgPool, redis_client: redis::Client, instance_id: String) -> Self {
         Self {
             pool,
             redis_client,
@@ -230,7 +230,7 @@ impl SessionStateSubscriber {
                 );
                 if let Some((event_id, seq)) = inserted_event {
                     publish_session_event_realtime(
-                        self.redis_client.as_ref(),
+                        &self.redis_client,
                         &self.instance_id,
                         envelope.session_id,
                         Some(event_id),

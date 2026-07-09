@@ -1351,13 +1351,6 @@ pub fn sandbox_fingerprint(
     hex::encode(hasher.finalize())
 }
 
-/// Select the Docker image for a given engine_kind.
-pub fn image_for_provider(_engine_kind: &str, default_image: &str) -> String {
-    // This delegates to config.image_for_provider() at runtime
-    // Kept as a standalone function for compatibility
-    default_image.to_string()
-}
-
 #[derive(Debug, Clone)]
 struct ExpectedFingerprint {
     image: String,
