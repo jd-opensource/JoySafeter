@@ -138,11 +138,12 @@ ENTRYPOINT /bin/sh -c '\
   rm -rf /export/Logs && mkdir -p /export/Logs && chown admin:admin -R /export/Logs && \
   mkdir -p /export/home && chown admin:admin -R /export/home && \
   su -p admin -c "\
-    export JOYSAFETER_SERVICE_ROLE=${JOYSAFETER_SERVICE_ROLE:-all}; \
-    export BACKEND_PORT=${BACKEND_PORT:-8000}; \
-    export WORKERS=${WORKERS:-1}; \
-    export BACKEND_APP_MODULE=${BACKEND_APP_MODULE}; \
-    export MIGRATION_ENABLED=${MIGRATION_ENABLED:-false}; \
     export MODE=${MODE}; \
+    export JOYSAFETER_SERVICE_ROLE=${JOYSAFETER_SERVICE_ROLE}; \
+    export BACKEND_PORT=${BACKEND_PORT}; \
+    export WORKERS=${WORKERS}; \
+    export BACKEND_APP_MODULE=${BACKEND_APP_MODULE}; \
+    export MIGRATION_ENABLED=${MIGRATION_ENABLED}; \
+    export DEBUG=${DEBUG}; \
     cd /export/App/backend; ./entrypoint.sh" \
 '
