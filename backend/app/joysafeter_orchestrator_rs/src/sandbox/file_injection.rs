@@ -67,7 +67,7 @@ pub async fn load_session_files(
             Some(storage_key) => match super::storage::read_file(storage_key).await {
                 Ok(content) => Some(content),
                 Err(e) => {
-                    debug!(storage_key = %storage_key, "Session file content not loaded inline: {e}");
+                    warn!(storage_key = %storage_key, "Failed to read session file from storage: {e}");
                     None
                 }
             },
