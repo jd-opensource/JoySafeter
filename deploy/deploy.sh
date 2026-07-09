@@ -31,6 +31,20 @@ CLAUDECODE_IMAGE="${CLAUDECODE_IMAGE:-joysafeter-claudecode}"
 CODEX_IMAGE="${CODEX_IMAGE:-joysafeter-codex}"
 NATIVE_IMAGE="${NATIVE_IMAGE:-joysafeter-native}"
 TAG="${IMAGE_TAG:-latest}"
+# 构建溯源：烘进 backend 镜像的 GIT_COMMIT_SHA（docker inspect / printenv 可读，供可审计发布）。
+# CI 传 github.sha；脚本自建时默认取 git 短 SHA，脏工作树追加 -dirty，取不到则 unknown。
+# 允许外部环境变量覆盖（与 CI 一致）。
+GIT_COMMIT_SHA="${GIT_COMMIT_SHA:-$(
+    if git -C "$PROJECT_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+        sha="$(git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+        if [ -n "$(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null)" ]; then
+            sha="${sha}-dirty"
+        fi
+        printf '%s' "$sha"
+    else
+        printf 'unknown'
+    fi
+)}"
 platform_from_arch() {
     local arch="$1"
     case "$arch" in
@@ -718,6 +732,8 @@ build_image() {
         local python_version="3.12-slim-bookworm"
         build_args+=("--build-arg" "PYTHON_VERSION=${python_version}")
         log_info "后端使用 Python 版本: ${python_version}"
+        build_args+=("--build-arg" "GIT_COMMIT_SHA=${GIT_COMMIT_SHA}")
+        log_info "后端构建溯源 GIT_COMMIT_SHA: ${GIT_COMMIT_SHA}"
     fi
 
     if [ "$service" = "Rust Orchestrator" ]; then
