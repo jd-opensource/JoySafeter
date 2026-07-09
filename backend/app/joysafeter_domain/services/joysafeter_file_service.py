@@ -90,10 +90,10 @@ def _validate_extension(filename: str) -> None:
         raise ValueError(f"File type {ext} is not supported")
 
 
-def _make_storage_key(file_id: uuid.UUID, filename: str) -> str:
+def _make_storage_key(project_id: str, file_id: uuid.UUID, filename: str) -> str:
     shard = str(file_id)[:2]
     safe = _sanitize_filename(filename)
-    return f"files/{shard}/{file_id}_{safe}"
+    return f"files/{project_id}/{shard}/{file_id}_{safe}"
 
 
 class FileService:
@@ -132,7 +132,7 @@ class FileService:
 
         file_id = uuid.UUID(str(uuid7()))
         sha = hashlib.sha256(data).hexdigest()
-        storage_key = _make_storage_key(file_id, safe_name)
+        storage_key = _make_storage_key(project_id, file_id, safe_name)
 
         await self._storage.put(storage_key, data, content_type)
 
