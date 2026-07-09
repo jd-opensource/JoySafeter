@@ -92,7 +92,9 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 4. Agent 在隔离沙箱中自主运行 —— 若发现登录页面，自动触发认证绕过测试
 5. 会话结束后下载完整报告
 
-> **备注：** 需在沙箱设置中配置镜像 `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/jd-opensource/joysafeter-sandbox:latest`。
+> **备注：** 需要为所选引擎配置匹配的 agent runtime 镜像。本地部署读取 `deploy/.env`
+> 中的 `JOYSAFETER_IMAGE_CLAUDE`、`JOYSAFETER_IMAGE_CODEX`、`JOYSAFETER_IMAGE_NATIVE`；
+> 使用镜像仓库部署时可通过 `./deploy.sh pull --all` 同步这些变量。
 
 这种根据侦察结果动态决定下一步的能力，是传统固定脚本无法实现的。
 

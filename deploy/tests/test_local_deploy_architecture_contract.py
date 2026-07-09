@@ -4,6 +4,8 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+README = PROJECT_ROOT / "README.md"
+README_CN = PROJECT_ROOT / "README_CN.md"
 DEPLOY_SH = PROJECT_ROOT / "deploy" / "deploy.sh"
 COMPOSE = PROJECT_ROOT / "deploy" / "docker-compose.yml"
 ENV_EXAMPLE = PROJECT_ROOT / "deploy" / ".env.example"
@@ -147,3 +149,13 @@ def test_docs_separate_local_and_cloud_redis_migration_commands() -> None:
         body = doc.read_text()
         assert local_migration in body
         assert cloud_migration in body
+
+
+def test_readmes_do_not_recommend_removed_single_sandbox_image() -> None:
+    for doc in (README, README_CN):
+        body = doc.read_text()
+        assert "joysafeter-sandbox:latest" not in body
+        assert "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/jd-opensource" not in body
+        assert "JOYSAFETER_IMAGE_CLAUDE" in body
+        assert "JOYSAFETER_IMAGE_CODEX" in body
+        assert "JOYSAFETER_IMAGE_NATIVE" in body

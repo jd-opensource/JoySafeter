@@ -95,7 +95,9 @@ The entire flow — from upload to report — requires zero manual intervention,
 4. Agent runs autonomously inside an isolated sandbox — if it discovers a login page, it automatically triggers auth bypass testing
 5. Download the final report when the session completes
 
-> **Note:** Requires sandbox image `swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/jd-opensource/joysafeter-sandbox:latest` configured in Sandbox Settings.
+> **Note:** Requires the matching agent runtime image for the selected engine. Local deployment
+> uses `JOYSAFETER_IMAGE_CLAUDE`, `JOYSAFETER_IMAGE_CODEX`, and `JOYSAFETER_IMAGE_NATIVE` from
+> `deploy/.env`; registry deployments can sync those values with `./deploy.sh pull --all`.
 
 This dynamic decision-making — where the agent adapts its next step based on what it finds — is what fixed scripts cannot replicate.
 
