@@ -8,8 +8,6 @@
 #   WORKERS                  gunicorn worker 数 (默认 1)
 #   BACKEND_APP_MODULE       覆盖 ASGI app 模块 (高级用法)
 #   MIGRATION_ENABLED        true 时启动前执行 alembic 数据库迁移
-#   MIGRATION_ONLY           true 时只跑迁移然后退出 (配合 init job)
-#   DEBUG                    true 时 uvicorn --reload 单进程调试
 
 set -e
 
@@ -40,11 +38,6 @@ export WORKERS="${WORKERS:-1}"
 if [[ "${MIGRATION_ENABLED}" == "true" ]]; then
   echo "Running database migrations (alembic upgrade head)"
   alembic upgrade head
-  # 纯迁移模式: 迁移完就退出,不启动服务
-  if [[ "${MIGRATION_ONLY}" == "true" ]]; then
-    echo "Migration completed, exiting normally"
-    exit 0
-  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -62,19 +55,14 @@ echo "Starting JoySafeter backend: role=${JOYSAFETER_SERVICE_ROLE} module=${APP_
 # ---------------------------------------------------------------------------
 # 启动服务
 # ---------------------------------------------------------------------------
-if [[ "${DEBUG}" == "true" ]]; then
-  exec python -m uvicorn "${APP_MODULE}" \
-    --host 0.0.0.0 --port "${BACKEND_PORT}" --reload
-else
-  exec python -m gunicorn \
-    "${APP_MODULE}" \
-    -w "${WORKERS}" \
-    -k uvicorn.workers.UvicornWorker \
-    --bind "0.0.0.0:${BACKEND_PORT}" \
-    --timeout "${GUNICORN_TIMEOUT:-120}" \
-    --graceful-timeout "${GUNICORN_GRACEFUL_TIMEOUT:-30}" \
-    --max-requests "${GUNICORN_MAX_REQUESTS:-5000}" \
-    --max-requests-jitter "${GUNICORN_MAX_REQUESTS_JITTER:-500}" \
-    --access-logfile - \
-    --error-logfile -
-fi
+exec python -m gunicorn \
+  "${APP_MODULE}" \
+  -w "${WORKERS}" \
+  -k uvicorn.workers.UvicornWorker \
+  --bind "0.0.0.0:${BACKEND_PORT}" \
+  --timeout "${GUNICORN_TIMEOUT:-120}" \
+  --graceful-timeout "${GUNICORN_GRACEFUL_TIMEOUT:-30}" \
+  --max-requests "${GUNICORN_MAX_REQUESTS:-5000}" \
+  --max-requests-jitter "${GUNICORN_MAX_REQUESTS_JITTER:-500}" \
+  --access-logfile - \
+  --error-logfile -
