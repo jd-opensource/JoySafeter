@@ -100,6 +100,10 @@ ENV PYTHONPATH="${VIRTUAL_ENV}/lib/python3.12/site-packages:/home/export/App/bac
 # 复制源代码
 COPY . /home/export/App/backend/
 
+# 复制并授权 entrypoint
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # 创建日志和缓存目录
 RUN mkdir -p /home/export/App/backend/logs /home/export/App/backend/.cache/uv
 ENV UV_CACHE_DIR=/home/export/App/backend/.cache/uv
@@ -119,11 +123,9 @@ RUN echo "* soft nofile 1048576" >> /etc/security/limits.conf && \
 # -------------------------------------------------------------------------
 # ENTRYPOINT: JDOS 标准启动流程
 #
-# 环境变量:
-#   JOYSAFETER_SERVICE_ROLE  api | worker | all (默认 all)
-#   BACKEND_PORT             API 监听端口 (默认 8000)
-#   WORKERS                  gunicorn worker 数 (默认 1)
-#   BACKEND_APP_MODULE       覆盖 ASGI app 模块 (高级用法)
+# 基础设施准备 (sshd/cron/虎符/复制代码) 后,以 admin 用户执行 entrypoint.sh。
+# 服务角色由容器运行时环境变量 JOYSAFETER_SERVICE_ROLE 决定,在 entrypoint.sh
+# 内部读取 (脚本天然读运行时环境,无需 Dockerfile 转义)。
 # -------------------------------------------------------------------------
 ENTRYPOINT /bin/sh -c '\
   /usr/sbin/sshd && \
@@ -132,28 +134,8 @@ ENTRYPOINT /bin/sh -c '\
   curl -s http://storage.jd.local/tigagent/hufu_new_install.sh | bash -s 2>/dev/null; \
   rm -rf /export/App/backend && mkdir -p /export/App/ && \
   cp -r /home/export/App/backend /export/App/ && chown admin:admin -R /export/App/ && \
+  cp /entrypoint.sh /export/App/backend/entrypoint.sh && chmod +x /export/App/backend/entrypoint.sh && \
   rm -rf /export/Logs && mkdir -p /export/Logs && chown admin:admin -R /export/Logs && \
   mkdir -p /export/home && chown admin:admin -R /export/home && \
-  su -p - admin -c "\
-    export PATH=/export/App/backend/.venv/bin:\$PATH; \
-    export PYTHONPATH=/export/App/backend/.venv/lib/python3.12/site-packages:/export/App/backend; \
-    export JOYSAFETER_SERVICE_ROLE=\${JOYSAFETER_SERVICE_ROLE:-all}; \
-    export BACKEND_PORT=\${BACKEND_PORT:-8000}; \
-    export WORKERS=\${WORKERS:-1}; \
-    cd /export/App/backend; \
-    case \${JOYSAFETER_SERVICE_ROLE} in \
-      api)    APP_MODULE=app.joysafeter_api.main:app ;; \
-      worker) APP_MODULE=app.joysafeter_worker.main:app ;; \
-      *)      APP_MODULE=app.main:app ;; \
-    esac; \
-    python -m gunicorn \
-      \${BACKEND_APP_MODULE:-\${APP_MODULE}} \
-      -w \${WORKERS} \
-      -k uvicorn.workers.UvicornWorker \
-      --bind 0.0.0.0:\${BACKEND_PORT} \
-      --timeout 120 \
-      --graceful-timeout 30 \
-      --access-logfile - \
-      --error-logfile - \
-  " \
+  su -p admin -c "cd /export/App/backend; ./entrypoint.sh" \
 '
