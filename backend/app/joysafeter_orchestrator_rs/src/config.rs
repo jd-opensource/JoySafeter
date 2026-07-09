@@ -7,10 +7,7 @@ use std::net::SocketAddr;
 /// reading from `JOYSAFETER_*` environment variables.
 #[derive(Debug, Clone)]
 pub struct JoySafeterConfig {
-    pub enabled: bool,
     pub instance_id: String,
-
-    pub api_prefix: String,
     pub redis_queue_prefix: String,
 
     // Task scheduling
@@ -131,10 +128,7 @@ impl JoySafeterConfig {
     /// Load configuration from environment variables.
     pub fn from_env() -> Self {
         Self {
-            enabled: env_bool("JOYSAFETER_ENABLED", true),
             instance_id: env_str("JOYSAFETER_INSTANCE_ID", &hostname()),
-
-            api_prefix: env_str("JOYSAFETER_API_PREFIX", "/api/v1"),
             redis_queue_prefix: env_str("JOYSAFETER_REDIS_QUEUE_PREFIX", "joysafeter"),
 
             max_concurrent_tasks: env_usize("JOYSAFETER_MAX_CONCURRENT_TASKS", 200),

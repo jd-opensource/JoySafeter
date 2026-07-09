@@ -8,3 +8,4 @@ pub mod file_injection;
 pub mod image_builder;
 pub mod lds_backend;
 pub mod provider;
+pub mod storage;

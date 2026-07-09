@@ -26,7 +26,7 @@ RUN add-apt-repository -y ppa:deadsnakes/ppa \
     && pip install -i https://pypi.tuna.tsinghua.edu.cn/simple --no-cache-dir uv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm config set registry https://registry.npmmirror.com \
     && npm install -g yarn pnpm \
@@ -40,7 +40,7 @@ WORKDIR /workspace
 
 FROM base AS claudecode
 
-RUN npm install -g @anthropic-ai/claude-code@latest
+RUN npm install -g @anthropic-ai/claude-code@latest --registry=https://registry.npmmirror.com --no-audit --no-fund
 
 COPY target/x86_64-unknown-linux-gnu/release/joysafeter-runner /usr/local/bin/joysafeter-runner
 RUN chmod +x /usr/local/bin/joysafeter-runner

@@ -35,11 +35,6 @@ async fn main() -> anyhow::Result<()> {
 
     let config = JoySafeterConfig::from_env();
 
-    if !config.enabled {
-        info!("JoySafeter kernel disabled (JOYSAFETER_ENABLED=false)");
-        return Ok(());
-    }
-
     info!(
         instance_id = %config.instance_id,
         grpc_addr = %config.grpc_addr(),
