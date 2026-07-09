@@ -143,7 +143,5 @@ ENTRYPOINT /bin/sh -c '\
     export WORKERS=${WORKERS}; \
     export BACKEND_APP_MODULE=${BACKEND_APP_MODULE}; \
     export MIGRATION_ENABLED=${MIGRATION_ENABLED}; \
-    export MIGRATION_ONLY=${MIGRATION_ONLY}; \
-    export DEBUG=${DEBUG}; \
     cd /export/App/backend; ./entrypoint.sh" \
 '
