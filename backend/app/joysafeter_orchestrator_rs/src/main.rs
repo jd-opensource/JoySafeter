@@ -5,9 +5,11 @@
 
 mod config;
 mod db;
+mod error;
 mod events;
 mod grpc;
 mod kernel;
+mod runtime;
 mod runtime_config;
 mod sandbox;
 
@@ -15,7 +17,7 @@ use std::sync::Arc;
 
 use bollard::Docker;
 use config::JoySafeterConfig;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -33,18 +35,11 @@ async fn main() -> anyhow::Result<()> {
 
     let config = JoySafeterConfig::from_env();
 
-    if !config.enabled {
-        info!("JoySafeter kernel disabled (JOYSAFETER_ENABLED=false)");
-        return Ok(());
-    }
-    config.validate_provider_isolation()?;
-
     info!(
         instance_id = %config.instance_id,
         grpc_addr = %config.grpc_addr(),
         max_concurrent_tasks = config.max_concurrent_tasks,
         sandbox_provider = %config.sandbox_provider,
-        sandbox_min_isolation_class = %config.sandbox_min_isolation_class,
         "Starting JoySafeter Orchestrator (Rust)"
     );
 
@@ -52,83 +47,45 @@ async fn main() -> anyhow::Result<()> {
     let db_pool = db::pool::create_pool(&config.database_url).await?;
     info!("Database pool initialized");
 
-    // Initialize Redis. The Rust orchestrator relies on Redis for API->runtime
-    // task queueing, cross-instance command relay, sandbox ownership, and live
-    // event fan-out. Starting without it would create a half-working runtime.
+    // Initialize Redis (optional)
     let redis_client = match &config.redis_url {
         Some(url) => match redis::Client::open(url.as_str()) {
             Ok(client) => {
                 info!("Redis client initialized");
-                client
+                Some(client)
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Failed to initialize Redis client: {e}"));
+                error!("Failed to connect to Redis: {e}");
+                None
             }
         },
         None => {
-            return Err(anyhow::anyhow!(
-                "REDIS_URL is required for the Rust orchestrator runtime queue"
-            ));
+            info!("Redis not configured, HA coordination disabled");
+            None
         }
     };
 
     // Initialize Redis coordinator (HA)
-    let redis_coordinator = {
+    let redis_coordinator = if let Some(ref client) = redis_client {
         let coord = kernel::redis_coordinator::RedisCoordinator::new(
-            redis_client.clone(),
+            client.clone(),
             &config.instance_id,
             config.heartbeat_interval,
             config.heartbeat_ttl,
         );
-        coord.register_instance().await.map_err(|e| {
-            anyhow::anyhow!("Failed to register orchestrator instance in Redis: {e}")
-        })?;
-        coord.spawn_heartbeat();
-        info!(
-            "RedisCoordinator registered (instance={})",
-            config.instance_id
-        );
+        if let Err(e) = coord.register_instance().await {
+            warn!("Failed to register instance in Redis: {e}");
+        } else {
+            coord.spawn_heartbeat();
+            info!(
+                "RedisCoordinator registered (instance={})",
+                config.instance_id
+            );
+        }
         Some(Arc::new(coord))
+    } else {
+        None
     };
-
-    let cluster_member_metadata = serde_json::json!({
-        "grpc_addr": config.grpc_addr().to_string(),
-        "sandbox_provider": config.sandbox_provider.clone(),
-        "event_stream_enabled": config.event_stream_enabled,
-    });
-    db::queries::register_cluster_member(
-        &db_pool,
-        &config.instance_id,
-        "orchestrator",
-        config.heartbeat_ttl as i64,
-        &cluster_member_metadata,
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("Failed to register orchestrator member in Postgres: {e}"))?;
-    let _cluster_member_heartbeat = {
-        let pool = db_pool.clone();
-        let instance_id = config.instance_id.clone();
-        let heartbeat_interval = config.heartbeat_interval;
-        let heartbeat_ttl = config.heartbeat_ttl;
-        let metadata = cluster_member_metadata.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(heartbeat_interval)).await;
-                if let Err(e) = db::queries::heartbeat_cluster_member(
-                    &pool,
-                    &instance_id,
-                    "orchestrator",
-                    heartbeat_ttl as i64,
-                    &metadata,
-                )
-                .await
-                {
-                    warn!("Postgres cluster member heartbeat failed: {e}");
-                }
-            }
-        })
-    };
-    info!("Postgres cluster member heartbeat registered");
 
     // Initialize runtime config (hot-reloadable)
     let runtime_config = Arc::new(runtime_config::RuntimeConfig::from_config(&config));
@@ -235,6 +192,10 @@ async fn main() -> anyhow::Result<()> {
         let manager = Arc::new(sandbox::envoy::EnvoyManager::new(
             docker,
             sandbox::envoy::EnvoyConfig {
+                envoy_image: config.envoy_image.clone(),
+                socket_volume: config.envoy_socket_volume.clone(),
+                config_dir: config.envoy_config_dir.clone(),
+                envoy_network: config.envoy_network.clone(),
                 grpc_target_host: config.envoy_grpc_host.clone(),
                 grpc_target_port: config.envoy_grpc_port,
                 container_name: config.envoy_container_name.clone(),
@@ -265,14 +226,14 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let image_builder = if config.image_builder_enabled {
+    let _image_builder = if config.image_builder_enabled {
         match Docker::connect_with_local_defaults() {
             Ok(docker) => {
                 info!("ImageBuilder initialized");
-                Some(Arc::new(sandbox::image_builder::ImageBuilder::new(
+                Some(sandbox::image_builder::ImageBuilder::new(
                     Arc::new(docker),
                     &config.image_builder_base,
-                )))
+                ))
             }
             Err(e) => {
                 warn!("ImageBuilder initialization failed: {e}");
@@ -287,8 +248,12 @@ async fn main() -> anyhow::Result<()> {
     // Initialize sandbox bridge registry
     let bridge_registry = kernel::sandbox_bridge::BridgeRegistry::new();
 
-    // Initialize Redis-backed task queue.
-    let queue = kernel::queue::TaskQueue::new(redis_client.clone());
+    // Initialize task queue (in-memory wakeups + optional Redis HA wakeups)
+    let queue = if let Some(ref client) = redis_client {
+        kernel::queue::TaskQueue::new().with_redis(client.clone())
+    } else {
+        kernel::queue::TaskQueue::new()
+    };
 
     // Initialize memory store subscribers
     let memory_subscribers = Arc::new(kernel::memory_sync::MemoryStoreSubscribers::new());
@@ -299,7 +264,6 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         queue.clone(),
         config.clone(),
-        bridge_registry.clone(),
     );
     task_controller.recover_on_startup().await?;
     info!("Startup recovery complete");
@@ -397,34 +361,37 @@ async fn main() -> anyhow::Result<()> {
 
     // EventStreamPublisher (if Redis stream enabled)
     if config.event_stream_enabled {
-        let stream_pub = events::stream_publisher::EventStreamPublisher::new(
-            redis_client.clone(),
-            &config.event_stream_key,
-            config.event_stream_max_len,
-            Some(event_bus.persister()),
-            config.event_stream_fallback_to_db,
-        );
-        subscriber_handles.push(stream_pub.spawn(event_bus.subscribe()));
-        info!(
-            "EventStreamPublisher started (key={})",
-            config.event_stream_key
-        );
+        if let Some(ref client) = redis_client {
+            let stream_pub = events::stream_publisher::EventStreamPublisher::new(
+                client.clone(),
+                &config.event_stream_key,
+                config.event_stream_max_len,
+                Some(event_bus.persister()),
+                config.event_stream_fallback_to_db,
+            );
+            subscriber_handles.push(stream_pub.spawn(event_bus.subscribe()));
+            info!(
+                "EventStreamPublisher started (key={})",
+                config.event_stream_key
+            );
+        }
     }
 
     // Start command listener (cross-instance relay via Redis)
-    let listener = kernel::command_listener::CommandListener::new(
-        redis_client.clone(),
-        &config.instance_id,
-        db_pool.clone(),
-        bridge_registry.clone(),
-        sandbox_provider.clone(),
-        envoy_manager.clone(),
-        image_builder.clone(),
-        redis_coordinator.clone(),
-        memory_subscribers.clone(),
-    );
-    let cmd_listener_handle = listener.spawn();
-    info!("Command listener started");
+    let cmd_listener_handle = if let Some(ref client) = redis_client {
+        let listener = kernel::command_listener::CommandListener::new(
+            client.clone(),
+            &config.instance_id,
+            bridge_registry.clone(),
+            memory_subscribers.clone(),
+        );
+        Some(listener.spawn())
+    } else {
+        None
+    };
+    if cmd_listener_handle.is_some() {
+        info!("Command listener started");
+    }
 
     // Setup SIGHUP handler for config hot-reload
     #[cfg(unix)]
@@ -452,7 +419,10 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let total_tasks = 3 + sandbox_ctrl_handles.len() + subscriber_handles.len() + 1;
+    let total_tasks = 3
+        + sandbox_ctrl_handles.len()
+        + subscriber_handles.len()
+        + if cmd_listener_handle.is_some() { 1 } else { 0 };
     info!(total_tasks, "JoySafeter kernel fully started");
 
     // Wait for shutdown signal
@@ -476,7 +446,9 @@ async fn main() -> anyhow::Result<()> {
     for h in subscriber_handles {
         h.abort();
     }
-    cmd_listener_handle.abort();
+    if let Some(h) = cmd_listener_handle {
+        h.abort();
+    }
 
     // 3. Deregister from Redis
     if let Some(ref coord) = redis_coordinator {

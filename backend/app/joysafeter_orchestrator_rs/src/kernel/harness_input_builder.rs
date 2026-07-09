@@ -3,11 +3,6 @@ use std::path::{Component, Path};
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use aws_config::{BehaviorVersion, Region};
-use aws_credential_types::Credentials;
-use aws_sdk_s3::config::Builder as S3ConfigBuilder;
-use aws_sdk_s3::presigning::PresigningConfig;
-use aws_sdk_s3::Client as S3Client;
 use base64::Engine as _;
 use chrono::Utc;
 use flate2::write::GzEncoder;
@@ -771,16 +766,10 @@ impl HarnessInputBuilder {
 
         for row in rows {
             match load_session_file_resource(&row).await {
-                Ok(SessionFileResource::Mount(content)) => input.files.push(proto::FileMount {
+                Ok(content) => input.files.push(proto::FileMount {
                     path: row.mount_path,
                     content,
                     filename: row.filename,
-                }),
-                Ok(SessionFileResource::Ref(url)) => input.file_refs.push(proto::FileRef {
-                    path: row.mount_path,
-                    url,
-                    filename: row.filename,
-                    size_bytes: row.size_bytes,
                 }),
                 Err(e) => {
                     warn!(storage_key = %row.storage_key, "Failed to prepare session file: {e}")
@@ -1516,81 +1505,10 @@ fn safe_archive_path(file: &SkillFileForArchive) -> Option<String> {
     }
 }
 
-async fn read_local_storage(storage_key: &str) -> anyhow::Result<Vec<u8>> {
-    let backend = std::env::var("STORAGE_BACKEND").unwrap_or_else(|_| "local".to_string());
-    if backend != "local" {
-        anyhow::bail!("Rust orchestrator only supports inline session files for local storage; STORAGE_BACKEND={backend}");
-    }
-    let base = std::env::var("STORAGE_LOCAL_PATH").unwrap_or_else(|_| "data/files".to_string());
-    let base_path = Path::new(&base);
-    let base_abs = if base_path.is_absolute() {
-        base_path.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(base_path)
-    };
-    let resolved_base = base_abs.canonicalize().unwrap_or(base_abs);
-    let candidate = resolved_base.join(storage_key);
-    let resolved = candidate.canonicalize()?;
-    if !resolved.starts_with(&resolved_base) {
-        anyhow::bail!("path traversal detected: {storage_key}");
-    }
-    Ok(tokio::fs::read(resolved).await?)
-}
+// Storage read is now handled by `sandbox::storage::read_file()`.
 
-enum SessionFileResource {
-    Mount(Vec<u8>),
-    Ref(String),
-}
-
-async fn load_session_file_resource(row: &SessionFileRow) -> anyhow::Result<SessionFileResource> {
-    let backend = std::env::var("STORAGE_BACKEND")
-        .unwrap_or_else(|_| "local".to_string())
-        .to_lowercase();
-    match backend.as_str() {
-        "local" => Ok(SessionFileResource::Mount(
-            read_local_storage(&row.storage_key).await?,
-        )),
-        "s3" | "oss" => Ok(SessionFileResource::Ref(
-            presign_object_storage_url(&row.storage_key).await?,
-        )),
-        other => anyhow::bail!("Unsupported STORAGE_BACKEND={other}"),
-    }
-}
-
-async fn presign_object_storage_url(storage_key: &str) -> anyhow::Result<String> {
-    let bucket =
-        std::env::var("STORAGE_S3_BUCKET").or_else(|_| std::env::var("STORAGE_OSS_BUCKET"))?;
-    let endpoint = std::env::var("STORAGE_S3_ENDPOINT")
-        .or_else(|_| std::env::var("STORAGE_OSS_ENDPOINT"))
-        .ok();
-    let access_key = std::env::var("STORAGE_S3_ACCESS_KEY")
-        .or_else(|_| std::env::var("STORAGE_OSS_ACCESS_KEY"))?;
-    let secret_key = std::env::var("STORAGE_S3_SECRET_KEY")
-        .or_else(|_| std::env::var("STORAGE_OSS_SECRET_KEY"))?;
-    let region = std::env::var("STORAGE_S3_REGION")
-        .or_else(|_| std::env::var("STORAGE_OSS_REGION"))
-        .unwrap_or_else(|_| "us-east-1".to_string());
-
-    let credentials = Credentials::new(access_key, secret_key, None, None, "joysafeter-env");
-    let base_config = aws_config::defaults(BehaviorVersion::latest())
-        .region(Region::new(region))
-        .credentials_provider(credentials)
-        .load()
-        .await;
-    let mut builder = S3ConfigBuilder::from(&base_config).force_path_style(true);
-    if let Some(endpoint) = endpoint {
-        builder = builder.endpoint_url(endpoint);
-    }
-    let client = S3Client::from_conf(builder.build());
-    let presigned = client
-        .get_object()
-        .bucket(bucket)
-        .key(storage_key)
-        .presigned(PresigningConfig::expires_in(
-            std::time::Duration::from_secs(3600),
-        )?)
-        .await?;
-    Ok(presigned.uri().to_string())
+async fn load_session_file_resource(row: &SessionFileRow) -> anyhow::Result<Vec<u8>> {
+    crate::sandbox::storage::read_file(&row.storage_key).await
 }
 
 pub(crate) struct VaultCipher {

@@ -64,7 +64,7 @@ pub async fn load_session_files(
     let mut files = Vec::new();
     for row in rows {
         let content = match row.storage_key.as_deref() {
-            Some(storage_key) => match read_local_storage(storage_key).await {
+            Some(storage_key) => match super::storage::read_file(storage_key).await {
                 Ok(content) => Some(content),
                 Err(e) => {
                     debug!(storage_key = %storage_key, "Session file content not loaded inline: {e}");
@@ -290,25 +290,4 @@ pub fn resolve_workspace_path(
     Some(path)
 }
 
-async fn read_local_storage(storage_key: &str) -> anyhow::Result<Vec<u8>> {
-    let backend = std::env::var("STORAGE_BACKEND")
-        .unwrap_or_else(|_| "local".to_string())
-        .to_lowercase();
-    if backend != "local" {
-        anyhow::bail!("workspace preload only supports local storage; STORAGE_BACKEND={backend}");
-    }
-    let base = std::env::var("STORAGE_LOCAL_PATH").unwrap_or_else(|_| "data/files".to_string());
-    let base_path = Path::new(&base);
-    let base_abs = if base_path.is_absolute() {
-        base_path.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(base_path)
-    };
-    let resolved_base = base_abs.canonicalize().unwrap_or(base_abs);
-    let candidate = resolved_base.join(storage_key);
-    let resolved = candidate.canonicalize()?;
-    if !resolved.starts_with(&resolved_base) {
-        anyhow::bail!("path traversal detected: {storage_key}");
-    }
-    Ok(tokio::fs::read(resolved).await?)
-}
+// Storage read is now handled by `sandbox::storage::read_file()`.

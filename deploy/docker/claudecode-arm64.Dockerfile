@@ -40,7 +40,7 @@ WORKDIR /workspace
 
 FROM base AS claudecode
 
-RUN npm install -g @anthropic-ai/claude-code@latest
+RUN npm install -g @anthropic-ai/claude-code@latest --registry=https://registry.npmmirror.com --no-audit --no-fund
 
 COPY target/aarch64-unknown-linux-gnu/release/joysafeter-runner /usr/local/bin/joysafeter-runner
 RUN chmod +x /usr/local/bin/joysafeter-runner

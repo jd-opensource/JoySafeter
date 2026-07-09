@@ -7,21 +7,19 @@ use std::net::SocketAddr;
 /// reading from `JOYSAFETER_*` environment variables.
 #[derive(Debug, Clone)]
 pub struct JoySafeterConfig {
-    pub enabled: bool,
     pub instance_id: String,
+    pub redis_queue_prefix: String,
 
     // Task scheduling
     pub max_concurrent_tasks: usize,
     pub max_scheduling_tasks: usize,
     pub task_default_timeout: u64,
+    pub task_default_max_retries: u32,
     pub task_retry_base_ms: u64,
     pub task_retry_max_ms: u64,
-    pub task_lease_ttl_sec: u64,
-    pub task_lease_renew_interval_sec: u64,
 
     // Sandbox - Docker (default)
     pub sandbox_provider: String,
-    pub sandbox_min_isolation_class: String,
     pub sandbox_image: String,
     pub sandbox_idle_timeout: u64,
     pub sandbox_stopped_ttl: u64,
@@ -40,6 +38,7 @@ pub struct JoySafeterConfig {
     pub sandbox_workspace_root: Option<String>,
     pub sandbox_cpu: Option<f64>,
     pub sandbox_memory_mb: Option<u64>,
+    pub sandbox_disk_mb: Option<u64>,
 
     // -- Sandbox container hardening (P0.1) -----------------------------------
     // Matches the Python `Settings.sandbox_*` block of the same name. See
@@ -63,12 +62,17 @@ pub struct JoySafeterConfig {
     pub image_native: String,
 
     // Event batching
+    pub event_batch_enabled: bool,
     pub event_batch_max_size: usize,
     pub event_batch_max_delay_ms: u64,
     pub event_stream_enabled: bool,
     pub event_stream_key: String,
+    pub event_stream_group: String,
     pub event_stream_max_len: usize,
+    pub event_stream_batch_size: usize,
+    pub event_stream_block_ms: u64,
     pub event_stream_fallback_to_db: bool,
+    pub event_stream_pending_idle_ms: u64,
 
     // gRPC server
     pub grpc_host: String,
@@ -77,7 +81,10 @@ pub struct JoySafeterConfig {
 
     // Envoy network isolation
     pub envoy_enabled: bool,
+    pub envoy_image: String,
     pub envoy_socket_volume: String,
+    pub envoy_config_dir: String,
+    pub envoy_network: String,
     pub envoy_grpc_host: String,
     pub envoy_grpc_port: u16,
     pub envoy_container_name: String,
@@ -91,6 +98,9 @@ pub struct JoySafeterConfig {
     // Image builder
     pub image_builder_enabled: bool,
     pub image_builder_base: String,
+
+    // Vault
+    pub vault_encryption_key: Option<String>,
 
     // HA
     pub heartbeat_interval: u64,
@@ -118,22 +128,17 @@ impl JoySafeterConfig {
     /// Load configuration from environment variables.
     pub fn from_env() -> Self {
         Self {
-            enabled: env_bool("JOYSAFETER_ENABLED", true),
             instance_id: env_str("JOYSAFETER_INSTANCE_ID", &hostname()),
+            redis_queue_prefix: env_str("JOYSAFETER_REDIS_QUEUE_PREFIX", "joysafeter"),
 
             max_concurrent_tasks: env_usize("JOYSAFETER_MAX_CONCURRENT_TASKS", 200),
             max_scheduling_tasks: env_usize("JOYSAFETER_MAX_SCHEDULING_TASKS", 50),
             task_default_timeout: env_u64("JOYSAFETER_TASK_DEFAULT_TIMEOUT", 7200),
+            task_default_max_retries: env_u32("JOYSAFETER_TASK_DEFAULT_MAX_RETRIES", 2),
             task_retry_base_ms: env_u64("JOYSAFETER_TASK_RETRY_BASE_MS", 2000),
             task_retry_max_ms: env_u64("JOYSAFETER_TASK_RETRY_MAX_MS", 30000),
-            task_lease_ttl_sec: env_u64("JOYSAFETER_TASK_LEASE_TTL_SEC", 45),
-            task_lease_renew_interval_sec: env_u64("JOYSAFETER_TASK_LEASE_RENEW_INTERVAL_SEC", 10),
 
             sandbox_provider: env_str("JOYSAFETER_SANDBOX_PROVIDER", "docker"),
-            sandbox_min_isolation_class: env_str(
-                "JOYSAFETER_SANDBOX_MIN_ISOLATION_CLASS",
-                "shared_container",
-            ),
             sandbox_image: env_str("JOYSAFETER_SANDBOX_IMAGE", "joysafeter-claudecode:latest"),
             sandbox_idle_timeout: env_u64("JOYSAFETER_SANDBOX_IDLE_TIMEOUT", 300),
             sandbox_stopped_ttl: env_u64("JOYSAFETER_SANDBOX_STOPPED_TTL", 600),
@@ -154,6 +159,9 @@ impl JoySafeterConfig {
             sandbox_memory_mb: env::var("JOYSAFETER_SANDBOX_MEMORY_MB")
                 .ok()
                 .and_then(|v| v.parse().ok()),
+            sandbox_disk_mb: env::var("JOYSAFETER_SANDBOX_DISK_MB")
+                .ok()
+                .and_then(|v| v.parse().ok()),
 
             // Hardening defaults — keep the secure defaults; only flip these
             // off for targeted debugging. See settings.py for rationale.
@@ -169,6 +177,7 @@ impl JoySafeterConfig {
             image_codex: env_str("JOYSAFETER_IMAGE_CODEX", ""),
             image_native: env_str("JOYSAFETER_IMAGE_NATIVE", ""),
 
+            event_batch_enabled: env_bool("JOYSAFETER_EVENT_BATCH_ENABLED", true),
             event_batch_max_size: env_usize("JOYSAFETER_EVENT_BATCH_MAX_SIZE", 200),
             event_batch_max_delay_ms: env_u64("JOYSAFETER_EVENT_BATCH_MAX_DELAY_MS", 100),
             event_stream_enabled: env_bool("JOYSAFETER_EVENT_STREAM_ENABLED", false),
@@ -176,15 +185,28 @@ impl JoySafeterConfig {
                 "JOYSAFETER_EVENT_STREAM_KEY",
                 "joysafeter:joysafeter:events",
             ),
+            event_stream_group: env_str(
+                "JOYSAFETER_EVENT_STREAM_GROUP",
+                "joysafeter-joysafeter-event-workers",
+            ),
             event_stream_max_len: env_usize("JOYSAFETER_EVENT_STREAM_MAX_LEN", 100_000),
+            event_stream_batch_size: env_usize("JOYSAFETER_EVENT_STREAM_BATCH_SIZE", 100),
+            event_stream_block_ms: env_u64("JOYSAFETER_EVENT_STREAM_BLOCK_MS", 1000),
             event_stream_fallback_to_db: env_bool("JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB", true),
+            event_stream_pending_idle_ms: env_u64("JOYSAFETER_EVENT_STREAM_PENDING_IDLE_MS", 60000),
 
             grpc_host: env_str("JOYSAFETER_GRPC_HOST", "0.0.0.0"),
             grpc_port: env_u16("JOYSAFETER_GRPC_PORT", 9090),
             grpc_public_url: env::var("JOYSAFETER_GRPC_PUBLIC_URL").ok(),
 
             envoy_enabled: env_bool("JOYSAFETER_ENVOY_ENABLED", false),
+            envoy_image: env_str("JOYSAFETER_ENVOY_IMAGE", "envoyproxy/envoy:v1.31-latest"),
             envoy_socket_volume: env_str("JOYSAFETER_ENVOY_SOCKET_VOLUME", "joysafeter-sockets"),
+            envoy_config_dir: env_str(
+                "JOYSAFETER_ENVOY_CONFIG_DIR",
+                "/tmp/joysafeter-envoy-config",
+            ),
+            envoy_network: env_str("JOYSAFETER_ENVOY_NETWORK", "joysafeter-net"),
             envoy_grpc_host: env_str("JOYSAFETER_ENVOY_GRPC_HOST", "host.docker.internal"),
             envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 9090),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
@@ -196,6 +218,8 @@ impl JoySafeterConfig {
                 "JOYSAFETER_IMAGE_BUILDER_BASE",
                 "joysafeter-claudecode:latest",
             ),
+
+            vault_encryption_key: env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY").ok(),
 
             heartbeat_interval: env_u64("JOYSAFETER_HEARTBEAT_INTERVAL", 15),
             heartbeat_ttl: env_u64("JOYSAFETER_HEARTBEAT_TTL", 30),
@@ -234,52 +258,6 @@ impl JoySafeterConfig {
             "native" if !self.image_native.is_empty() => self.image_native.clone(),
             _ => self.sandbox_image.clone(),
         }
-    }
-
-    pub fn validate_provider_isolation(&self) -> anyhow::Result<()> {
-        if provider_isolation_rank(&self.sandbox_provider).is_none() {
-            anyhow::bail!(
-                "Unsupported JOYSAFETER_SANDBOX_PROVIDER={}. Expected docker, daytona, or e2b.",
-                self.sandbox_provider
-            );
-        }
-
-        let Some(provider_rank) = provider_isolation_rank(&self.sandbox_provider) else {
-            unreachable!("provider checked above");
-        };
-        let Some(min_rank) = isolation_class_rank(&self.sandbox_min_isolation_class) else {
-            anyhow::bail!(
-                "Unsupported JOYSAFETER_SANDBOX_MIN_ISOLATION_CLASS={}. Expected shared_container, remote_workspace, or isolated_vm.",
-                self.sandbox_min_isolation_class
-            );
-        };
-
-        if provider_rank < min_rank {
-            anyhow::bail!(
-                "JOYSAFETER_SANDBOX_PROVIDER={} does not satisfy JOYSAFETER_SANDBOX_MIN_ISOLATION_CLASS={}",
-                self.sandbox_provider,
-                self.sandbox_min_isolation_class
-            );
-        }
-        Ok(())
-    }
-}
-
-pub fn provider_isolation_rank(provider: &str) -> Option<u8> {
-    match provider {
-        "" | "docker" => Some(1),
-        "daytona" => Some(2),
-        "e2b" => Some(3),
-        _ => None,
-    }
-}
-
-pub fn isolation_class_rank(class: &str) -> Option<u8> {
-    match class {
-        "shared_container" => Some(1),
-        "remote_workspace" => Some(2),
-        "isolated_vm" => Some(3),
-        _ => None,
     }
 }
 
@@ -377,7 +355,7 @@ fn build_database_url() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{isolation_class_rank, parse_env_list, provider_isolation_rank, JoySafeterConfig};
+    use super::parse_env_list;
 
     #[test]
     fn parses_json_array_lists() {
@@ -399,31 +377,5 @@ mod tests {
     fn ignores_empty_list_items() {
         assert_eq!(parse_env_list(r#"["", "codex"]"#), vec!["codex"]);
         assert_eq!(parse_env_list(" , codex, "), vec!["codex"]);
-    }
-
-    #[test]
-    fn provider_isolation_rank_is_ordered_from_docker_to_e2b() {
-        assert_eq!(provider_isolation_rank("docker"), Some(1));
-        assert_eq!(provider_isolation_rank(""), Some(1));
-        assert_eq!(provider_isolation_rank("daytona"), Some(2));
-        assert_eq!(provider_isolation_rank("e2b"), Some(3));
-        assert_eq!(isolation_class_rank("shared_container"), Some(1));
-        assert_eq!(isolation_class_rank("remote_workspace"), Some(2));
-        assert_eq!(isolation_class_rank("isolated_vm"), Some(3));
-    }
-
-    #[test]
-    fn validate_provider_isolation_fails_when_provider_is_weaker_than_minimum() {
-        let mut config = JoySafeterConfig::from_env();
-        config.sandbox_provider = "docker".to_string();
-        config.sandbox_min_isolation_class = "isolated_vm".to_string();
-
-        assert!(config.validate_provider_isolation().is_err());
-
-        config.sandbox_provider = "e2b".to_string();
-        assert!(config.validate_provider_isolation().is_ok());
-
-        config.sandbox_min_isolation_class = "not-a-class".to_string();
-        assert!(config.validate_provider_isolation().is_err());
     }
 }

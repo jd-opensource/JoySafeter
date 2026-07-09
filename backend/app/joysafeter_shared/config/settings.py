@@ -595,10 +595,6 @@ settings = Settings()  # type: ignore[call-arg]
 class JoySafeterConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="JOYSAFETER_", extra="ignore")
 
-    enabled: bool = True
-
-    api_prefix: str = "/api/v1"
-
     redis_queue_prefix: str = "joysafeter"
 
     max_concurrent_tasks: int = 200
