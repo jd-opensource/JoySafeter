@@ -12,8 +12,10 @@ FROM is.jd.local/llm-app-dev-sys/autosec-langfuse-web-base:v20250824.101509-89d2
 
 WORKDIR /home/export/App/frontend
 
-# 安装 bun
-RUN curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
+# 安装 bun (需要 unzip)
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
     ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
 COPY package.json bun.lock ./
@@ -26,7 +28,9 @@ FROM is.jd.local/llm-app-dev-sys/autosec-langfuse-web-base:v20250824.101509-89d2
 
 WORKDIR /home/export/App/frontend
 
-RUN curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
     ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
 COPY --from=packages /home/export/App/frontend .
