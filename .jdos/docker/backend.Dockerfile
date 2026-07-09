@@ -137,9 +137,9 @@ ENTRYPOINT /bin/sh -c '\
   su -p - admin -c "\
     export PATH=/export/App/backend/.venv/bin:\$PATH; \
     export PYTHONPATH=/export/App/backend/.venv/lib/python3.12/site-packages:/export/App/backend; \
-    export JOYSAFETER_SERVICE_ROLE=${JOYSAFETER_SERVICE_ROLE:-all}; \
-    export BACKEND_PORT=${BACKEND_PORT:-8000}; \
-    export WORKERS=${WORKERS:-1}; \
+    export JOYSAFETER_SERVICE_ROLE=\${JOYSAFETER_SERVICE_ROLE:-all}; \
+    export BACKEND_PORT=\${BACKEND_PORT:-8000}; \
+    export WORKERS=\${WORKERS:-1}; \
     cd /export/App/backend; \
     case \${JOYSAFETER_SERVICE_ROLE} in \
       api)    APP_MODULE=app.joysafeter_api.main:app ;; \
