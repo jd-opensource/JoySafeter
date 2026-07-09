@@ -10,13 +10,17 @@ const SUPPORTED_ARCHIVE_SUFFIXES: &[&str] = &[".tar.gz", ".tgz", ".tar", ".zip"]
 const MAX_EXTRACTED_FILES: usize = 10_000;
 const MAX_EXTRACTED_BYTES: u64 = 1024 * 1024 * 1024;
 
+/// Return the directory an archive should be extracted into.
+///
+/// Extracts into the archive's PARENT directory (not a same-named subdir), so
+/// the archive's own internal structure decides the layout. This avoids double
+/// nesting like `foo/foo/...` when the zip already contains a top-level `foo/`.
 pub fn archive_extract_dir(path: &Path) -> Option<PathBuf> {
     let filename = path.file_name()?.to_str()?;
     let lower = filename.to_ascii_lowercase();
     for suffix in SUPPORTED_ARCHIVE_SUFFIXES {
         if lower.ends_with(suffix) {
-            let stem = &filename[..filename.len() - suffix.len()];
-            return Some(path.parent().unwrap_or_else(|| Path::new("")).join(stem));
+            return Some(path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf());
         }
     }
     None
