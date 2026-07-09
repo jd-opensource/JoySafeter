@@ -1,74 +1,152 @@
 //! Storage abstraction for reading files from different backends.
 //!
-//! Supports local filesystem and S3-compatible object storage (AWS S3, JD Cloud
-//! OSS, MinIO, Aliyun OSS). The backend is selected by the `STORAGE_BACKEND`
-//! environment variable (`local` or `s3`/`oss`).
+//! Provides a `StorageBackend` trait with `get` / `exists` methods and concrete
+//! implementations for local filesystem and S3-compatible object storage.
 //!
-//! This module is used by both `file_injection.rs` (workspace preload) and
-//! `harness_input_builder.rs` (gRPC file mount) to read file content from
-//! storage before injecting it into sandbox containers.
+//! The active backend is selected by `STORAGE_BACKEND` env var (`local`, `s3`,
+//! `oss`). Call [`create_backend()`] to get a boxed trait object, or use the
+//! convenience [`read_file()`] which creates/caches the backend automatically.
+//!
+//! ## Adding a new backend
+//!
+//! 1. Create a struct implementing `StorageBackend`.
+//! 2. Add a match arm in `create_backend()`.
+//! 3. Done — `read_file()` and all callers pick it up automatically.
 
 use std::env;
 use std::path::Path;
 use std::sync::OnceLock;
 
 use anyhow::Context;
+use async_trait::async_trait;
 use aws_config::{BehaviorVersion, Region};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Builder as S3ConfigBuilder;
 use aws_sdk_s3::Client as S3Client;
+use tokio::sync::OnceCell;
 use tracing::debug;
 
-/// Read a file from the configured storage backend.
+// ===========================================================================
+// Trait
+// ===========================================================================
+
+/// Async storage backend for file read operations.
 ///
-/// Returns the raw bytes of the file identified by `storage_key`.
-/// The backend is determined by `STORAGE_BACKEND` env var:
-///   - `local` (default): reads from `$STORAGE_LOCAL_PATH/{storage_key}`
-///   - `s3` / `oss`: downloads from S3-compatible object storage
-pub async fn read_file(storage_key: &str) -> anyhow::Result<Vec<u8>> {
-    let backend = storage_backend();
-    match backend.as_str() {
-        "local" => read_from_local(storage_key).await,
-        "s3" | "oss" => read_from_s3(storage_key).await,
-        other => anyhow::bail!("Unsupported STORAGE_BACKEND={other}. Expected local, s3, or oss."),
-    }
+/// Mirrors the Python `StorageBackend` protocol in
+/// `joysafeter_shared/storage/base.py`. The Rust orchestrator only needs read
+/// access (files are written by the Python API process).
+#[async_trait]
+pub trait StorageBackend: Send + Sync {
+    /// Read the full content of a file by storage key.
+    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>>;
+
+    /// Check if a file exists.
+    async fn exists(&self, key: &str) -> anyhow::Result<bool>;
 }
 
+// ===========================================================================
+// Factory
+// ===========================================================================
+
 /// Return the configured storage backend name (lowercase).
-pub fn storage_backend() -> String {
+pub fn backend_name() -> String {
     env::var("STORAGE_BACKEND")
         .unwrap_or_else(|_| "local".to_string())
         .to_lowercase()
 }
 
-// ---------------------------------------------------------------------------
-// Local filesystem backend
-// ---------------------------------------------------------------------------
-
-async fn read_from_local(storage_key: &str) -> anyhow::Result<Vec<u8>> {
-    let base = env::var("STORAGE_LOCAL_PATH").unwrap_or_else(|_| "data/files".to_string());
-    let base_path = Path::new(&base);
-    let base_abs = if base_path.is_absolute() {
-        base_path.to_path_buf()
-    } else {
-        env::current_dir()?.join(base_path)
-    };
-    let resolved_base = base_abs.canonicalize().unwrap_or(base_abs);
-    let candidate = resolved_base.join(storage_key);
-    let resolved = candidate
-        .canonicalize()
-        .with_context(|| format!("storage file not found: {storage_key}"))?;
-    if !resolved.starts_with(&resolved_base) {
-        anyhow::bail!("path traversal detected: {storage_key}");
+/// Create a storage backend instance based on `STORAGE_BACKEND` env var.
+///
+/// To add a new backend, add a match arm here.
+pub fn create_backend() -> anyhow::Result<Box<dyn StorageBackend>> {
+    let name = backend_name();
+    match name.as_str() {
+        "local" => {
+            let base = env::var("STORAGE_LOCAL_PATH")
+                .unwrap_or_else(|_| "data/files".to_string());
+            Ok(Box::new(LocalBackend::new(&base)?))
+        }
+        "s3" | "oss" => {
+            let config = S3Config::from_env()?;
+            Ok(Box::new(S3Backend::new(config)))
+        }
+        other => anyhow::bail!(
+            "Unsupported STORAGE_BACKEND={other}. Expected local, s3, or oss."
+        ),
     }
-    Ok(tokio::fs::read(resolved).await?)
 }
 
-// ---------------------------------------------------------------------------
-// S3-compatible object storage backend
-// ---------------------------------------------------------------------------
+/// Global singleton backend (lazily initialized).
+static BACKEND: OnceCell<Box<dyn StorageBackend>> = OnceCell::const_new();
 
-/// S3 configuration parsed from environment variables (cached).
+async fn get_backend() -> anyhow::Result<&'static dyn StorageBackend> {
+    let backend = BACKEND
+        .get_or_try_init(|| async { create_backend() })
+        .await?;
+    Ok(backend.as_ref())
+}
+
+/// Convenience: read a file from the configured storage backend.
+///
+/// This is the primary entry point used by `file_injection.rs` and
+/// `harness_input_builder.rs`.
+pub async fn read_file(storage_key: &str) -> anyhow::Result<Vec<u8>> {
+    let backend = get_backend().await?;
+    backend.get(storage_key).await
+}
+
+// ===========================================================================
+// Local filesystem backend
+// ===========================================================================
+
+pub struct LocalBackend {
+    base: std::path::PathBuf,
+}
+
+impl LocalBackend {
+    pub fn new(base_path: &str) -> anyhow::Result<Self> {
+        let path = Path::new(base_path);
+        let abs = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            env::current_dir()?.join(path)
+        };
+        Ok(Self {
+            base: abs.canonicalize().unwrap_or(abs),
+        })
+    }
+
+    fn resolve(&self, key: &str) -> anyhow::Result<std::path::PathBuf> {
+        let candidate = self.base.join(key);
+        let resolved = candidate
+            .canonicalize()
+            .with_context(|| format!("storage file not found: {key}"))?;
+        if !resolved.starts_with(&self.base) {
+            anyhow::bail!("path traversal detected: {key}");
+        }
+        Ok(resolved)
+    }
+}
+
+#[async_trait]
+impl StorageBackend for LocalBackend {
+    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+        let path = self.resolve(key)?;
+        Ok(tokio::fs::read(path).await?)
+    }
+
+    async fn exists(&self, key: &str) -> anyhow::Result<bool> {
+        match self.resolve(key) {
+            Ok(path) => Ok(path.exists()),
+            Err(_) => Ok(false),
+        }
+    }
+}
+
+// ===========================================================================
+// S3-compatible object storage backend
+// ===========================================================================
+
 struct S3Config {
     bucket: String,
     endpoint: Option<String>,
@@ -77,84 +155,127 @@ struct S3Config {
     region: String,
 }
 
-static S3_CONFIG: OnceLock<Option<S3Config>> = OnceLock::new();
+static S3_CONFIG_CACHE: OnceLock<Option<S3Config>> = OnceLock::new();
 
-fn get_s3_config() -> anyhow::Result<&'static S3Config> {
-    let config = S3_CONFIG.get_or_init(|| {
-        let bucket = env::var("STORAGE_S3_BUCKET")
-            .or_else(|_| env::var("STORAGE_OSS_BUCKET"))
-            .ok()?;
-        let endpoint = env::var("STORAGE_S3_ENDPOINT")
-            .or_else(|_| env::var("STORAGE_OSS_ENDPOINT"))
-            .ok();
-        let access_key = env::var("STORAGE_S3_ACCESS_KEY")
-            .or_else(|_| env::var("STORAGE_OSS_ACCESS_KEY"))
-            .ok()?;
-        let secret_key = env::var("STORAGE_S3_SECRET_KEY")
-            .or_else(|_| env::var("STORAGE_OSS_SECRET_KEY"))
-            .ok()?;
-        let region = env::var("STORAGE_S3_REGION")
-            .or_else(|_| env::var("STORAGE_OSS_REGION"))
-            .unwrap_or_else(|_| "us-east-1".to_string());
-        Some(S3Config {
-            bucket,
-            endpoint,
-            access_key,
-            secret_key,
-            region,
-        })
-    });
-    config
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("S3 storage not configured: missing STORAGE_S3_BUCKET and/or STORAGE_S3_ACCESS_KEY"))
-}
-
-async fn build_s3_client(config: &S3Config) -> S3Client {
-    let credentials = Credentials::new(
-        &config.access_key,
-        &config.secret_key,
-        None,
-        None,
-        "joysafeter-env",
-    );
-    let base_config = aws_config::defaults(BehaviorVersion::latest())
-        .region(Region::new(config.region.clone()))
-        .credentials_provider(credentials)
-        .load()
-        .await;
-    let mut builder = S3ConfigBuilder::from(&base_config).force_path_style(true);
-    if let Some(ref endpoint) = config.endpoint {
-        builder = builder.endpoint_url(endpoint);
+impl S3Config {
+    fn from_env() -> anyhow::Result<Self> {
+        let config = S3_CONFIG_CACHE.get_or_init(|| {
+            let bucket = env::var("STORAGE_S3_BUCKET")
+                .or_else(|_| env::var("STORAGE_OSS_BUCKET"))
+                .ok()?;
+            let endpoint = env::var("STORAGE_S3_ENDPOINT")
+                .or_else(|_| env::var("STORAGE_OSS_ENDPOINT"))
+                .ok();
+            let access_key = env::var("STORAGE_S3_ACCESS_KEY")
+                .or_else(|_| env::var("STORAGE_OSS_ACCESS_KEY"))
+                .ok()?;
+            let secret_key = env::var("STORAGE_S3_SECRET_KEY")
+                .or_else(|_| env::var("STORAGE_OSS_SECRET_KEY"))
+                .ok()?;
+            let region = env::var("STORAGE_S3_REGION")
+                .or_else(|_| env::var("STORAGE_OSS_REGION"))
+                .unwrap_or_else(|_| "us-east-1".to_string());
+            Some(S3Config {
+                bucket,
+                endpoint,
+                access_key,
+                secret_key,
+                region,
+            })
+        });
+        config
+            .as_ref()
+            .map(|c| S3Config {
+                bucket: c.bucket.clone(),
+                endpoint: c.endpoint.clone(),
+                access_key: c.access_key.clone(),
+                secret_key: c.secret_key.clone(),
+                region: c.region.clone(),
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "S3 storage not configured: missing STORAGE_S3_BUCKET and/or STORAGE_S3_ACCESS_KEY"
+                )
+            })
     }
-    S3Client::from_conf(builder.build())
 }
 
-async fn read_from_s3(storage_key: &str) -> anyhow::Result<Vec<u8>> {
-    let config = get_s3_config()?;
-    let client = build_s3_client(config).await;
-    debug!(
-        bucket = %config.bucket,
-        key = %storage_key,
-        "Downloading file from S3"
-    );
-    let resp = client
-        .get_object()
-        .bucket(&config.bucket)
-        .key(storage_key)
-        .send()
-        .await
-        .with_context(|| format!("S3 get_object failed: bucket={}, key={storage_key}", config.bucket))?;
-    let bytes = resp
-        .body
-        .collect()
-        .await
-        .with_context(|| format!("S3 body read failed: {storage_key}"))?
-        .into_bytes()
-        .to_vec();
-    debug!(
-        key = %storage_key,
-        size = bytes.len(),
-        "Downloaded file from S3"
-    );
-    Ok(bytes)
+pub struct S3Backend {
+    bucket: String,
+    endpoint: Option<String>,
+    access_key: String,
+    secret_key: String,
+    region: String,
+}
+
+impl S3Backend {
+    pub fn new(config: S3Config) -> Self {
+        Self {
+            bucket: config.bucket,
+            endpoint: config.endpoint,
+            access_key: config.access_key,
+            secret_key: config.secret_key,
+            region: config.region,
+        }
+    }
+
+    async fn client(&self) -> S3Client {
+        let credentials = Credentials::new(
+            &self.access_key,
+            &self.secret_key,
+            None,
+            None,
+            "joysafeter-env",
+        );
+        let base_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::new(self.region.clone()))
+            .credentials_provider(credentials)
+            .load()
+            .await;
+        let mut builder = S3ConfigBuilder::from(&base_config).force_path_style(true);
+        if let Some(ref endpoint) = self.endpoint {
+            builder = builder.endpoint_url(endpoint);
+        }
+        S3Client::from_conf(builder.build())
+    }
+}
+
+#[async_trait]
+impl StorageBackend for S3Backend {
+    async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+        let client = self.client().await;
+        debug!(bucket = %self.bucket, key = %key, "Downloading file from S3");
+        let resp = client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .with_context(|| {
+                format!("S3 get_object failed: bucket={}, key={key}", self.bucket)
+            })?;
+        let bytes = resp
+            .body
+            .collect()
+            .await
+            .with_context(|| format!("S3 body read failed: {key}"))?
+            .into_bytes()
+            .to_vec();
+        debug!(key = %key, size = bytes.len(), "Downloaded file from S3");
+        Ok(bytes)
+    }
+
+    async fn exists(&self, key: &str) -> anyhow::Result<bool> {
+        let client = self.client().await;
+        match client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
 }
