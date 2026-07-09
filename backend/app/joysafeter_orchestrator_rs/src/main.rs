@@ -37,12 +37,14 @@ async fn main() -> anyhow::Result<()> {
         info!("JoySafeter kernel disabled (JOYSAFETER_ENABLED=false)");
         return Ok(());
     }
+    config.validate_provider_isolation()?;
 
     info!(
         instance_id = %config.instance_id,
         grpc_addr = %config.grpc_addr(),
         max_concurrent_tasks = config.max_concurrent_tasks,
         sandbox_provider = %config.sandbox_provider,
+        sandbox_min_isolation_class = %config.sandbox_min_isolation_class,
         "Starting JoySafeter Orchestrator (Rust)"
     );
 
@@ -88,6 +90,45 @@ async fn main() -> anyhow::Result<()> {
         );
         Some(Arc::new(coord))
     };
+
+    let cluster_member_metadata = serde_json::json!({
+        "grpc_addr": config.grpc_addr().to_string(),
+        "sandbox_provider": config.sandbox_provider.clone(),
+        "event_stream_enabled": config.event_stream_enabled,
+    });
+    db::queries::register_cluster_member(
+        &db_pool,
+        &config.instance_id,
+        "orchestrator",
+        config.heartbeat_ttl as i64,
+        &cluster_member_metadata,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to register orchestrator member in Postgres: {e}"))?;
+    let _cluster_member_heartbeat = {
+        let pool = db_pool.clone();
+        let instance_id = config.instance_id.clone();
+        let heartbeat_interval = config.heartbeat_interval;
+        let heartbeat_ttl = config.heartbeat_ttl;
+        let metadata = cluster_member_metadata.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(heartbeat_interval)).await;
+                if let Err(e) = db::queries::heartbeat_cluster_member(
+                    &pool,
+                    &instance_id,
+                    "orchestrator",
+                    heartbeat_ttl as i64,
+                    &metadata,
+                )
+                .await
+                {
+                    warn!("Postgres cluster member heartbeat failed: {e}");
+                }
+            }
+        })
+    };
+    info!("Postgres cluster member heartbeat registered");
 
     // Initialize runtime config (hot-reloadable)
     let runtime_config = Arc::new(runtime_config::RuntimeConfig::from_config(&config));
@@ -258,6 +299,7 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         queue.clone(),
         config.clone(),
+        bridge_registry.clone(),
     );
     task_controller.recover_on_startup().await?;
     info!("Startup recovery complete");

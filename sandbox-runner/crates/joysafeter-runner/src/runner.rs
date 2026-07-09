@@ -886,7 +886,7 @@ mod tests {
         let allowed = vec!["Bash".to_string(), "Read".to_string()];
         let ask = vec!["mcp__github__*".to_string()];
 
-        write_settings_json(&dir, &mcp, &[], &allowed, &ask)
+        write_settings_json(&dir, "claude", &mcp, &[], &allowed, &ask)
             .await
             .unwrap();
 
@@ -897,19 +897,42 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(settings["permissions"]["allow"], serde_json::json!(["Bash", "Read"]));
-        assert_eq!(settings["permissions"]["ask"], serde_json::json!(["mcp__github__*"]));
-        assert_eq!(settings["enableAllProjectMcpServers"], serde_json::json!(true));
-        assert!(settings.get("mcpServers").is_none(), "MCP defs must NOT be in settings.json");
-        assert!(settings["permissions"].get("deny").is_none(), "no deny in official model");
+        assert_eq!(
+            settings["permissions"]["allow"],
+            serde_json::json!(["Bash", "Read"])
+        );
+        assert_eq!(
+            settings["permissions"]["ask"],
+            serde_json::json!(["mcp__github__*"])
+        );
+        assert_eq!(
+            settings["enableAllProjectMcpServers"],
+            serde_json::json!(true)
+        );
+        assert!(
+            settings.get("mcpServers").is_none(),
+            "MCP defs must NOT be in settings.json"
+        );
+        assert!(
+            settings["permissions"].get("deny").is_none(),
+            "no deny in official model"
+        );
 
         // .mcp.json: server definition lives here
         let mcp_json: serde_json::Value = serde_json::from_str(
-            &tokio::fs::read_to_string(dir.join(".mcp.json")).await.unwrap(),
+            &tokio::fs::read_to_string(dir.join(".mcp.json"))
+                .await
+                .unwrap(),
         )
         .unwrap();
-        assert_eq!(mcp_json["mcpServers"]["github"]["type"], serde_json::json!("http"));
-        assert_eq!(mcp_json["mcpServers"]["github"]["url"], serde_json::json!("https://mcp.example.com"));
+        assert_eq!(
+            mcp_json["mcpServers"]["github"]["type"],
+            serde_json::json!("http")
+        );
+        assert_eq!(
+            mcp_json["mcpServers"]["github"]["url"],
+            serde_json::json!("https://mcp.example.com")
+        );
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }

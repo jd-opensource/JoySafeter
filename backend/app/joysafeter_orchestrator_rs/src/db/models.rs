@@ -56,6 +56,7 @@ pub struct JoySafeterTask {
     pub timeout_sec: Option<i32>,
     pub retry_count: i32,
     pub max_retries: i32,
+    pub owner_epoch: Option<i64>,
 }
 
 #[derive(Debug, Clone, FromRow)]

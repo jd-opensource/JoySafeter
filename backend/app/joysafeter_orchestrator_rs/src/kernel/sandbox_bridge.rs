@@ -101,9 +101,13 @@ impl SandboxBridge {
     }
 
     /// Send a control input (HITL confirmation) and trigger the confirmation signal.
-    pub async fn send_control_input(&self, content: String) {
-        let _ = self.control_tx.send(content).await;
+    pub async fn send_control_input(
+        &self,
+        content: String,
+    ) -> Result<(), mpsc::error::SendError<String>> {
+        self.control_tx.send(content).await?;
         let _ = self.confirmation_tx.send(true);
+        Ok(())
     }
 
     /// Reset the confirmation signal (call after processing confirmation).
@@ -221,5 +225,24 @@ impl BridgeRegistry {
             };
             let _ = bridge.send_to_runner(msg).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use super::SandboxBridge;
+
+    #[tokio::test]
+    async fn send_control_input_reports_closed_queue() {
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+        let bridge = SandboxBridge::new(uuid::Uuid::nil(), runner_tx);
+        bridge.control_rx.lock().await.close();
+
+        let result = bridge.send_control_input("input".to_string()).await;
+
+        assert!(result.is_err());
+        assert!(!*bridge.confirmation_rx.lock().await.borrow());
     }
 }

@@ -16,6 +16,8 @@ use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::provider::SandboxProvider;
 
+const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;
+
 /// Background sandbox lifecycle management with full Python parity.
 ///
 /// Runs multiple async loops:
@@ -759,6 +761,14 @@ impl SandboxController {
             if exists {
                 continue;
             }
+            if is_recent_uncommitted_provider_sandbox(&item.labels, chrono::Utc::now().timestamp())
+            {
+                debug!(
+                    external_id = %external_id,
+                    "Skipping recent provider sandbox with no DB row; DB insert may still be in flight"
+                );
+                continue;
+            }
 
             match self.provider.destroy(&external_id).await {
                 Ok(_) => {
@@ -804,5 +814,46 @@ impl SandboxController {
             envoy.teardown_for_sandbox(sandbox_id).await?;
         }
         Ok(())
+    }
+}
+
+fn is_recent_uncommitted_provider_sandbox(
+    labels: &std::collections::HashMap<String, String>,
+    now_unix: i64,
+) -> bool {
+    labels
+        .get("joysafeter.created_at_unix")
+        .and_then(|raw| raw.parse::<i64>().ok())
+        .map(|created_at| {
+            created_at <= now_unix && now_unix - created_at < ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::{is_recent_uncommitted_provider_sandbox, ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS};
+
+    #[test]
+    fn recent_uncommitted_provider_sandbox_is_protected_from_orphan_cleanup() {
+        let now = 1_800_000_000;
+        let mut labels = HashMap::new();
+        labels.insert(
+            "joysafeter.created_at_unix".to_string(),
+            (now - ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS + 1).to_string(),
+        );
+
+        assert!(is_recent_uncommitted_provider_sandbox(&labels, now));
+
+        labels.insert(
+            "joysafeter.created_at_unix".to_string(),
+            (now - ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS).to_string(),
+        );
+        assert!(!is_recent_uncommitted_provider_sandbox(&labels, now));
+
+        labels.clear();
+        assert!(!is_recent_uncommitted_provider_sandbox(&labels, now));
     }
 }

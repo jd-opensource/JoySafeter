@@ -599,6 +599,9 @@ class JoySafeterConfig(BaseSettings):
 
     # Sandbox - Docker (default)
     sandbox_provider: str = "docker"
+    # Minimum provider isolation accepted by the runtime:
+    # shared_container=docker, remote_workspace=daytona+, isolated_vm=e2b only.
+    sandbox_min_isolation_class: str = "shared_container"
     sandbox_image: str = "joysafeter-claudecode:latest"
     sandbox_idle_timeout: int = 300
     sandbox_stopped_ttl: int = 600

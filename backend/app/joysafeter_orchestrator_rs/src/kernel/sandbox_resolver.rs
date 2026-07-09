@@ -360,8 +360,19 @@ impl SandboxResolver {
             "joysafeter.sandbox_id".to_string(),
             sandbox_db_id.to_string(),
         );
+        labels.insert(
+            "joysafeter.owner_instance_id".to_string(),
+            self.config.instance_id.clone(),
+        );
+        labels.insert(
+            "joysafeter.created_at_unix".to_string(),
+            chrono::Utc::now().timestamp().to_string(),
+        );
         if let Some(ref sid) = context.session_id {
             labels.insert("joysafeter.session_id".to_string(), sid.to_string());
+        }
+        if let Some(ref project_id) = context.project_id {
+            labels.insert("joysafeter.project_id".to_string(), project_id.clone());
         }
 
         let create_config = SandboxCreateConfig {
@@ -1145,6 +1156,14 @@ impl SandboxResolver {
                 (
                     "joysafeter.sandbox_id".to_string(),
                     sandbox_db_id.to_string(),
+                ),
+                (
+                    "joysafeter.owner_instance_id".to_string(),
+                    self.config.instance_id.clone(),
+                ),
+                (
+                    "joysafeter.created_at_unix".to_string(),
+                    chrono::Utc::now().timestamp().to_string(),
                 ),
             ]
             .into(),

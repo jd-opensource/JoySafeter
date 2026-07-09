@@ -33,6 +33,7 @@ struct SurvivingTask {
     task_id: String,
     handle: JoinHandle<Result<runner::TaskMetadata, Box<dyn std::error::Error + Send + Sync>>>,
     cancel_tx: Option<oneshot::Sender<()>>,
+    control_tx: mpsc::Sender<runner::RunnerControl>,
     /// Channel where the runner sends events — outlives the gRPC connection.
     /// Events accumulate here when no forwarder is draining them.
     event_rx: mpsc::Receiver<RunnerMessage>,
@@ -54,18 +55,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read the runner token from env or from a file (the entrypoint may have
     // moved it to a file and unset the env var to prevent leakage via
     // `docker exec env`).
-    let runner_token = std::env::var("JOYSAFETER_RUNNER_TOKEN")
-        .ok()
-        .or_else(|| {
-            std::env::var("JOYSAFETER_RUNNER_TOKEN_FILE")
-                .ok()
-                .and_then(|path| {
-                    let token = std::fs::read_to_string(&path).ok()?.trim().to_string();
-                    // Delete the file after reading — one-shot.
-                    let _ = std::fs::remove_file(&path);
-                    if token.is_empty() { None } else { Some(token) }
-                })
-        });
+    let runner_token = std::env::var("JOYSAFETER_RUNNER_TOKEN").ok().or_else(|| {
+        std::env::var("JOYSAFETER_RUNNER_TOKEN_FILE")
+            .ok()
+            .and_then(|path| {
+                let token = std::fs::read_to_string(&path).ok()?.trim().to_string();
+                // Delete the file after reading — one-shot.
+                let _ = std::fs::remove_file(&path);
+                if token.is_empty() {
+                    None
+                } else {
+                    Some(token)
+                }
+            })
+    });
 
     // Derive http.sock path from orchestrator URL (e.g. unix:///sockets/{id}/grpc.sock → http.sock)
     let http_sock_path = if orch_url.starts_with("unix://") {
@@ -405,6 +408,15 @@ async fn run_session(
                                         let _ = tx.send(());
                                     }
                                 }
+                                Some(proto::orchestrator_message::Payload::Input(input)) => {
+                                    if let Err(e) = task
+                                        .control_tx
+                                        .send(runner::RunnerControl::SendInput(input.content))
+                                        .await
+                                    {
+                                        warn!(error = %e, "Failed to forward input to surviving task");
+                                    }
+                                }
                                 Some(proto::orchestrator_message::Payload::Shutdown(shutdown)) => {
                                     info!(reason = %shutdown.reason, "Received Shutdown during surviving task");
                                     if let Some(tx) = task.cancel_tx.take() {
@@ -472,7 +484,6 @@ async fn run_session(
                 let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
                 let mut cancel_tx = Some(cancel_tx);
                 let (control_tx, control_rx) = mpsc::channel::<runner::RunnerControl>(64);
-                let control_tx = Some(control_tx);
 
                 // Create an intermediary channel that outlives the gRPC connection.
                 // Runner sends here; we forward to runner_tx (or buffer on disconnect).
@@ -530,6 +541,7 @@ async fn run_session(
                                     task_id: task_id_str.clone(),
                                     handle: task_handle,
                                     cancel_tx,
+                                    control_tx: control_tx.clone(),
                                     event_rx,
                                     unsent_event: Some(msg),
                                 });
@@ -555,13 +567,9 @@ async fn run_session(
                                             shutdown = true;
                                         }
                                         Some(proto::orchestrator_message::Payload::Input(input)) => {
-                                            if let Some(tx) = &control_tx {
-                                                let _ = tx
-                                                    .send(runner::RunnerControl::SendInput(
-                                                        input.content,
-                                                    ))
-                                                    .await;
-                                            }
+                                            let _ = control_tx
+                                                .send(runner::RunnerControl::SendInput(input.content))
+                                                .await;
                                         }
                                         Some(proto::orchestrator_message::Payload::MemoryUpdate(update)) => {
                                             runner::handle_memory_update(update, session_config).await;
@@ -575,6 +583,7 @@ async fn run_session(
                                         task_id: task_id_str.clone(),
                                         handle: task_handle,
                                         cancel_tx,
+                                        control_tx: control_tx.clone(),
                                         event_rx,
                                         unsent_event: None,
                                     });
@@ -587,6 +596,7 @@ async fn run_session(
                                         task_id: task_id_str.clone(),
                                         handle: task_handle,
                                         cancel_tx,
+                                        control_tx: control_tx.clone(),
                                         event_rx,
                                         unsent_event: None,
                                     });

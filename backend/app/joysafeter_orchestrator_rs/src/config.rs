@@ -16,9 +16,12 @@ pub struct JoySafeterConfig {
     pub task_default_timeout: u64,
     pub task_retry_base_ms: u64,
     pub task_retry_max_ms: u64,
+    pub task_lease_ttl_sec: u64,
+    pub task_lease_renew_interval_sec: u64,
 
     // Sandbox - Docker (default)
     pub sandbox_provider: String,
+    pub sandbox_min_isolation_class: String,
     pub sandbox_image: String,
     pub sandbox_idle_timeout: u64,
     pub sandbox_stopped_ttl: u64,
@@ -123,8 +126,14 @@ impl JoySafeterConfig {
             task_default_timeout: env_u64("JOYSAFETER_TASK_DEFAULT_TIMEOUT", 7200),
             task_retry_base_ms: env_u64("JOYSAFETER_TASK_RETRY_BASE_MS", 2000),
             task_retry_max_ms: env_u64("JOYSAFETER_TASK_RETRY_MAX_MS", 30000),
+            task_lease_ttl_sec: env_u64("JOYSAFETER_TASK_LEASE_TTL_SEC", 45),
+            task_lease_renew_interval_sec: env_u64("JOYSAFETER_TASK_LEASE_RENEW_INTERVAL_SEC", 10),
 
             sandbox_provider: env_str("JOYSAFETER_SANDBOX_PROVIDER", "docker"),
+            sandbox_min_isolation_class: env_str(
+                "JOYSAFETER_SANDBOX_MIN_ISOLATION_CLASS",
+                "shared_container",
+            ),
             sandbox_image: env_str("JOYSAFETER_SANDBOX_IMAGE", "joysafeter-claudecode:latest"),
             sandbox_idle_timeout: env_u64("JOYSAFETER_SANDBOX_IDLE_TIMEOUT", 300),
             sandbox_stopped_ttl: env_u64("JOYSAFETER_SANDBOX_STOPPED_TTL", 600),
@@ -226,6 +235,52 @@ impl JoySafeterConfig {
             _ => self.sandbox_image.clone(),
         }
     }
+
+    pub fn validate_provider_isolation(&self) -> anyhow::Result<()> {
+        if provider_isolation_rank(&self.sandbox_provider).is_none() {
+            anyhow::bail!(
+                "Unsupported JOYSAFETER_SANDBOX_PROVIDER={}. Expected docker, daytona, or e2b.",
+                self.sandbox_provider
+            );
+        }
+
+        let Some(provider_rank) = provider_isolation_rank(&self.sandbox_provider) else {
+            unreachable!("provider checked above");
+        };
+        let Some(min_rank) = isolation_class_rank(&self.sandbox_min_isolation_class) else {
+            anyhow::bail!(
+                "Unsupported JOYSAFETER_SANDBOX_MIN_ISOLATION_CLASS={}. Expected shared_container, remote_workspace, or isolated_vm.",
+                self.sandbox_min_isolation_class
+            );
+        };
+
+        if provider_rank < min_rank {
+            anyhow::bail!(
+                "JOYSAFETER_SANDBOX_PROVIDER={} does not satisfy JOYSAFETER_SANDBOX_MIN_ISOLATION_CLASS={}",
+                self.sandbox_provider,
+                self.sandbox_min_isolation_class
+            );
+        }
+        Ok(())
+    }
+}
+
+pub fn provider_isolation_rank(provider: &str) -> Option<u8> {
+    match provider {
+        "" | "docker" => Some(1),
+        "daytona" => Some(2),
+        "e2b" => Some(3),
+        _ => None,
+    }
+}
+
+pub fn isolation_class_rank(class: &str) -> Option<u8> {
+    match class {
+        "shared_container" => Some(1),
+        "remote_workspace" => Some(2),
+        "isolated_vm" => Some(3),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -322,7 +377,7 @@ fn build_database_url() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_env_list;
+    use super::{isolation_class_rank, parse_env_list, provider_isolation_rank, JoySafeterConfig};
 
     #[test]
     fn parses_json_array_lists() {
@@ -344,5 +399,31 @@ mod tests {
     fn ignores_empty_list_items() {
         assert_eq!(parse_env_list(r#"["", "codex"]"#), vec!["codex"]);
         assert_eq!(parse_env_list(" , codex, "), vec!["codex"]);
+    }
+
+    #[test]
+    fn provider_isolation_rank_is_ordered_from_docker_to_e2b() {
+        assert_eq!(provider_isolation_rank("docker"), Some(1));
+        assert_eq!(provider_isolation_rank(""), Some(1));
+        assert_eq!(provider_isolation_rank("daytona"), Some(2));
+        assert_eq!(provider_isolation_rank("e2b"), Some(3));
+        assert_eq!(isolation_class_rank("shared_container"), Some(1));
+        assert_eq!(isolation_class_rank("remote_workspace"), Some(2));
+        assert_eq!(isolation_class_rank("isolated_vm"), Some(3));
+    }
+
+    #[test]
+    fn validate_provider_isolation_fails_when_provider_is_weaker_than_minimum() {
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "docker".to_string();
+        config.sandbox_min_isolation_class = "isolated_vm".to_string();
+
+        assert!(config.validate_provider_isolation().is_err());
+
+        config.sandbox_provider = "e2b".to_string();
+        assert!(config.validate_provider_isolation().is_ok());
+
+        config.sandbox_min_isolation_class = "not-a-class".to_string();
+        assert!(config.validate_provider_isolation().is_err());
     }
 }

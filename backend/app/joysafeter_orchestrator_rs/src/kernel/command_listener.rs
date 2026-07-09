@@ -178,8 +178,7 @@ impl CommandListener {
             }
             "input" => {
                 let content = cmd["content"].as_str().unwrap_or("");
-                bridge.send_control_input(content.to_string()).await;
-                ack_ok = true;
+                ack_ok = bridge.send_control_input(content.to_string()).await.is_ok();
                 info!(sandbox_id = %sandbox_id, "Relayed input command");
             }
             "shutdown" => {

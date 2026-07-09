@@ -401,24 +401,37 @@ async fn multi_task_loop(
 
     loop {
         // Try to claim a task from DB
-        let task_id = match queries::claim_next_sandbox_task(pool, sandbox_db_id).await {
-            Ok(Some(task)) => Some(task.id),
+        let claimed_task = match queries::claim_next_sandbox_task(
+            pool,
+            sandbox_db_id,
+            &config.instance_id,
+            config.task_lease_ttl_sec as i64,
+        )
+        .await
+        {
+            Ok(Some(task)) => Some(task),
             _ => None,
         };
 
-        let task_id = match task_id {
-            Some(id) => {
+        let claimed_task = match claimed_task {
+            Some(task) => {
                 idle_wait = Duration::from_secs(1); // reset backoff on hit
-                id
+                task
             }
             None => {
                 // Wait for wakeup or heartbeat or stream message
                 tokio::select! {
                     _ = bridge.task_available.notified() => {
-                        match queries::claim_next_sandbox_task(pool, sandbox_db_id).await {
+                        match queries::claim_next_sandbox_task(
+                            pool,
+                            sandbox_db_id,
+                            &config.instance_id,
+                            config.task_lease_ttl_sec as i64,
+                        )
+                        .await {
                             Ok(Some(task)) => {
                                 idle_wait = Duration::from_secs(1);
-                                task.id
+                                task
                             }
                             _ => continue,
                         }
@@ -461,6 +474,8 @@ async fn multi_task_loop(
                 }
             }
         };
+        let task_id = claimed_task.id;
+        let owner_epoch = claimed_task.owner_epoch;
 
         info!(task_id = %task_id, sandbox_id = %sandbox_external_id, "Dispatching task");
 
@@ -606,6 +621,7 @@ async fn multi_task_loop(
             memory_subscribers.clone(),
             bridge_registry,
             &task_cancel,
+            owner_epoch,
         )
         .await;
 
@@ -693,6 +709,7 @@ async fn run_single_task(
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_registry: &BridgeRegistry,
     task_cancel: &tokio_util::sync::CancellationToken,
+    owner_epoch: Option<i64>,
 ) -> TaskResult {
     // I-NEW-2 fix: use per-task timeout_sec if set, else global default (matching Python)
     let timeout_secs = match queries::get_task(pool, task_id).await {
@@ -750,12 +767,33 @@ async fn run_single_task(
                 let _ = tx.send(cancel_msg).await;
                 // C-NEW-1 fix: update DB status immediately but continue the loop
                 // to receive the runner's Result+Idle confirmation (matching Python).
-          let _ = queries::transition_task_cas(pool, task_id, "running", "cancelled", None).await;
-                if let Some(sid) = session_id {
-                    let envelope = EventEnvelope::new(sid, "session.status_idle", json!({"stop_reason": {"type": "cancelled"}}))
-                        .with_task(task_id).with_sandbox(sandbox_db_id)
-                        .status_change(Some(serde_json::json!({"type":"cancelled"})));
-                    event_bus.publish(envelope).await;
+                let cas_ok = queries::transition_task_cas(pool, task_id, "running", "cancelled", None, owner_epoch)
+                    .await
+                    .unwrap_or(false);
+                if cas_ok {
+                    if let Some(sid) = session_id {
+                        let stop_reason = json!({"type": "cancelled"});
+                        let payload = json!({"task_id": task_id.to_string(), "stop_reason": stop_reason});
+                        let inserted = queries::update_session_status_and_insert_event(
+                            pool,
+                            sid,
+                            "idle",
+                            Some(&stop_reason),
+                            "session.status_idle",
+                            &payload,
+                        )
+                        .await
+                        .ok()
+                        .flatten();
+                        if let Some((event_id, seq)) = inserted {
+                            let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                                .with_task(task_id).with_sandbox(sandbox_db_id)
+                                .status_change(Some(stop_reason));
+                            envelope.event_id = Some(event_id);
+                            envelope.seq = Some(seq);
+                            event_bus.publish(envelope).await;
+                        }
+                    }
                 }
                 // Don't return — continue loop to drain runner's Result+Idle.
                 continue;
@@ -809,6 +847,28 @@ async fn run_single_task(
                 continue;
             }
 
+            control_input = recv_bridge_control_input(bridge), if !requires_action_pending => {
+                match control_input {
+                    Some(content) => {
+                        bridge.reset_confirmation();
+                        let input_msg = OrchestratorMessage {
+                            payload: Some(orchestrator_message::Payload::Input(
+                                proto::SendInput { content }
+                            )),
+                        };
+                        if tx.send(input_msg).await.is_err() {
+                            warn!(task_id = %task_id, "Failed to forward live input to runner");
+                            return TaskResult::Disconnected;
+                        }
+                    }
+                    None => {
+                        warn!(task_id = %task_id, "Control input channel closed during task");
+                        return TaskResult::Disconnected;
+                    }
+                }
+                continue;
+            }
+
             // Task deadline (only when NOT in HITL)
             _ = tokio::time::sleep_until(task_deadline), if !requires_action_pending => {
                 warn!(task_id = %task_id, timeout = timeout_secs, "Task deadline exceeded");
@@ -818,13 +878,38 @@ async fn run_single_task(
                     )),
                 };
                 let _ = tx.send(cancel_msg).await;
-                let _ = queries::transition_task_cas(pool, task_id, "running", "timeout",
-                    Some(&format!("Task timed out after {timeout_secs}s"))).await;
-                if let Some(sid) = session_id {
-                    let envelope = EventEnvelope::new(sid, "session.status_idle", json!({"stop_reason": {"type": "timeout"}}))
-                        .with_task(task_id).with_sandbox(sandbox_db_id)
-                        .status_change(Some(serde_json::json!({"type":"timeout"})));
-                    event_bus.publish(envelope).await;
+                let cas_ok = queries::transition_task_cas(
+                    pool,
+                    task_id,
+                    "running",
+                    "timeout",
+                    Some(&format!("Task timed out after {timeout_secs}s")),
+                    owner_epoch,
+                ).await.unwrap_or(false);
+                if cas_ok {
+                    if let Some(sid) = session_id {
+                        let stop_reason = json!({"type": "timeout"});
+                        let payload = json!({"task_id": task_id.to_string(), "stop_reason": stop_reason});
+                        let inserted = queries::update_session_status_and_insert_event(
+                            pool,
+                            sid,
+                            "idle",
+                            Some(&stop_reason),
+                            "session.status_idle",
+                            &payload,
+                        )
+                        .await
+                        .ok()
+                        .flatten();
+                        if let Some((event_id, seq)) = inserted {
+                            let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                                .with_task(task_id).with_sandbox(sandbox_db_id)
+                                .status_change(Some(stop_reason));
+                            envelope.event_id = Some(event_id);
+                            envelope.seq = Some(seq);
+                            event_bus.publish(envelope).await;
+                        }
+                    }
                 }
                 return TaskResult::Timeout;
             }
@@ -851,6 +936,7 @@ async fn run_single_task(
                             &mut task_completed, &mut task_error,
                             &custom_names, &mcp_names,
                             memory_subscribers.clone(), bridge_registry,
+                            owner_epoch,
                         ).await;
                         if done { task_done = true; }
                         if idle { got_idle = true; }
@@ -891,32 +977,38 @@ async fn run_single_task(
         // Got result but runner didn't send idle — emit session idle event
         bridge.remove_task_subscribers(task_id).await;
         if let Some(sid) = session_id {
-            let stop_reason = if task_error {
+            let stop_reason = if cancel_sent {
+                json!({"type": "cancelled"})
+            } else if task_error {
                 json!({"type": "error", "message": "Task failed"})
             } else {
                 json!({"type": "end_turn"})
             };
-            // Agentd three-step: DB sessions + DB events + broadcast
-            let _ = queries::update_session_status(pool, sid, "idle", Some(&stop_reason)).await;
             let payload = json!({"stop_reason": stop_reason});
-            let inserted =
-                queries::insert_session_event(pool, sid, "session.status_idle", &payload)
-                    .await
-                    .ok()
-                    .flatten();
-            let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                .with_task(task_id)
-                .with_sandbox(sandbox_db_id)
-                .status_change(Some(stop_reason));
+            let inserted = queries::update_session_status_and_insert_event(
+                pool,
+                sid,
+                "idle",
+                Some(&stop_reason),
+                "session.status_idle",
+                &payload,
+            )
+            .await
+            .ok()
+            .flatten();
             if let Some((event_id, seq)) = inserted {
+                let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                    .with_task(task_id)
+                    .with_sandbox(sandbox_db_id)
+                    .status_change(Some(stop_reason));
                 envelope.event_id = Some(event_id);
                 envelope.seq = Some(seq);
+                event_bus.publish(envelope).await;
             }
-            event_bus.publish(envelope).await;
         }
     }
 
-    if cancel_sent && !task_error {
+    if cancel_sent {
         TaskResult::Cancelled
     } else if task_completed {
         TaskResult::Completed
@@ -925,6 +1017,11 @@ async fn run_single_task(
     } else {
         TaskResult::Completed
     }
+}
+
+async fn recv_bridge_control_input(bridge: &Arc<SandboxBridge>) -> Option<String> {
+    let mut ctrl_rx = bridge.control_rx.lock().await;
+    ctrl_rx.recv().await
 }
 
 /// Handle a single message during task execution.
@@ -946,6 +1043,7 @@ async fn handle_task_message(
     mcp_names: &std::collections::HashSet<String>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_registry: &BridgeRegistry,
+    owner_epoch: Option<i64>,
 ) -> (bool, bool) {
     let payload = match &msg.payload {
         Some(p) => p,
@@ -1081,11 +1179,12 @@ async fn handle_task_message(
                     "running",
                     status,
                     harness_result.error.as_deref(),
+                    owner_epoch,
                 )
                 .await
                 .unwrap_or(false)
             } else {
-                queries::transition_task_cas(pool, task_id, "running", status, None)
+                queries::transition_task_cas(pool, task_id, "running", status, None, owner_epoch)
                     .await
                     .unwrap_or(false)
             };
@@ -1157,11 +1256,8 @@ async fn handle_task_message(
             // Remove task subscribers
             bridge.remove_task_subscribers(task_id).await;
 
-            // Agentd pattern: three-step direct write for session idle.
-            // 1. Update sessions table (authoritative status)
-            // 2. Insert session_events row (with proper seq)
-            // 3. Redis publish (for cross-selivery)
-            // No dependency on broadcast channels or async subscribers.
+            // DB status and replayable status event are written atomically;
+            // Redis fan-out happens after the commit.
             if cas_ok {
                 if let Some(sid) = session_id {
                     let stop_reason = if *task_error {
@@ -1169,27 +1265,29 @@ async fn handle_task_message(
                     } else {
                         json!({"type": "end_turn"})
                     };
-                    // Step 1: Direct DB write — sessions table
-                    let _ =
-                        queries::update_session_status(pool, sid, "idle", Some(&stop_reason)).await;
-                    // Step 2: Direct DB write — session_events table (with seq)
                     let payload =
                         json!({"task_id": task_id.to_string(), "stop_reason": stop_reason});
-                    let inserted =
-                        queries::insert_session_event(pool, sid, "session.status_idle", &payload)
-                            .await
-                            .ok()
-                            .flatten();
-                    // Step 3: event_bus.publish for Redis pub/sub + SSE broadcast
-                    let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                        .with_task(task_id)
-                        .with_sandbox(sandbox_db_id)
-                        .status_change(Some(stop_reason));
+                    let inserted = queries::update_session_status_and_insert_event(
+                        pool,
+                        sid,
+                        "idle",
+                        Some(&stop_reason),
+                        "session.status_idle",
+                        &payload,
+                    )
+                    .await
+                    .ok()
+                    .flatten();
                     if let Some((event_id, seq)) = inserted {
+                        // Step 3: event_bus.publish for Redis pub/sub + SSE broadcast
+                        let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                            .with_task(task_id)
+                            .with_sandbox(sandbox_db_id)
+                            .status_change(Some(stop_reason));
                         envelope.event_id = Some(event_id);
                         envelope.seq = Some(seq);
+                        event_bus.publish(envelope).await;
                     }
-                    event_bus.publish(envelope).await;
                 }
             }
 
@@ -1231,29 +1329,28 @@ async fn handle_task_message(
                     let stop_reason =
                         compute_stop_reason(last_status.as_deref(), last_error.as_deref());
 
-                    // Agentd three-step: DB sessions + DB events + broadcast
-                    let _ =
-                        queries::update_session_status(pool, sid, "idle", Some(&stop_reason)).await;
                     let payload =
                         json!({"task_id": task_id.to_string(), "stop_reason": stop_reason});
-                    let inserted =
-                        queries::insert_session_event(pool, sid, "session.status_idle", &payload)
-                            .await
-                            .ok()
-                            .flatten();
-                    let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                        .with_task(task_id)
-                        .with_sandbox(sandbox_db_id)
-                        .status_change(Some(stop_reason.clone()));
+                    let inserted = queries::update_session_status_and_insert_event(
+                        pool,
+                        sid,
+                        "idle",
+                        Some(&stop_reason),
+                        "session.status_idle",
+                        &payload,
+                    )
+                    .await
+                    .ok()
+                    .flatten();
                     if let Some((event_id, seq)) = inserted {
+                        let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                            .with_task(task_id)
+                            .with_sandbox(sandbox_db_id)
+                            .status_change(Some(stop_reason.clone()));
                         envelope.event_id = Some(event_id);
                         envelope.seq = Some(seq);
+                        event_bus.publish(envelope).await;
                     }
-                    event_bus.publish(envelope).await;
-
-                    // E4 fix: also update session status directly via DB
-                    let _ =
-                        queries::update_session_status(pool, sid, "idle", Some(&stop_reason)).await;
                 }
             }
 
@@ -1466,6 +1563,7 @@ async fn handle_reconnect_with_event_loop(
         memory_subscribers.clone(),
         bridge_registry,
         &task_cancel,
+        task.owner_epoch,
     )
     .await;
 
@@ -1669,6 +1767,7 @@ async fn send_setup(
         timeout_sec: None,
         retry_count: 0,
         max_retries: 0,
+        owner_epoch: None,
     };
 
     let builder = HarnessInputBuilder::new(pool.clone());
