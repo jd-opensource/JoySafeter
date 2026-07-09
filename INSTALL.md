@@ -139,7 +139,9 @@ bun run dev
   port, SkillSpector, and Compose prerequisites used by `./deploy.sh local`.
 - If you are on Apple Silicon or Colima, let `deploy.sh local` auto-detect the Docker daemon
   architecture, or force it with `./deploy.sh local --arch arm64`.
-- If database tables are missing after a manual Compose start, run
+- If database tables are missing after a manual Compose start with local Redis, run
   `docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init`.
 - If you use cloud Redis, leave off the `local-redis` profile and set `REDIS_URL` in `deploy/.env`.
-  For cloud PostgreSQL, override the `POSTGRES_*` variables there as well.
+  For cloud Redis migrations, use
+  `docker compose --profile rust-orchestrator --profile init run --rm db-init`. For cloud PostgreSQL,
+  override the `POSTGRES_*` variables there as well.

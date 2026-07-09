@@ -7,6 +7,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SH = PROJECT_ROOT / "deploy" / "deploy.sh"
 COMPOSE = PROJECT_ROOT / "deploy" / "docker-compose.yml"
 ENV_EXAMPLE = PROJECT_ROOT / "deploy" / ".env.example"
+DEPLOY_README = PROJECT_ROOT / "deploy" / "README.md"
+INSTALL = PROJECT_ROOT / "INSTALL.md"
+INSTALL_CN = PROJECT_ROOT / "INSTALL_CN.md"
 DOCKER_DIR = PROJECT_ROOT / "deploy" / "docker"
 
 
@@ -134,3 +137,13 @@ def test_env_example_documents_local_multiarch_defaults() -> None:
     assert "ORCHESTRATOR_HEALTH_BIND_HOST" not in body
     assert "ORCHESTRATOR_HEALTH_PORT_HOST" not in body
     assert "Rust orchestrator 当前只暴露 gRPC 9090" in body
+
+
+def test_docs_separate_local_and_cloud_redis_migration_commands() -> None:
+    cloud_migration = "docker compose --profile rust-orchestrator --profile init run --rm db-init"
+    local_migration = "docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init"
+
+    for doc in (DEPLOY_README, INSTALL, INSTALL_CN):
+        body = doc.read_text()
+        assert local_migration in body
+        assert cloud_migration in body

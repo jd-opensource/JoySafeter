@@ -142,7 +142,8 @@ bun run dev
   Docker socket、端口、SkillSpector 和 Compose 配置。
 - Apple Silicon 或 Colima 环境建议让 `deploy.sh local` 自动识别 Docker daemon 架构；也可以用
   `./deploy.sh local --arch arm64` 强制指定。
-- 如果绕过脚本手工启动 Compose 后发现数据库表缺失，运行
+- 如果绕过脚本手工启动 Compose 后发现数据库表缺失，且使用本地 Redis，运行
   `docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init`。
 - 如果使用云 Redis，不启用 `local-redis` profile，并在 `deploy/.env` 设置 `REDIS_URL`；云
+  Redis 迁移使用 `docker compose --profile rust-orchestrator --profile init run --rm db-init`。云
   PostgreSQL 同理覆盖 `POSTGRES_*` 变量。

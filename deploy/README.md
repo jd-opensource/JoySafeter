@@ -304,10 +304,17 @@ WORKER_HEALTH_PORT_HOST=8002
 
 ### 数据库表缺失或 Alembic 迁移没跑怎么办？
 
-`./deploy.sh local` 会自动运行 `db-init`。如果你绕过脚本手工运行 compose，需要自己执行：
+`./deploy.sh local` 会自动运行 `db-init`。如果你绕过脚本手工运行 compose，需要自己执行迁移。
+使用本地 Redis 时：
 
 ```bash
 docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init
+```
+
+使用云 Redis 时不要启用 `local-redis` profile：
+
+```bash
+docker compose --profile rust-orchestrator --profile init run --rm db-init
 ```
 
 ### 云 Redis / 云 PostgreSQL 怎么用？
