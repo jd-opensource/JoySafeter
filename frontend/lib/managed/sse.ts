@@ -24,18 +24,21 @@ const NON_RECONNECT_ERROR_CODES = new Set([
 ])
 
 export function useSessionStream(sessionId: string, enabled: boolean) {
-  const [eventState, setEventState] = useState<{ sessionId: string; events: SessionEvent[] }>({
-    sessionId: '',
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const streamScope = `${sessionId}:${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const [eventState, setEventState] = useState<{ scope: string; events: SessionEvent[] }>({
+    scope: '',
     events: [],
   })
-  const [connectionState, setConnectionState] = useState<{ sessionId: string; connected: boolean }>(
+  const [connectionState, setConnectionState] = useState<{ scope: string; connected: boolean }>(
     {
-      sessionId: '',
+      scope: '',
       connected: false,
     },
   )
-  const [errorState, setErrorState] = useState<{ sessionId: string; error: ApiError | null }>({
-    sessionId: '',
+  const [errorState, setErrorState] = useState<{ scope: string; error: ApiError | null }>({
+    scope: '',
     error: null,
   })
   const abortRef = useRef<AbortController | null>(null)
@@ -65,7 +68,6 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
       if (csrfToken) {
         headers['X-CSRF-Token'] = csrfToken
       }
-      const { currentProjectId, currentOrgId } = useProjectStore.getState()
       if (currentOrgId) {
         headers['X-Org-Id'] = currentOrgId
       }
@@ -120,7 +122,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
                     user_action: 'relogin',
                   })
             if (!isCurrentRun()) return
-            setErrorState({ sessionId, error: apiError })
+            setErrorState({ scope: streamScope, error: apiError })
             if (!isUnauthorizedApiError(apiError)) {
               scheduleReconnect()
             }
@@ -139,7 +141,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
                 user_action: 'retry',
               })
           if (!isCurrentRun()) return
-          setErrorState({ sessionId, error: apiError })
+          setErrorState({ scope: streamScope, error: apiError })
           if (process.env.NODE_ENV !== 'production') {
             // eslint-disable-next-line no-console
             console.debug('[session-sse] connect failed', {
@@ -157,8 +159,8 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
           return
         }
         if (!isCurrentRun()) return
-        setConnectionState({ sessionId, connected: true })
-        setErrorState({ sessionId, error: null })
+        setConnectionState({ scope: streamScope, connected: true })
+        setErrorState({ scope: streamScope, error: null })
         if (process.env.NODE_ENV !== 'production') {
           // eslint-disable-next-line no-console
           console.debug('[session-sse] connected', url)
@@ -189,7 +191,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
               }
               // On a session switch the accumulated bucket belongs to the
               // previous session; start fresh rather than appending to it.
-              const base = prev.sessionId === sessionId ? prev.events : []
+              const base = prev.scope === streamScope ? prev.events : []
               const seen = new Set(base.map(eventKey))
               const next = [...base]
               for (const event of toAdd) {
@@ -198,45 +200,55 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
                 seen.add(key)
                 next.push(event)
               }
-              return { sessionId, events: next }
+              return { scope: streamScope, events: next }
             })
           }
           flushTimer = null
         }
 
+        const processLine = (line: string) => {
+          if (!line.startsWith('data:')) return
+          const data = line.slice(5).trim()
+          if (!data || data === '[DONE]') return
+          try {
+            const parsed = JSON.parse(data)
+            if (parsed.lagged) {
+              lagged = true
+              return
+            }
+            const event = parsed as SessionEvent
+            if (event.seq && event.seq > lastSeqRef.current) {
+              lastSeqRef.current = event.seq
+            }
+            if (process.env.NODE_ENV !== 'production') {
+              const source =
+                (event as SessionEvent & { _sse_source?: string })._sse_source || 'unknown'
+              // eslint-disable-next-line no-console
+              console.debug('[session-sse]', source, event.type, event.seq)
+            }
+            batch.push(event)
+          } catch {
+            // ignore parse errors
+          }
+        }
+
         while (true) {
           if (!isCurrentRun()) break
           const { done, value } = await reader.read()
-          if (done) break
+          if (done) {
+            if (buffer.trim()) {
+              processLine(buffer)
+              buffer = ''
+            }
+            break
+          }
 
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n')
           buffer = lines.pop() || ''
 
           for (const line of lines) {
-            if (!line.startsWith('data:')) continue
-            const data = line.slice(5).trim()
-            if (!data || data === '[DONE]') continue
-            try {
-              const parsed = JSON.parse(data)
-              if (parsed.lagged) {
-                lagged = true
-                continue
-              }
-              const event = parsed as SessionEvent
-              if (event.seq && event.seq > lastSeqRef.current) {
-                lastSeqRef.current = event.seq
-              }
-              if (process.env.NODE_ENV !== 'production') {
-                const source =
-                  (event as SessionEvent & { _sse_source?: string })._sse_source || 'unknown'
-                // eslint-disable-next-line no-console
-                console.debug('[session-sse]', source, event.type, event.seq)
-              }
-              batch.push(event)
-            } catch {
-              // ignore parse errors
-            }
+            processLine(line)
           }
 
           if (batch.length > 0 && !flushTimer) {
@@ -253,11 +265,11 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
         if (flushTimer) clearTimeout(flushTimer)
 
         if (!isCurrentRun()) return
-        setConnectionState({ sessionId, connected: false })
+        setConnectionState({ scope: streamScope, connected: false })
         scheduleReconnect()
       } catch (e) {
         if (isCurrentRun() && (e as Error).name !== 'AbortError') {
-          setConnectionState({ sessionId, connected: false })
+          setConnectionState({ scope: streamScope, connected: false })
           scheduleReconnect()
         }
       }
@@ -276,7 +288,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
       abortRef.current?.abort()
       abortRef.current = null
     }
-  }, [sessionId, enabled])
+  }, [sessionId, enabled, currentOrgId, currentProjectId, streamScope])
 
   const clear = useCallback(() => {
     setEventState((prev) => ({ ...prev, events: [] }))
@@ -284,10 +296,9 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
   }, [])
 
   return {
-    events: enabled && eventState.sessionId === sessionId ? eventState.events : [],
-    connected:
-      enabled && connectionState.sessionId === sessionId ? connectionState.connected : false,
-    error: enabled && errorState.sessionId === sessionId ? errorState.error : null,
+    events: enabled && eventState.scope === streamScope ? eventState.events : [],
+    connected: enabled && connectionState.scope === streamScope ? connectionState.connected : false,
+    error: enabled && errorState.scope === streamScope ? errorState.error : null,
     clear,
   }
 }
