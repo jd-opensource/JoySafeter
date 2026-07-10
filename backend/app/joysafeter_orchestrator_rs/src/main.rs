@@ -15,7 +15,6 @@ mod sandbox;
 
 use std::sync::Arc;
 
-use bollard::Docker;
 use config::JoySafeterConfig;
 use tracing::{error, info, warn};
 
@@ -110,22 +109,22 @@ async fn main() -> anyhow::Result<()> {
     info!("Session broadcaster initialized");
 
     // Initialize sandbox provider (select based on config)
-    let sandbox_provider: Arc<dyn sandbox::provider::SandboxProvider> = match config
-        .sandbox_provider
-        .as_str()
-    {
+    let (sandbox_provider, xds_service): (
+        Arc<dyn sandbox::provider::SandboxProvider>,
+        Option<Arc<sandbox::lds_backend::DeltaXdsServer>>,
+    ) = match config.sandbox_provider.as_str() {
         "daytona" => {
             if config.daytona_api_url.is_empty() || config.daytona_api_key.is_empty() {
                 return Err(anyhow::anyhow!(
                     "JOYSAFETER_DAYTONA_API_URL and JOYSAFETER_DAYTONA_API_KEY required"
                 ));
             }
-            Arc::new(sandbox::daytona::DaytonaProvider::new(
+            (Arc::new(sandbox::daytona::DaytonaProvider::new(
                 &config.daytona_api_url,
                 &config.daytona_api_key,
                 config.daytona_target.as_deref().unwrap_or("us"),
                 &config.daytona_snapshot,
-            ))
+            )), None)
         }
         "e2b" => {
             if config.e2b_api_key.is_empty() || config.e2b_template_id.is_empty() {
@@ -133,16 +132,20 @@ async fn main() -> anyhow::Result<()> {
                     "JOYSAFETER_E2B_API_KEY and JOYSAFETER_E2B_TEMPLATE_ID required"
                 ));
             }
-            Arc::new(sandbox::e2b::E2bProvider::new(
+            (Arc::new(sandbox::e2b::E2bProvider::new(
                 config
                     .e2b_api_url
                     .as_deref()
                     .unwrap_or("https://api.e2b.app"),
                 &config.e2b_api_key,
                 &config.e2b_template_id,
-            ))
+            )), None)
         }
-        "docker" | "" => Arc::new(sandbox::docker::DockerProvider::new(&config).await?),
+        "docker" | "" => {
+            let docker_provider = sandbox::docker::DockerProvider::new(&config).await?;
+            let xds = docker_provider.xds_service();
+            (Arc::new(docker_provider) as Arc<dyn sandbox::provider::SandboxProvider>, xds)
+        }
         other => {
             return Err(anyhow::anyhow!(
                     "Unsupported JOYSAFETER_SANDBOX_PROVIDER={other}. Expected docker, daytona, or e2b."
@@ -154,96 +157,10 @@ async fn main() -> anyhow::Result<()> {
         "Sandbox provider initialized"
     );
 
-    // Initialize Envoy network isolation when enabled.
-    //
-    // The LDS backend is selected by `envoy_xds_mode`:
-    //   filesystem → FilesystemLds (writes lds.json into the Envoy container)
-    //   grpc       → GrpcLds backed by a DeltaXdsServer that is also registered
-    //                on the orchestrator gRPC server below.
-    // `xds_service` is Some only in grpc mode; it is handed to start_grpc_server.
-    let mut xds_service: Option<Arc<sandbox::lds_backend::DeltaXdsServer>> = None;
-    let envoy_manager = if config.envoy_enabled {
-        let docker = Arc::new(
-            Docker::connect_with_local_defaults()
-                .map_err(|e| anyhow::anyhow!("failed to connect to Docker for Envoy: {e}"))?,
-        );
-        let (lds, cds): (
-            Arc<dyn sandbox::lds_backend::LdsBackend>,
-            Arc<dyn sandbox::lds_backend::CdsBackend>,
-        ) = if config.envoy_xds_mode == "grpc" {
-            let server = sandbox::lds_backend::DeltaXdsServer::new();
-            xds_service = Some(server.clone());
-            (
-                Arc::new(sandbox::lds_backend::GrpcLds::new(server.clone())),
-                Arc::new(sandbox::lds_backend::GrpcCds::new(server)),
-            )
-        } else {
-            (
-                Arc::new(sandbox::lds_backend::FilesystemLds::new(
-                    docker.clone(),
-                    config.envoy_container_name.clone(),
-                )),
-                Arc::new(sandbox::lds_backend::FilesystemCds::new(
-                    docker.clone(),
-                    config.envoy_container_name.clone(),
-                )),
-            )
-        };
-        let manager = Arc::new(sandbox::envoy::EnvoyManager::new(
-            docker,
-            sandbox::envoy::EnvoyConfig {
-                envoy_image: config.envoy_image.clone(),
-                socket_volume: config.envoy_socket_volume.clone(),
-                config_dir: config.envoy_config_dir.clone(),
-                envoy_network: config.envoy_network.clone(),
-                grpc_target_host: config.envoy_grpc_host.clone(),
-                grpc_target_port: config.envoy_grpc_port,
-                container_name: config.envoy_container_name.clone(),
-                xds_mode: config.envoy_xds_mode.clone(),
-            },
-            lds,
-            cds,
-        ));
-        if let Err(e) = manager.init().await {
-            warn!("EnvoyManager initialization failed: {e}");
-            None
-        } else {
-            // Rebuild LDS state for still-live sandboxes from the DB. The listener
-            // set is not persisted (filesystem lds.json is wiped by init(); the
-            // gRPC Delta xDS state is in-memory), so without this a restarted
-            // orchestrator would leave running sandboxes without network egress.
-            if let Err(e) = manager
-                .recover_from_db(&db_pool, &config.llm_egress_allowed_hosts)
-                .await
-            {
-                warn!("EnvoyManager LDS recovery from DB failed: {e}");
-            }
-            info!(xds_mode = %config.envoy_xds_mode, "EnvoyManager initialized");
-            Some(manager)
-        }
-    } else {
-        info!("Envoy network isolation disabled");
-        None
-    };
-
-    let _image_builder = if config.image_builder_enabled {
-        match Docker::connect_with_local_defaults() {
-            Ok(docker) => {
-                info!("ImageBuilder initialized");
-                Some(sandbox::image_builder::ImageBuilder::new(
-                    Arc::new(docker),
-                    &config.image_builder_base,
-                ))
-            }
-            Err(e) => {
-                warn!("ImageBuilder initialization failed: {e}");
-                None
-            }
-        }
-    } else {
-        info!("Image builder disabled");
-        None
-    };
+    // Provider startup: Envoy init, DB recovery, ImageBuilder, etc.
+    if let Err(e) = sandbox_provider.on_startup(&db_pool).await {
+        warn!("Provider on_startup failed: {e}");
+    }
 
     // Initialize sandbox bridge registry
     let bridge_registry = kernel::sandbox_bridge::BridgeRegistry::new();
@@ -275,7 +192,6 @@ async fn main() -> anyhow::Result<()> {
             queue.clone(),
             bridge_registry.clone(),
             sandbox_provider.clone(),
-            envoy_manager.clone(),
             redis_coordinator.clone(),
             config.clone(),
             runtime_config.clone(),
@@ -309,7 +225,6 @@ async fn main() -> anyhow::Result<()> {
         queue.clone(),
         bridge_registry.clone(),
         sandbox_provider.clone(),
-        envoy_manager.clone(),
         config.clone(),
     );
     info!("Task scheduler started");
@@ -324,7 +239,6 @@ async fn main() -> anyhow::Result<()> {
         queue.clone(),
         bridge_registry.clone(),
         sandbox_provider.clone(),
-        envoy_manager.clone(),
         redis_coordinator.clone(),
         config.clone(),
         runtime_config.clone(),

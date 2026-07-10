@@ -112,15 +112,27 @@ pub fn select_strategies(
         strategies.push(InjectionStrategy::GrpcStream);
     }
 
-    // 3. Host mount (if workspace dir is bind-mounted)
+    // 3. Host mount (if provider supports it AND workspace dir is bind-mounted)
     if has_workspace_mount {
         strategies.push(InjectionStrategy::HostMount);
     }
 
-    // 4. Provider fallback (docker cp)
+    // 4. Provider fallback (docker cp / platform API)
     strategies.push(InjectionStrategy::ProviderFallback);
 
     strategies
+}
+
+/// Select strategies using provider capabilities (preferred over bool overload).
+pub fn select_strategies_from_capabilities(
+    runner_capabilities: &[String],
+    capabilities: &super::provider::ProviderCapabilities,
+    has_workspace_context: bool,
+) -> Vec<InjectionStrategy> {
+    select_strategies(
+        runner_capabilities,
+        capabilities.has_host_mount && has_workspace_context,
+    )
 }
 
 fn has_capability(runner_capabilities: &[String], capability: &str) -> bool {

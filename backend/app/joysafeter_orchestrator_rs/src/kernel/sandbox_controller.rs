@@ -13,7 +13,6 @@ use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
-use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::provider::SandboxProvider;
 
 const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;
@@ -30,7 +29,6 @@ pub struct SandboxController {
     queue: TaskQueue,
     bridge_registry: BridgeRegistry,
     provider: Arc<dyn SandboxProvider>,
-    envoy_manager: Option<Arc<EnvoyManager>>,
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
@@ -42,7 +40,6 @@ impl SandboxController {
         queue: TaskQueue,
         bridge_registry: BridgeRegistry,
         provider: Arc<dyn SandboxProvider>,
-        envoy_manager: Option<Arc<EnvoyManager>>,
         redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
         config: JoySafeterConfig,
         runtime_config: Arc<RuntimeConfig>,
@@ -52,7 +49,6 @@ impl SandboxController {
             queue,
             bridge_registry,
             provider,
-            envoy_manager,
             redis_coordinator,
             config,
             runtime_config,
@@ -649,7 +645,7 @@ impl SandboxController {
     }
 
     async fn manage_pool_inner(&self) -> anyhow::Result<()> {
-        if self.config.envoy_enabled {
+        if self.provider.capabilities().has_egress_management {
             debug!("Skipping warm pool provisioning while default sandbox networking is limited");
             return Ok(());
         }
@@ -679,7 +675,6 @@ impl SandboxController {
                 let resolver = SandboxResolver::new(
                     self.pool.clone(),
                     self.provider.clone(),
-                    self.envoy_manager.clone(),
                     self.config.clone(),
                 );
                 for _ in 0..to_create {
@@ -817,10 +812,7 @@ impl SandboxController {
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        if let Some(ref envoy) = self.envoy_manager {
-            envoy.teardown_for_sandbox(sandbox_id).await?;
-        }
-        Ok(())
+        self.provider.teardown_networking(sandbox_id).await
     }
 }
 
