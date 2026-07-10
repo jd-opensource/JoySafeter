@@ -79,6 +79,14 @@ pub struct JoySafeterConfig {
     pub grpc_port: u16,
     pub grpc_public_url: Option<String>,
 
+    // gRPC server capacity
+    pub grpc_max_connections: usize,
+    pub grpc_max_executions: usize,
+    pub grpc_max_memories_per_store: i64,
+
+    // Scheduler
+    pub scheduler_batch_size: usize,
+
     // Envoy network isolation
     pub envoy_enabled: bool,
     pub envoy_image: String,
@@ -198,6 +206,15 @@ impl JoySafeterConfig {
             grpc_host: env_str("JOYSAFETER_GRPC_HOST", "0.0.0.0"),
             grpc_port: env_u16("JOYSAFETER_GRPC_PORT", 9090),
             grpc_public_url: env::var("JOYSAFETER_GRPC_PUBLIC_URL").ok(),
+
+            grpc_max_connections: env_usize("JOYSAFETER_GRPC_MAX_CONNECTIONS", 2000),
+            grpc_max_executions: env_usize("JOYSAFETER_GRPC_MAX_EXECUTIONS", 1000),
+            grpc_max_memories_per_store: env::var("JOYSAFETER_MAX_MEMORIES_PER_STORE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2000),
+
+            scheduler_batch_size: env_usize("JOYSAFETER_SCHEDULER_BATCH_SIZE", 10),
 
             envoy_enabled: env_bool("JOYSAFETER_ENVOY_ENABLED", false),
             envoy_image: env_str("JOYSAFETER_ENVOY_IMAGE", "envoyproxy/envoy:v1.31-latest"),

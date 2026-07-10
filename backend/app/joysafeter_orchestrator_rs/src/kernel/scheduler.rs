@@ -60,7 +60,7 @@ pub fn spawn_scheduler(
         let mut next_repair_sweep = Instant::now();
 
         loop {
-            let available_slots = scheduling_semaphore.available_permits().min(10);
+            let available_slots = scheduling_semaphore.available_permits().min(config.scheduler_batch_size);
             if available_slots == 0 {
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 continue;

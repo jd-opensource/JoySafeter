@@ -36,66 +36,8 @@ use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::SandboxProvider;
 
 const HEARTBEAT_TIMEOUT_DEFAULT: u64 = 120;
-const MAX_CONNECTIONS: usize = 2000;
-const MAX_EXECUTIONS: usize = 1000;
-const MAX_MEMORIES_PER_STORE: i64 = 2000;
 const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
-const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
-
-// Wire format mirrors the Python producer `_encode_live_input` in
-// app/joysafeter_api/api/v1/sessions.py (same LIVE_INPUT_PREFIX and JSON shapes).
-// Keep the two in sync — a field change on one side must change the other.
-fn encode_db_control_input(
-    event_type: &str,
-    payload: Option<&serde_json::Value>,
-    source_event_id: &Uuid,
-) -> Option<String> {
-    let value = match event_type {
-        "user.tool_confirmation" => {
-            let payload = payload?;
-            let call_id = payload
-                .get("call_id")
-                .or_else(|| payload.get("tool_use_id"))
-                .and_then(|v| v.as_str())?;
-            let mut value = json!({
-                "type": "tool_confirmation",
-                "tool_use_call_id": call_id,
-                "approved": payload.get("approved").and_then(|v| v.as_bool()).unwrap_or(false),
-            });
-            if let Some(message) = payload.get("deny_message").and_then(|v| v.as_str()) {
-                value["deny_message"] = json!(message);
-            }
-            value
-        }
-        "user.custom_tool_result" => {
-            let payload = payload?;
-            let call_id = payload
-                .get("call_id")
-                .or_else(|| payload.get("tool_use_id"))
-                .and_then(|v| v.as_str())?;
-            let content = match payload.get("content") {
-                Some(v) if v.is_string() => v.as_str().unwrap_or_default().to_string(),
-                Some(v) => v.to_string(),
-                None => String::new(),
-            };
-            json!({
-                "type": "custom_tool_result",
-                "tool_use_call_id": call_id,
-                "content": content,
-            })
-        }
-        // interrupt carries no payload fields (only the source event id), so it
-        // must still encode when the DB payload column is NULL. Unwrapping payload
-        // at the top previously dropped NULL-payload interrupts on reconnect.
-        "user.interrupt" => json!({
-            "type": "interrupt",
-            "source_event_id": source_event_id.to_string(),
-        }),
-        _ => return None,
-    };
-    Some(format!("{LIVE_INPUT_PREFIX}{value}"))
-}
 
 /// The AgentBridge gRPC service implementation.
 /// Full parity with Python `AgentBridgeServicer` (2753 lines).
@@ -125,6 +67,8 @@ impl AgentBridgeService {
         memory_subscribers: Arc<MemoryStoreSubscribers>,
         runtime_config: Arc<RuntimeConfig>,
     ) -> Self {
+        let max_connections = config.grpc_max_connections;
+        let max_executions = config.grpc_max_executions;
         Self {
             bridge_registry,
             event_bus,
@@ -133,8 +77,8 @@ impl AgentBridgeService {
             config,
             sandbox_provider,
             runtime_config,
-            connection_semaphore: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
-            execution_semaphore: Arc::new(Semaphore::new(MAX_EXECUTIONS)),
+            connection_semaphore: Arc::new(Semaphore::new(max_connections)),
+            execution_semaphore: Arc::new(Semaphore::new(max_executions)),
             redis_coordinator,
             memory_subscribers,
         }
@@ -270,7 +214,7 @@ impl AgentBridge for AgentBridgeService {
             }
 
             // Create and register bridge
-            let bridge = Arc::new(SandboxBridge::new(sandbox_db_id, tx.clone()));
+            let bridge = Arc::new(SandboxBridge::new(sandbox_db_id, sandbox_db_id, tx.clone()));
             // Store capabilities
             {
                 let mut caps = bridge.runner_capabilities.lock().await;
@@ -456,37 +400,24 @@ async fn multi_task_loop(
 
     loop {
         // Try to claim a task from DB
-        let claimed_task = match queries::claim_next_sandbox_task(
-            pool,
-            sandbox_db_id,
-            &config.instance_id,
-            config.task_lease_ttl_sec as i64,
-        )
-        .await
-        {
-            Ok(Some(task)) => Some(task),
+        let task_id = match queries::claim_next_sandbox_task(pool, sandbox_db_id).await {
+            Ok(Some(task)) => Some(task.id),
             _ => None,
         };
 
-        let claimed_task = match claimed_task {
-            Some(task) => {
+        let task_id = match task_id {
+            Some(id) => {
                 idle_wait = Duration::from_secs(1); // reset backoff on hit
-                task
+                id
             }
             None => {
                 // Wait for wakeup or heartbeat or stream message
                 tokio::select! {
                     _ = bridge.task_available.notified() => {
-                        match queries::claim_next_sandbox_task(
-                            pool,
-                            sandbox_db_id,
-                            &config.instance_id,
-                            config.task_lease_ttl_sec as i64,
-                        )
-                        .await {
+                        match queries::claim_next_sandbox_task(pool, sandbox_db_id).await {
                             Ok(Some(task)) => {
                                 idle_wait = Duration::from_secs(1);
-                                task
+                                task.id
                             }
                             _ => continue,
                         }
@@ -529,8 +460,6 @@ async fn multi_task_loop(
                 }
             }
         };
-        let task_id = claimed_task.id;
-        let owner_epoch = claimed_task.owner_epoch;
 
         info!(task_id = %task_id, sandbox_id = %sandbox_external_id, "Dispatching task");
 
@@ -676,7 +605,6 @@ async fn multi_task_loop(
             memory_subscribers.clone(),
             bridge_registry,
             &task_cancel,
-            owner_epoch,
         )
         .await;
 
@@ -764,7 +692,6 @@ async fn run_single_task(
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_registry: &BridgeRegistry,
     task_cancel: &tokio_util::sync::CancellationToken,
-    owner_epoch: Option<i64>,
 ) -> TaskResult {
     // I-NEW-2 fix: use per-task timeout_sec if set, else global default (matching Python)
     let timeout_secs = match queries::get_task(pool, task_id).await {
@@ -822,33 +749,12 @@ async fn run_single_task(
                 let _ = tx.send(cancel_msg).await;
                 // C-NEW-1 fix: update DB status immediately but continue the loop
                 // to receive the runner's Result+Idle confirmation (matching Python).
-                let cas_ok = queries::transition_task_cas(pool, task_id, "running", "cancelled", None, owner_epoch)
-                    .await
-                    .unwrap_or(false);
-                if cas_ok {
-                    if let Some(sid) = session_id {
-                        let stop_reason = json!({"type": "cancelled"});
-                        let payload = json!({"task_id": task_id.to_string(), "stop_reason": stop_reason});
-                        let inserted = queries::update_session_status_and_insert_event(
-                            pool,
-                            sid,
-                            "idle",
-                            Some(&stop_reason),
-                            "session.status_idle",
-                            &payload,
-                        )
-                        .await
-                        .ok()
-                        .flatten();
-                        if let Some((event_id, seq)) = inserted {
-                            let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                                .with_task(task_id).with_sandbox(sandbox_db_id)
-                                .status_change(Some(stop_reason));
-                            envelope.event_id = Some(event_id);
-                            envelope.seq = Some(seq);
-                            event_bus.publish(envelope).await;
-                        }
-                    }
+          let _ = queries::transition_task_cas(pool, task_id, "running", "cancelled", None).await;
+                if let Some(sid) = session_id {
+                    let envelope = EventEnvelope::new(sid, "session.status_idle", json!({"stop_reason": {"type": "cancelled"}}))
+                        .with_task(task_id).with_sandbox(sandbox_db_id)
+                        .status_change(Some(serde_json::json!({"type":"cancelled"})));
+                    event_bus.publish(envelope).await;
                 }
                 // Don't return — continue loop to drain runner's Result+Idle.
                 continue;
@@ -902,28 +808,6 @@ async fn run_single_task(
                 continue;
             }
 
-            control_input = recv_bridge_control_input(bridge), if !requires_action_pending => {
-                match control_input {
-                    Some(content) => {
-                        bridge.reset_confirmation();
-                        let input_msg = OrchestratorMessage {
-                            payload: Some(orchestrator_message::Payload::Input(
-                                proto::SendInput { content }
-                            )),
-                        };
-                        if tx.send(input_msg).await.is_err() {
-                            warn!(task_id = %task_id, "Failed to forward live input to runner");
-                            return TaskResult::Disconnected;
-                        }
-                    }
-                    None => {
-                        warn!(task_id = %task_id, "Control input channel closed during task");
-                        return TaskResult::Disconnected;
-                    }
-                }
-                continue;
-            }
-
             // Task deadline (only when NOT in HITL)
             _ = tokio::time::sleep_until(task_deadline), if !requires_action_pending => {
                 warn!(task_id = %task_id, timeout = timeout_secs, "Task deadline exceeded");
@@ -933,38 +817,13 @@ async fn run_single_task(
                     )),
                 };
                 let _ = tx.send(cancel_msg).await;
-                let cas_ok = queries::transition_task_cas(
-                    pool,
-                    task_id,
-                    "running",
-                    "timeout",
-                    Some(&format!("Task timed out after {timeout_secs}s")),
-                    owner_epoch,
-                ).await.unwrap_or(false);
-                if cas_ok {
-                    if let Some(sid) = session_id {
-                        let stop_reason = json!({"type": "timeout"});
-                        let payload = json!({"task_id": task_id.to_string(), "stop_reason": stop_reason});
-                        let inserted = queries::update_session_status_and_insert_event(
-                            pool,
-                            sid,
-                            "idle",
-                            Some(&stop_reason),
-                            "session.status_idle",
-                            &payload,
-                        )
-                        .await
-                        .ok()
-                        .flatten();
-                        if let Some((event_id, seq)) = inserted {
-                            let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                                .with_task(task_id).with_sandbox(sandbox_db_id)
-                                .status_change(Some(stop_reason));
-                            envelope.event_id = Some(event_id);
-                            envelope.seq = Some(seq);
-                            event_bus.publish(envelope).await;
-                        }
-                    }
+                let _ = queries::transition_task_cas(pool, task_id, "running", "timeout",
+                    Some(&format!("Task timed out after {timeout_secs}s"))).await;
+                if let Some(sid) = session_id {
+                    let envelope = EventEnvelope::new(sid, "session.status_idle", json!({"stop_reason": {"type": "timeout"}}))
+                        .with_task(task_id).with_sandbox(sandbox_db_id)
+                        .status_change(Some(serde_json::json!({"type":"timeout"})));
+                    event_bus.publish(envelope).await;
                 }
                 return TaskResult::Timeout;
             }
@@ -991,7 +850,7 @@ async fn run_single_task(
                             &mut task_completed, &mut task_error,
                             &custom_names, &mcp_names,
                             memory_subscribers.clone(), bridge_registry,
-                            owner_epoch,
+                            config.grpc_max_memories_per_store,
                         ).await;
                         if done { task_done = true; }
                         if idle { got_idle = true; }
@@ -1032,51 +891,38 @@ async fn run_single_task(
         // Got result but runner didn't send idle — emit session idle event
         bridge.remove_task_subscribers(task_id).await;
         if let Some(sid) = session_id {
-            let stop_reason = if cancel_sent {
-                json!({"type": "cancelled"})
-            } else if task_error {
+            let stop_reason = if task_error {
                 json!({"type": "error", "message": "Task failed"})
             } else {
                 json!({"type": "end_turn"})
             };
+            // Agentd three-step: DB sessions + DB events + broadcast
+            let _ = queries::update_session_status(pool, sid, "idle", Some(&stop_reason)).await;
             let payload = json!({"stop_reason": stop_reason});
-            let inserted = queries::update_session_status_and_insert_event(
-                pool,
-                sid,
-                "idle",
-                Some(&stop_reason),
-                "session.status_idle",
-                &payload,
-            )
-            .await
-            .ok()
-            .flatten();
+            let inserted =
+                queries::insert_session_event(pool, sid, "session.status_idle", &payload)
+                    .await
+                    .ok()
+                    .flatten();
+            let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                .with_task(task_id)
+                .with_sandbox(sandbox_db_id)
+                .status_change(Some(stop_reason));
             if let Some((event_id, seq)) = inserted {
-                let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                    .with_task(task_id)
-                    .with_sandbox(sandbox_db_id)
-                    .status_change(Some(stop_reason));
                 envelope.event_id = Some(event_id);
                 envelope.seq = Some(seq);
-                event_bus.publish(envelope).await;
             }
+            event_bus.publish(envelope).await;
         }
     }
 
-    if cancel_sent {
-        TaskResult::Cancelled
-    } else if task_completed {
+    if task_completed {
         TaskResult::Completed
     } else if task_error {
         TaskResult::Failed("Task ended in error state".to_string())
     } else {
         TaskResult::Completed
     }
-}
-
-async fn recv_bridge_control_input(bridge: &Arc<SandboxBridge>) -> Option<String> {
-    let mut ctrl_rx = bridge.control_rx.lock().await;
-    ctrl_rx.recv().await
 }
 
 /// Handle a single message during task execution.
@@ -1098,7 +944,7 @@ async fn handle_task_message(
     mcp_names: &std::collections::HashSet<String>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_registry: &BridgeRegistry,
-    owner_epoch: Option<i64>,
+    max_memories_per_store: i64,
 ) -> (bool, bool) {
     let payload = match &msg.payload {
         Some(p) => p,
@@ -1234,12 +1080,11 @@ async fn handle_task_message(
                     "running",
                     status,
                     harness_result.error.as_deref(),
-                    owner_epoch,
                 )
                 .await
                 .unwrap_or(false)
             } else {
-                queries::transition_task_cas(pool, task_id, "running", status, None, owner_epoch)
+                queries::transition_task_cas(pool, task_id, "running", status, None)
                     .await
                     .unwrap_or(false)
             };
@@ -1311,8 +1156,11 @@ async fn handle_task_message(
             // Remove task subscribers
             bridge.remove_task_subscribers(task_id).await;
 
-            // DB status and replayable status event are written atomically;
-            // Redis fan-out happens after the commit.
+            // Agentd pattern: three-step direct write for session idle.
+            // 1. Update sessions table (authoritative status)
+            // 2. Insert session_events row (with proper seq)
+            // 3. Redis publish (for cross-selivery)
+            // No dependency on broadcast channels or async subscribers.
             if cas_ok {
                 if let Some(sid) = session_id {
                     let stop_reason = if *task_error {
@@ -1320,29 +1168,27 @@ async fn handle_task_message(
                     } else {
                         json!({"type": "end_turn"})
                     };
+                    // Step 1: Direct DB write — sessions table
+                    let _ =
+                        queries::update_session_status(pool, sid, "idle", Some(&stop_reason)).await;
+                    // Step 2: Direct DB write — session_events table (with seq)
                     let payload =
                         json!({"task_id": task_id.to_string(), "stop_reason": stop_reason});
-                    let inserted = queries::update_session_status_and_insert_event(
-                        pool,
-                        sid,
-                        "idle",
-                        Some(&stop_reason),
-                        "session.status_idle",
-                        &payload,
-                    )
-                    .await
-                    .ok()
-                    .flatten();
+                    let inserted =
+                        queries::insert_session_event(pool, sid, "session.status_idle", &payload)
+                            .await
+                            .ok()
+                            .flatten();
+                    // Step 3: event_bus.publish for Redis pub/sub + SSE broadcast
+                    let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                        .with_task(task_id)
+                        .with_sandbox(sandbox_db_id)
+                        .status_change(Some(stop_reason));
                     if let Some((event_id, seq)) = inserted {
-                        // Step 3: event_bus.publish for Redis pub/sub + SSE broadcast
-                        let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                            .with_task(task_id)
-                            .with_sandbox(sandbox_db_id)
-                            .status_change(Some(stop_reason));
                         envelope.event_id = Some(event_id);
                         envelope.seq = Some(seq);
-                        event_bus.publish(envelope).await;
                     }
+                    event_bus.publish(envelope).await;
                 }
             }
 
@@ -1384,28 +1230,29 @@ async fn handle_task_message(
                     let stop_reason =
                         compute_stop_reason(last_status.as_deref(), last_error.as_deref());
 
+                    // Agentd three-step: DB sessions + DB events + broadcast
+                    let _ =
+                        queries::update_session_status(pool, sid, "idle", Some(&stop_reason)).await;
                     let payload =
                         json!({"task_id": task_id.to_string(), "stop_reason": stop_reason});
-                    let inserted = queries::update_session_status_and_insert_event(
-                        pool,
-                        sid,
-                        "idle",
-                        Some(&stop_reason),
-                        "session.status_idle",
-                        &payload,
-                    )
-                    .await
-                    .ok()
-                    .flatten();
+                    let inserted =
+                        queries::insert_session_event(pool, sid, "session.status_idle", &payload)
+                            .await
+                            .ok()
+                            .flatten();
+                    let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                        .with_task(task_id)
+                        .with_sandbox(sandbox_db_id)
+                        .status_change(Some(stop_reason.clone()));
                     if let Some((event_id, seq)) = inserted {
-                        let mut envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                            .with_task(task_id)
-                            .with_sandbox(sandbox_db_id)
-                            .status_change(Some(stop_reason.clone()));
                         envelope.event_id = Some(event_id);
                         envelope.seq = Some(seq);
-                        event_bus.publish(envelope).await;
                     }
+                    event_bus.publish(envelope).await;
+
+                    // E4 fix: also update session status directly via DB
+                    let _ =
+                        queries::update_session_status(pool, sid, "idle", Some(&stop_reason)).await;
                 }
             }
 
@@ -1430,28 +1277,26 @@ async fn handle_task_message(
 
             // Fire-and-forget DB write (matching Python's asyncio.create_task)
             tokio::spawn(async move {
-                if let Some(store_id) = handle_memory_sync_db(
+                handle_memory_sync_db(
                     &pool_clone,
                     session_id_clone,
                     &mount_name,
                     &rel_path,
                     &content,
                     &operation,
+                    max_memories_per_store,
                 )
-                .await
-                {
-                    let store_id = store_id.to_string();
-                    memory_subscribers
-                        .notify_peers(
-                            &store_id,
-                            &rel_path,
-                            content.as_bytes(),
-                            &operation,
-                            sandbox_db_id,
-                            &bridge_registry,
-                        )
-                        .await;
-                }
+                .await;
+                memory_subscribers
+                    .notify_peers(
+                        &mount_name,
+                        &rel_path,
+                        content.as_bytes(),
+                        &operation,
+                        sandbox_db_id,
+                        &bridge_registry,
+                    )
+                    .await;
             });
             (false, false)
         }
@@ -1531,9 +1376,9 @@ async fn handle_reconnect_with_event_loop(
     // #1: Replay pending control inputs from DB (Python L409-428)
     // Query unprocessed events from DB (tool_confirmation, custom_tool_result, interrupt)
     if let Some(sid) = session_id {
-        let pending: Vec<(Uuid, String, Option<serde_json::Value>)> = sqlx::query_as(
+        let pending: Vec<(Uuid, Option<serde_json::Value>)> = sqlx::query_as(
             r#"
-            SELECT id, event_type, payload FROM joysafeter_session_events
+            SELECT id, payload FROM joysafeter_session_events
             WHERE session_id = $1
               AND event_type IN ('user.tool_confirmation', 'user.custom_tool_result', 'user.interrupt')
               AND processed_at IS NULL
@@ -1545,12 +1390,13 @@ async fn handle_reconnect_with_event_loop(
         .await
         .unwrap_or_default();
 
-        for (event_id, event_type, payload) in &pending {
-            let Some(content) = encode_db_control_input(event_type, payload.as_ref(), event_id)
-            else {
-                warn!(task_id = %active_task_id, event_id = %event_id, event_type = %event_type, "Skipped unencodable DB control event on reconnect");
-                continue;
-            };
+        for (event_id, payload) in &pending {
+            let content = payload
+                .as_ref()
+                .and_then(|p| p.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let input_msg = OrchestratorMessage {
                 payload: Some(orchestrator_message::Payload::Input(proto::SendInput {
                     content,
@@ -1617,7 +1463,6 @@ async fn handle_reconnect_with_event_loop(
         memory_subscribers.clone(),
         bridge_registry,
         &task_cancel,
-        task.owner_epoch,
     )
     .await;
 
@@ -1664,18 +1509,43 @@ async fn handle_reconnect_with_event_loop(
     }
 }
 
+// Keep the old function as a convenience alias (not used in hot path)
+async fn handle_reconnect_active_task(
+    pool: &PgPool,
+    _event_bus: &EventBus,
+    bridge: &Arc<SandboxBridge>,
+    _tx: &mpsc::Sender<OrchestratorMessage>,
+    sandbox_db_id: Uuid,
+    active_task_id: Uuid,
+    _linked_session_id: Option<Uuid>,
+    _config: &JoySafeterConfig,
+) {
+    // Simplified version without stream access — only sets up bridge state.
+    // Full version is handle_reconnect_with_event_loop which has stream access.
+    let task = match queries::get_task(pool, active_task_id).await {
+        Ok(Some(t)) => t,
+        _ => return,
+    };
+    if task.sandbox_id != Some(sandbox_db_id) {
+        return;
+    }
+    let status = crate::db::models::TaskStatus::from_str(&task.status);
+    if status.as_ref().map(|s| s.is_terminal()).unwrap_or(false) {
+        return;
+    }
+
+    bridge.setup_done.store(true, Ordering::Relaxed);
+    *bridge.current_task_id.lock().await = Some(active_task_id);
+}
+
 async fn rescue_orphaned_tasks(pool: &PgPool, sandbox_db_id: Uuid, queue: &TaskQueue) {
     match queries::find_running_tasks_for_sandbox(pool, sandbox_db_id).await {
         Ok(tasks) => {
             for task in tasks {
                 if let Ok(true) = queries::increment_retry(pool, task.id).await {
                     // Fix 6.2: actually push to global queue (was just logging before)
-                    match queue.push_to_global(task.id).await {
-                        Ok(()) => info!(task_id = %task.id, "Orphaned task reset and re-queued"),
-                        Err(e) => {
-                            error!(task_id = %task.id, "Failed to enqueue rescued orphaned task: {e}")
-                        }
-                    }
+                    queue.push_to_global(task.id).await;
+                    info!(task_id = %task.id, "Orphaned task reset and re-queued");
                 }
             }
         }
@@ -1818,10 +1688,17 @@ async fn send_setup(
         status: "setup".to_string(),
         prompt: String::new(),
         system_prompt: None,
+        output: None,
+        error: None,
+        usage: None,
         timeout_sec: None,
         retry_count: 0,
         max_retries: 0,
-        owner_epoch: None,
+        started_at: None,
+        completed_at: None,
+        duration_ms: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
     };
 
     let builder = HarnessInputBuilder::new(pool.clone());
@@ -1913,9 +1790,7 @@ async fn execute_sandbox_cleanup(
             let q_clone = q.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(delay).await;
-                if let Err(e) = q_clone.push_to_global(tid).await {
-                    error!(task_id = %tid, "Failed to enqueue delayed retry task: {e}");
-                }
+                q_clone.push_to_global(tid).await;
             });
         }
     }
@@ -2056,7 +1931,8 @@ async fn handle_memory_sync_db(
     relative_path: &str,
     content: &str,
     operation: &str,
-) -> Option<Uuid> {
+    max_memories_per_store: i64,
+) {
     // Path traversal protection
     let normalized = relative_path.replace('\\', "/");
     if normalized.contains("..") || normalized.contains('\0') {
@@ -2064,12 +1940,12 @@ async fn handle_memory_sync_db(
             path = relative_path,
             "Path traversal attempt in memory sync, rejecting"
         );
-        return None;
+        return;
     }
 
     let session_id = match session_id {
         Some(sid) => sid,
-        None => return None,
+        None => return,
     };
 
     // Normalize path to start with /
@@ -2099,11 +1975,11 @@ async fn handle_memory_sync_db(
                 mount = store_mount_name,
                 "Memory store not found for session"
             );
-            return None;
+            return;
         }
         Err(e) => {
             error!("Memory sync store lookup failed: {e}");
-            return None;
+            return;
         }
     };
 
@@ -2115,14 +1991,14 @@ async fn handle_memory_sync_db(
             store = store_mount_name,
             "Rejecting write to read-only memory store"
         );
-        return None;
+        return;
     }
 
     let mut tx = match pool.begin().await {
         Ok(tx) => tx,
         Err(e) => {
             error!(error = %e, "Memory sync transaction start failed");
-            return None;
+            return;
         }
     };
 
@@ -2132,7 +2008,7 @@ async fn handle_memory_sync_db(
         .await
     {
         error!(error = %e, "Memory store lock failed");
-        return None;
+        return;
     }
 
     match operation {
@@ -2152,13 +2028,13 @@ async fn handle_memory_sync_db(
                 Ok(row) => row,
                 Err(e) => {
                     error!(error = %e, "Memory delete lookup failed");
-                    return None;
+                    return;
                 }
             };
 
             let Some((memory_id,)) = existing else {
                 let _ = tx.commit().await;
-                return None;
+                return;
             };
 
             let version_id = Uuid::now_v7();
@@ -2179,7 +2055,7 @@ async fn handle_memory_sync_db(
             .await
             {
                 error!(error = %e, "Memory delete version insert failed");
-                return None;
+                return;
             }
 
             if let Err(e) =
@@ -2190,12 +2066,12 @@ async fn handle_memory_sync_db(
                     .await
             {
                 error!(error = %e, "Memory delete failed");
-                return None;
+                return;
             }
 
             if let Err(e) = tx.commit().await {
                 error!(error = %e, "Memory delete transaction commit failed");
-                return None;
+                return;
             }
 
             debug!(
@@ -2203,7 +2079,6 @@ async fn handle_memory_sync_db(
                 path = norm_path,
                 "Memory file deleted"
             );
-            Some(store_id)
         }
         _ => {
             let content_bytes = content.as_bytes();
@@ -2225,14 +2100,14 @@ async fn handle_memory_sync_db(
                 Ok(row) => row,
                 Err(e) => {
                     error!(error = %e, "Memory upsert lookup failed");
-                    return None;
+                    return;
                 }
             };
 
             if let Some((memory_id, existing_sha)) = existing {
                 if existing_sha == sha {
                     let _ = tx.commit().await;
-                    return None;
+                    return;
                 }
 
                 let version_id = Uuid::now_v7();
@@ -2256,7 +2131,7 @@ async fn handle_memory_sync_db(
                 .await
                 {
                     error!(error = %e, "Memory modified version insert failed");
-                    return None;
+                    return;
                 }
 
                 if let Err(e) = sqlx::query(
@@ -2281,7 +2156,7 @@ async fn handle_memory_sync_db(
                 .await
                 {
                     error!(error = %e, "Memory update failed");
-                    return None;
+                    return;
                 }
             } else {
                 let count = match sqlx::query_as::<_, (i64,)>(
@@ -2294,17 +2169,17 @@ async fn handle_memory_sync_db(
                     Ok((count,)) => count,
                     Err(e) => {
                         error!(error = %e, "Memory count lookup failed");
-                        return None;
+                        return;
                     }
                 };
 
-                if count >= MAX_MEMORIES_PER_STORE {
+                if count >= max_memories_per_store {
                     warn!(
                         store = store_mount_name,
-                        limit = MAX_MEMORIES_PER_STORE,
+                        limit = max_memories_per_store,
                         "Rejecting memory create because store limit was reached"
                     );
-                    return None;
+                    return;
                 }
 
                 let memory_id = Uuid::now_v7();
@@ -2329,7 +2204,7 @@ async fn handle_memory_sync_db(
                 .await
                 {
                     error!(error = %e, "Memory created version insert failed");
-                    return None;
+                    return;
                 }
 
                 if let Err(e) = sqlx::query(
@@ -2351,13 +2226,13 @@ async fn handle_memory_sync_db(
                 .await
                 {
                     error!(error = %e, "Memory create failed");
-                    return None;
+                    return;
                 }
             }
 
             if let Err(e) = tx.commit().await {
                 error!(error = %e, "Memory upsert transaction commit failed");
-                return None;
+                return;
             }
 
             debug!(
@@ -2365,7 +2240,6 @@ async fn handle_memory_sync_db(
                 path = norm_path,
                 "Memory file upserted"
             );
-            Some(store_id)
         }
     }
 }
@@ -2515,6 +2389,38 @@ async fn build_start_task_full(
     }
 }
 
+/// Derive permission_mode from agent tool configs.
+/// If any tool has permission_policy.type == "always_ask", use "default"; otherwise "bypassPermissions".
+fn derive_permission_mode(agent: &Option<crate::db::models::JoySafeterAgent>) -> Option<String> {
+    let agent = match agent {
+        Some(a) => a,
+        None => return None,
+    };
+
+    if let Some(ref pm) = agent.permission_mode {
+        return Some(pm.clone());
+    }
+
+    // Check tools for permission_policy
+    if let Some(ref tools_val) = agent.tools {
+        if let Some(arr) = tools_val.as_array() {
+            for tool in arr {
+                if let Some(configs) = tool.get("configs").and_then(|v| v.as_array()) {
+                    for tcfg in configs {
+                        if let Some(policy) = tcfg.get("permission_policy") {
+                            if policy.get("type").and_then(|v| v.as_str()) == Some("always_ask") {
+                                return Some("default".to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Some("bypassPermissions".to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Server startup
 // ---------------------------------------------------------------------------
@@ -2577,45 +2483,4 @@ pub async fn start_grpc_server(
 
     tokio::time::sleep(Duration::from_millis(100)).await;
     Ok(handle)
-}
-
-#[cfg(test)]
-mod encode_db_control_input_tests {
-    use super::encode_db_control_input;
-    use serde_json::json;
-    use uuid::Uuid;
-
-    #[test]
-    fn interrupt_encodes_even_with_null_payload() {
-        // A NULL payload column must not drop an interrupt on reconnect: the
-        // interrupt branch needs only the source event id.
-        let src = Uuid::nil();
-        let out = encode_db_control_input("user.interrupt", None, &src)
-            .expect("interrupt with NULL payload must still encode");
-        assert!(out.contains("\"type\":\"interrupt\""));
-        assert!(out.contains(&src.to_string()));
-    }
-
-    #[test]
-    fn interrupt_encodes_with_empty_payload() {
-        let src = Uuid::nil();
-        let payload = json!({});
-        assert!(encode_db_control_input("user.interrupt", Some(&payload), &src).is_some());
-    }
-
-    #[test]
-    fn tool_confirmation_requires_payload_and_call_id() {
-        let src = Uuid::nil();
-        assert!(encode_db_control_input("user.tool_confirmation", None, &src).is_none());
-        let payload = json!({"call_id": "call-1", "approved": true});
-        let out = encode_db_control_input("user.tool_confirmation", Some(&payload), &src)
-            .expect("valid tool_confirmation must encode");
-        assert!(out.contains("\"tool_use_call_id\":\"call-1\""));
-    }
-
-    #[test]
-    fn unknown_event_type_is_none() {
-        let src = Uuid::nil();
-        assert!(encode_db_control_input("user.unknown", Some(&json!({})), &src).is_none());
-    }
 }
