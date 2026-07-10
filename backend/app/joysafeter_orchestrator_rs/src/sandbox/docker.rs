@@ -9,10 +9,20 @@ use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::models::HostConfig;
 use bollard::Docker;
 use futures::StreamExt;
+use sqlx::PgPool;
 use tracing::{info, warn};
+use uuid::Uuid;
 
-use super::file_injection::FileToInject;
-use super::provider::{ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus};
+use super::envoy::{EnvoyConfig, EnvoyManager};
+use super::file_injection::{FileToInject, InjectionStrategy};
+use super::lds_backend::{
+    CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
+    SandboxCredentials,
+};
+use super::provider::{
+    NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
+    SandboxProvider, SandboxStatus,
+};
 use crate::config::JoySafeterConfig;
 
 /// S13: Retry wrapper for Docker operations that may fail due to transient errors.
@@ -62,15 +72,18 @@ where
 
 /// Docker-backed sandbox provider using bollard.
 ///
-/// Mirrors the Python `DockerSandboxProvider`.
+/// Owns all Docker-specific subsystems: Envoy sidecar, image builder, xDS.
+/// The orchestrator framework interacts only through the `SandboxProvider` trait.
 #[derive(Clone)]
 pub struct DockerProvider {
     docker: Arc<Docker>,
+    config: JoySafeterConfig,
     socket_volume: Option<String>,
-    /// Sandbox container hardening knobs. See `JoySafeterConfig` for the
-    /// full rationale; we carry just the four fields we apply per-create
-    /// so we don't have to round-trip the whole config struct.
     hardening: SandboxHardening,
+    /// Envoy network isolation manager (None when envoy_enabled=false).
+    envoy_manager: Option<Arc<EnvoyManager>>,
+    /// Delta xDS server for gRPC xDS mode (None when filesystem mode or Envoy disabled).
+    xds_service: Option<Arc<DeltaXdsServer>>,
 }
 
 /// Resolved hardening settings applied to every sandbox container the
@@ -85,7 +98,7 @@ pub(crate) struct SandboxHardening {
 }
 
 impl DockerProvider {
-    pub async fn new(_config: &JoySafeterConfig) -> anyhow::Result<Self> {
+    pub async fn new(config: &JoySafeterConfig) -> anyhow::Result<Self> {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| anyhow::anyhow!("failed to connect to Docker: {e}"))?;
 
@@ -95,16 +108,90 @@ impl DockerProvider {
             .await
             .map_err(|e| anyhow::anyhow!("Docker ping failed (is Docker running?): {e}"))?;
 
+        let docker = Arc::new(docker);
+
+        // Build Envoy manager + xDS service if Envoy is enabled
+        let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
+        let envoy_manager = if config.envoy_enabled {
+            let (lds, cds): (Arc<dyn LdsBackend>, Arc<dyn CdsBackend>) =
+                if config.envoy_xds_mode == "grpc" {
+                    let server = DeltaXdsServer::new();
+                    xds_service = Some(server.clone());
+                    (
+                        Arc::new(GrpcLds::new(server.clone())),
+                        Arc::new(GrpcCds::new(server)),
+                    )
+                } else {
+                    (
+                        Arc::new(FilesystemLds::new(
+                            docker.clone(),
+                            config.envoy_container_name.clone(),
+                        )),
+                        Arc::new(FilesystemCds::new(
+                            docker.clone(),
+                            config.envoy_container_name.clone(),
+                        )),
+                    )
+                };
+            Some(Arc::new(EnvoyManager::new(
+                docker.clone(),
+                EnvoyConfig {
+                    envoy_image: config.envoy_image.clone(),
+                    socket_volume: config.envoy_socket_volume.clone(),
+                    config_dir: config.envoy_config_dir.clone(),
+                    envoy_network: config.envoy_network.clone(),
+                    grpc_target_host: config.envoy_grpc_host.clone(),
+                    grpc_target_port: config.envoy_grpc_port,
+                    container_name: config.envoy_container_name.clone(),
+                    xds_mode: config.envoy_xds_mode.clone(),
+                },
+                lds,
+                cds,
+            )))
+        } else {
+            None
+        };
+
         Ok(Self {
-            docker: Arc::new(docker),
-            socket_volume: Some(_config.envoy_socket_volume.clone()),
+            docker,
+            config: config.clone(),
+            socket_volume: Some(config.envoy_socket_volume.clone()),
             hardening: SandboxHardening {
-                drop_all_caps: _config.sandbox_drop_all_caps,
-                no_new_privileges: _config.sandbox_no_new_privileges,
-                pids_limit: _config.sandbox_pids_limit,
-                run_as_user: _config.sandbox_run_as_user.clone(),
+                drop_all_caps: config.sandbox_drop_all_caps,
+                no_new_privileges: config.sandbox_no_new_privileges,
+                pids_limit: config.sandbox_pids_limit,
+                run_as_user: config.sandbox_run_as_user.clone(),
             },
+            envoy_manager,
+            xds_service,
         })
+    }
+
+    /// Create a no-op provider (for scheduler fallback when no provider is needed).
+    pub fn new_noop() -> Self {
+        Self {
+            docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
+            config: JoySafeterConfig::from_env(),
+            socket_volume: None,
+            hardening: SandboxHardening {
+                drop_all_caps: true,
+                no_new_privileges: true,
+                pids_limit: 256,
+                run_as_user: "1000:1000".to_string(),
+            },
+            envoy_manager: None,
+            xds_service: None,
+        }
+    }
+
+    /// Get the Envoy manager (if enabled). Used by framework during transition.
+    pub fn envoy_manager(&self) -> Option<&Arc<EnvoyManager>> {
+        self.envoy_manager.as_ref()
+    }
+
+    /// Get the xDS service (if gRPC xDS mode). Used to register ADS on gRPC server.
+    pub fn xds_service(&self) -> Option<Arc<DeltaXdsServer>> {
+        self.xds_service.clone()
     }
 
     async fn upload_file_to_container(
@@ -213,6 +300,47 @@ impl DockerProvider {
             .await?;
 
         Ok(true)
+    }
+
+    /// Inject files into a container via Docker archive upload.
+    pub async fn inject_file_pairs(
+        &self,
+        external_id: &str,
+        files: &[(String, Vec<u8>)],
+    ) -> anyhow::Result<()> {
+        for (path, content) in files {
+            let mut tar_buf = Vec::new();
+            {
+                let mut ar = tar::Builder::new(&mut tar_buf);
+                let mut header = tar::Header::new_gnu();
+                header.set_path(path)?;
+                header.set_size(content.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                ar.append(&header, content.as_slice())?;
+                ar.finish()?;
+            }
+
+            self.docker
+                .upload_to_container(
+                    external_id,
+                    Some(UploadToContainerOptions {
+                        path: "/",
+                        ..Default::default()
+                    }),
+                    tar_buf.into(),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Close the Docker client (cleanup).
+    pub async fn close(&self) {
+        // bollard's Docker client doesn't require explicit close;
+        // connections are dropped when the Arc is dropped.
+        // This method exists for API parity with Python's aiodocker.close().
     }
 
     async fn docker_provisioning_status(
@@ -562,6 +690,10 @@ impl SandboxProvider for DockerProvider {
         Ok(output)
     }
 
+    fn provider_name(&self) -> &'static str {
+        "docker"
+    }
+
     async fn list_active(&self) -> anyhow::Result<Vec<ProviderSandboxInfo>> {
         use bollard::container::ListContainersOptions;
         let mut filters = std::collections::HashMap::new();
@@ -627,6 +759,80 @@ impl SandboxProvider for DockerProvider {
         }
         info!(external_id, injected, "Injected files into Docker sandbox");
         Ok(())
+    }
+
+    // =================================================================
+    // New execution-plane trait methods
+    // =================================================================
+
+    async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
+        if let Some(ref manager) = self.envoy_manager {
+            if let Err(e) = manager.init().await {
+                warn!("EnvoyManager initialization failed: {e}");
+                return Ok(()); // non-fatal: sandboxes without Envoy still work
+            }
+            if let Err(e) = manager
+                .recover_from_db(pool, &self.config.llm_egress_allowed_hosts)
+                .await
+            {
+                warn!("EnvoyManager LDS recovery from DB failed: {e}");
+            }
+            info!(
+                xds_mode = %self.config.envoy_xds_mode,
+                "EnvoyManager initialized"
+            );
+        } else {
+            info!("Envoy network isolation disabled");
+        }
+        Ok(())
+    }
+
+    async fn setup_networking(
+        &self,
+        sandbox_id: Uuid,
+        _sandbox_external_id: &str,
+        networking: Option<&serde_json::Value>,
+        credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        if let Some(ref manager) = self.envoy_manager {
+            manager
+                .setup_for_sandbox(sandbox_id, networking, credentials)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        if let Some(ref manager) = self.envoy_manager {
+            manager.teardown_for_sandbox(sandbox_id).await?;
+        }
+        Ok(())
+    }
+
+    fn orchestrator_url(&self, grpc_port: u16) -> String {
+        self.config
+            .grpc_public_url
+            .clone()
+            .unwrap_or_else(|| format!("http://host.docker.internal:{grpc_port}"))
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            has_host_mount: true,
+            has_egress_management: self.envoy_manager.is_some(),
+            network_isolation: if self.envoy_manager.is_some() {
+                NetworkIsolation::Envoy
+            } else {
+                NetworkIsolation::None
+            },
+        }
+    }
+
+    fn supported_injection_strategies(&self) -> Vec<InjectionStrategy> {
+        vec![
+            InjectionStrategy::HostMount,
+            InjectionStrategy::ProviderFallback,
+        ]
     }
 }
 
