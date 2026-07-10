@@ -1,13 +1,14 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/i18n'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
-import type { Agent, McpServer, AgentSkillRef } from '@/types/managed'
+import { validateUrlScheme } from '@/lib/utils/url-validation'
+import type { Agent } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { FieldHelp, PageHeader, SkillVersionSelect } from '@/components/managed/shared'
 import { Plus, Trash2 } from 'lucide-react'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
 
@@ -57,29 +59,43 @@ interface EnvironmentListItem {
   name: string
 }
 
+interface SaveAgentVariables {
+  agentId: string
+  body: Record<string, unknown>
+  runId: number
+  scope: string
+}
+
 export default function AgentEditPage({ params }: { params: Promise<{ agentId: string }> }) {
   const { agentId } = React.use(params)
   const router = useRouter()
   const queryClient = useQueryClient()
   const { t } = useTranslation()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const operationScope = `${managedScope}:${agentId ?? ''}`
+  const saveRunRef = useRef(0)
+  const operationScopeRef = useRef(operationScope)
+  const hydratedAgentScopeRef = useRef<string | null>(null)
 
   // ── Fetch agent ──
   const { data: agent, isLoading } = useQuery({
-    queryKey: ['agent', agentId],
+    queryKey: ['agent', managedScope, agentId],
     queryFn: () => managedGet<Agent>(`/agents/${stripIdPrefix(agentId)}`),
     enabled: !!agentId,
   })
 
   // ── Fetch secrets ──
   const { data: secretsRes } = useQuery({
-    queryKey: ['secrets'],
+    queryKey: ['secrets', managedScope],
     queryFn: () => managedGet<{ data: { name: string }[] }>('/secrets'),
   })
   const secrets = secretsRes?.data
 
   // ── Fetch skills ──
   const { data: skills } = useQuery({
-    queryKey: ['skills'],
+    queryKey: ['skills', managedScope],
     queryFn: async () => {
       const res = await managedGet<ManagedListResponse<SkillListItem>>('/skills')
       return res.data || []
@@ -88,7 +104,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
   // ── Fetch environments ──
   const { data: environments } = useQuery({
-    queryKey: ['environments'],
+    queryKey: ['environments', managedScope],
     queryFn: async () => {
       const res = await managedGet<ManagedListResponse<EnvironmentListItem>>('/environments')
       return res.data || []
@@ -100,6 +116,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const [description, setDescription] = useState('')
   const [engineKind, setEngineKind] = useState('claude')
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [dirty, setDirty] = useState(false)
 
   // ── MCP servers state ──
   const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([])
@@ -123,21 +140,66 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     [skills, selectedSkillIds],
   )
 
+  const effectiveSelectedSkillIds = useMemo(() => {
+    if (!skills) return selectedSkillIds
+    const skillIds = new Set(skills.map((skill) => skill.id))
+    return new Set(Array.from(selectedSkillIds).filter((id) => skillIds.has(id)))
+  }, [selectedSkillIds, skills])
+
+  const effectiveSkillVersions = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(skillVersions).filter(([id]) => effectiveSelectedSkillIds.has(id)),
+      ),
+    [effectiveSelectedSkillIds, skillVersions],
+  )
+
   // ── Secret ref ──
   const [secretRef, setSecretRef] = useState('')
 
   // ── Environment ref ──
   const [environmentRef, setEnvironmentRef] = useState('')
 
+  const effectiveSecretRef = useMemo(() => {
+    if (!secretRef) return ''
+    if (!secrets) return secretRef
+    return secrets.some((secret) => secret.name === secretRef) ? secretRef : ''
+  }, [secretRef, secrets])
+
+  const effectiveEnvironmentRef = useMemo(() => {
+    if (!environmentRef) return ''
+    if (!environments) return environmentRef
+    return environments.some((environment) => environment.id === environmentRef)
+      ? environmentRef
+      : ''
+  }, [environmentRef, environments])
+
   // ── Permission mode ──
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
 
   // ── Environment variables ──
   const [envVars, setEnvVars] = useState<EnvVarEntry[]>([])
+  const markDirty = () => setDirty(true)
+
+  useEffect(() => {
+    if (operationScopeRef.current !== operationScope) {
+      operationScopeRef.current = operationScope
+      saveRunRef.current += 1
+    }
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      saveRunRef.current += 1
+    },
+    [],
+  )
 
   // ── Populate state from agent data ──
   useEffect(() => {
     if (!agent) return
+    const shouldHydrate = !dirty || hydratedAgentScopeRef.current !== operationScope
+    if (!shouldHydrate) return
 
     setName(agent.name)
     setDescription(agent.description || '')
@@ -146,79 +208,70 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
     // MCP servers — merge url (from mcp_servers) with policy (from the
     // matching mcp_toolset tool's default_config, default always_ask).
-    if (agent.mcp_servers && agent.mcp_servers.length > 0) {
-      const policyByServer = new Map<string, 'always_allow' | 'always_ask'>()
-      for (const tool of agent.tools || []) {
-        if (tool.type === 'mcp_toolset' && tool.mcp_server_name) {
-          const pol = tool.default_config?.permission_policy?.type
-          policyByServer.set(
-            tool.mcp_server_name,
-            pol === 'always_allow' ? 'always_allow' : 'always_ask',
-          )
-        }
+    const policyByServer = new Map<string, 'always_allow' | 'always_ask'>()
+    for (const tool of agent.tools || []) {
+      if (tool.type === 'mcp_toolset' && tool.mcp_server_name) {
+        const pol = tool.default_config?.permission_policy?.type
+        policyByServer.set(
+          tool.mcp_server_name,
+          pol === 'always_allow' ? 'always_allow' : 'always_ask',
+        )
       }
-      setMcpServers(
-        agent.mcp_servers.map((m) => ({
-          name: m.name,
-          url: m.url,
-          policy: policyByServer.get(m.name) || 'always_ask',
-        })),
-      )
     }
+    setMcpServers(
+      (agent.mcp_servers || []).map((m) => ({
+        name: m.name,
+        url: m.url,
+        policy: policyByServer.get(m.name) || 'always_ask',
+      })),
+    )
 
     // Tools
-    if (agent.tools) {
-      const toolset = agent.tools.find((t) => t.type === 'agent_toolset_20260401')
-      if (toolset && toolset.type === 'agent_toolset_20260401') {
-        const enabled = new Set<string>()
-        const configs = toolset.configs || []
-        for (const cfg of configs) {
-          if (cfg.enabled !== false) {
-            enabled.add(cfg.name)
-          }
-        }
-        // If no configs, assume all enabled
-        if (configs.length === 0) {
-          BUILTIN_TOOLS.forEach((t) => enabled.add(t))
-        }
-        setEnabledTools(enabled)
-
-        // Permission mode from default_config
-        const dc = toolset.default_config
-        if (dc?.permission_policy?.type === 'always_ask') {
-          setPermissionMode('default')
-        } else {
-          setPermissionMode('bypassPermissions')
+    const toolset = agent.tools?.find((tool) => tool.type === 'agent_toolset_20260401')
+    if (toolset && toolset.type === 'agent_toolset_20260401') {
+      const enabled = new Set<string>()
+      const configs = toolset.configs || []
+      for (const cfg of configs) {
+        if (cfg.enabled !== false) {
+          enabled.add(cfg.name)
         }
       }
+      if (configs.length === 0) {
+        BUILTIN_TOOLS.forEach((tool) => enabled.add(tool))
+      }
+      setEnabledTools(enabled)
+
+      const dc = toolset.default_config
+      setPermissionMode(
+        dc?.permission_policy?.type === 'always_ask' ? 'default' : 'bypassPermissions',
+      )
+    } else {
+      setEnabledTools(new Set(BUILTIN_TOOLS))
+      setPermissionMode('bypassPermissions')
     }
 
     // Skills
-    if (agent.skills && agent.skills.length > 0) {
-      setSelectedSkillIds(new Set(agent.skills.map((s) => s.skill_id)))
-      setSkillVersions(
-        Object.fromEntries(agent.skills.map((s) => [s.skill_id, s.version || 'latest'])),
-      )
-    }
+    const agentSkills = agent.skills || []
+    setSelectedSkillIds(new Set(agentSkills.map((s) => s.skill_id)))
+    setSkillVersions(
+      Object.fromEntries(agentSkills.map((s) => [s.skill_id, s.version || 'latest'])),
+    )
 
     // Secret ref
-    if (agent.secret_ref) {
-      setSecretRef(agent.secret_ref)
-    }
+    setSecretRef(agent.secret_ref || '')
 
     // Environment ref
-    if (agent.environment_ref) {
-      setEnvironmentRef(agent.environment_ref)
-    }
+    setEnvironmentRef(agent.environment_ref || '')
 
     // Env vars
-    if (agent.env && Object.keys(agent.env).length > 0) {
-      setEnvVars(Object.entries(agent.env).map(([key, value]) => ({ key, value })))
-    }
-  }, [agent])
+    setEnvVars(Object.entries(agent.env || {}).map(([key, value]) => ({ key, value })))
+    hydratedAgentScopeRef.current = operationScope
+    setDirty(false)
+  }, [agent, dirty, operationScope])
 
   // ── Toggle tool ──
   const toggleTool = (tool: string) => {
+    markDirty()
     setEnabledTools((prev) => {
       const next = new Set(prev)
       if (next.has(tool)) next.delete(tool)
@@ -231,7 +284,6 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const addMcpServer = () => {
     if (!mcpName.trim() || !mcpUrl.trim()) return
     // URL scheme validation
-    const { validateUrlScheme } = require('@/lib/utils/url-validation')
     const urlError = validateUrlScheme(mcpUrl.trim())
     if (urlError) {
       toastOperationError(t, new Error(urlError), 'common.error')
@@ -241,21 +293,25 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
       ...prev,
       { name: mcpName.trim(), url: mcpUrl.trim(), policy: 'always_ask' },
     ])
+    markDirty()
     setMcpName('')
     setMcpUrl('')
     setShowMcpForm(false)
   }
 
   const setMcpPolicy = (index: number, policy: 'always_allow' | 'always_ask') => {
+    markDirty()
     setMcpServers((prev) => prev.map((m, i) => (i === index ? { ...m, policy } : m)))
   }
 
   const removeMcpServer = (idx: number) => {
+    markDirty()
     setMcpServers((prev) => prev.filter((_, i) => i !== idx))
   }
 
   // ── Skill toggle ──
   const toggleSkill = (skillId: string) => {
+    markDirty()
     setSelectedSkillIds((prev) => {
       const next = new Set(prev)
       if (next.has(skillId)) next.delete(skillId)
@@ -266,14 +322,17 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
   // ── Env var helpers ──
   const addEnvVar = () => {
+    markDirty()
     setEnvVars((prev) => [...prev, { key: '', value: '' }])
   }
 
   const updateEnvVar = (idx: number, field: 'key' | 'value', val: string) => {
+    markDirty()
     setEnvVars((prev) => prev.map((e, i) => (i === idx ? { ...e, [field]: val } : e)))
   }
 
   const removeEnvVar = (idx: number) => {
+    markDirty()
     setEnvVars((prev) => prev.filter((_, i) => i !== idx))
   }
 
@@ -317,35 +376,90 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     return result
   }
 
+  const buildSavePayload = (currentAgent = agent): Record<string, unknown> => {
+    const currentSecrets =
+      queryClient.getQueryData<{ data?: { name: string }[] }>(['secrets', managedScope])?.data ??
+      secrets
+    const currentEnvironments =
+      queryClient.getQueryData<ManagedListResponse<EnvironmentListItem>>([
+        'environments',
+        managedScope,
+      ])?.data ?? environments
+    const currentSkills =
+      queryClient.getQueryData<ManagedListResponse<SkillListItem>>(['skills', managedScope])?.data ??
+      skills
+
+    const currentSecretRef =
+      secretRef && (!currentSecrets || currentSecrets.some((secret) => secret.name === secretRef))
+        ? secretRef
+        : ''
+    const currentEnvironmentRef =
+      environmentRef &&
+      (!currentEnvironments ||
+        currentEnvironments.some((environment) => environment.id === environmentRef))
+        ? environmentRef
+        : ''
+    const currentSkillIds = currentSkills ? new Set(currentSkills.map((skill) => skill.id)) : null
+    const currentSelectedSkillIds = currentSkillIds
+      ? Array.from(selectedSkillIds).filter((id) => currentSkillIds.has(id))
+      : Array.from(selectedSkillIds)
+
+    return {
+      version: currentAgent!.version || 1,
+      name,
+      description: description || null,
+      engine_kind: engineKind,
+      system: systemPrompt || null,
+      mcp_servers: mcpServers
+        .filter((s) => s.name && s.url)
+        .map((m) => ({ type: 'url', name: m.name, url: m.url })),
+      tools: buildToolsPayload(),
+      skills: currentSelectedSkillIds.map((id) => ({
+        type: 'custom' as const,
+        skill_id: id,
+        version: effectiveSkillVersions[id] || 'latest',
+      })),
+      ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
+      ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
+      env: buildEnvPayload(),
+    }
+  }
+
+  const getCurrentOperationScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}:${agentId ?? ''}`
+  }
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentEditableAgent = () => {
+    const current = queryClient.getQueryData<Agent>([
+      'agent',
+      getCurrentManagedScope(),
+      agentId,
+    ])
+    return current?.id === agentId && !current.archived_at ? current : null
+  }
+
+  const isCurrentSaveRun = (runId: number, scope: string) =>
+    saveRunRef.current === runId &&
+    operationScopeRef.current === scope &&
+    getCurrentOperationScope() === scope
+
   // ── Save mutation ──
   const mutation = useMutation({
-    mutationFn: () => {
-      const body: Record<string, unknown> = {
-        version: agent!.version || 1,
-        name,
-        description: description || null,
-        engine_kind: engineKind,
-        system: systemPrompt || null,
-        mcp_servers: mcpServers
-          .filter((s) => s.name && s.url)
-          .map((m) => ({ type: 'url', name: m.name, url: m.url })),
-        tools: buildToolsPayload(),
-        skills: Array.from(selectedSkillIds).map((id) => ({
-          type: 'custom' as const,
-          skill_id: id,
-          version: skillVersions[id] || 'latest',
-        })),
-        secret_ref: secretRef || undefined,
-        environment_ref: environmentRef || undefined,
-        env: buildEnvPayload(),
-      }
-      return managedPost(`/agents/${stripIdPrefix(agentId)}`, body)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['agent', agentId] })
+    mutationFn: ({ agentId, body }: SaveAgentVariables) =>
+      managedPost(`/agents/${stripIdPrefix(agentId)}`, body),
+    onSuccess: (_data, { agentId, runId, scope }) => {
+      if (!isCurrentSaveRun(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['agent', managedScope, agentId] })
       router.push(`/managed/agents/${agentId}`)
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentSaveRun(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
@@ -384,7 +498,13 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             <label className="mb-1.5 block text-sm font-medium text-foreground">
               {t('managed.agents.name')}
             </label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <Input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                markDirty()
+              }}
+            />
           </div>
 
           <div>
@@ -393,7 +513,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             </label>
             <Input
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value)
+                markDirty()
+              }}
               placeholder={t('managed.agents.descriptionPlaceholder')}
             />
           </div>
@@ -405,7 +528,13 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
               </label>
               <FieldHelp text={t('managed.agents.engineKindDesc')} />
             </div>
-            <Select value={engineKind} onValueChange={setEngineKind}>
+            <Select
+              value={engineKind}
+              onValueChange={(value) => {
+                setEngineKind(value)
+                markDirty()
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -424,7 +553,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             <textarea
               className="flex min-h-[200px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
+              onChange={(e) => {
+                setSystemPrompt(e.target.value)
+                markDirty()
+              }}
               placeholder={t('managed.agents.systemPromptPlaceholder')}
             />
           </div>
@@ -551,7 +683,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             <select
               className="flex w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
               value={permissionMode}
-              onChange={(e) => setPermissionMode(e.target.value)}
+              onChange={(e) => {
+                setPermissionMode(e.target.value)
+                markDirty()
+              }}
             >
               {PERMISSION_MODES.map((m) => (
                 <option key={m.value} value={m.value}>
@@ -611,7 +746,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                       <SkillVersionSelect
                         skillId={skill.id}
                         value={skillVersions[skill.id] || 'latest'}
-                        onChange={(v) => setSkillVersions((prev) => ({ ...prev, [skill.id]: v }))}
+                        onChange={(v) => {
+                          setSkillVersions((prev) => ({ ...prev, [skill.id]: v }))
+                          markDirty()
+                        }}
                       />
                     )}
                   </div>
@@ -629,7 +767,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
           {secrets && secrets.length > 0 ? (
             <Select
               value={secretRef || '__none__'}
-              onValueChange={(v) => setSecretRef(v === '__none__' ? '' : v)}
+              onValueChange={(v) => {
+                setSecretRef(v === '__none__' ? '' : v)
+                markDirty()
+              }}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('agents.edit.selectSecret')} />
@@ -659,7 +800,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
           {environments && environments.length > 0 ? (
             <Select
               value={environmentRef || '__none__'}
-              onValueChange={(v) => setEnvironmentRef(v === '__none__' ? '' : v)}
+              onValueChange={(v) => {
+                setEnvironmentRef(v === '__none__' ? '' : v)
+                markDirty()
+              }}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('agents.edit.selectEnvironment')} />
@@ -724,7 +868,21 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
         {/* ───────── Action buttons ───────── */}
         <div className="flex items-center gap-3 border-t border-border pt-2">
-          <Button onClick={() => mutation.mutate()} disabled={isArchived || mutation.isPending}>
+          <Button
+            onClick={() => {
+              const current = currentEditableAgent()
+              if (!current) return
+              const runId = saveRunRef.current + 1
+              saveRunRef.current = runId
+              mutation.mutate({
+                agentId,
+                body: buildSavePayload(current),
+                runId,
+                scope: operationScopeRef.current,
+              })
+            }}
+            disabled={isArchived || mutation.isPending}
+          >
             {mutation.isPending ? t('managed.agents.saving') : t('managed.agents.saveChanges')}
           </Button>
           <Button variant="outline" onClick={() => router.push(`/managed/agents/${agentId}`)}>

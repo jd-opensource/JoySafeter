@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/i18n'
-import { Pencil, ChevronRight, Package, Globe, Play, Sparkles, Archive } from 'lucide-react'
+import { Pencil, ChevronRight, Package, Globe, Play, Sparkles, Archive, Trash2 } from 'lucide-react'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
@@ -32,6 +32,7 @@ import {
   ConfirmDialog,
   ResourceErrorState,
 } from '@/components/managed/shared'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 interface AgentVersion {
   version: number
@@ -57,6 +58,12 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const operationScope = `${managedScope}:${agentId ?? ''}`
+  const actionRunRef = useRef(0)
+  const operationScopeRef = useRef(operationScope)
   const [showArchived, setShowArchived] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean
@@ -74,20 +81,72 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     onConfirm: () => {},
   })
 
+  useEffect(() => {
+    actionRunRef.current += 1
+    operationScopeRef.current = operationScope
+    setConfirmDialog({
+      open: false,
+      title: '',
+      description: '',
+      confirmLabel: '',
+      destructive: false,
+      onConfirm: () => {},
+    })
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      actionRunRef.current += 1
+    },
+    [],
+  )
+
+  const getCurrentOperationScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}:${agentId ?? ''}`
+  }
+
+  const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
+    operationScopeRef.current === scope && getCurrentOperationScope() === scope
+
+  const isCurrentAction = (runId: number, scope: string) =>
+    actionRunRef.current === runId && currentOperationScopeIsActive(scope)
+
+  const currentAgentIsActive = () => {
+    if (!currentOperationScopeIsActive()) return false
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope, agentId])
+    return !!currentAgent && currentAgent.id === agent?.id && !currentAgent.archived_at
+  }
+
+  const nextAction = () => {
+    if (!currentOperationScopeIsActive()) return null
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    return {
+      runId,
+      scope: operationScopeRef.current,
+    }
+  }
+
+  const closeConfirmDialog = () => {
+    actionRunRef.current += 1
+    setConfirmDialog((prev) => ({ ...prev, open: false }))
+  }
+
   const {
     data: agent,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['agent', agentId],
+    queryKey: ['agent', managedScope, agentId],
     queryFn: () => managedGet<Agent>(`/agents/${stripIdPrefix(agentId)}`),
     enabled: !!agentId,
     retry: shouldRetryManagedResourceError,
   })
 
   const { data: sessions } = useQuery({
-    queryKey: ['agent-sessions', agentId, showArchived],
+    queryKey: ['agent-sessions', managedScope, agentId, showArchived],
     queryFn: async () => {
       const res = await managedGet<PaginatedResponse<Session>>(
         `/agents/${stripIdPrefix(agentId)}/sessions${showArchived ? '?include_archived=true' : ''}`,
@@ -98,7 +157,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   })
 
   const { data: versions } = useQuery({
-    queryKey: ['agent-versions', agentId],
+    queryKey: ['agent-versions', managedScope, agentId],
     queryFn: async () => {
       const res = await managedGet<{ data: AgentVersion[] }>(
         `/agents/${stripIdPrefix(agentId)}/versions`,
@@ -109,10 +168,18 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   })
 
   const handleStartSession = async () => {
+    if (!currentAgentIsActive()) return
+
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    const actionScope = operationScopeRef.current
+    if (!currentOperationScopeIsActive(actionScope)) return
     try {
       const res = await managedPost<{ id: string }>('/sessions', { agent: agentId })
+      if (!isCurrentAction(runId, actionScope)) return
       router.push(`/managed/sessions/${res.id}`)
     } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
@@ -122,6 +189,8 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   }
 
   const handleArchive = () => {
+    if (!currentAgentIsActive()) return
+    actionRunRef.current += 1
     setConfirmDialog({
       open: true,
       title: t('managed.agents.archiveTitle'),
@@ -129,11 +198,20 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
       confirmLabel: t('common.archive'),
       destructive: false,
       onConfirm: async () => {
+        if (!currentAgentIsActive()) {
+          setConfirmDialog((prev) => ({ ...prev, open: false }))
+          return
+        }
+        const action = nextAction()
+        if (!action) return
+        const { runId, scope } = action
         try {
           await managedPost(`/agents/${stripIdPrefix(agentId)}/archive`, {})
-          queryClient.invalidateQueries({ queryKey: ['agent', agentId] })
+          if (!isCurrentAction(runId, scope)) return
+          queryClient.invalidateQueries({ queryKey: ['agent', managedScope, agentId] })
           setConfirmDialog((prev) => ({ ...prev, open: false }))
         } catch (e) {
+          if (!isCurrentAction(runId, scope)) return
           setConfirmDialog((prev) => ({ ...prev, open: false }))
           toastOperationError(t, e, 'common.operationFailed')
         }
@@ -142,10 +220,16 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   }
 
   const handleDelete = async () => {
+    if (!currentAgentIsActive()) return
+
+    const action = nextAction()
+    if (!action) return
+    const { runId, scope } = action
     try {
       const preview = await managedGet<DeletePreview>(
         `/agents/${stripIdPrefix(agentId)}/delete_preview`,
       )
+      if (!isCurrentAction(runId, scope) || !currentAgentIsActive()) return
       const desc = t('managed.agents.deleteDescription', {
         name: agent?.name,
         sessions: preview.sessions,
@@ -159,16 +243,52 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         confirmLabel: t('managed.agents.permanentlyDelete'),
         destructive: true,
         onConfirm: async () => {
+          if (!currentAgentIsActive()) {
+            setConfirmDialog((prev) => ({ ...prev, open: false }))
+            return
+          }
+          const action = nextAction()
+          if (!action) return
           try {
             await managedDelete(`/agents/${stripIdPrefix(agentId)}`)
+            if (!isCurrentAction(action.runId, action.scope)) return
             router.push('/managed/agents')
           } catch (e) {
+            if (!isCurrentAction(action.runId, action.scope)) return
             setConfirmDialog((prev) => ({ ...prev, open: false }))
             toastOperationError(t, e, 'common.operationFailed')
           }
         },
       })
     } catch (e) {
+      if (!isCurrentAction(runId, scope)) return
+      toastOperationError(t, e, 'common.operationFailed')
+    }
+  }
+
+  const handleArchiveSession = async (session: Session) => {
+    if (!currentAgentIsActive()) return
+
+    const currentSessions = queryClient.getQueryData<Session[]>([
+      'agent-sessions',
+      managedScope,
+      agentId,
+      showArchived,
+    ])
+    if (!currentSessions?.some((currentSession) => currentSession.id === session.id)) return
+
+    const action = nextAction()
+    if (!action) return
+    const { runId, scope } = action
+    try {
+      await managedPost(`/sessions/${stripIdPrefix(session.id)}/archive`, {})
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({
+        queryKey: ['agent-sessions', managedScope, agentId],
+        exact: false,
+      })
+    } catch (e) {
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
@@ -207,6 +327,12 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
           onClick: handleArchive,
           icon: <Archive className="h-3.5 w-3.5" />,
           separator: true,
+        },
+        {
+          label: t('common.delete'),
+          onClick: handleDelete,
+          icon: <Trash2 className="h-3.5 w-3.5" />,
+          destructive: true,
         },
       ]
 
@@ -259,17 +385,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
             showArchived={showArchived}
             onArchivedChange={setShowArchived}
             onSelect={(s) => router.push(`/managed/sessions/${s.id}`)}
-            onArchive={async (s) => {
-              try {
-                await managedPost(`/sessions/${stripIdPrefix(s.id)}/archive`, {})
-                queryClient.invalidateQueries({
-                  queryKey: ['agent-sessions', agentId],
-                  exact: false,
-                })
-              } catch (e) {
-                toastOperationError(t, e, 'common.operationFailed')
-              }
-            }}
+            onArchive={handleArchiveSession}
           />
         </TabsContent>
       </Tabs>
@@ -281,7 +397,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         confirmLabel={confirmDialog.confirmLabel}
         destructive={confirmDialog.destructive}
         onConfirm={confirmDialog.onConfirm}
-        onCancel={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
+        onCancel={closeConfirmDialog}
       />
     </div>
   )

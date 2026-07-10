@@ -13,7 +13,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { managedPost } from '@/lib/api-client'
@@ -81,6 +81,8 @@ const TRANSITIONS: Array<{
 interface SkillLifecycleActionsProps {
   skillId: string
   currentStatus: SkillLifecycleStatus | string | undefined
+  operationScope: string
+  canSubmitTransition?: (endpoint: string, currentStatus: SkillLifecycleStatus | string | undefined) => boolean
   // Optional invalidation keys — list views can pass their list key
   // to force a refetch after a transition lands.
   invalidateKeys?: Array<readonly unknown[]>
@@ -89,28 +91,73 @@ interface SkillLifecycleActionsProps {
 export function SkillLifecycleActions({
   skillId,
   currentStatus,
+  operationScope,
+  canSubmitTransition,
   invalidateKeys = [],
 }: SkillLifecycleActionsProps) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const [busyEndpoint, setBusyEndpoint] = useState<string | null>(null)
+  const operationScopeRef = useRef(operationScope)
+  const mutationRunRef = useRef(0)
+
+  useEffect(() => {
+    if (operationScopeRef.current === operationScope) return
+    operationScopeRef.current = operationScope
+    mutationRunRef.current += 1
+    setBusyEndpoint(null)
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      mutationRunRef.current += 1
+    },
+    [],
+  )
 
   // ``managedPost`` strips the resource prefix from the id before
   // hitting the endpoint. The backend route uses the bare UUID under
   // ``/skills/{id}/<action>``, matching the existing skill routes.
   const bareId = skillId.startsWith('skill_') ? skillId.slice('skill_'.length) : skillId
+  const nextMutation = (endpoint: string) => {
+    const runId = mutationRunRef.current + 1
+    mutationRunRef.current = runId
+    return {
+      endpoint,
+      bareId,
+      invalidateKeys: [...invalidateKeys],
+      runId,
+      scope: operationScopeRef.current,
+    }
+  }
+  const isCurrentMutation = (runId: number, scope: string) =>
+    mutationRunRef.current === runId && operationScopeRef.current === scope
 
   const mutation = useMutation({
-    mutationFn: async (endpoint: string) => {
+    mutationFn: async ({
+      bareId,
+      endpoint,
+      runId,
+      scope,
+    }: {
+      bareId: string
+      endpoint: string
+      invalidateKeys: Array<readonly unknown[]>
+      runId: number
+      scope: string
+    }) => {
       setBusyEndpoint(endpoint)
       try {
         const result = await managedPost<TransitionResponse>(`/skills/${bareId}/${endpoint}`)
         return result
       } finally {
-        setBusyEndpoint(null)
+        if (isCurrentMutation(runId, scope)) {
+          setBusyEndpoint(null)
+        }
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      if (!isCurrentMutation(variables.runId, variables.scope)) return
       toastSuccess(
         t('managed.skills.transition.success', {
           from: data.from_status,
@@ -118,11 +165,12 @@ export function SkillLifecycleActions({
         }),
       )
       // Invalidate caller-provided queries (skill list, detail, etc.)
-      for (const key of invalidateKeys) {
+      for (const key of variables.invalidateKeys) {
         qc.invalidateQueries({ queryKey: key })
       }
     },
-    onError: (error: unknown) => {
+    onError: (error: unknown, variables) => {
+      if (!isCurrentMutation(variables.runId, variables.scope)) return
       const msg = error instanceof Error ? error.message : t('managed.skills.transition.failed')
       toastError(msg)
     },
@@ -142,7 +190,10 @@ export function SkillLifecycleActions({
           variant={edge.variant}
           size="sm"
           disabled={busyEndpoint !== null}
-          onClick={() => mutation.mutate(edge.endpoint)}
+          onClick={() => {
+            if (canSubmitTransition && !canSubmitTransition(edge.endpoint, currentStatus)) return
+            mutation.mutate(nextMutation(edge.endpoint))
+          }}
         >
           {t(edge.labelKey)}
         </Button>

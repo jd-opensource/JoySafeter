@@ -42,9 +42,17 @@ import { shortIdWithPrefix, stripIdPrefix } from '@/lib/managed/id'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSessionStream } from '@/lib/managed/sse'
 import { useRouter } from 'next/navigation'
-import type { Environment, PaginatedResponse, Session, SessionEvent, Vault } from '@/types/managed'
+import type {
+  Agent,
+  Environment,
+  PaginatedResponse,
+  Session,
+  SessionEvent,
+  Vault,
+} from '@/types/managed'
 import { EventList, EventDetail, EventFilter } from '@/components/managed/session'
 import yaml from 'js-yaml'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 const TEMPLATE_ICONS: Record<string, typeof FileText> = {
   blank: FileText,
@@ -85,6 +93,18 @@ type QuickstartSecret = {
   protocol?: string
   is_default?: boolean
   keys?: string[]
+}
+
+type ActiveVaultsCache = { data?: Vault[] } | Vault[]
+
+function unwrapActiveVaultsCache(value: ActiveVaultsCache | undefined) {
+  if (!value) return undefined
+  return Array.isArray(value) ? value : value.data || []
+}
+
+function getCurrentManagedScope() {
+  const { currentOrgId, currentProjectId } = useProjectStore.getState()
+  return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 }
 
 function isSecretCompatible(secret: QuickstartSecret | undefined, engine: QuickstartEngine | null) {
@@ -186,11 +206,31 @@ function Stepper({
 
 function ApiCard({ endpoint, curl }: { endpoint: string; curl: string }) {
   const [copied, setCopied] = useState(false)
+  const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const showCopiedFeedback = () => {
+    if (copiedResetTimerRef.current) {
+      clearTimeout(copiedResetTimerRef.current)
+    }
+    setCopied(true)
+    copiedResetTimerRef.current = setTimeout(() => {
+      setCopied(false)
+      copiedResetTimerRef.current = null
+    }, 2000)
+  }
 
   const handleCopy = () => {
     navigator.clipboard.writeText(curl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    showCopiedFeedback()
   }
 
   return (
@@ -507,6 +547,9 @@ export default function QuickstartPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const [editorTab, setEditorTab] = useState<'yaml' | 'json'>('yaml')
   const [rightTab, setRightTab] = useState<'config' | 'preview'>('config')
   const [secretRef, setSecretRef] = useState('')
@@ -525,6 +568,8 @@ export default function QuickstartPage() {
   const [showPreviewSearch, setShowPreviewSearch] = useState(false)
   const [selectedPreviewEvent, setSelectedPreviewEvent] = useState<SessionEvent | null>(null)
   const autoIntroSentRef = useRef<Set<number>>(new Set())
+  const managedScopeRef = useRef(managedScope)
+  const pageActionRunRef = useRef(0)
 
   // Sub-step state for environment (step 2) inline flow
   const [envSubStep, setEnvSubStep] = useState<
@@ -545,14 +590,56 @@ export default function QuickstartPage() {
   const [vaultName, setVaultName] = useState('')
   const [pendingVaultId, setPendingVaultId] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope) return
+    managedScopeRef.current = managedScope
+    pageActionRunRef.current += 1
+    setSelectedEnvId('')
+    setLocalSessionId('')
+    setIsTestRunning(false)
+    setIsStoppingSession(false)
+    sessionMsgDraftVersionRef.current += 1
+    sessionMsgInputRef.current = ''
+    setSessionMsgInput('')
+    setIsSendingMsg(false)
+    setSelectedPreviewEvent(null)
+    setPreviewFilter(new Set())
+    setPreviewSearch('')
+    setShowPreviewSearch(false)
+    setPendingEnvId(null)
+    setPendingVaultId(null)
+    setEnvSubStep('choose')
+    setEnvUsesAI(false)
+    setEnvAnswers({})
+    setEnvHosts('')
+    setVaultSubStep('choose')
+    setVaultUsesAI(false)
+    setVaultAnswers({})
+    setVaultName('')
+    autoIntroSentRef.current = new Set()
+  }, [managedScope])
+
+  const nextPageAction = () => {
+    const runId = pageActionRunRef.current + 1
+    pageActionRunRef.current = runId
+    return { runId, scope: managedScopeRef.current }
+  }
+
+  const isCurrentPageAction = (runId: number, scope: string) =>
+    pageActionRunRef.current === runId &&
+    managedScopeRef.current === scope &&
+    getCurrentManagedScope() === scope
+
+  const currentPageScopeIsActive = () => getCurrentManagedScope() === managedScopeRef.current
+
   const { data: secretsRes } = useQuery({
-    queryKey: ['secrets'],
+    queryKey: ['secrets', managedScope],
     queryFn: () => managedGet<{ data: QuickstartSecret[] }>('/secrets'),
   })
   const secrets = secretsRes?.data
 
   const { data: environments } = useQuery({
-    queryKey: ['environments-active'],
+    queryKey: ['environments-active', managedScope],
     queryFn: async () => {
       const res = await managedGet<PaginatedResponse<Environment>>('/environments')
       return res.data || []
@@ -560,7 +647,7 @@ export default function QuickstartPage() {
   })
 
   const { data: vaultsRes } = useQuery({
-    queryKey: ['vaults-active'],
+    queryKey: ['vaults-active', managedScope],
     queryFn: () => managedGet<{ data: Vault[] }>('/vaults'),
   })
   const vaults = vaultsRes?.data
@@ -586,6 +673,7 @@ export default function QuickstartPage() {
     isStreaming,
     curls,
     resourceIds,
+    createdResourceIds = new Set<string>(),
     completedSteps,
     pendingConfirmation,
     isCreating,
@@ -636,7 +724,7 @@ export default function QuickstartPage() {
   const { events: sessionEvents } = useSessionStream(sessionId, isSessionActive)
 
   const { data: activeSession } = useQuery({
-    queryKey: ['session', rawSessionId],
+    queryKey: ['session', managedScope, rawSessionId],
     queryFn: () => managedGet<Session>(`/sessions/${sessionId}`),
     enabled: isSessionActive,
     refetchInterval: (query) => {
@@ -727,6 +815,19 @@ export default function QuickstartPage() {
   }, [isSessionActive])
   const [sessionMsgInput, setSessionMsgInput] = useState('')
   const [isSendingMsg, setIsSendingMsg] = useState(false)
+  const sessionMsgInputRef = useRef('')
+  const sessionMsgDraftVersionRef = useRef(0)
+
+  const setSessionMessageDraft = (
+    value: string,
+    options: { userEdit?: boolean } = {},
+  ) => {
+    if (options.userEdit) {
+      sessionMsgDraftVersionRef.current += 1
+    }
+    sessionMsgInputRef.current = value
+    setSessionMsgInput(value)
+  }
 
   const isSessionRunning = useMemo(() => {
     if (activeSession?.status) return activeSession.status === 'running'
@@ -745,28 +846,67 @@ export default function QuickstartPage() {
   }, [activeSession?.status, sessionEvents])
 
   const handleStopSession = async () => {
-    if (!sessionId || isStoppingSession) return
+    if (!sessionId || isStoppingSession || !currentPageScopeIsActive()) return
+    const currentSession = rawSessionId
+      ? queryClient.getQueryData<Session>(['session', managedScope, rawSessionId])
+      : null
+    if (currentSession) {
+      if (
+        stripIdPrefix(currentSession.id) !== sessionId ||
+        currentSession.status !== 'running' ||
+        currentSession.archived_at
+      ) {
+        return
+      }
+    } else if (activeSession?.status && activeSession.status !== 'running') {
+      return
+    }
+    const { runId, scope } = nextPageAction()
+    const targetRawSessionId = rawSessionId
+    const targetSessionId = sessionId
     setIsStoppingSession(true)
     try {
-      await managedPost(`/sessions/${sessionId}/stop`, {})
-      queryClient.invalidateQueries({ queryKey: ['session', rawSessionId] })
+      await managedPost(`/sessions/${targetSessionId}/stop`, {})
+      if (!isCurrentPageAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['session', scope, targetRawSessionId] })
     } catch (e) {
+      if (!isCurrentPageAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
-      setIsStoppingSession(false)
+      if (isCurrentPageAction(runId, scope)) {
+        setIsStoppingSession(false)
+      }
     }
   }
 
   const handleSendSessionMessage = async () => {
     const text = sessionMsgInput.trim()
-    if (!text || !sessionId || isSendingMsg || isSessionRunning) return
+    if (!text || !sessionId || isSendingMsg || isSessionRunning || !currentPageScopeIsActive())
+      return
+    const currentSession = rawSessionId
+      ? queryClient.getQueryData<Session>(['session', managedScope, rawSessionId])
+      : null
+    if (currentSession) {
+      if (
+        stripIdPrefix(currentSession.id) !== sessionId ||
+        currentSession.status !== 'idle' ||
+        currentSession.archived_at
+      ) {
+        return
+      }
+    } else if (activeSession?.status && activeSession.status !== 'idle') {
+      return
+    }
+    const { runId, scope } = nextPageAction()
+    const targetSessionId = sessionId
     setIsSendingMsg(true)
-    setSessionMsgInput('')
+    setSessionMessageDraft('', { userEdit: true })
     try {
-      await managedPost(`/sessions/${sessionId}/events`, {
+      await managedPost(`/sessions/${targetSessionId}/events`, {
         events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
       })
     } catch (e) {
+      if (!isCurrentPageAction(runId, scope)) return
       const sessionBusy =
         e instanceof ApiError &&
         (e.code === 'SESSION_ALREADY_RUNNING' || e.code === 'SESSION_ACTIVE_TASK')
@@ -774,7 +914,9 @@ export default function QuickstartPage() {
         toastOperationError(t, e, 'common.operationFailed')
       }
     } finally {
-      setIsSendingMsg(false)
+      if (isCurrentPageAction(runId, scope)) {
+        setIsSendingMsg(false)
+      }
     }
   }
 
@@ -785,6 +927,97 @@ export default function QuickstartPage() {
   const activeVaults = useMemo(() => {
     return (vaults || []).filter((v) => !v.archived_at)
   }, [vaults])
+
+  const readCurrentActiveEnvironments = () => {
+    const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
+      'environments-active',
+      managedScope,
+    ])
+    return (currentEnvironmentData || activeEnvironments).filter((env) => !env.archived_at)
+  }
+
+  const readCurrentActiveVaults = () => {
+    const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
+      'vaults-active',
+      managedScope,
+    ])
+    return (unwrapActiveVaultsCache(currentVaultData) || activeVaults).filter(
+      (vault) => !vault.archived_at,
+    )
+  }
+
+  const confirmSelectedEnvironment = () => {
+    if (!currentPageScopeIsActive()) return
+    if (!pendingEnvId) {
+      advanceStep()
+      return
+    }
+    const currentEnv = readCurrentActiveEnvironments().find((env) => env.id === pendingEnvId)
+    if (!currentEnv) return
+    selectExistingEnvironment(currentEnv.id)
+    advanceStep()
+  }
+
+  const confirmSelectedVault = () => {
+    if (!currentPageScopeIsActive()) return
+    if (!pendingVaultId) {
+      advanceStep()
+      return
+    }
+    const currentVault = readCurrentActiveVaults().find((vault) => vault.id === pendingVaultId)
+    if (!currentVault) return
+    selectExistingVault(currentVault.id)
+    advanceStep()
+  }
+
+  const currentSessionAgentIsActive = () => {
+    const agentId = resourceIds[3]
+    if (!agentId) return false
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope, agentId])
+    if (currentAgent) return currentAgent.id === agentId && !currentAgent.archived_at
+    return createdResourceIds.has(agentId)
+  }
+
+  const resolveSessionEnvironmentId = () => {
+    const envId = resourceIds[4]
+    if (!envId) return null
+    const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
+      'environments-active',
+      managedScope,
+    ])
+    const currentEnvRecord = currentEnvironmentData?.find((env) => env.id === envId)
+    if (currentEnvRecord?.archived_at) return null
+    if (readCurrentActiveEnvironments().some((env) => env.id === envId)) return envId
+    return createdResourceIds.has(envId) ? envId : null
+  }
+
+  const resolveSessionVaultId = () => {
+    const vaultId = resourceIds[5]
+    if (!vaultId) return null
+    const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
+      'vaults-active',
+      managedScope,
+    ])
+    const currentVaultRecord = unwrapActiveVaultsCache(currentVaultData)?.find(
+      (vault) => vault.id === vaultId,
+    )
+    if (currentVaultRecord?.archived_at) return null
+    if (readCurrentActiveVaults().some((vault) => vault.id === vaultId)) return vaultId
+    return createdResourceIds.has(vaultId) ? vaultId : null
+  }
+
+  const handleCreateSession = () => {
+    if (!currentPageScopeIsActive()) return
+    if (!currentSessionAgentIsActive()) return
+    createSession({
+      environmentId: resolveSessionEnvironmentId(),
+      vaultId: resolveSessionVaultId(),
+    })
+  }
+
+  const selectedEnvIsActive = useMemo(() => {
+    return !!selectedEnvId && activeEnvironments.some((env) => env.id === selectedEnvId)
+  }, [activeEnvironments, selectedEnvId])
 
   const selectedEnvironmentName = useMemo(() => {
     return (
@@ -813,10 +1046,20 @@ export default function QuickstartPage() {
   // Auto-switch to preview and generate test message when session is created
   useEffect(() => {
     const sid = resourceIds[6] || localSessionId
+    const scopeAtStart = managedScopeRef.current
+    const draftVersionAtStart = sessionMsgDraftVersionRef.current
     if (sid) {
       setRightTab('preview')
       generateTestMessage().then((msg) => {
-        if (msg) setSessionMsgInput(msg)
+        if (
+          managedScopeRef.current === scopeAtStart &&
+          sid === (resourceIds[6] || localSessionId) &&
+          msg &&
+          sessionMsgDraftVersionRef.current === draftVersionAtStart &&
+          !sessionMsgInputRef.current.trim()
+        ) {
+          setSessionMessageDraft(msg)
+        }
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -824,9 +1067,34 @@ export default function QuickstartPage() {
 
   // Sync environment created in quickstart to the preview panel dropdown
   useEffect(() => {
-    if (resourceIds[4]) setSelectedEnvId(resourceIds[4])
+    const quickstartEnvId = resourceIds[4]
+    if (!quickstartEnvId) return
+
+    setSelectedEnvId(quickstartEnvId)
+    if (!createdResourceIds.has(quickstartEnvId)) return
+    queryClient.setQueryData<Environment[] | undefined>(
+      ['environments-active', managedScope],
+      (current) => {
+        if (!current || current.some((env) => env.id === quickstartEnvId)) return current
+        const generatedName =
+          typeof config.environment?.name === 'string' ? config.environment.name : ''
+        return [
+          ...current,
+          {
+            id: quickstartEnvId,
+            name:
+              envAnswers.choiceLabel ||
+              generatedName ||
+              shortIdWithPrefix(quickstartEnvId, 'env_'),
+            created_at: '',
+            updated_at: '',
+            archived_at: null,
+          },
+        ]
+      },
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceIds[4]])
+  }, [resourceIds[4], createdResourceIds])
 
   const handleEnvSkip = () => {
     advanceStep()
@@ -851,18 +1119,40 @@ export default function QuickstartPage() {
 
   const handleTestRun = async () => {
     const agentId = resourceIds[3]
-    if (!agentId) return
+    if (!agentId || !currentPageScopeIsActive()) return
+    const { runId, scope } = nextPageAction()
     setIsTestRunning(true)
     try {
       const body: Record<string, unknown> = { agent: agentId }
-      if (selectedEnvId) body.environment_id = stripIdPrefix(selectedEnvId)
+      const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
+        'environments-active',
+        managedScope,
+      ])
+      const currentActiveEnvironments = readCurrentActiveEnvironments()
+      const currentSelectedEnv = currentActiveEnvironments.find((env) => env.id === selectedEnvId)
+      const currentSelectedEnvRecord = currentEnvironmentData?.find(
+        (env) => env.id === selectedEnvId,
+      )
+      const selectedEnvIsCurrentQuickstartResource =
+        selectedEnvId === resourceIds[4] &&
+        createdResourceIds.has(selectedEnvId) &&
+        !currentSelectedEnvRecord?.archived_at
+      const selectedEnvCanBeSubmitted =
+        !!currentSelectedEnv || selectedEnvIsCurrentQuickstartResource
+      if (selectedEnvId && selectedEnvCanBeSubmitted) {
+        body.environment_id = stripIdPrefix(currentSelectedEnv?.id || selectedEnvId)
+      }
       const res = await managedPost<{ id: string }>('/sessions', body)
+      if (!isCurrentPageAction(runId, scope)) return
       setLocalSessionId(res.id)
       setRightTab('preview')
     } catch (e) {
+      if (!isCurrentPageAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
-      setIsTestRunning(false)
+      if (isCurrentPageAction(runId, scope)) {
+        setIsTestRunning(false)
+      }
     }
   }
 
@@ -1252,8 +1542,12 @@ export default function QuickstartPage() {
                               setEnvUsesAI(true)
                             } else if (num <= activeEnvironments.length) {
                               const env = activeEnvironments[num - 1]
-                              setPendingEnvId(env.id)
-                              setEnvAnswers({ choiceLabel: env.name })
+                              const currentEnv = readCurrentActiveEnvironments().find(
+                                (current) => current.id === env.id,
+                              )
+                              if (!currentEnv) return
+                              setPendingEnvId(currentEnv.id)
+                              setEnvAnswers({ choiceLabel: currentEnv.name })
                               setEnvSubStep('selected')
                             } else {
                               setEnvAnswers({ choiceLabel: t('managed.quickstart.envCreateNew') })
@@ -1273,10 +1567,7 @@ export default function QuickstartPage() {
                           <div className="flex items-center gap-2 pt-1">
                             <Button
                               className="h-10 rounded-xl px-5 text-sm font-semibold"
-                              onClick={() => {
-                                if (pendingEnvId) selectExistingEnvironment(pendingEnvId)
-                                advanceStep()
-                              }}
+                              onClick={confirmSelectedEnvironment}
                             >
                               {t('managed.quickstart.nextConfigureVault')}
                             </Button>
@@ -1414,8 +1705,12 @@ export default function QuickstartPage() {
                               setVaultUsesAI(true)
                             } else if (num <= activeVaults.length) {
                               const vault = activeVaults[num - 1]
-                              setPendingVaultId(vault.id)
-                              setVaultAnswers({ choiceLabel: vault.name })
+                              const currentVault = readCurrentActiveVaults().find(
+                                (current) => current.id === vault.id,
+                              )
+                              if (!currentVault) return
+                              setPendingVaultId(currentVault.id)
+                              setVaultAnswers({ choiceLabel: currentVault.name })
                               setVaultSubStep('selected')
                             } else {
                               setVaultAnswers({
@@ -1437,10 +1732,7 @@ export default function QuickstartPage() {
                           <div className="flex items-center gap-2 pt-1">
                             <Button
                               className="h-10 rounded-xl px-5 text-sm font-semibold"
-                              onClick={() => {
-                                if (pendingVaultId) selectExistingVault(pendingVaultId)
-                                advanceStep()
-                              }}
+                              onClick={confirmSelectedVault}
                             >
                               {t('managed.quickstart.nextStartSession')}
                             </Button>
@@ -1526,7 +1818,7 @@ export default function QuickstartPage() {
                     <Button
                       className="h-10 rounded-xl px-5 text-sm"
                       disabled={isCreating || !resourceIds[3]}
-                      onClick={createSession}
+                      onClick={handleCreateSession}
                     >
                       {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                       {t('managed.quickstart.startSession')}
@@ -1856,7 +2148,9 @@ export default function QuickstartPage() {
                           <input
                             type="text"
                             value={sessionMsgInput}
-                            onChange={(e) => setSessionMsgInput(e.target.value)}
+                            onInput={(e) =>
+                              setSessionMessageDraft(e.currentTarget.value, { userEdit: true })
+                            }
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault()

@@ -1,14 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useTranslation } from '@/lib/i18n'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
-import { managedGet, managedPost } from '@/lib/api-client'
-import { toastOperationError } from '@/lib/managed/errors'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
 import { FieldHelp, SkillVersionSelect } from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +13,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectTrigger,
@@ -23,6 +21,11 @@ import {
   SelectItem,
   SelectValue,
 } from '@/components/ui/select'
+import { managedGet, managedPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
+import { toastOperationError } from '@/lib/managed/errors'
+import { validateUrlScheme } from '@/lib/utils/url-validation'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
 
@@ -70,6 +73,12 @@ interface CreateAgentDialogProps {
 
 export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgentDialogProps) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const createRunRef = useRef(0)
+  const managedScopeRef = useRef(managedScope)
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -81,6 +90,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [mcpName, setMcpName] = useState('')
   const [mcpUrl, setMcpUrl] = useState('')
   const [secretRef, setSecretRef] = useState('')
+  const [secretSelectionCleared, setSecretSelectionCleared] = useState(false)
   const [environmentRef, setEnvironmentRef] = useState('')
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
@@ -90,14 +100,14 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [submitting, setSubmitting] = useState(false)
 
   const { data: secretsRes } = useQuery({
-    queryKey: ['secrets'],
+    queryKey: ['secrets', managedScope],
     queryFn: () => managedGet<{ data: { name: string }[] }>('/secrets'),
     enabled: open,
   })
   const secrets = secretsRes?.data
 
   const { data: skills } = useQuery({
-    queryKey: ['skills'],
+    queryKey: ['skills', managedScope],
     queryFn: async () => {
       const res = await managedGet<ManagedListResponse<SkillListItem>>('/skills')
       // Agents can only reference *published* skills — hide draft-only
@@ -108,7 +118,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   })
 
   const { data: environments } = useQuery({
-    queryKey: ['environments'],
+    queryKey: ['environments', managedScope],
     queryFn: async () => {
       const res = await managedGet<ManagedListResponse<EnvironmentListItem>>('/environments')
       return res.data || []
@@ -116,11 +126,33 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     enabled: open,
   })
 
-  useEffect(() => {
-    if (secrets && secrets.length > 0 && !secretRef) {
-      setSecretRef(secrets[0].name)
-    }
-  }, [secrets, secretRef])
+  const effectiveSecretRef = useMemo(() => {
+    if (!secrets || secrets.length === 0) return ''
+    const secretNames = new Set(secrets.map((secret) => secret.name))
+    if (secretRef && secretNames.has(secretRef)) return secretRef
+    return secretSelectionCleared ? '' : secrets[0].name
+  }, [secrets, secretRef, secretSelectionCleared])
+
+  const effectiveEnvironmentRef = useMemo(() => {
+    if (!environmentRef || !environments) return ''
+    return environments.some((environment) => environment.id === environmentRef)
+      ? environmentRef
+      : ''
+  }, [environments, environmentRef])
+
+  const effectiveSelectedSkillIds = useMemo(() => {
+    if (!skills) return new Set<string>()
+    const skillIds = new Set(skills.map((skill) => skill.id))
+    return new Set(Array.from(selectedSkillIds).filter((id) => skillIds.has(id)))
+  }, [skills, selectedSkillIds])
+
+  const effectiveSkillVersions = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(skillVersions).filter(([id]) => effectiveSelectedSkillIds.has(id)),
+      ),
+    [effectiveSelectedSkillIds, skillVersions],
+  )
 
   const reset = () => {
     setName('')
@@ -133,6 +165,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setMcpName('')
     setMcpUrl('')
     setSecretRef('')
+    setSecretSelectionCleared(false)
     setEnvironmentRef('')
     setPermissionMode('bypassPermissions')
     setSelectedSkillIds(new Set())
@@ -140,6 +173,22 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setEnvVars([])
     setSubmitting(false)
   }
+
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope) return
+    managedScopeRef.current = managedScope
+    createRunRef.current += 1
+    reset()
+    onOpenChange(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      createRunRef.current += 1
+    },
+    [],
+  )
 
   const toggleTool = (tool: string) => {
     setEnabledTools((prev) => {
@@ -152,8 +201,6 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
   const addMcpServer = () => {
     if (!mcpName.trim() || !mcpUrl.trim()) return
-    // Validate URL scheme
-    const { validateUrlScheme } = require('@/lib/utils/url-validation')
     const urlError = validateUrlScheme(mcpUrl.trim())
     if (urlError) {
       toastOperationError(t, new Error(urlError), 'common.error')
@@ -176,20 +223,25 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setMcpServers((prev) => prev.filter((_, i) => i !== idx))
   }
 
-  const addEnvVar = () => {
-    setEnvVars((prev) => [...prev, { key: '', value: '' }])
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
   }
 
-  const updateEnvVar = (idx: number, field: 'key' | 'value', val: string) => {
-    setEnvVars((prev) => prev.map((e, i) => (i === idx ? { ...e, [field]: val } : e)))
-  }
+  const isCurrentCreateRun = (runId: number, scope: string) =>
+    runId === createRunRef.current &&
+    scope === managedScopeRef.current &&
+    scope === getCurrentManagedScope()
 
-  const removeEnvVar = (idx: number) => {
-    setEnvVars((prev) => prev.filter((_, i) => i !== idx))
-  }
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    scope === getCurrentManagedScope()
 
   const handleSubmit = async () => {
     if (!name.trim()) return
+    const scopeAtStart = managedScopeRef.current
+    if (!currentManagedScopeIsActive(scopeAtStart)) return
+    const runId = createRunRef.current + 1
+    createRunRef.current = runId
     setSubmitting(true)
     try {
       const tools: Record<string, unknown>[] = []
@@ -223,30 +275,67 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         }
       }
 
+      const scopeAtSubmit = managedScopeRef.current
+      const currentSecrets =
+        queryClient.getQueryData<{ data?: { name: string }[] }>(['secrets', scopeAtSubmit])?.data ??
+        secrets
+      const currentEnvironments =
+        queryClient.getQueryData<ManagedListResponse<EnvironmentListItem>>([
+          'environments',
+          scopeAtSubmit,
+        ])?.data ?? environments
+      const currentSkills =
+        queryClient.getQueryData<SkillListItem[]>(['skills', scopeAtSubmit]) ?? skills
+
+      const currentSecretRef = (() => {
+        if (!currentSecrets) return effectiveSecretRef
+        if (currentSecrets.length === 0) return ''
+        const secretNames = new Set(currentSecrets.map((secret) => secret.name))
+        if (secretRef && secretNames.has(secretRef)) return secretRef
+        return secretSelectionCleared ? '' : currentSecrets[0].name
+      })()
+      const currentEnvironmentRef =
+        environmentRef &&
+        (!currentEnvironments ||
+          currentEnvironments.some((environment) => environment.id === environmentRef))
+          ? environmentRef
+          : ''
+      const currentSkillIds = currentSkills ? new Set(currentSkills.map((skill) => skill.id)) : null
+      const currentSelectedSkillIds = currentSkillIds
+        ? Array.from(selectedSkillIds).filter((id) => currentSkillIds.has(id))
+        : Array.from(effectiveSelectedSkillIds)
+      const currentSkillVersions = Object.fromEntries(
+        Object.entries(skillVersions).filter(([id]) => currentSelectedSkillIds.includes(id)),
+      )
+
       const res = await managedPost<{ id: string }>('/agents', {
         name: name.trim(),
         description: description.trim() || null,
         engine_kind: engineKind,
         system_prompt: systemPrompt || null,
-        secret_ref: secretRef || undefined,
-        environment_ref: environmentRef || undefined,
+        ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
+        ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
         tools,
         mcp_servers: mcpServers.map((m) => ({ type: 'url', name: m.name, url: m.url })),
-        skill_ids: Array.from(selectedSkillIds),
-        skills: Array.from(selectedSkillIds).map((id) => ({
+        skill_ids: currentSelectedSkillIds,
+        skills: currentSelectedSkillIds.map((id) => ({
           type: 'custom' as const,
           skill_id: id,
-          version: skillVersions[id] || 'latest',
+          version: currentSkillVersions[id] || 'latest',
         })),
         env: Object.keys(envPayload).length > 0 ? envPayload : undefined,
       })
+      if (!isCurrentCreateRun(runId, scopeAtStart)) return
       reset()
       onOpenChange(false)
       onCreated(res.id)
     } catch (e) {
+      if (!isCurrentCreateRun(runId, scopeAtStart)) return
       toastOperationError(t, e, 'managed.agents.create.failed')
     } finally {
-      setSubmitting(false)
+      if (isCurrentCreateRun(runId, scopeAtStart)) {
+        setSubmitting(false)
+      }
     }
   }
 
@@ -255,6 +344,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       open={open}
       onOpenChange={(v) => {
         if (!v) {
+          createRunRef.current += 1
           reset()
         }
         onOpenChange(v)
@@ -318,8 +408,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             </label>
             {secrets && secrets.length > 0 ? (
               <Select
-                value={secretRef || '__none__'}
-                onValueChange={(v) => setSecretRef(v === '__none__' ? '' : v)}
+                value={effectiveSecretRef || '__none__'}
+                onValueChange={(v) => {
+                  setSecretRef(v === '__none__' ? '' : v)
+                  setSecretSelectionCleared(v === '__none__')
+                }}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -350,7 +443,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             </div>
             {environments && environments.length > 0 ? (
               <Select
-                value={environmentRef || '__none__'}
+                value={effectiveEnvironmentRef || '__none__'}
                 onValueChange={(v) => setEnvironmentRef(v === '__none__' ? '' : v)}
               >
                 <SelectTrigger className="w-full">
@@ -537,7 +630,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             ) : (
               <div className="space-y-2">
                 {skills.map((skill) => {
-                  const isSelected = selectedSkillIds.has(skill.id)
+                  const isSelected = effectiveSelectedSkillIds.has(skill.id)
                   const toggle = () => {
                     setSelectedSkillIds((prev) => {
                       const next = new Set(prev)
@@ -580,7 +673,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                       {isSelected && (
                         <SkillVersionSelect
                           skillId={skill.id}
-                          value={skillVersions[skill.id] || 'latest'}
+                          value={effectiveSkillVersions[skill.id] || 'latest'}
                           onChange={(v) => setSkillVersions((prev) => ({ ...prev, [skill.id]: v }))}
                         />
                       )}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
@@ -50,6 +50,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 interface KVPair {
   key: string
@@ -66,10 +67,41 @@ interface SecretTestResult {
   error_detail?: string | null
 }
 
+interface ScopedRun {
+  runId: number
+  scope: string
+}
+
 export default function SecretListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScopeRef = useRef(managedScope)
+  const createRunRef = useRef(0)
+  const testRunRef = useRef(0)
+  const deleteRunRef = useRef(0)
+  const defaultRunRef = useRef(0)
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+  const isCurrentManagedScope = (scope: string) =>
+    managedScopeRef.current === scope && getCurrentManagedScope() === scope
+  const nextScopedRun = (runRef: MutableRefObject<number>): ScopedRun => {
+    const runId = runRef.current + 1
+    runRef.current = runId
+    return {
+      runId,
+      scope: managedScopeRef.current,
+    }
+  }
+  const isCurrentScopedRun = (
+    runRef: MutableRefObject<number>,
+    action: ScopedRun,
+  ) => runRef.current === action.runId && isCurrentManagedScope(action.scope)
   const {
     data: secrets,
     isLoading: secretsLoading,
@@ -98,42 +130,91 @@ export default function SecretListPage() {
   const [testResult, setTestResult] = useState<SecretTestResult | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
 
-  const updatePair = (index: number, field: 'key' | 'value', val: string) => {
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope) return
+    managedScopeRef.current = managedScope
+    createRunRef.current += 1
+    testRunRef.current += 1
+    deleteRunRef.current += 1
+    defaultRunRef.current += 1
+    setShowCreate(false)
+    setNewName('')
+    setNewProvider('claude')
+    setNewProtocol('anthropic_messages')
+    setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
+    setCreating(false)
+    setTestingSecret(false)
     setTestResult(null)
+    setDeleteTarget(null)
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      createRunRef.current += 1
+      testRunRef.current += 1
+      deleteRunRef.current += 1
+      defaultRunRef.current += 1
+    },
+    [],
+  )
+
+  const resetCreateDraft = () => {
+    setNewName('')
+    setNewProvider('claude')
+    setNewProtocol('anthropic_messages')
+    setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
+    setCreating(false)
+    setTestingSecret(false)
+    setTestResult(null)
+  }
+
+  const invalidatePendingTest = () => {
+    testRunRef.current += 1
+    setTestingSecret(false)
+    setTestResult(null)
+  }
+
+  const updatePair = (index: number, field: 'key' | 'value', val: string) => {
+    invalidatePendingTest()
     setPairs((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: val } : p)))
   }
 
   const removePair = (index: number) => {
-    setTestResult(null)
+    invalidatePendingTest()
     setPairs((prev) => prev.filter((_, i) => i !== index))
   }
 
   const addPair = () => {
-    setTestResult(null)
+    invalidatePendingTest()
     setPairs((prev) => [...prev, { key: '', value: '' }])
   }
 
   const updateProvider = (provider: string) => {
     const nextProtocol = getDefaultProtocol(provider)
-    setTestResult(null)
+    invalidatePendingTest()
     setNewProvider(provider)
     setNewProtocol(nextProtocol)
     setPairs(getDefaultSecretPairs(provider, nextProtocol))
   }
 
   const updateProtocol = (protocol: string) => {
-    setTestResult(null)
+    invalidatePendingTest()
     setNewProtocol(protocol)
     setPairs(getDefaultSecretPairs(newProvider, protocol))
   }
 
   const openCreateDialog = () => {
-    setNewName('')
-    setNewProvider('claude')
-    setNewProtocol('anthropic_messages')
-    setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
-    setTestResult(null)
+    createRunRef.current += 1
+    testRunRef.current += 1
+    resetCreateDraft()
     setShowCreate(true)
+  }
+
+  const closeCreateDialog = () => {
+    createRunRef.current += 1
+    testRunRef.current += 1
+    resetCreateDraft()
+    setShowCreate(false)
   }
 
   const validPairs = pairs.filter((p) => p.key.trim())
@@ -158,74 +239,129 @@ export default function SecretListPage() {
     },
   ]
 
+  useEffect(() => {
+    setDeleteTarget((target) => {
+      if (!target) return null
+      const current = secrets.find((secret) => secret.id === target.id) ?? null
+      if (!current) {
+        deleteRunRef.current += 1
+      }
+      return current
+    })
+  }, [secrets])
+
+  const currentSecret = (secret: Secret | null) => {
+    if (!secret) return null
+    if (!isCurrentManagedScope(managedScopeRef.current)) return null
+    return (
+      queryClient
+        .getQueriesData<{ data?: Secret[] }>({
+          queryKey: ['secrets', managedScopeRef.current, '/secrets'],
+        })
+        .flatMap(([, page]) => page?.data ?? [])
+        .find((candidate) => candidate.id === secret.id) ?? null
+    )
+  }
+
   const handleCreate = async () => {
     if (!canCreate) return
+    const action = nextScopedRun(createRunRef)
+    if (!isCurrentScopedRun(createRunRef, action)) return
+    const data = buildSecretData()
+    const name = newName.trim()
+    const provider = newProvider
+    const protocol = newProtocol
+    const isDefault = secrets.length === 0
     setCreating(true)
     try {
-      const data = buildSecretData()
       await managedPost('/secrets', {
-        name: newName.trim(),
-        provider: newProvider,
-        protocol: newProtocol,
+        name,
+        provider,
+        protocol,
         data,
-        is_default: secrets.length === 0,
+        is_default: isDefault,
       })
-      setNewName('')
-      setNewProvider('claude')
-      setNewProtocol('anthropic_messages')
-      setPairs([{ key: '', value: '' }])
-      setTestResult(null)
+      if (!isCurrentScopedRun(createRunRef, action)) return
+      resetCreateDraft()
       setShowCreate(false)
       queryClient.invalidateQueries({ queryKey: ['secrets'] })
     } catch (e) {
+      if (!isCurrentScopedRun(createRunRef, action)) return
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
-      setCreating(false)
+      if (isCurrentScopedRun(createRunRef, action)) {
+        setCreating(false)
+      }
     }
   }
 
   const handleTestConnection = async () => {
     if (validPairs.length === 0) return
+    const action = nextScopedRun(testRunRef)
+    if (!isCurrentScopedRun(testRunRef, action)) return
+    const provider = newProvider
+    const protocol = newProtocol
+    const data = buildSecretData()
     setTestingSecret(true)
     setTestResult(null)
     try {
       const result = await managedPost<SecretTestResult>('/secrets/test', {
-        provider: newProvider,
-        protocol: newProtocol,
-        data: buildSecretData(),
+        provider,
+        protocol,
+        data,
       })
+      if (!isCurrentScopedRun(testRunRef, action)) return
       setTestResult(result)
     } catch (e) {
+      if (!isCurrentScopedRun(testRunRef, action)) return
       const error = parseApiError(e)
       setTestResult({
         ok: false,
-        provider: newProvider,
-        protocol: newProtocol,
+        provider,
+        protocol,
         message: error.message || t('managed.secrets.testFailed'),
         status: error.status,
       })
     } finally {
-      setTestingSecret(false)
+      if (isCurrentScopedRun(testRunRef, action)) {
+        setTestingSecret(false)
+      }
     }
   }
 
   const handleDelete = async () => {
-    if (!deleteTarget) return
+    const target = currentSecret(deleteTarget)
+    if (!target) {
+      deleteRunRef.current += 1
+      setDeleteTarget(null)
+      return
+    }
+    const action = nextScopedRun(deleteRunRef)
     try {
-      await managedDelete(`/secrets/${deleteTarget.id}`)
+      await managedDelete(`/secrets/${target.id}`)
+      if (!isCurrentScopedRun(deleteRunRef, action)) return
       queryClient.invalidateQueries({ queryKey: ['secrets'] })
     } catch (e) {
+      if (!isCurrentScopedRun(deleteRunRef, action)) return
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
-      setDeleteTarget(null)
+      if (isCurrentScopedRun(deleteRunRef, action)) {
+        setDeleteTarget(null)
+      }
     }
   }
 
   const handleSetDefault = async (secret: Secret) => {
+    const target = currentSecret(secret)
+    if (!target) return
+
+    const action = nextScopedRun(defaultRunRef)
     try {
-      await managedPost(`/secrets/${secret.id}/default`, {})
+      await managedPost(`/secrets/${target.id}/default`, {})
+      if (!isCurrentScopedRun(defaultRunRef, action)) return
       queryClient.invalidateQueries({ queryKey: ['secrets'] })
     } catch (e) {
+      if (!isCurrentScopedRun(defaultRunRef, action)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
@@ -322,7 +458,12 @@ export default function SecretListPage() {
               ]),
           {
             label: t('common.delete'),
-            onClick: () => setDeleteTarget(s),
+            onClick: () => {
+              if (!currentSecret(s)) return
+
+              deleteRunRef.current += 1
+              setDeleteTarget(s)
+            },
             destructive: true,
           },
         ]}
@@ -343,10 +484,8 @@ export default function SecretListPage() {
       <Dialog
         open={showCreate}
         onOpenChange={(open) => {
-          setShowCreate(open)
-          if (!open) {
-            setTestResult(null)
-          }
+          if (open) openCreateDialog()
+          else closeCreateDialog()
         }}
       >
         <DialogContent>
@@ -497,7 +636,7 @@ export default function SecretListPage() {
                       {testResult.status ? ` (HTTP ${testResult.status})` : ''}
                     </div>
                     {!testResult.ok && (testResult.endpoint || testResult.error_detail) && (
-                      <div className="space-y-1 rounded border border-current/10 bg-background/70 p-2 font-mono text-xs text-foreground">
+                      <div className="border-current/10 space-y-1 rounded border bg-background/70 p-2 font-mono text-xs text-foreground">
                         {testResult.endpoint && <div>endpoint: {testResult.endpoint}</div>}
                         {testResult.error_detail && (
                           <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words">
@@ -523,10 +662,7 @@ export default function SecretListPage() {
               )}
               {testingSecret ? t('managed.secrets.testing') : t('managed.secrets.testConnection')}
             </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={!canCreate || creating || testingSecret}
-            >
+            <Button onClick={handleCreate} disabled={!canCreate || creating || testingSecret}>
               {creating ? t('common.loading') : t('common.create')}
             </Button>
           </DialogFooter>
@@ -542,7 +678,10 @@ export default function SecretListPage() {
         confirmLabel={t('common.delete')}
         destructive
         onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => {
+          deleteRunRef.current += 1
+          setDeleteTarget(null)
+        }}
       />
     </div>
   )

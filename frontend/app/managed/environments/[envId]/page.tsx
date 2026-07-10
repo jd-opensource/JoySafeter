@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Save } from 'lucide-react'
@@ -25,13 +25,33 @@ import {
   RelativeTime,
   ResourceErrorState,
 } from '@/components/managed/shared'
+import { useProjectStore } from '@/stores/managed/project-store'
+
+interface SaveEnvironmentVariables {
+  envId: string
+  rawId: string
+  payload: {
+    name: string
+    description: string
+    config: Record<string, unknown>
+  }
+  runId: number
+  scope: string
+}
 
 export default function EnvironmentDetailPage({ params }: { params: Promise<{ envId: string }> }) {
   const { envId: rawId } = React.use(params)
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const envId = stripIdPrefix(rawId || '')
+  const operationScope = `${managedScope}:${rawId ?? ''}`
+  const saveRunRef = useRef(0)
+  const operationScopeRef = useRef(operationScope)
+  const hydratedEnvironmentScopeRef = useRef<string | null>(null)
 
   const {
     data: env,
@@ -39,7 +59,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     isError,
     error,
   } = useQuery({
-    queryKey: ['environment', rawId],
+    queryKey: ['environment', managedScope, rawId],
     queryFn: () => managedGet<Environment>(`/environments/${envId}`),
     enabled: !!rawId,
     retry: shouldRetryManagedResourceError,
@@ -54,9 +74,27 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
   const [npmPackages, setNpmPackages] = useState('')
   const [envVars, setEnvVars] = useState('')
   const [secretRefs, setSecretRefs] = useState('')
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    if (operationScopeRef.current !== operationScope) {
+      operationScopeRef.current = operationScope
+      saveRunRef.current += 1
+    }
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      saveRunRef.current += 1
+    },
+    [],
+  )
 
   useEffect(() => {
     if (env) {
+      const shouldHydrate = !dirty || hydratedEnvironmentScopeRef.current !== operationScope
+      if (!shouldHydrate) return
+
       setName(env.name)
       setDescription(env.description || '')
       setNetworkType(env.config?.networking?.type || 'limited')
@@ -70,8 +108,10 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           .join(', '),
       )
       setSecretRefs(env.config?.secret_refs?.join(', ') || '')
+      hydratedEnvironmentScopeRef.current = operationScope
+      setDirty(false)
     }
-  }, [env])
+  }, [dirty, env, operationScope])
 
   const splitList = (s: string) =>
     s
@@ -90,41 +130,70 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     return vars
   }
 
+  const buildSavePayload = (): SaveEnvironmentVariables['payload'] => {
+    const config: Record<string, unknown> = {
+      type: 'cloud',
+      networking: {
+        type: networkType,
+        ...(networkType === 'limited' && allowedHosts.trim()
+          ? { allowed_hosts: splitList(allowedHosts) }
+          : {}),
+      },
+    }
+    const packages: Record<string, string[]> = {}
+    if (aptPackages.trim()) packages.apt = splitList(aptPackages)
+    if (pipPackages.trim()) packages.pip = splitList(pipPackages)
+    if (npmPackages.trim()) packages.npm = splitList(npmPackages)
+    if (Object.keys(packages).length > 0) config.packages = packages
+
+    const ev = parseEnvVarsStr(envVars)
+    if (Object.keys(ev).length > 0) config.env_vars = ev
+
+    const refs = splitList(secretRefs)
+    if (refs.length > 0) config.secret_refs = refs
+
+    return {
+      name: name.trim(),
+      description: description.trim(),
+      config,
+    }
+  }
+
+  const getCurrentOperationScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}:${rawId ?? ''}`
+  }
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentEditableEnvironment = () => {
+    const current = queryClient.getQueryData<Environment>([
+      'environment',
+      getCurrentManagedScope(),
+      rawId,
+    ])
+    return current?.id === rawId && !current.archived_at ? current : null
+  }
+
+  const isCurrentSaveRun = (runId: number, scope: string) =>
+    saveRunRef.current === runId &&
+    operationScopeRef.current === scope &&
+    getCurrentOperationScope() === scope
+
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const config: Record<string, unknown> = {
-        type: 'cloud',
-        networking: {
-          type: networkType,
-          ...(networkType === 'limited' && allowedHosts.trim()
-            ? { allowed_hosts: splitList(allowedHosts) }
-            : {}),
-        },
-      }
-      const packages: Record<string, string[]> = {}
-      if (aptPackages.trim()) packages.apt = splitList(aptPackages)
-      if (pipPackages.trim()) packages.pip = splitList(pipPackages)
-      if (npmPackages.trim()) packages.npm = splitList(npmPackages)
-      if (Object.keys(packages).length > 0) config.packages = packages
-
-      const ev = parseEnvVarsStr(envVars)
-      if (Object.keys(ev).length > 0) config.env_vars = ev
-
-      const refs = splitList(secretRefs)
-      if (refs.length > 0) config.secret_refs = refs
-
-      return managedPost<Environment>(`/environments/${envId}`, {
-        name: name.trim(),
-        description: description.trim(),
-        config,
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['environment', rawId] })
+    mutationFn: ({ envId, payload }: SaveEnvironmentVariables) =>
+      managedPost<Environment>(`/environments/${envId}`, payload),
+    onSuccess: (_data, { rawId, runId, scope }) => {
+      if (!isCurrentSaveRun(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['environment', managedScope, rawId] })
       queryClient.invalidateQueries({ queryKey: ['environments'] })
       router.push('/managed/environments')
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentSaveRun(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
@@ -172,18 +241,36 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
       <fieldset disabled={!!env.archived_at} className="mt-6 max-w-2xl space-y-6">
         <div className="space-y-2">
           <label className="text-sm font-medium">{t('managed.environments.name')}</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <Input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value)
+              setDirty(true)
+            }}
+          />
         </div>
 
         <div className="space-y-2">
           <label className="text-sm font-medium">{t('managed.environments.description')}</label>
-          <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+          <Input
+            value={description}
+            onChange={(e) => {
+              setDescription(e.target.value)
+              setDirty(true)
+            }}
+          />
         </div>
 
         <div className="border-t pt-4">
           <h4 className="mb-3 text-sm font-medium">{t('managed.environments.networking')}</h4>
           <div className="space-y-3">
-            <Select value={networkType} onValueChange={setNetworkType}>
+            <Select
+              value={networkType}
+              onValueChange={(value) => {
+                setNetworkType(value)
+                setDirty(true)
+              }}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -202,7 +289,10 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
                 <Input
                   placeholder="api.example.com, github.com"
                   value={allowedHosts}
-                  onChange={(e) => setAllowedHosts(e.target.value)}
+                  onChange={(e) => {
+                    setAllowedHosts(e.target.value)
+                    setDirty(true)
+                  }}
                 />
               </div>
             )}
@@ -216,7 +306,10 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
               <label className="text-xs text-muted-foreground">apt</label>
               <Input
                 value={aptPackages}
-                onChange={(e) => setAptPackages(e.target.value)}
+                onChange={(e) => {
+                  setAptPackages(e.target.value)
+                  setDirty(true)
+                }}
                 placeholder="curl, git"
               />
             </div>
@@ -224,7 +317,10 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
               <label className="text-xs text-muted-foreground">pip</label>
               <Input
                 value={pipPackages}
-                onChange={(e) => setPipPackages(e.target.value)}
+                onChange={(e) => {
+                  setPipPackages(e.target.value)
+                  setDirty(true)
+                }}
                 placeholder="numpy, pandas"
               />
             </div>
@@ -232,7 +328,10 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
               <label className="text-xs text-muted-foreground">npm</label>
               <Input
                 value={npmPackages}
-                onChange={(e) => setNpmPackages(e.target.value)}
+                onChange={(e) => {
+                  setNpmPackages(e.target.value)
+                  setDirty(true)
+                }}
                 placeholder="typescript, eslint"
               />
             </div>
@@ -243,7 +342,10 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           <h4 className="mb-3 text-sm font-medium">{t('managed.environments.envVarsLabel')}</h4>
           <Input
             value={envVars}
-            onChange={(e) => setEnvVars(e.target.value)}
+            onChange={(e) => {
+              setEnvVars(e.target.value)
+              setDirty(true)
+            }}
             placeholder="KEY=value, NODE_ENV=production"
           />
         </div>
@@ -252,7 +354,10 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           <h4 className="mb-3 text-sm font-medium">{t('managed.environments.secretRefsLabel')}</h4>
           <Input
             value={secretRefs}
-            onChange={(e) => setSecretRefs(e.target.value)}
+            onChange={(e) => {
+              setSecretRefs(e.target.value)
+              setDirty(true)
+            }}
             placeholder="my-api-secret, db-credentials"
           />
         </div>
@@ -262,7 +367,18 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
             <p className="text-sm text-muted-foreground">{t('managed.errors.projectArchived')}</p>
           ) : (
             <Button
-              onClick={() => saveMutation.mutate()}
+              onClick={() => {
+                if (!currentEditableEnvironment()) return
+                const runId = saveRunRef.current + 1
+                saveRunRef.current = runId
+                saveMutation.mutate({
+                  envId,
+                  rawId,
+                  payload: buildSavePayload(),
+                  runId,
+                  scope: operationScopeRef.current,
+                })
+              }}
               disabled={!name.trim() || saveMutation.isPending}
             >
               <Save className="h-4 w-4" />

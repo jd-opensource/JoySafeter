@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
+import { validateUrlScheme } from '@/lib/utils/url-validation'
+import { useProjectStore } from '@/stores/managed/project-store'
 import type { VaultCredential } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,17 +23,38 @@ interface CreateCredentialDialogProps {
   onOpenChange: (open: boolean) => void
   vaultId: string
   queryKey: unknown[]
+  canSubmit?: () => boolean
 }
 
 type CredType = 'mcp_oauth' | 'static_bearer'
+
+interface CreateCredentialVariables {
+  vaultId: string
+  queryKey: unknown[]
+  payload: {
+    name?: string
+    credential_type: CredType
+    mcp_server_url: string
+    token_value: string
+  }
+  runId: number
+  scope: string
+}
 
 export function CreateCredentialDialog({
   open,
   onOpenChange,
   vaultId,
   queryKey,
+  canSubmit,
 }: CreateCredentialDialogProps) {
   const { t } = useTranslation()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const operationScope = `${managedScope}:${vaultId}`
+  const createRunRef = useRef(0)
+  const operationScopeRef = useRef(operationScope)
   const [name, setName] = useState('')
   const [credentialType, setCredentialType] = useState<CredType>('mcp_oauth')
   const [mcpServerUrl, setMcpServerUrl] = useState('')
@@ -39,19 +62,16 @@ export function CreateCredentialDialog({
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: () =>
-      managedPost<VaultCredential>(`/vaults/${vaultId}/credentials`, {
-        name: name || undefined,
-        credential_type: credentialType,
-        mcp_server_url: mcpServerUrl,
-        token_value: tokenValue,
-      }),
-    onSuccess: () => {
+    mutationFn: ({ vaultId, payload }: CreateCredentialVariables) =>
+      managedPost<VaultCredential>(`/vaults/${vaultId}/credentials`, payload),
+    onSuccess: (_data, { queryKey, runId, scope }) => {
+      if (createRunRef.current !== runId || operationScopeRef.current !== scope) return
       queryClient.invalidateQueries({ queryKey })
       resetForm()
       onOpenChange(false)
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (createRunRef.current !== runId || operationScopeRef.current !== scope) return
       toastOperationError(t, error, 'managed.vaults.cred.createFailed')
     },
   })
@@ -64,22 +84,57 @@ export function CreateCredentialDialog({
     mutation.reset()
   }
 
+  useEffect(() => {
+    if (operationScopeRef.current !== operationScope) {
+      createRunRef.current += 1
+      operationScopeRef.current = operationScope
+    }
+    if (open) resetForm()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      createRunRef.current += 1
+    },
+    [],
+  )
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!mcpServerUrl.trim()) return
-    // URL scheme validation
-    const { validateUrlScheme } = require('@/lib/utils/url-validation')
     const urlError = validateUrlScheme(mcpServerUrl.trim())
     if (urlError) {
       alert(urlError)
       return
     }
     if (credentialType === 'static_bearer' && !tokenValue.trim()) return
-    mutation.mutate()
+    if (canSubmit && !canSubmit()) {
+      resetForm()
+      onOpenChange(false)
+      return
+    }
+    const runId = createRunRef.current + 1
+    createRunRef.current = runId
+    mutation.mutate({
+      vaultId,
+      queryKey,
+      payload: {
+        name: name || undefined,
+        credential_type: credentialType,
+        mcp_server_url: mcpServerUrl,
+        token_value: tokenValue,
+      },
+      runId,
+      scope: operationScopeRef.current,
+    })
   }
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) resetForm()
+    if (!next) {
+      createRunRef.current += 1
+      resetForm()
+    }
     onOpenChange(next)
   }
 

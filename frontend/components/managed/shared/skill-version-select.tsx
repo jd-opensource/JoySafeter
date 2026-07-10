@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { managedGet } from '@/lib/api-client'
 import { stripIdPrefix } from '@/lib/managed/id'
 import { useTranslation } from '@/lib/i18n'
+import { useProjectStore } from '@/stores/managed/project-store'
 import {
   Select,
   SelectContent,
@@ -47,9 +48,12 @@ export function SkillVersionSelect({
   className,
 }: SkillVersionSelectProps) {
   const { t } = useTranslation()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 
   const { data } = useQuery({
-    queryKey: ['skill-versions', skillId],
+    queryKey: ['skill-versions', managedScope, skillId],
     queryFn: () =>
       managedGet<{ data: SkillVersionRecord[] }>(
         `/skills/${stripIdPrefix(skillId)}/versions?limit=50`,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +21,40 @@ export function SecretModelInput({
   className,
 }: SecretModelInputProps) {
   const [open, setOpen] = useState(false)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const cancelPendingClose = () => {
+    if (!closeTimerRef.current) return
+    clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
+  }
+
+  const openDropdown = () => {
+    cancelPendingClose()
+    setOpen(true)
+  }
+
+  const closeDropdown = () => {
+    cancelPendingClose()
+    setOpen(false)
+  }
+
+  const scheduleCloseDropdown = () => {
+    cancelPendingClose()
+    closeTimerRef.current = setTimeout(() => {
+      setOpen(false)
+      closeTimerRef.current = null
+    }, 120)
+  }
 
   const filteredOptions = useMemo(() => {
     const keyword = value.trim().toLowerCase()
@@ -32,7 +66,7 @@ export function SecretModelInput({
 
   const selectModel = (model: string) => {
     onChange(model)
-    setOpen(false)
+    closeDropdown()
   }
 
   return (
@@ -41,13 +75,13 @@ export function SecretModelInput({
         value={value}
         onChange={(event) => {
           onChange(event.target.value)
-          setOpen(true)
+          openDropdown()
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={openDropdown}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') setOpen(false)
+          if (event.key === 'Escape') closeDropdown()
         }}
-        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        onBlur={scheduleCloseDropdown}
         placeholder={placeholder}
         className="pr-16 font-mono text-sm"
       />
@@ -60,7 +94,7 @@ export function SecretModelInput({
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
             onChange('')
-            setOpen(true)
+            openDropdown()
           }}
         >
           <X className="h-3.5 w-3.5" />
@@ -72,7 +106,10 @@ export function SecretModelInput({
         size="icon"
         className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => setOpen((nextOpen) => !nextOpen)}
+        onClick={() => {
+          cancelPendingClose()
+          setOpen((nextOpen) => !nextOpen)
+        }}
       >
         <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
       </Button>

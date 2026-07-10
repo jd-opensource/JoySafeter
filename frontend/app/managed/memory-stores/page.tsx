@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { useQueryClient } from '@tanstack/react-query'
@@ -23,11 +23,17 @@ import {
 import { CreateMemoryStoreDialog } from './components/create-memory-store-dialog'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 export default function MemoryStoreListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const actionRunRef = useRef(0)
+  const managedScopeRef = useRef(managedScope)
   const [showArchived, setShowArchived] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -76,11 +82,51 @@ export default function MemoryStoreListPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['memory-stores'] })
 
+  useEffect(() => {
+    if (managedScopeRef.current !== managedScope) {
+      actionRunRef.current += 1
+    }
+    managedScopeRef.current = managedScope
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      actionRunRef.current += 1
+    },
+    [],
+  )
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    getCurrentManagedScope() === scope
+
+  const isCurrentAction = (runId: number, scope: string) =>
+    actionRunRef.current === runId &&
+    managedScopeRef.current === scope &&
+    currentManagedScopeIsActive(scope)
+
   const handleArchive = async (store: MemoryStore) => {
+    const actionScope = managedScopeRef.current
+    if (!currentManagedScopeIsActive(actionScope)) return
+    const storeStillCurrent = queryClient
+      .getQueriesData<{ data?: MemoryStore[] }>({
+        queryKey: ['memory-stores', actionScope, '/memory_stores'],
+      })
+      .some(([, page]) => page?.data?.some((currentStore) => currentStore.id === store.id))
+    if (!storeStillCurrent) return
+
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
     try {
       await managedPost(`memory_stores/${store.id.replace('memstore_', '')}/archive`)
+      if (!isCurrentAction(runId, actionScope)) return
       invalidate()
     } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }

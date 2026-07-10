@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { Upload, Trash2 } from 'lucide-react'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
@@ -20,6 +20,7 @@ import {
   ResourceErrorState,
 } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -30,7 +31,13 @@ function formatSize(bytes: number): string {
 export default function FileListPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const uploadRunRef = useRef(0)
+  const actionRunRef = useRef(0)
+  const managedScopeRef = useRef(managedScope)
   const [uploading, setUploading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
@@ -66,23 +73,66 @@ export default function FileListPage() {
     },
   ]
 
+  useEffect(() => {
+    if (managedScopeRef.current !== managedScope) {
+      uploadRunRef.current += 1
+      actionRunRef.current += 1
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+    managedScopeRef.current = managedScope
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      uploadRunRef.current += 1
+      actionRunRef.current += 1
+    },
+    [],
+  )
+
+  const isCurrentAction = (runId: number, scope: string) =>
+    actionRunRef.current === runId && currentManagedScopeIsActive(scope)
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId, currentProjectId } = useProjectStore.getState()
+    return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    managedScopeRef.current === scope && getCurrentManagedScope() === scope
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
 
+    const runId = uploadRunRef.current + 1
+    uploadRunRef.current = runId
+    const uploadScope = managedScopeRef.current
+    if (!currentManagedScopeIsActive(uploadScope)) {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
     setUploading(true)
     try {
       for (const file of Array.from(files)) {
+        if (uploadRunRef.current !== runId || !currentManagedScopeIsActive(uploadScope)) break
         const formData = new FormData()
         formData.append('file', file)
         await managedUpload('/files', formData)
       }
-      queryClient.invalidateQueries({ queryKey: ['files'] })
+      if (uploadRunRef.current === runId && currentManagedScopeIsActive(uploadScope)) {
+        queryClient.invalidateQueries({ queryKey: ['files'] })
+      }
     } catch (err) {
-      toastOperationError(t, err, 'common.operationFailed')
+      if (uploadRunRef.current === runId && currentManagedScopeIsActive(uploadScope)) {
+        toastOperationError(t, err, 'common.operationFailed')
+      }
     } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (uploadRunRef.current === runId && currentManagedScopeIsActive(uploadScope)) {
+        setUploading(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
     }
   }
 
@@ -117,6 +167,27 @@ export default function FileListPage() {
       ),
     },
   ]
+
+  const handleDelete = async (file: FileRecord) => {
+    const actionScope = managedScopeRef.current
+    if (!currentManagedScopeIsActive(actionScope)) return
+    const fileStillCurrent = queryClient
+      .getQueriesData<{ data?: FileRecord[] }>({ queryKey: ['files', actionScope, '/files'] })
+      .some(([, page]) => page?.data?.some((currentFile) => currentFile.id === file.id))
+    if (!fileStillCurrent) return
+
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    if (!currentManagedScopeIsActive(actionScope)) return
+    try {
+      await managedDelete(`/files/${file.id}`)
+      if (!isCurrentAction(runId, actionScope)) return
+      queryClient.invalidateQueries({ queryKey: ['files'] })
+    } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
+      toastOperationError(t, e, 'common.operationFailed')
+    }
+  }
 
   if (isError) {
     return (
@@ -164,14 +235,7 @@ export default function FileListPage() {
           {
             label: t('common.delete'),
             destructive: true,
-            onClick: async () => {
-              try {
-                await managedDelete(`/files/${f.id}`)
-                queryClient.invalidateQueries({ queryKey: ['files'] })
-              } catch (e) {
-                toastOperationError(t, e, 'common.operationFailed')
-              }
-            },
+            onClick: () => handleDelete(f),
           },
         ]}
         pagination={{

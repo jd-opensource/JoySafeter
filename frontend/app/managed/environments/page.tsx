@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
@@ -31,6 +31,7 @@ import {
   ResourceErrorState,
 } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { useProjectStore } from '@/stores/managed/project-store'
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,9 @@ export default function EnvironmentListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 
   const [showArchived, setShowArchived] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -59,19 +63,43 @@ export default function EnvironmentListPage() {
   const [envVars, setEnvVars] = useState('')
   const [secretRefs, setSecretRefs] = useState('')
   const [creating, setCreating] = useState(false)
+  const createRunRef = useRef(0)
+  const actionRunRef = useRef(0)
+  const previousScopeRef = useRef<string | null>(null)
+  const managedScopeRef = useRef(managedScope)
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<Environment>({
-      queryKey: 'environments',
-      path: '/environments',
-      includeArchived: showArchived,
-    })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<Environment>({
+    queryKey: 'environments',
+    path: '/environments',
+    includeArchived: showArchived,
+  })
 
   const environments = data.filter(
     (e) =>
       (showArchived || !e.archived_at) &&
       filterByCreatedTime(e.created_at, createdFilter) &&
-      matchesSearch(searchQuery, [e.id, e.name, e.description, e.config?.type, e.archived_at ? 'archived' : 'active']),
+      matchesSearch(searchQuery, [
+        e.id,
+        e.name,
+        e.description,
+        e.config?.type,
+        e.archived_at ? 'archived' : 'active',
+      ]),
   )
 
   const filters: FilterDef[] = [
@@ -112,6 +140,7 @@ export default function EnvironmentListPage() {
   }
 
   const resetDialog = (open: boolean) => {
+    createRunRef.current += 1
     if (open) {
       resetForm()
     }
@@ -121,8 +150,65 @@ export default function EnvironmentListPage() {
     }
   }
 
+  useEffect(() => {
+    if (previousScopeRef.current === null) {
+      previousScopeRef.current = managedScope
+      return
+    }
+    if (previousScopeRef.current === managedScope) return
+    previousScopeRef.current = managedScope
+    managedScopeRef.current = managedScope
+    createRunRef.current += 1
+    actionRunRef.current += 1
+    setCreating(false)
+    setShowCreate(false)
+    resetForm()
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      createRunRef.current += 1
+      actionRunRef.current += 1
+    },
+    [],
+  )
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    getCurrentManagedScope() === scope
+
+  const isCurrentCreateRun = (runId: number, scope: string) =>
+    runId === createRunRef.current &&
+    scope === managedScopeRef.current &&
+    currentManagedScopeIsActive(scope)
+
+  const isCurrentAction = (runId: number, scope: string) =>
+    actionRunRef.current === runId &&
+    managedScopeRef.current === scope &&
+    currentManagedScopeIsActive(scope)
+
+  const currentEnvironmentIsActive = (env: Environment, scope: string) =>
+    queryClient
+      .getQueriesData<{ data?: Environment[] }>({
+        queryKey: ['environments', scope, '/environments'],
+      })
+      .some(([, page]) =>
+        page?.data?.some(
+          (currentEnvironment) =>
+            currentEnvironment.id === env.id && !currentEnvironment.archived_at,
+        ),
+      )
+
   const handleCreate = useCallback(async () => {
     if (!name.trim()) return
+    if (!currentManagedScopeIsActive()) return
+    const runId = createRunRef.current + 1
+    createRunRef.current = runId
+    const createScope = managedScopeRef.current
     setCreating(true)
     try {
       const config: Record<string, unknown> = {
@@ -152,13 +238,17 @@ export default function EnvironmentListPage() {
         description: description.trim(),
         config,
       })
+      if (!isCurrentCreateRun(runId, createScope)) return
       resetForm()
       setShowCreate(false)
       queryClient.invalidateQueries({ queryKey: ['environments'] })
     } catch (e) {
+      if (!isCurrentCreateRun(runId, createScope)) return
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
-      setCreating(false)
+      if (isCurrentCreateRun(runId, createScope)) {
+        setCreating(false)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -174,6 +264,23 @@ export default function EnvironmentListPage() {
     queryClient,
   ])
 
+  const handleArchive = async (env: Environment) => {
+    const actionScope = managedScopeRef.current
+    if (!currentManagedScopeIsActive(actionScope)) return
+    if (!currentEnvironmentIsActive(env, actionScope)) return
+
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    try {
+      await managedPost(`/environments/${stripIdPrefix(env.id)}/archive`, {})
+      if (!isCurrentAction(runId, actionScope)) return
+      queryClient.invalidateQueries({ queryKey: ['environments'] })
+    } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
+      toastOperationError(t, e, 'common.operationFailed')
+    }
+  }
+
   const columns: Column<Environment>[] = [
     {
       key: 'id',
@@ -183,16 +290,12 @@ export default function EnvironmentListPage() {
     {
       key: 'name',
       header: t('managed.environments.table.name'),
-      render: (e) => (
-        <span className="font-medium text-foreground">{e.name}</span>
-      ),
+      render: (e) => <span className="font-medium text-foreground">{e.name}</span>,
     },
     {
       key: 'status',
       header: t('managed.environments.table.status'),
-      render: (e) => (
-        <StatusBadge status={e.archived_at ? 'archived' : 'active'} />
-      ),
+      render: (e) => <StatusBadge status={e.archived_at ? 'archived' : 'active'} />,
     },
     {
       key: 'type',
@@ -205,7 +308,7 @@ export default function EnvironmentListPage() {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (e) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={e.created_at} />
         </span>
       ),
@@ -213,7 +316,13 @@ export default function EnvironmentListPage() {
   ]
 
   if (isError) {
-    return <ResourceErrorState error={error} resource="environment" onRetry={() => queryClient.invalidateQueries({ queryKey: ['environments'] })} />
+    return (
+      <ResourceErrorState
+        error={error}
+        resource="environment"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['environments'] })}
+      />
+    )
   }
 
   return (
@@ -223,7 +332,7 @@ export default function EnvironmentListPage() {
         subtitle={t('managed.environments.subtitle')}
         action={
           <Button size="sm" onClick={() => resetDialog(true)}>
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             {t('managed.environments.add')}
           </Button>
         }
@@ -244,16 +353,16 @@ export default function EnvironmentListPage() {
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(e) => router.push(`/managed/environments/${e.id}`)}
-        actionMenu={(env) => env.archived_at ? [] : [
-          {
-            label: t('managed.environments.archiveEnv'),
-            onClick: () => {
-              managedPost(`/environments/${stripIdPrefix(env.id)}/archive`, {}).then(() => {
-                queryClient.invalidateQueries({ queryKey: ['environments'] })
-              })
-            },
-          },
-        ]}
+        actionMenu={(env) =>
+          env.archived_at
+            ? []
+            : [
+                {
+                  label: t('managed.environments.archiveEnv'),
+                  onClick: () => handleArchive(env),
+                },
+              ]
+        }
         pagination={{
           hasNext,
           hasPrev,
@@ -269,18 +378,14 @@ export default function EnvironmentListPage() {
       />
 
       <Dialog open={showCreate} onOpenChange={resetDialog}>
-        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('managed.environments.addTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('managed.environments.addDesc')}
-            </DialogDescription>
+            <DialogDescription>{t('managed.environments.addDesc')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {t('managed.environments.name')}
-              </label>
+              <label className="text-sm font-medium">{t('managed.environments.name')}</label>
               <Input
                 placeholder={t('managed.environments.namePlaceholder')}
                 value={name}
@@ -289,9 +394,7 @@ export default function EnvironmentListPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {t('managed.environments.description')}
-              </label>
+              <label className="text-sm font-medium">{t('managed.environments.description')}</label>
               <Input
                 placeholder={t('managed.environments.descPlaceholder')}
                 value={description}
@@ -300,18 +403,14 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="text-sm font-medium mb-3">
-                {t('managed.environments.networking')}
-              </h4>
+              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.networking')}</h4>
               <div className="space-y-3">
                 <Select value={networkType} onValueChange={setNetworkType}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="limited">
-                      {t('managed.environments.netLimited')}
-                    </SelectItem>
+                    <SelectItem value="limited">{t('managed.environments.netLimited')}</SelectItem>
                     <SelectItem value="unrestricted">
                       {t('managed.environments.netUnrestricted')}
                     </SelectItem>
@@ -333,9 +432,7 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="text-sm font-medium mb-3">
-                {t('managed.environments.packages')}
-              </h4>
+              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.packages')}</h4>
               <div className="space-y-3">
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground">apt</label>
@@ -365,9 +462,7 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="text-sm font-medium mb-3">
-                {t('managed.environments.envVarsLabel')}
-              </h4>
+              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.envVarsLabel')}</h4>
               <Input
                 placeholder="KEY=value, NODE_ENV=production"
                 value={envVars}
@@ -376,7 +471,7 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="text-sm font-medium mb-3">
+              <h4 className="mb-3 text-sm font-medium">
                 {t('managed.environments.secretRefsLabel')}
               </h4>
               <Input
@@ -387,13 +482,8 @@ export default function EnvironmentListPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button
-              onClick={handleCreate}
-              disabled={!name.trim() || creating}
-            >
-              {creating
-                ? t('managed.environments.creating')
-                : t('managed.environments.add')}
+            <Button onClick={handleCreate} disabled={!name.trim() || creating}>
+              {creating ? t('managed.environments.creating') : t('managed.environments.add')}
             </Button>
           </DialogFooter>
         </DialogContent>

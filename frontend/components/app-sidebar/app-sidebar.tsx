@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
@@ -91,36 +91,52 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [allOrgProjects, setAllOrgProjects] = useState<Record<string, ProjectInfo[]>>({})
+  const projectsLoadSeqRef = useRef(0)
+  const switchCompletionSeqRef = useRef(0)
   const currentProject = projects.find((p) => p.id === currentProjectId)
   const currentOrg = organizations.find((o) => o.id === (currentOrgId || orgId))
   const activeOrgId = currentOrgId || orgId
 
   const orgColors = ['bg-purple-500', 'bg-blue-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500']
 
+  useEffect(() => {
+    projectsLoadSeqRef.current += 1
+  }, [activeOrgId, organizations, projects])
+
+  useEffect(() => {
+    return () => {
+      projectsLoadSeqRef.current += 1
+    }
+  }, [])
+
   const getProjectsForOrg = (targetOrgId: string) => {
     const source =
-      allOrgProjects[targetOrgId] ||
-      (targetOrgId === activeOrgId
+      targetOrgId === activeOrgId
         ? projects.map((project) => ({ ...project, org_id: project.org_id || targetOrgId }))
-        : [])
+        : allOrgProjects[targetOrgId] || []
 
     return source.filter((project) => !project.org_id || project.org_id === targetOrgId)
   }
 
   const handleSwitchToProject = async (targetOrgId: string, targetProjectId: string) => {
+    const requestSeq = (switchCompletionSeqRef.current += 1)
     try {
       await switchProject(targetProjectId, targetOrgId)
+      if (requestSeq !== switchCompletionSeqRef.current) return
       setOpen(false)
       setSearch('')
     } catch (e) {
+      if (requestSeq !== switchCompletionSeqRef.current) return
       console.error('Failed to switch:', e)
     }
   }
 
   // Load projects for all orgs when dropdown opens
   const loadAllProjects = async () => {
+    const requestSeq = (projectsLoadSeqRef.current += 1)
     const result: Record<string, ProjectInfo[]> = {}
     for (const org of organizations) {
+      if (requestSeq !== projectsLoadSeqRef.current) return
       if (org.id === activeOrgId) {
         result[org.id] = projects.map((project) => ({
           ...project,
@@ -132,18 +148,22 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
             skipManagedContext: true,
             headers: { 'X-Org-Id': org.id },
           })
+          if (requestSeq !== projectsLoadSeqRef.current) return
           result[org.id] = (data || [])
             .filter((project) => !project.org_id || project.org_id === org.id)
             .map((project) => ({ ...project, org_id: project.org_id || org.id }))
         } catch {
+          if (requestSeq !== projectsLoadSeqRef.current) return
           result[org.id] = []
         }
       }
     }
+    if (requestSeq !== projectsLoadSeqRef.current) return
     setAllOrgProjects(result)
   }
 
   const handleOpen = (v: boolean) => {
+    switchCompletionSeqRef.current += 1
     setOpen(v)
     if (v) loadAllProjects()
     if (!v) setSearch('')

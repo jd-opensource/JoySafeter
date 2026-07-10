@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import type { Vault } from '@/types/managed'
@@ -25,6 +25,13 @@ import {
 } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { CreateVaultDialog } from './components/create-vault-dialog'
+import { useProjectStore } from '@/stores/managed/project-store'
+
+interface VaultActionVariables {
+  vault: Vault
+  runId: number
+  scope: string
+}
 
 export default function VaultListPage() {
   const { t } = useTranslation()
@@ -36,6 +43,54 @@ export default function VaultListPage() {
   const [deleteTarget, setDeleteTarget] = useState<Vault | null>(null)
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const actionRunRef = useRef(0)
+  const managedScopeRef = useRef(managedScope)
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    managedScopeRef.current === scope && getCurrentManagedScope() === scope
+
+  const isCurrentAction = (runId: number, scope: string) =>
+    actionRunRef.current === runId && currentManagedScopeIsActive(scope)
+
+  const currentVaultIsActive = (vault: Vault, scope: string) =>
+    currentManagedScopeIsActive(scope) &&
+    queryClient
+      .getQueriesData<{ data?: Vault[] }>({ queryKey: ['vaults', scope, '/vaults'] })
+      .some(([, page]) =>
+        page?.data?.some((currentVault) => currentVault.id === vault.id && !currentVault.archived_at),
+      )
+
+  const openArchiveDialog = (vault: Vault) => {
+    if (!currentVaultIsActive(vault, managedScopeRef.current)) return
+
+    actionRunRef.current += 1
+    setArchiveTarget(vault)
+  }
+
+  const closeArchiveDialog = () => {
+    actionRunRef.current += 1
+    setArchiveTarget(null)
+  }
+
+  const openDeleteDialog = (vault: Vault) => {
+    if (!currentVaultIsActive(vault, managedScopeRef.current)) return
+
+    actionRunRef.current += 1
+    setDeleteTarget(vault)
+  }
+
+  const closeDeleteDialog = () => {
+    actionRunRef.current += 1
+    setDeleteTarget(null)
+  }
 
   const {
     data,
@@ -59,23 +114,37 @@ export default function VaultListPage() {
   })
 
   const archiveMutation = useMutation({
-    mutationFn: (vault: Vault) => managedPost(`/vaults/${stripIdPrefix(vault.id)}/archive`, {}),
-    onSuccess: () => {
+    mutationFn: ({ vault, runId, scope }: VaultActionVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale vault archive ignored')
+      }
+      return managedPost(`/vaults/${stripIdPrefix(vault.id)}/archive`, {})
+    },
+    onSuccess: (_data, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['vaults'] })
       setArchiveTarget(null)
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (vault: Vault) => managedDelete(`/vaults/${stripIdPrefix(vault.id)}`),
-    onSuccess: () => {
+    mutationFn: ({ vault, runId, scope }: VaultActionVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale vault delete ignored')
+      }
+      return managedDelete(`/vaults/${stripIdPrefix(vault.id)}`)
+    },
+    onSuccess: (_data, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['vaults'] })
       setDeleteTarget(null)
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
@@ -94,6 +163,40 @@ export default function VaultListPage() {
       onChange: setCreatedFilter,
     },
   ]
+
+  useEffect(() => {
+    if (managedScopeRef.current !== managedScope) {
+      actionRunRef.current += 1
+      setArchiveTarget(null)
+      setDeleteTarget(null)
+    }
+    managedScopeRef.current = managedScope
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      actionRunRef.current += 1
+    },
+    [],
+  )
+
+  useEffect(() => {
+    const activeById = new Map(
+      data.filter((vault) => !vault.archived_at).map((vault) => [vault.id, vault]),
+    )
+    setArchiveTarget((target) => {
+      if (!target) return null
+      const current = activeById.get(target.id) ?? null
+      if (!current) actionRunRef.current += 1
+      return current
+    })
+    setDeleteTarget((target) => {
+      if (!target) return null
+      const current = activeById.get(target.id) ?? null
+      if (!current) actionRunRef.current += 1
+      return current
+    })
+  }, [data])
 
   const columns: Column<Vault>[] = [
     { key: 'id', header: t('managed.table.id'), render: (v) => <MonoId id={v.id} /> },
@@ -162,7 +265,13 @@ export default function VaultListPage() {
             : [
                 {
                   label: t('managed.vaults.archiveVault'),
-                  onClick: () => setArchiveTarget(v),
+                  onClick: () => openArchiveDialog(v),
+                },
+                {
+                  label: t('common.delete'),
+                  destructive: true,
+                  icon: <Trash2 className="h-3.5 w-3.5" />,
+                  onClick: () => openDeleteDialog(v),
                 },
               ]
         }
@@ -191,9 +300,22 @@ export default function VaultListPage() {
         confirmLabel={t('common.archive')}
         destructive
         onConfirm={() => {
-          if (archiveTarget) archiveMutation.mutate(archiveTarget)
+          if (archiveTarget) {
+            const scope = managedScopeRef.current
+            if (!currentVaultIsActive(archiveTarget, scope)) {
+              closeArchiveDialog()
+              return
+            }
+            const runId = actionRunRef.current + 1
+            actionRunRef.current = runId
+            archiveMutation.mutate({
+              vault: archiveTarget,
+              runId,
+              scope,
+            })
+          }
         }}
-        onCancel={() => setArchiveTarget(null)}
+        onCancel={closeArchiveDialog}
       />
 
       <ConfirmDialog
@@ -205,9 +327,22 @@ export default function VaultListPage() {
         confirmLabel={t('common.delete')}
         destructive
         onConfirm={() => {
-          if (deleteTarget) deleteMutation.mutate(deleteTarget)
+          if (deleteTarget) {
+            const scope = managedScopeRef.current
+            if (!currentVaultIsActive(deleteTarget, scope)) {
+              closeDeleteDialog()
+              return
+            }
+            const runId = actionRunRef.current + 1
+            actionRunRef.current = runId
+            deleteMutation.mutate({
+              vault: deleteTarget,
+              runId,
+              scope,
+            })
+          }
         }}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={closeDeleteDialog}
       />
     </div>
   )

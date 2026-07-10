@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -20,11 +20,17 @@ import { ResourceErrorState } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { toastOperationError } from '@/lib/managed/errors'
 import { CreateSessionDialog } from './components/create-session-dialog'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 export default function SessionListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const actionRunRef = useRef(0)
+  const managedScopeRef = useRef(managedScope)
   const [showArchived, setShowArchived] = useState(false)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -136,6 +142,53 @@ export default function SessionListPage() {
     },
   ]
 
+  useEffect(() => {
+    if (managedScopeRef.current !== managedScope) {
+      actionRunRef.current += 1
+    }
+    managedScopeRef.current = managedScope
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      actionRunRef.current += 1
+    },
+    [],
+  )
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    getCurrentManagedScope() === scope
+
+  const isCurrentAction = (runId: number, scope: string) =>
+    actionRunRef.current === runId &&
+    managedScopeRef.current === scope &&
+    currentManagedScopeIsActive(scope)
+
+  const handleArchive = async (session: Session) => {
+    const actionScope = managedScopeRef.current
+    if (!currentManagedScopeIsActive(actionScope)) return
+    const sessionStillCurrent = queryClient
+      .getQueriesData<{ data?: Session[] }>({ queryKey: ['sessions', actionScope, '/sessions'] })
+      .some(([, page]) => page?.data?.some((currentSession) => currentSession.id === session.id))
+    if (!sessionStillCurrent) return
+
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    try {
+      await managedPost(`/sessions/${stripIdPrefix(session.id)}/archive`, {})
+      if (!isCurrentAction(runId, actionScope)) return
+      queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
+      toastOperationError(t, e, 'common.operationFailed')
+    }
+  }
+
   if (isError) {
     return (
       <ResourceErrorState
@@ -181,14 +234,7 @@ export default function SessionListPage() {
             : [
                 {
                   label: t('managed.sessions.archiveSession'),
-                  onClick: async () => {
-                    try {
-                      await managedPost(`/sessions/${stripIdPrefix(s.id)}/archive`, {})
-                      queryClient.invalidateQueries({ queryKey: ['sessions'] })
-                    } catch (e) {
-                      toastOperationError(t, e, 'common.operationFailed')
-                    }
-                  },
+                  onClick: () => handleArchive(s),
                 },
               ]
         }

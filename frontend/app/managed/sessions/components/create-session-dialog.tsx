@@ -1,16 +1,20 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useTranslation } from '@/lib/i18n'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, ExternalLink, X, Check, FileIcon, GitBranch, Search } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { managedGet, managedPost } from '@/lib/api-client'
-import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
 import { FieldHelp } from '@/components/managed/shared'
-import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -21,14 +25,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { managedGet, managedPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
+import { toastOperationError } from '@/lib/managed/errors'
+import { stripIdPrefix } from '@/lib/managed/id'
+import { useProjectStore } from '@/stores/managed/project-store'
+import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
 
 interface SelectedFile {
   file_id: string
@@ -44,15 +46,34 @@ interface SelectedRepo {
   authorization_token: string
 }
 
+interface MemoryStoreOption {
+  id: string
+  name: string
+  description?: string
+  archived_at?: string | null
+}
+
 interface CreateSessionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated?: (sessionId: string) => void
 }
 
+interface CreateSessionMutationInput {
+  body: Record<string, unknown>
+  runId: number
+  scope: string
+}
+
 export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSessionDialogProps) {
   const { t } = useTranslation()
   const router = useRouter()
+  const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScopeRef = useRef(managedScope)
+  const createRunRef = useRef(0)
 
   const [title, setTitle] = useState('')
   const [agentId, setAgentId] = useState('')
@@ -67,7 +88,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const [showMemoryStoreDropdown, setShowMemoryStoreDropdown] = useState(false)
 
   const { data: agents = [] } = useQuery({
-    queryKey: ['agents-for-session'],
+    queryKey: ['agents-for-session', managedScope],
     queryFn: async () => {
       const res = await managedGet<PaginatedResponse<Agent>>('/agents')
       return res.data || []
@@ -76,7 +97,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   })
 
   const { data: environments = [] } = useQuery({
-    queryKey: ['envs-for-session'],
+    queryKey: ['envs-for-session', managedScope],
     queryFn: async () => {
       const res = await managedGet<PaginatedResponse<Environment>>('/environments')
       return res.data || []
@@ -85,14 +106,14 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   })
 
   const { data: vaultsRes } = useQuery({
-    queryKey: ['vaults-for-session'],
+    queryKey: ['vaults-for-session', managedScope],
     queryFn: () => managedGet<{ data: Vault[] }>('/vaults'),
     enabled: open,
   })
-  const vaults = vaultsRes?.data || []
+  const vaults = useMemo(() => vaultsRes?.data || [], [vaultsRes])
 
   const { data: filesResp } = useQuery({
-    queryKey: ['files-for-session'],
+    queryKey: ['files-for-session', managedScope],
     queryFn: () => managedGet<{ data: FileRecord[] }>('/files?limit=100'),
     enabled: open,
   })
@@ -102,19 +123,14 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }, [filesResp])
 
   const { data: memoryStoresResp } = useQuery({
-    queryKey: ['memory-stores-for-session'],
-    queryFn: () => managedGet<{ data: { id: string; name: string; description?: string }[] }>('/memory_stores?limit=100'),
+    queryKey: ['memory-stores-for-session', managedScope],
+    queryFn: () => managedGet<{ data: MemoryStoreOption[] }>('/memory_stores?limit=100'),
     enabled: open,
   })
   const memoryStores = useMemo(() => {
     const stores = memoryStoresResp?.data || []
-    return stores.filter((s: any) => !s.archived_at)
+    return stores.filter((store) => !store.archived_at)
   }, [memoryStoresResp])
-  const availableMemoryStores = useMemo(
-    () => memoryStores.filter((s: any) => !selectedMemoryStores.includes(s.id)),
-    [memoryStores, selectedMemoryStores],
-  )
-
   const activeAgents = useMemo(() => agents.filter((a) => !a.archived_at), [agents])
   // Group the agent dropdown by engine so picking one is less of a flat scroll.
   // Stable order: Claude Code → Codex → Native → anything else.
@@ -149,9 +165,33 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }, [activeAgents, agentSearch])
   const activeEnvs = useMemo(() => environments.filter((e) => !e.archived_at), [environments])
   const activeVaults = useMemo(() => vaults.filter((v) => !v.archived_at), [vaults])
-  const selectedAgent = useMemo(
-    () => activeAgents.find((agent) => agent.id === agentId),
+  const effectiveAgentId = useMemo(
+    () => (agentId && activeAgents.some((agent) => agent.id === agentId) ? agentId : ''),
     [activeAgents, agentId],
+  )
+  const effectiveEnvId = useMemo(
+    () => (envId && activeEnvs.some((environment) => environment.id === envId) ? envId : ''),
+    [activeEnvs, envId],
+  )
+  const effectiveSelectedVaultIds = useMemo(() => {
+    const vaultIds = new Set(activeVaults.map((vault) => vault.id))
+    return selectedVaultIds.filter((id) => vaultIds.has(id))
+  }, [activeVaults, selectedVaultIds])
+  const effectiveSelectedFiles = useMemo(() => {
+    const fileIds = new Set(files.map((file) => file.id))
+    return selectedFiles.filter((file) => fileIds.has(file.file_id))
+  }, [files, selectedFiles])
+  const effectiveSelectedMemoryStores = useMemo(() => {
+    const storeIds = new Set(memoryStores.map((store) => store.id))
+    return selectedMemoryStores.filter((id) => storeIds.has(id))
+  }, [memoryStores, selectedMemoryStores])
+  const availableMemoryStores = useMemo(
+    () => memoryStores.filter((store) => !effectiveSelectedMemoryStores.includes(store.id)),
+    [effectiveSelectedMemoryStores, memoryStores],
+  )
+  const selectedAgent = useMemo(
+    () => activeAgents.find((agent) => agent.id === effectiveAgentId),
+    [activeAgents, effectiveAgentId],
   )
   const selectedAgentDefaultEnv = useMemo(() => {
     const ref = selectedAgent?.environment_ref
@@ -163,48 +203,46 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }, [activeEnvs, selectedAgent])
 
   const availableFiles = useMemo(
-    () => files.filter((f) => !selectedFiles.some((sf) => sf.file_id === f.id)),
-    [files, selectedFiles],
+    () => files.filter((f) => !effectiveSelectedFiles.some((sf) => sf.file_id === f.id)),
+    [effectiveSelectedFiles, files],
   )
 
+  const resetForm = () => {
+    setTitle('')
+    setAgentId('')
+    setAgentSearch('')
+    setEnvId('')
+    setSelectedVaultIds([])
+    setShowVaultDropdown(false)
+    setSelectedFiles([])
+    setShowFileDropdown(false)
+    setSelectedRepos([])
+    setSelectedMemoryStores([])
+    setShowMemoryStoreDropdown(false)
+  }
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    getCurrentManagedScope() === scope
+
+  const isCurrentCreateRun = (runId: number, scope: string) =>
+    createRunRef.current === runId &&
+    managedScopeRef.current === scope &&
+    currentManagedScopeIsActive(scope)
+
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const body: Record<string, unknown> = {
-        agent: stripIdPrefix(agentId),
-      }
-      if (title.trim()) body.title = title.trim()
-      if (envId) body.environment_id = stripIdPrefix(envId)
-      if (selectedVaultIds.length > 0) {
-        body.vault_ids = selectedVaultIds.map(stripIdPrefix)
-      }
-      if (selectedFiles.length > 0) {
-        body.file_resources = selectedFiles.map((f) => ({
-          type: 'file',
-          file_id: f.file_id,
-          mount_path: f.mount_path,
-        }))
-      }
-      if (selectedMemoryStores.length > 0) {
-        body.resources = selectedMemoryStores.map((id) => ({
-          memory_store_id: stripIdPrefix(id),
-          access: 'read_write',
-        }))
-      }
-      const validRepos = selectedRepos.filter((r) => r.url.trim())
-      if (validRepos.length > 0) {
-        body.repo_resources = validRepos.map((r) => ({
-          type: 'github_repository',
-          url: r.url.trim(),
-          ...(r.branch.trim() ? { branch: r.branch.trim() } : {}),
-          ...(r.mount_path.trim() ? { mount_path: r.mount_path.trim() } : {}),
-          ...(r.authorization_token.trim()
-            ? { authorization_token: r.authorization_token.trim() }
-            : {}),
-        }))
+    mutationFn: async ({ body, scope }: CreateSessionMutationInput) => {
+      if (!currentManagedScopeIsActive(scope)) {
+        throw new Error('stale managed scope')
       }
       return managedPost<{ id: string }>('/sessions', body)
     },
-    onSuccess: (res) => {
+    onSuccess: (res, input) => {
+      if (!isCurrentCreateRun(input.runId, input.scope)) return
       onOpenChange(false)
       resetForm()
       if (onCreated) {
@@ -213,19 +251,117 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
         router.push(`/managed/sessions/${res.id}`)
       }
     },
-    onError: (error) => {
+    onError: (error, input) => {
+      if (!isCurrentCreateRun(input.runId, input.scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
-  const resetForm = () => {
-    setTitle('')
-    setAgentId('')
-    setEnvId('')
-    setSelectedVaultIds([])
-    setSelectedFiles([])
-    setSelectedRepos([])
-    setSelectedMemoryStores([])
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope) return
+    managedScopeRef.current = managedScope
+    createRunRef.current += 1
+    createMutation.reset()
+    resetForm()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      createRunRef.current += 1
+    },
+    [],
+  )
+
+  const buildCreatePayload = () => {
+    const scope = managedScopeRef.current
+    if (!currentManagedScopeIsActive(scope)) return null
+    const currentAgents =
+      queryClient.getQueryData<Agent[]>(['agents-for-session', scope]) ?? agents
+    const currentEnvironments =
+      queryClient.getQueryData<Environment[]>(['envs-for-session', scope]) ?? environments
+    const currentVaults =
+      queryClient.getQueryData<{ data?: Vault[] }>(['vaults-for-session', scope])?.data ?? vaults
+    const currentFiles =
+      queryClient.getQueryData<{ data?: FileRecord[] }>(['files-for-session', scope])?.data ?? files
+    const currentMemoryStores =
+      queryClient.getQueryData<{ data?: MemoryStoreOption[] }>([
+        'memory-stores-for-session',
+        scope,
+      ])?.data ?? memoryStores
+    const currentActiveAgents = currentAgents.filter((agent) => !agent.archived_at)
+    const currentActiveEnvs = currentEnvironments.filter((environment) => !environment.archived_at)
+    const currentActiveVaults = currentVaults.filter((vault) => !vault.archived_at)
+    const currentActiveMemoryStores = currentMemoryStores.filter((store) => !store.archived_at)
+    const currentAgentId =
+      agentId && currentActiveAgents.some((agent) => agent.id === agentId) ? agentId : ''
+    if (!currentAgentId) return null
+    const currentEnvId =
+      envId && currentActiveEnvs.some((environment) => environment.id === envId) ? envId : ''
+    const currentVaultIds = new Set(currentActiveVaults.map((vault) => vault.id))
+    const currentSelectedVaultIds = selectedVaultIds.filter((id) => currentVaultIds.has(id))
+    const currentFileIds = new Set(currentFiles.map((file) => file.id))
+    const currentSelectedFiles = selectedFiles.filter((file) => currentFileIds.has(file.file_id))
+    const currentMemoryStoreIds = new Set(currentActiveMemoryStores.map((store) => store.id))
+    const currentSelectedMemoryStores = selectedMemoryStores.filter((id) =>
+      currentMemoryStoreIds.has(id),
+    )
+    const body: Record<string, unknown> = {
+      agent: stripIdPrefix(currentAgentId),
+    }
+    if (title.trim()) body.title = title.trim()
+    if (currentEnvId) body.environment_id = stripIdPrefix(currentEnvId)
+    if (currentSelectedVaultIds.length > 0) {
+      body.vault_ids = currentSelectedVaultIds.map(stripIdPrefix)
+    }
+    if (currentSelectedFiles.length > 0) {
+      body.file_resources = currentSelectedFiles.map((f) => ({
+        type: 'file',
+        file_id: f.file_id,
+        mount_path: f.mount_path,
+      }))
+    }
+    if (currentSelectedMemoryStores.length > 0) {
+      body.resources = currentSelectedMemoryStores.map((id) => ({
+        memory_store_id: stripIdPrefix(id),
+        access: 'read_write',
+      }))
+    }
+    const validRepos = selectedRepos.filter((r) => r.url.trim())
+    if (validRepos.length > 0) {
+      body.repo_resources = validRepos.map((r) => ({
+        type: 'github_repository',
+        url: r.url.trim(),
+        ...(r.branch.trim() ? { branch: r.branch.trim() } : {}),
+        ...(r.mount_path.trim() ? { mount_path: r.mount_path.trim() } : {}),
+        ...(r.authorization_token.trim()
+          ? { authorization_token: r.authorization_token.trim() }
+          : {}),
+      }))
+    }
+    return body
+  }
+
+  const handleCreate = () => {
+    if (!currentManagedScopeIsActive()) return
+    const body = buildCreatePayload()
+    if (!body) return
+    const runId = createRunRef.current + 1
+    createRunRef.current = runId
+    createMutation.mutate({
+      body,
+      runId,
+      scope: managedScopeRef.current,
+    })
+  }
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    onOpenChange(nextOpen)
+    if (!nextOpen) {
+      createRunRef.current += 1
+      createMutation.reset()
+      resetForm()
+    }
   }
 
   const toggleVault = (id: string) => {
@@ -274,16 +410,13 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }
 
   const selectedVaultNames = activeVaults
-    .filter((v) => selectedVaultIds.includes(v.id))
+    .filter((v) => effectiveSelectedVaultIds.includes(v.id))
     .map((v) => v.name)
 
   return (
     <Dialog
       open={open}
-      onOpenChange={(v) => {
-        onOpenChange(v)
-        if (!v) resetForm()
-      }}
+      onOpenChange={handleOpenChange}
     >
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
         <DialogHeader>
@@ -317,7 +450,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 {t('managed.sessions.create.manageAgents')} <ExternalLink className="h-3 w-3" />
               </button>
             </div>
-            <Select value={agentId || undefined} onValueChange={setAgentId}>
+            <Select value={effectiveAgentId || undefined} onValueChange={setAgentId}>
               <SelectTrigger>
                 <SelectValue placeholder={t('managed.sessions.create.selectAgent')} />
               </SelectTrigger>
@@ -407,7 +540,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 </label>
                 <FieldHelp
                   text={
-                    envId
+                    effectiveEnvId
                       ? t('managed.sessions.create.environmentOverrideHint')
                       : selectedAgentDefaultEnv
                         ? t('managed.sessions.create.environmentUsesAgentDefault', {
@@ -424,7 +557,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 {t('managed.sessions.create.manageEnvs')} <ExternalLink className="h-3 w-3" />
               </button>
             </div>
-            <Select value={envId || undefined} onValueChange={setEnvId}>
+            <Select value={effectiveEnvId || undefined} onValueChange={setEnvId}>
               <SelectTrigger>
                 <SelectValue placeholder={t('managed.sessions.create.selectEnv')} />
               </SelectTrigger>
@@ -457,10 +590,12 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
               >
                 <span
                   className={
-                    selectedVaultIds.length === 0 ? 'text-muted-foreground' : 'text-foreground'
+                    effectiveSelectedVaultIds.length === 0
+                      ? 'text-muted-foreground'
+                      : 'text-foreground'
                   }
                 >
-                  {selectedVaultIds.length === 0
+                  {effectiveSelectedVaultIds.length === 0
                     ? t('managed.sessions.create.selectVaults')
                     : selectedVaultNames.join(', ')}
                 </span>
@@ -494,12 +629,14 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                       >
                         <span
                           className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                            selectedVaultIds.includes(v.id)
+                            effectiveSelectedVaultIds.includes(v.id)
                               ? 'border-primary bg-primary text-primary-foreground'
                               : 'border-border'
                           }`}
                         >
-                          {selectedVaultIds.includes(v.id) && <Check className="h-3 w-3" />}
+                          {effectiveSelectedVaultIds.includes(v.id) && (
+                            <Check className="h-3 w-3" />
+                          )}
                         </span>
                         <span>{v.name}</span>
                       </button>
@@ -508,10 +645,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 </div>
               )}
             </div>
-            {selectedVaultIds.length > 0 && (
+            {effectiveSelectedVaultIds.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {activeVaults
-                  .filter((v) => selectedVaultIds.includes(v.id))
+                  .filter((v) => effectiveSelectedVaultIds.includes(v.id))
                   .map((v) => (
                     <span
                       key={v.id}
@@ -540,9 +677,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
             </p>
 
             {/* Selected files */}
-            {selectedFiles.length > 0 && (
+            {effectiveSelectedFiles.length > 0 && (
               <div className="mb-3 space-y-2">
-                {selectedFiles.map((sf) => (
+                {effectiveSelectedFiles.map((sf) => (
                   <div
                     key={sf.file_id}
                     className="flex items-center gap-2 rounded-md border border-border p-2"
@@ -618,10 +755,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
               {t('managed.sessions.create.memoryStoresDesc')}
             </p>
 
-            {selectedMemoryStores.length > 0 && (
+            {effectiveSelectedMemoryStores.length > 0 && (
               <div className="mb-3 space-y-2">
-                {selectedMemoryStores.map((storeId) => {
-                  const store = memoryStores.find((s: any) => s.id === storeId)
+                {effectiveSelectedMemoryStores.map((storeId) => {
+                  const store = memoryStores.find((memoryStore) => memoryStore.id === storeId)
                   return (
                     <div
                       key={storeId}
@@ -661,17 +798,17 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                       {t('managed.sessions.create.noMemoryStores')}
                     </div>
                   ) : (
-                    availableMemoryStores.map((s: any) => (
+                    availableMemoryStores.map((memoryStore) => (
                       <button
-                        key={s.id}
+                        key={memoryStore.id}
                         type="button"
                         onClick={() => {
-                          setSelectedMemoryStores((prev) => [...prev, s.id])
+                          setSelectedMemoryStores((prev) => [...prev, memoryStore.id])
                           setShowMemoryStoreDropdown(false)
                         }}
                         className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
                       >
-                        <span className="truncate">{s.name}</span>
+                        <span className="truncate">{memoryStore.name}</span>
                       </button>
                     ))
                   )}
@@ -751,13 +888,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button
-            onClick={() => createMutation.mutate()}
-            disabled={!agentId || createMutation.isPending}
-          >
+          <Button onClick={handleCreate} disabled={!effectiveAgentId || createMutation.isPending}>
             {createMutation.isPending
               ? t('managed.sessions.create.creating')
               : t('managed.sessions.create.submit')}

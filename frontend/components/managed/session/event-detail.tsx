@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback, useState } from 'react'
+import { useRef, useCallback, useEffect, useState } from 'react'
 import type { SessionEvent } from '@/types/managed'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -19,6 +19,7 @@ interface EventDetailProps {
 export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailProps) {
   const { t } = useTranslation()
   const contentRef = useRef<HTMLDivElement>(null)
+  const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [copied, setCopied] = useState(false)
   const eventType = event.type || event.event_type || ''
   const typeLabel = getTypeLabel(eventType, t)
@@ -26,6 +27,26 @@ export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailP
     ? getElapsedTime(sessionStart, event.created_at || event.id || '')
     : null
   const shortId = event.id ? event.id.slice(0, 16) : ''
+
+  useEffect(
+    () => () => {
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const showCopiedFeedback = useCallback(() => {
+    if (copiedResetTimerRef.current) {
+      clearTimeout(copiedResetTimerRef.current)
+    }
+    setCopied(true)
+    copiedResetTimerRef.current = setTimeout(() => {
+      setCopied(false)
+      copiedResetTimerRef.current = null
+    }, 2000)
+  }, [])
 
   const handleCopyRichText = useCallback(async () => {
     if (!contentRef.current) return
@@ -44,16 +65,14 @@ export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailP
           'text/plain': textBlob,
         }),
       ])
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      showCopiedFeedback()
     } catch {
       // Fallback: copy plain text
       const text = contentRef.current.innerText || contentRef.current.textContent || ''
       await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      showCopiedFeedback()
     }
-  }, [])
+  }, [showCopiedFeedback])
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-card">

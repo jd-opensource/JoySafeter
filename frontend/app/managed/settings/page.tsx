@@ -1,10 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { managedGet, managedPost, managedDelete, managedPut } from '@/lib/api-client'
-import { toastOperationError } from '@/lib/managed/errors'
+import { Plus, Check, Trash2, Pencil, Crown } from 'lucide-react'
+import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+
 import {
   DataTable,
   MonoId,
@@ -14,7 +13,6 @@ import {
   PageHeader,
 } from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -23,10 +21,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Check, Trash2, Pencil, Crown } from 'lucide-react'
-import { useProjectStore } from '@/stores/managed/project-store'
+import { Input } from '@/components/ui/input'
+import { managedGet, managedPost, managedDelete, managedPut } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
+import { toastOperationError } from '@/lib/managed/errors'
 import { canAdmin, canOwn, roleLabel } from '@/lib/managed/roles'
+import { clearNonSessionQueryData } from '@/lib/query-client-lifecycle'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 interface MeResponse {
   organization: {
@@ -48,15 +50,84 @@ interface OrganizationMember {
   user_email?: string | null
 }
 
+interface SwitchOrgVariables {
+  orgId: string
+  requestSeq: number
+}
+
+interface ScopedRun {
+  runId: number
+  scope: string
+}
+
+interface CreateOrgVariables {
+  name: string
+  runId: number
+  scope: string
+}
+
+interface EditOrgVariables {
+  orgId: string
+  name: string
+  runId: number
+  scope: string
+}
+
+interface DeleteOrgVariables {
+  orgId: string
+  runId: number
+  scope: string
+}
+
+interface TransferOwnershipVariables {
+  orgId: string
+  userId: string
+  runId: number
+  scope: string
+}
+
 export default function OrganizationPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const switchOrgRequestSeqRef = useRef(0)
+  const createOrgRunRef = useRef(0)
+  const editOrgRunRef = useRef(0)
+  const deleteOrgRunRef = useRef(0)
+  const transferOwnershipRunRef = useRef(0)
   const { canAdmin: canManageOrganizations } = useUserPermissionsContext()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScopeRef = useRef(managedScope)
   const [showCreateOrg, setShowCreateOrg] = useState(false)
   const [newOrgName, setNewOrgName] = useState('')
 
+  const getCurrentManagedContext = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return {
+      orgId,
+      projectId,
+      scope: `${orgId ?? ''}:${projectId ?? ''}`,
+    }
+  }
+  const getCurrentManagedScope = () => getCurrentManagedContext().scope
+  const isCurrentManagedScope = (scope: string) =>
+    managedScopeRef.current === scope && getCurrentManagedScope() === scope
+  const nextScopedRun = (runRef: MutableRefObject<number>): ScopedRun => {
+    const runId = runRef.current + 1
+    runRef.current = runId
+    return {
+      runId,
+      scope: managedScopeRef.current,
+    }
+  }
+  const isCurrentScopedRun = (
+    runRef: MutableRefObject<number>,
+    action: ScopedRun,
+  ) => runRef.current === action.runId && isCurrentManagedScope(action.scope)
+
   const { data: me } = useQuery({
-    queryKey: ['auth-me'],
+    queryKey: ['auth-me', currentOrgId, currentProjectId],
     queryFn: () => managedGet<MeResponse>('auth/me'),
   })
 
@@ -64,30 +135,60 @@ export default function OrganizationPage() {
   const organizations = me?.organizations || []
 
   const createOrgMutation = useMutation({
-    mutationFn: (name: string) =>
-      managedPost<{ id: string; name: string; slug: string }>('auth/organizations', { name }),
-    onSuccess: () => {
+    mutationFn: async ({ name, scope }: CreateOrgVariables) => {
+      if (!isCurrentManagedScope(scope)) {
+        return undefined as unknown as { id: string; name: string; slug: string }
+      }
+      return managedPost<{ id: string; name: string; slug: string }>('auth/organizations', { name })
+    },
+    onSuccess: (_createdOrg, action) => {
+      if (!isCurrentScopedRun(createOrgRunRef, action)) return
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
       setShowCreateOrg(false)
       setNewOrgName('')
     },
-    onError: (error) => {
+    onError: (error, action) => {
+      if (!isCurrentScopedRun(createOrgRunRef, action)) return
       toastOperationError(t, error, 'manage.organization.createFailed')
     },
   })
 
+  const submitCreateOrg = () => {
+    const name = newOrgName.trim()
+    if (!name) return
+    const action = nextScopedRun(createOrgRunRef)
+    if (!isCurrentScopedRun(createOrgRunRef, action)) return
+    createOrgMutation.mutate({ name, ...action })
+  }
+
+  const handleCreateOrgOpenChange = (open: boolean) => {
+    if (!open) {
+      createOrgRunRef.current += 1
+    }
+    setShowCreateOrg(open)
+  }
+
   const switchOrgMutation = useMutation({
-    mutationFn: (orgId: string) =>
-      managedPost<{ org_id: string; project_id: string }>('auth/switch-context', { org_id: orgId }),
-    onSuccess: (data, orgId) => {
+    mutationFn: ({ orgId }: SwitchOrgVariables) =>
+      managedPost<{ org_id: string; project_id: string }>(
+        'auth/switch-context',
+        { org_id: orgId },
+        {
+          skipManagedContext: true,
+          headers: { 'X-Org-Id': orgId },
+        },
+      ),
+    onSuccess: (data, { orgId, requestSeq }) => {
+      if (requestSeq !== switchOrgRequestSeqRef.current) return
       const { setCurrentOrg, setCurrentProject } = useProjectStore.getState()
-      setCurrentOrg(orgId)
+      setCurrentOrg(data?.org_id || orgId)
       if (data?.project_id) {
         setCurrentProject(data.project_id)
       }
-      queryClient.invalidateQueries()
+      clearNonSessionQueryData(queryClient)
     },
-    onError: (error) => {
+    onError: (error, { requestSeq }) => {
+      if (requestSeq !== switchOrgRequestSeqRef.current) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
@@ -95,33 +196,126 @@ export default function OrganizationPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
 
   const deleteOrgMutation = useMutation({
-    mutationFn: (orgId: string) => managedDelete(`/organizations/${orgId}`),
-    onSuccess: () => {
-      setDeleteTarget(null)
-      queryClient.invalidateQueries({ queryKey: ['auth-me'] })
+    mutationFn: async ({ orgId, scope }: DeleteOrgVariables) => {
+      if (!isCurrentManagedScope(scope)) return undefined
+      return managedDelete(`/organizations/${orgId}`)
     },
-    onError: (error) => {
+    onSuccess: (_result, action) => {
+      if (!isCurrentScopedRun(deleteOrgRunRef, action)) return
+      queryClient.invalidateQueries({ queryKey: ['auth-me'] })
+      setDeleteTarget(null)
+    },
+    onError: (error, action) => {
+      if (!isCurrentScopedRun(deleteOrgRunRef, action)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
+
+  const closeDeleteOrgDialog = () => {
+    deleteOrgRunRef.current += 1
+    setDeleteTarget(null)
+  }
+
+  const currentDeletableOrganization = (target: { id: string; name: string } | null) => {
+    if (!target) return null
+    const { orgId, projectId } = getCurrentManagedContext()
+    const currentMe = queryClient.getQueryData<MeResponse>(['auth-me', orgId, projectId])
+    const current = currentMe?.organizations.find((org) => org.id === target.id)
+    if (current && canOwn(current.role) && current.id !== currentMe?.organization.id) {
+      return { id: current.id, name: current.name }
+    }
+    return null
+  }
+
+  const currentEditableOrganization = (target: { id: string; name: string } | null) => {
+    if (!target) return null
+    const { orgId, projectId } = getCurrentManagedContext()
+    const currentMe = queryClient.getQueryData<MeResponse>(['auth-me', orgId, projectId])
+    const current = currentMe?.organizations.find((org) => org.id === target.id)
+    return current && canAdmin(current.role) ? { id: current.id, name: current.name } : null
+  }
+
+  const currentTransferableOrganization = (target: { id: string; name: string } | null) => {
+    if (!target) return null
+    const { orgId, projectId } = getCurrentManagedContext()
+    const currentMe = queryClient.getQueryData<MeResponse>(['auth-me', orgId, projectId])
+    const current = currentMe?.organizations.find((org) => org.id === target.id)
+    return current && canOwn(current.role) ? { id: current.id, name: current.name } : null
+  }
+
+  const submitDeleteOrg = () => {
+    const target = currentDeletableOrganization(deleteTarget)
+    if (!target) {
+      closeDeleteOrgDialog()
+      return
+    }
+    const action = nextScopedRun(deleteOrgRunRef)
+    if (!isCurrentScopedRun(deleteOrgRunRef, action)) {
+      closeDeleteOrgDialog()
+      return
+    }
+    deleteOrgMutation.mutate({ orgId: target.id, ...action })
+  }
 
   const [editTarget, setEditTarget] = useState<{ id: string; name: string } | null>(null)
   const [editName, setEditName] = useState('')
   const [transferTarget, setTransferTarget] = useState<{ id: string; name: string } | null>(null)
   const [selectedNewOwnerId, setSelectedNewOwnerId] = useState('')
 
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope) return
+    managedScopeRef.current = managedScope
+    switchOrgRequestSeqRef.current += 1
+    createOrgRunRef.current += 1
+    editOrgRunRef.current += 1
+    deleteOrgRunRef.current += 1
+    transferOwnershipRunRef.current += 1
+    setShowCreateOrg(false)
+    setNewOrgName('')
+    setDeleteTarget(null)
+    setEditTarget(null)
+    setEditName('')
+    setTransferTarget(null)
+    setSelectedNewOwnerId('')
+  }, [managedScope])
+
   const editOrgMutation = useMutation({
-    mutationFn: ({ orgId, name }: { orgId: string; name: string }) =>
-      managedPut(`/organizations/${orgId}`, { name }),
-    onSuccess: () => {
+    mutationFn: async ({ orgId, name, scope }: EditOrgVariables) => {
+      if (!isCurrentManagedScope(scope)) return undefined
+      return managedPut(`/organizations/${orgId}`, { name })
+    },
+    onSuccess: (_updatedOrg, action) => {
+      if (!isCurrentScopedRun(editOrgRunRef, action)) return
+      queryClient.invalidateQueries({ queryKey: ['auth-me'] })
       setEditTarget(null)
       setEditName('')
-      queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
-    onError: (error) => {
+    onError: (error, action) => {
+      if (!isCurrentScopedRun(editOrgRunRef, action)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
+
+  const closeEditOrgDialog = () => {
+    editOrgRunRef.current += 1
+    setEditTarget(null)
+  }
+
+  const submitEditOrg = () => {
+    const target = currentEditableOrganization(editTarget)
+    if (!target) {
+      closeEditOrgDialog()
+      return
+    }
+    const name = editName.trim()
+    if (!name) return
+    const action = nextScopedRun(editOrgRunRef)
+    if (!isCurrentScopedRun(editOrgRunRef, action)) {
+      closeEditOrgDialog()
+      return
+    }
+    editOrgMutation.mutate({ orgId: target.id, name, ...action })
+  }
 
   const { data: transferMembers = [], isLoading: isLoadingTransferMembers } = useQuery({
     queryKey: ['organization-members', transferTarget?.id],
@@ -136,19 +330,112 @@ export default function OrganizationPage() {
 
   const transferCandidates = transferMembers.filter((member) => member.role !== 'owner')
 
-  const transferOwnershipMutation = useMutation({
-    mutationFn: ({ orgId, userId }: { orgId: string; userId: string }) =>
-      managedPost(`/organizations/${orgId}/transfer-ownership`, { new_owner_user_id: userId }),
-    onSuccess: () => {
-      setTransferTarget(null)
+  const currentTransferCandidate = (orgId: string, userId: string) =>
+    queryClient
+      .getQueryData<OrganizationMember[]>(['organization-members', orgId])
+      ?.find((member) => member.user_id === userId && member.role !== 'owner') ?? null
+
+  useEffect(() => {
+    const currentById = new Map(organizations.map((org) => [org.id, org]))
+    setEditTarget((target) => {
+      if (!target) return null
+      const current = currentById.get(target.id)
+      if (!current || !canAdmin(current.role)) {
+        editOrgRunRef.current += 1
+        setEditName('')
+        return null
+      }
+      return { id: current.id, name: current.name }
+    })
+    setDeleteTarget((target) => {
+      if (!target) return null
+      const current = currentById.get(target.id)
+      if (current && canOwn(current.role) && current.id !== currentOrg?.id) {
+        return { id: current.id, name: current.name }
+      }
+      deleteOrgRunRef.current += 1
+      return null
+    })
+    setTransferTarget((target) => {
+      if (!target) return null
+      const current = currentById.get(target.id)
+      if (!current || !canOwn(current.role)) {
+        transferOwnershipRunRef.current += 1
+        setSelectedNewOwnerId('')
+        return null
+      }
+      return { id: current.id, name: current.name }
+    })
+  }, [currentOrg?.id, organizations])
+
+  useEffect(() => {
+    if (
+      selectedNewOwnerId &&
+      !transferCandidates.some((member) => member.user_id === selectedNewOwnerId)
+    ) {
       setSelectedNewOwnerId('')
+    }
+  }, [selectedNewOwnerId, transferCandidates])
+
+  const transferOwnershipMutation = useMutation({
+    mutationFn: async ({ orgId, userId, scope }: TransferOwnershipVariables) => {
+      if (!isCurrentManagedScope(scope)) return undefined
+      return managedPost(`/organizations/${orgId}/transfer-ownership`, {
+        new_owner_user_id: userId,
+      })
+    },
+    onSuccess: (_result, action) => {
+      if (!isCurrentScopedRun(transferOwnershipRunRef, action)) return
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
       queryClient.invalidateQueries({ queryKey: ['organization-members'] })
+      setTransferTarget(null)
+      setSelectedNewOwnerId('')
     },
-    onError: (error) => {
+    onError: (error, action) => {
+      if (!isCurrentScopedRun(transferOwnershipRunRef, action)) return
       toastOperationError(t, error, 'manage.organization.transferFailed')
     },
   })
+
+  const closeTransferOwnershipDialog = () => {
+    transferOwnershipRunRef.current += 1
+    setTransferTarget(null)
+    setSelectedNewOwnerId('')
+  }
+
+  const submitTransferOwnership = () => {
+    const target = currentTransferableOrganization(transferTarget)
+    if (!target || !selectedNewOwnerId) {
+      closeTransferOwnershipDialog()
+      return
+    }
+    const candidate = currentTransferCandidate(target.id, selectedNewOwnerId)
+    if (!candidate) {
+      closeTransferOwnershipDialog()
+      return
+    }
+    const action = nextScopedRun(transferOwnershipRunRef)
+    if (!isCurrentScopedRun(transferOwnershipRunRef, action)) {
+      closeTransferOwnershipDialog()
+      return
+    }
+    transferOwnershipMutation.mutate({
+      orgId: target.id,
+      userId: candidate.user_id,
+      ...action,
+    })
+  }
+
+  useEffect(
+    () => () => {
+      switchOrgRequestSeqRef.current += 1
+      createOrgRunRef.current += 1
+      editOrgRunRef.current += 1
+      deleteOrgRunRef.current += 1
+      transferOwnershipRunRef.current += 1
+    },
+    [],
+  )
 
   type Organization = MeResponse['organizations'][number]
 
@@ -223,8 +510,11 @@ export default function OrganizationPage() {
                     label: t('common.edit'),
                     icon: <Pencil className="h-3.5 w-3.5" />,
                     onClick: () => {
-                      setEditTarget({ id: org.id, name: org.name })
-                      setEditName(org.name)
+                      const current = currentEditableOrganization(org)
+                      if (!current) return
+                      editOrgRunRef.current += 1
+                      setEditTarget(current)
+                      setEditName(current.name)
                     },
                   })
                 }
@@ -232,7 +522,11 @@ export default function OrganizationPage() {
                 if (!isCurrent) {
                   items.push({
                     label: t('manage.organization.switch'),
-                    onClick: () => switchOrgMutation.mutate(org.id),
+                    onClick: () =>
+                      switchOrgMutation.mutate({
+                        orgId: org.id,
+                        requestSeq: (switchOrgRequestSeqRef.current += 1),
+                      }),
                   })
                 }
 
@@ -241,7 +535,10 @@ export default function OrganizationPage() {
                     label: t('manage.organization.transferOwnership'),
                     icon: <Crown className="h-3.5 w-3.5" />,
                     onClick: () => {
-                      setTransferTarget({ id: org.id, name: org.name })
+                      const current = currentTransferableOrganization(org)
+                      if (!current) return
+                      transferOwnershipRunRef.current += 1
+                      setTransferTarget(current)
                       setSelectedNewOwnerId('')
                     },
                   })
@@ -252,7 +549,12 @@ export default function OrganizationPage() {
                     label: t('common.delete'),
                     icon: <Trash2 className="h-3.5 w-3.5" />,
                     destructive: true,
-                    onClick: () => setDeleteTarget({ id: org.id, name: org.name }),
+                    onClick: () => {
+                      const current = currentDeletableOrganization(org)
+                      if (!current) return
+                      deleteOrgRunRef.current += 1
+                      setDeleteTarget(current)
+                    },
                   })
                 }
 
@@ -263,7 +565,7 @@ export default function OrganizationPage() {
       />
 
       {/* Create Organization Dialog */}
-      <Dialog open={showCreateOrg} onOpenChange={setShowCreateOrg}>
+      <Dialog open={showCreateOrg} onOpenChange={handleCreateOrgOpenChange}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.organization.create')}</DialogTitle>
@@ -277,19 +579,18 @@ export default function OrganizationPage() {
                 value={newOrgName}
                 onChange={(e) => setNewOrgName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newOrgName.trim())
-                    createOrgMutation.mutate(newOrgName.trim())
+                  if (e.key === 'Enter') submitCreateOrg()
                 }}
                 autoFocus
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateOrg(false)}>
+            <Button variant="outline" onClick={() => handleCreateOrgOpenChange(false)}>
               {t('common.cancel')}
             </Button>
             <Button
-              onClick={() => createOrgMutation.mutate(newOrgName.trim())}
+              onClick={submitCreateOrg}
               disabled={!newOrgName.trim() || createOrgMutation.isPending}
             >
               {createOrgMutation.isPending ? t('common.loading') : t('manage.organization.create')}
@@ -299,7 +600,7 @@ export default function OrganizationPage() {
       </Dialog>
 
       {/* Delete Organization Dialog */}
-      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && closeDeleteOrgDialog()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.organization.delete')}</DialogTitle>
@@ -308,12 +609,12 @@ export default function OrganizationPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            <Button variant="outline" onClick={closeDeleteOrgDialog}>
               {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() => deleteTarget && deleteOrgMutation.mutate(deleteTarget.id)}
+              onClick={submitDeleteOrg}
               disabled={deleteOrgMutation.isPending}
             >
               {deleteOrgMutation.isPending ? t('common.loading') : t('manage.organization.delete')}
@@ -323,7 +624,7 @@ export default function OrganizationPage() {
       </Dialog>
 
       {/* Edit Organization Dialog */}
-      <Dialog open={editTarget !== null} onOpenChange={(open) => !open && setEditTarget(null)}>
+      <Dialog open={editTarget !== null} onOpenChange={(open) => !open && closeEditOrgDialog()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.organization.edit')}</DialogTitle>
@@ -340,14 +641,11 @@ export default function OrganizationPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditTarget(null)}>
+            <Button variant="outline" onClick={closeEditOrgDialog}>
               {t('common.cancel')}
             </Button>
             <Button
-              onClick={() =>
-                editTarget &&
-                editOrgMutation.mutate({ orgId: editTarget.id, name: editName.trim() })
-              }
+              onClick={submitEditOrg}
               disabled={!editName.trim() || editOrgMutation.isPending}
             >
               {editOrgMutation.isPending ? t('common.loading') : t('common.save')}
@@ -361,8 +659,7 @@ export default function OrganizationPage() {
         open={transferTarget !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setTransferTarget(null)
-            setSelectedNewOwnerId('')
+            closeTransferOwnershipDialog()
           }
         }}
       >
@@ -413,22 +710,13 @@ export default function OrganizationPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => {
-                setTransferTarget(null)
-                setSelectedNewOwnerId('')
-              }}
+              onClick={closeTransferOwnershipDialog}
             >
               {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() =>
-                transferTarget &&
-                transferOwnershipMutation.mutate({
-                  orgId: transferTarget.id,
-                  userId: selectedNewOwnerId,
-                })
-              }
+              onClick={submitTransferOwnership}
               disabled={!selectedNewOwnerId || transferOwnershipMutation.isPending}
             >
               {transferOwnershipMutation.isPending

@@ -9,6 +9,15 @@ import { Copy, Search, Package, Globe, KeyRound, Timer, MessageSquare, Clock, X,
 import { managedGet, managedPost, managedDelete, managedPatch } from '@/lib/api-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import {
+  collapseRepeatedStatusEvents,
+  getEventType,
+  getLatestSessionStatusEvent,
+  getMaxSeq,
+  isRequiresActionIdle,
+  mergeSessionEvents,
+  sortSessionEvents,
+} from '@/lib/managed/session-events'
 import { useSessionStream } from '@/lib/managed/sse'
 import type { Agent, Environment, Vault, VaultCredential, Session, SessionEvent, AgentTool, McpServer, SessionFileResource, SessionRepoResource, SessionResource, FileRecord } from '@/types/managed'
 import { Button } from '@/components/ui/button'
@@ -25,6 +34,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 const TRANSCRIPT_TYPES = new Set([
   'user.message',
@@ -98,102 +108,11 @@ const ALL_EVENT_TYPES = new Set([
 ])
 
 const MIN_TRANSCRIPT_EVENTS = 30
-const STATUS_EVENT_TYPES = new Set([
-  'session.status_idle',
-  'session.status_rescheduled',
-  'session.status_running',
-  'session.status_terminated',
-  'session.thread_status_idle',
-  'session.thread_status_running',
-  'session.thread_status_terminated',
-])
-
 const ENGINE_KIND_LABELS: Record<string, string> = {
   claude: 'Claude Code',
   claude_code: 'Claude Code',
   codex: 'Codex',
   native: 'Native',
-}
-
-function compareSessionEvents(a: SessionEvent, b: SessionEvent) {
-  const seqA = a.seq ?? Number.MAX_SAFE_INTEGER
-  const seqB = b.seq ?? Number.MAX_SAFE_INTEGER
-  if (seqA !== seqB) return seqA - seqB
-
-  const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
-  const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
-  if (timeA !== timeB) return timeA - timeB
-
-  return (a.id || '').localeCompare(b.id || '')
-}
-
-function sortSessionEvents(events: SessionEvent[]) {
-  return [...events].sort(compareSessionEvents)
-}
-
-function getMaxSeq(events: SessionEvent[]) {
-  return events.reduce((maxSeq, event) => Math.max(maxSeq, event.seq ?? 0), 0)
-}
-
-function getEventIdentity(event: SessionEvent) {
-  if (event.id) return event.id
-  return `${event.seq ?? 'no-seq'}:${getEventType(event)}:${JSON.stringify(event.usage ?? event.content ?? event.stop_reason ?? event.tool ?? '')}`
-}
-
-function getEventType(event: SessionEvent) {
-  return event.type || event.event_type || ''
-}
-
-function getStopReasonKey(event: SessionEvent) {
-  return JSON.stringify(event.stop_reason ?? '')
-}
-
-function collapseRepeatedStatusEvents(events: SessionEvent[]) {
-  const collapsed: SessionEvent[] = []
-
-  for (const event of events) {
-    const eventType = getEventType(event)
-    const previous = collapsed[collapsed.length - 1]
-    const previousType = previous ? getEventType(previous) : ''
-
-    if (
-      previous
-      && STATUS_EVENT_TYPES.has(eventType)
-      && previousType === eventType
-      && getStopReasonKey(previous) === getStopReasonKey(event)
-    ) {
-      const count = typeof previous._collapsedCount === 'number' ? previous._collapsedCount : 1
-      collapsed[collapsed.length - 1] = {
-        ...previous,
-        id: event.id || previous.id,
-        seq: event.seq ?? previous.seq,
-        created_at: event.created_at || previous.created_at,
-        _collapsedCount: count + 1,
-      } as SessionEvent
-      continue
-    }
-
-    collapsed.push(event)
-  }
-
-  return collapsed
-}
-
-function isRequiresActionIdle(event: SessionEvent) {
-  return getEventType(event) === 'session.status_idle'
-    && typeof event.stop_reason === 'object'
-    && event.stop_reason !== null
-    && (event.stop_reason as { type?: string }).type === 'requires_action'
-}
-
-function getLatestSessionStatusEvent(events: SessionEvent[]) {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]
-    const eventType = getEventType(event)
-    if (eventType.startsWith('session.status_')) return event
-  }
-
-  return null
 }
 
 export default function SessionDetailPage({ params }: { params: Promise<{ sessionId: string }> }) {
@@ -210,6 +129,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const [isSending, setIsSending] = useState(false)
   const [streamForced, setStreamForced] = useState(false)
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const sessionScope = `${id ?? ''}:${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const sessionScopeRef = useRef(sessionScope)
+  const actionRunRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   // Track whether the user is pinned to the bottom of the transcript. When true,
@@ -219,7 +143,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const { events: streamEvents, connected: sseConnected } = useSessionStream(stripIdPrefix(id || ''), !!id)
 
   const { data: session, isLoading, isError, error } = useQuery({
-    queryKey: ['session', id],
+    queryKey: ['session', sessionScope],
     queryFn: () => managedGet<Session>(`/sessions/${stripIdPrefix(id)}`),
     enabled: !!id,
     retry: shouldRetryManagedResourceError,
@@ -233,33 +157,33 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
 
   const agentId = session?.agent?.agent_id || session?.agent?.id
   const { data: agentDetail } = useQuery({
-    queryKey: ['agent', agentId],
+    queryKey: ['agent', sessionScope, agentId],
     queryFn: () => managedGet<Agent>(`/agents/${stripIdPrefix(agentId!)}`),
     enabled: !!agentId && activeDrawer === 'agent',
   })
 
   const envId = session?.environment_id
   const { data: envDetail } = useQuery({
-    queryKey: ['environment', envId],
+    queryKey: ['environment', sessionScope, envId],
     queryFn: () => managedGet<Environment>(`/environments/${stripIdPrefix(envId!)}`),
     enabled: !!envId,
   })
 
   const vaultId = session?.vault_ids?.[0]
   const { data: vaultDetail } = useQuery({
-    queryKey: ['vault', vaultId],
+    queryKey: ['vault', sessionScope, vaultId],
     queryFn: () => managedGet<Vault>(`/vaults/${stripIdPrefix(vaultId!)}`),
     enabled: !!vaultId,
   })
 
   const { data: vaultCredentials } = useQuery({
-    queryKey: ['vault-credentials', vaultId],
+    queryKey: ['vault-credentials', sessionScope, vaultId],
     queryFn: () => managedGet<{ data: VaultCredential[] }>(`/vaults/${stripIdPrefix(vaultId!)}/credentials?limit=100`),
     enabled: !!vaultId && activeDrawer === 'vault',
   })
 
   const { data: sessionResources } = useQuery({
-    queryKey: ['session-resources', id],
+    queryKey: ['session-resources', sessionScope],
     queryFn: () => managedGet<{ data: SessionResource[] }>(`/sessions/${stripIdPrefix(id)}/resources`),
     enabled: !!id,
   })
@@ -277,23 +201,68 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const eventsLoadedRef = useRef(false)
 
+  useEffect(() => {
+    if (sessionScopeRef.current === sessionScope) return
+    sessionScopeRef.current = sessionScope
+    actionRunRef.current += 1
+    eventsLoadedRef.current = false
+    setLoadedEvents([])
+    setHasMoreEvents(true)
+    setIsLoadingMore(false)
+    setSelectedEvent(null)
+    setActiveDrawer(null)
+    setMsgInput('')
+    setIsSending(false)
+    setStreamForced(false)
+  }, [sessionScope])
+
+  const currentSessionScopeIsActive = useCallback(
+    (scope = sessionScopeRef.current) => {
+      const state = useProjectStore.getState()
+      const currentScope = `${id ?? ''}:${state.currentOrgId ?? ''}:${state.currentProjectId ?? ''}`
+      return sessionScopeRef.current === scope && currentScope === scope
+    },
+    [id],
+  )
+
+  const isCurrentAction = useCallback(
+    (runId: number, scope: string) => {
+      return actionRunRef.current === runId && currentSessionScopeIsActive(scope)
+    },
+    [currentSessionScopeIsActive],
+  )
+
+  const currentSessionDetail = useCallback(() => {
+    if (!id) return null
+    if (!currentSessionScopeIsActive()) return null
+    const current = queryClient.getQueryData<Session>(['session', sessionScopeRef.current])
+    return current?.id === id ? current : null
+  }, [currentSessionScopeIsActive, id, queryClient])
+
   const loadEvents = useCallback(async (afterSeq?: number) => {
     if (!id) return
+    const requestScope = sessionScopeRef.current
+    if (!currentSessionScopeIsActive(requestScope)) return
     setIsLoadingMore(true)
     try {
       const params = new URLSearchParams({ limit: '100' })
       if (afterSeq != null) params.set('after_seq', String(afterSeq))
       const res = await managedGet<{ data: SessionEvent[]; has_more: boolean }>(`/sessions/${stripIdPrefix(id)}/events?${params.toString()}`)
+      if (!currentSessionScopeIsActive(requestScope)) return
       const newEvents = Array.isArray(res) ? res : res.data
       const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
-      setLoadedEvents((prev) => sortSessionEvents(afterSeq ? [...prev, ...newEvents] : newEvents))
+      setLoadedEvents((prev) =>
+        sortSessionEvents(afterSeq != null ? [...prev, ...newEvents] : newEvents),
+      )
       setHasMoreEvents(hasMore)
     } catch {
       // silently fail
     } finally {
-      setIsLoadingMore(false)
+      if (currentSessionScopeIsActive(requestScope)) {
+        setIsLoadingMore(false)
+      }
     }
-  }, [id])
+  }, [currentSessionScopeIsActive, id])
 
   useEffect(() => {
     if (id && !eventsLoadedRef.current) {
@@ -329,7 +298,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     if (statusEvents.length === 0) return
     // Trigger API refetch instead of directly overriding status —
     // prevents stale/out-of-order SSE events from showing wrong status
-    queryClient.invalidateQueries({ queryKey: ['session', id] })
+    queryClient.invalidateQueries({ queryKey: ['session', sessionScope] })
   }, [streamEvents, sseConnected, session, id, queryClient])
 
   useEffect(() => {
@@ -344,20 +313,31 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const handleSendMessage = async () => {
     const text = msgInput.trim()
     if (!text || !id || !canSendMessage) return
+    const current = currentSessionDetail()
+    if (!current || current.status !== 'idle' || current.archived_at) return
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    const actionScope = sessionScopeRef.current
+    if (!currentSessionScopeIsActive(actionScope)) return
+    const sessionId = id
     setIsSending(true)
     setMsgInput('')
     setStreamForced(true)
     try {
-      await managedPost(`/sessions/${stripIdPrefix(id)}/events`, {
+      await managedPost(`/sessions/${stripIdPrefix(sessionId)}/events`, {
         events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
       })
-      queryClient.invalidateQueries({ queryKey: ['session', id] })
+      if (!isCurrentAction(runId, actionScope)) return
+      queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
       eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
     } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
       setStreamForced(false)
     } finally {
-      setIsSending(false)
+      if (isCurrentAction(runId, actionScope)) {
+        setIsSending(false)
+      }
     }
   }
 
@@ -367,6 +347,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const sendToolConfirmation = useCallback(
     async (callId: string, approved: boolean, denyMessage?: string) => {
       if (!id || !callId) return
+      const current = currentSessionDetail()
+      if (!current || current.archived_at) return
+      const runId = actionRunRef.current + 1
+      actionRunRef.current = runId
+      const actionScope = sessionScopeRef.current
+      if (!currentSessionScopeIsActive(actionScope)) return
+      const sessionId = id
       setApprovingCallId(callId)
       setStreamForced(true)
       try {
@@ -376,55 +363,78 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           approved,
         }
         if (!approved && denyMessage) payload.deny_message = denyMessage
-        await managedPost(`/sessions/${stripIdPrefix(id)}/events`, {
+        await managedPost(`/sessions/${stripIdPrefix(sessionId)}/events`, {
           events: [payload],
         })
-        queryClient.invalidateQueries({ queryKey: ['session', id] })
+        if (!isCurrentAction(runId, actionScope)) return
+        queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
         eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
       } catch (e) {
+        if (!isCurrentAction(runId, actionScope)) return
         toastOperationError(t, e, 'common.operationFailed')
       } finally {
-        setApprovingCallId(null)
+        if (isCurrentAction(runId, actionScope)) {
+          setApprovingCallId(null)
+        }
       }
     },
-    [id, queryClient, loadEvents, t],
+    [id, queryClient, loadEvents, t, isCurrentAction, currentSessionDetail],
   )
 
   const handleArchiveSession = async () => {
     if (!id) return
+    const current = currentSessionDetail()
+    if (!current || current.archived_at) return
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    const actionScope = sessionScopeRef.current
+    if (!currentSessionScopeIsActive(actionScope)) return
+    const sessionId = id
     try {
-      await managedPost(`/sessions/${stripIdPrefix(id)}/archive`, {})
-      queryClient.invalidateQueries({ queryKey: ['session', id] })
+      await managedPost(`/sessions/${stripIdPrefix(sessionId)}/archive`, {})
+      if (!isCurrentAction(runId, actionScope)) return
+      queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
     } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
 
   const handleStopSession = async () => {
     if (!id) return
+    const current = currentSessionDetail()
+    if (!current || current.status !== 'running' || current.archived_at) return
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    const actionScope = sessionScopeRef.current
+    if (!currentSessionScopeIsActive(actionScope)) return
+    const sessionId = id
     try {
-      await managedPost(`/sessions/${stripIdPrefix(id)}/stop`, {})
-      queryClient.invalidateQueries({ queryKey: ['session', id] })
+      await managedPost(`/sessions/${stripIdPrefix(sessionId)}/stop`, {})
+      if (!isCurrentAction(runId, actionScope)) return
+      queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
       eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
     } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
 
+  const currentSessionCanMutateResources = useCallback(() => {
+    const current = currentSessionDetail()
+    return !!current && current.status === 'idle' && !current.archived_at
+  }, [currentSessionDetail])
+
+  const invalidateSessionResources = useCallback(
+    (scope: string) => {
+      if (!currentSessionScopeIsActive(scope)) return
+      queryClient.invalidateQueries({ queryKey: ['session-resources', scope] })
+    },
+    [currentSessionScopeIsActive, queryClient],
+  )
+
   const allEvents = useMemo(() => {
-    const base = loadedEvents
-    if (streamEvents.length === 0) return base
-    const lastSeq = getMaxSeq(base)
-    const newOnes = streamEvents.filter((e) => e.seq == null || e.seq > lastSeq)
-    const byIdentity = new Map<string, SessionEvent>()
-    for (const event of base) byIdentity.set(getEventIdentity(event), event)
-    for (const event of newOnes) {
-      const identity = getEventIdentity(event)
-      const existing = byIdentity.get(identity)
-      if (existing?.seq != null && event.seq == null) continue
-      byIdentity.set(identity, event)
-    }
-    return sortSessionEvents(Array.from(byIdentity.values()))
+    return mergeSessionEvents(loadedEvents, streamEvents)
   }, [loadedEvents, streamEvents])
 
   // Pending tool-confirmation approvals (always_ask): control_request events
@@ -1100,6 +1110,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         <AgentDrawer
           session={session}
           agent={agentDetail || null}
+          queryScope={sessionScope}
           onClose={() => setActiveDrawer(null)}
           onGoToAgent={() => {
             if (agentId) router.push(`/managed/agents/${agentId}`)
@@ -1124,19 +1135,23 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       {activeDrawer === 'files' && (
         <FilesDrawer
           sessionId={stripIdPrefix(id)}
+          operationScope={sessionScope}
           files={mountedFiles}
           isIdle={isIdle && !isArchived}
+          canMutate={currentSessionCanMutateResources}
           onClose={() => setActiveDrawer(null)}
-          onChanged={() => queryClient.invalidateQueries({ queryKey: ['session-resources', id] })}
+          onChanged={() => invalidateSessionResources(sessionScope)}
         />
       )}
       {activeDrawer === 'repos' && (
         <ReposDrawer
           sessionId={stripIdPrefix(id)}
+          operationScope={sessionScope}
           repos={mountedRepos}
           isIdle={isIdle && !isArchived}
+          canMutate={currentSessionCanMutateResources}
           onClose={() => setActiveDrawer(null)}
-          onChanged={() => queryClient.invalidateQueries({ queryKey: ['session-resources', id] })}
+          onChanged={() => invalidateSessionResources(sessionScope)}
         />
       )}
     </div>
@@ -1152,11 +1167,13 @@ interface AgentVersionEntry {
 function AgentDrawer({
   session,
   agent,
+  queryScope,
   onClose,
   onGoToAgent,
 }: {
   session: Session
   agent: Agent | null
+  queryScope: string
   onClose: () => void
   onGoToAgent: () => void
 }) {
@@ -1169,7 +1186,7 @@ function AgentDrawer({
   const rawAgentId = agentId ? stripIdPrefix(agentId) : null
 
   const { data: versionsData } = useQuery({
-    queryKey: ['agent-versions', rawAgentId],
+    queryKey: ['agent-versions', queryScope, rawAgentId],
     queryFn: () => managedGet<{ data: AgentVersionEntry[] }>(`/agents/${rawAgentId}/versions`),
     enabled: !!rawAgentId,
   })
@@ -1751,23 +1768,61 @@ function VaultDrawer({
 
 function FilesDrawer({
   sessionId,
+  operationScope,
   files,
   isIdle,
+  canMutate,
   onClose,
   onChanged,
 }: {
   sessionId: string
+  operationScope: string
   files: SessionFileResource[]
   isIdle: boolean
+  canMutate: () => boolean
   onClose: () => void
   onChanged: () => void
 }) {
   const { t } = useTranslation()
-  const [showAddDropdown, setShowAddDropdown] = useState(false)
   const queryClient = useQueryClient()
+  const [showAddDropdown, setShowAddDropdown] = useState(false)
+  const operationScopeRef = useRef(operationScope)
+  const mutationRunRef = useRef(0)
+
+  useEffect(() => {
+    if (operationScopeRef.current === operationScope) return
+    operationScopeRef.current = operationScope
+    mutationRunRef.current += 1
+    setShowAddDropdown(false)
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      mutationRunRef.current += 1
+    },
+    [],
+  )
+
+  const isCurrentMutation = (runId: number, scope: string) =>
+    mutationRunRef.current === runId && operationScopeRef.current === scope
+
+  const nextMutation = () => {
+    const runId = mutationRunRef.current + 1
+    mutationRunRef.current = runId
+    return { runId, scope: operationScopeRef.current }
+  }
+
+  const toggleAddDropdown = () => {
+    if (!canMutate()) {
+      setShowAddDropdown(false)
+      return
+    }
+    mutationRunRef.current += 1
+    setShowAddDropdown((open) => !open)
+  }
 
   const { data: allFilesResp } = useQuery({
-    queryKey: ['files-for-add'],
+    queryKey: ['files-for-add', operationScope],
     queryFn: () => managedGet<{ data: FileRecord[] }>('/files?limit=100'),
     enabled: showAddDropdown,
   })
@@ -1780,29 +1835,101 @@ function FilesDrawer({
   const availableFiles = allFiles.filter((f) => !alreadyMountedIds.has(f.id))
 
   const addFileMutation = useMutation({
-    mutationFn: (file: FileRecord) =>
+    mutationFn: ({
+      file,
+      sessionId,
+    }: {
+      file: FileRecord
+      sessionId: string
+      runId: number
+      scope: string
+    }) =>
       managedPost(`/sessions/${sessionId}/resources`, {
         type: 'file',
         file_id: file.id,
         mount_path: `/workspace/${file.filename}`,
       }),
-    onSuccess: () => {
+    onSuccess: (_data, { runId, scope }) => {
+      if (!isCurrentMutation(runId, scope)) return
       onChanged()
       setShowAddDropdown(false)
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentMutation(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const removeFileMutation = useMutation({
-    mutationFn: (resourceId: string) =>
+    mutationFn: ({
+      resourceId,
+      sessionId,
+    }: {
+      resourceId: string
+      sessionId: string
+      runId: number
+      scope: string
+    }) =>
       managedDelete(`/sessions/${sessionId}/resources/${resourceId}`),
-    onSuccess: () => onChanged(),
-    onError: (error) => {
+    onSuccess: (_data, { runId, scope }) => {
+      if (!isCurrentMutation(runId, scope)) return
+      onChanged()
+    },
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentMutation(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
+
+  const handleAddFile = (file: FileRecord) => {
+    if (!canMutate()) {
+      setShowAddDropdown(false)
+      return
+    }
+    const currentFiles =
+      queryClient.getQueryData<{ data?: FileRecord[] }>([
+        'files-for-add',
+        operationScopeRef.current,
+      ])?.data || []
+    const currentFile = currentFiles.find((candidate) => candidate.id === file.id)
+    if (!currentFile) return
+
+    const currentResources = queryClient.getQueryData<{ data?: SessionResource[] }>([
+      'session-resources',
+      operationScopeRef.current,
+    ])
+    const currentMountedIds = new Set(
+      (currentResources?.data || files)
+        .filter((resource): resource is SessionFileResource => resource.type === 'file')
+        .map((resource) => resource.file_id),
+    )
+    if (currentMountedIds.has(currentFile.id)) return
+
+    addFileMutation.mutate({
+      file: currentFile,
+      sessionId,
+      ...nextMutation(),
+    })
+  }
+
+  const handleRemoveFile = (resourceId: string) => {
+    if (!canMutate()) return
+
+    const currentResources = queryClient.getQueryData<{ data?: SessionResource[] }>([
+      'session-resources',
+      operationScopeRef.current,
+    ])
+    const currentFileResource = (currentResources?.data || files)
+      .filter((resource): resource is SessionFileResource => resource.type === 'file')
+      .find((resource) => resource.id === resourceId)
+    if (!currentFileResource) return
+
+    removeFileMutation.mutate({
+      resourceId: currentFileResource.id,
+      sessionId,
+      ...nextMutation(),
+    })
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -1821,7 +1948,7 @@ function FilesDrawer({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setShowAddDropdown(!showAddDropdown)}
+                    onClick={toggleAddDropdown}
                   >
                     <Plus className="w-3.5 h-3.5 mr-1" />
                     {t('managed.sessions.addFile')}
@@ -1837,7 +1964,7 @@ function FilesDrawer({
                           <button
                             key={f.id}
                             type="button"
-                            onClick={() => addFileMutation.mutate(f)}
+                            onClick={() => handleAddFile(f)}
                             className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
                           >
                             <FileIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -1871,7 +1998,7 @@ function FilesDrawer({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        onClick={() => removeFileMutation.mutate(f.id)}
+                        onClick={() => handleRemoveFile(f.id)}
                         disabled={removeFileMutation.isPending}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1898,37 +2025,114 @@ function FilesDrawer({
 
 function ReposDrawer({
   sessionId,
+  operationScope,
   repos,
   isIdle,
+  canMutate,
   onClose,
   onChanged,
 }: {
   sessionId: string
+  operationScope: string
   repos: SessionRepoResource[]
   isIdle: boolean
+  canMutate: () => boolean
   onClose: () => void
   onChanged: () => void
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [tokenEdits, setTokenEdits] = useState<Record<string, string>>({})
+  const tokenDraftVersionsRef = useRef<Record<string, number>>({})
+  const operationScopeRef = useRef(operationScope)
+  const mutationRunRef = useRef(0)
+
+  useEffect(() => {
+    if (operationScopeRef.current === operationScope) return
+    operationScopeRef.current = operationScope
+    mutationRunRef.current += 1
+    tokenDraftVersionsRef.current = {}
+    setTokenEdits({})
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      mutationRunRef.current += 1
+    },
+    [],
+  )
+
+  const isCurrentMutation = (runId: number, scope: string) =>
+    mutationRunRef.current === runId && operationScopeRef.current === scope
+
+  const nextMutation = () => {
+    const runId = mutationRunRef.current + 1
+    mutationRunRef.current = runId
+    return { runId, scope: operationScopeRef.current }
+  }
+
+  const updateTokenDraft = (resourceId: string, token: string) => {
+    tokenDraftVersionsRef.current[resourceId] = (tokenDraftVersionsRef.current[resourceId] ?? 0) + 1
+    setTokenEdits((prev) => ({ ...prev, [resourceId]: token }))
+  }
 
   const rotateMutation = useMutation({
-    mutationFn: ({ resourceId, token }: { resourceId: string; token: string }) =>
+    mutationFn: ({
+      resourceId,
+      sessionId,
+      token,
+      draftVersion,
+    }: {
+      resourceId: string
+      sessionId: string
+      token: string
+      draftVersion: number
+      runId: number
+      scope: string
+    }) =>
       managedPatch(`/sessions/${sessionId}/resources/${resourceId}`, {
         authorization_token: token,
       }),
     onSuccess: (_data, vars) => {
-      setTokenEdits((prev) => {
-        const next = { ...prev }
-        delete next[vars.resourceId]
-        return next
-      })
+      if (!isCurrentMutation(vars.runId, vars.scope)) return
       onChanged()
+      if ((tokenDraftVersionsRef.current[vars.resourceId] ?? 0) === vars.draftVersion) {
+        setTokenEdits((prev) => {
+          const next = { ...prev }
+          delete next[vars.resourceId]
+          return next
+        })
+      }
     },
-    onError: (error) => {
+    onError: (error, { draftVersion, resourceId, runId, scope }) => {
+      if (!isCurrentMutation(runId, scope)) return
+      if ((tokenDraftVersionsRef.current[resourceId] ?? 0) !== draftVersion) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
+
+  const handleRotateToken = (repo: SessionRepoResource) => {
+    const token = (tokenEdits[repo.id] ?? '').trim()
+    if (!token) return
+    if (!canMutate()) return
+
+    const currentResources = queryClient.getQueryData<{ data?: SessionResource[] }>([
+      'session-resources',
+      operationScopeRef.current,
+    ])
+    const currentRepo = (currentResources?.data || repos)
+      .filter((resource): resource is SessionRepoResource => resource.type === 'github_repository')
+      .find((resource) => resource.id === repo.id)
+    if (!currentRepo) return
+
+    rotateMutation.mutate({
+      resourceId: currentRepo.id,
+      sessionId,
+      token,
+      draftVersion: tokenDraftVersionsRef.current[currentRepo.id] ?? 0,
+      ...nextMutation(),
+    })
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -1972,7 +2176,7 @@ function ReposDrawer({
                         type="password"
                         autoComplete="new-password"
                         value={tokenEdits[r.id] ?? ''}
-                        onChange={(e) => setTokenEdits((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                        onChange={(e) => updateTokenDraft(r.id, e.target.value)}
                         className="h-7 text-xs font-mono"
                         placeholder={t('managed.sessions.rotateTokenPlaceholder')}
                       />
@@ -1981,7 +2185,7 @@ function ReposDrawer({
                         size="sm"
                         className="shrink-0"
                         disabled={!(tokenEdits[r.id] ?? '').trim() || rotateMutation.isPending}
-                        onClick={() => rotateMutation.mutate({ resourceId: r.id, token: (tokenEdits[r.id] ?? '').trim() })}
+                        onClick={() => handleRotateToken(r)}
                       >
                         {t('managed.sessions.rotateToken')}
                       </Button>

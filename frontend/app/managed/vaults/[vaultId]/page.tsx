@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -22,12 +22,27 @@ import {
   FilterBar,
 } from '@/components/managed/shared'
 import { CreateCredentialDialog } from '../components/create-credential-dialog'
+import { useProjectStore } from '@/stores/managed/project-store'
+
+interface VaultDetailActionVariables {
+  vaultId: string
+  id: string
+  credId?: string
+  runId: number
+  scope: string
+}
 
 export default function VaultDetailPage({ params }: { params: Promise<{ vaultId: string }> }) {
   const { vaultId: id } = React.use(params)
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const operationScope = `${managedScope}:${id ?? ''}`
+  const actionRunRef = useRef(0)
+  const operationScopeRef = useRef(operationScope)
   const [showArchivedCredentials, setShowArchivedCredentials] = useState(false)
   const [createCredOpen, setCreateCredOpen] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -48,13 +63,34 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
 
   const vaultId = stripIdPrefix(id || '')
 
+  useEffect(() => {
+    actionRunRef.current += 1
+    operationScopeRef.current = operationScope
+    setCreateCredOpen(false)
+    setConfirmDialog({
+      open: false,
+      title: '',
+      description: '',
+      confirmLabel: '',
+      destructive: false,
+      onConfirm: () => {},
+    })
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      actionRunRef.current += 1
+    },
+    [],
+  )
+
   const {
     data: vault,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['vault', id],
+    queryKey: ['vault', managedScope, id],
     queryFn: () => managedGet<Vault>(`/vaults/${vaultId}`),
     enabled: !!id,
     retry: shouldRetryManagedResourceError,
@@ -65,7 +101,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     isLoading: credsLoading,
     isFetching: credsFetching,
   } = useQuery({
-    queryKey: ['vault-credentials', id, showArchivedCredentials],
+    queryKey: ['vault-credentials', managedScope, id, showArchivedCredentials],
     queryFn: () =>
       managedGet<{ data: VaultCredential[]; has_more: boolean }>(
         `/vaults/${vaultId}/credentials?limit=100&include_archived=${showArchivedCredentials}`,
@@ -77,71 +113,161 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     (c) => showArchivedCredentials || !c.archived_at,
   )
 
+  const getCurrentOperationScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}:${id ?? ''}`
+  }
+
+  const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
+    operationScopeRef.current === scope && getCurrentOperationScope() === scope
+
+  const isCurrentAction = (runId: number, scope: string) =>
+    actionRunRef.current === runId && currentOperationScopeIsActive(scope)
+
+  const closeConfirmDialog = () => {
+    actionRunRef.current += 1
+    setConfirmDialog((prev) => ({ ...prev, open: false }))
+  }
+
   const archiveVaultMutation = useMutation({
-    mutationFn: () => managedPost(`/vaults/${vaultId}/archive`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['vault', id] })
+    mutationFn: ({ vaultId, runId, scope }: VaultDetailActionVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale vault detail archive ignored')
+      }
+      return managedPost(`/vaults/${vaultId}/archive`, {})
+    },
+    onSuccess: (_data, { id, runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['vault', managedScope, id] })
       queryClient.invalidateQueries({ queryKey: ['vaults'] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const deleteVaultMutation = useMutation({
-    mutationFn: () => managedDelete(`/vaults/${vaultId}`),
-    onSuccess: () => {
+    mutationFn: ({ vaultId, runId, scope }: VaultDetailActionVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale vault detail delete ignored')
+      }
+      return managedDelete(`/vaults/${vaultId}`)
+    },
+    onSuccess: (_data, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['vaults'] })
       router.push('/managed/vaults')
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const archiveCredMutation = useMutation({
-    mutationFn: (credId: string) =>
-      managedPost(`/vaults/${vaultId}/credentials/${stripIdPrefix(credId)}/archive`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['vault-credentials', id] })
+    mutationFn: ({ vaultId, credId, runId, scope }: VaultDetailActionVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale vault credential archive ignored')
+      }
+      return managedPost(`/vaults/${vaultId}/credentials/${stripIdPrefix(credId!)}/archive`, {})
+    },
+    onSuccess: (_data, { id, runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['vault-credentials', managedScope, id] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
+  const actionVariables = (extra?: Pick<VaultDetailActionVariables, 'credId'>) => {
+    if (!currentOperationScopeIsActive()) return null
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
+    return {
+      vaultId,
+      id,
+      runId,
+      scope: operationScopeRef.current,
+      ...extra,
+    }
+  }
+
+  const currentVaultIsActive = () => {
+    if (!currentOperationScopeIsActive()) return false
+    const currentVault = queryClient.getQueryData<Vault>(['vault', managedScope, id])
+    return !!currentVault && currentVault.id === vault?.id && !currentVault.archived_at
+  }
+
+  const findCurrentCredential = (credId: string) =>
+    currentOperationScopeIsActive() &&
+    queryClient
+      .getQueriesData<{ data?: VaultCredential[] }>({
+        queryKey: ['vault-credentials', managedScope, id],
+      })
+      .some(([, page]) => page?.data?.some((credential) => credential.id === credId))
+
   const handleArchiveVault = () => {
+    if (!currentVaultIsActive()) return
+    actionRunRef.current += 1
     setConfirmDialog({
       open: true,
       title: t('managed.vaults.archiveTitle'),
       description: t('managed.vaults.archiveDescription', { name: vault?.name }),
       confirmLabel: t('common.archive'),
       destructive: true,
-      onConfirm: () => archiveVaultMutation.mutate(),
+      onConfirm: () => {
+        if (!currentVaultIsActive()) {
+          setConfirmDialog((prev) => ({ ...prev, open: false }))
+          return
+        }
+        const action = actionVariables()
+        if (action) archiveVaultMutation.mutate(action)
+      },
     })
   }
 
   const handleDeleteVault = () => {
+    if (!currentVaultIsActive()) return
+    actionRunRef.current += 1
     setConfirmDialog({
       open: true,
       title: t('managed.vaults.deleteTitle'),
       description: t('managed.vaults.deleteDescription', { name: vault?.name }),
       confirmLabel: t('common.delete'),
       destructive: true,
-      onConfirm: () => deleteVaultMutation.mutate(),
+      onConfirm: () => {
+        if (!currentVaultIsActive()) {
+          setConfirmDialog((prev) => ({ ...prev, open: false }))
+          return
+        }
+        const action = actionVariables()
+        if (action) deleteVaultMutation.mutate(action)
+      },
     })
   }
 
   const handleArchiveCred = (cred: VaultCredential) => {
+    if (!currentVaultIsActive() || !findCurrentCredential(cred.id)) return
+    actionRunRef.current += 1
     setConfirmDialog({
       open: true,
       title: t('managed.vaults.credArchiveTitle'),
       description: t('managed.vaults.credArchiveDescription', { name: cred.name }),
       confirmLabel: t('common.archive'),
       destructive: true,
-      onConfirm: () => archiveCredMutation.mutate(cred.id),
+      onConfirm: () => {
+        if (!currentVaultIsActive() || !findCurrentCredential(cred.id)) {
+          setConfirmDialog((prev) => ({ ...prev, open: false }))
+          return
+        }
+        const action = actionVariables({ credId: cred.id })
+        if (action) archiveCredMutation.mutate(action)
+      },
     })
   }
 
@@ -274,7 +400,8 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
         open={createCredOpen}
         onOpenChange={setCreateCredOpen}
         vaultId={vaultId}
-        queryKey={['vault-credentials', id]}
+        queryKey={['vault-credentials', managedScope, id]}
+        canSubmit={currentVaultIsActive}
       />
 
       <ConfirmDialog
@@ -284,7 +411,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
         confirmLabel={confirmDialog.confirmLabel}
         destructive={confirmDialog.destructive}
         onConfirm={confirmDialog.onConfirm}
-        onCancel={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
+        onCancel={closeConfirmDialog}
       />
     </div>
   )

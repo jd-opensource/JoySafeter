@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -35,6 +35,7 @@ import {
   SECRET_PROTOCOL_OPTIONS,
   SECRET_PROVIDER_GROUPS,
 } from '@/lib/managed/secret-keys'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 interface SecretDetail {
   id: string
@@ -51,11 +52,30 @@ interface KVPair {
   value: string
 }
 
+interface SaveSecretVariables {
+  secretId: string
+  payload: {
+    name: string
+    provider: string
+    protocol: string
+    data: Record<string, string>
+  }
+  runId: number
+  scope: string
+}
+
 export default function SecretDetailPage({ params }: { params: Promise<{ secretId: string }> }) {
   const { secretId } = React.use(params)
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const operationScope = `${managedScope}:${secretId ?? ''}`
+  const saveRunRef = useRef(0)
+  const operationScopeRef = useRef(operationScope)
+  const hydratedSecretScopeRef = useRef<string | null>(null)
 
   const [pairs, setPairs] = useState<KVPair[]>([])
   const [provider, setProvider] = useState('custom')
@@ -69,20 +89,38 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
     isError,
     error,
   } = useQuery({
-    queryKey: ['secret', secretId],
+    queryKey: ['secret', managedScope, secretId],
     queryFn: () => managedGet<SecretDetail>(`/secrets/${stripIdPrefix(secretId)}`),
     enabled: !!secretId,
     retry: shouldRetryManagedResourceError,
   })
 
   useEffect(() => {
+    if (operationScopeRef.current !== operationScope) {
+      operationScopeRef.current = operationScope
+      saveRunRef.current += 1
+    }
+  }, [operationScope])
+
+  useEffect(
+    () => () => {
+      saveRunRef.current += 1
+    },
+    [],
+  )
+
+  useEffect(() => {
     if (secret?.secret_data) {
+      const shouldHydrate = !dirty || hydratedSecretScopeRef.current !== operationScope
+      if (!shouldHydrate) return
+
       setProvider(normalizeSecretProvider(secret.provider))
       setProtocol(secret.protocol || 'custom')
       setPairs(Object.entries(secret.secret_data).map(([key, value]) => ({ key, value })))
+      hydratedSecretScopeRef.current = operationScope
       setDirty(false)
     }
-  }, [secret])
+  }, [dirty, operationScope, secret])
 
   const updatePair = (index: number, field: 'key' | 'value', val: string) => {
     setPairs((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: val } : p)))
@@ -111,26 +149,55 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
     setDirty(true)
   }
 
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      const data: Record<string, string> = {}
-      for (const p of pairs) {
-        if (p.key.trim()) {
-          data[p.key.trim()] = p.value
-        }
+  const buildSavePayload = (): SaveSecretVariables['payload'] => {
+    const data: Record<string, string> = {}
+    for (const p of pairs) {
+      if (p.key.trim()) {
+        data[p.key.trim()] = p.value
       }
-      return managedPut(`/secrets/${stripIdPrefix(secretId)}`, {
-        name: secret!.name,
-        provider,
-        protocol,
-        data,
-      })
-    },
-    onSuccess: () => {
+    }
+    return {
+      name: secret!.name,
+      provider,
+      protocol,
+      data,
+    }
+  }
+
+  const getCurrentOperationScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}:${secretId ?? ''}`
+  }
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentSecretDetail = () => {
+    const current = queryClient.getQueryData<SecretDetail>([
+      'secret',
+      getCurrentManagedScope(),
+      secretId,
+    ])
+    return current?.id === secretId ? current : null
+  }
+
+  const isCurrentSaveRun = (runId: number, scope: string) =>
+    saveRunRef.current === runId &&
+    operationScopeRef.current === scope &&
+    getCurrentOperationScope() === scope
+
+  const saveMutation = useMutation({
+    mutationFn: ({ secretId, payload }: SaveSecretVariables) =>
+      managedPut(`/secrets/${stripIdPrefix(secretId)}`, payload),
+    onSuccess: (_data, { secretId, runId, scope }) => {
+      if (!isCurrentSaveRun(runId, scope)) return
       setDirty(false)
-      queryClient.invalidateQueries({ queryKey: ['secret', secretId] })
+      queryClient.invalidateQueries({ queryKey: ['secret', managedScope, secretId] })
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentSaveRun(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
@@ -166,7 +233,18 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
             </Button>
             <Button
               size="sm"
-              onClick={() => saveMutation.mutate()}
+              onClick={() => {
+                const current = currentSecretDetail()
+                if (!current) return
+                const runId = saveRunRef.current + 1
+                saveRunRef.current = runId
+                saveMutation.mutate({
+                  secretId: current.id,
+                  payload: { ...buildSavePayload(), name: current.name },
+                  runId,
+                  scope: operationScopeRef.current,
+                })
+              }}
               disabled={!dirty || saveMutation.isPending}
             >
               <Save className="mr-1 h-4 w-4" />

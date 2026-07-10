@@ -81,6 +81,7 @@ import {
 import { toastOperationError } from '@/lib/managed/errors'
 import { useToast } from '@/hooks/use-toast'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 function stripId(id: string): string {
   return id.replace(/^(skill_|sklver_|sklfile_)/, '')
@@ -703,6 +704,65 @@ interface SkillFormState {
   source_url: string
 }
 
+interface SkillActionScope {
+  runId: number
+  scope: string
+  skillId: string
+}
+
+interface ManagedActionScope {
+  runId: number
+  scope: string
+}
+
+interface ImportFolderVariables extends ManagedActionScope {
+  fileList: File[]
+}
+
+interface ImportZipVariables extends ManagedActionScope {
+  file: File
+}
+
+interface DeleteSkillVariables extends ManagedActionScope {
+  id: string
+}
+
+interface SaveSkillVariables extends SkillActionScope {
+  form: SkillFormState
+}
+
+interface CreateFileVariables extends SkillActionScope {
+  dir: string
+  fileName: string
+  fileType: string
+  mode: 'file' | 'folder'
+}
+
+interface SaveFileVariables extends SkillActionScope {
+  fileId: string
+  content: string
+}
+
+interface DeleteFileVariables extends SkillActionScope {
+  fileId: string
+}
+
+interface DeleteFolderVariables extends SkillActionScope {
+  folderPath: string
+  filesToDelete: SkillFileRecord[]
+}
+
+interface MoveVariables extends SkillActionScope {
+  source: MoveSource
+  destFolder: string
+  files: SkillFileRecord[]
+}
+
+interface CreateVersionVariables extends SkillActionScope {
+  releaseNotes: string
+  version?: string
+}
+
 function SkillEditor({
   skill,
   files,
@@ -714,11 +774,13 @@ function SkillEditor({
   versions,
   onCreateVersion,
   onDeleteVersion,
+  onDeleteVersionDialogActivity,
   isCreatingVersion,
   editorTab,
   setEditorTab,
   showVersionForm,
   setShowVersionForm,
+  queryScope,
 }: {
   skill: SkillRecord
   files: SkillFileRecord[]
@@ -733,11 +795,13 @@ function SkillEditor({
     version: string,
     force?: boolean,
   ) => Promise<{ ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }>
+  onDeleteVersionDialogActivity: () => void
   isCreatingVersion: boolean
   editorTab: 'editor' | 'metadata' | 'versions'
   setEditorTab: (tab: 'editor' | 'metadata' | 'versions') => void
   showVersionForm: boolean
   setShowVersionForm: (v: boolean) => void
+  queryScope: string
 }) {
   const { t, i18n } = useTranslation()
   const [contentMode, setContentMode] = useState<'edit' | 'preview'>('edit')
@@ -750,6 +814,7 @@ function SkillEditor({
     hint?: string
     pending?: boolean
   } | null>(null)
+  const versionDeleteRunRef = useRef(0)
   /** Version-diff state — compares a version against its predecessor.
    * Rendered inline within the versions tab (not a dialog). */
   const [diffTarget, setDiffTarget] = useState<{
@@ -763,7 +828,7 @@ function SkillEditor({
   // per-version files endpoint to diff the whole skill package.
   const skillIdForDiff = stripId(skill.id)
   const { data: fromFiles = [] } = useQuery({
-    queryKey: ['skill-version-files', skillIdForDiff, diffTarget?.fromVersion],
+    queryKey: ['skill-version-files', queryScope, skillIdForDiff, diffTarget?.fromVersion],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
         `/skills/${skillIdForDiff}/versions/${encodeURIComponent(diffTarget!.fromVersion)}/files`,
@@ -773,7 +838,7 @@ function SkillEditor({
     enabled: !!diffTarget,
   })
   const { data: toFiles = [], isFetching: toFilesFetching } = useQuery({
-    queryKey: ['skill-version-files', skillIdForDiff, diffTarget?.toVersion],
+    queryKey: ['skill-version-files', queryScope, skillIdForDiff, diffTarget?.toVersion],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
         `/skills/${skillIdForDiff}/versions/${encodeURIComponent(diffTarget!.toVersion)}/files`,
@@ -790,6 +855,24 @@ function SkillEditor({
 
   const selectedFile = files.find((f) => f.id === selectedFileId)
   const isEditingFile = selectedFileId !== null && selectedFile !== undefined
+
+  const markVersionDeleteDialogActivity = useCallback(() => {
+    versionDeleteRunRef.current += 1
+    onDeleteVersionDialogActivity()
+  }, [onDeleteVersionDialogActivity])
+
+  const openDeleteVersionDialog = useCallback(
+    (version: string) => {
+      markVersionDeleteDialogActivity()
+      setDeleteState({ version })
+    },
+    [markVersionDeleteDialogActivity],
+  )
+
+  const closeDeleteVersionDialog = useCallback(() => {
+    markVersionDeleteDialogActivity()
+    setDeleteState(null)
+  }, [markVersionDeleteDialogActivity])
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
@@ -1156,7 +1239,7 @@ function SkillEditor({
                             type="button"
                             aria-label={t('managed.skills.deleteVersion', 'Delete version')}
                             title={t('managed.skills.deleteVersion', 'Delete version')}
-                            onClick={() => setDeleteState({ version: v.version })}
+                            onClick={() => openDeleteVersionDialog(v.version)}
                             className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1291,7 +1374,7 @@ function SkillEditor({
       <Dialog
         open={!!deleteState}
         onOpenChange={(open) => {
-          if (!open) setDeleteState(null)
+          if (!open) closeDeleteVersionDialog()
         }}
       >
         <DialogContent className="sm:max-w-[480px]">
@@ -1334,7 +1417,7 @@ function SkillEditor({
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteState(null)}>
+            <Button variant="outline" onClick={closeDeleteVersionDialog}>
               {t('common.cancel')}
             </Button>
             <Button
@@ -1343,8 +1426,11 @@ function SkillEditor({
               onClick={async () => {
                 if (!deleteState) return
                 const force = (deleteState.referrers?.length ?? 0) > 0
+                const runId = versionDeleteRunRef.current + 1
+                versionDeleteRunRef.current = runId
                 setDeleteState({ ...deleteState, pending: true })
                 const res = await onDeleteVersion(deleteState.version, force)
+                if (versionDeleteRunRef.current !== runId) return
                 if (res.ok) {
                   setDeleteState(null)
                 } else {
@@ -1377,6 +1463,9 @@ export default function SkillManagerPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const router = useRouter()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
@@ -1421,11 +1510,195 @@ export default function SkillManagerPage() {
   const [formSnapshot, setFormSnapshot] = useState<SkillFormState>(form)
   const [fileContent, setFileContent] = useState('')
   const [fileContentSnapshot, setFileContentSnapshot] = useState('')
+  const managedScopeRef = useRef(managedScope)
+  const selectedSkillIdRef = useRef<string | null>(selectedSkillId)
+  const selectedFileIdRef = useRef<string | null>(selectedFileId)
+  const mutationRunRef = useRef(0)
+
+  const clearSavedFlash = useCallback(() => {
+    if (flashTimer.current) {
+      clearTimeout(flashTimer.current)
+      flashTimer.current = undefined
+    }
+    setSavedFlash(false)
+  }, [])
 
   const backToSkillList = useCallback(() => {
+    mutationRunRef.current += 1
+    selectedSkillIdRef.current = null
+    selectedFileIdRef.current = null
+    clearSavedFlash()
     setSelectedSkillId(null)
     setSelectedFileId(null)
+  }, [clearSavedFlash])
+
+  useEffect(
+    () => () => {
+      mutationRunRef.current += 1
+      selectedSkillIdRef.current = null
+      selectedFileIdRef.current = null
+      if (flashTimer.current) {
+        clearTimeout(flashTimer.current)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    selectedSkillIdRef.current = selectedSkillId
+  }, [selectedSkillId])
+
+  useEffect(() => {
+    selectedFileIdRef.current = selectedFileId
+  }, [selectedFileId])
+
+  useEffect(() => {
+    managedScopeRef.current = managedScope
+    mutationRunRef.current += 1
+    selectedSkillIdRef.current = null
+    selectedFileIdRef.current = null
+    setSelectedSkillId(null)
+    setSelectedFileId(null)
+    setShowVersionForm(false)
+    setShowAddFileDialog(false)
+    setDeleteTarget(null)
+    setDeleteFileTarget(null)
+    setDeleteFolderTarget(null)
+    setShowImportDialog(false)
+    setShowSecurityHistoryDialog(false)
+    clearSavedFlash()
+    setFileContent('')
+    setFileContentSnapshot('')
+  }, [managedScope, clearSavedFlash])
+
+  const getCurrentManagedScope = useCallback(() => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
   }, [])
+
+  const currentManagedScopeIsActive = useCallback(
+    (scope = managedScopeRef.current) =>
+      managedScopeRef.current === scope && getCurrentManagedScope() === scope,
+    [getCurrentManagedScope],
+  )
+
+  const nextSkillAction = useCallback((): SkillActionScope | null => {
+    if (!currentManagedScopeIsActive()) return null
+    const skillId = selectedSkillIdRef.current
+    if (!skillId) return null
+    const runId = mutationRunRef.current + 1
+    mutationRunRef.current = runId
+    return {
+      runId,
+      scope: managedScopeRef.current,
+      skillId,
+    }
+  }, [currentManagedScopeIsActive])
+
+  const isCurrentSkillAction = useCallback((action: SkillActionScope): boolean => {
+    return (
+      mutationRunRef.current === action.runId &&
+      currentManagedScopeIsActive(action.scope) &&
+      selectedSkillIdRef.current === action.skillId
+    )
+  }, [currentManagedScopeIsActive])
+
+  const nextManagedAction = useCallback((): ManagedActionScope | null => {
+    if (!currentManagedScopeIsActive()) return null
+    const runId = mutationRunRef.current + 1
+    mutationRunRef.current = runId
+    return {
+      runId,
+      scope: managedScopeRef.current,
+    }
+  }, [currentManagedScopeIsActive])
+
+  const isCurrentManagedAction = useCallback((action: ManagedActionScope): boolean => {
+    return (
+      mutationRunRef.current === action.runId &&
+      currentManagedScopeIsActive(action.scope)
+    )
+  }, [currentManagedScopeIsActive])
+
+  const currentSkillInList = useCallback(
+    (skillId: string | null) => {
+      if (!skillId) return null
+      if (!currentManagedScopeIsActive()) return null
+      return (
+        queryClient
+          .getQueriesData<{ data?: SkillRecord[] }>({
+            queryKey: ['skills', managedScopeRef.current, '/skills'],
+          })
+          .flatMap(([, page]) => page?.data ?? [])
+          .find((skill) => skill.id === skillId) ?? null
+      )
+    },
+    [currentManagedScopeIsActive, queryClient],
+  )
+
+  const nextCurrentSkillAction = useCallback((): SkillActionScope | null => {
+    const action = nextSkillAction()
+    if (!action) return null
+    return currentSkillInList(action.skillId) ? action : null
+  }, [currentSkillInList, nextSkillAction])
+
+  const currentSkillFiles = useCallback(
+    (skillId = selectedSkillIdRef.current) => {
+      if (!skillId) return []
+      if (!currentManagedScopeIsActive()) return []
+      return (
+        queryClient.getQueryData<SkillFileRecord[]>([
+          'skill-files',
+          managedScopeRef.current,
+          skillId,
+        ]) ?? []
+      )
+    },
+    [currentManagedScopeIsActive, queryClient],
+  )
+
+  const currentSkillFile = useCallback(
+    (fileId: string | null, skillId = selectedSkillIdRef.current) => {
+      if (!fileId || !skillId) return null
+      return currentSkillFiles(skillId).find((file) => file.id === fileId) ?? null
+    },
+    [currentSkillFiles],
+  )
+
+  const currentFolderFiles = useCallback(
+    (folderPath: string | null, skillId = selectedSkillIdRef.current) => {
+      if (!folderPath || !skillId) return []
+      return currentSkillFiles(skillId).filter((file) => file.path.startsWith(folderPath))
+    },
+    [currentSkillFiles],
+  )
+
+  const currentSkillVersion = useCallback(
+    (version: string | null, skillId = selectedSkillIdRef.current) => {
+      if (!version || !skillId) return null
+      if (!currentManagedScopeIsActive()) return null
+      const currentVersions =
+        queryClient.getQueryData<SkillVersionRecord[]>([
+          'skill-versions',
+          managedScopeRef.current,
+          skillId,
+        ]) ?? []
+      return currentVersions.find((item) => item.version === version) ?? null
+    },
+    [currentManagedScopeIsActive, queryClient],
+  )
+
+  const invalidateSkillResources = useCallback(
+    (skillId: string) => {
+      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({ queryKey: ['skill', managedScopeRef.current, skillId] })
+      queryClient.invalidateQueries({ queryKey: ['skill-files', managedScopeRef.current, skillId] })
+      queryClient.invalidateQueries({
+        queryKey: ['skill-security-scans', managedScopeRef.current, skillId],
+      })
+    },
+    [queryClient],
+  )
 
   // -- Queries --
 
@@ -1447,7 +1720,7 @@ export default function SkillManagerPage() {
   } = usePaginatedList<SkillRecord>({ queryKey: 'skills', path: '/skills' })
 
   const { data: selectedSkill, isError: selectedSkillIsError, error: selectedSkillError } = useQuery({
-    queryKey: ['skill', selectedSkillId],
+    queryKey: ['skill', managedScope, selectedSkillId],
     queryFn: () =>
       managedGet<SkillRecord>(`/skills/${stripId(selectedSkillId!)}`),
     enabled: !!selectedSkillId,
@@ -1461,7 +1734,7 @@ export default function SkillManagerPage() {
   })
 
   const { data: skillFiles = [] } = useQuery({
-    queryKey: ['skill-files', selectedSkillId],
+    queryKey: ['skill-files', managedScope, selectedSkillId],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
         `/skills/${stripId(selectedSkillId!)}/files`,
@@ -1472,7 +1745,7 @@ export default function SkillManagerPage() {
   })
 
   const { data: versions = [] } = useQuery({
-    queryKey: ['skill-versions', selectedSkillId],
+    queryKey: ['skill-versions', managedScope, selectedSkillId],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillVersionRecord[] } | SkillVersionRecord[]>(
         `/skills/${stripId(selectedSkillId!)}/versions?limit=50`,
@@ -1487,7 +1760,7 @@ export default function SkillManagerPage() {
   // main content. Only fetched when at least one version exists.
   const latestPublishedVersion = versions.length > 0 ? versions[0].version : null
   const { data: latestVersionFiles = [] } = useQuery({
-    queryKey: ['skill-version-files', selectedSkillId, latestPublishedVersion],
+    queryKey: ['skill-version-files', managedScope, selectedSkillId, latestPublishedVersion],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
         `/skills/${stripId(selectedSkillId!)}/versions/${encodeURIComponent(
@@ -1504,7 +1777,7 @@ export default function SkillManagerPage() {
     isFetching: securityScansFetching,
     isError: securityScansIsError,
   } = useQuery({
-    queryKey: ['skill-security-scans', selectedSkillId],
+    queryKey: ['skill-security-scans', managedScope, selectedSkillId],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillSecurityScanRecord[] } | SkillSecurityScanRecord[]>(
         `/skills/${stripId(selectedSkillId!)}/security-scans?limit=20`,
@@ -1552,6 +1825,7 @@ export default function SkillManagerPage() {
         (f) => f.path === '' && f.file_name.toLowerCase() === 'skill.md',
       )
       if (skillMd) {
+        selectedFileIdRef.current = skillMd.id
         setSelectedFileId(skillMd.id)
         setFileContent(skillMd.content || '')
         setFileContentSnapshot(skillMd.content || '')
@@ -1588,28 +1862,43 @@ export default function SkillManagerPage() {
   const triggerFlash = useCallback(() => {
     setSavedFlash(true)
     if (flashTimer.current) clearTimeout(flashTimer.current)
-    flashTimer.current = setTimeout(() => setSavedFlash(false), 2000)
+    flashTimer.current = setTimeout(() => {
+      setSavedFlash(false)
+      flashTimer.current = undefined
+    }, 2000)
   }, [])
 
   // -- Mutations --
 
   const importFolderMutation = useMutation({
-    mutationFn: async (fileList: File[]) => {
+    mutationFn: async (variables: ImportFolderVariables) => {
+      if (!isCurrentManagedAction(variables)) {
+        throw new Error('Stale skill folder import ignored')
+      }
+      const { fileList } = variables
       const result = await buildManagedSkillImportFromDirectory(fileList)
       if (!result.valid || !result.skillData) {
         throw new Error(getManagedSkillImportValidationMessage(result.validation, fileList, t))
+      }
+      if (!isCurrentManagedAction(variables)) {
+        throw new Error('Stale skill folder import ignored')
       }
       return managedPost<SkillRecord>('/skills', result.skillData, {
         timeout: SKILL_SCAN_TIMEOUT_MS,
       })
     },
-    onSuccess: (skill) => {
+    onSuccess: (skill, variables) => {
+      if (!isCurrentManagedAction(variables)) return
       queryClient.invalidateQueries({ queryKey: ['skills'] })
+      mutationRunRef.current += 1
+      selectedSkillIdRef.current = skill.id
+      selectedFileIdRef.current = null
       setSelectedSkillId(skill.id)
       setSelectedFileId(null)
       toast({ title: t('managed.skills.localImportSuccess') })
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentManagedAction(variables)) return
       console.error('Failed to import skill folder:', error)
       toast({
         variant: 'destructive',
@@ -1620,18 +1909,26 @@ export default function SkillManagerPage() {
   })
 
   const importZipMutation = useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: (variables: ImportZipVariables) => {
+      if (!isCurrentManagedAction(variables)) {
+        throw new Error('Stale skill zip import ignored')
+      }
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', variables.file)
       return managedUpload<SkillRecord>('/skills/import-zip', formData)
     },
-    onSuccess: (skill) => {
+    onSuccess: (skill, variables) => {
+      if (!isCurrentManagedAction(variables)) return
       queryClient.invalidateQueries({ queryKey: ['skills'] })
+      mutationRunRef.current += 1
+      selectedSkillIdRef.current = skill.id
+      selectedFileIdRef.current = null
       setSelectedSkillId(skill.id)
       setSelectedFileId(null)
       toast({ title: t('managed.skills.zipImportSuccess') })
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentManagedAction(variables)) return
       toast({
         variant: 'destructive',
         title: t('common.operationFailed'),
@@ -1646,32 +1943,38 @@ export default function SkillManagerPage() {
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const fileList = Array.from(event.target.files || [])
       if (fileList.length > 0) {
-        importFolderMutation.mutate(fileList)
+        const action = nextManagedAction()
+        if (action) importFolderMutation.mutate({ ...action, fileList })
       }
       event.target.value = ''
     },
-    [importFolderMutation],
+    [importFolderMutation, nextManagedAction],
   )
 
   const handleZipImportChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
       if (file) {
-        importZipMutation.mutate(file)
+        const action = nextManagedAction()
+        if (action) importZipMutation.mutate({ ...action, file })
       }
       event.target.value = ''
     },
-    [importZipMutation],
+    [importZipMutation, nextManagedAction],
   )
 
   const saveMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (variables: SaveSkillVariables) => {
+      if (!isCurrentSkillAction(variables)) {
+        throw new Error('Stale skill save ignored')
+      }
+      const { form, skillId } = variables
       const tags = form.tags
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
       return managedPut<SkillRecord>(
-        `/skills/${stripId(selectedSkillId!)}`,
+        `/skills/${stripId(skillId)}`,
         {
           name: form.name,
           description: form.description,
@@ -1686,53 +1989,54 @@ export default function SkillManagerPage() {
         { timeout: SKILL_SCAN_TIMEOUT_MS },
       )
     },
-    onSuccess: (updated) => {
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
-      queryClient.invalidateQueries({
-        queryKey: ['skill', selectedSkillId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ['skill-files', selectedSkillId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', selectedSkillId],
-      })
+    onSuccess: (updated, variables) => {
+      if (!isCurrentSkillAction(variables)) return
+      invalidateSkillResources(variables.skillId)
       loadSkillIntoForm(updated)
       triggerFlash()
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) =>
-      managedDelete(`/skills/${stripId(id)}`),
-    onSuccess: () => {
+    mutationFn: (variables: DeleteSkillVariables) => {
+      if (!isCurrentManagedAction(variables)) {
+        throw new Error('Stale skill delete ignored')
+      }
+      return managedDelete(`/skills/${stripId(variables.id)}`)
+    },
+    onSuccess: (_result, variables) => {
+      if (!isCurrentManagedAction(variables)) return
       queryClient.invalidateQueries({ queryKey: ['skills'] })
-      if (selectedSkillId === deleteTarget) {
+      if (selectedSkillIdRef.current === variables.id) {
+        selectedSkillIdRef.current = null
+        selectedFileIdRef.current = null
         setSelectedSkillId(null)
         setSelectedFileId(null)
       }
       setDeleteTarget(null)
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentManagedAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const createFileMutation = useMutation({
-    mutationFn: ({
-      dir,
-      fileName,
-      fileType,
-      mode,
-    }: {
-      dir: string
-      fileName: string
-      fileType: string
-      mode: 'file' | 'folder'
-    }) => {
+    mutationFn: (variables: CreateFileVariables) => {
+      if (!isCurrentSkillAction(variables)) {
+        throw new Error('Stale skill file create ignored')
+      }
+      const {
+        dir,
+        fileName,
+        fileType,
+        mode,
+        skillId,
+      } = variables
       const cleanDir = dir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
       let path: string
       let name: string
@@ -1754,7 +2058,7 @@ export default function SkillManagerPage() {
       }
 
       return managedPost<SkillFileRecord>(
-        `/skills/${stripId(selectedSkillId!)}/files`,
+        `/skills/${stripId(skillId)}/files`,
         {
           path,
           file_name: name,
@@ -1764,19 +2068,12 @@ export default function SkillManagerPage() {
         { timeout: SKILL_SCAN_TIMEOUT_MS },
       )
     },
-    onSuccess: (_file, { mode }) => {
-      queryClient.invalidateQueries({
-        queryKey: ['skill-files', selectedSkillId],
-      })
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
-      queryClient.invalidateQueries({
-        queryKey: ['skill', selectedSkillId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', selectedSkillId],
-      })
-      if (mode === 'file') {
+    onSuccess: (_file, variables) => {
+      if (!isCurrentSkillAction(variables)) return
+      invalidateSkillResources(variables.skillId)
+      if (variables.mode === 'file') {
         setSelectedFileId(_file.id)
+        selectedFileIdRef.current = _file.id
         setFileContent('')
         setFileContentSnapshot('')
       }
@@ -1785,100 +2082,91 @@ export default function SkillManagerPage() {
       setNewFileName('')
       setNewFileType('text')
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const saveFileMutation = useMutation({
-    mutationFn: () =>
-      managedPut<SkillFileRecord>(
-        `/skills/${stripId(selectedSkillId!)}/files/${stripId(selectedFileId!)}`,
-        { content: fileContent },
+    mutationFn: (variables: SaveFileVariables) => {
+      if (!isCurrentSkillAction(variables)) {
+        throw new Error('Stale skill file save ignored')
+      }
+      return managedPut<SkillFileRecord>(
+        `/skills/${stripId(variables.skillId)}/files/${stripId(variables.fileId)}`,
+        { content: variables.content },
         { timeout: SKILL_SCAN_TIMEOUT_MS },
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['skill-files', selectedSkillId],
-      })
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
-      queryClient.invalidateQueries({
-        queryKey: ['skill', selectedSkillId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', selectedSkillId],
-      })
-      setFileContentSnapshot(fileContent)
+      )
+    },
+    onSuccess: (_file, variables) => {
+      if (!isCurrentSkillAction(variables)) return
+      invalidateSkillResources(variables.skillId)
+      setFileContentSnapshot(variables.content)
       triggerFlash()
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const deleteFileMutation = useMutation({
-    mutationFn: (fileId: string) =>
-      managedDelete(
-        `/skills/${stripId(selectedSkillId!)}/files/${stripId(fileId)}`,
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['skill-files', selectedSkillId],
-      })
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
-      queryClient.invalidateQueries({
-        queryKey: ['skill', selectedSkillId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', selectedSkillId],
-      })
-      if (selectedFileId === deleteFileTarget) {
+    mutationFn: (variables: DeleteFileVariables) => {
+      if (!isCurrentSkillAction(variables)) {
+        throw new Error('Stale skill file delete ignored')
+      }
+      return managedDelete(
+        `/skills/${stripId(variables.skillId)}/files/${stripId(variables.fileId)}`,
+      )
+    },
+    onSuccess: (_result, variables) => {
+      if (!isCurrentSkillAction(variables)) return
+      invalidateSkillResources(variables.skillId)
+      if (selectedFileIdRef.current === variables.fileId) {
         setSelectedFileId(null)
+        selectedFileIdRef.current = null
       }
       setDeleteFileTarget(null)
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const deleteFolderMutation = useMutation({
-    mutationFn: (folderPath: string) => {
-      const filesToDelete = skillFiles.filter((f) =>
-        f.path.startsWith(folderPath),
-      )
+    mutationFn: (variables: DeleteFolderVariables) => {
+      if (!isCurrentSkillAction(variables)) {
+        throw new Error('Stale skill folder delete ignored')
+      }
+      const { filesToDelete, skillId } = variables
       return Promise.all(
         filesToDelete.map((f) =>
           managedDelete(
-            `/skills/${stripId(selectedSkillId!)}/files/${stripId(f.id)}`,
+            `/skills/${stripId(skillId)}/files/${stripId(f.id)}`,
           ),
         ),
       )
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['skill-files', selectedSkillId],
-      })
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
-      queryClient.invalidateQueries({
-        queryKey: ['skill', selectedSkillId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', selectedSkillId],
-      })
-      const folderPath = deleteFolderTarget
+    onSuccess: (_result, variables) => {
+      if (!isCurrentSkillAction(variables)) return
+      invalidateSkillResources(variables.skillId)
+      const folderPath = variables.folderPath
       if (
         folderPath &&
-        selectedFileId &&
-        skillFiles.find(
-          (f) => f.id === selectedFileId && f.path.startsWith(folderPath),
+        selectedFileIdRef.current &&
+        variables.filesToDelete.find(
+          (f) => f.id === selectedFileIdRef.current && f.path.startsWith(folderPath),
         )
       ) {
         setSelectedFileId(null)
+        selectedFileIdRef.current = null
       }
       setDeleteFolderTarget(null)
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
@@ -1886,18 +2174,22 @@ export default function SkillManagerPage() {
   // Drag-and-drop move. A file move is a single PUT changing its ``path``
   // (directory); a folder move batch-PUTs every file under the folder prefix.
   const moveMutation = useMutation({
-    mutationFn: async ({ source, destFolder }: { source: MoveSource; destFolder: string }) => {
+    mutationFn: async (variables: MoveVariables) => {
+      if (!isCurrentSkillAction(variables)) {
+        throw new Error('Stale skill file move ignored')
+      }
+      const { files, source, destFolder, skillId } = variables
       const dest = destFolder ? destFolder.replace(/\/*$/, '/') : ''
-      const sid = stripId(selectedSkillId!)
+      const sid = stripId(skillId)
 
       if (source.kind === 'file') {
         if (source.path === dest) return // no-op: already there
-        if (skillFiles.some((f) => f.path === dest && f.id === source.id)) return
+        if (files.some((f) => f.path === dest && f.id === source.id)) return
         // Conflict: a different file with the same name already sits in dest.
-        const movingFile = skillFiles.find((f) => f.id === source.id)
+        const movingFile = files.find((f) => f.id === source.id)
         if (
           movingFile &&
-          skillFiles.some(
+          files.some(
             (f) => f.id !== source.id && f.path === dest && f.file_name === movingFile.file_name,
           )
         ) {
@@ -1919,8 +2211,8 @@ export default function SkillManagerPage() {
       if (dest === srcFolder || dest.startsWith(srcFolder)) {
         throw new Error('MOVE_INTO_SELF')
       }
-      const affected = skillFiles.filter((f) => f.path.startsWith(srcFolder))
-      const existing = new Set(skillFiles.map((f) => f.path + f.file_name))
+      const affected = files.filter((f) => f.path.startsWith(srcFolder))
+      const existing = new Set(files.map((f) => f.path + f.file_name))
       await Promise.all(
         affected.map((f) => {
           const rest = f.path.slice(srcFolder.length) // sub-dir tail
@@ -1936,13 +2228,12 @@ export default function SkillManagerPage() {
         }),
       )
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['skill-files', selectedSkillId] })
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
-      queryClient.invalidateQueries({ queryKey: ['skill', selectedSkillId] })
-      queryClient.invalidateQueries({ queryKey: ['skill-security-scans', selectedSkillId] })
+    onSuccess: (_result, variables) => {
+      if (!isCurrentSkillAction(variables)) return
+      invalidateSkillResources(variables.skillId)
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       if (error instanceof Error && (error.message === 'MOVE_CONFLICT' || error.message === 'MOVE_INTO_SELF')) {
         toast({ title: t('managed.skills.moveConflict'), variant: 'destructive' })
         return
@@ -1952,23 +2243,29 @@ export default function SkillManagerPage() {
   })
 
   const createVersionMutation = useMutation({
-    mutationFn: ({ releaseNotes, version }: { releaseNotes: string; version?: string }) =>
-      managedPost<SkillVersionRecord>(
-        `/skills/${stripId(selectedSkillId!)}/versions`,
+    mutationFn: (variables: CreateVersionVariables) => {
+      if (!isCurrentSkillAction(variables)) {
+        throw new Error('Stale skill version create ignored')
+      }
+      return managedPost<SkillVersionRecord>(
+        `/skills/${stripId(variables.skillId)}/versions`,
         {
           name: form.name,
           description: form.description,
           content: form.content,
-          release_notes: releaseNotes,
-          ...(version ? { version } : {}),
+          release_notes: variables.releaseNotes,
+          ...(variables.version ? { version: variables.version } : {}),
         },
-      ),
-    onSuccess: () => {
+      )
+    },
+    onSuccess: (_version, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       queryClient.invalidateQueries({
-        queryKey: ['skill-versions', selectedSkillId],
+        queryKey: ['skill-versions', variables.scope, variables.skillId],
       })
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
@@ -1979,15 +2276,22 @@ export default function SkillManagerPage() {
     async (version: string, force = false): Promise<
       { ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }
     > => {
+      const action = nextCurrentSkillAction()
+      if (!action) return { ok: true }
+      if (!currentSkillVersion(version, action.skillId)) return { ok: true }
+      if (!isCurrentSkillAction(action)) return { ok: true }
       try {
         await managedDelete(
-          `/skills/${stripId(selectedSkillId!)}/versions/${encodeURIComponent(version)}${
+          `/skills/${stripId(action.skillId)}/versions/${encodeURIComponent(version)}${
             force ? '?force=true' : ''
           }`,
         )
-        queryClient.invalidateQueries({ queryKey: ['skill-versions', selectedSkillId] })
+        if (isCurrentSkillAction(action)) {
+          queryClient.invalidateQueries({ queryKey: ['skill-versions', action.scope, action.skillId] })
+        }
         return { ok: true }
       } catch (e) {
+        if (!isCurrentSkillAction(action)) return { ok: true }
         // 409 with referrer list → caller shows a force-confirm UI.
         const err = e as { status?: number; code?: string; data?: { referrers?: unknown[]; hint?: string } }
         if (err?.status === 409 && err?.code === 'SKILL_VERSION_IN_USE') {
@@ -2001,32 +2305,38 @@ export default function SkillManagerPage() {
         throw e
       }
     },
-    [selectedSkillId, queryClient, t],
+    [currentSkillVersion, isCurrentSkillAction, nextCurrentSkillAction, queryClient, t],
   )
 
   const rescanSecurityMutation = useMutation({
-    mutationFn: () =>
-      managedPost<SkillSecurityScanRecord>(
-        `/skills/${stripId(selectedSkillId!)}/security-scans/rescan`,
+    mutationFn: (variables: SkillActionScope) => {
+      if (!isCurrentSkillAction(variables)) {
+        throw new Error('Stale skill security rescan ignored')
+      }
+      return managedPost<SkillSecurityScanRecord>(
+        `/skills/${stripId(variables.skillId)}/security-scans/rescan`,
         {},
         // Rescan dispatches asynchronously on the backend and returns
         // immediately with a scanning-state row, so the default 30s client
         // timeout is plenty — no override needed. The selectedSkill query
         // polls (refetchInterval) until the background verdict lands.
-      ),
-    onSuccess: () => {
+      )
+    },
+    onSuccess: (_scan, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       queryClient.invalidateQueries({ queryKey: ['skills'] })
       queryClient.invalidateQueries({
-        queryKey: ['skill', selectedSkillId],
+        queryKey: ['skill', variables.scope, variables.skillId],
       })
       queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', selectedSkillId],
+        queryKey: ['skill-security-scans', variables.scope, variables.skillId],
       })
       // Scan now runs in the background; tell the user it started rather
       // than that it completed.
       toast({ title: t('managed.skills.rescanStarted') })
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!isCurrentSkillAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
@@ -2034,14 +2344,55 @@ export default function SkillManagerPage() {
   // -- Handlers --
 
   const handleSelectSkill = useCallback((id: string) => {
+    mutationRunRef.current += 1
+    selectedSkillIdRef.current = id
+    selectedFileIdRef.current = null
+    clearSavedFlash()
     setSelectedSkillId(id)
     setSelectedFileId(null)
+  }, [clearSavedFlash])
+
+  const openDeleteSkillDialog = useCallback((id: string) => {
+    if (!currentSkillInList(id)) return
+
+    mutationRunRef.current += 1
+    setDeleteTarget(id)
+  }, [currentSkillInList])
+
+  const closeDeleteSkillDialog = useCallback(() => {
+    mutationRunRef.current += 1
+    setDeleteTarget(null)
+  }, [])
+
+  const openDeleteFileDialog = useCallback((id: string) => {
+    if (!currentSkillFile(id)) return
+
+    mutationRunRef.current += 1
+    setDeleteFileTarget(id)
+  }, [currentSkillFile])
+
+  const closeDeleteFileDialog = useCallback(() => {
+    mutationRunRef.current += 1
+    setDeleteFileTarget(null)
+  }, [])
+
+  const openDeleteFolderDialog = useCallback((path: string) => {
+    if (currentFolderFiles(path).length === 0) return
+
+    mutationRunRef.current += 1
+    setDeleteFolderTarget(path)
+  }, [currentFolderFiles])
+
+  const closeDeleteFolderDialog = useCallback(() => {
+    mutationRunRef.current += 1
+    setDeleteFolderTarget(null)
   }, [])
 
   const handleSelectFile = useCallback(
     (fileId: string) => {
       const file = skillFiles.find((f) => f.id === fileId)
       if (file) {
+        selectedFileIdRef.current = fileId
         setSelectedFileId(fileId)
         setFileContent(file.content || '')
         setFileContentSnapshot(file.content || '')
@@ -2055,10 +2406,12 @@ export default function SkillManagerPage() {
       (f) => f.path === '' && f.file_name.toLowerCase() === 'skill.md',
     )
     if (skillMd) {
+      selectedFileIdRef.current = skillMd.id
       setSelectedFileId(skillMd.id)
       setFileContent(skillMd.content || '')
       setFileContentSnapshot(skillMd.content || '')
     } else {
+      selectedFileIdRef.current = null
       setSelectedFileId(null)
     }
   }, [skillFiles])
@@ -2073,9 +2426,17 @@ export default function SkillManagerPage() {
         // otherwise save the skill-level metadata form.
         const savingFile = editorTab === 'editor' && !!selectedFileId
         if (savingFile && isFileDirty) {
-          saveFileMutation.mutate()
+          const action = nextCurrentSkillAction()
+          const fileId = selectedFileIdRef.current
+          const file = action && fileId ? currentSkillFile(fileId, action.skillId) : null
+          if (action && file) {
+            saveFileMutation.mutate({ ...action, fileId: file.id, content: fileContent })
+          }
         } else if (!savingFile && selectedSkillId && isDirty) {
-          saveMutation.mutate()
+          const action = nextCurrentSkillAction()
+          if (action) {
+            saveMutation.mutate({ ...action, form })
+          }
         }
       }
     }
@@ -2085,8 +2446,12 @@ export default function SkillManagerPage() {
     selectedSkillId,
     selectedFileId,
     editorTab,
+    fileContent,
+    form,
     isDirty,
     isFileDirty,
+    currentSkillFile,
+    nextCurrentSkillAction,
     saveMutation,
     saveFileMutation,
   ])
@@ -2110,7 +2475,7 @@ export default function SkillManagerPage() {
   }
 
   if (selectedSkillIsError) {
-    return <ResourceErrorState error={selectedSkillError} resource="skill" onRetry={() => queryClient.invalidateQueries({ queryKey: ['skill', selectedSkillId] })} />
+    return <ResourceErrorState error={selectedSkillError} resource="skill" onRetry={() => queryClient.invalidateQueries({ queryKey: ['skill', managedScope, selectedSkillId] })} />
   }
 
   if (!selectedSkill) {
@@ -2293,7 +2658,7 @@ export default function SkillManagerPage() {
             },
             {
               label: t('managed.skills.deleteSkill'),
-              onClick: () => setDeleteTarget(s.id),
+              onClick: () => openDeleteSkillDialog(s.id),
               destructive: true,
             },
           ]}
@@ -2368,10 +2733,16 @@ export default function SkillManagerPage() {
           description={t('managed.skills.deleteConfirm')}
           confirmLabel={t('managed.skills.deleteSkill')}
           destructive
-          onConfirm={() =>
-            deleteTarget && deleteMutation.mutate(deleteTarget)
-          }
-          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => {
+            const target = currentSkillInList(deleteTarget)
+            if (!target) {
+              closeDeleteSkillDialog()
+              return
+            }
+            const action = nextManagedAction()
+            if (action) deleteMutation.mutate({ ...action, id: target.id })
+          }}
+          onCancel={closeDeleteSkillDialog}
         />
       </div>
     )
@@ -2431,6 +2802,14 @@ export default function SkillManagerPage() {
               <SkillLifecycleActions
                 skillId={selectedSkill.id}
                 currentStatus={selectedSkill.lifecycle_status}
+                operationScope={`${managedScope}:${selectedSkill.id}`}
+                canSubmitTransition={() => {
+                  const current = currentSkillInList(selectedSkill.id)
+                  return (
+                    !!current &&
+                    current.lifecycle_status === selectedSkill.lifecycle_status
+                  )
+                }}
                 invalidateKeys={[
                   ['skill', selectedSkillId],
                   ['skills'],
@@ -2447,7 +2826,10 @@ export default function SkillManagerPage() {
               <Button
                 variant="outline"
                 className="h-9 gap-2"
-                onClick={() => rescanSecurityMutation.mutate()}
+                onClick={() => {
+                  const action = nextCurrentSkillAction()
+                  if (action) rescanSecurityMutation.mutate(action)
+                }}
                 disabled={rescanSecurityMutation.isPending || saveMutation.isPending || saveFileMutation.isPending}
               >
                 <RefreshCw className={`h-4 w-4 ${rescanSecurityMutation.isPending ? 'animate-spin' : ''}`} />
@@ -2480,7 +2862,21 @@ export default function SkillManagerPage() {
               )}
               <Button
                 className="h-9 gap-2"
-                onClick={isEditingFile ? () => saveFileMutation.mutate() : () => saveMutation.mutate()}
+                onClick={() => {
+                  const action = nextCurrentSkillAction()
+                  if (!action) return
+                  if (isEditingFile && selectedFileIdRef.current) {
+                    const file = currentSkillFile(selectedFileIdRef.current, action.skillId)
+                    if (!file) return
+                    saveFileMutation.mutate({
+                      ...action,
+                      fileId: file.id,
+                      content: fileContent,
+                    })
+                  } else {
+                    saveMutation.mutate({ ...action, form })
+                  }
+                }}
                 disabled={saveMutation.isPending || saveFileMutation.isPending || !canSave}
               >
                 <Save className="h-4 w-4" />
@@ -2532,9 +2928,25 @@ export default function SkillManagerPage() {
             setNewFileDir(folderPath.replace(/\/+$/, ''))
             setShowAddFileDialog(true)
           }}
-          onDeleteFile={(id) => setDeleteFileTarget(id)}
-          onDeleteFolder={(path) => setDeleteFolderTarget(path)}
-          onMove={(source, destFolder) => moveMutation.mutate({ source, destFolder })}
+          onDeleteFile={openDeleteFileDialog}
+          onDeleteFolder={openDeleteFolderDialog}
+          onMove={(source, destFolder) => {
+            const action = nextCurrentSkillAction()
+            if (!action) return
+            const files = currentSkillFiles(action.skillId)
+            if (source.kind === 'file') {
+              const file = currentSkillFile(source.id, action.skillId)
+              if (!file) return
+              moveMutation.mutate({
+                ...action,
+                source: { ...source, path: file.path },
+                destFolder,
+                files,
+              })
+            } else if (currentFolderFiles(source.path, action.skillId).length > 0) {
+              moveMutation.mutate({ ...action, source, destFolder, files })
+            }
+          }}
           isMainSelected={selectedFileId === null}
         />
 
@@ -2549,17 +2961,27 @@ export default function SkillManagerPage() {
           setFileContent={setFileContent}
           versions={versions}
           onCreateVersion={(notes, version) =>
-            createVersionMutation.mutate({
-              releaseNotes: notes,
-              version,
-            })
+            {
+              const action = nextCurrentSkillAction()
+              if (action) {
+                createVersionMutation.mutate({
+                  ...action,
+                  releaseNotes: notes,
+                  version,
+                })
+              }
+            }
           }
           onDeleteVersion={deleteVersion}
+          onDeleteVersionDialogActivity={() => {
+            mutationRunRef.current += 1
+          }}
           isCreatingVersion={createVersionMutation.isPending}
           editorTab={editorTab}
           setEditorTab={setEditorTab}
           showVersionForm={showVersionForm}
           setShowVersionForm={setShowVersionForm}
+          queryScope={managedScope}
         />
       </div>
 
@@ -2877,12 +3299,18 @@ export default function SkillManagerPage() {
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newFileName.trim()) {
-                    createFileMutation.mutate({
-                      dir: newFileDir.trim(),
-                      fileName: newFileName.trim(),
-                      fileType: newFileType,
-                      mode: newFileMode,
-                    })
+                    const action = nextCurrentSkillAction()
+                    if (action) {
+                      const dir = newFileDir.trim()
+                      if (dir && currentFolderFiles(`${dir}/`, action.skillId).length === 0) return
+                      createFileMutation.mutate({
+                        ...action,
+                        dir,
+                        fileName: newFileName.trim(),
+                        fileType: newFileType,
+                        mode: newFileMode,
+                      })
+                    }
                   }
                 }}
               />
@@ -2929,14 +3357,20 @@ export default function SkillManagerPage() {
               {t('managed.skills.cancel')}
             </Button>
             <Button
-              onClick={() =>
-                createFileMutation.mutate({
-                  dir: newFileDir.trim(),
-                  fileName: newFileName.trim(),
-                  fileType: newFileType,
-                  mode: newFileMode,
-                })
-              }
+              onClick={() => {
+                const action = nextCurrentSkillAction()
+                if (action) {
+                  const dir = newFileDir.trim()
+                  if (dir && currentFolderFiles(`${dir}/`, action.skillId).length === 0) return
+                  createFileMutation.mutate({
+                    ...action,
+                    dir,
+                    fileName: newFileName.trim(),
+                    fileType: newFileType,
+                    mode: newFileMode,
+                  })
+                }
+              }}
               disabled={!newFileName.trim() || createFileMutation.isPending}
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -2951,7 +3385,7 @@ export default function SkillManagerPage() {
       {/* Delete file confirmation */}
       <Dialog
         open={deleteFileTarget !== null}
-        onOpenChange={(open) => !open && setDeleteFileTarget(null)}
+        onOpenChange={(open) => !open && closeDeleteFileDialog()}
       >
         <DialogContent>
           <DialogHeader>
@@ -2963,16 +3397,22 @@ export default function SkillManagerPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setDeleteFileTarget(null)}
+              onClick={closeDeleteFileDialog}
             >
               {t('managed.skills.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() =>
-                deleteFileTarget &&
-                deleteFileMutation.mutate(deleteFileTarget)
-              }
+              onClick={() => {
+                const action = nextCurrentSkillAction()
+                if (!action) return
+                const target = currentSkillFile(deleteFileTarget, action.skillId)
+                if (!target) {
+                  closeDeleteFileDialog()
+                  return
+                }
+                deleteFileMutation.mutate({ ...action, fileId: target.id })
+              }}
               disabled={deleteFileMutation.isPending}
             >
               {t('managed.skills.deleteFile')}
@@ -2984,7 +3424,7 @@ export default function SkillManagerPage() {
       {/* Delete folder confirmation */}
       <Dialog
         open={deleteFolderTarget !== null}
-        onOpenChange={(open) => !open && setDeleteFolderTarget(null)}
+        onOpenChange={(open) => !open && closeDeleteFolderDialog()}
       >
         <DialogContent>
           <DialogHeader>
@@ -2996,16 +3436,26 @@ export default function SkillManagerPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setDeleteFolderTarget(null)}
+              onClick={closeDeleteFolderDialog}
             >
               {t('managed.skills.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() =>
-                deleteFolderTarget &&
-                deleteFolderMutation.mutate(deleteFolderTarget)
-              }
+              onClick={() => {
+                const action = nextCurrentSkillAction()
+                if (!action) return
+                const filesToDelete = currentFolderFiles(deleteFolderTarget, action.skillId)
+                if (!deleteFolderTarget || filesToDelete.length === 0) {
+                  closeDeleteFolderDialog()
+                  return
+                }
+                deleteFolderMutation.mutate({
+                  ...action,
+                  folderPath: deleteFolderTarget,
+                  filesToDelete,
+                })
+              }}
               disabled={deleteFolderMutation.isPending}
             >
               {t('managed.skills.deleteFolder')}

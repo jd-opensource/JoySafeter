@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
@@ -36,6 +36,7 @@ import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { roleLabel, roleOptions } from '@/lib/managed/roles'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 interface ApiKey {
   id: string
@@ -47,10 +48,30 @@ interface ApiKey {
   last_used_at?: string
 }
 
+interface RevokeKeyVariables {
+  id: string
+  scope: string
+  runId: number
+}
+
+interface CreateKeyVariables {
+  name: string
+  role: string
+  scope: string
+  runId: number
+}
+
 export default function ApiKeysPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { canEdit } = useUserPermissionsContext()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScopeRef = useRef(managedScope)
+  const createKeyRunRef = useRef(0)
+  const revokeKeyRunRef = useRef(0)
+  const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [keyName, setKeyName] = useState('')
   const [keyRole, setKeyRole] = useState('developer')
@@ -66,9 +87,45 @@ export default function ApiKeysPage() {
     isError,
     error,
   } = useQuery({
-    queryKey: ['api-keys'],
+    queryKey: ['api-keys', currentOrgId, currentProjectId],
     queryFn: async () => managedGet<ApiKey[]>('/auth/api-keys'),
   })
+
+  useEffect(
+    () => () => {
+      createKeyRunRef.current += 1
+      revokeKeyRunRef.current += 1
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    managedScopeRef.current = managedScope
+    createKeyRunRef.current += 1
+    revokeKeyRunRef.current += 1
+    if (copiedResetTimerRef.current) {
+      clearTimeout(copiedResetTimerRef.current)
+      copiedResetTimerRef.current = null
+    }
+    setShowCreate(false)
+    setKeyName('')
+    setKeyRole('developer')
+    setNewRawKey(null)
+    setCopied(false)
+    setDeleteTarget(null)
+  }, [managedScope])
+
+  useEffect(() => {
+    setDeleteTarget((target) => {
+      if (!target) return null
+      const current = keys.find((key) => key.id === target.id) ?? null
+      if (!current) revokeKeyRunRef.current += 1
+      return current
+    })
+  }, [keys])
 
   const filteredKeys = keys.filter(
     (key) =>
@@ -120,29 +177,112 @@ export default function ApiKeysPage() {
     },
   ]
 
+  const getCurrentManagedScope = () => {
+    const { currentOrgId, currentProjectId } = useProjectStore.getState()
+    return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    managedScopeRef.current === scope && getCurrentManagedScope() === scope
+
   const createKey = useMutation({
-    mutationFn: (data: { name: string; role: string }) =>
-      managedPost<{ raw_key: string }>('/auth/api-keys', data),
-    onSuccess: (res) => {
-      setNewRawKey(res.raw_key)
+    mutationFn: (data: CreateKeyVariables) => {
+      if (!currentManagedScopeIsActive(data.scope) || data.runId !== createKeyRunRef.current) {
+        throw new Error('Stale api key create ignored')
+      }
+      return managedPost<{ raw_key: string }>('/auth/api-keys', {
+        name: data.name,
+        role: data.role,
+      }).then((res) => ({ res, runId: data.runId, scope: data.scope }))
+    },
+    onSuccess: ({ res, runId, scope }) => {
+      if (!currentManagedScopeIsActive(scope)) return
+      if (runId !== createKeyRunRef.current) return
       queryClient.invalidateQueries({ queryKey: ['api-keys'] })
+      setNewRawKey(res.raw_key)
       setShowCreate(false)
       setKeyName('')
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      if (!currentManagedScopeIsActive(variables.scope) || variables.runId !== createKeyRunRef.current) {
+        return
+      }
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
+  const openCreateDialog = () => {
+    createKeyRunRef.current += 1
+    setShowCreate(true)
+  }
+
+  const handleCreateOpenChange = (open: boolean) => {
+    if (!open) {
+      createKeyRunRef.current += 1
+    }
+    setShowCreate(open)
+  }
+
+  const submitCreateKey = () => {
+    const name = keyName.trim()
+    if (!name) return
+    if (!currentManagedScopeIsActive()) return
+    const runId = createKeyRunRef.current + 1
+    createKeyRunRef.current = runId
+    createKey.mutate({ name, role: keyRole, runId, scope: managedScopeRef.current })
+  }
+
   const revokeKey = useMutation({
-    mutationFn: (id: string) => managedDelete(`/auth/api-keys/${id}`),
-    onSuccess: () => {
+    mutationFn: ({ id, runId, scope }: RevokeKeyVariables) => {
+      if (!currentManagedScopeIsActive(scope) || runId !== revokeKeyRunRef.current) {
+        throw new Error('Stale api key revoke ignored')
+      }
+      return managedDelete(`/auth/api-keys/${id}`)
+    },
+    onSuccess: (_data, { runId, scope }) => {
+      if (!currentManagedScopeIsActive(scope) || runId !== revokeKeyRunRef.current) return
       queryClient.invalidateQueries({ queryKey: ['api-keys'] })
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!currentManagedScopeIsActive(scope) || runId !== revokeKeyRunRef.current) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
+
+  const currentApiKey = (key: ApiKey | null) => {
+    if (!key) return null
+    return (
+      queryClient
+        .getQueryData<ApiKey[]>(['api-keys', currentOrgId, currentProjectId])
+        ?.find((candidate) => candidate.id === key.id) ?? null
+    )
+  }
+
+  const openRevokeDialog = (key: ApiKey) => {
+    if (!currentManagedScopeIsActive()) return
+    if (!currentApiKey(key)) return
+
+    revokeKeyRunRef.current += 1
+    setDeleteTarget(key)
+  }
+
+  const closeRevokeDialog = () => {
+    revokeKeyRunRef.current += 1
+    setDeleteTarget(null)
+  }
+
+  const submitRevokeKey = () => {
+    if (!currentManagedScopeIsActive()) return
+    const target = currentApiKey(deleteTarget)
+    if (!target) {
+      closeRevokeDialog()
+      return
+    }
+    const runId = revokeKeyRunRef.current + 1
+    revokeKeyRunRef.current = runId
+    revokeKey.mutate({ id: target.id, scope: managedScopeRef.current, runId })
+    setDeleteTarget(null)
+  }
 
   if (isError) {
     return (
@@ -154,10 +294,20 @@ export default function ApiKeysPage() {
     )
   }
 
+  const showCopiedFeedback = () => {
+    if (copiedResetTimerRef.current) {
+      clearTimeout(copiedResetTimerRef.current)
+    }
+    setCopied(true)
+    copiedResetTimerRef.current = setTimeout(() => {
+      setCopied(false)
+      copiedResetTimerRef.current = null
+    }, 2000)
+  }
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    showCopiedFeedback()
   }
 
   return (
@@ -167,7 +317,7 @@ export default function ApiKeysPage() {
         subtitle={t('manage.apiKeys.subtitle')}
         action={
           canEdit ? (
-            <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Button size="sm" onClick={openCreateDialog}>
               <Plus className="mr-1 h-4 w-4" />
               {t('manage.apiKeys.create')}
             </Button>
@@ -214,7 +364,7 @@ export default function ApiKeysPage() {
       />
 
       {showCreate && (
-        <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <Dialog open={showCreate} onOpenChange={handleCreateOpenChange}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{t('manage.apiKeys.create')}</DialogTitle>
@@ -242,11 +392,11 @@ export default function ApiKeysPage() {
               </Select>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowCreate(false)}>
+              <Button variant="outline" onClick={() => handleCreateOpenChange(false)}>
                 {t('common.cancel')}
               </Button>
               <Button
-                onClick={() => createKey.mutate({ name: keyName, role: keyRole })}
+                onClick={submitCreateKey}
                 disabled={!keyName.trim()}
               >
                 {t('manage.apiKeys.create')}
@@ -268,14 +418,14 @@ export default function ApiKeysPage() {
                   label: t('manage.apiKeys.revoke'),
                   icon: <Trash2 className="h-3.5 w-3.5" />,
                   destructive: true,
-                  onClick: () => setDeleteTarget(key),
+                  onClick: () => openRevokeDialog(key),
                 },
               ]
             : undefined
         }
       />
 
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && closeRevokeDialog()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.apiKeys.revokeTitle')}</DialogTitle>
@@ -285,15 +435,12 @@ export default function ApiKeysPage() {
             {deleteTarget?.name} ({deleteTarget?.key_prefix}...)
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            <Button variant="outline" onClick={closeRevokeDialog}>
               {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() => {
-                revokeKey.mutate(deleteTarget!.id)
-                setDeleteTarget(null)
-              }}
+              onClick={submitRevokeKey}
             >
               {t('manage.apiKeys.revoke')}
             </Button>

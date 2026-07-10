@@ -62,6 +62,7 @@ import { FileTreeNode, buildFileTree } from '@/components/managed/skills/skill-w
 import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
 import { downloadDraftZip } from '@/lib/managed/skill-draft-zip'
 import type { SkillFileRecord } from '@/types/managed'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 type SecretRecord = { id: string; name: string; is_default?: boolean }
 type SecretsResponse = { data?: SecretRecord[] } | SecretRecord[]
@@ -126,6 +127,9 @@ export default function SkillAiAuthoringPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const isFresh = searchParams.get('new') === '1'
   useEffect(() => {
     if (isFresh && typeof window !== 'undefined') {
@@ -164,7 +168,7 @@ export default function SkillAiAuthoringPage() {
   const [activeFilePath, setActiveFilePath] = useState<string>('SKILL.md')
 
   const { data: secretsRes } = useQuery({
-    queryKey: ['secrets'],
+    queryKey: ['secrets', managedScope],
     queryFn: () => managedGet<SecretsResponse>('/secrets'),
   })
   const secrets = useMemo<SecretRecord[]>(() => {
@@ -172,11 +176,23 @@ export default function SkillAiAuthoringPage() {
     return Array.isArray(secretsRes) ? secretsRes : secretsRes.data || []
   }, [secretsRes])
 
+  const effectiveSecretRef = useMemo(() => {
+    if (!secrets.length) return ''
+    const secretNames = new Set(secrets.map((secret) => secret.name))
+    if (secretRef && secretNames.has(secretRef)) return secretRef
+    return (secrets.find((s) => s.is_default) || secrets[0]).name
+  }, [secretRef, secrets])
+
   useEffect(() => {
-    if (secretRef || !secrets.length) return
-    const def = secrets.find((s) => s.is_default) || secrets[0]
-    if (def) setSecretRef(def.name)
-  }, [secrets, secretRef])
+    if (secretRef === effectiveSecretRef) return
+    setSecretRef(effectiveSecretRef)
+  }, [effectiveSecretRef, secretRef])
+
+  useEffect(() => {
+    setSecretRef('')
+    setActiveTab(TAB_EDITOR)
+    setActiveFilePath('SKILL.md')
+  }, [managedScope])
 
   // When the split-view focus is on a file that no longer exists (AI rewrote
   // files[], or the user deleted it), fall back to SKILL.md.
@@ -371,7 +387,7 @@ export default function SkillAiAuthoringPage() {
     const text = input.trim()
     if (!text || streaming) return
     setInput('')
-    await send(text, secretRef)
+    await send(text, effectiveSecretRef)
   }
 
   // Publish: save → submit → approve → cut first version, so the skill

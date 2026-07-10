@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
 import { managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
+import { useProjectStore } from '@/stores/managed/project-store'
 import type { Vault } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,32 +25,84 @@ interface CreateVaultDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+interface CreateVaultVariables {
+  vaultName: string
+  runId: number
+  scope: string
+}
+
 export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps) {
   const { t } = useTranslation()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const createRunRef = useRef(0)
+  const managedScopeRef = useRef(managedScope)
   const [name, setName] = useState('')
   const queryClient = useQueryClient()
 
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${orgId ?? ''}:${projectId ?? ''}`
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    getCurrentManagedScope() === scope
+
+  const isCurrentCreateRun = (runId: number, scope: string) =>
+    createRunRef.current === runId &&
+    managedScopeRef.current === scope &&
+    currentManagedScopeIsActive(scope)
+
   const mutation = useMutation({
-    mutationFn: (vaultName: string) => managedPost<Vault>('/vaults', { name: vaultName }),
-    onSuccess: () => {
+    mutationFn: ({ vaultName, scope }: CreateVaultVariables) => {
+      if (!currentManagedScopeIsActive(scope)) {
+        throw new Error('stale managed scope')
+      }
+      return managedPost<Vault>('/vaults', { name: vaultName })
+    },
+    onSuccess: (_data, { runId, scope }) => {
+      if (!isCurrentCreateRun(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['vaults'] })
       setName('')
       onOpenChange(false)
     },
-    onError: (error) => {
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentCreateRun(runId, scope)) return
       toastOperationError(t, error, 'managed.vaults.createFailed')
     },
   })
+
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope) return
+    managedScopeRef.current = managedScope
+    createRunRef.current += 1
+    setName('')
+    mutation.reset()
+    onOpenChange(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managedScope])
+
+  useEffect(
+    () => () => {
+      createRunRef.current += 1
+    },
+    [],
+  )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed || trimmed.length > MAX_NAME_LENGTH) return
-    mutation.mutate(trimmed)
+    if (!currentManagedScopeIsActive()) return
+    const runId = createRunRef.current + 1
+    createRunRef.current = runId
+    mutation.mutate({ vaultName: trimmed, runId, scope: managedScopeRef.current })
   }
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
+      createRunRef.current += 1
       setName('')
       mutation.reset()
     }
