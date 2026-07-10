@@ -1,79 +1,51 @@
 use std::sync::Arc;
 
-use bollard::Docker;
+use async_trait::async_trait;
 use tracing::info;
 use uuid::Uuid;
 
-/// Builds custom Docker images from environment package configurations.
+// ---------------------------------------------------------------------------
+// Trait: pluggable image builder backend
+// ---------------------------------------------------------------------------
+
+/// Builds custom sandbox images from environment package configurations.
 ///
-/// Mirrors the Python `ImageBuilder`. Generates Dockerfiles from package lists
-/// (apt, pip, npm, cargo, gem, go) and builds images via Docker API.
-pub struct ImageBuilder {
-    docker: Arc<Docker>,
-    default_base: String,
-}
-
-impl ImageBuilder {
-    pub fn new(docker: Arc<Docker>, default_base: &str) -> Self {
-        Self {
-            docker,
-            default_base: default_base.to_string(),
-        }
-    }
-
+/// Docker provider uses the local Docker daemon (bollard). K8s provider could
+/// use kaniko or Buildkit-as-service. Cloud providers (E2B/Daytona) typically
+/// use pre-built platform images and return `Ok(None)`.
+#[async_trait]
+pub trait ImageBuilderBackend: Send + Sync {
     /// Build an environment image from package specifications.
     ///
-    /// Returns the built image tag.
-    pub async fn build_environment_image(
+    /// Returns `Ok(Some(tag))` with the built image tag, or `Ok(None)` if
+    /// the packages are empty or building is not supported.
+    async fn build_environment_image(
         &self,
         env_id: Uuid,
         version: i32,
         packages: &EnvironmentPackages,
-    ) -> anyhow::Result<Option<String>> {
-        if packages.is_empty() {
-            return Ok(None);
+    ) -> anyhow::Result<Option<String>>;
+}
+
+// ---------------------------------------------------------------------------
+// Docker implementation
+// ---------------------------------------------------------------------------
+
+/// Builds custom Docker images via the local Docker daemon (bollard).
+///
+/// Mirrors the Python `ImageBuilder`. Generates Dockerfiles from package lists
+/// (apt, pip, npm, cargo, gem, go) and builds images via Docker API.
+pub struct DockerImageBuilder {
+    docker: Arc<bollard::Docker>,
+    default_base: String,
+}
+
+impl DockerImageBuilder {
+    pub fn new(docker: Arc<bollard::Docker>, default_base: &str) -> Self {
+        Self {
+            docker,
+            default_base: default_base.to_string(),
         }
-
-        let short_id = env_id
-            .to_string()
-            .split('-')
-            .next()
-            .unwrap_or("env")
-            .to_string();
-        let tag = format!("joysafeter/env-{short_id}:v{version}");
-        let dockerfile = self.generate_dockerfile(packages);
-        let tar_context = self.create_tar_context(&dockerfile)?;
-
-        // Use bollard to build the image
-        use bollard::image::BuildImageOptions;
-        use futures::StreamExt;
-
-        let options = BuildImageOptions {
-            t: tag.clone(),
-            rm: true,
-            forcerm: true,
-            ..Default::default()
-        };
-
-        let mut stream = self
-            .docker
-            .build_image(options, None, Some(tar_context.into()));
-
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(output) => {
-                    if let Some(err) = output.error {
-                        return Err(anyhow::anyhow!("Docker build error: {err}"));
-                    }
-                }
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Docker build failed: {e}"));
-                }
-            }
-        }
-
-        info!(tag = tag, "Built environment image");
-        Ok(Some(tag))
     }
 
     fn generate_dockerfile(&self, packages: &EnvironmentPackages) -> String {
@@ -136,6 +108,84 @@ impl ImageBuilder {
         Ok(buf)
     }
 }
+
+#[async_trait]
+impl ImageBuilderBackend for DockerImageBuilder {
+    async fn build_environment_image(
+        &self,
+        env_id: Uuid,
+        version: i32,
+        packages: &EnvironmentPackages,
+    ) -> anyhow::Result<Option<String>> {
+        if packages.is_empty() {
+            return Ok(None);
+        }
+
+        let short_id = env_id
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("env")
+            .to_string();
+        let tag = format!("joysafeter/env-{short_id}:v{version}");
+        let dockerfile = self.generate_dockerfile(packages);
+        let tar_context = self.create_tar_context(&dockerfile)?;
+
+        use bollard::image::BuildImageOptions;
+        use futures::StreamExt;
+
+        let options = BuildImageOptions {
+            t: tag.clone(),
+            rm: true,
+            forcerm: true,
+            ..Default::default()
+        };
+
+        let mut stream = self
+            .docker
+            .build_image(options, None, Some(tar_context.into()));
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(output) => {
+                    if let Some(err) = output.error {
+                        return Err(anyhow::anyhow!("Docker build error: {err}"));
+                    }
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Docker build failed: {e}"));
+                }
+            }
+        }
+
+        info!(tag = tag, "Built environment image");
+        Ok(Some(tag))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Noop implementation (for cloud providers that use pre-built images)
+// ---------------------------------------------------------------------------
+
+/// No-op image builder for providers that don't support in-situ image builds
+/// (E2B, Daytona — they use pre-built platform snapshots/templates).
+pub struct NoopImageBuilder;
+
+#[async_trait]
+impl ImageBuilderBackend for NoopImageBuilder {
+    async fn build_environment_image(
+        &self,
+        _env_id: Uuid,
+        _version: i32,
+        _packages: &EnvironmentPackages,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared types
+// ---------------------------------------------------------------------------
 
 /// Package specifications for building an environment image.
 #[derive(Debug, Clone, Default)]
