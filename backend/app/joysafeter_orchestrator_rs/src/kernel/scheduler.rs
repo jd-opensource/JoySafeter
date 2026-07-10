@@ -54,7 +54,9 @@ pub fn spawn_scheduler(
         );
 
         loop {
-            let available_slots = scheduling_semaphore.available_permits().min(config.scheduler_batch_size);
+            let available_slots = scheduling_semaphore
+                .available_permits()
+                .min(config.scheduler_batch_size);
             if available_slots == 0 {
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 continue;

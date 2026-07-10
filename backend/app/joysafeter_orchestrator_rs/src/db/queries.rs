@@ -256,7 +256,34 @@ pub async fn accumulate_session_usage(
             'input_tokens', COALESCE((usage->>'input_tokens')::bigint, 0) + COALESCE(($2::jsonb->>'input_tokens')::bigint, 0),
             'output_tokens', COALESCE((usage->>'output_tokens')::bigint, 0) + COALESCE(($2::jsonb->>'output_tokens')::bigint, 0),
             'cache_read_input_tokens', COALESCE((usage->>'cache_read_input_tokens')::bigint, 0) + COALESCE(($2::jsonb->>'cache_read_input_tokens')::bigint, 0),
-            'cache_creation_input_tokens', COALESCE((usage->>'cache_creation_input_tokens')::bigint, 0) + COALESCE(($2::jsonb->>'cache_creation_input_tokens')::bigint, 0)
+            'cache_creation_input_tokens', COALESCE((usage->>'cache_creation_input_tokens')::bigint, 0) + COALESCE(($2::jsonb->>'cache_creation_input_tokens')::bigint, 0),
+            'by_model', (
+                SELECT COALESCE(
+                    jsonb_object_agg(
+                        model_name,
+                        jsonb_build_object(
+                            'input_tokens',
+                                COALESCE((existing_usage->>'input_tokens')::bigint, 0)
+                                + COALESCE((incoming_usage->>'input_tokens')::bigint, 0),
+                            'output_tokens',
+                                COALESCE((existing_usage->>'output_tokens')::bigint, 0)
+                                + COALESCE((incoming_usage->>'output_tokens')::bigint, 0),
+                            'cache_read_input_tokens',
+                                COALESCE((existing_usage->>'cache_read_input_tokens')::bigint, 0)
+                                + COALESCE((incoming_usage->>'cache_read_input_tokens')::bigint, 0),
+                            'cache_creation_input_tokens',
+                                COALESCE((existing_usage->>'cache_creation_input_tokens')::bigint, 0)
+                                + COALESCE((incoming_usage->>'cache_creation_input_tokens')::bigint, 0)
+                        )
+                    ),
+                    '{}'::jsonb
+                )
+                FROM jsonb_each(COALESCE(usage->'by_model', '{}'::jsonb))
+                    AS existing_models(model_name, existing_usage)
+                FULL OUTER JOIN jsonb_each(COALESCE($2::jsonb->'by_model', '{}'::jsonb))
+                    AS incoming_models(model_name, incoming_usage)
+                USING (model_name)
+            )
         ),
             updated_at = NOW()
         WHERE id = $1
