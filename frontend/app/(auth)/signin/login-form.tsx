@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { OAuthButtons } from '@/components/auth/oauth-buttons'
@@ -110,12 +110,13 @@ const getOAuthCallbackErrorKey = (errorCode?: string | null): string => {
 const validateCallbackUrl = (url: string): boolean => {
   try {
     if (url.startsWith('/')) {
-      return true
+      return !url.startsWith('//') && !url.includes('..') && !url.includes('//')
     }
 
     const currentOrigin = typeof window !== 'undefined' ? window.location.origin : ''
-    if (url.startsWith(currentOrigin)) {
-      return true
+    if (currentOrigin) {
+      const parsedUrl = new URL(url)
+      return parsedUrl.origin === currentOrigin
     }
 
     return false
@@ -160,6 +161,10 @@ export default function LoginPage() {
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
   const [isSubmittingReset, setIsSubmittingReset] = useState(false)
   const [isResetButtonHovered, setIsResetButtonHovered] = useState(false)
+  const resetDialogCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loginRedirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(false)
+  const resetRequestRunRef = useRef(0)
   const [, setResetStatus] = useState<{
     type: 'success' | 'error' | null
     message: string
@@ -177,6 +182,40 @@ export default function LoginPage() {
   })
 
   const [oauthError, setOauthError] = useState<string | null>(null)
+
+  const clearResetDialogCloseTimer = useCallback(() => {
+    if (!resetDialogCloseTimerRef.current) return
+    clearTimeout(resetDialogCloseTimerRef.current)
+    resetDialogCloseTimerRef.current = null
+  }, [])
+
+  const clearLoginRedirectTimer = useCallback(() => {
+    if (!loginRedirectTimerRef.current) return
+    clearTimeout(loginRedirectTimerRef.current)
+    loginRedirectTimerRef.current = null
+  }, [])
+
+  const setForgotPasswordDialogOpen = useCallback(
+    (open: boolean) => {
+      clearResetDialogCloseTimer()
+      resetRequestRunRef.current += 1
+      setForgotPasswordOpen(open)
+    },
+    [clearResetDialogCloseTimer],
+  )
+
+  useEffect(
+    () => {
+      isMountedRef.current = true
+      return () => {
+        isMountedRef.current = false
+        resetRequestRunRef.current += 1
+        clearResetDialogCloseTimer()
+        clearLoginRedirectTimer()
+      }
+    },
+    [clearLoginRedirectTimer, clearResetDialogCloseTimer],
+  )
 
   useEffect(() => {
     setMounted(true)
@@ -261,13 +300,13 @@ export default function LoginPage() {
         )
         if (!cancelled) {
           window.location.href = response.authorization_url
-        }
-      } catch (error) {
-        if (!cancelled) {
-          logger.warn('Failed to initiate SSO auto-redirect:', { error })
-          // Backend unreachable or SSO unavailable: clear flag so user can retry.
+        } else {
           sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
         }
+      } catch (error) {
+        if (!cancelled) logger.warn('Failed to initiate SSO auto-redirect:', { error })
+        // No redirect happened, so clear the flag and let the next login page retry.
+        sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
       }
     }
 
@@ -289,6 +328,11 @@ export default function LoginPage() {
       return
     }
 
+    const runId = resetRequestRunRef.current + 1
+    resetRequestRunRef.current = runId
+    const isCurrentResetRequest = () =>
+      isMountedRef.current && resetRequestRunRef.current === runId
+
     try {
       setIsSubmittingReset(true)
       setResetStatus({ type: null, message: '' })
@@ -298,13 +342,19 @@ export default function LoginPage() {
         redirectTo: `${getBaseUrl()}/reset-password`,
       })
 
+      if (!isCurrentResetRequest()) return
+
       toastSuccess(t('auth.passwordResetLinkSent'))
 
-      setTimeout(() => {
+      clearResetDialogCloseTimer()
+      resetDialogCloseTimerRef.current = setTimeout(() => {
+        resetDialogCloseTimerRef.current = null
+        if (!isCurrentResetRequest()) return
         setForgotPasswordOpen(false)
         setResetStatus({ type: null, message: '' })
       }, 2000)
     } catch (error) {
+      if (!isCurrentResetRequest()) return
       logger.error('Error requesting password reset:', { error })
 
       let errorMessage = t('auth.passwordResetRequestFailed')
@@ -322,9 +372,11 @@ export default function LoginPage() {
 
       toastError(errorMessage)
     } finally {
-      setIsSubmittingReset(false)
+      if (isCurrentResetRequest()) {
+        setIsSubmittingReset(false)
+      }
     }
-  }, [forgotPasswordEmail, t])
+  }, [clearResetDialogCloseTimer, forgotPasswordEmail, t])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -340,6 +392,7 @@ export default function LoginPage() {
   }, [forgotPasswordEmail, forgotPasswordOpen, handleForgotPassword])
 
   async function onSubmit(data: LoginFormData) {
+    clearLoginRedirectTimer()
     setIsLoading(true)
 
     const email = data.email.trim().toLowerCase()
@@ -391,6 +444,7 @@ export default function LoginPage() {
       )
 
       logger.info('Login result:', result)
+      if (!isMountedRef.current) return
       logger.info('Login result structure:', {
         hasResult: !!result,
         hasError: !!result?.error,
@@ -452,7 +506,10 @@ export default function LoginPage() {
       logger.info('Login successful, redirecting to:', safeCallbackUrl)
 
       // Use setTimeout to ensure all async operations complete, but don't wait too long
-      setTimeout(() => {
+      clearLoginRedirectTimer()
+      loginRedirectTimerRef.current = setTimeout(() => {
+        loginRedirectTimerRef.current = null
+        if (!isMountedRef.current) return
         logger.info('Executing redirect to:', safeCallbackUrl)
         try {
           window.location.href = safeCallbackUrl
@@ -476,7 +533,9 @@ export default function LoginPage() {
       const errorMessage = error.message || t('auth.invalidCredentials')
       toastError(errorMessage)
     } finally {
-      setIsLoading(false)
+      if (isMountedRef.current) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -506,7 +565,7 @@ export default function LoginPage() {
 
       {showEmailPasswordForm && (
         <form
-          onSubmit={form.handleSubmit(onSubmit)}
+          onSubmit={(event) => void form.handleSubmit(onSubmit)(event)}
           className={`${inter.className} mt-8 space-y-8`}
         >
           <div className="space-y-6">
@@ -536,7 +595,7 @@ export default function LoginPage() {
                 </Label>
                 <button
                   type="button"
-                  onClick={() => setForgotPasswordOpen(true)}
+                  onClick={() => setForgotPasswordDialogOpen(true)}
                   className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
                   suppressHydrationWarning
                 >
@@ -618,7 +677,7 @@ export default function LoginPage() {
         </div>
       )}
 
-      <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
+      <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordDialogOpen}>
         <DialogContent className="auth-card auth-card-shadow max-w-[540px] rounded-auth border backdrop-blur-sm">
           <DialogHeader>
             <DialogTitle

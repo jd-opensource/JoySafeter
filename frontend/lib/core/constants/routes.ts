@@ -18,7 +18,7 @@ export const PUBLIC_ROUTES = [
  */
 export function isPublicRoute(pathname: string | null): boolean {
   if (!pathname) return false
-  return PUBLIC_ROUTES.some((route) => pathname.startsWith(route))
+  return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))
 }
 
 /**

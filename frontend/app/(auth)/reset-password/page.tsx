@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { SetNewPasswordForm } from '@/app/(auth)/reset-password/reset-password-form'
 import { authApi } from '@/lib/auth/api-client'
@@ -18,6 +18,9 @@ function ResetPasswordContent() {
   const token = searchParams.get('token')
 
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resetRunRef = useRef(0)
+  const isMountedRef = useRef(false)
   const [statusMessage, setStatusMessage] = useState<{
     type: 'success' | 'error' | null
     text: string
@@ -35,6 +38,20 @@ function ResetPasswordContent() {
     }
   }, [token])
 
+  useEffect(
+    () => {
+      isMountedRef.current = true
+      return () => {
+        isMountedRef.current = false
+        resetRunRef.current += 1
+        if (redirectTimerRef.current) {
+          clearTimeout(redirectTimerRef.current)
+        }
+      }
+    },
+    [],
+  )
+
   const handleResetPassword = async (password: string) => {
     if (!token) {
       setStatusMessage({
@@ -43,6 +60,10 @@ function ResetPasswordContent() {
       })
       return
     }
+
+    const runId = resetRunRef.current + 1
+    resetRunRef.current = runId
+    const isCurrentReset = () => isMountedRef.current && resetRunRef.current === runId
 
     try {
       setIsSubmitting(true)
@@ -54,22 +75,32 @@ function ResetPasswordContent() {
         newPassword: password,
       })
 
+      if (!isCurrentReset()) return
+
       setStatusMessage({
         type: 'success',
         text: 'Password reset successful! Redirecting to login...',
       })
 
-      setTimeout(() => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
+      }
+      redirectTimerRef.current = setTimeout(() => {
+        redirectTimerRef.current = null
+        if (!isCurrentReset()) return
         router.push('/signin?resetSuccess=true')
       }, 1500)
     } catch (error) {
+      if (!isCurrentReset()) return
       logger.error('Error resetting password:', { error })
       setStatusMessage({
         type: 'error',
         text: error instanceof Error ? error.message : 'Failed to reset password',
       })
     } finally {
-      setIsSubmitting(false)
+      if (isCurrentReset()) {
+        setIsSubmitting(false)
+      }
     }
   }
 
