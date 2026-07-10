@@ -3,7 +3,11 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use super::provider::{ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus};
+use super::file_injection::FileToInject;
+use super::provider::{
+    NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
+    SandboxProvider, SandboxStatus,
+};
 
 /// E2B cloud sandbox provider.
 ///
@@ -171,6 +175,66 @@ impl SandboxProvider for E2bProvider {
                 labels: std::collections::HashMap::new(),
             })
             .collect())
+    }
+
+    fn orchestrator_url(&self, grpc_port: u16) -> String {
+        // E2B sandboxes run remotely — must use a publicly routable address.
+        std::env::var("JOYSAFETER_GRPC_PUBLIC_URL")
+            .unwrap_or_else(|_| format!("http://localhost:{grpc_port}"))
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            has_host_mount: false,
+            has_egress_management: false,
+            network_isolation: NetworkIsolation::Platform,
+        }
+    }
+
+    async fn inject_files(
+        &self,
+        external_id: &str,
+        files: &[FileToInject],
+    ) -> anyhow::Result<()> {
+        let mut injected = 0usize;
+        for file in files {
+            let Some(ref content) = file.content else {
+                continue;
+            };
+            let path = file.mount_path.trim_start_matches('/');
+            // E2B Files API: POST /sandboxes/{id}/files with JSON body
+            let body = serde_json::json!({
+                "path": format!("/{path}"),
+                "content": base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    content,
+                ),
+            });
+            let resp = self
+                .client
+                .post(format!(
+                    "{}/sandboxes/{external_id}/files",
+                    self.api_url
+                ))
+                .headers(self.headers())
+                .json(&body)
+                .send()
+                .await;
+            match resp {
+                Ok(r) if r.status().is_success() => {
+                    injected += 1;
+                }
+                Ok(r) => {
+                    let text = r.text().await.unwrap_or_default();
+                    warn!(path = %file.mount_path, "E2B file upload failed: {text}");
+                }
+                Err(e) => {
+                    warn!(path = %file.mount_path, "E2B file upload error: {e}");
+                }
+            }
+        }
+        info!(external_id, injected, "Injected files into E2B sandbox");
+        Ok(())
     }
 }
 
