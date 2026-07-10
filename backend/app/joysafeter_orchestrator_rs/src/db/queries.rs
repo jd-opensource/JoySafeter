@@ -448,11 +448,24 @@ pub async fn create_sandbox(
 ///   stopped → provisioning, destroyed
 ///   error → destroyed
 /// Rejects transitions from 'destroyed' (terminal).
+///
+/// M4: DEPRECATED — This function has a TOCTOU race between the SELECT
+/// (status validation) and UPDATE. Critical paths should use
+/// `transition_sandbox_cas()` instead which performs an atomic CAS in a
+/// single UPDATE statement. This non-CAS version is kept for backward
+/// compatibility with non-critical callers.
 pub async fn transition_sandbox(
     pool: &PgPool,
     sandbox_id: Uuid,
     new_status: &str,
 ) -> Result<bool, sqlx::Error> {
+    // M4: trace non-CAS usage so we can find and migrate remaining callers
+    tracing::debug!(
+        sandbox_id = %sandbox_id,
+        to = %new_status,
+        "transition_sandbox (non-CAS) called — prefer transition_sandbox_cas for critical paths"
+    );
+
     // S7: Fetch current status to validate the transition
     let current_status: Option<String> =
         sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
@@ -475,6 +488,10 @@ pub async fn transition_sandbox(
     // Block transitions FROM destroyed (terminal)
     // Otherwise trust the caller (CAS version is preferred for critical paths)
     //
+    // M4: Added guard against overwriting sandboxes that are already in
+    // a stop/destroy flow. This reduces the TOCTOU window without
+    // requiring all callers to switch to CAS immediately.
+    //
     // idle_since is the idle-sweep's authoritative anchor: stamp NOW() when we
     // *enter* idle (current status != 'idle'), clear it when we leave idle,
     // leave it untouched otherwise. Same logic mirrored in transition_sandbox_cas
@@ -490,7 +507,12 @@ pub async fn transition_sandbox(
                 WHEN $2 <> 'idle' AND status = 'idle' THEN NULL
                 ELSE idle_since
             END
-        WHERE id = $1 AND status != 'destroyed'
+        WHERE id = $1
+          AND status != 'destroyed'
+          AND (
+              $2 IN ('stopped', 'destroyed', 'error', 'stopping')
+              OR status NOT IN ('destroyed', 'stopping')
+          )
         "#,
     )
     .bind(sandbox_id)
@@ -756,18 +778,46 @@ pub async fn find_running_tasks_for_sandbox(
 }
 
 /// Increment retry count for a task and reset to pending.
-pub async fn increment_retry(pool: &PgPool, task_id: Uuid) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        r#"
-        UPDATE joysafeter_tasks
-        SET status = 'pending', sandbox_id = NULL,
-            retry_count = retry_count + 1, updated_at = NOW()
-        WHERE id = $1 AND status NOT IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled')
-        "#,
-    )
-    .bind(task_id)
-    .execute(pool)
-    .await?;
+/// Increment retry count with CAS protection against double-increment.
+///
+/// If `expected_retry_count` is provided, only increments if the current count
+/// matches (prevents scheduler + watchdog from both incrementing the same failure).
+/// If `None`, increments unconditionally (for startup recovery paths where
+/// double-increment is acceptable).
+pub async fn increment_retry(
+    pool: &PgPool,
+    task_id: Uuid,
+    expected_retry_count: Option<i32>,
+) -> Result<bool, sqlx::Error> {
+    let result = if let Some(expected) = expected_retry_count {
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_tasks
+            SET status = 'pending', sandbox_id = NULL, started_at = NULL,
+                retry_count = retry_count + 1, updated_at = NOW()
+            WHERE id = $1
+              AND retry_count = $2
+              AND status NOT IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled')
+            "#,
+        )
+        .bind(task_id)
+        .bind(expected)
+        .execute(pool)
+        .await?
+    } else {
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_tasks
+            SET status = 'pending', sandbox_id = NULL, started_at = NULL,
+                retry_count = retry_count + 1, updated_at = NOW()
+            WHERE id = $1
+              AND status NOT IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled')
+            "#,
+        )
+        .bind(task_id)
+        .execute(pool)
+        .await?
+    };
 
     Ok(result.rows_affected() > 0)
 }

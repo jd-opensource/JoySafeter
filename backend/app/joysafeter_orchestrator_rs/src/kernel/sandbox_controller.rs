@@ -341,6 +341,18 @@ impl SandboxController {
             }
             debug!(sandbox_id = %sandbox_id, "Stopping idle sandbox (past timeout)");
         } else {
+            // M6 fix: Re-verify disconnected state before non-graceful reap.
+            // The sweep query may have identified this sandbox as disconnected,
+            // but it could have reconnected between the sweep and now (TOCTOU).
+            if let Ok(Some(fresh)) = queries::get_sandbox(&self.pool, sandbox_id).await {
+                if fresh.disconnected_at.is_none() && fresh.status == "running" {
+                    debug!(
+                        sandbox_id = %sandbox_id,
+                        "Sandbox reconnected since sweep, skipping non-graceful reap"
+                    );
+                    return;
+                }
+            }
             debug!(
                 sandbox_id = %sandbox_id,
                 status = %current_status,

@@ -90,7 +90,7 @@ impl TaskController {
                     .fetch_all(&self.pool)
                     .await?;
             for (task_id,) in &scheduling_tasks {
-                let _ = queries::increment_retry(&self.pool, *task_id).await;
+                let _ = queries::increment_retry(&self.pool, *task_id, None).await;
                 // T9 fix: push to global queue so they don't wait 60s for scan
                 self.queue.push_to_global(*task_id).await;
             }
@@ -318,7 +318,7 @@ impl TaskController {
                 .await;
             } else {
                 warn!(task_id = %task_id, "Task stuck in scheduling (>2min), resetting to pending");
-                let _ = queries::increment_retry(&self.pool, *task_id).await;
+                let _ = queries::increment_retry(&self.pool, *task_id, None).await;
                 self.queue.push_to_global(*task_id).await;
             }
         }

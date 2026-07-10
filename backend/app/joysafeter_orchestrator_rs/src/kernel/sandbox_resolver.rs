@@ -200,7 +200,15 @@ impl SandboxResolver {
                             let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
                         }
                         "stopping" => {
-                            debug!(sandbox_id = %sandbox.id, "Sandbox is stopping, creating new");
+                            // M5 fix: A sandbox stuck in "stopping" blocks new
+                            // session sandboxes indefinitely. Clean it up so the
+                            // resolver can proceed to create a fresh one.
+                            debug!(sandbox_id = %sandbox.id, "Sandbox is stopping, cleaning up and creating new");
+                            if let Some(ref ext_id) = sandbox.external_id {
+                                let _ = self.provider.destroy(ext_id).await;
+                            }
+                            let _ = self.teardown_networking(sandbox.id).await;
+                            let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
                         }
                         _ => {}
                     }

@@ -203,6 +203,9 @@ pub struct S3Backend {
     access_key: String,
     secret_key: String,
     region: String,
+    /// M8 fix: Cache the S3 client so it isn't rebuilt on every get/exists call.
+    /// Uses tokio::sync::OnceCell for lazy async initialization since new() is sync.
+    cached_client: OnceCell<S3Client>,
 }
 
 impl S3Backend {
@@ -213,27 +216,32 @@ impl S3Backend {
             access_key: config.access_key,
             secret_key: config.secret_key,
             region: config.region,
+            cached_client: OnceCell::new(),
         }
     }
 
-    async fn client(&self) -> S3Client {
-        let credentials = Credentials::new(
-            &self.access_key,
-            &self.secret_key,
-            None,
-            None,
-            "joysafeter-env",
-        );
-        let base_config = aws_config::defaults(BehaviorVersion::latest())
-            .region(Region::new(self.region.clone()))
-            .credentials_provider(credentials)
-            .load()
-            .await;
-        let mut builder = S3ConfigBuilder::from(&base_config).force_path_style(true);
-        if let Some(ref endpoint) = self.endpoint {
-            builder = builder.endpoint_url(endpoint);
-        }
-        S3Client::from_conf(builder.build())
+    async fn client(&self) -> &S3Client {
+        self.cached_client
+            .get_or_init(|| async {
+                let credentials = Credentials::new(
+                    &self.access_key,
+                    &self.secret_key,
+                    None,
+                    None,
+                    "joysafeter-env",
+                );
+                let base_config = aws_config::defaults(BehaviorVersion::latest())
+                    .region(Region::new(self.region.clone()))
+                    .credentials_provider(credentials)
+                    .load()
+                    .await;
+                let mut builder = S3ConfigBuilder::from(&base_config).force_path_style(true);
+                if let Some(ref endpoint) = self.endpoint {
+                    builder = builder.endpoint_url(endpoint);
+                }
+                S3Client::from_conf(builder.build())
+            })
+            .await
     }
 }
 

@@ -84,32 +84,41 @@ impl MemoryStoreSubscribers {
         sender_sandbox_id: Uuid,
         bridge_registry: &BridgeRegistry,
     ) {
-        let subs = self.subscriptions.lock().await;
-
-        // Find the store_id by mount_name match
-        for (_store_id, entries) in subs.iter() {
-            for sub in entries {
-                if sub.mount_name == store_mount_name && sub.sandbox_db_id != sender_sandbox_id {
-                    // Send MemoryFileUpdate to this peer
-                    if let Some(bridge) = bridge_registry.get_by_db_id(sub.sandbox_db_id) {
-                        let msg = OrchestratorMessage {
-                            payload: Some(orchestrator_message::Payload::MemoryUpdate(
-                                proto::MemoryFileUpdate {
-                                    store_mount_name: sub.mount_name.clone(),
-                                    relative_path: relative_path.to_string(),
-                                    content: content.to_vec(),
-                                    operation: operation.to_string(),
-                                },
-                            )),
-                        };
-                        let _ = bridge.send_to_runner(msg).await;
-                        debug!(
-                            peer_sandbox = %sub.sandbox_db_id,
-                            path = relative_path,
-                            "Sent memory update to peer"
-                        );
+        // M3 fix: Collect peers under the lock, then drop it before awaiting
+        // gRPC sends. Holding a Mutex across await points can cause deadlocks
+        // and blocks other tasks from registering/unregistering subscriptions.
+        let peers: Vec<(Uuid, String)> = {
+            let subs = self.subscriptions.lock().await;
+            let mut result = Vec::new();
+            for (_store_id, entries) in subs.iter() {
+                for sub in entries {
+                    if sub.mount_name == store_mount_name && sub.sandbox_db_id != sender_sandbox_id {
+                        result.push((sub.sandbox_db_id, sub.mount_name.clone()));
                     }
                 }
+            }
+            result
+            // lock dropped here
+        };
+
+        for (peer_sandbox_id, mount_name) in peers {
+            if let Some(bridge) = bridge_registry.get_by_db_id(peer_sandbox_id) {
+                let msg = OrchestratorMessage {
+                    payload: Some(orchestrator_message::Payload::MemoryUpdate(
+                        proto::MemoryFileUpdate {
+                            store_mount_name: mount_name,
+                            relative_path: relative_path.to_string(),
+                            content: content.to_vec(),
+                            operation: operation.to_string(),
+                        },
+                    )),
+                };
+                let _ = bridge.send_to_runner(msg).await;
+                debug!(
+                    peer_sandbox = %peer_sandbox_id,
+                    path = relative_path,
+                    "Sent memory update to peer"
+                );
             }
         }
     }
