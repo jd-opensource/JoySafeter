@@ -1064,11 +1064,28 @@ async fn handle_task_message(
 
             // Build usage JSON with correct field mapping
             let usage: Option<serde_json::Value> = harness_result.usage.as_ref().map(|u| {
+                let by_model: serde_json::Map<String, serde_json::Value> = u
+                    .by_model
+                    .iter()
+                    .map(|entry| {
+                        (
+                            entry.model.clone(),
+                            json!({
+                                "input_tokens": entry.input_tokens,
+                                "output_tokens": entry.output_tokens,
+                                "cache_creation_input_tokens": entry.cache_write_tokens,
+                                "cache_read_input_tokens": entry.cache_read_tokens,
+                            }),
+                        )
+                    })
+                    .collect();
+
                 json!({
                     "input_tokens": u.input_tokens,
                     "output_tokens": u.output_tokens,
                     "cache_creation_input_tokens": u.cache_write_tokens,
                     "cache_read_input_tokens": u.cache_read_tokens,
+                    "by_model": by_model,
                 })
             });
 

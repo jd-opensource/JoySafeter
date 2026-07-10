@@ -62,17 +62,14 @@ pub fn create_backend() -> anyhow::Result<Box<dyn StorageBackend>> {
     let name = backend_name();
     match name.as_str() {
         "local" => {
-            let base = env::var("STORAGE_LOCAL_PATH")
-                .unwrap_or_else(|_| "data/files".to_string());
+            let base = env::var("STORAGE_LOCAL_PATH").unwrap_or_else(|_| "data/files".to_string());
             Ok(Box::new(LocalBackend::new(&base)?))
         }
         "s3" | "oss" => {
             let config = S3Config::from_env()?;
             Ok(Box::new(S3Backend::new(config)))
         }
-        other => anyhow::bail!(
-            "Unsupported STORAGE_BACKEND={other}. Expected local, s3, or oss."
-        ),
+        other => anyhow::bail!("Unsupported STORAGE_BACKEND={other}. Expected local, s3, or oss."),
     }
 }
 
@@ -251,9 +248,7 @@ impl StorageBackend for S3Backend {
             .key(key)
             .send()
             .await
-            .with_context(|| {
-                format!("S3 get_object failed: bucket={}, key={key}", self.bucket)
-            })?;
+            .with_context(|| format!("S3 get_object failed: bucket={}, key={key}", self.bucket))?;
         let bytes = resp
             .body
             .collect()
