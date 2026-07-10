@@ -24,8 +24,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiStream, ApiError, managedGet, managedPost } from '@/lib/api-client'
 import { getOperationErrorMessageWithDetails } from '@/lib/managed/errors'
 import { getManagedStreamErrorMessage } from '@/lib/managed/stream-errors'
+import { useProjectStore } from '@/stores/managed/project-store'
 
-const STORAGE_KEY = 'joysafeter:skill-authoring-state:v1'
+const LEGACY_STORAGE_KEY = 'joysafeter:skill-authoring-state:v1'
+const STORAGE_KEY_PREFIX = 'joysafeter:skill-authoring-state:v2'
 
 const passthroughTranslator = (key: string) => key
 
@@ -75,10 +77,14 @@ type ScanRecord = {
   scanned_at?: string | null
 }
 
-function loadPersisted(): Partial<PersistedState> | null {
+function getStorageKey(scope: string): string {
+  return `${STORAGE_KEY_PREFIX}:${scope || 'no-managed-context'}`
+}
+
+function loadPersisted(storageKey: string): Partial<PersistedState> | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const raw = window.localStorage.getItem(storageKey)
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object') return null
@@ -92,18 +98,53 @@ function stripSkillIdPrefix(id: string): string {
   return id.startsWith('skill_') ? id.slice('skill_'.length) : id
 }
 
+function getCurrentManagedScope() {
+  const { currentOrgId, currentProjectId } = useProjectStore.getState()
+  return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+}
+
+function getInitialState(startFresh: boolean, storageKey: string): PersistedState {
+  if (startFresh) {
+    return { messages: [], draft: EMPTY_DRAFT, draftSkillId: null }
+  }
+  const saved = loadPersisted(storageKey)
+  return {
+    messages: Array.isArray(saved?.messages) ? saved.messages : [],
+    draft: saved?.draft ? { ...EMPTY_DRAFT, ...saved.draft } : EMPTY_DRAFT,
+    draftSkillId: saved?.draftSkillId || null,
+  }
+}
+
 export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   const startFresh = options?.startFresh ?? false
-  const [messages, setMessages] = useState<AuthoringMessage[]>([])
-  const [draft, setDraft] = useState<SkillDraft>(EMPTY_DRAFT)
-  const [draftSkillId, setDraftSkillId] = useState<string | null>(null)
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const storageKey = getStorageKey(managedScope)
+  const [initialState] = useState(() => getInitialState(startFresh, storageKey))
+  const [messages, setMessages] = useState<AuthoringMessage[]>(initialState.messages)
+  const [draft, setDraft] = useState<SkillDraft>(initialState.draft)
+  const [draftSkillId, setDraftSkillId] = useState<string | null>(initialState.draftSkillId)
   const [streaming, setStreaming] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [scanRunning, setScanRunning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanRecord | null>(null)
   const [publishing, setPublishing] = useState(false)
-  const [hydrated, setHydrated] = useState(false)
+  const [hydrated] = useState(true)
   const abortRef = useRef<AbortController | null>(null)
+  const streamInFlightRef = useRef(false)
+  const managedScopeRef = useRef(managedScope)
+  const storageKeyRef = useRef(storageKey)
+  const lifecycleRunRef = useRef(0)
+  const isCurrentManagedScope = useCallback(
+    (scope: string) => managedScopeRef.current === scope && getCurrentManagedScope() === scope,
+    [],
+  )
+  const isCurrentLifecycleRun = useCallback(
+    (scope: string, lifecycleRun: number) =>
+      isCurrentManagedScope(scope) && lifecycleRunRef.current === lifecycleRun,
+    [isCurrentManagedScope],
+  )
   // Ref-mirror of draft so the streaming handler always reads fresh state
   // even when React hasn't flushed the most recent setDraft yet (the SSE
   // loop applies many patches per second).
@@ -112,46 +153,72 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     draftRef.current = draft
   }, [draft])
 
-  // Restore from localStorage on first mount, UNLESS the caller asked for
-  // a fresh session (?new=1 in the URL — set when the user clicks the
-  // "AI 创作" entry on the list page). A fresh start also wipes the saved
-  // blob so a subsequent refresh genuinely shows an empty workspace.
+  useEffect(
+    () => () => {
+      lifecycleRunRef.current += 1
+      abortRef.current?.abort()
+      abortRef.current = null
+      streamInFlightRef.current = false
+    },
+    [],
+  )
+
+  // A fresh session (?new=1 in the URL) wipes the saved blob so a subsequent
+  // refresh genuinely shows an empty workspace.
   useEffect(() => {
     if (startFresh) {
       if (typeof window !== 'undefined') {
         try {
-          window.localStorage.removeItem(STORAGE_KEY)
+          window.localStorage.removeItem(storageKeyRef.current)
+          window.localStorage.removeItem(LEGACY_STORAGE_KEY)
         } catch {
           /* noop */
         }
       }
-      setHydrated(true)
-      return
     }
-    const saved = loadPersisted()
-    if (saved) {
-      if (Array.isArray(saved.messages)) setMessages(saved.messages)
-      if (saved.draft) setDraft({ ...EMPTY_DRAFT, ...saved.draft })
-      if (saved.draftSkillId) setDraftSkillId(saved.draftSkillId)
-    }
-    setHydrated(true)
   }, [startFresh])
+
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope) return
+
+    lifecycleRunRef.current += 1
+    abortRef.current?.abort()
+    abortRef.current = null
+    streamInFlightRef.current = false
+    managedScopeRef.current = managedScope
+    storageKeyRef.current = storageKey
+
+    const next = getInitialState(false, storageKey)
+    draftRef.current = next.draft
+    setMessages(next.messages)
+    setDraft(next.draft)
+    setDraftSkillId(next.draftSkillId)
+    setStreaming(false)
+    setSaveError(null)
+    setScanRunning(false)
+    setScanResult(null)
+    setPublishing(false)
+  }, [managedScope, storageKey])
 
   // Mirror state into localStorage. Skipped until after hydration so we
   // don't immediately overwrite the saved blob with our empty defaults.
   useEffect(() => {
     if (!hydrated || typeof window === 'undefined') return
+    if (managedScopeRef.current !== managedScope) return
     try {
       const payload: PersistedState = { messages, draft, draftSkillId }
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+      window.localStorage.setItem(storageKey, JSON.stringify(payload))
     } catch {
       // Quota exceeded etc. — drop silently; the workspace still works
       // in-memory, just without resume-across-reload.
     }
-  }, [messages, draft, draftSkillId, hydrated])
+  }, [messages, draft, draftSkillId, hydrated, managedScope, storageKey])
 
   const reset = useCallback(() => {
     abortRef.current?.abort()
+    abortRef.current = null
+    streamInFlightRef.current = false
+    setStreaming(false)
     setMessages([])
     setDraft(EMPTY_DRAFT)
     setDraftSkillId(null)
@@ -159,7 +226,8 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     setSaveError(null)
     if (typeof window !== 'undefined') {
       try {
-        window.localStorage.removeItem(STORAGE_KEY)
+        window.localStorage.removeItem(storageKeyRef.current)
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY)
       } catch {
         /* noop */
       }
@@ -169,7 +237,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   const send = useCallback(
     async (userText: string, secretRef: string) => {
       const trimmed = userText.trim()
-      if (!trimmed) return
+      if (!trimmed || streamInFlightRef.current) return
       if (!secretRef) {
         setMessages((prev) => [
           ...prev,
@@ -182,6 +250,9 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         return
       }
 
+      const scopeAtStart = managedScopeRef.current
+      if (!isCurrentManagedScope(scopeAtStart)) return
+
       // Append the user turn + a blank assistant placeholder we'll fold
       // streaming text into.
       const nextMessages: AuthoringMessage[] = [
@@ -190,6 +261,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         { role: 'assistant', content: '' },
       ]
       setMessages(nextMessages)
+      streamInFlightRef.current = true
       setStreaming(true)
 
       const controller = new AbortController()
@@ -214,63 +286,71 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         let assistantAccum = ''
         let sawPatch = false
 
+        const processLine = (line: string) => {
+          if (!line.startsWith('data:')) return
+          const raw = line.slice(5).trim()
+          if (!raw || raw === '[DONE]') return
+          let evt: { type?: string; [k: string]: unknown }
+          try {
+            evt = JSON.parse(raw)
+          } catch {
+            return
+          }
+          if (!isCurrentManagedScope(scopeAtStart)) return
+          switch (evt.type) {
+            case 'text_delta':
+              assistantAccum += (evt.text as string) || ''
+              setMessages((prev) => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last && last.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, content: assistantAccum }
+                }
+                return updated
+              })
+              break
+            case 'draft_patch': {
+              const patch = (evt.patch as Partial<SkillDraft>) || {}
+              setDraft((prev) => ({ ...prev, ...patch }))
+              sawPatch = true
+              break
+            }
+            case 'error':
+              setMessages((prev) => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                const msg = getManagedStreamErrorMessage((key) => key, evt, 'LLM 调用失败')
+                if (last && last.role === 'assistant') {
+                  updated[updated.length - 1] = {
+                    ...last,
+                    content: `${last.content || ''}\n\n⚠️ ${msg}`,
+                  }
+                }
+                return updated
+              })
+              break
+            case 'done':
+              // server closes after this; outer loop exits on stream end
+              break
+          }
+        }
+
         while (true) {
           const { done, value } = await reader.read()
-          if (done) break
+          if (done) {
+            if (buffer.trim()) {
+              processLine(buffer)
+              buffer = ''
+            }
+            break
+          }
+          if (!isCurrentManagedScope(scopeAtStart)) break
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n')
           buffer = lines.pop() || ''
 
           for (const line of lines) {
-            if (!line.startsWith('data:')) continue
-            const raw = line.slice(5).trim()
-            if (!raw || raw === '[DONE]') continue
-            let evt: { type?: string; [k: string]: unknown }
-            try {
-              evt = JSON.parse(raw)
-            } catch {
-              continue
-            }
-            switch (evt.type) {
-              case 'text_delta':
-                assistantAccum += (evt.text as string) || ''
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  const last = updated[updated.length - 1]
-                  if (last && last.role === 'assistant') {
-                    updated[updated.length - 1] = { ...last, content: assistantAccum }
-                  }
-                  return updated
-                })
-                break
-              case 'draft_patch': {
-                const patch = (evt.patch as Partial<SkillDraft>) || {}
-                setDraft((prev) => ({ ...prev, ...patch }))
-                sawPatch = true
-                break
-              }
-              case 'error':
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  const last = updated[updated.length - 1]
-                  const msg = getManagedStreamErrorMessage(
-                    (key) => key,
-                    evt,
-                    'LLM 调用失败',
-                  )
-                  if (last && last.role === 'assistant') {
-                    updated[updated.length - 1] = {
-                      ...last,
-                      content: `${last.content || ''}\n\n⚠️ ${msg}`,
-                    }
-                  }
-                  return updated
-                })
-                break
-              case 'done':
-                // server closes after this; outer loop exits on stream end
-                break
-            }
+            processLine(line)
           }
         }
 
@@ -310,6 +390,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
           // user cancelled — keep partial state
           return
         }
+        if (!isCurrentManagedScope(scopeAtStart) || abortRef.current !== controller) return
         const message = err instanceof Error ? err.message : '连接失败,请稍后重试。'
         setMessages((prev) => {
           const updated = [...prev]
@@ -323,15 +404,21 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
           return updated
         })
       } finally {
-        setStreaming(false)
-        abortRef.current = null
+        if (abortRef.current === controller && isCurrentManagedScope(scopeAtStart)) {
+          streamInFlightRef.current = false
+          abortRef.current = null
+          setStreaming(false)
+        }
       }
     },
-    [messages],
+    [isCurrentManagedScope, messages],
   )
 
   const cancel = useCallback(() => {
     abortRef.current?.abort()
+    abortRef.current = null
+    streamInFlightRef.current = false
+    setStreaming(false)
   }, [])
 
   const saveDraft = useCallback(async (): Promise<string | null> => {
@@ -341,6 +428,9 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       setSaveError('请先填写技能名称才能保存草稿。')
       return null
     }
+    const scopeAtStart = managedScopeRef.current
+    const lifecycleRunAtStart = lifecycleRunRef.current
+    if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
     try {
       const data = await managedPost<SaveDraftResponse>('skills/ai-authoring/save-draft', {
         draft_skill_id: draftSkillId,
@@ -351,6 +441,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         visibility: current.visibility,
         files: current.files,
       })
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
       if (data.error || !data.skill_id) {
         setSaveError(data.error || '保存失败: 响应缺少 skill_id')
         return null
@@ -358,16 +449,13 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       setDraftSkillId(data.skill_id)
       return data.skill_id
     } catch (err) {
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
       setSaveError(
-        `保存失败:${getOperationErrorMessageWithDetails(
-          passthroughTranslator,
-          err,
-          '保存失败',
-        )}`,
+        `保存失败:${getOperationErrorMessageWithDetails(passthroughTranslator, err, '保存失败')}`,
       )
       return null
     }
-  }, [draftSkillId])
+  }, [draftSkillId, isCurrentLifecycleRun])
 
   const fetchLatestScan = useCallback(async (skillId: string): Promise<ScanRecord | null> => {
     const sid = stripSkillIdPrefix(skillId)
@@ -377,31 +465,42 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   const runScan = useCallback(async () => {
     // Need a draft row on the server first — scan operates on a real
     // skill_id. Auto-save before scanning if necessary.
+    const scopeAtStart = managedScopeRef.current
+    const lifecycleRunAtStart = lifecycleRunRef.current
+    if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
     let sid = draftSkillId
     if (!sid) {
       sid = await saveDraft()
-      if (!sid) return
+      if (!sid || !isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
     }
     setScanRunning(true)
     setScanResult(null)
     const justId = stripSkillIdPrefix(sid)
     try {
-      const initialScan = await managedPost<ScanRecord>(`skills/${justId}/security-scans/rescan`, {})
+      const initialScan = await managedPost<ScanRecord>(
+        `skills/${justId}/security-scans/rescan`,
+        {},
+      )
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       setScanResult(initialScan)
       // Backend dispatched async; poll latest until status leaves 'scanning'.
       // Cap polling at 120s so a stuck scan doesn't pin the UI forever.
       const deadline = Date.now() + 120_000
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 3000))
+        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
         const latest = await fetchLatestScan(sid)
+        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
         if (!latest) continue
         if (latest.status && latest.status !== 'scanning') {
           setScanResult(latest)
           return
         }
       }
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       setScanResult({ status: 'timeout' })
     } catch (error) {
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       setScanResult({
         status: 'failed',
         error_message: getOperationErrorMessageWithDetails(
@@ -411,9 +510,11 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         ),
       })
     } finally {
-      setScanRunning(false)
+      if (isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) {
+        setScanRunning(false)
+      }
     }
-  }, [draftSkillId, saveDraft, fetchLatestScan])
+  }, [draftSkillId, saveDraft, fetchLatestScan, isCurrentLifecycleRun])
 
   // Publish the draft as a usable skill. Agents can only reference *published*
   // versions, so "create a skill" really means: save → submit for review →
@@ -421,51 +522,78 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   // any already-satisfied transition (e.g. re-publishing) is treated as a
   // no-op rather than a hard error. Returns the skill id on success.
   const publish = useCallback(async (): Promise<{ skillId: string | null; error?: string }> => {
+    const scopeAtStart = managedScopeRef.current
+    const lifecycleRunAtStart = lifecycleRunRef.current
+    const isCurrentPublish = () => isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)
     const sid = await saveDraft()
-    if (!sid) return { skillId: null, error: saveError || '保存失败' }
+    if (!isCurrentPublish()) {
+      return { skillId: null, error: '发布已取消' }
+    }
+    if (!sid) {
+      return { skillId: null, error: saveError || '保存失败' }
+    }
     const justId = stripSkillIdPrefix(sid)
 
     // Fire one lifecycle transition; tolerate "invalid transition" (the skill
     // is already past this state) so re-publishing an approved skill still
     // reaches the version-publish step.
-    const transition = async (endpoint: string): Promise<boolean> => {
+    const transition = async (
+      endpoint: string,
+      fallbackMessage: string,
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      if (!isCurrentPublish()) return { ok: false, error: '发布已取消' }
       try {
         await managedPost(`skills/${justId}/${endpoint}`, {})
-        return true
+        if (!isCurrentPublish()) return { ok: false, error: '发布已取消' }
+        return { ok: true }
       } catch (error) {
+        if (!isCurrentPublish()) return { ok: false, error: '发布已取消' }
         // Already in/past the target state — not a real failure.
         if (error instanceof ApiError && error.code === 'SKILL_LIFECYCLE_INVALID_TRANSITION') {
-          return true
+          return { ok: true }
         }
-        return false
+        return {
+          ok: false,
+          error: getOperationErrorMessageWithDetails(
+            passthroughTranslator,
+            error,
+            fallbackMessage,
+          ),
+        }
       }
     }
 
     setPublishing(true)
     try {
       // draft → pending_review → approved. Both tolerate "already there".
-      await transition('submit-review')
-      await transition('approve')
+      const submit = await transition('submit-review', '提交审核失败')
+      if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
+      if (!submit.ok) return { skillId: sid, error: submit.error }
+
+      const approve = await transition('approve', '审核通过失败')
+      if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
+      if (!approve.ok) return { skillId: sid, error: approve.error }
 
       // Cut the first published version. Empty version lets the backend
       // auto-assign (0.1.0 for the first release / bumped patch otherwise).
       try {
+        if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
         await managedPost(`skills/${justId}/versions`, { release_notes: null })
+        if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
       } catch (error) {
+        if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
         return {
           skillId: sid,
-          error: getOperationErrorMessageWithDetails(
-            passthroughTranslator,
-            error,
-            '发布版本失败',
-          ),
+          error: getOperationErrorMessageWithDetails(passthroughTranslator, error, '发布版本失败'),
         }
       }
       return { skillId: sid }
     } finally {
-      setPublishing(false)
+      if (isCurrentPublish()) {
+        setPublishing(false)
+      }
     }
-  }, [saveDraft, saveError])
+  }, [isCurrentLifecycleRun, saveDraft, saveError])
 
   return {
     // state

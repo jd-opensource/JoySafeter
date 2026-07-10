@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+
+import { ApiError, apiStream, MANAGED_API_BASE, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { MANAGED_API_BASE } from '@/lib/api-client'
-import { getCsrfToken } from '@/lib/auth/csrf'
 import { getOperationErrorMessage } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
 import { buildQuickstartAgentCreateBody } from '@/lib/managed/quickstart-create'
@@ -24,6 +24,16 @@ export interface QuickstartConfig {
   agent?: Record<string, unknown>
   environment?: Record<string, unknown>
   vault?: Record<string, unknown>
+}
+
+interface CreateSessionOptions {
+  environmentId?: string | null
+  vaultId?: string | null
+}
+
+function getCurrentManagedScope() {
+  const { currentOrgId, currentProjectId } = useProjectStore.getState()
+  return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 }
 
 const ENGINE_CONFIG: Record<QuickstartEngine, { engineKind: string }> = {
@@ -51,23 +61,8 @@ interface QuickstartEvent {
   message?: string
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {}
-  const csrf = getCsrfToken()
-  if (csrf) headers['X-CSRF-Token'] = csrf
-  const { currentProjectId, currentOrgId } = useProjectStore.getState()
-  if (currentOrgId) headers['X-Org-Id'] = currentOrgId
-  if (currentProjectId) headers['X-Project-Id'] = currentProjectId
-  return headers
-}
-
 function unwrapManagedResponse<T = Record<string, unknown>>(payload: unknown): T {
-  if (
-    payload &&
-    typeof payload === 'object' &&
-    'success' in payload &&
-    'data' in payload
-  ) {
+  if (payload && typeof payload === 'object' && 'success' in payload && 'data' in payload) {
     return (payload as { data: T }).data
   }
   return payload as T
@@ -80,7 +75,11 @@ function getCreatedResourceId(payload: unknown): string | null {
 
   for (const key of ['agent', 'environment', 'vault', 'session']) {
     const nested = data?.[key]
-    if (nested && typeof nested === 'object' && typeof (nested as { id?: unknown }).id === 'string') {
+    if (
+      nested &&
+      typeof nested === 'object' &&
+      typeof (nested as { id?: unknown }).id === 'string'
+    ) {
       return (nested as { id: string }).id
     }
   }
@@ -88,11 +87,21 @@ function getCreatedResourceId(payload: unknown): string | null {
   return null
 }
 
+function toApiStatusError(error: unknown): Error {
+  if (error instanceof ApiError) {
+    return new Error(`API ${error.status}: ${error.detail || error.message}`)
+  }
+  return error instanceof Error ? error : new Error(String(error))
+}
+
 export function useQuickstartChat(
   agentSecretRef: string,
   generationSecret?: { secretRef: string; provider: QuickstartEngine },
 ) {
   const { t } = useTranslation()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const messagesRef = useRef<ChatMessage[]>([])
   const [currentStep, setCurrentStep] = useState<StepId>(1)
@@ -106,15 +115,28 @@ export function useQuickstartChat(
   const [curls, setCurls] = useState<Record<number, string>>({})
   // resourceIds: { 3: agentId, 4: envId, 5: vaultId, 6: sessionId }
   const [resourceIds, setResourceIds] = useState<Record<number, string>>({})
+  const [createdResourceIds, setCreatedResourceIds] = useState<Set<string>>(new Set())
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const [pendingConfirmation, setPendingConfirmation] = useState<{
     step: number
     curl: string
   } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const streamInFlightRef = useRef(false)
   const [isCreating, setIsCreating] = useState(false)
 
   const resourceIdsRef = useRef(resourceIds)
+  const managedScopeRef = useRef(managedScope)
+  const lifecycleRunRef = useRef(0)
+  const isCurrentManagedScope = useCallback(
+    (scope: string) => managedScopeRef.current === scope && getCurrentManagedScope() === scope,
+    [],
+  )
+  const isCurrentLifecycleRun = useCallback(
+    (scope: string, lifecycleRun: number) =>
+      isCurrentManagedScope(scope) && lifecycleRunRef.current === lifecycleRun,
+    [isCurrentManagedScope],
+  )
   useEffect(() => {
     resourceIdsRef.current = resourceIds
   }, [resourceIds])
@@ -122,6 +144,45 @@ export function useQuickstartChat(
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+
+  useEffect(
+    () => () => {
+      lifecycleRunRef.current += 1
+      abortRef.current?.abort()
+      abortRef.current = null
+      streamInFlightRef.current = false
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope) return
+    lifecycleRunRef.current += 1
+    managedScopeRef.current = managedScope
+
+    abortRef.current?.abort()
+    abortRef.current = null
+    streamInFlightRef.current = false
+    setIsStreaming(false)
+    setIsCreating(false)
+    setMessages((prev) => {
+      const updated = [...prev]
+      const last = updated[updated.length - 1]
+      if (last && last.role === 'assistant') {
+        updated[updated.length - 1] = { ...last, isStreaming: false }
+      }
+      return updated
+    })
+    resourceIdsRef.current = {}
+    setResourceIds({})
+    setCreatedResourceIds(new Set())
+    setCurls((prev) =>
+      Object.fromEntries(Object.entries(prev).filter(([step]) => Number(step) < 3)),
+    )
+    setCompletedSteps((prev) => new Set(Array.from(prev).filter((step) => step < 3)))
+    setPendingConfirmation(null)
+    setCurrentStep((prev) => (prev > 3 ? 3 : prev))
+  }, [managedScope])
 
   const sendMessage = useCallback(
     async (
@@ -133,16 +194,18 @@ export function useQuickstartChat(
         secretRefOverride?: string
       },
     ) => {
-      if (isStreaming || !text.trim()) return
+      const trimmedText = text.trim()
+      if (streamInFlightRef.current || !trimmedText) return
       const step = options?.stepOverride ?? currentStep
       const hidden = options?.hidden ?? false
       const provider = options?.providerOverride ?? generationSecret?.provider ?? 'claude'
-      const requestSecretRef = options?.secretRefOverride ?? generationSecret?.secretRef ?? agentSecretRef
+      const requestSecretRef =
+        options?.secretRefOverride ?? generationSecret?.secretRef ?? agentSecretRef
 
       const userMsg: ChatMessage = {
         id: generateUUID(),
         role: 'user',
-        content: text.trim(),
+        content: trimmedText,
       }
 
       const assistantMsg: ChatMessage = {
@@ -160,155 +223,173 @@ export function useQuickstartChat(
       }
 
       setMessages((prev) => (hidden ? [...prev, assistantMsg] : [...prev, userMsg, assistantMsg]))
-      messagesRef.current = hidden ? [...messagesRef.current, assistantMsg] : [...newMessages, assistantMsg]
+      messagesRef.current = hidden
+        ? [...messagesRef.current, assistantMsg]
+        : [...newMessages, assistantMsg]
+      streamInFlightRef.current = true
       setIsStreaming(true)
 
       const controller = new AbortController()
       abortRef.current = controller
 
+      const scopeAtStart = managedScopeRef.current
+      if (!isCurrentManagedScope(scopeAtStart)) return
       try {
         const historyForApi = newMessages.map((m) => ({
           role: m.role,
           content: m.content,
         }))
 
-        const response = await fetch(`${MANAGED_API_BASE}/quickstart/chat`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
+        const response = await apiStream(
+          'quickstart/chat',
+          {
             messages: historyForApi,
             current_step: apiStepForUiStep(step),
             provider,
             secret_ref: requestSecretRef,
             agent_context: step === 4 || step === 5 ? configRef.current.agent : undefined,
-          }),
-          signal: controller.signal,
-        })
-
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`)
-        }
+          },
+          { signal: controller.signal },
+        )
 
         const reader = response.body!.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
         let accumulatedText = ''
 
+        const processLine = (line: string) => {
+          if (!line.startsWith('data:')) return
+          const data = line.slice(5).trim()
+          if (!data || data === '[DONE]') return
+
+          try {
+            const event: QuickstartEvent = JSON.parse(data)
+            if (!isCurrentManagedScope(scopeAtStart)) return
+
+            switch (event.type) {
+              case 'text_delta':
+                accumulatedText += event.text || ''
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last && last.role === 'assistant') {
+                    updated[updated.length - 1] = {
+                      ...last,
+                      content: accumulatedText,
+                    }
+                  }
+                  return updated
+                })
+                break
+
+              case 'config_update':
+                if (event.step && event.config) {
+                  setConfig((prev) => {
+                    if (event.step === 2) return { ...prev, agent: event.config }
+                    if (event.step === 3) return { ...prev, environment: event.config }
+                    if (event.step === 4) return { ...prev, vault: event.config }
+                    return prev
+                  })
+                }
+                break
+
+              case 'step_complete':
+                if (event.step) {
+                  const uiStep = uiStepForApiStep(event.step)
+                  setPendingConfirmation({
+                    step: uiStep,
+                    curl: event.curl || '',
+                  })
+                  if (event.resource_id) {
+                    setResourceIds((prev) => {
+                      const next = { ...prev, [uiStep]: event.resource_id! }
+                      resourceIdsRef.current = next
+                      return next
+                    })
+                  }
+                }
+                break
+
+              case 'error':
+                accumulatedText += `\n\n⚠️ ${event.message || t('managed.quickstart.errors.generic')}`
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last && last.role === 'assistant') {
+                    updated[updated.length - 1] = { ...last, content: accumulatedText }
+                  }
+                  return updated
+                })
+                break
+
+              case 'done':
+                break
+            }
+          } catch {
+            // ignore parse errors for incomplete JSON
+          }
+        }
+
         while (true) {
           const { done, value } = await reader.read()
-          if (done) break
+          if (done) {
+            if (buffer.trim()) {
+              processLine(buffer)
+              buffer = ''
+            }
+            break
+          }
+          if (!isCurrentManagedScope(scopeAtStart)) break
 
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n')
           buffer = lines.pop() || ''
 
           for (const line of lines) {
-            if (!line.startsWith('data:')) continue
-            const data = line.slice(5).trim()
-            if (!data || data === '[DONE]') continue
-
-            try {
-              const event: QuickstartEvent = JSON.parse(data)
-
-              switch (event.type) {
-                case 'text_delta':
-                  accumulatedText += event.text || ''
-                  setMessages((prev) => {
-                    const updated = [...prev]
-                    const last = updated[updated.length - 1]
-                    if (last && last.role === 'assistant') {
-                      updated[updated.length - 1] = {
-                        ...last,
-                        content: accumulatedText,
-                      }
-                    }
-                    return updated
-                  })
-                  break
-
-                case 'config_update':
-                  if (event.step && event.config) {
-                    setConfig((prev) => {
-                      if (event.step === 2) return { ...prev, agent: event.config }
-                      if (event.step === 3) return { ...prev, environment: event.config }
-                      if (event.step === 4) return { ...prev, vault: event.config }
-                      return prev
-                    })
-                  }
-                  break
-
-                case 'step_complete':
-                  if (event.step) {
-                    const uiStep = uiStepForApiStep(event.step)
-                    setPendingConfirmation({
-                      step: uiStep,
-                      curl: event.curl || '',
-                    })
-                    if (event.resource_id) {
-                      setResourceIds((prev) => {
-                        const next = { ...prev, [uiStep]: event.resource_id! }
-                        resourceIdsRef.current = next
-                        return next
-                      })
-                    }
-                  }
-                  break
-
-                case 'error':
-                  accumulatedText += `\n\n⚠️ ${event.message || t('managed.quickstart.errors.generic')}`
-                  setMessages((prev) => {
-                    const updated = [...prev]
-                    const last = updated[updated.length - 1]
-                    if (last && last.role === 'assistant') {
-                      updated[updated.length - 1] = { ...last, content: accumulatedText }
-                    }
-                    return updated
-                  })
-                  break
-
-                case 'done':
-                  break
-              }
-            } catch {
-              // ignore parse errors for incomplete JSON
-            }
+            processLine(line)
           }
         }
       } catch (e) {
-        if ((e as Error).name !== 'AbortError') {
+        if ((e as Error).name !== 'AbortError' && abortRef.current === controller) {
           setMessages((prev) => {
             const updated = [...prev]
             const last = updated[updated.length - 1]
             if (last && last.role === 'assistant') {
               updated[updated.length - 1] = {
                 ...last,
-                content: last.content || getOperationErrorMessage(t, e, 'managed.quickstart.errors.chatFailed'),
+                content:
+                  last.content ||
+                  getOperationErrorMessage(t, e, 'managed.quickstart.errors.chatFailed'),
               }
             }
             return updated
           })
         }
       } finally {
-        setIsStreaming(false)
-        setMessages((prev) => {
-          const updated = [...prev]
-          const last = updated[updated.length - 1]
-          if (last && last.role === 'assistant') {
-            updated[updated.length - 1] = { ...last, isStreaming: false }
-          }
-          return updated
-        })
-        abortRef.current = null
+        const isActiveStream = abortRef.current === controller
+        if (isActiveStream) {
+          streamInFlightRef.current = false
+          abortRef.current = null
+          setIsStreaming(false)
+          setMessages((prev) => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (last && last.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, isStreaming: false }
+            }
+            return updated
+          })
+        }
       }
     },
-    [messages, currentStep, generationSecret, agentSecretRef, isStreaming, t],
+    [messages, currentStep, generationSecret, agentSecretRef, isCurrentManagedScope, t],
   )
 
-  const createSession = useCallback(async () => {
+  const createSession = useCallback(async (options: CreateSessionOptions = {}) => {
     const agentId = resourceIdsRef.current[3]
-    const envId = resourceIdsRef.current[4]
-    const vaultId = resourceIdsRef.current[5]
+    const envId =
+      'environmentId' in options ? options.environmentId || undefined : resourceIdsRef.current[4]
+    const vaultId = 'vaultId' in options ? options.vaultId || undefined : resourceIdsRef.current[5]
     if (!agentId) {
       setMessages((prev) => [
         ...prev,
@@ -321,25 +402,19 @@ export function useQuickstartChat(
       return
     }
 
+    const scopeAtStart = managedScopeRef.current
+    if (!isCurrentManagedScope(scopeAtStart)) return
+    const lifecycleRunAtStart = lifecycleRunRef.current
     setIsCreating(true)
     try {
       const body: Record<string, unknown> = { agent: stripIdPrefix(agentId) }
       if (envId) body.environment_id = stripIdPrefix(envId)
       if (vaultId) body.vault_ids = [stripIdPrefix(vaultId)]
 
-      const resp = await fetch(`${MANAGED_API_BASE}/sessions`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify(body),
+      const result = await managedPost('sessions', body).catch((error) => {
+        throw toApiStatusError(error)
       })
-
-      if (!resp.ok) {
-        const text = await resp.text()
-        throw new Error(`API ${resp.status}: ${text}`)
-      }
-
-      const result = await resp.json()
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       const sessionId = getCreatedResourceId(result)
       if (!sessionId) throw new Error(t('managed.quickstart.errors.createSessionFailed'))
 
@@ -357,21 +432,31 @@ export function useQuickstartChat(
       setCompletedSteps((prev) => new Set([...prev, 6]))
       setCurls((prev) => ({ ...prev, [6]: sessionCurl }))
     } catch (err) {
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       setMessages((prev) => [
         ...prev,
         {
           id: generateUUID(),
           role: 'assistant',
-          content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createSessionFailed'),
+          content: getOperationErrorMessage(
+            t,
+            err,
+            'managed.quickstart.errors.createSessionFailed',
+          ),
         },
       ])
     } finally {
-      setIsCreating(false)
+      if (isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) {
+        setIsCreating(false)
+      }
     }
-  }, [t])
+  }, [isCurrentLifecycleRun, isCurrentManagedScope, t])
 
   const createEnvironment = useCallback(
     async (networkType: 'unrestricted' | 'limited', allowedHosts: string[]) => {
+      const scopeAtStart = managedScopeRef.current
+      if (!isCurrentManagedScope(scopeAtStart)) return false
+      const lifecycleRunAtStart = lifecycleRunRef.current
       setIsCreating(true)
       try {
         const suffix = `-${Date.now().toString(36).slice(-4)}`
@@ -387,19 +472,10 @@ export function useQuickstartChat(
           },
         }
 
-        const resp = await fetch(`${MANAGED_API_BASE}/environments`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify(envBody),
+        const result = await managedPost('environments', envBody).catch((error) => {
+          throw toApiStatusError(error)
         })
-
-        if (!resp.ok) {
-          const text = await resp.text()
-          throw new Error(`API ${resp.status}: ${text}`)
-        }
-
-        const result = await resp.json()
+        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
         const environmentId = getCreatedResourceId(result)
         if (!environmentId) throw new Error(t('managed.quickstart.errors.createEnvironmentFailed'))
 
@@ -408,6 +484,7 @@ export function useQuickstartChat(
           resourceIdsRef.current = next
           return next
         })
+        setCreatedResourceIds((prev) => new Set([...prev, environmentId]))
 
         const envCurl = `curl -X POST ${MANAGED_API_BASE}/environments \\
   -H "Content-Type: application/json" \\
@@ -418,70 +495,82 @@ export function useQuickstartChat(
         setCurls((prev) => ({ ...prev, [4]: envCurl }))
         return true
       } catch (err) {
+        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
         setMessages((prev) => [
           ...prev,
           {
             id: generateUUID(),
             role: 'assistant' as const,
-            content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createEnvironmentFailed'),
+            content: getOperationErrorMessage(
+              t,
+              err,
+              'managed.quickstart.errors.createEnvironmentFailed',
+            ),
           },
         ])
         return false
       } finally {
-        setIsCreating(false)
+        if (isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) {
+          setIsCreating(false)
+        }
       }
     },
-    [t],
+    [isCurrentLifecycleRun, isCurrentManagedScope, t],
   )
 
-  const createVault = useCallback(async (name: string) => {
-    setIsCreating(true)
-    try {
-      const vaultBody = { name }
-      const resp = await fetch(`${MANAGED_API_BASE}/vaults`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify(vaultBody),
-      })
+  const createVault = useCallback(
+    async (name: string) => {
+      const scopeAtStart = managedScopeRef.current
+      if (!isCurrentManagedScope(scopeAtStart)) return false
+      const lifecycleRunAtStart = lifecycleRunRef.current
+      setIsCreating(true)
+      try {
+        const vaultBody = { name }
+        const result = await managedPost('vaults', vaultBody).catch((error) => {
+          throw toApiStatusError(error)
+        })
+        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
+        const vaultId = getCreatedResourceId(result)
+        if (!vaultId) throw new Error(t('managed.quickstart.errors.createVaultFailed'))
 
-      if (!resp.ok) {
-        const text = await resp.text()
-        throw new Error(`API ${resp.status}: ${text}`)
-      }
+        setResourceIds((prev) => {
+          const next = { ...prev, [5]: vaultId }
+          resourceIdsRef.current = next
+          return next
+        })
+        setCreatedResourceIds((prev) => new Set([...prev, vaultId]))
 
-      const result = await resp.json()
-      const vaultId = getCreatedResourceId(result)
-      if (!vaultId) throw new Error(t('managed.quickstart.errors.createVaultFailed'))
-
-      setResourceIds((prev) => {
-        const next = { ...prev, [5]: vaultId }
-        resourceIdsRef.current = next
-        return next
-      })
-
-      const vaultCurl = `curl -X POST ${MANAGED_API_BASE}/vaults \\
+        const vaultCurl = `curl -X POST ${MANAGED_API_BASE}/vaults \\
   -H "Content-Type: application/json" \\
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(vaultBody, null, 2)}'`
 
-      setCompletedSteps((prev) => new Set([...prev, 5]))
-      setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
-      return true
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: generateUUID(),
-          role: 'assistant' as const,
-          content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createVaultFailed'),
-        },
-      ])
-      return false
-    } finally {
-      setIsCreating(false)
-    }
-  }, [t])
+        setCompletedSteps((prev) => new Set([...prev, 5]))
+        setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
+        return true
+      } catch (err) {
+        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateUUID(),
+            role: 'assistant' as const,
+            content: getOperationErrorMessage(
+              t,
+              err,
+              'managed.quickstart.errors.createVaultFailed',
+            ),
+          },
+        ])
+        return false
+      } finally {
+        if (isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) {
+          setIsCreating(false)
+        }
+      }
+    },
+    [isCurrentLifecycleRun, isCurrentManagedScope, t],
+  )
 
   const selectEngine = useCallback((engine: QuickstartEngine) => {
     setSelectedEngine(engine)
@@ -492,7 +581,9 @@ export function useQuickstartChat(
   const selectAgentSecret = useCallback(() => {
     setCompletedSteps((prev) => new Set([...prev, 2]))
     setCurrentStep(3)
-    const lastUserMessage = [...messagesRef.current].reverse().find((message) => message.role === 'user')
+    const lastUserMessage = [...messagesRef.current]
+      .reverse()
+      .find((message) => message.role === 'user')
     if (lastUserMessage?.content && !configRef.current.agent && !isStreaming) {
       void sendMessage(lastUserMessage.content, {
         stepOverride: 3,
@@ -509,10 +600,13 @@ export function useQuickstartChat(
   const confirmStep = useCallback(async () => {
     if (!pendingConfirmation || isCreating) return
     const { step, curl } = pendingConfirmation
+    const scopeAtStart = managedScopeRef.current
+    if (!isCurrentManagedScope(scopeAtStart)) return
+    const lifecycleRunAtStart = lifecycleRunRef.current
     setIsCreating(true)
 
     try {
-      let resp: Response
+      let result: unknown
 
       const suffix = `-${Date.now().toString(36).slice(-4)}`
 
@@ -523,69 +617,52 @@ export function useQuickstartChat(
         if (!a) throw new Error(t('managed.quickstart.errors.agentConfigMissing'))
         const engine = selectedEngine || 'claude'
         const engineConfig = ENGINE_CONFIG[engine]
-        resp = await fetch(`${MANAGED_API_BASE}/agents`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify(
-            buildQuickstartAgentCreateBody(a, {
-              engineKind: engineConfig.engineKind,
-              secretRef: agentSecretRef,
-              suffix,
-            }),
-          ),
+        result = await managedPost(
+          'agents',
+          buildQuickstartAgentCreateBody(a, {
+            engineKind: engineConfig.engineKind,
+            secretRef: agentSecretRef,
+            suffix,
+          }),
+        ).catch((error) => {
+          throw toApiStatusError(error)
         })
       } else if (step === 4) {
         const e = latestConfig.environment
         if (!e) throw new Error(t('managed.quickstart.errors.environmentConfigMissing'))
         const networking = e.networking as Record<string, unknown> | undefined
-        resp = await fetch(`${MANAGED_API_BASE}/environments`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            name: (e.name || 'quickstart-env') + suffix,
-            description: e.description || '',
-            config: {
-              type: 'cloud',
-              networking: {
-                type: networking?.type || 'limited',
-                allowed_hosts: (networking?.allowed_hosts as string[]) || [],
-              },
+        result = await managedPost('environments', {
+          name: (e.name || 'quickstart-env') + suffix,
+          description: e.description || '',
+          config: {
+            type: 'cloud',
+            networking: {
+              type: networking?.type || 'limited',
+              allowed_hosts: (networking?.allowed_hosts as string[]) || [],
             },
-          }),
+          },
+        }).catch((error) => {
+          throw toApiStatusError(error)
         })
       } else if (step === 5) {
         const v = latestConfig.vault
         if (!v) throw new Error(t('managed.quickstart.errors.vaultConfigMissing'))
-        resp = await fetch(`${MANAGED_API_BASE}/vaults`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            name: (v.name || 'quickstart-vault') + suffix,
-            description: v.description || '',
-          }),
+        result = await managedPost('vaults', {
+          name: (v.name || 'quickstart-vault') + suffix,
+          description: v.description || '',
+        }).catch((error) => {
+          throw toApiStatusError(error)
         })
       } else {
         throw new Error(t('managed.quickstart.errors.unexpectedStep', { step }))
       }
-
-      if (!resp.ok) {
-        const body = await resp.text()
-        throw new Error(`API ${resp.status}: ${body}`)
-      }
-
-      const result = await resp.json()
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       const createdResource = unwrapManagedResponse<Record<string, unknown>>(result)
       const createdAgent =
         step === 3
-          ? (
-              createdResource?.agent &&
-              typeof createdResource.agent === 'object'
-                ? createdResource.agent
-                : createdResource
-            ) as Record<string, unknown>
+          ? ((createdResource?.agent && typeof createdResource.agent === 'object'
+              ? createdResource.agent
+              : createdResource) as Record<string, unknown>)
           : null
       if (createdAgent?.model) {
         setConfig((prev) => ({
@@ -604,24 +681,42 @@ export function useQuickstartChat(
         resourceIdsRef.current = next
         return next
       })
+      if (step === 3 || step === 4 || step === 5) {
+        setCreatedResourceIds((prev) => new Set([...prev, resourceId]))
+      }
 
       setCompletedSteps((prev) => new Set([...prev, step]))
       setCurls((prev) => ({ ...prev, [step]: curl }))
       setPendingConfirmation(null)
     } catch (err) {
+      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       console.error(t('managed.quickstart.errors.createResourceFailed'), err)
       setMessages((prev) => [
         ...prev,
         {
           id: generateUUID(),
           role: 'assistant',
-          content: getOperationErrorMessage(t, err, 'managed.quickstart.errors.createResourceFailed'),
+          content: getOperationErrorMessage(
+            t,
+            err,
+            'managed.quickstart.errors.createResourceFailed',
+          ),
         },
       ])
     } finally {
-      setIsCreating(false)
+      if (isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) {
+        setIsCreating(false)
+      }
     }
-  }, [pendingConfirmation, isCreating, agentSecretRef, selectedEngine, t])
+  }, [
+    pendingConfirmation,
+    isCreating,
+    agentSecretRef,
+    selectedEngine,
+    isCurrentLifecycleRun,
+    isCurrentManagedScope,
+    t,
+  ])
 
   const keepRefining = useCallback(() => {
     setPendingConfirmation(null)
@@ -686,54 +781,56 @@ ${agentDesc ? `System prompt: ${agentDesc.slice(0, 300)}` : ''}
 ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
 
     try {
-      const response = await fetch(`${MANAGED_API_BASE}/quickstart/chat`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: prompt }],
-          current_step: 5,
-          provider: generationSecret?.provider ?? 'claude',
-          secret_ref: generationSecret?.secretRef ?? agentSecretRef,
-          agent_context: agent,
-        }),
+      const scopeAtStart = managedScopeRef.current
+      const response = await apiStream('quickstart/chat', {
+        messages: [{ role: 'user', content: prompt }],
+        current_step: 5,
+        provider: generationSecret?.provider ?? 'claude',
+        secret_ref: generationSecret?.secretRef ?? agentSecretRef,
+        agent_context: agent,
       })
-
-      if (!response.ok) {
-        return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
-      }
 
       const reader = response.body!.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
       let text = ''
 
+      const processLine = (line: string) => {
+        if (!line.startsWith('data:')) return
+        const data = line.slice(5).trim()
+        if (!data || data === '[DONE]') return
+        try {
+          const event = JSON.parse(data)
+          if (event.type === 'text_delta') text += event.text || ''
+        } catch {
+          /* ignore */
+        }
+      }
+
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          if (buffer.trim()) {
+            processLine(buffer)
+            buffer = ''
+          }
+          break
+        }
+        if (!isCurrentManagedScope(scopeAtStart)) {
+          return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
+        }
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
         for (const line of lines) {
-          if (!line.startsWith('data:')) continue
-          const data = line.slice(5).trim()
-          if (!data || data === '[DONE]') continue
-          try {
-            const event = JSON.parse(data)
-            if (event.type === 'text_delta') text += event.text || ''
-          } catch {
-            /* ignore */
-          }
+          processLine(line)
         }
       }
-      return (
-        text.trim() ||
-        t('managed.quickstart.trialRun.defaultPrompt', { agentName })
-      )
+      return text.trim() || t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     } catch {
       return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     }
-  }, [agentSecretRef, generationSecret, t])
+  }, [agentSecretRef, generationSecret, isCurrentManagedScope, t])
 
   return {
     messages,
@@ -743,6 +840,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     isStreaming,
     curls,
     resourceIds,
+    createdResourceIds,
     completedSteps,
     pendingConfirmation,
     isCreating,

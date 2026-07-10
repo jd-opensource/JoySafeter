@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
-import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+
 import { managedGet } from '@/lib/api-client'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 interface PageResult<T> {
   data: T[]
@@ -83,32 +85,48 @@ export function usePaginatedList<T extends { id?: string }>({
   includeArchived = false,
 }: UsePaginatedListOptions): UsePaginatedListResult<T> {
   const queryClient = useQueryClient()
+  const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const defaultPageSize = pageSizeOptions.includes(limit) ? limit : pageSizeOptions[0]
-  const [cursor, setCursor] = useState<string | undefined>(undefined)
-  const [cursorStack, setCursorStack] = useState<string[]>([])
   const [pageSize, setPageSizeState] = useState(defaultPageSize)
+  const effectivePageSize = pageSizeOptions.includes(pageSize) ? pageSize : defaultPageSize
+  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const listScope = `${queryKey}:${path}:${managedScope}:${includeArchived}:${effectivePageSize}`
+  const [cursorState, setCursorState] = useState<{
+    scope: string
+    cursor?: string
+    stack: string[]
+  }>({
+    scope: listScope,
+    cursor: undefined,
+    stack: [],
+  })
+  const cursor = cursorState.scope === listScope ? cursorState.cursor : undefined
+  const cursorStack = useMemo(
+    () => (cursorState.scope === listScope ? cursorState.stack : []),
+    [cursorState, listScope],
+  )
 
-  const fullKey = [queryKey, cursor, includeArchived, pageSize]
-
-  // Reset to first page when filters change
-  useEffect(() => {
-    setCursor(undefined)
-    setCursorStack([])
-  }, [includeArchived, pageSize])
-
-  useEffect(() => {
-    if (!pageSizeOptions.includes(pageSize)) {
-      setPageSizeState(defaultPageSize)
-      setCursor(undefined)
-      setCursorStack([])
-    }
-  }, [defaultPageSize, pageSize, pageSizeOptions])
+  const fullKey = [queryKey, managedScope, path, cursor, includeArchived, effectivePageSize]
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: fullKey,
-    queryFn: () => apiPage<T>(path, cursor, pageSize, includeArchived),
+    queryFn: () => apiPage<T>(path, cursor, effectivePageSize, includeArchived),
     enabled,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) => {
+      const previousKey = previousQuery?.queryKey
+      if (
+        Array.isArray(previousKey) &&
+        previousKey[0] === queryKey &&
+        previousKey[1] === managedScope &&
+        previousKey[2] === path &&
+        previousKey[4] === includeArchived &&
+        previousKey[5] === effectivePageSize
+      ) {
+        return previousData
+      }
+      return undefined
+    },
     staleTime: 30_000,
   })
 
@@ -117,27 +135,47 @@ export function usePaginatedList<T extends { id?: string }>({
   // Prefetch next page when current page has more
   useEffect(() => {
     if (page.has_more && page.last_id && enabled) {
-      const nextKey = [queryKey, page.last_id, includeArchived, pageSize]
+      const nextKey = [queryKey, managedScope, path, page.last_id, includeArchived, effectivePageSize]
       queryClient.prefetchQuery({
         queryKey: nextKey,
-        queryFn: () => apiPage<T>(path, page.last_id, pageSize, includeArchived),
+        queryFn: () => apiPage<T>(path, page.last_id, effectivePageSize, includeArchived),
         staleTime: 30_000,
       })
     }
-  }, [page.has_more, page.last_id, queryKey, path, pageSize, includeArchived, enabled, queryClient])
+  }, [
+    page.has_more,
+    page.last_id,
+    queryKey,
+    managedScope,
+    path,
+    effectivePageSize,
+    includeArchived,
+    enabled,
+    queryClient,
+  ])
 
   const goNext = useCallback(() => {
     if (page.last_id) {
-      setCursorStack((s) => [...s, cursor || ''])
-      setCursor(page.last_id)
+      setCursorState((state) => {
+        const stack = state.scope === listScope ? state.stack : []
+        const activeCursor = state.scope === listScope ? state.cursor : undefined
+        return {
+          scope: listScope,
+          cursor: page.last_id,
+          stack: [...stack, activeCursor || ''],
+        }
+      })
     }
-  }, [page.last_id, cursor])
+  }, [page.last_id, listScope])
 
   const goPrev = useCallback(() => {
     const prev = cursorStack[cursorStack.length - 1]
-    setCursorStack((s) => s.slice(0, -1))
-    setCursor(prev || undefined)
-  }, [cursorStack])
+    setCursorState((state) => ({
+      scope: listScope,
+      cursor: prev || undefined,
+      stack: state.scope === listScope ? state.stack.slice(0, -1) : [],
+    }))
+  }, [cursorStack, listScope])
 
   const goToPage = useCallback(
     (targetPage: number) => {
@@ -146,24 +184,24 @@ export function usePaginatedList<T extends { id?: string }>({
       if (targetPage < 1) return
       if (targetPage < currentPage) {
         const nextStack = cursorStack.slice(0, targetPage - 1)
-        const nextCursor = nextStack[nextStack.length - 1]
-        setCursorStack(nextStack)
-        setCursor(nextCursor || undefined)
+        const nextCursor = targetPage === 1 ? undefined : cursorStack[targetPage - 1]
+        setCursorState({
+          scope: listScope,
+          cursor: nextCursor || undefined,
+          stack: nextStack,
+        })
       }
     },
-    [cursorStack],
+    [cursorStack, listScope],
   )
 
   const setPageSize = useCallback((nextPageSize: number) => {
     setPageSizeState(nextPageSize)
-    setCursor(undefined)
-    setCursorStack([])
   }, [])
 
   const reset = useCallback(() => {
-    setCursor(undefined)
-    setCursorStack([])
-  }, [])
+    setCursorState({ scope: listScope, cursor: undefined, stack: [] })
+  }, [listScope])
 
   return {
     data: page.data,
@@ -174,7 +212,7 @@ export function usePaginatedList<T extends { id?: string }>({
     hasNext: page.has_more,
     hasPrev: cursorStack.length > 0,
     page: cursorStack.length + 1,
-    pageSize,
+    pageSize: effectivePageSize,
     pageSizeOptions,
     goNext,
     goPrev,
