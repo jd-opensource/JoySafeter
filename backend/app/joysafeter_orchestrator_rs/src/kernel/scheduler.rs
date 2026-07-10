@@ -13,7 +13,6 @@ use crate::db::queries;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::kernel::sandbox_resolver::SandboxResolver;
-use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::provider::SandboxProvider;
 
 /// Task scheduler — polls DB for pending tasks, resolves sandboxes, dispatches.
@@ -36,13 +35,11 @@ pub fn spawn_scheduler(
     queue: TaskQueue,
     bridge_registry: BridgeRegistry,
     provider: Arc<dyn SandboxProvider>,
-    envoy_manager: Option<Arc<EnvoyManager>>,
     config: JoySafeterConfig,
 ) -> JoinHandle<()> {
     let resolver = Arc::new(SandboxResolver::new(
         pool.clone(),
         provider,
-        envoy_manager,
         config.clone(),
     ));
     let scheduling_semaphore = Arc::new(Semaphore::new(config.max_scheduling_tasks));

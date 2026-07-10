@@ -13,7 +13,6 @@ use crate::config::JoySafeterConfig;
 use crate::db::models::JoySafeterAgent;
 use crate::db::queries;
 use crate::kernel::harness_input_builder::VaultCipher;
-use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::lds_backend::{GitEgress, LlmEgress, McpEgress, SandboxCredentials};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
@@ -30,7 +29,6 @@ const CODEX_PLACEHOLDER_OPENAI_API_KEY: &str = "joysafeter-placeholder-openai-ap
 pub struct SandboxResolver {
     pool: PgPool,
     provider: Arc<dyn SandboxProvider>,
-    envoy_manager: Option<Arc<EnvoyManager>>,
     config: JoySafeterConfig,
     /// Per-session locks to prevent concurrent resolution
     session_locks: dashmap::DashMap<Uuid, Arc<tokio::sync::Mutex<()>>>,
@@ -40,13 +38,11 @@ impl SandboxResolver {
     pub fn new(
         pool: PgPool,
         provider: Arc<dyn SandboxProvider>,
-        envoy_manager: Option<Arc<EnvoyManager>>,
         config: JoySafeterConfig,
     ) -> Self {
         Self {
             pool,
             provider,
-            envoy_manager,
             config,
             session_locks: dashmap::DashMap::new(),
         }
@@ -347,10 +343,7 @@ impl SandboxResolver {
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
 
-        let grpc_url =
-            self.config.grpc_public_url.clone().unwrap_or_else(|| {
-                format!("http://host.docker.internal:{}", self.config.grpc_port)
-            });
+        let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());
 
         let mut labels = HashMap::new();
@@ -384,14 +377,16 @@ impl SandboxResolver {
         };
 
         if create_config.network.as_deref() == Some("none") {
-            let Some(ref envoy) = self.envoy_manager else {
+            if !self.provider.capabilities().has_egress_management {
                 anyhow::bail!(
-                    "limited sandbox networking requires Envoy, but Envoy is not enabled or not initialized"
+                    "limited sandbox networking requires egress management, but provider does not support it"
                 );
-            };
-            envoy
-                .setup_for_sandbox(
+            }
+            let external_id = format!("joysafeter-{}", sandbox_db_id);
+            self.provider
+                .setup_networking(
                     sandbox_db_id,
+                    &external_id,
                     context.networking.as_ref(),
                     context.credentials.clone(),
                 )
@@ -1119,10 +1114,7 @@ impl SandboxResolver {
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        if let Some(ref envoy) = self.envoy_manager {
-            envoy.teardown_for_sandbox(sandbox_id).await?;
-        }
-        Ok(())
+        self.provider.teardown_networking(sandbox_id).await
     }
 
     async fn mark_pool_claimed(
@@ -1164,10 +1156,7 @@ impl SandboxResolver {
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
 
-        let grpc_url =
-            self.config.grpc_public_url.clone().unwrap_or_else(|| {
-                format!("http://host.docker.internal:{}", self.config.grpc_port)
-            });
+        let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());
 
         let create_config = SandboxCreateConfig {
