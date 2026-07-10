@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -26,8 +26,6 @@ pub struct SandboxBridge {
     /// HITL confirmation receiver.
     pub confirmation_rx: Mutex<watch::Receiver<bool>>,
     /// Cancel signal — resettable per-task.
-    /// Use `current_cancel_token()` to get the active token; `request_cancel()`
-    /// triggers it; `reset_cancel()` creates a fresh token for the next task.
     task_cancel: Mutex<tokio_util::sync::CancellationToken>,
     /// HITL control input queue.
     pub control_tx: mpsc::Sender<String>,
@@ -36,6 +34,9 @@ pub struct SandboxBridge {
     pub requires_action_pending: AtomicBool,
     /// Whether SetupSandbox has been sent.
     pub setup_done: AtomicBool,
+    /// Set to true when this bridge has been replaced by a reconnecting runner.
+    /// The old connection's multi_task_loop should check this and exit.
+    pub displaced: AtomicBool,
     /// Runner capabilities from RunnerReady.
     pub runner_capabilities: Mutex<Vec<String>>,
     /// Signature of session file resources already injected into this sandbox.
@@ -67,6 +68,7 @@ impl SandboxBridge {
             control_rx: Mutex::new(control_rx),
             requires_action_pending: AtomicBool::new(false),
             setup_done: AtomicBool::new(false),
+            displaced: AtomicBool::new(false),
             runner_capabilities: Mutex::new(Vec::new()),
             injected_session_files_signature: Mutex::new(None),
             last_error: Mutex::new(None),
@@ -169,9 +171,12 @@ impl BridgeRegistry {
 
     /// Register a new sandbox bridge.
     pub fn register(&self, external_id: String, bridge: Arc<SandboxBridge>) {
-        // Fix 3.1: if old bridge exists, cancel current task to prevent double-session
+        // If old bridge exists, mark it displaced and cancel its current task.
+        // The old connection's multi_task_loop checks `displaced` and exits.
         if let Some(old) = self.bridges.get(&external_id) {
-            // Cancel the old bridge's current task synchronously via try_lock
+            old.displaced.store(true, Ordering::Release);
+            // Best-effort cancel — try_lock may fail if task is mid-reset,
+            // but `displaced` flag ensures the old loop exits regardless.
             if let Ok(token) = old.task_cancel.try_lock() {
                 token.cancel();
             }

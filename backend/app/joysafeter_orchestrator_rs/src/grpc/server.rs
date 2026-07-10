@@ -167,9 +167,14 @@ impl AgentBridge for AgentBridgeService {
                     .and_then(|c| c.get("runner_token"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let runner_token = ready.runner_token.as_deref().unwrap_or("");
 
-                if !expected_token.is_empty() && !runner_token.is_empty() {
+                if !expected_token.is_empty() {
+                    let runner_token = ready.runner_token.as_deref().unwrap_or("");
+                    if runner_token.is_empty() {
+                        warn!(sandbox_id = %sandbox_db_id, "Runner connected without token, rejecting");
+                        send_shutdown(&tx, "authentication required: missing runner token".to_string()).await;
+                        return;
+                    }
                     // Constant-time comparison (#29: Python uses hmac.compare_digest)
                     use subtle::ConstantTimeEq;
                     if expected_token
@@ -179,10 +184,9 @@ impl AgentBridge for AgentBridgeService {
                         == 0
                     {
                         warn!(sandbox_id = %sandbox_db_id, "Runner token mismatch, rejecting");
+                        send_shutdown(&tx, "authentication failed: invalid runner token".to_string()).await;
                         return;
                     }
-                } else if !expected_token.is_empty() && runner_token.is_empty() {
-                    warn!(sandbox_id = %sandbox_db_id, "Legacy runner without token, allowing");
                 }
 
                 // Reject terminal sandboxes
@@ -399,6 +403,13 @@ async fn multi_task_loop(
     info!(sandbox_id = %sandbox_external_id, "Entering multi-task loop");
 
     loop {
+        // Check if this bridge was displaced by a reconnecting runner.
+        // If so, exit immediately — the new connection takes over.
+        if bridge.displaced.load(std::sync::atomic::Ordering::Acquire) {
+            info!(sandbox_id = %sandbox_external_id, "Bridge displaced by reconnect, exiting multi-task loop");
+            return false;
+        }
+
         // Try to claim a task from DB
         let task_id = match queries::claim_next_sandbox_task(pool, sandbox_db_id).await {
             Ok(Some(task)) => Some(task.id),
@@ -829,7 +840,15 @@ async fn run_single_task(
             }
 
             // #18: Heartbeat timeout — flush + failover_or_fail (Python L1367-1383)
+            // Skip heartbeat timeout during HITL pause — runner is idle waiting
+            // for user input and may legitimately stop heartbeating.
             _ = tokio::time::sleep_until(heartbeat_deadline) => {
+                if requires_action_pending {
+                    // HITL active: runner is waiting for user, not dead.
+                    // Reset heartbeat deadline and keep waiting.
+                    heartbeat_deadline = Instant::now() + heartbeat_timeout;
+                    continue;
+                }
                 warn!(task_id = %task_id, "Heartbeat timeout during task");
                 event_bus.flush().await;
                 failover_or_fail_inline(pool, task_id, session_id, "Heartbeat timeout — sandbox unresponsive").await;
@@ -839,6 +858,12 @@ async fn run_single_task(
 
             // Incoming message from runner
             msg = inbound.message() => {
+                // Check displaced before processing — a reconnect may have
+                // replaced this bridge while we were waiting for a message.
+                if bridge.displaced.load(std::sync::atomic::Ordering::Acquire) {
+                    info!(task_id = %task_id, "Bridge displaced during task, aborting");
+                    return TaskResult::Disconnected;
+                }
                 match msg {
                     Ok(Some(runner_msg)) => {
                         heartbeat_deadline = Instant::now() + heartbeat_timeout;
