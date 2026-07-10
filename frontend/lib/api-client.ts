@@ -24,6 +24,7 @@
 import { env as runtimeEnv } from 'next-runtime-env'
 
 import { getCsrfToken, setCsrfToken } from '@/lib/auth/csrf'
+import { publishRefreshCompleted } from '@/lib/auth/session-events'
 import { trimConfigStringFields } from '@/lib/utils/url-trim'
 import { useProjectStore } from '@/stores/managed/project-store'
 
@@ -275,7 +276,6 @@ async function parseResponse<T>(response: Response): Promise<T> {
 // ==================== Token Refresh ====================
 let isRefreshing = false
 let refreshPromise: Promise<void> | null = null
-const AUTH_SESSION_CHANGE_KEY = 'auth_session_change'
 const AUTH_REFRESH_LOCK_KEY = 'auth_refresh_lock'
 const AUTH_REFRESHED_AT_KEY = 'auth_refresh_completed_at'
 const AUTH_REFRESH_LOCK_TTL_MS = 15_000
@@ -343,18 +343,6 @@ function getLastRefreshCompletedAt(): number {
     return Number(localStorage.getItem(AUTH_REFRESHED_AT_KEY) || 0)
   } catch {
     return 0
-  }
-}
-
-function publishRefreshCompleted(): void {
-  if (typeof window === 'undefined') return
-  try {
-    const timestamp = Date.now()
-    localStorage.setItem(AUTH_REFRESHED_AT_KEY, String(timestamp))
-    localStorage.setItem(AUTH_SESSION_CHANGE_KEY, JSON.stringify({ type: 'refresh', timestamp }))
-    setTimeout(() => localStorage.removeItem(AUTH_SESSION_CHANGE_KEY), 100)
-  } catch {
-    /* ignore */
   }
 }
 
@@ -448,7 +436,7 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
       } catch {
         /* refresh response without JSON body */
       }
-      publishRefreshCompleted()
+      publishRefreshCompleted(AUTH_REFRESHED_AT_KEY)
     } catch (error) {
       clearTimeout(timeoutId)
       if (error instanceof Error && error.name === 'AbortError') {
@@ -499,9 +487,12 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
       headers['X-CSRF-Token'] = csrfToken
     }
     if (!skipManagedContext) {
-      const projectId = useProjectStore.getState().currentProjectId
-      if (projectId && !headers['X-Project-Id']) {
-        headers['X-Project-Id'] = projectId
+      const { currentOrgId, currentProjectId } = useProjectStore.getState()
+      if (currentOrgId && !headers['X-Org-Id']) {
+        headers['X-Org-Id'] = currentOrgId
+      }
+      if (currentProjectId && !headers['X-Project-Id']) {
+        headers['X-Project-Id'] = currentProjectId
       }
     }
   }

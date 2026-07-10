@@ -24,6 +24,7 @@ interface ProjectState {
   setCurrentOrg: (orgId: string) => void
   setCurrentProject: (projectId: string) => void
   setContext: (orgId: string, projectId: string, orgs: OrgInfo[], projects: ProjectInfo[]) => void
+  clearContext: () => void
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -41,6 +42,13 @@ export const useProjectStore = create<ProjectState>()(
           currentProjectId: projectId,
           organizations: orgs,
           projects,
+        }),
+      clearContext: () =>
+        set({
+          currentOrgId: null,
+          currentProjectId: null,
+          organizations: [],
+          projects: [],
         }),
     }),
     {

@@ -15,7 +15,8 @@ import {
 } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 
-import { setCsrfToken, getCsrfToken, clearCsrfToken } from './csrf'
+import { setCsrfToken, clearCsrfToken } from './csrf'
+import { notifySessionChange, onSessionChange, type SessionChangeType } from './session-events'
 
 const logger = createLogger('AuthAPI')
 
@@ -65,45 +66,7 @@ export interface SessionResponse {
 export { ApiError as AuthError }
 
 // ==================== Session Management ====================
-const SESSION_CHANGE_KEY = 'auth_session_change'
-type SessionChangeType = 'signin' | 'logout' | 'refresh'
-const sessionChangeListeners = new Set<(type: SessionChangeType) => void>()
-
-function notifySessionChange(type: SessionChangeType): void {
-  if (typeof window === 'undefined') return
-  sessionChangeListeners.forEach((listener) => {
-    listener(type)
-  })
-  try {
-    const event = { type, timestamp: Date.now() }
-    localStorage.setItem(SESSION_CHANGE_KEY, JSON.stringify(event))
-    setTimeout(() => localStorage.removeItem(SESSION_CHANGE_KEY), 100)
-  } catch (e) {
-    console.warn('Failed to notify session change:', e)
-  }
-}
-
-export function onSessionChange(callback: (type: SessionChangeType) => void): () => void {
-  if (typeof window === 'undefined') return () => {}
-  sessionChangeListeners.add(callback)
-
-  const handler = (e: StorageEvent) => {
-    if (e.key === SESSION_CHANGE_KEY && e.newValue) {
-      try {
-        const event = JSON.parse(e.newValue)
-        callback(event.type)
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  window.addEventListener('storage', handler)
-  return () => {
-    sessionChangeListeners.delete(callback)
-    window.removeEventListener('storage', handler)
-  }
-}
+export { onSessionChange, type SessionChangeType }
 
 // ==================== Utility Functions ====================
 function hashPassword(password: string): string {
@@ -206,7 +169,6 @@ export const authApi = {
 
   async refreshToken(): Promise<void> {
     await refreshAccessTokenOrRelogin()
-    notifySessionChange('refresh')
   },
 
   async forgetPassword(params: { email: string; redirectTo?: string }): Promise<void> {

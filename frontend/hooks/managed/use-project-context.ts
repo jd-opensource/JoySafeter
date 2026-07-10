@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState, useCallback } from 'react'
+
 import { managedGet, managedPost } from '@/lib/api-client'
 import { parseApiError } from '@/lib/managed/errors'
+import { clearNonSessionQueryData } from '@/lib/query-client-lifecycle'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
 
@@ -48,21 +50,26 @@ async function loadAuthContext(): Promise<AuthMeResponse> {
 export function useProjectContext() {
   const [isLoading, setIsLoading] = useState(true)
   const queryClient = useQueryClient()
+  const contextLoadSeqRef = useRef(0)
+  const switchRequestSeqRef = useRef(0)
   const { currentOrgId, currentProjectId, organizations, projects, setContext } = useProjectStore()
 
   useEffect(() => {
     let cancelled = false
+    const loadSeq = contextLoadSeqRef.current
 
     const loadContext = async () => {
       try {
         const data = await loadAuthContext()
-        if (cancelled) return
+        if (cancelled || loadSeq !== contextLoadSeqRef.current) return
 
         setContext(data.organization.id, data.project.id, data.organizations, data.projects)
       } catch (err) {
-        console.error('Failed to load project context:', err)
+        if (loadSeq === contextLoadSeqRef.current) {
+          console.error('Failed to load project context:', err)
+        }
       } finally {
-        if (!cancelled) setIsLoading(false)
+        if (!cancelled && loadSeq === contextLoadSeqRef.current) setIsLoading(false)
       }
     }
 
@@ -75,6 +82,7 @@ export function useProjectContext() {
 
   const switchProject = useCallback(
     async (projectId: string, orgId?: string) => {
+      const requestSeq = (switchRequestSeqRef.current += 1)
       try {
         const data = await managedPost<SwitchContextResponse>(
           '/auth/switch-context',
@@ -87,13 +95,16 @@ export function useProjectContext() {
             headers: orgId ? { 'X-Org-Id': orgId } : undefined,
           },
         )
+        if (requestSeq !== switchRequestSeqRef.current) return
+        contextLoadSeqRef.current += 1
         setContext(
           data.org_id || orgId || currentOrgId || '',
           data.project.id,
           organizations,
           data.projects,
         )
-        queryClient.invalidateQueries()
+        setIsLoading(false)
+        clearNonSessionQueryData(queryClient)
       } catch (err) {
         console.error('Failed to switch project:', err)
         throw err
