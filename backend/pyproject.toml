@@ -53,6 +53,8 @@ dependencies = [
     "rich>=13.7.0",
     "python-frontmatter>=1.1.0",
     "markdownify>=0.11.6",
+    # Scheduler (cron parsing); timezone handling uses stdlib zoneinfo
+    "croniter>=3.0",
     # Email
     "aiosmtplib>=3.0.0",
     # Caching

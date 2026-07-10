@@ -75,6 +75,10 @@ class JoySafeterTask(JoySafeterBaseModel):
             "lease_expires_at",
             postgresql_where=text("status = 'running'"),
         ),
+        # Back-reference to the schedule that fired this task (NULL for
+        # interactive tasks). Backs the schedule run-history query and the
+        # concurrency-policy "is a prior fire still active?" check.
+        Index("idx_ct_schedule", "schedule_id"),
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
@@ -115,3 +119,12 @@ class JoySafeterTask(JoySafeterBaseModel):
     owner_instance_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     owner_epoch: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # Set when this task was created by a schedule fire; NULL for interactive
+    # tasks. Not FK-cascade-critical, but constrained so run-history joins are
+    # sound. ON DELETE SET NULL keeps a task's audit record if its schedule is
+    # deleted.
+    schedule_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_schedules.id", ondelete="SET NULL"),
+        nullable=True,
+    )

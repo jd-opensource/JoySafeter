@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
 from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-from app.joysafeter_api.services import SessionService, enqueue_joysafeter_task
+from app.joysafeter_api.services import SessionService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
@@ -515,88 +515,23 @@ async def create_task(
 
     assert session_svc is not None
 
-    svc = TaskService(db)
-    task = await svc.create_task(
+    from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
+
+    submission = TaskSubmissionService(db)
+    task, _created = await submission.create_and_dispatch(
         agent_id=agent.id,
         prompt=req.prompt,
         system_prompt=req.system_prompt,
         chat_session_id=chat_session_id,
+        session_svc=session_svc,
         timeout_sec=req.timeout_sec,
         max_retries=req.max_retries,
         project_id=auth_ctx.project_id,
-        idempotency_key=idempotency_key,
         user_id=auth_ctx.user_id,
         org_id=auth_ctx.org_id,
+        idempotency_key=idempotency_key,
+        auto_created_session_id=auto_created_session_id,
     )
-
-    task_created = bool(getattr(task, "_created_by_create_task", True))
-    if not task_created:
-        if auto_created_session_id is not None and task.chat_session_id != auto_created_session_id:
-            try:
-                await SessionService(db).delete_session(auto_created_session_id)
-            except Exception as exc:
-                log_boundary_failure(
-                    logger,
-                    boundary="task_api",
-                    code="TASK_IDEMPOTENCY_ORPHAN_SESSION_DELETE_FAILED",
-                    message="Failed to delete orphan idempotency session",
-                    operation="delete_orphan_idempotency_session",
-                    error=exc,
-                    data={"session_id": str(auto_created_session_id), "task_id": str(task.id)},
-                )
-        elif auto_created_session_id is None and task.chat_session_id != chat_session_id:
-            raise _task_idempotency_conflict_error(
-                existing=task,
-                field="chat_session_id",
-                message="Idempotency-Key was already used for a different session",
-                requested_value=chat_session_id,
-                existing_value=task.chat_session_id,
-            )
-
-        if task.status == "failed" and "Failed to enqueue task" in (task.error or ""):
-            raise _task_enqueue_failed_error(task_id=task.id, session_id=task.chat_session_id)
-        return CreateTaskResponse(id=task.id, status=task.status)
-
-    try:
-        running_accepted = await session_svc.update_session_status_for_task_event(chat_session_id, "running", task.id)
-        if not running_accepted:
-            raise RuntimeError("Session already has another active task")
-        await session_svc.send_event(
-            chat_session_id,
-            "session.status_running",
-            {"task_id": str(task.id)},
-        )
-        await enqueue_joysafeter_task(task.id)
-    except Exception as exc:
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
-
-        await svc.update_task_error(
-            task.id,
-            f"Failed to enqueue task: {exc}",
-            JoySafeterTaskStatus.FAILED,
-        )
-        stop_reason = _task_enqueue_failed_stop_reason(task_id=task.id, session_id=chat_session_id)
-        try:
-            idle_accepted = await session_svc.update_session_status_for_task_event(
-                chat_session_id,
-                "idle",
-                task.id,
-                stop_reason=stop_reason,
-            )
-            if idle_accepted:
-                await session_svc.send_event(
-                    chat_session_id,
-                    "session.status_idle",
-                    {"task_id": str(task.id), "stop_reason": stop_reason},
-                )
-        except Exception:
-            logger.debug(
-                "Could not compensate session %s to idle after direct task dispatch failure",
-                chat_session_id,
-                exc_info=True,
-            )
-        raise _task_enqueue_failed_error(task_id=task.id, session_id=chat_session_id)
-
     return CreateTaskResponse(id=task.id, status=task.status)
 
 

@@ -236,6 +236,30 @@ class Settings(BaseSettings):
         "A project may override this via its max_concurrent_tasks column.",
     )
 
+    # Scheduler (cron-driven task trigger; runs inside the worker service)
+
+    scheduler_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SCHEDULER_ENABLED"),
+        description="Whether the worker runs the cron scheduler poll loop.",
+    )
+    scheduler_poll_interval_sec: int = Field(
+        default=15,
+        validation_alias=AliasChoices("SCHEDULER_POLL_INTERVAL_SEC"),
+        description="Seconds between scheduler poll ticks.",
+    )
+    scheduler_claim_batch: int = Field(
+        default=50,
+        validation_alias=AliasChoices("SCHEDULER_CLAIM_BATCH"),
+        description="Max due schedules claimed per tick (FOR UPDATE SKIP LOCKED batch size).",
+    )
+    scheduler_lock_grace_sec: int = Field(
+        default=120,
+        validation_alias=AliasChoices("SCHEDULER_LOCK_GRACE_SEC"),
+        description="Seconds after which a claimed-but-unreleased schedule lock is considered stale "
+        "and reclaimable by another worker (crash recovery).",
+    )
+
     # Auth
 
     secret_key: str = Field(

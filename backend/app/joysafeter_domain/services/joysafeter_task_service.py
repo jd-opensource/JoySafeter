@@ -54,6 +54,7 @@ class JoySafeterTaskService:
         idempotency_key: Optional[str] = None,
         user_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        schedule_id: Optional[uuid.UUID] = None,
     ) -> JoySafeterTask:
         values: dict[str, Any] = dict(
             agent_id=agent_id,
@@ -70,6 +71,8 @@ class JoySafeterTaskService:
             values["user_id"] = user_id
         if org_id is not None:
             values["org_id"] = org_id
+        if schedule_id is not None:
+            values["schedule_id"] = schedule_id
 
         if idempotency_key is None:
             task = JoySafeterTask(**values)

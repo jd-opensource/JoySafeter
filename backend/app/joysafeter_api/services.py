@@ -6,8 +6,6 @@ implementations are exposed through app.joysafeter_domain.services.
 
 from __future__ import annotations
 
-import uuid
-
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService, _split_packed_items
 from app.joysafeter_domain.services.joysafeter_api_key_service import ApiKeyService
 from app.joysafeter_domain.services.joysafeter_auth_service import (
@@ -39,16 +37,11 @@ from app.joysafeter_domain.services.joysafeter_skill_service import (
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
 
-
-async def enqueue_joysafeter_task(task_id: uuid.UUID) -> None:
-    """Enqueue a task for the Rust orchestrator scheduler."""
-    from app.joysafeter_shared.cache.redis import RedisClient
-
-    redis = RedisClient.get_client()
-    if redis is None:
-        raise RuntimeError("Redis unavailable; cannot enqueue task to global queue")
-    await redis.rpush("joysafeter:global_queue", str(task_id))
-
+# Canonical enqueue lives in the shared layer so every submitter (this API, the
+# session follow-up path, and the scheduler) shares one definition and cannot
+# drift from the orchestrator's queue contract. Re-exported here to preserve the
+# historical `from app.joysafeter_api.services import enqueue_joysafeter_task`.
+from app.joysafeter_shared.orchestrator_bridge.enqueue import enqueue_joysafeter_task
 
 __all__ = [
     "ApiKeyService",
