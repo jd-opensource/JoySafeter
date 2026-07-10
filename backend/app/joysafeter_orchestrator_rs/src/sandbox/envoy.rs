@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bollard::Docker;
 use serde_json::json;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::lds_backend::{
@@ -236,6 +236,14 @@ impl EnvoyManager {
             .exec_in_envoy(&format!("ls -la {socket_dir} 2>&1 || true"))
             .await
             .unwrap_or_else(|e| format!("failed to inspect socket dir: {e}"));
+        // M7 fix: Clean up the listener and cluster resources we already pushed
+        // to Envoy. Without this, a timeout leaves stale config pointing at
+        // sockets that never materialized.
+        warn!(
+            sandbox_id = %sandbox_id,
+            "Envoy socket timeout, cleaning up pushed listener/cluster config"
+        );
+        let _ = self.remove_sandbox(sandbox_id).await;
         anyhow::bail!(
             "timed out waiting for Envoy sockets for sandbox {sandbox_id}; socket dir state: {socket_state}"
         )

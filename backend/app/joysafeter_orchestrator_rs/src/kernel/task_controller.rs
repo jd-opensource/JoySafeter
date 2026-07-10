@@ -2,14 +2,12 @@ use std::time::Duration;
 
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
 use crate::kernel::queue::TaskQueue;
-use crate::kernel::sandbox_bridge::BridgeRegistry;
 
 /// Task lifecycle watchdog with full Python parity.
 ///
@@ -24,21 +22,14 @@ pub struct TaskController {
     pool: PgPool,
     queue: TaskQueue,
     config: JoySafeterConfig,
-    bridge_registry: BridgeRegistry,
 }
 
 impl TaskController {
-    pub fn new(
-        pool: PgPool,
-        queue: TaskQueue,
-        config: JoySafeterConfig,
-        bridge_registry: BridgeRegistry,
-    ) -> Self {
+    pub fn new(pool: PgPool, queue: TaskQueue, config: JoySafeterConfig) -> Self {
         Self {
             pool,
             queue,
             config,
-            bridge_registry,
         }
     }
 
@@ -90,9 +81,7 @@ impl TaskController {
             // DB pending tasks are the durable source of truth; enqueue all on startup.
             let pending_tasks = queries::find_pending_tasks(&self.pool, 500).await?;
             for (task_id,) in &pending_tasks {
-                if let Err(e) = self.queue.push_to_global(*task_id).await {
-                    error!(task_id = %task_id, "Failed to enqueue pending task during startup recovery: {e}");
-                }
+                self.queue.push_to_global(*task_id).await;
             }
 
             // Scheduling tasks -> pending (unconditional, retry increment), matching Python.
@@ -101,16 +90,17 @@ impl TaskController {
                     .fetch_all(&self.pool)
                     .await?;
             for (task_id,) in &scheduling_tasks {
-                let _ = queries::increment_retry(&self.pool, *task_id).await;
+                let _ = queries::increment_retry(&self.pool, *task_id, None).await;
                 // T9 fix: push to global queue so they don't wait 60s for scan
-                if let Err(e) = self.queue.push_to_global(*task_id).await {
-                    error!(task_id = %task_id, "Failed to enqueue reset scheduling task during startup recovery: {e}");
-                }
+                self.queue.push_to_global(*task_id).await;
             }
 
-            // Provisioning sandboxes: allow enough time for remote providers
-            // and queued setup work before declaring the sandbox stale.
-            let provisioning_minutes: i32 = 45;
+            // Provisioning sandboxes: 45min with Redis configured, 20min without.
+            let provisioning_minutes: i32 = if self.config.redis_url.is_some() {
+                45
+            } else {
+                20
+            };
             let stale_provisioning: Vec<(Uuid,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM joysafeter_sandboxes
@@ -206,122 +196,26 @@ impl TaskController {
     /// Spawn the periodic check loop.
     pub fn spawn(self) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let lease_renew_interval = Duration::from_secs(
-                self.config
-                    .task_lease_renew_interval_sec
-                    .clamp(1, self.config.task_lease_ttl_sec.max(1)),
-            );
-            let watchdog_interval = Duration::from_secs(60);
-            let mut next_watchdog = Instant::now();
-            info!(
-                lease_renew_interval_sec = lease_renew_interval.as_secs(),
-                "TaskController check loop started"
-            );
+            let interval = Duration::from_secs(60);
+            info!("TaskController check loop started (interval=60s)");
 
             loop {
-                tokio::time::sleep(lease_renew_interval).await;
+                tokio::time::sleep(interval).await;
 
-                let active_task_ids = self.active_task_ids().await;
-                if !active_task_ids.is_empty() {
-                    match queries::renew_running_task_leases(
-                        &self.pool,
-                        &self.config.instance_id,
-                        self.config.task_lease_ttl_sec as i64,
-                        &active_task_ids,
-                    )
-                    .await
-                    {
-                        Ok(count) if count > 0 => {
-                            debug!(count, "Renewed running task leases");
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            error!("Running task lease renewal failed: {e}");
-                        }
-                    }
+                if let Err(e) = self.check_overdue_tasks().await {
+                    error!("Overdue task check failed: {e}");
                 }
 
-                if let Err(e) = self.check_lease_expired_tasks().await {
-                    error!("Lease-expired task check failed: {e}");
+                if let Err(e) = self.check_stuck_scheduling().await {
+                    error!("Stuck scheduling check failed: {e}");
                 }
 
-                if Instant::now() >= next_watchdog {
-                    if let Err(e) = self.check_overdue_tasks().await {
-                        error!("Overdue task check failed: {e}");
-                    }
-
-                    if let Err(e) = self.check_stuck_scheduling().await {
-                        error!("Stuck scheduling check failed: {e}");
-                    }
-
-                    // #14: Periodic scan_pending_tasks (Python L247-271)
-                    if let Err(e) = self.scan_pending_tasks().await {
-                        error!("Scan pending tasks failed: {e}");
-                    }
-                    next_watchdog = Instant::now() + watchdog_interval;
+                // #14: Periodic scan_pending_tasks (Python L247-271)
+                if let Err(e) = self.scan_pending_tasks().await {
+                    error!("Scan pending tasks failed: {e}");
                 }
             }
         })
-    }
-
-    async fn active_task_ids(&self) -> Vec<Uuid> {
-        let mut ids = Vec::new();
-        for bridge in self.bridge_registry.all_bridges() {
-            if let Some(task_id) = *bridge.current_task_id.lock().await {
-                ids.push(task_id);
-            }
-        }
-        ids.sort_unstable();
-        ids.dedup();
-        ids
-    }
-
-    /// Reclaim running tasks whose owner stopped renewing its DB lease.
-    async fn check_lease_expired_tasks(&self) -> anyhow::Result<()> {
-        let expired = queries::find_lease_expired_running_tasks(&self.pool, 20).await?;
-
-        for (task_id, session_id, retry_count, max_retries) in &expired {
-            if *retry_count >= *max_retries {
-                warn!(task_id = %task_id, "Running task lease expired past max_retries, marking failed");
-                let failed = queries::fail_lease_expired_task(
-                    &self.pool,
-                    *task_id,
-                    "task owner lease expired after max retries",
-                )
-                .await
-                .unwrap_or(false);
-                if failed {
-                    if let Some(sid) = session_id {
-                        let _ = queries::update_session_status(
-                            &self.pool,
-                            *sid,
-                            "idle",
-                            Some(&serde_json::json!({"type":"error","message":"task owner lease expired"})),
-                        )
-                        .await;
-                    }
-                }
-            } else {
-                warn!(task_id = %task_id, "Running task owner lease expired, retrying");
-                if queries::retry_lease_expired_task(&self.pool, *task_id)
-                    .await
-                    .unwrap_or(false)
-                {
-                    if let Err(e) = self.queue.push_to_global(*task_id).await {
-                        error!(task_id = %task_id, "Failed to enqueue lease-expired task: {e}");
-                    }
-                }
-            }
-        }
-
-        if !expired.is_empty() {
-            info!(
-                count = expired.len(),
-                "Processed lease-expired running tasks"
-            );
-        }
-
-        Ok(())
     }
 
     /// Detect tasks that have exceeded their timeout while running.
@@ -424,10 +318,8 @@ impl TaskController {
                 .await;
             } else {
                 warn!(task_id = %task_id, "Task stuck in scheduling (>2min), resetting to pending");
-                let _ = queries::increment_retry(&self.pool, *task_id).await;
-                if let Err(e) = self.queue.push_to_global(*task_id).await {
-                    error!(task_id = %task_id, "Failed to enqueue reset stuck scheduling task: {e}");
-                }
+                let _ = queries::increment_retry(&self.pool, *task_id, None).await;
+                self.queue.push_to_global(*task_id).await;
             }
         }
 
@@ -460,12 +352,98 @@ impl TaskController {
         tx.commit().await?;
 
         for (task_id,) in &tasks {
-            if let Err(e) = self.queue.push_to_global(*task_id).await {
-                error!(task_id = %task_id, "Failed to enqueue scanned pending task: {e}");
-            }
+            self.queue.push_to_global(*task_id).await;
         }
         if !tasks.is_empty() {
             debug!("Scanned and re-enqueued {} pending tasks", tasks.len());
+        }
+
+        Ok(())
+    }
+    pub fn compute_retry_delay(&self, retry_count: u32) -> Duration {
+        let base_ms = self.config.task_retry_base_ms;
+        let max_ms = self.config.task_retry_max_ms;
+        // T12 fix: prevent overflow for large retry_count (cap exponent to 63)
+        let exp = retry_count.min(63);
+        let delay_ms = base_ms.saturating_mul(1u64 << exp).min(max_ms);
+        Duration::from_millis(delay_ms)
+    }
+
+    /// Retry or fail a task based on retry count.
+    /// Checks agent output first — if task produced output, mark completed instead.
+    pub async fn failover_or_fail_task(
+        &self,
+        task_id: Uuid,
+        error_msg: &str,
+    ) -> anyhow::Result<()> {
+        let task = queries::get_task(&self.pool, task_id).await?;
+        let task = match task {
+            Some(t) => t,
+            None => return Ok(()),
+        };
+
+        // Guard: skip if already terminal
+        if let Some(status) = crate::db::models::TaskStatus::from_str(&task.status) {
+            if status.is_terminal() {
+                return Ok(());
+            }
+        }
+
+        // Check if task produced agent output — if so, mark completed + session idle (#15)
+        if let Some(sid) = task.session_id {
+            if queries::task_has_agent_output(&self.pool, task_id, sid)
+                .await
+                .unwrap_or(false)
+            {
+                let _ = queries::transition_task(&self.pool, task_id, "completed", None).await;
+                // #15: Also transition session to idle (Python L308-318)
+                let _ = queries::update_session_status(
+                    &self.pool,
+                    sid,
+                    "idle",
+                    Some(&serde_json::json!({"type":"end_turn"})),
+                )
+                .await;
+                info!(task_id = %task_id, "Task had agent output, marking completed + session idle");
+                return Ok(());
+            }
+        }
+
+        let max_retries = task.max_retries as u32;
+        let current_retries = task.retry_count as u32;
+
+        if current_retries < max_retries {
+            // CAS retry: only increment if status and retry_count match
+            let result = sqlx::query(
+                r#"
+                UPDATE joysafeter_tasks
+                SET status = 'pending', sandbox_id = NULL,
+                    retry_count = retry_count + 1, updated_at = NOW()
+                WHERE id = $1 AND retry_count = $2
+                  AND status NOT IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled')
+                "#,
+            )
+            .bind(task_id)
+            .bind(task.retry_count)
+            .execute(&self.pool)
+            .await?;
+
+            if result.rows_affected() > 0 {
+                info!(
+                    task_id = %task_id,
+                    retry = current_retries + 1,
+                    max_retries = max_retries,
+                    "Task will be retried"
+                );
+            } else {
+                warn!(task_id = %task_id, "CAS conflict on retry increment");
+            }
+        } else {
+            let _ = queries::transition_task(&self.pool, task_id, "failed", Some(error_msg)).await;
+            warn!(
+                task_id = %task_id,
+                "Task failed after {max_retries} retries: {error_msg}"
+            );
         }
 
         Ok(())

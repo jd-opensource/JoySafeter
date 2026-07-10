@@ -341,6 +341,12 @@ impl AgentBridge for AgentBridgeService {
             // disconnect timestamp).
             let _ = queries::mark_bridge_disconnected(&pool, sandbox_db_id).await;
 
+            // M2 fix: Release the connection permit before entering the 120s
+            // grace period. Without this, batch disconnects can exhaust the
+            // connection semaphore for 2 minutes even though the gRPC stream
+            // is already closed.
+            drop(_conn_permit);
+
             // Spawn grace period cleanup (120s reconnect window)
             let registry_for_grace = registry.clone();
             probe_and_grace_period_cleanup(
@@ -480,7 +486,7 @@ async fn multi_task_loop(
             Ok(p) => p,
             Err(_) => {
                 warn!(task_id = %task_id, "Execution semaphore closed, ejecting task");
-                let _ = queries::increment_retry(pool, task_id).await;
+                let _ = queries::increment_retry(pool, task_id, None).await;
                 return false;
             }
         };
@@ -575,7 +581,7 @@ async fn multi_task_loop(
         if send_result.is_err() || send_result.unwrap().is_err() {
             error!(task_id = %task_id, "Failed to send StartTask (channel full or timeout)");
             // Use increment_retry instead of direct transition (respects retry count)
-            let _ = queries::increment_retry(pool, task_id).await;
+            let _ = queries::increment_retry(pool, task_id, None).await;
             return false;
         }
         info!(task_id = %task_id, "StartTask sent");
@@ -1584,7 +1590,7 @@ async fn rescue_orphaned_tasks(pool: &PgPool, sandbox_db_id: Uuid, queue: &TaskQ
     match queries::find_running_tasks_for_sandbox(pool, sandbox_db_id).await {
         Ok(tasks) => {
             for task in tasks {
-                if let Ok(true) = queries::increment_retry(pool, task.id).await {
+                if let Ok(true) = queries::increment_retry(pool, task.id, Some(task.retry_count)).await {
                     // Fix 6.2: actually push to global queue (was just logging before)
                     queue.push_to_global(task.id).await;
                     info!(task_id = %task.id, "Orphaned task reset and re-queued");
@@ -2333,7 +2339,7 @@ async fn failover_or_fail_inline(
     let max_retries = task.max_retries as u32;
     let current = task.retry_count as u32;
     if current < max_retries {
-        let _ = queries::increment_retry(pool, task_id).await;
+        let _ = queries::increment_retry(pool, task_id, Some(task.retry_count)).await;
         info!(task_id = %task_id, retry = current + 1, "Failover: task will be retried");
     } else {
         let _ = queries::transition_task(pool, task_id, "failed", Some(reason)).await;

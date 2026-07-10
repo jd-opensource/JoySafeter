@@ -181,7 +181,14 @@ pub fn spawn_scheduler(
                         // T2 fix: use CAS-style retry to prevent double-increment
                         // between scheduler error path and watchdog
                         let should_fail = match queries::get_task(&resolver_pool, task_id).await {
-                            Ok(Some(t)) => t.retry_count >= t.max_retries,
+                            Ok(Some(t)) => {
+                                if t.retry_count >= t.max_retries {
+                                    true
+                                } else {
+                                    let _ = queries::increment_retry(&resolver_pool, task_id, Some(t.retry_count)).await;
+                                    false
+                                }
+                            }
                             _ => false,
                         };
                         if should_fail {
@@ -192,11 +199,6 @@ pub fn spawn_scheduler(
                                 Some("scheduling failed after max retries"),
                             )
                             .await;
-                        } else {
-                            let _ = queries::increment_retry(&resolver_pool, task_id).await;
-                            let _ =
-                                queries::transition_task(&resolver_pool, task_id, "pending", None)
-                                    .await;
                         }
                     }
                     drop(_sched_permit);

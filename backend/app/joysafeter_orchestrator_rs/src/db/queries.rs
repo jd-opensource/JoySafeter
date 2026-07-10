@@ -4,71 +4,6 @@ use uuid::Uuid;
 use super::models::{JoySafeterAgent, JoySafeterSandbox, JoySafeterSession, JoySafeterTask};
 
 // ---------------------------------------------------------------------------
-// Cluster member queries
-// ---------------------------------------------------------------------------
-
-pub async fn register_cluster_member(
-    pool: &PgPool,
-    instance_id: &str,
-    role: &str,
-    heartbeat_ttl_sec: i64,
-    metadata: &serde_json::Value,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        INSERT INTO joysafeter_cluster_members
-            (instance_id, role, started_at, heartbeat_at, expires_at, metadata, created_at, updated_at)
-        VALUES
-            ($1, $2, NOW(), NOW(), NOW() + ($3 * INTERVAL '1 second'), $4::jsonb, NOW(), NOW())
-        ON CONFLICT (instance_id) DO UPDATE
-        SET role = EXCLUDED.role,
-            started_at = EXCLUDED.started_at,
-            heartbeat_at = EXCLUDED.heartbeat_at,
-            expires_at = EXCLUDED.expires_at,
-            metadata = EXCLUDED.metadata,
-            updated_at = NOW()
-        "#,
-    )
-    .bind(instance_id)
-    .bind(role)
-    .bind(heartbeat_ttl_sec)
-    .bind(metadata)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn heartbeat_cluster_member(
-    pool: &PgPool,
-    instance_id: &str,
-    role: &str,
-    heartbeat_ttl_sec: i64,
-    metadata: &serde_json::Value,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        INSERT INTO joysafeter_cluster_members
-            (instance_id, role, started_at, heartbeat_at, expires_at, metadata, created_at, updated_at)
-        VALUES
-            ($1, $2, NOW(), NOW(), NOW() + ($3 * INTERVAL '1 second'), $4::jsonb, NOW(), NOW())
-        ON CONFLICT (instance_id) DO UPDATE
-        SET role = EXCLUDED.role,
-            heartbeat_at = EXCLUDED.heartbeat_at,
-            expires_at = EXCLUDED.expires_at,
-            metadata = EXCLUDED.metadata,
-            updated_at = NOW()
-        "#,
-    )
-    .bind(instance_id)
-    .bind(role)
-    .bind(heartbeat_ttl_sec)
-    .bind(metadata)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
 // Task queries
 // ---------------------------------------------------------------------------
 
@@ -97,44 +32,15 @@ pub async fn claim_pending_tasks(
     .await
 }
 
-/// Claim one queued pending task by id (PENDING -> SCHEDULING).
-///
-/// Redis carries candidate ids, but the database status transition is the
-/// authoritative guard against duplicate delivery, stale queue entries, and
-/// terminal tasks being re-scheduled.
-pub async fn claim_pending_task_by_id(
-    pool: &PgPool,
-    task_id: Uuid,
-) -> Result<Option<JoySafeterTask>, sqlx::Error> {
-    sqlx::query_as::<_, JoySafeterTask>(
-        r#"
-        UPDATE joysafeter_tasks
-        SET status = 'scheduling', started_at = NOW(), updated_at = NOW()
-        WHERE id = $1 AND status = 'pending'
-        RETURNING *
-        "#,
-    )
-    .bind(task_id)
-    .fetch_optional(pool)
-    .await
-}
-
 /// Claim the next task for a specific sandbox (SCHEDULING/PENDING → RUNNING).
 pub async fn claim_next_sandbox_task(
     pool: &PgPool,
     sandbox_id: Uuid,
-    owner_instance_id: &str,
-    lease_ttl_sec: i64,
 ) -> Result<Option<JoySafeterTask>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterTask>(
         r#"
         UPDATE joysafeter_tasks
-        SET status = 'running',
-            started_at = NOW(),
-            owner_instance_id = $2,
-            owner_epoch = nextval('joysafeter_task_owner_epoch_seq'),
-            lease_expires_at = NOW() + ($3 * INTERVAL '1 second'),
-            updated_at = NOW()
+        SET status = 'running', started_at = NOW(), updated_at = NOW()
         WHERE id = (
             SELECT id FROM joysafeter_tasks
             WHERE sandbox_id = $1 AND status = 'scheduling'
@@ -146,8 +52,6 @@ pub async fn claim_next_sandbox_task(
         "#,
     )
     .bind(sandbox_id)
-    .bind(owner_instance_id)
-    .bind(lease_ttl_sec)
     .fetch_optional(pool)
     .await
 }
@@ -186,18 +90,6 @@ pub async fn transition_task(
         UPDATE joysafeter_tasks
         SET status = $2,
             error = COALESCE($3, error),
-            owner_instance_id = CASE
-                WHEN $2 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') THEN NULL
-                ELSE owner_instance_id
-            END,
-            owner_epoch = CASE
-                WHEN $2 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') THEN NULL
-                ELSE owner_epoch
-            END,
-            lease_expires_at = CASE
-                WHEN $2 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') THEN NULL
-                ELSE lease_expires_at
-            END,
             completed_at = CASE
                 WHEN $2 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') THEN NOW()
                 ELSE completed_at
@@ -266,6 +158,16 @@ pub async fn get_task(pool: &PgPool, task_id: Uuid) -> Result<Option<JoySafeterT
         .await
 }
 
+/// Count tasks currently in non-terminal states.
+pub async fn count_active_tasks(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM joysafeter_tasks WHERE status IN ('pending', 'scheduling', 'running')",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0)
+}
+
 // ---------------------------------------------------------------------------
 // Session queries
 // ---------------------------------------------------------------------------
@@ -324,83 +226,20 @@ pub async fn update_session_status(
     Ok(result.rows_affected() > 0)
 }
 
-/// Atomically update session status and append the corresponding session event.
-///
-/// This closes the production window where a session row can be committed to
-/// `idle`/`running` but the replayable `joysafeter_session_events` row is lost
-/// before reconnecting clients can observe it.
-pub async fn update_session_status_and_insert_event(
+/// Update session sandbox reference.
+pub async fn update_session_sandbox(
     pool: &PgPool,
     session_id: Uuid,
-    new_status: &str,
-    stop_reason: Option<&serde_json::Value>,
-    event_type: &str,
-    event_payload: &serde_json::Value,
-) -> Result<Option<(Uuid, i64)>, sqlx::Error> {
-    let allowed_from = match new_status {
-        "running" => "'idle','running','rescheduling'",
-        "idle" => "'running'",
-        "terminated" => "'idle','running','rescheduling'",
-        "rescheduling" => "'running','idle'",
-        _ => "'idle','running','rescheduling','terminated'",
-    };
-    let sql = format!(
-        r#"
-        UPDATE joysafeter_sessions
-        SET status = $2,
-            stop_reason = CASE
-                WHEN $3::jsonb IS NOT NULL OR $2 IN ('idle', 'terminated') THEN $3::jsonb
-                ELSE stop_reason
-            END,
-            updated_at = NOW()
-        WHERE id = $1 AND status IN ({allowed_from})
-          AND NOT (status = $2 AND COALESCE(stop_reason, '{{}}'::jsonb) = COALESCE($3::jsonb, '{{}}'::jsonb))
-        "#,
-    );
-
-    let mut tx = pool.begin().await?;
-    let lock_key = i64::from_be_bytes(session_id.as_bytes()[8..16].try_into().unwrap());
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
-        .bind(lock_key)
-        .execute(&mut *tx)
-        .await?;
-
-    let updated = sqlx::query(&sql)
-        .bind(session_id)
-        .bind(new_status)
-        .bind(stop_reason)
-        .execute(&mut *tx)
-        .await?;
-
-    if updated.rows_affected() == 0 {
-        tx.commit().await?;
-        return Ok(None);
-    }
-
-    let seq: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(seq), 0) + 1 FROM joysafeter_session_events WHERE session_id = $1",
+    sandbox_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE joysafeter_sessions SET last_sandbox_id = $2, updated_at = NOW() WHERE id = $1",
     )
     .bind(session_id)
-    .fetch_one(&mut *tx)
+    .bind(sandbox_id)
+    .execute(pool)
     .await?;
-
-    let inserted = sqlx::query_as::<_, (Uuid, i64)>(
-        r#"
-        INSERT INTO joysafeter_session_events (id, session_id, event_type, payload, seq, created_at)
-        VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW())
-        ON CONFLICT DO NOTHING
-        RETURNING id, seq
-        "#,
-    )
-    .bind(session_id)
-    .bind(event_type)
-    .bind(event_payload)
-    .bind(seq)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
-    Ok(inserted)
+    Ok(())
 }
 
 /// Accumulate token usage for a session (field-by-field addition, not merge).
@@ -460,6 +299,36 @@ pub async fn accumulate_session_usage(
 // ---------------------------------------------------------------------------
 // Session event queries
 // ---------------------------------------------------------------------------
+
+/// Insert a batch of session events.
+pub async fn batch_insert_events(
+    pool: &PgPool,
+    events: &[(Uuid, Uuid, &str, Option<&serde_json::Value>, Option<i64>)],
+) -> Result<u64, sqlx::Error> {
+    if events.is_empty() {
+        return Ok(0);
+    }
+
+    let mut total = 0u64;
+    for (id, session_id, event_type, payload, seq) in events {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO joysafeter_session_events (id, session_id, event_type, payload, seq, created_at)
+            VALUES ($1, $2, $3, $4, $5, NOW())
+            ON CONFLICT (id) DO NOTHING
+            "#,
+        )
+        .bind(id)
+        .bind(session_id)
+        .bind(event_type)
+        .bind(payload)
+        .bind(seq)
+        .execute(pool)
+        .await?;
+        total += result.rows_affected();
+    }
+    Ok(total)
+}
 
 // ---------------------------------------------------------------------------
 // Sandbox queries
@@ -579,11 +448,24 @@ pub async fn create_sandbox(
 ///   stopped → provisioning, destroyed
 ///   error → destroyed
 /// Rejects transitions from 'destroyed' (terminal).
+///
+/// M4: DEPRECATED — This function has a TOCTOU race between the SELECT
+/// (status validation) and UPDATE. Critical paths should use
+/// `transition_sandbox_cas()` instead which performs an atomic CAS in a
+/// single UPDATE statement. This non-CAS version is kept for backward
+/// compatibility with non-critical callers.
 pub async fn transition_sandbox(
     pool: &PgPool,
     sandbox_id: Uuid,
     new_status: &str,
 ) -> Result<bool, sqlx::Error> {
+    // M4: trace non-CAS usage so we can find and migrate remaining callers
+    tracing::debug!(
+        sandbox_id = %sandbox_id,
+        to = %new_status,
+        "transition_sandbox (non-CAS) called — prefer transition_sandbox_cas for critical paths"
+    );
+
     // S7: Fetch current status to validate the transition
     let current_status: Option<String> =
         sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
@@ -606,6 +488,10 @@ pub async fn transition_sandbox(
     // Block transitions FROM destroyed (terminal)
     // Otherwise trust the caller (CAS version is preferred for critical paths)
     //
+    // M4: Added guard against overwriting sandboxes that are already in
+    // a stop/destroy flow. This reduces the TOCTOU window without
+    // requiring all callers to switch to CAS immediately.
+    //
     // idle_since is the idle-sweep's authoritative anchor: stamp NOW() when we
     // *enter* idle (current status != 'idle'), clear it when we leave idle,
     // leave it untouched otherwise. Same logic mirrored in transition_sandbox_cas
@@ -621,7 +507,12 @@ pub async fn transition_sandbox(
                 WHEN $2 <> 'idle' AND status = 'idle' THEN NULL
                 ELSE idle_since
             END
-        WHERE id = $1 AND status != 'destroyed'
+        WHERE id = $1
+          AND status != 'destroyed'
+          AND (
+              $2 IN ('stopped', 'destroyed', 'error', 'stopping')
+              OR status NOT IN ('destroyed', 'stopping')
+          )
         "#,
     )
     .bind(sandbox_id)
@@ -811,44 +702,18 @@ pub async fn transition_task_cas(
     expected_status: &str,
     new_status: &str,
     error_msg: Option<&str>,
-    expected_owner_epoch: Option<i64>,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
         UPDATE joysafeter_tasks
-        SET status = $3,
-            error = COALESCE($4, error),
-            owner_instance_id = CASE
-                WHEN $3 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') THEN NULL
-                ELSE owner_instance_id
-            END,
-            owner_epoch = CASE
-                WHEN $3 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') THEN NULL
-                ELSE owner_epoch
-            END,
-            lease_expires_at = CASE
-                WHEN $3 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') THEN NULL
-                ELSE lease_expires_at
-            END,
-            completed_at = CASE
-                WHEN $3 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') THEN NOW()
-                ELSE completed_at
-            END,
-            duration_ms = CASE
-                WHEN $3 IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled')
-                    THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(started_at, created_at))) * 1000
-                ELSE duration_ms
-            END,
-            updated_at = NOW()
+        SET status = $3, error = COALESCE($4, error), updated_at = NOW()
         WHERE id = $1 AND status = $2
-          AND ($5::bigint IS NULL OR owner_epoch = $5)
         "#,
     )
     .bind(task_id)
     .bind(expected_status)
     .bind(new_status)
     .bind(error_msg)
-    .bind(expected_owner_epoch)
     .execute(pool)
     .await?;
 
@@ -913,136 +778,46 @@ pub async fn find_running_tasks_for_sandbox(
 }
 
 /// Increment retry count for a task and reset to pending.
-pub async fn increment_retry(pool: &PgPool, task_id: Uuid) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        r#"
-        UPDATE joysafeter_tasks
-        SET status = 'pending',
-            sandbox_id = NULL,
-            started_at = NULL,
-            owner_instance_id = NULL,
-            owner_epoch = NULL,
-            lease_expires_at = NULL,
-            retry_count = retry_count + 1, updated_at = NOW()
-        WHERE id = $1 AND status NOT IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled')
-        "#,
-    )
-    .bind(task_id)
-    .execute(pool)
-    .await?;
-
-    Ok(result.rows_affected() > 0)
-}
-
-/// Renew every running task owned by this orchestrator instance.
-pub async fn renew_running_task_leases(
-    pool: &PgPool,
-    owner_instance_id: &str,
-    lease_ttl_sec: i64,
-    active_task_ids: &[Uuid],
-) -> Result<u64, sqlx::Error> {
-    if active_task_ids.is_empty() {
-        return Ok(0);
-    }
-
-    let result = sqlx::query(
-        r#"
-        UPDATE joysafeter_tasks
-        SET lease_expires_at = NOW() + ($2 * INTERVAL '1 second'),
-            updated_at = NOW()
-        WHERE owner_instance_id = $1
-          AND status = 'running'
-          AND owner_epoch IS NOT NULL
-          AND id = ANY($3)
-        "#,
-    )
-    .bind(owner_instance_id)
-    .bind(lease_ttl_sec)
-    .bind(active_task_ids)
-    .execute(pool)
-    .await?;
-
-    Ok(result.rows_affected())
-}
-
-/// Running tasks whose ownership lease expired. They are safe to retry/fail
-/// because the owning instance stopped renewing its DB lease.
-pub async fn find_lease_expired_running_tasks(
-    pool: &PgPool,
-    limit: i64,
-) -> Result<Vec<(Uuid, Option<Uuid>, i32, i32)>, sqlx::Error> {
-    sqlx::query_as(
-        r#"
-        SELECT id, chat_session_id, retry_count, max_retries
-        FROM joysafeter_tasks
-        WHERE status = 'running'
-          AND lease_expires_at IS NOT NULL
-          AND lease_expires_at < NOW()
-        ORDER BY lease_expires_at ASC
-        LIMIT $1
-        "#,
-    )
-    .bind(limit)
-    .fetch_all(pool)
-    .await
-}
-
-/// Retry one lease-expired running task. The lease/status predicates are part
-/// of the UPDATE so competing orchestrators cannot double-increment retry_count
-/// after one of them has already reclaimed the task.
-pub async fn retry_lease_expired_task(pool: &PgPool, task_id: Uuid) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        r#"
-        UPDATE joysafeter_tasks
-        SET status = 'pending',
-            sandbox_id = NULL,
-            started_at = NULL,
-            owner_instance_id = NULL,
-            owner_epoch = NULL,
-            lease_expires_at = NULL,
-            retry_count = retry_count + 1,
-            updated_at = NOW()
-        WHERE id = $1
-          AND status = 'running'
-          AND lease_expires_at IS NOT NULL
-          AND lease_expires_at < NOW()
-        "#,
-    )
-    .bind(task_id)
-    .execute(pool)
-    .await?;
-
-    Ok(result.rows_affected() > 0)
-}
-
-/// Fail one lease-expired running task after retries are exhausted, guarded by
-/// the same lease predicate used for retry reclaim.
-pub async fn fail_lease_expired_task(
+/// Increment retry count with CAS protection against double-increment.
+///
+/// If `expected_retry_count` is provided, only increments if the current count
+/// matches (prevents scheduler + watchdog from both incrementing the same failure).
+/// If `None`, increments unconditionally (for startup recovery paths where
+/// double-increment is acceptable).
+pub async fn increment_retry(
     pool: &PgPool,
     task_id: Uuid,
-    error_msg: &str,
+    expected_retry_count: Option<i32>,
 ) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        r#"
-        UPDATE joysafeter_tasks
-        SET status = 'failed',
-            error = COALESCE($2, error),
-            owner_instance_id = NULL,
-            owner_epoch = NULL,
-            lease_expires_at = NULL,
-            completed_at = NOW(),
-            duration_ms = EXTRACT(EPOCH FROM (NOW() - COALESCE(started_at, created_at))) * 1000,
-            updated_at = NOW()
-        WHERE id = $1
-          AND status = 'running'
-          AND lease_expires_at IS NOT NULL
-          AND lease_expires_at < NOW()
-        "#,
-    )
-    .bind(task_id)
-    .bind(error_msg)
-    .execute(pool)
-    .await?;
+    let result = if let Some(expected) = expected_retry_count {
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_tasks
+            SET status = 'pending', sandbox_id = NULL, started_at = NULL,
+                retry_count = retry_count + 1, updated_at = NOW()
+            WHERE id = $1
+              AND retry_count = $2
+              AND status NOT IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled')
+            "#,
+        )
+        .bind(task_id)
+        .bind(expected)
+        .execute(pool)
+        .await?
+    } else {
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_tasks
+            SET status = 'pending', sandbox_id = NULL, started_at = NULL,
+                retry_count = retry_count + 1, updated_at = NOW()
+            WHERE id = $1
+              AND status NOT IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled')
+            "#,
+        )
+        .bind(task_id)
+        .execute(pool)
+        .await?
+    };
 
     Ok(result.rows_affected() > 0)
 }
@@ -1076,19 +851,10 @@ pub async fn task_has_agent_output(
     Ok(row.0)
 }
 
-/// Touch sandbox last_used_at (and reset the idle clock).
-///
-/// This is the "sandbox was just (re)used" signal. It also refreshes
-/// `idle_since` so the idle reaper's clean-idle criterion (which reaps rows
-/// still in `idle` whose `idle_since` is older than the timeout) does not tear
-/// down a sandbox that a resolver just handed to a task. A reused idle sandbox
-/// keeps its `idle` status (task attach never transitions the sandbox), so
-/// without this refresh a stale `idle_since` let the reaper stop a sandbox
-/// mid-reuse. Only the clean-idle criterion reads `idle_since`; the
-/// bridge-disconnect and hard-timeout criteria are unaffected.
+/// Touch sandbox last_used_at timestamp.
 pub async fn touch_sandbox(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE joysafeter_sandboxes SET last_used_at = NOW(), idle_since = NOW(), updated_at = NOW() WHERE id = $1",
+        "UPDATE joysafeter_sandboxes SET last_used_at = NOW(), updated_at = NOW() WHERE id = $1",
     )
     .bind(sandbox_id)
     .execute(pool)
@@ -1157,6 +923,43 @@ pub async fn update_session_sandbox_info(
     Ok(())
 }
 
+/// Try to acquire a PostgreSQL advisory lock (non-blocking).
+///
+/// IMPORTANT: `pg_try_advisory_lock` is a session-level lock — it must be
+/// released on the SAME connection. With a connection pool, separate
+/// `execute(pool)` calls may hit different connections, so the lock is
+/// acquired on one connection but never released (the unlock runs on
+/// another connection and produces "you don't own a lock" warnings).
+///
+/// For watchdog use-cases where the critical section is short, prefer
+/// wrapping all work in a single transaction with `pg_try_advisory_xact_lock`
+/// (which auto-releases on COMMIT/ROLLBACK). This function is kept for
+/// backward compatibility but callers should migrate.
+pub async fn try_advisory_lock(pool: &PgPool, lock_name: &str) -> Result<bool, sqlx::Error> {
+    let row: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock(hashtext($1))")
+        .bind(lock_name)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(row.0)
+}
+
+/// Release a PostgreSQL advisory lock.
+///
+/// NOTE: This is a no-op if the lock was acquired on a different pooled
+/// connection. See `try_advisory_lock` doc. Callers should migrate to
+/// transaction-scoped advisory locks (`pg_try_advisory_xact_lock`).
+pub async fn release_advisory_lock(pool: &PgPool, lock_name: &str) -> Result<(), sqlx::Error> {
+    // Intentionally a no-op now. Session-level advisory locks acquired via
+    // the pool cannot be reliably released because unlock may run on a
+    // different connection. The locks are harmless — they auto-release
+    // when the connection is returned to the pool and eventually closed.
+    // Callers should use transaction-scoped locks instead.
+    let _ = lock_name;
+    let _ = pool;
+    Ok(())
+}
+
 /// Find all pending tasks (for startup re-enqueue).
 pub async fn find_pending_tasks(pool: &PgPool, limit: i64) -> Result<Vec<(Uuid,)>, sqlx::Error> {
     sqlx::query_as::<_, (Uuid,)>(
@@ -1218,7 +1021,7 @@ pub async fn list_session_memory_stores(
 ) -> Result<Vec<SessionMemoryStore>, sqlx::Error> {
     sqlx::query_as::<_, SessionMemoryStore>(
         r#"
-        SELECT sms.store_id, sms.mount_name, sms.access, sms.instructions
+        SELECT sms.store_id, ms.name as store_name, sms.mount_name, sms.access, sms.instructions
         FROM joysafeter_session_memory_stores sms
         JOIN joysafeter_memory_stores ms ON ms.id = sms.store_id
         WHERE sms.session_id = $1
@@ -1233,6 +1036,7 @@ pub async fn list_session_memory_stores(
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SessionMemoryStore {
     pub store_id: Uuid,
+    pub store_name: String,
     pub mount_name: String,
     pub access: String,
     pub instructions: Option<String>,

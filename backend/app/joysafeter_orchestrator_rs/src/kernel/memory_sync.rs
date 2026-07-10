@@ -22,6 +22,7 @@ struct MemorySubscription {
     session_id: Uuid,
     sandbox_db_id: Uuid,
     mount_name: String,
+    mount_path: String,
 }
 
 impl MemoryStoreSubscribers {
@@ -38,7 +39,7 @@ impl MemoryStoreSubscribers {
         session_id: Uuid,
         sandbox_db_id: Uuid,
         mount_name: &str,
-        _mount_path: &str,
+        mount_path: &str,
     ) {
         let mut subs = self.subscriptions.lock().await;
         let entry = subs.entry(store_id.to_string()).or_default();
@@ -52,6 +53,7 @@ impl MemoryStoreSubscribers {
                 session_id,
                 sandbox_db_id,
                 mount_name: mount_name.to_string(),
+                mount_path: mount_path.to_string(),
             });
             debug!(
                 store_id = store_id,
@@ -71,45 +73,67 @@ impl MemoryStoreSubscribers {
 
     /// Notify all peers of a memory file change.
     ///
-    /// Sends `MemoryFileUpdate` to all sandbox bridges subscribed to the same
-    /// store, excluding the sender. Each subscriber receives its own
-    /// session-local mount name.
+    /// Sends `MemoryFileUpdate` to all sandbox bridges that share the same
+    /// store, excluding the sender.
     pub async fn notify_peers(
         &self,
-        store_id: &str,
+        store_mount_name: &str,
         relative_path: &str,
         content: &[u8],
         operation: &str,
         sender_sandbox_id: Uuid,
         bridge_registry: &BridgeRegistry,
     ) {
-        let subs = self.subscriptions.lock().await;
-
-        if let Some(entries) = subs.get(store_id) {
-            for sub in entries
-                .iter()
-                .filter(|s| s.sandbox_db_id != sender_sandbox_id)
-            {
-                if let Some(bridge) = bridge_registry.get_by_db_id(sub.sandbox_db_id) {
-                    let msg = OrchestratorMessage {
-                        payload: Some(orchestrator_message::Payload::MemoryUpdate(
-                            proto::MemoryFileUpdate {
-                                store_mount_name: sub.mount_name.clone(),
-                                relative_path: relative_path.to_string(),
-                                content: content.to_vec(),
-                                operation: operation.to_string(),
-                            },
-                        )),
-                    };
-                    let _ = bridge.send_to_runner(msg).await;
-                    debug!(
-                        store_id = store_id,
-                        peer_sandbox = %sub.sandbox_db_id,
-                        path = relative_path,
-                        "Sent memory update to peer"
-                    );
+        // M3 fix: Collect peers under the lock, then drop it before awaiting
+        // gRPC sends. Holding a Mutex across await points can cause deadlocks
+        // and blocks other tasks from registering/unregistering subscriptions.
+        let peers: Vec<(Uuid, String)> = {
+            let subs = self.subscriptions.lock().await;
+            let mut result = Vec::new();
+            for (_store_id, entries) in subs.iter() {
+                for sub in entries {
+                    if sub.mount_name == store_mount_name && sub.sandbox_db_id != sender_sandbox_id {
+                        result.push((sub.sandbox_db_id, sub.mount_name.clone()));
+                    }
                 }
             }
+            result
+            // lock dropped here
+        };
+
+        for (peer_sandbox_id, mount_name) in peers {
+            if let Some(bridge) = bridge_registry.get_by_db_id(peer_sandbox_id) {
+                let msg = OrchestratorMessage {
+                    payload: Some(orchestrator_message::Payload::MemoryUpdate(
+                        proto::MemoryFileUpdate {
+                            store_mount_name: mount_name,
+                            relative_path: relative_path.to_string(),
+                            content: content.to_vec(),
+                            operation: operation.to_string(),
+                        },
+                    )),
+                };
+                let _ = bridge.send_to_runner(msg).await;
+                debug!(
+                    peer_sandbox = %peer_sandbox_id,
+                    path = relative_path,
+                    "Sent memory update to peer"
+                );
+            }
         }
+    }
+
+    /// Get all peer sandbox IDs for a store (excluding the given sandbox).
+    pub async fn get_peers(&self, store_id: &str, exclude_sandbox: Uuid) -> Vec<Uuid> {
+        let subs = self.subscriptions.lock().await;
+        subs.get(store_id)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter(|s| s.sandbox_db_id != exclude_sandbox)
+                    .map(|s| s.sandbox_db_id)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }

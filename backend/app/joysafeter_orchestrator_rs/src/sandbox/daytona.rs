@@ -210,7 +210,13 @@ impl SandboxProvider for DaytonaProvider {
             let Some(ref content) = file.content else {
                 continue;
             };
+            // M10 fix: Reject paths with traversal sequences or null bytes
+            // to prevent writing outside the intended sandbox directory.
             let path = file.mount_path.trim_start_matches('/');
+            if path.contains("..") || path.contains('\0') {
+                warn!(path = %file.mount_path, "Path traversal detected, skipping file injection");
+                continue;
+            }
             let resp = self
                 .client
                 .post(format!(
