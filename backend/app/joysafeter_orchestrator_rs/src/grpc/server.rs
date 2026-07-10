@@ -36,9 +36,6 @@ use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::SandboxProvider;
 
 const HEARTBEAT_TIMEOUT_DEFAULT: u64 = 120;
-const MAX_CONNECTIONS: usize = 2000;
-const MAX_EXECUTIONS: usize = 1000;
-const MAX_MEMORIES_PER_STORE: i64 = 2000;
 const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 
@@ -70,6 +67,8 @@ impl AgentBridgeService {
         memory_subscribers: Arc<MemoryStoreSubscribers>,
         runtime_config: Arc<RuntimeConfig>,
     ) -> Self {
+        let max_connections = config.grpc_max_connections;
+        let max_executions = config.grpc_max_executions;
         Self {
             bridge_registry,
             event_bus,
@@ -78,8 +77,8 @@ impl AgentBridgeService {
             config,
             sandbox_provider,
             runtime_config,
-            connection_semaphore: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
-            execution_semaphore: Arc::new(Semaphore::new(MAX_EXECUTIONS)),
+            connection_semaphore: Arc::new(Semaphore::new(max_connections)),
+            execution_semaphore: Arc::new(Semaphore::new(max_executions)),
             redis_coordinator,
             memory_subscribers,
         }
@@ -851,6 +850,7 @@ async fn run_single_task(
                             &mut task_completed, &mut task_error,
                             &custom_names, &mcp_names,
                             memory_subscribers.clone(), bridge_registry,
+                            config.grpc_max_memories_per_store,
                         ).await;
                         if done { task_done = true; }
                         if idle { got_idle = true; }
@@ -944,6 +944,7 @@ async fn handle_task_message(
     mcp_names: &std::collections::HashSet<String>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_registry: &BridgeRegistry,
+    max_memories_per_store: i64,
 ) -> (bool, bool) {
     let payload = match &msg.payload {
         Some(p) => p,
@@ -1283,6 +1284,7 @@ async fn handle_task_message(
                     &rel_path,
                     &content,
                     &operation,
+                    max_memories_per_store,
                 )
                 .await;
                 memory_subscribers
@@ -1929,6 +1931,7 @@ async fn handle_memory_sync_db(
     relative_path: &str,
     content: &str,
     operation: &str,
+    max_memories_per_store: i64,
 ) {
     // Path traversal protection
     let normalized = relative_path.replace('\\', "/");
@@ -2170,10 +2173,10 @@ async fn handle_memory_sync_db(
                     }
                 };
 
-                if count >= MAX_MEMORIES_PER_STORE {
+                if count >= max_memories_per_store {
                     warn!(
                         store = store_mount_name,
-                        limit = MAX_MEMORIES_PER_STORE,
+                        limit = max_memories_per_store,
                         "Rejecting memory create because store limit was reached"
                     );
                     return;
