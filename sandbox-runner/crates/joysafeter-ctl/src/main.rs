@@ -1,5 +1,6 @@
 mod client;
 mod commands;
+mod editor;
 mod manifest;
 mod output;
 

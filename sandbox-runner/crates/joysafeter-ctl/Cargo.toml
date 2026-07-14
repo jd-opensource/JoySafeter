@@ -23,6 +23,5 @@ anyhow = { workspace = true }
 tar = { version = "0.4", default-features = false }
 flate2 = { workspace = true }
 base64 = { workspace = true }
-dialoguer = { version = "0.11", default-features = false, features = ["editor"] }
-rustyline = { version = "15", default-features = false }
+dialoguer = { version = "0.11", default-features = false }
 tempfile = "3"

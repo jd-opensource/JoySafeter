@@ -46,6 +46,9 @@ import {
   ChevronsUpDown,
   Search,
   Users,
+  BarChart3,
+  Activity,
+  History,
 } from 'lucide-react'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ProjectInfo } from '@/stores/managed/project-store'
@@ -63,6 +66,11 @@ const buildItems: NavItem[] = [
   { to: '/managed/sessions', labelKey: 'nav.sessions', icon: MessageSquare },
   { to: '/managed/environments', labelKey: 'nav.environments', icon: Server },
   { to: '/managed/vaults', labelKey: 'nav.vaults', icon: KeyRound },
+]
+
+const insightItems: NavItem[] = [
+  { to: '/managed/analytics', labelKey: 'nav.analyticsOverview', icon: Activity },
+  { to: '/managed/analytics/calls', labelKey: 'nav.analyticsCalls', icon: History },
 ]
 
 const resourceItems: NavItem[] = [
@@ -371,21 +379,29 @@ function NavSection({
   if (collapsed) {
     return (
       <>
-        {items.map((item) => (
-          <Link
-            key={item.to}
-            href={item.to}
-            title={t(item.labelKey)}
-            className={cn(
-              'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
-              pathname?.startsWith(item.to)
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-            )}
-          >
-            <item.icon className="h-4 w-4" />
-          </Link>
-        ))}
+        {items.map((item) => {
+          const exactMatch = pathname === item.to
+          const prefixMatch = pathname?.startsWith(item.to + '/') ?? false
+          const hasSiblingMatch = items.some(
+            (other) => other.to !== item.to && other.to.length > item.to.length && pathname?.startsWith(other.to)
+          )
+          const isItemActive = exactMatch || (prefixMatch && !hasSiblingMatch)
+          return (
+            <Link
+              key={item.to}
+              href={item.to}
+              title={t(item.labelKey)}
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+                isItemActive
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+              )}
+            >
+              <item.icon className="h-4 w-4" />
+            </Link>
+          )
+        })}
       </>
     )
   }
@@ -412,7 +428,13 @@ function NavSection({
       {open && (
         <div>
           {items.map((item) => {
-            const isActive = pathname?.startsWith(item.to)
+            // Exact match, or starts-with but no sibling has a more specific match
+            const exactMatch = pathname === item.to
+            const prefixMatch = pathname?.startsWith(item.to + '/') ?? false
+            const hasSiblingMatch = items.some(
+              (other) => other.to !== item.to && other.to.length > item.to.length && pathname?.startsWith(other.to)
+            )
+            const isActive = exactMatch || (prefixMatch && !hasSiblingMatch)
             return (
               <Link
                 key={item.to}
@@ -547,6 +569,8 @@ export function AppSidebar() {
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
+          <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} collapsed />
+          <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} collapsed />
@@ -574,6 +598,7 @@ export function AppSidebar() {
 
       <nav className="flex-1 overflow-y-auto py-1">
         <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} />
+        <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} />
         <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} />
         <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} />
       </nav>

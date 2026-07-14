@@ -1,6 +1,7 @@
 use crate::client::JoysafeterClient;
+use crate::editor::open_in_editor;
 use crate::EditResource;
-use anyhow::{bail, Context};
+use anyhow::Context;
 
 pub async fn run(client: &JoysafeterClient, resource: &EditResource) -> anyhow::Result<()> {
     match resource {
@@ -9,28 +10,6 @@ pub async fn run(client: &JoysafeterClient, resource: &EditResource) -> anyhow::
         EditResource::Secret { name } => edit_secret(client, name).await,
         EditResource::MemoryStore { id } => edit_memory_store(client, id).await,
     }
-}
-
-fn open_in_editor(content: &str) -> anyhow::Result<String> {
-    let editor = std::env::var("EDITOR")
-        .or_else(|_| std::env::var("VISUAL"))
-        .unwrap_or_else(|_| "vi".to_string());
-
-    let dir = tempfile::tempdir().context("Failed to create temp dir")?;
-    let path = dir.path().join("resource.yaml");
-    std::fs::write(&path, content).context("Failed to write temp file")?;
-
-    let status = std::process::Command::new(&editor)
-        .arg(&path)
-        .status()
-        .with_context(|| format!("Failed to launch editor: {editor}"))?;
-
-    if !status.success() {
-        bail!("Editor exited with non-zero status");
-    }
-
-    let edited = std::fs::read_to_string(&path).context("Failed to read edited file")?;
-    Ok(edited)
 }
 
 fn json_to_editable_yaml(val: &serde_json::Value, skip_keys: &[&str]) -> anyhow::Result<String> {
@@ -60,7 +39,7 @@ async fn edit_agent(client: &JoysafeterClient, name: &str) -> anyhow::Result<()>
         "# Editing agent/{name} (save and close to apply, empty file to cancel)\n# Read-only fields (id, version, created_at) are excluded.\n{yaml}"
     );
 
-    let edited = open_in_editor(&header)?;
+    let edited = open_in_editor(&header, "resource.yaml")?;
     let stripped: String = edited
         .lines()
         .filter(|l| !l.starts_with('#'))
@@ -103,7 +82,7 @@ async fn edit_environment(client: &JoysafeterClient, name: &str) -> anyhow::Resu
         "# Editing environment/{name} (save and close to apply, empty file to cancel)\n# Read-only fields (id, name, created_at) are excluded.\n{yaml}"
     );
 
-    let edited = open_in_editor(&header)?;
+    let edited = open_in_editor(&header, "resource.yaml")?;
     let stripped: String = edited
         .lines()
         .filter(|l| !l.starts_with('#'))
@@ -147,7 +126,7 @@ async fn edit_secret(client: &JoysafeterClient, name: &str) -> anyhow::Result<()
         keys.join(", ")
     );
 
-    let edited = open_in_editor(&header)?;
+    let edited = open_in_editor(&header, "resource.yaml")?;
     let stripped: String = edited
         .lines()
         .filter(|l| !l.starts_with('#'))
@@ -199,7 +178,7 @@ async fn edit_memory_store(client: &JoysafeterClient, id: &str) -> anyhow::Resul
         "# Editing memory-store/{display_name} (save and close to apply, empty file to cancel)\n# Read-only fields (id, created_at, updated_at) are excluded.\n{yaml}"
     );
 
-    let edited = open_in_editor(&header)?;
+    let edited = open_in_editor(&header, "resource.yaml")?;
     let stripped: String = edited
         .lines()
         .filter(|l| !l.starts_with('#'))
