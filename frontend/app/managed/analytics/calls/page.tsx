@@ -1,20 +1,18 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { stripIdPrefix } from '@/lib/managed/id'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import type { AnalyticsFilters, CallRecord } from '@/lib/managed/analytics/types'
-import { useCallsList, useAgentsForFilters, useErrorSummary, useLatencyStats, useTimeHeatmap } from '@/lib/managed/analytics/hooks'
+import { useCallsList, useAgentsForFilters } from '@/lib/managed/analytics/hooks'
 import {
   formatCompactNumber,
   formatDuration,
-  formatCost,
 } from '@/lib/managed/analytics/formatters'
 import { AnalyticsFilterBar } from '@/components/managed/analytics/analytics-filter-bar'
-import { ErrorSummaryCard } from '@/components/managed/analytics/error-summary-card'
-import { LatencyStatsCard } from '@/components/managed/analytics/latency-stats-card'
-import { TimeHeatmap } from '@/components/managed/analytics/time-heatmap'
 import { DataTable, StatusBadge, MonoId, RelativeTime, PageHeader } from '@/components/managed/shared'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
@@ -23,27 +21,38 @@ import type { Column } from '@/components/managed/shared/data-table'
 
 export default function CallsPage() {
   const { t } = useTranslation()
+  const searchParams = useSearchParams()
+  const initialAgentId = searchParams.get('agent_id')
   const [filters, setFilters] = useState<AnalyticsFilters>({
     range: '7d',
     engine: null,
     model: null,
     status: null,
-    agent_id: null,
+    agent_id: initialAgentId || null,
   })
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [selectedCall, setSelectedCall] = useState<CallRecord | null>(null)
+  const [sortBy, setSortBy] = useState('created_at')
+  const [sortOrder, setSortOrder] = useState('desc')
 
   const handleFiltersChange = (newFilters: AnalyticsFilters) => {
     setFilters(newFilters)
     setPage(1)
   }
 
-  const calls = useCallsList(filters, page, pageSize)
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')
+    } else {
+      setSortBy(field)
+      setSortOrder('desc')
+    }
+    setPage(1)
+  }
+
+  const calls = useCallsList(filters, page, pageSize, sortBy, sortOrder)
   const agentsList = useAgentsForFilters()
-  const errorSummary = useErrorSummary(filters)
-  const latencyStats = useLatencyStats(filters)
-  const heatmap = useTimeHeatmap(filters)
 
   const maxDuration = useMemo(() => {
     if (!calls.data?.data?.length) return 1
@@ -57,7 +66,7 @@ export default function CallsPage() {
 
   const agents = useMemo(() => {
     if (!agentsList.data) return undefined
-    return agentsList.data.map(a => ({ id: a.id, name: a.name }))
+    return agentsList.data.map(a => ({ id: stripIdPrefix(a.id), name: a.name }))
   }, [agentsList.data])
 
   const columns: Column<CallRecord>[] = [
@@ -128,6 +137,22 @@ export default function CallsPage() {
       width: '80px',
     },
     {
+      key: 'retries',
+      header: t('analytics.calls.columns.retries'),
+      render: (row) => {
+        if (!row.retry_count) return <span className="text-muted-foreground">—</span>
+        return (
+          <span className={cn(
+            'text-xs tabular-nums font-medium',
+            row.retry_count >= 3 ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'
+          )}>
+            {row.retry_count}×
+          </span>
+        )
+      },
+      width: '60px',
+    },
+    {
       key: 'inputTokens',
       header: t('analytics.calls.columns.inputTokens'),
       render: (row) => (
@@ -173,14 +198,17 @@ export default function CallsPage() {
       width: '140px',
     },
     {
-      key: 'cost',
-      header: t('analytics.calls.columns.cost'),
+      key: 'queueWait',
+      header: t('analytics.calls.columns.queueWait'),
       render: (row) => (
-        <span className="text-sm tabular-nums text-muted-foreground">
-          {formatCost(row.cost)}
+        <span className={cn(
+          'text-sm tabular-nums',
+          row.queue_wait_ms > 30000 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
+        )}>
+          {formatDuration(row.queue_wait_ms)}
         </span>
       ),
-      width: '70px',
+      width: '80px',
     },
   ]
 
@@ -202,14 +230,29 @@ export default function CallsPage() {
         agents={agents}
       />
 
-      {/* Error and latency summary cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <ErrorSummaryCard data={errorSummary.data} loading={errorSummary.isLoading} />
-        <LatencyStatsCard data={latencyStats.data} loading={latencyStats.isLoading} />
+      {/* Sort controls */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>{t('analytics.calls.sortBy')}:</span>
+        {[
+          { key: 'created_at', label: t('analytics.calls.columns.time') },
+          { key: 'duration_ms', label: t('analytics.calls.columns.duration') },
+          { key: 'retry_count', label: t('analytics.calls.columns.retries') },
+        ].map((opt) => (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => handleSort(opt.key)}
+            className={cn(
+              'rounded-md px-2 py-1 transition-colors',
+              sortBy === opt.key
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+            )}
+          >
+            {opt.label} {sortBy === opt.key && (sortOrder === 'desc' ? '↓' : '↑')}
+          </button>
+        ))}
       </div>
-
-      {/* Time pattern heatmap */}
-      <TimeHeatmap data={heatmap.data ?? []} loading={heatmap.isLoading} />
 
       <DataTable
         columns={columns}

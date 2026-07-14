@@ -86,7 +86,7 @@ export function AlertList({ alerts, loading, config, onConfigChange }: AlertList
                 </div>
                 {alert.agent_id && (
                   <Link
-                    href={`/managed/agents/${alert.agent_id}`}
+                    href={`/managed/analytics/calls?agent_id=${alert.agent_id}`}
                     className="text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
                   >
                     <ArrowRight className="h-3 w-3" />

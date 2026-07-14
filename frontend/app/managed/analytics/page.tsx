@@ -13,6 +13,8 @@ import {
   useHealthCheck,
   useAgentsForFilters,
   useAgentRanking,
+  useErrorSummary,
+  useLatencyStats,
 } from '@/lib/managed/analytics/hooks'
 import { AnalyticsFilterBar } from '@/components/managed/analytics/analytics-filter-bar'
 import { PageHeader } from '@/components/managed/shared'
@@ -20,6 +22,8 @@ import { HealthStatusBar } from '@/components/managed/analytics/health-status-ba
 import { AlertList } from '@/components/managed/analytics/alert-list'
 import { AgentRankingCard } from '@/components/managed/analytics/agent-ranking-card'
 import { TokenSummaryCard } from '@/components/managed/analytics/token-summary-card'
+import { ErrorSummaryCard } from '@/components/managed/analytics/error-summary-card'
+import { LatencyStatsCard } from '@/components/managed/analytics/latency-stats-card'
 import { CallsTrendChart } from '@/components/managed/analytics/calls-trend-chart'
 import { TokenTrendChart } from '@/components/managed/analytics/token-trend-chart'
 import { LatencyTrendChart } from '@/components/managed/analytics/latency-trend-chart'
@@ -63,6 +67,8 @@ export default function AnalyticsOverviewPage() {
   const engineShare = useEngineShare(filters)
   const agentsList = useAgentsForFilters()
   const agentRanking = useAgentRanking(filters)
+  const errorSummary = useErrorSummary(filters)
+  const latencyStats = useLatencyStats(filters)
 
   const engines = useMemo(() => {
     if (!agentsList.data) return undefined
@@ -72,13 +78,10 @@ export default function AnalyticsOverviewPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title={t('analytics.title')}
+        title={t('analytics.tabs.overview')}
         subtitle={t('analytics.subtitle')}
       />
-      <AnalyticsFilterBar
-        filters={filters}
-        onFiltersChange={setFilters}
-      />
+      <AnalyticsFilterBar filters={filters} onFiltersChange={setFilters} />
 
       <HealthStatusBar data={health.data} loading={health.isLoading} />
 
@@ -106,6 +109,11 @@ export default function AnalyticsOverviewPage() {
               fetching={latencyTs.isFetching}
             />
           </div>
+          {/* Error distribution + Duration distribution */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <ErrorSummaryCard data={errorSummary.data} loading={errorSummary.isLoading} />
+            <LatencyStatsCard data={latencyStats.data} loading={latencyStats.isLoading} />
+          </div>
         </div>
 
         {/* Right: token summary + alerts */}
@@ -125,18 +133,18 @@ export default function AnalyticsOverviewPage() {
         </div>
       </div>
 
-      {/* Bottom section */}
-      <div className="space-y-4">
-        <AgentRankingCard data={agentRanking.data ?? []} loading={agentRanking.isLoading} />
-        <div className="flex justify-end">
-          <Link
-            href="/managed/analytics/calls"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {t('analytics.viewAllCalls')}
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
+      {/* Agent ranking */}
+      <AgentRankingCard data={agentRanking.data ?? []} loading={agentRanking.isLoading} />
+
+      {/* Footer link */}
+      <div className="flex justify-end">
+        <Link
+          href="/managed/analytics/calls"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {t('analytics.viewAllCalls')}
+          <ArrowRight className="h-4 w-4" />
+        </Link>
       </div>
     </div>
   )

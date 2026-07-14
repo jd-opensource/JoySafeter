@@ -133,11 +133,11 @@ class AnalyticsService:
         )
         active_sessions = (await self.db.execute(active_stmt)).scalar() or 0
 
-        # Running tasks
-        running_stmt = select(func.count(JoySafeterTask.id)).where(
+        # Running sessions (sessions stay "running" while tasks execute)
+        running_stmt = select(func.count(JoySafeterSession.id)).where(
             and_(
-                JoySafeterTask.project_id == project_id,
-                JoySafeterTask.status == JoySafeterTaskStatus.RUNNING.value,
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.status == "running",
             )
         )
         running_tasks = (await self.db.execute(running_stmt)).scalar() or 0
@@ -396,6 +396,7 @@ class AnalyticsService:
         engine: Optional[str] = None, model: Optional[str] = None,
         status: Optional[str] = None, agent_id: Optional[str] = None,
         page: int = 1, page_size: int = 20,
+        sort_by: str = "created_at", sort_order: str = "desc",
     ) -> dict:
         """Paginated list of task records."""
         time_boundary = _get_time_boundary(range_str)
@@ -407,6 +408,9 @@ class AnalyticsService:
             filters.append(JoySafeterTask.status == status)
         if agent_id:
             filters.append(JoySafeterTask.agent_id == agent_id)
+        if engine:
+            agent_ids_sq = select(JoySafeterAgent.id).where(JoySafeterAgent.engine_kind == engine)
+            filters.append(JoySafeterTask.agent_id.in_(agent_ids_sq))
 
         # Count
         count_stmt = select(func.count(JoySafeterTask.id)).where(and_(*filters))
@@ -424,10 +428,18 @@ class AnalyticsService:
             .select_from(JoySafeterTask)
             .outerjoin(JoySafeterAgent, JoySafeterTask.agent_id == JoySafeterAgent.id)
             .where(and_(*filters))
-            .order_by(JoySafeterTask.created_at.desc())
             .offset(offset)
             .limit(page_size)
         )
+
+        # Apply sorting
+        sort_columns = {
+            "created_at": JoySafeterTask.created_at,
+            "duration_ms": JoySafeterTask.duration_ms,
+            "retry_count": JoySafeterTask.retry_count,
+        }
+        sort_col = sort_columns.get(sort_by, JoySafeterTask.created_at)
+        stmt = stmt.order_by(sort_col.desc() if sort_order == "desc" else sort_col.asc())
 
         result = await self.db.execute(stmt)
         rows = result.all()
@@ -439,6 +451,10 @@ class AnalyticsService:
             engine_kind = row[2]
             model_id = row[3]
             usage = task.usage or {}
+
+            wait_ms = 0
+            if task.started_at and task.created_at:
+                wait_ms = int((task.started_at - task.created_at).total_seconds() * 1000)
 
             records.append({
                 "id": str(task.id),
@@ -459,6 +475,8 @@ class AnalyticsService:
                 "error": task.error,
                 "started_at": task.started_at.isoformat() if task.started_at else None,
                 "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                "retry_count": task.retry_count or 0,
+                "queue_wait_ms": wait_ms,
             })
 
         return {
@@ -583,11 +601,11 @@ class AnalyticsService:
         error_count = summary_row.error_count or 0
         success_rate = (total_calls - error_count) / total_calls if total_calls > 0 else 0.0
 
-        # --- Running tasks ---
-        running_stmt = select(func.count(JoySafeterTask.id)).where(
+        # --- Running sessions ---
+        running_stmt = select(func.count(JoySafeterSession.id)).where(
             and_(
-                JoySafeterTask.project_id == project_id,
-                JoySafeterTask.status == JoySafeterTaskStatus.RUNNING.value,
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.status == "running",
             )
         )
         running_tasks = (await self.db.execute(running_stmt)).scalar() or 0
@@ -605,6 +623,24 @@ class AnalyticsService:
         last_error_row = (await self.db.execute(last_error_stmt)).scalar()
         last_error_at = last_error_row.isoformat() if last_error_row else None
 
+        # --- Queue wait time: started_at - created_at ---
+        queue_filters = [
+            JoySafeterTask.project_id == project_id,
+            JoySafeterTask.started_at.isnot(None),
+        ]
+        if time_boundary:
+            queue_filters.append(JoySafeterTask.created_at >= time_boundary)
+
+        queue_stmt = select(
+            func.avg(func.extract('epoch', JoySafeterTask.started_at - JoySafeterTask.created_at)).label('avg_wait'),
+            func.max(func.extract('epoch', JoySafeterTask.started_at - JoySafeterTask.created_at)).label('max_wait'),
+        ).where(and_(*queue_filters))
+
+        queue_result = await self.db.execute(queue_stmt)
+        queue_row = queue_result.one()
+        avg_queue_wait_sec = round(float(queue_row.avg_wait or 0), 1)
+        max_queue_wait_sec = round(float(queue_row.max_wait or 0), 1)
+
         # --- Alerts ---
         alerts: list[dict] = []
         if consecutive_failures_enabled:
@@ -613,6 +649,9 @@ class AnalyticsService:
             alerts.extend(await self._detect_slow_agents(project_id, time_boundary, slow_agent_threshold_ms))
         if token_spike_enabled:
             alerts.extend(await self._detect_token_spike(project_id, range_str, token_spike_threshold_pct))
+        # Always-on detections (not gated by configurable toggles)
+        alerts.extend(await self._detect_high_retries(project_id, time_boundary))
+        alerts.extend(await self._detect_zombie_sessions(project_id))
 
         # --- Token summary ---
         session_filters = [JoySafeterSession.project_id == project_id]
@@ -661,6 +700,11 @@ class AnalyticsService:
                 "type": "high_output_ratio",
                 "message": f"Output tokens are {round(total_output / total_input * 100)}% of input — consider constraining agent response length",
             })
+        if avg_queue_wait_sec > 30:
+            suggestions.append({
+                "type": "high_queue_wait",
+                "message": f"Average queue wait is {round(avg_queue_wait_sec)}s — consider adding more sandbox capacity",
+            })
 
         return {
             "status": status,
@@ -676,6 +720,10 @@ class AnalyticsService:
                 "cache_hit_rate": round(cache_hit_rate, 3),
             },
             "suggestions": suggestions,
+            "queue_wait": {
+                "avg_sec": avg_queue_wait_sec,
+                "max_sec": max_queue_wait_sec,
+            },
         }
 
     async def _detect_consecutive_failures(
@@ -827,6 +875,77 @@ class AnalyticsService:
 
         return []
 
+    async def _detect_high_retries(self, project_id: str, time_boundary: Optional[datetime]) -> list[dict]:
+        """Detect tasks with excessive retries."""
+        filters = [
+            JoySafeterTask.project_id == project_id,
+            JoySafeterTask.retry_count >= 5,
+        ]
+        if time_boundary:
+            filters.append(JoySafeterTask.created_at >= time_boundary)
+
+        stmt = (
+            select(
+                JoySafeterTask.agent_id,
+                JoySafeterAgent.name,
+                func.max(JoySafeterTask.retry_count).label("max_retries"),
+                func.count(JoySafeterTask.id).label("task_count"),
+            )
+            .select_from(JoySafeterTask)
+            .join(JoySafeterAgent, JoySafeterTask.agent_id == JoySafeterAgent.id)
+            .where(and_(*filters))
+            .group_by(JoySafeterTask.agent_id, JoySafeterAgent.name)
+            .order_by(desc("max_retries"))
+        )
+
+        result = await self.db.execute(stmt)
+        return [
+            {
+                "type": "high_retries",
+                "severity": "warning",
+                "agent_name": row.name,
+                "agent_id": str(row.agent_id),
+                "detail": f"max {row.max_retries} retries ({row.task_count} tasks)",
+            }
+            for row in result.all()
+        ]
+
+    async def _detect_zombie_sessions(self, project_id: str) -> list[dict]:
+        """Detect sessions stuck in running state for too long."""
+        # Sessions running for > 2 hours
+        threshold = datetime.now(timezone.utc) - timedelta(hours=2)
+
+        stmt = (
+            select(
+                JoySafeterSession.id,
+                JoySafeterSession.agent_id,
+                JoySafeterAgent.name,
+                JoySafeterSession.created_at,
+            )
+            .select_from(JoySafeterSession)
+            .outerjoin(JoySafeterAgent, JoySafeterSession.agent_id == JoySafeterAgent.id)
+            .where(and_(
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.status == "running",
+                JoySafeterSession.created_at < threshold,
+            ))
+            .order_by(JoySafeterSession.created_at.asc())
+        )
+
+        result = await self.db.execute(stmt)
+        alerts = []
+        now = datetime.now(timezone.utc)
+        for row in result.all():
+            hours = (now - row.created_at).total_seconds() / 3600
+            alerts.append({
+                "type": "zombie_session",
+                "severity": "warning",
+                "agent_name": row.name,
+                "agent_id": str(row.agent_id) if row.agent_id else None,
+                "detail": f"session running for {hours:.1f}h",
+            })
+        return alerts
+
     # ------------------------------------------------------------------
     # Agent Ranking
     # ------------------------------------------------------------------
@@ -878,6 +997,20 @@ class AnalyticsService:
         token_result = await self.db.execute(token_stmt)
         token_map = {str(r.agent_id): int(r.total_tokens or 0) for r in token_result.all()}
 
+        # Get last task time per agent (across all time, not filtered by range)
+        last_task_stmt = (
+            select(
+                JoySafeterTask.agent_id,
+                func.max(JoySafeterTask.created_at).label("last_task_at"),
+            )
+            .where(JoySafeterTask.project_id == project_id)
+            .group_by(JoySafeterTask.agent_id)
+        )
+        last_task_result = await self.db.execute(last_task_stmt)
+        last_task_map = {str(r.agent_id): r.last_task_at for r in last_task_result.all()}
+
+        now = datetime.now(timezone.utc)
+
         ranking = []
         for row in rows:
             total = row.total_tasks or 1
@@ -885,6 +1018,14 @@ class AnalyticsService:
             failed = row.failed or 0
             avg_dur = float(row.avg_duration_ms or 0)
             tokens = token_map.get(str(row.agent_id), 0)
+
+            last_task = last_task_map.get(str(row.agent_id))
+            if not last_task:
+                activity_status = "unused"
+            elif (now - last_task).total_seconds() < 86400:
+                activity_status = "active"
+            else:
+                activity_status = "idle"
 
             ranking.append({
                 "agent_id": str(row.agent_id),
@@ -895,7 +1036,35 @@ class AnalyticsService:
                 "failed_count": failed,
                 "avg_duration_ms": round(avg_dur, 1),
                 "total_tokens": tokens,
+                "last_task_at": last_task.isoformat() if last_task else None,
+                "activity_status": activity_status,
             })
+
+        # Include agents with zero tasks (not in the main query results)
+        existing_agent_ids = {r["agent_id"] for r in ranking}
+
+        all_agents_stmt = select(JoySafeterAgent).where(
+            and_(
+                JoySafeterAgent.project_id == project_id,
+                JoySafeterAgent.deleted_at.is_(None),
+            )
+        )
+        all_agents_result = await self.db.execute(all_agents_stmt)
+        for agent in all_agents_result.scalars().all():
+            if str(agent.id) not in existing_agent_ids:
+                last_task = last_task_map.get(str(agent.id))
+                ranking.append({
+                    "agent_id": str(agent.id),
+                    "agent_name": agent.name,
+                    "engine_kind": agent.engine_kind,
+                    "total_tasks": 0,
+                    "success_rate": 0.0,
+                    "failed_count": 0,
+                    "avg_duration_ms": 0.0,
+                    "total_tokens": 0,
+                    "last_task_at": last_task.isoformat() if last_task else None,
+                    "activity_status": "unused",
+                })
 
         # Sort by: failed_count desc, then success_rate asc (worst first)
         ranking.sort(key=lambda x: (-x["failed_count"], x["success_rate"]))
@@ -940,7 +1109,10 @@ class AnalyticsService:
     # Error Summary
     # ------------------------------------------------------------------
 
-    async def get_error_summary(self, project_id: str, range_str: str = "7d") -> dict:
+    async def get_error_summary(
+        self, project_id: str, range_str: str = "7d",
+        engine: Optional[str] = None, agent_id: Optional[str] = None,
+    ) -> dict:
         """Aggregate errors by status type and show top error messages."""
         time_boundary = _get_time_boundary(range_str)
 
@@ -954,6 +1126,11 @@ class AnalyticsService:
         ]
         if time_boundary:
             filters.append(JoySafeterTask.created_at >= time_boundary)
+        if agent_id:
+            filters.append(JoySafeterTask.agent_id == agent_id)
+        if engine:
+            agent_ids_sq = select(JoySafeterAgent.id).where(JoySafeterAgent.engine_kind == engine)
+            filters.append(JoySafeterTask.agent_id.in_(agent_ids_sq))
 
         # Count by status
         status_stmt = (
@@ -996,31 +1173,42 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     async def get_latency_stats(
-        self, project_id: str, range_str: str = "7d", agent_id: Optional[str] = None,
+        self, project_id: str, range_str: str = "7d",
+        engine: Optional[str] = None, agent_id: Optional[str] = None,
     ) -> dict:
-        """Compute P50, P95, and P99 latency percentiles."""
+        """Compute duration distribution by time buckets."""
         time_boundary = _get_time_boundary(range_str)
         filters = [JoySafeterTask.project_id == project_id, JoySafeterTask.duration_ms.isnot(None)]
         if time_boundary:
             filters.append(JoySafeterTask.created_at >= time_boundary)
         if agent_id:
             filters.append(JoySafeterTask.agent_id == agent_id)
+        if engine:
+            agent_ids_sq = select(JoySafeterAgent.id).where(JoySafeterAgent.engine_kind == engine)
+            filters.append(JoySafeterTask.agent_id.in_(agent_ids_sq))
 
         stmt = select(
-            func.percentile_cont(0.5).within_group(JoySafeterTask.duration_ms).label("p50"),
-            func.percentile_cont(0.95).within_group(JoySafeterTask.duration_ms).label("p95"),
-            func.percentile_cont(0.99).within_group(JoySafeterTask.duration_ms).label("p99"),
             func.count(JoySafeterTask.id).label("total"),
-            func.count(case((JoySafeterTask.duration_ms > 60000, 1))).label("slow_count"),
+            func.count(case((JoySafeterTask.duration_ms < 10000, 1))).label("under_10s"),
+            func.count(case((and_(JoySafeterTask.duration_ms >= 10000, JoySafeterTask.duration_ms < 60000), 1))).label("_10s_1m"),
+            func.count(case((and_(JoySafeterTask.duration_ms >= 60000, JoySafeterTask.duration_ms < 600000), 1))).label("_1m_10m"),
+            func.count(case((and_(JoySafeterTask.duration_ms >= 600000, JoySafeterTask.duration_ms < 3600000), 1))).label("_10m_1h"),
+            func.count(case((JoySafeterTask.duration_ms >= 3600000, 1))).label("over_1h"),
         ).where(and_(*filters))
 
         result = await self.db.execute(stmt)
         row = result.one()
+        total = row.total or 1
+
+        buckets = [
+            {"label": "< 10s", "count": row.under_10s or 0, "pct": round((row.under_10s or 0) / total * 100, 1), "color": "emerald"},
+            {"label": "10s–1m", "count": row._10s_1m or 0, "pct": round((row._10s_1m or 0) / total * 100, 1), "color": "emerald"},
+            {"label": "1m–10m", "count": row._1m_10m or 0, "pct": round((row._1m_10m or 0) / total * 100, 1), "color": "amber"},
+            {"label": "10m–1h", "count": row._10m_1h or 0, "pct": round((row._10m_1h or 0) / total * 100, 1), "color": "amber"},
+            {"label": "> 1h", "count": row.over_1h or 0, "pct": round((row.over_1h or 0) / total * 100, 1), "color": "red"},
+        ]
 
         return {
-            "p50_ms": round(float(row.p50 or 0), 1),
-            "p95_ms": round(float(row.p95 or 0), 1),
-            "p99_ms": round(float(row.p99 or 0), 1),
             "total_calls": row.total or 0,
-            "slow_count": row.slow_count or 0,
+            "buckets": [b for b in buckets if b["count"] > 0],
         }

@@ -1,7 +1,9 @@
 'use client'
 
+import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { Search, ChevronDown, Check } from 'lucide-react'
 import type { AnalyticsFilters, TimeRange } from '@/lib/managed/analytics/types'
 import { TIME_RANGE_OPTIONS, CALL_STATUS_OPTIONS } from './constants'
 import {
@@ -131,24 +133,111 @@ export function AnalyticsFilterBar({
       )}
 
       {agents && agents.length > 0 && (
-        <Select
-          value={filters.agent_id ?? '__all__'}
-          onValueChange={(v) =>
-            update({ agent_id: v === '__all__' ? null : v })
-          }
-        >
-          <SelectTrigger className="w-auto min-w-[140px]">
-            <SelectValue placeholder={t('analytics.filters.agent')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{t('analytics.filters.allAgents')}</SelectItem>
-            {agents.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {a.name}
-              </SelectItem>
+        <SearchableAgentSelect
+          agents={agents}
+          value={filters.agent_id}
+          onChange={(v) => update({ agent_id: v })}
+          placeholder={t('analytics.filters.allAgents')}
+          searchPlaceholder={t('analytics.filters.searchAgent')}
+        />
+      )}
+    </div>
+  )
+}
+
+function SearchableAgentSelect({
+  agents,
+  value,
+  onChange,
+  placeholder,
+  searchPlaceholder,
+}: {
+  agents: { id: string; name: string }[]
+  value: string | null
+  onChange: (v: string | null) => void
+  placeholder: string
+  searchPlaceholder: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const filtered = search
+    ? agents.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()))
+    : agents
+
+  const selectedName = value ? agents.find((a) => a.id === value)?.name : null
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => { setOpen(!open); setSearch('') }}
+        className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors min-w-[140px]"
+      >
+        <span className={cn('truncate max-w-[180px]', !selectedName && 'text-muted-foreground')}>
+          {selectedName || placeholder}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute top-full mt-1 left-0 z-50 w-[260px] rounded-md border border-border bg-card shadow-lg">
+          <div className="p-1.5 border-b border-border">
+            <div className="flex items-center gap-1.5 rounded-md bg-muted/30 px-2 py-1">
+              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="max-h-[240px] overflow-y-auto p-1">
+            <button
+              type="button"
+              onClick={() => { onChange(null); setOpen(false) }}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors',
+                !value && 'font-medium'
+              )}
+            >
+              <Check className={cn('h-3.5 w-3.5 shrink-0', value ? 'invisible' : 'text-foreground')} />
+              {placeholder}
+            </button>
+            {filtered.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => { onChange(a.id); setOpen(false) }}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors',
+                  value === a.id && 'font-medium'
+                )}
+              >
+                <Check className={cn('h-3.5 w-3.5 shrink-0', value === a.id ? 'text-foreground' : 'invisible')} />
+                <span className="truncate">{a.name}</span>
+              </button>
             ))}
-          </SelectContent>
-        </Select>
+            {filtered.length === 0 && (
+              <p className="px-2 py-3 text-xs text-muted-foreground text-center">
+                {searchPlaceholder}
+              </p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

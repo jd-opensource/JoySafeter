@@ -82,6 +82,15 @@ export function HealthStatusBar({ data, loading }: HealthStatusBarProps) {
 
       <div className="h-4 w-px bg-current opacity-20" />
 
+      <span className="text-sm text-foreground">
+        {t('analytics.health.queueWait', { time: data.queue_wait.avg_sec > 60
+          ? `${Math.round(data.queue_wait.avg_sec / 60)}m`
+          : `${Math.round(data.queue_wait.avg_sec)}s`
+        })}
+      </span>
+
+      <div className="h-4 w-px bg-current opacity-20" />
+
       <span className="text-sm text-muted-foreground">
         {data.last_error_at
           ? t('analytics.health.lastError', { time: formatRelativeTime(data.last_error_at) })

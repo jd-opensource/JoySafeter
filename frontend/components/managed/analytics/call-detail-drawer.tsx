@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { StatusBadge, MonoId } from '@/components/managed/shared'
 import { useTranslation } from '@/lib/i18n'
@@ -67,7 +68,13 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
         <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <h2 className="text-sm font-medium truncate">
-              {call?.agent_name ?? t('analytics.callDetail.title')}
+              {call?.agent_id ? (
+                <Link href={`/managed/agents/${call.agent_id}`} className="hover:text-foreground transition-colors">
+                  {call.agent_name}
+                </Link>
+              ) : (
+                call?.agent_name ?? t('analytics.callDetail.title')
+              )}
             </h2>
             {call && <StatusBadge status={call.status} />}
           </div>
@@ -94,7 +101,9 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
               <MetadataRow label={t('analytics.calls.columns.engine')}>{call.engine_kind}</MetadataRow>
               <MetadataRow label={t('analytics.calls.columns.model')}>{call.model}</MetadataRow>
               <MetadataRow label={t('analytics.calls.columns.session')}>
-                <MonoId id={call.session_id} />
+                <Link href={`/managed/sessions/${call.session_id}`} className="hover:text-foreground transition-colors">
+                  <MonoId id={call.session_id} />
+                </Link>
               </MetadataRow>
               <MetadataRow label={t('analytics.calls.columns.time')}>
                 {new Date(call.started_at).toLocaleString()}
@@ -157,6 +166,16 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
                 </pre>
               </div>
             )}
+
+            {/* View Session */}
+            <div className="border-t border-border px-5 py-4">
+              <Link
+                href={`/managed/sessions/${call.session_id}`}
+                className="flex items-center justify-center gap-2 w-full rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent/50 transition-colors"
+              >
+                {t('analytics.callDetail.viewSession')}
+              </Link>
+            </div>
           </div>
         )}
       </div>
