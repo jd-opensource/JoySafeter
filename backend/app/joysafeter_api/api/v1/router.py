@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.joysafeter_api.api.v1.agents import router as agents_router
+from app.joysafeter_api.api.v1.analytics import router as analytics_router
 from app.joysafeter_api.api.v1.auth import router as auth_router
 from app.joysafeter_api.api.v1.environments import router as environments_router
 from app.joysafeter_api.api.v1.files import router as files_router
@@ -39,3 +40,4 @@ joysafeter_router.include_router(files_router, prefix="/files")
 joysafeter_router.include_router(health_router, prefix="/health")
 joysafeter_router.include_router(organizations_router, prefix="/organizations")
 joysafeter_router.include_router(quickstart_router, prefix="/quickstart")
+joysafeter_router.include_router(analytics_router, prefix="/analytics")

@@ -1,5 +1,26 @@
 'use client'
 
+import { useState } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import Link from 'next/link'
+import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/i18n'
+import { useSidebarStore } from '@/stores/sidebar/store'
+import { useSession, client } from '@/lib/auth/auth-client'
+import { useTheme } from 'next-themes'
+import { managedGet } from '@/lib/api-client'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from '@/components/ui/dropdown-menu'
 import {
   Zap,
   Bot,
@@ -25,34 +46,13 @@ import {
   ChevronsUpDown,
   Search,
   Users,
-  CalendarClock,
+  BarChart3,
+  Activity,
+  History,
 } from 'lucide-react'
-import Link from 'next/link'
-import { useRouter, usePathname } from 'next/navigation'
-import { useTheme } from 'next-themes'
-import { useEffect, useRef, useState } from 'react'
-
-import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-} from '@/components/ui/dropdown-menu'
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
-import { useProjectContext } from '@/hooks/managed/use-project-context'
-import { managedGet } from '@/lib/api-client'
-import { useSession, client } from '@/lib/auth/auth-client'
-import { useTranslation } from '@/lib/i18n'
-import { cn } from '@/lib/utils'
-
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ProjectInfo } from '@/stores/managed/project-store'
-import { useSidebarStore } from '@/stores/sidebar/store'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
 
 interface NavItem {
   to: string
@@ -64,9 +64,13 @@ const buildItems: NavItem[] = [
   { to: '/managed/quickstart', labelKey: 'nav.quickstart', icon: Zap },
   { to: '/managed/agents', labelKey: 'nav.agents', icon: Bot },
   { to: '/managed/sessions', labelKey: 'nav.sessions', icon: MessageSquare },
-  { to: '/managed/schedules', labelKey: 'nav.schedules', icon: CalendarClock },
   { to: '/managed/environments', labelKey: 'nav.environments', icon: Server },
   { to: '/managed/vaults', labelKey: 'nav.vaults', icon: KeyRound },
+]
+
+const insightItems: NavItem[] = [
+  { to: '/managed/analytics', labelKey: 'nav.analyticsOverview', icon: Activity },
+  { to: '/managed/analytics/calls', labelKey: 'nav.analyticsCalls', icon: History },
 ]
 
 const resourceItems: NavItem[] = [
@@ -91,59 +95,40 @@ const manageItems: NavItem[] = [
 function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const { t } = useTranslation()
   const { projects, organizations, switchProject, orgId } = useProjectContext()
-  const { currentProjectId, currentOrgId, currentProject: storedCurrentProject } = useProjectStore()
+  const { currentProjectId, currentOrgId } = useProjectStore()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [allOrgProjects, setAllOrgProjects] = useState<Record<string, ProjectInfo[]>>({})
-  const projectsLoadSeqRef = useRef(0)
-  const switchCompletionSeqRef = useRef(0)
-  const currentProject =
-    storedCurrentProject?.id === currentProjectId
-      ? storedCurrentProject
-      : projects.find((p) => p.id === currentProjectId)
+  const currentProject = projects.find((p) => p.id === currentProjectId)
   const currentOrg = organizations.find((o) => o.id === (currentOrgId || orgId))
   const activeOrgId = currentOrgId || orgId
 
   const orgColors = ['bg-purple-500', 'bg-blue-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500']
 
-  useEffect(() => {
-    projectsLoadSeqRef.current += 1
-  }, [activeOrgId, organizations, projects])
-
-  useEffect(() => {
-    return () => {
-      projectsLoadSeqRef.current += 1
-    }
-  }, [])
-
   const getProjectsForOrg = (targetOrgId: string) => {
     const source =
-      targetOrgId === activeOrgId
+      allOrgProjects[targetOrgId] ||
+      (targetOrgId === activeOrgId
         ? projects.map((project) => ({ ...project, org_id: project.org_id || targetOrgId }))
-        : allOrgProjects[targetOrgId] || []
+        : [])
 
     return source.filter((project) => !project.org_id || project.org_id === targetOrgId)
   }
 
   const handleSwitchToProject = async (targetOrgId: string, targetProjectId: string) => {
-    const requestSeq = (switchCompletionSeqRef.current += 1)
     try {
       await switchProject(targetProjectId, targetOrgId)
-      if (requestSeq !== switchCompletionSeqRef.current) return
       setOpen(false)
       setSearch('')
     } catch (e) {
-      if (requestSeq !== switchCompletionSeqRef.current) return
       console.error('Failed to switch:', e)
     }
   }
 
   // Load projects for all orgs when dropdown opens
   const loadAllProjects = async () => {
-    const requestSeq = (projectsLoadSeqRef.current += 1)
     const result: Record<string, ProjectInfo[]> = {}
     for (const org of organizations) {
-      if (requestSeq !== projectsLoadSeqRef.current) return
       if (org.id === activeOrgId) {
         result[org.id] = projects.map((project) => ({
           ...project,
@@ -155,22 +140,18 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
             skipManagedContext: true,
             headers: { 'X-Org-Id': org.id },
           })
-          if (requestSeq !== projectsLoadSeqRef.current) return
           result[org.id] = (data || [])
             .filter((project) => !project.org_id || project.org_id === org.id)
             .map((project) => ({ ...project, org_id: project.org_id || org.id }))
         } catch {
-          if (requestSeq !== projectsLoadSeqRef.current) return
           result[org.id] = []
         }
       }
     }
-    if (requestSeq !== projectsLoadSeqRef.current) return
     setAllOrgProjects(result)
   }
 
   const handleOpen = (v: boolean) => {
-    switchCompletionSeqRef.current += 1
     setOpen(v)
     if (v) loadAllProjects()
     if (!v) setSearch('')
@@ -398,21 +379,29 @@ function NavSection({
   if (collapsed) {
     return (
       <>
-        {items.map((item) => (
-          <Link
-            key={item.to}
-            href={item.to}
-            title={t(item.labelKey)}
-            className={cn(
-              'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
-              pathname?.startsWith(item.to)
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-            )}
-          >
-            <item.icon className="h-4 w-4" />
-          </Link>
-        ))}
+        {items.map((item) => {
+          const exactMatch = pathname === item.to
+          const prefixMatch = pathname?.startsWith(item.to + '/') ?? false
+          const hasSiblingMatch = items.some(
+            (other) => other.to !== item.to && other.to.length > item.to.length && pathname?.startsWith(other.to)
+          )
+          const isItemActive = exactMatch || (prefixMatch && !hasSiblingMatch)
+          return (
+            <Link
+              key={item.to}
+              href={item.to}
+              title={t(item.labelKey)}
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
+                isItemActive
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+              )}
+            >
+              <item.icon className="h-4 w-4" />
+            </Link>
+          )
+        })}
       </>
     )
   }
@@ -439,7 +428,13 @@ function NavSection({
       {open && (
         <div>
           {items.map((item) => {
-            const isActive = pathname?.startsWith(item.to)
+            // Exact match, or starts-with but no sibling has a more specific match
+            const exactMatch = pathname === item.to
+            const prefixMatch = pathname?.startsWith(item.to + '/') ?? false
+            const hasSiblingMatch = items.some(
+              (other) => other.to !== item.to && other.to.length > item.to.length && pathname?.startsWith(other.to)
+            )
+            const isActive = exactMatch || (prefixMatch && !hasSiblingMatch)
             return (
               <Link
                 key={item.to}
@@ -574,6 +569,8 @@ export function AppSidebar() {
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
+          <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} collapsed />
+          <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} collapsed />
@@ -601,6 +598,7 @@ export function AppSidebar() {
 
       <nav className="flex-1 overflow-y-auto py-1">
         <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} />
+        <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} />
         <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} />
         <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} />
       </nav>

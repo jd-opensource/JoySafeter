@@ -1,8 +1,8 @@
 use crate::client::JoysafeterClient;
 use anyhow::{bail, Context};
 use dialoguer::{Input, Select};
-use rustyline::DefaultEditor;
 use std::collections::HashSet;
+use std::io::{self, Write};
 use std::time::Duration;
 
 pub async fn run(
@@ -22,22 +22,18 @@ pub async fn run(
     println!();
 
     let (mut seen_ids, mut last_seq) = collect_event_ids(client, &session_id).await;
-    let mut rl = DefaultEditor::new()?;
-
     loop {
-        let readline = rl.readline("\x1b[1;32myou>\x1b[0m ");
-        let input = match readline {
-            Ok(line) => line,
-            Err(
-                rustyline::error::ReadlineError::Interrupted | rustyline::error::ReadlineError::Eof,
-            ) => break,
-            Err(e) => return Err(e.into()),
-        };
+        print!("\x1b[1;32myou>\x1b[0m ");
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input)? == 0 {
+            break;
+        }
         let input = input.trim();
         if input.is_empty() {
             continue;
         }
-        rl.add_history_entry(input)?;
 
         match input {
             "/quit" | "/exit" | "/q" => break,
