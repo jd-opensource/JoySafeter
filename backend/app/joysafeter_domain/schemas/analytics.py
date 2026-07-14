@@ -92,6 +92,8 @@ class CallRecord(BaseModel):
     error: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    retry_count: int = 0
+    queue_wait_ms: int = 0
 
 
 class CallsListResponse(BaseModel):
@@ -162,6 +164,11 @@ class SuggestionItem(BaseModel):
     message: str
 
 
+class QueueWaitInfo(BaseModel):
+    avg_sec: float = 0.0
+    max_sec: float = 0.0
+
+
 class HealthCheckResponse(BaseModel):
     status: str  # healthy, warning, critical
     success_rate: float
@@ -170,6 +177,7 @@ class HealthCheckResponse(BaseModel):
     alerts: list[AlertItem]
     token_summary: TokenSummary
     suggestions: list[SuggestionItem] = []
+    queue_wait: QueueWaitInfo = QueueWaitInfo()
 
 
 # --- Error Summary ---
@@ -194,9 +202,13 @@ class ErrorSummaryResponse(BaseModel):
 # --- Latency Stats ---
 
 
+class DurationBucket(BaseModel):
+    label: str
+    count: int
+    pct: float
+    color: str
+
+
 class LatencyStatsResponse(BaseModel):
-    p50_ms: float
-    p95_ms: float
-    p99_ms: float
     total_calls: int
-    slow_count: int
+    buckets: list[DurationBucket] = []

@@ -569,9 +569,9 @@ export function AppSidebar() {
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
-          <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} collapsed />
-          <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} collapsed />
+          <div className="my-1 h-px w-6 bg-border" />
+          <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} collapsed />
         </nav>
@@ -598,8 +598,8 @@ export function AppSidebar() {
 
       <nav className="flex-1 overflow-y-auto py-1">
         <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} />
-        <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} />
         <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} />
+        <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} />
         <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} />
       </nav>
 

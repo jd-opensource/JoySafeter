@@ -117,6 +117,8 @@ async def get_calls_list(
     agent_id: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_by: str = Query("created_at"),
+    sort_order: str = Query("desc"),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> CallsListResponse:
@@ -131,6 +133,8 @@ async def get_calls_list(
         agent_id=agent_id,
         page=page,
         page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
     return CallsListResponse(**data)
 
@@ -234,12 +238,14 @@ async def get_time_heatmap(
 @router.get("/error-summary", response_model=ErrorSummaryResponse)
 async def get_error_summary(
     range: str = Query("7d", alias="range"),
+    engine: Optional[str] = Query(None),
+    agent_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> ErrorSummaryResponse:
     """Get error distribution by status type and top error messages."""
     service = AnalyticsService(db)
-    data = await service.get_error_summary(auth_ctx.project_id, range)
+    data = await service.get_error_summary(auth_ctx.project_id, range, engine, agent_id)
     return ErrorSummaryResponse(**data)
 
 
@@ -249,11 +255,12 @@ async def get_error_summary(
 @router.get("/latency-stats", response_model=LatencyStatsResponse)
 async def get_latency_stats(
     range: str = Query("7d", alias="range"),
+    engine: Optional[str] = Query(None),
     agent_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> LatencyStatsResponse:
     """Get P50/P95/P99 latency percentiles."""
     service = AnalyticsService(db)
-    data = await service.get_latency_stats(auth_ctx.project_id, range, agent_id)
+    data = await service.get_latency_stats(auth_ctx.project_id, range, engine, agent_id)
     return LatencyStatsResponse(**data)

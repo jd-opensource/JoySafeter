@@ -96,11 +96,15 @@ export function useCallsList(
   filters: AnalyticsFilters,
   page: number,
   pageSize: number,
+  sortBy: string = 'created_at',
+  sortOrder: string = 'desc',
 ) {
   const params = {
     ...buildFilterParams(filters),
     page: String(page),
     page_size: String(pageSize),
+    sort_by: sortBy,
+    sort_order: sortOrder,
   }
   return useQuery<CallsListResponse>({
     queryKey: ['analytics', 'calls', params],

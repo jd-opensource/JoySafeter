@@ -85,6 +85,8 @@ export interface CallRecord {
   error: string | null
   started_at: string
   completed_at: string | null
+  retry_count: number
+  queue_wait_ms: number
 }
 
 export interface CallsListResponse {
@@ -182,6 +184,11 @@ export interface TokenSummary {
   cache_hit_rate: number
 }
 
+export interface QueueWaitInfo {
+  avg_sec: number
+  max_sec: number
+}
+
 export interface HealthCheckResponse {
   status: HealthStatus
   success_rate: number
@@ -190,6 +197,7 @@ export interface HealthCheckResponse {
   alerts: AlertItem[]
   token_summary: TokenSummary
   suggestions: SuggestionItem[]
+  queue_wait: QueueWaitInfo
 }
 
 // --- Suggestions ---
@@ -209,12 +217,16 @@ export interface ErrorSummary {
 
 // --- Latency Stats ---
 
+export interface DurationBucket {
+  label: string
+  count: number
+  pct: number
+  color: 'emerald' | 'amber' | 'red'
+}
+
 export interface LatencyStats {
-  p50_ms: number
-  p95_ms: number
-  p99_ms: number
   total_calls: number
-  slow_count: number
+  buckets: DurationBucket[]
 }
 
 // --- Agent Ranking ---
@@ -228,6 +240,8 @@ export interface AgentRankingItem {
   failed_count: number
   avg_duration_ms: number
   total_tokens: number
+  last_task_at: string | null
+  activity_status: 'active' | 'idle' | 'unused'
 }
 
 // --- Time Heatmap ---

@@ -1,12 +1,18 @@
 'use client'
 
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
-import { formatDuration } from '@/lib/managed/analytics/formatters'
 import type { LatencyStats } from '@/lib/managed/analytics/types'
 
 interface LatencyStatsCardProps {
   data: LatencyStats | undefined
   loading?: boolean
+}
+
+const COLOR_MAP = {
+  emerald: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  red: 'bg-red-500',
 }
 
 export function LatencyStatsCard({ data, loading }: LatencyStatsCardProps) {
@@ -21,38 +27,51 @@ export function LatencyStatsCard({ data, loading }: LatencyStatsCardProps) {
     )
   }
 
+  if (!data.buckets.length) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-4">
+        <h3 className="text-sm font-medium text-foreground mb-3">
+          {t('analytics.latencyStats.title')}
+        </h3>
+        <p className="text-xs text-muted-foreground">{t('analytics.charts.noData')}</p>
+      </div>
+    )
+  }
+
+  const maxCount = Math.max(...data.buckets.map(b => b.count), 1)
+
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium text-foreground mb-3">
-        {t('analytics.latencyStats.title')}
-      </h3>
-
-      {/* Percentile bars */}
-      <div className="space-y-2.5">
-        <PercentileRow label="P50" value={data.p50_ms} max={data.p99_ms} color="bg-emerald-500" />
-        <PercentileRow label="P95" value={data.p95_ms} max={data.p99_ms} color="bg-amber-500" />
-        <PercentileRow label="P99" value={data.p99_ms} max={data.p99_ms} color="bg-red-500" />
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-medium text-foreground">
+          {t('analytics.latencyStats.title')}
+        </h3>
+        <span className="text-xs text-muted-foreground">
+          {data.total_calls} {t('analytics.latencyStats.totalTasks')}
+        </span>
       </div>
 
-      {/* Slow call count */}
-      {data.slow_count > 0 && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          {t('analytics.latencyStats.slowCalls', { count: data.slow_count, total: data.total_calls })}
-        </p>
-      )}
-    </div>
-  )
-}
-
-function PercentileRow({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
-  const pct = max > 0 ? (value / max) * 100 : 0
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-xs font-mono text-muted-foreground w-7">{label}</span>
-      <div className="flex-1 h-2 bg-muted/30 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(pct, 3)}%` }} />
+      <div className="space-y-2">
+        {data.buckets.map((bucket) => (
+          <div key={bucket.label} className="flex items-center gap-2.5">
+            <span className="text-xs text-muted-foreground w-14 shrink-0 text-right tabular-nums">
+              {bucket.label}
+            </span>
+            <div className="flex-1 h-4 bg-muted/20 rounded overflow-hidden">
+              <div
+                className={cn('h-full rounded', COLOR_MAP[bucket.color] || 'bg-gray-400')}
+                style={{ width: `${(bucket.count / maxCount) * 100}%`, minWidth: bucket.count > 0 ? '4px' : '0' }}
+              />
+            </div>
+            <span className="text-xs tabular-nums text-foreground w-8 text-right">
+              {bucket.count}
+            </span>
+            <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">
+              {bucket.pct}%
+            </span>
+          </div>
+        ))}
       </div>
-      <span className="text-xs tabular-nums text-foreground w-16 text-right">{formatDuration(value)}</span>
     </div>
   )
 }

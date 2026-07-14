@@ -965,6 +965,14 @@ const en = {
       },
       quickstart: {
         title: 'Quickstart',
+        step: {
+          chooseEngine: 'Choose Engine',
+          chooseSecret: 'Choose Secret',
+          createAgent: 'Create Agent',
+          configureEnv: 'Configure Environment',
+          configureVault: 'Configure Vault',
+          startSession: 'Start Session',
+        },
         whatToBuild: 'What do you want\nto build?',
         subtitle:
           'Describe your agent or pick a template to get started. We will guide you through the configuration step by step.',
@@ -1056,14 +1064,6 @@ const en = {
           vaultConfigMissing: 'Vault configuration not found',
           unexpectedStep: 'Unexpected step: {{step}}',
         },
-        step: {
-          chooseEngine: 'Choose Engine',
-          chooseSecret: 'Choose Secret',
-          createAgent: 'Create Agent',
-          configureEnv: 'Configure Environment',
-          configureVault: 'Configure Vault',
-          startSession: 'Start Session',
-        },
         stepComplete: {
           secretSelected: 'Agent Secret Selected',
           agentCreated: 'Agent Created',
@@ -1072,12 +1072,11 @@ const en = {
           sessionStarted: 'Session Started',
         },
         stepDesc: {
-          1: 'Runtime engine selected. Next, choose the Agent Secret for runtime model settings.',
-          2: 'Agent Secret selected. The Agent will use this secret for model, endpoint, and API key settings at runtime.',
-          3: 'Agent created! An agent is a reusable, versioned configuration -- it defines the role, model, and tools, but does not run on its own; you start a session from it each time you need it to work.',
-          4: 'Environment created! An environment defines the sandbox where the agent runs -- network rules, packages, and resource limits. Attach it to a session to enforce those constraints.',
-          5: 'Vault configured! A vault is a workspace-level MCP server credential store that sessions reference by ID at creation -- enabling the same authorized connection to be reused across multiple sessions.',
-          6: 'A session is an instance of the agent running in its environment -- you send it events (messages) and observe its work in real time.',
+          1: 'Agent Secret selected. The Agent will use this secret for model, endpoint, and API key settings at runtime.',
+          2: 'Agent created! An agent is a reusable, versioned configuration -- it defines the role, model, and tools, but does not run on its own; you start a session from it each time you need it to work.',
+          3: 'Environment created! An environment defines the sandbox where the agent runs -- network rules, packages, and resource limits. Attach it to a session to enforce those constraints.',
+          4: 'Vault configured! A vault is a workspace-level MCP server credential store that sessions reference by ID at creation -- enabling the same authorized connection to be reused across multiple sessions.',
+          5: 'A session is an instance of the agent running in its environment -- you send it events (messages) and observe its work in real time.',
         },
       },
       filters: {
@@ -1662,6 +1661,7 @@ const en = {
         noRunningTasks: 'No tasks running',
         lastError: 'Last error {{time}}',
         noErrors: 'No recent errors',
+        queueWait: 'Avg queue: {{time}}',
       },
       alerts: {
         title: 'Needs Attention',
@@ -1705,6 +1705,7 @@ const en = {
         allModels: 'All Models',
         allStatuses: 'All Statuses',
         allAgents: 'All Agents',
+        searchAgent: 'Search agent...',
       },
       kpi: {
         totalCalls: 'Total Calls',
@@ -1760,6 +1761,7 @@ const en = {
         title: 'Call Detail',
         completed: 'Completed',
         steps: 'Steps',
+        viewSession: 'View Session',
       },
       calls: {
         title: 'Call History',
@@ -1776,8 +1778,11 @@ const en = {
           ttft: 'TTFT',
           duration: 'Duration',
           cost: 'Cost',
+          retries: 'Retries',
+          queueWait: 'Queue',
         },
         noRecords: 'No call records found',
+        sortBy: 'Sort by',
       },
       errorSummary: {
         title: 'Error Distribution',
@@ -1786,8 +1791,8 @@ const en = {
         noErrors: 'No errors in this period',
       },
       latencyStats: {
-        title: 'Latency Percentiles',
-        slowCalls: '{{count}} of {{total}} calls exceeded 60s',
+        title: 'Duration Distribution',
+        totalTasks: 'tasks',
       },
       agentRanking: {
         title: 'Agent Health Ranking',
@@ -1796,6 +1801,10 @@ const en = {
         successRate: 'Success',
         avgDuration: 'Avg Time',
         tokens: 'Tokens',
+        viewCalls: 'View calls for this agent',
+        active: 'Active',
+        idle: 'Idle',
+        unused: 'Never used',
       },
       heatmap: {
         title: 'Activity Pattern',

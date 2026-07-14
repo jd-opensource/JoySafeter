@@ -1022,6 +1022,14 @@ const zh = {
       },
       quickstart: {
         title: '快速开始',
+        step: {
+          chooseEngine: '选择引擎',
+          chooseSecret: '选择密钥',
+          createAgent: '创建智能体',
+          configureEnv: '配置环境',
+          configureVault: '配置凭据库',
+          startSession: '启动会话',
+        },
         whatToBuild: '你想构建什么？',
         subtitle: '描述你的智能体或选择一个模板开始。我们将逐步引导你完成配置。',
         describeAgent: '描述你的智能体...',
@@ -1111,14 +1119,6 @@ const zh = {
           vaultConfigMissing: '未找到凭据库配置',
           unexpectedStep: '未预期的步骤：{{step}}',
         },
-        step: {
-          chooseEngine: '选择引擎',
-          chooseSecret: '选择密钥',
-          createAgent: '创建智能体',
-          configureEnv: '配置环境',
-          configureVault: '配置凭据库',
-          startSession: '启动会话',
-        },
         stepComplete: {
           secretSelected: 'Agent 密钥已选择',
           agentCreated: '智能体已创建',
@@ -1127,12 +1127,11 @@ const zh = {
           sessionStarted: '会话已启动',
         },
         stepDesc: {
-          1: '运行引擎已选择，接下来选择 Agent 运行时使用的模型密钥。',
-          2: 'Agent 密钥已选择。这个 Agent 运行时会从该密钥读取模型、接口地址和 API Key。',
-          3: '智能体已创建！智能体是可复用的版本化配置 —— 它定义了角色、模型和工具，但不会自行运行；你每次需要它工作时都从中启动会话。',
-          4: '环境已创建！环境定义了智能体运行的沙箱 —— 网络规则、软件包和资源限制。将其附加到会话以强制执行这些约束。',
-          5: '凭据库已配置！凭据库是工作区级别的 MCP 服务器凭据存储，会话在创建时通过 ID 引用它 —— 让同一授权连接可在多个会话间复用。',
-          6: '会话是智能体在其环境中运行的实例 —— 你向它发送事件（消息）并实时观察它的工作。',
+          1: 'Agent 密钥已选择。这个 Agent 运行时会从该密钥读取模型、接口地址和 API Key。',
+          2: '智能体已创建！智能体是可复用的版本化配置 —— 它定义了角色、模型和工具，但不会自行运行；你每次需要它工作时都从中启动会话。',
+          3: '环境已创建！环境定义了智能体运行的沙箱 —— 网络规则、软件包和资源限制。将其附加到会话以强制执行这些约束。',
+          4: '凭据库已配置！凭据库是工作区级别的 MCP 服务器凭据存储，会话在创建时通过 ID 引用它 —— 让同一授权连接可在多个会话间复用。',
+          5: '会话是智能体在其环境中运行的实例 —— 你向它发送事件（消息）并实时观察它的工作。',
         },
       },
       search: {
@@ -1604,6 +1603,7 @@ const zh = {
         noRunningTasks: '无运行中任务',
         lastError: '最近错误 {{time}}',
         noErrors: '无近期错误',
+        queueWait: '平均排队: {{time}}',
       },
       alerts: {
         title: '需要关注',
@@ -1647,6 +1647,7 @@ const zh = {
         allModels: '全部模型',
         allStatuses: '全部状态',
         allAgents: '全部智能体',
+        searchAgent: '搜索智能体...',
       },
       kpi: {
         totalCalls: '总调用数',
@@ -1702,6 +1703,7 @@ const zh = {
         title: '调用详情',
         completed: '完成时间',
         steps: '步数',
+        viewSession: '查看会话',
       },
       calls: {
         title: '调用历史',
@@ -1718,8 +1720,11 @@ const zh = {
           ttft: 'TTFT',
           duration: '耗时',
           cost: '费用',
+          retries: '重试',
+          queueWait: '排队',
         },
         noRecords: '未找到调用记录',
+        sortBy: '排序',
       },
       errorSummary: {
         title: '错误分布',
@@ -1728,8 +1733,8 @@ const zh = {
         noErrors: '该时间段内无错误',
       },
       latencyStats: {
-        title: '延迟分位数',
-        slowCalls: '{{count}}/{{total}} 次调用超过 60 秒',
+        title: '耗时分布',
+        totalTasks: '个任务',
       },
       agentRanking: {
         title: 'Agent 健康排行',
@@ -1738,6 +1743,10 @@ const zh = {
         successRate: '成功率',
         avgDuration: '平均耗时',
         tokens: 'Token',
+        viewCalls: '查看该智能体的调用记录',
+        active: '活跃',
+        idle: '闲置',
+        unused: '从未使用',
       },
       heatmap: {
         title: '活动模式',
