@@ -4,6 +4,7 @@ import importlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 
 
@@ -76,6 +77,42 @@ async def test_project_llm_uses_active_openai_compatible_secret(
     assert built[0].api_key.get_secret_value() == "key-a"
 
 
+async def test_project_llm_uses_active_anthropic_secret(project_llm, monkeypatch):
+    built = []
+
+    class FakeAnthropicProvider:
+        def __init__(self, *, model, api_key, base_url):
+            built.append(
+                {
+                    "model": model,
+                    "api_key": api_key,
+                    "base_url": base_url,
+                }
+            )
+
+    monkeypatch.setattr(project_llm, "AnthropicProvider", FakeAnthropicProvider)
+    _SecretService.secret = _Secret(
+        id="secret-anthropic",
+        updated_at=datetime(2026, 7, 15, tzinfo=UTC),
+        data={
+            "ANTHROPIC_API_KEY": "anthropic-key",
+            "ANTHROPIC_BASE_URL": "https://api.anthropic.test",
+            "ANTHROPIC_MODEL": "claude-test",
+        },
+    )
+
+    client = await project_llm.get_project_llm_client("project-1")
+
+    assert isinstance(client, FakeAnthropicProvider)
+    assert built == [
+        {
+            "model": "claude-test",
+            "api_key": "anthropic-key",
+            "base_url": "https://api.anthropic.test",
+        }
+    ]
+
+
 async def test_project_llm_cache_changes_when_active_secret_changes(
     project_llm, monkeypatch
 ):
@@ -117,7 +154,7 @@ async def test_project_llm_cache_changes_when_active_secret_changes(
     assert [model for model, _client in built] == ["model-a", "model-b"]
 
 
-async def test_project_llm_rejects_incompatible_active_secret_without_fallback(
+async def test_project_llm_rejects_incomplete_active_secret_without_fallback(
     project_llm, monkeypatch
 ):
     fallback_called = False
@@ -129,11 +166,10 @@ async def test_project_llm_rejects_incompatible_active_secret_without_fallback(
 
     monkeypatch.setattr(project_llm, "get_llm_client", fake_fallback)
     _SecretService.secret = _Secret(
-        id="secret-anthropic",
+        id="secret-incomplete",
         updated_at=datetime(2026, 7, 15, tzinfo=UTC),
         data={
-            "ANTHROPIC_API_KEY": "anthropic-key",
-            "ANTHROPIC_MODEL": "claude",
+            "ANTHROPIC_MODEL": "claude-test",
         },
     )
 
@@ -186,3 +222,60 @@ async def test_memorize_llm_resolver_threads_project_id(monkeypatch):
 
     assert await memorize._get_llm_client(project_id="project-1") is project_client
     assert seen == ["project-1"]
+
+
+async def test_anthropic_provider_uses_messages_api_shape(monkeypatch):
+    from app.everos.component.llm.anthropic_provider import AnthropicProvider
+    from app.everos.component.llm.protocol import ChatMessage
+
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", url),
+                json={
+                    "model": "claude-test",
+                    "content": [{"type": "text", "text": "{\"ok\": true}"}],
+                    "usage": {"input_tokens": 12, "output_tokens": 4},
+                    "stop_reason": "end_turn",
+                },
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    provider = AnthropicProvider(
+        model="claude-test",
+        api_key="anthropic-key",
+        base_url="https://api.anthropic.test",
+    )
+
+    response = await provider.chat(
+        [ChatMessage(role="user", content="return json")],
+        max_tokens=128,
+    )
+
+    assert captured["url"] == "https://api.anthropic.test/v1/messages"
+    assert captured["headers"]["x-api-key"] == "anthropic-key"
+    assert captured["headers"]["anthropic-version"] == "2023-06-01"
+    assert captured["json"]["model"] == "claude-test"
+    assert captured["json"]["messages"] == [
+        {"role": "user", "content": "return json"}
+    ]
+    assert captured["json"]["max_tokens"] == 128
+    assert response.content == "{\"ok\": true}"
+    assert response.usage.prompt_tokens == 12
+    assert response.usage.completion_tokens == 4
+    assert response.finish_reason == "stop"

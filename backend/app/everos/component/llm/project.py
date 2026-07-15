@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import SecretStr
 
@@ -18,6 +18,7 @@ from app.everos.core.errors import ConfigurationError
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.database import AsyncSessionLocal
 
+from .anthropic_provider import AnthropicProvider
 from .client import get_llm_client
 from .factory import build_llm_provider
 from .protocol import LLMClient
@@ -29,8 +30,9 @@ class IncompatibleProjectLLMSecretError(ConfigurationError):
 
 @dataclass(frozen=True)
 class ProjectLLMCredential:
-    """Resolved OpenAI-compatible credential for a project active secret."""
+    """Resolved credential for a project active secret."""
 
+    provider: Literal["openai", "anthropic"]
     model: str
     api_key: str
     base_url: str
@@ -67,13 +69,20 @@ async def get_project_llm_client(project_id: str | None) -> LLMClient:
     if cached is not None:
         return cached
 
-    client = build_llm_provider(
-        LLMSettings(
+    if credential.provider == "anthropic":
+        client = AnthropicProvider(
             model=credential.model,
-            api_key=SecretStr(credential.api_key),
+            api_key=credential.api_key,
             base_url=credential.base_url,
         )
-    )
+    else:
+        client = build_llm_provider(
+            LLMSettings(
+                model=credential.model,
+                api_key=SecretStr(credential.api_key),
+                base_url=credential.base_url,
+            )
+        )
     _project_llm_clients[cache_key] = client
     return client
 
@@ -88,22 +97,47 @@ async def _resolve_project_llm_credential(
             return None
         data = secret_svc.get_secret_data(secret)
 
-    model = _first_non_empty(data, "OPENAI_MODEL", "MODEL")
-    api_key = _first_non_empty(data, "OPENAI_API_KEY", "API_KEY")
-    base_url = _first_non_empty(data, "OPENAI_BASE_URL", "BASE_URL")
-    if not (model and api_key and base_url):
+    openai = _extract_credential(data, provider="openai")
+    anthropic = _extract_credential(data, provider="anthropic")
+    credential = openai or anthropic
+    if credential is None:
         raise IncompatibleProjectLLMSecretError(
-            "The active project secret is not OpenAI-compatible for EverOS LLM. "
-            "Select a secret with OPENAI_API_KEY, OPENAI_BASE_URL, and OPENAI_MODEL."
+            "The active project secret is not compatible for EverOS LLM. "
+            "Select a secret with OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL "
+            "or ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / ANTHROPIC_MODEL."
         )
 
     return ProjectLLMCredential(
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
+        provider=credential["provider"],
+        model=credential["model"],
+        api_key=credential["api_key"],
+        base_url=credential["base_url"],
         secret_id=str(getattr(secret, "id", "")),
         updated_at=getattr(secret, "updated_at", None),
     )
+
+
+def _extract_credential(
+    data: dict[str, Any],
+    *,
+    provider: Literal["openai", "anthropic"],
+) -> dict[str, Any] | None:
+    if provider == "openai":
+        model = _first_non_empty(data, "OPENAI_MODEL", "MODEL")
+        api_key = _first_non_empty(data, "OPENAI_API_KEY", "API_KEY")
+        base_url = _first_non_empty(data, "OPENAI_BASE_URL", "BASE_URL")
+    else:
+        model = _first_non_empty(data, "ANTHROPIC_MODEL", "MODEL")
+        api_key = _first_non_empty(data, "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+        base_url = _first_non_empty(data, "ANTHROPIC_BASE_URL")
+    if not (model and api_key and base_url):
+        return None
+    return {
+        "provider": provider,
+        "model": model,
+        "api_key": api_key,
+        "base_url": base_url,
+    }
 
 
 def _first_non_empty(data: dict[str, Any], *keys: str) -> str | None:

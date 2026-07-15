@@ -29,7 +29,8 @@ the same active-secret model to those capabilities.
 - Do not add dynamic embedding or rerank credential resolution in this change.
 - Do not remove `EVEROS_LLM__*`; keep it as a fallback for local development
   and deployments that have not configured project secrets yet.
-- Do not add Anthropic-native EverOS LLM support in the first version.
+- Do not add dynamic model-provider routing beyond OpenAI-compatible and
+  Anthropic Messages API secrets in this change.
 
 ## Terminology
 
@@ -41,6 +42,8 @@ the same active-secret model to those capabilities.
 - **OpenAI-compatible secret**: a secret containing `OPENAI_API_KEY`,
   `OPENAI_BASE_URL`, and `OPENAI_MODEL`, or equivalent generic keys supported
   by the resolver.
+- **Anthropic-compatible secret**: a secret containing `ANTHROPIC_API_KEY`
+  or `ANTHROPIC_AUTH_TOKEN`, plus `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL`.
 
 ## Proposed Behavior
 
@@ -48,12 +51,13 @@ For every EverOS operation that needs an LLM and has a `project_id`, resolve the
 LLM credential in this order:
 
 1. Load the active JoySafeter secret for that `project_id`.
-2. If the active secret is OpenAI-compatible, build/use an EverOS LLM client
-   from that secret.
+2. If the active secret is OpenAI-compatible or Anthropic-compatible, build/use
+   an EverOS LLM client from that secret.
 3. If there is no active secret, fall back to existing `EVEROS_LLM__*`
    settings.
-4. If there is an active secret but it is not OpenAI-compatible, return a clear
-   configuration error instead of silently falling back to another key.
+4. If there is an active secret but it is neither OpenAI-compatible nor
+   Anthropic-compatible, return a clear configuration error instead of silently
+   falling back to another key.
 
 The explicit error on incompatible active secrets is intentional. If the user
 selected B, EverOS must not quietly use A or a server `.env` key.
@@ -75,7 +79,7 @@ joysafeter_secrets.is_default = true for project_id
              EverOS LLM resolver loads active project secret
                   |
                   v
-             per-project OpenAI-compatible LLM client
+             per-project OpenAI-compatible or Anthropic LLM client
 ```
 
 ## Backend Design
@@ -84,7 +88,7 @@ Add a small JoySafeter-side credential resolver that can return an EverOS LLM
 credential for a project:
 
 ```text
-resolve_project_llm_credential(project_id) -> model, api_key, base_url, secret_id, updated_at
+resolve_project_llm_credential(project_id) -> provider, model, api_key, base_url, secret_id, updated_at
 ```
 
 The resolver should:
@@ -95,12 +99,16 @@ The resolver should:
   - `OPENAI_API_KEY`
   - `OPENAI_BASE_URL`
   - `OPENAI_MODEL`
+- Accept Anthropic-compatible keys:
+  - `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`
+  - `ANTHROPIC_BASE_URL`
+  - `ANTHROPIC_MODEL`
 - Optionally accept generic fallbacks for imported/custom secrets:
   - `API_KEY`
   - `BASE_URL`
   - `MODEL`
-- Reject Anthropic-only secrets for EverOS LLM until an Anthropic EverOS adapter
-  exists.
+- Prefer explicit OpenAI keys when both OpenAI and Anthropic keys are present in
+  one secret; otherwise use the provider-specific key set that is complete.
 
 Because EverOS lives in the same backend package but runs as a separate service
 container/process, the implementation should avoid coupling EverOS to browser
@@ -151,8 +159,9 @@ the project id from the record or memory root path before resolving the client.
 
 - No active secret and no `EVEROS_LLM__*`: return the existing not-configured
   error.
-- Active secret exists but lacks OpenAI-compatible fields: return a clear
-  error telling the user to choose an OpenAI-compatible secret for EverOS.
+- Active secret exists but lacks a complete OpenAI-compatible or
+  Anthropic-compatible key set: return a clear error telling the user to choose
+  a compatible secret for EverOS.
 - Active secret decrypt fails: fail the operation and log a redacted error.
 - Provider request fails: preserve existing LLM provider error behavior.
 
@@ -163,18 +172,18 @@ Never log API keys or decrypted secret values.
 The existing default/current secret action can remain the source of truth.
 
 The UI should eventually make this clearer by labeling the default secret as
-the shared model credential for JoySafeter execution and EverOS memory. If an
-Anthropic-only secret is selected, the UI can warn that EverOS LLM requires an
-OpenAI-compatible secret until Anthropic support is added.
+the shared model credential for JoySafeter execution and EverOS memory.
 
 ## Tests
 
 Add focused backend tests for:
 
 - Resolving an OpenAI-compatible active secret.
+- Resolving an Anthropic-compatible active secret.
 - Switching active secret from A to B changes the resolved credential.
 - Updating an active secret changes the cache key.
-- Anthropic-only active secret returns an explicit incompatibility error.
+- Incomplete active secret returns an explicit incompatibility error.
+- Anthropic provider request/response mapping uses the Messages API shape.
 - Missing active secret falls back to `EVEROS_LLM__*`.
 - No active secret and no fallback returns not-configured.
 

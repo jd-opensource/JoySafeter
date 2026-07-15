@@ -20,6 +20,7 @@ External usage::
     provider = build_llm_provider(settings.llm)
 """
 
+from .anthropic_provider import AnthropicProvider as AnthropicProvider
 from .client import LLMNotConfiguredError as LLMNotConfiguredError
 from .client import get_llm_client as get_llm_client
 from .client import get_multimodal_llm_client as get_multimodal_llm_client
@@ -38,6 +39,7 @@ from .protocol import Usage as Usage
 __all__ = [
     "ChatMessage",
     "ChatResponse",
+    "AnthropicProvider",
     "IncompatibleProjectLLMSecretError",
     "LLMClient",
     "LLMError",
