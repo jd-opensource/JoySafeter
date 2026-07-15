@@ -28,7 +28,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import get_llm_client, get_project_llm_client
 from app.everos.config import load_settings
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MemoryRoot
@@ -69,7 +69,6 @@ class MemorizeResult(BaseModel):
 
 _episode_writer: EpisodeWriter | None = None
 _prompt_loader: PromptLoader | None = None
-_user_pipeline: UserMemoryPipeline | None = None
 _agent_pipeline: AgentMemoryPipeline | None = None
 _ome_engine: OfflineEngine | None = None
 
@@ -94,16 +93,20 @@ def _get_prompt_loader() -> PromptLoader:
     return _prompt_loader
 
 
-def _get_user_pipeline() -> UserMemoryPipeline:
-    global _user_pipeline
-    if _user_pipeline is None:
-        _user_pipeline = UserMemoryPipeline(
-            episode_writer=_get_episode_writer(),
-            prompt_loader=_get_prompt_loader(),
-            llm_client=get_llm_client(),
-            engine=_get_engine(),
-        )
-    return _user_pipeline
+async def _get_llm_client(project_id: str | None = None):
+    """Resolve the LLM client for one memorize request."""
+    if project_id:
+        return await get_project_llm_client(project_id)
+    return get_llm_client()
+
+
+def _build_user_pipeline(llm_client: Any) -> UserMemoryPipeline:
+    return UserMemoryPipeline(
+        episode_writer=_get_episode_writer(),
+        prompt_loader=_get_prompt_loader(),
+        llm_client=llm_client,
+        engine=_get_engine(),
+    )
 
 
 def _get_agent_pipeline() -> AgentMemoryPipeline:
@@ -189,11 +192,12 @@ async def _memorize_locked(
 ) -> MemorizeResult:
     """Inner critical section — runs under the per-session lock."""
     ingested = await ingest_process(payload)
+    llm_client = await _get_llm_client(ingested.project_id)
     boundary = await prepare_cells(
         ingested,
         mode=mode,
         is_final=is_final,
-        llm_client=get_llm_client(),
+        llm_client=llm_client,
         prompt_loader=_get_prompt_loader(),
         hard_token_limit=boundary_cfg.hard_token_limit,
         hard_msg_limit=boundary_cfg.hard_msg_limit,
@@ -206,7 +210,7 @@ async def _memorize_locked(
             status=_merge_status(boundary.status, "skipped"),
         )
 
-    user_task = _get_user_pipeline().run(
+    user_task = _build_user_pipeline(llm_client).run(
         ingested,
         cells=boundary.cells,
         memcell_ids=boundary.memcell_ids,

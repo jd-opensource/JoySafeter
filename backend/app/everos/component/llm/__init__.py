@@ -25,6 +25,10 @@ from .client import get_llm_client as get_llm_client
 from .client import get_multimodal_llm_client as get_multimodal_llm_client
 from .factory import build_llm_provider as build_llm_provider
 from .openai_provider import OpenAIProvider as OpenAIProvider
+from .project import IncompatibleProjectLLMSecretError as IncompatibleProjectLLMSecretError
+from .project import ProjectLLMCredential as ProjectLLMCredential
+from .project import clear_project_llm_client_cache as clear_project_llm_client_cache
+from .project import get_project_llm_client as get_project_llm_client
 from .protocol import ChatMessage as ChatMessage
 from .protocol import ChatResponse as ChatResponse
 from .protocol import LLMClient as LLMClient
@@ -34,12 +38,16 @@ from .protocol import Usage as Usage
 __all__ = [
     "ChatMessage",
     "ChatResponse",
+    "IncompatibleProjectLLMSecretError",
     "LLMClient",
     "LLMError",
     "LLMNotConfiguredError",
     "OpenAIProvider",
+    "ProjectLLMCredential",
     "Usage",
     "build_llm_provider",
+    "clear_project_llm_client_cache",
     "get_llm_client",
     "get_multimodal_llm_client",
+    "get_project_llm_client",
 ]

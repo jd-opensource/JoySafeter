@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.everos.component.llm import get_project_llm_client
 from app.everos.component.tokenizer import build_tokenizer
 from app.everos.core.observability.logging import get_logger
 from app.everos.memory.search import SearchRequest, SearchResponse
@@ -103,8 +104,11 @@ def _get_reranker() -> RerankProvider | None:
     return _reranker
 
 
-def _get_llm_client() -> LLMClient | None:
+async def _get_llm_client(project_id: str | None = None) -> LLMClient | None:
     """Lazily build the LLM client from settings (shared with memorize)."""
+    if project_id:
+        return await get_project_llm_client(project_id)
+
     global _llm_client, _llm_resolved
     if _llm_resolved:
         return _llm_client
@@ -127,10 +131,21 @@ def _get_llm_client() -> LLMClient | None:
     return _llm_client
 
 
-def _get_manager() -> SearchManager:
+async def _get_manager(project_id: str | None = None) -> SearchManager:
     global _manager
+    deps = RecallerDeps(tokenizer=build_tokenizer())
+    if project_id:
+        return SearchManager(
+            episode_recaller=EpisodeRecaller(deps),
+            atomic_fact_recaller=AtomicFactRecaller(deps),
+            agent_case_recaller=AgentCaseRecaller(deps),
+            agent_skill_recaller=AgentSkillRecaller(deps),
+            profile_recaller=ProfileRecaller(),
+            embedding=_get_embedding(),
+            reranker=_get_reranker(),
+            llm_client=await _get_llm_client(project_id),
+        )
     if _manager is None:
-        deps = RecallerDeps(tokenizer=build_tokenizer())
         _manager = SearchManager(
             episode_recaller=EpisodeRecaller(deps),
             atomic_fact_recaller=AtomicFactRecaller(deps),
@@ -139,11 +154,11 @@ def _get_manager() -> SearchManager:
             profile_recaller=ProfileRecaller(),
             embedding=_get_embedding(),
             reranker=_get_reranker(),
-            llm_client=_get_llm_client(),
+            llm_client=await _get_llm_client(),
         )
     return _manager
 
 
 async def search(req: SearchRequest) -> SearchResponse:
     """Dispatch one search request through the lazily-built manager."""
-    return await _get_manager().search(req)
+    return await (await _get_manager(req.project_id)).search(req)
