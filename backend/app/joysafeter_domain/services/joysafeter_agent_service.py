@@ -279,6 +279,9 @@ class JoySafeterAgentService:
                 .where(JoySafeterSession.id.in_(session_ids))
                 .values(archived_at=now, status="terminated")
             )
+        from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
+
+        await JoySafeterScheduleService(self.db).pause_for_agent_archive(agent_id)
         agent.archived_at = now
         agent.updated_at = now
         await self.db.commit()

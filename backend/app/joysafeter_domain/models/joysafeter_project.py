@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_shared.database import Base
@@ -63,6 +63,13 @@ class Project(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("org_id", "slug", name="uq_joysafeter_organization_projects_org_slug"),
         Index("ix_joysafeter_organization_projects_org_id", "org_id"),
+        Index(
+            "uq_joysafeter_organization_projects_active_default",
+            "org_id",
+            unique=True,
+            postgresql_where=text("is_default IS TRUE AND archived_at IS NULL"),
+            sqlite_where=text("is_default = 1 AND archived_at IS NULL"),
+        ),
     )
 
 

@@ -1,6 +1,4 @@
-import ipaddress
 import json
-import os
 import uuid
 from typing import Optional
 from urllib.parse import urlparse
@@ -33,7 +31,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.security.ssrf_guard import SSRFError, validate_url
+from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 router = APIRouter(tags=["joysafeter-secrets"])
 
@@ -126,96 +124,28 @@ def _append_anthropic_messages_path(base_url: str) -> str:
     return _url_join(base_url, "/v1/messages")
 
 
-def _allowed_llm_hosts() -> list[str]:
-    raw = os.getenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "")
-    return [part.strip() for part in raw.split(",") if part.strip()]
-
-
-def _normalize_llm_host(raw: str, *, allow_wildcard: bool = False) -> str | None:
-    value = raw.strip().lower()
-    if not value:
-        return None
-    if "://" in value:
-        hostname = urlparse(value).hostname
-        return hostname.strip(".").lower() if hostname else None
-    if "/" in value:
-        value = value.split("/", 1)[0]
-    if value.startswith("["):
-        end = value.find("]")
-        if end < 0:
-            return None
-        value = value[1:end]
-    elif ":" in value:
-        host, port = value.rsplit(":", 1)
-        if ":" not in host and port.isdigit():
-            value = host
-    value = value.strip(".")
-    if not value:
-        return None
-    if value.startswith("*."):
-        suffix = value[2:]
-        if not allow_wildcard or not suffix or "*" in suffix:
-            return None
-        return f"*.{suffix}"
-    if "*" in value:
-        return None
-    return value
-
-
-def _is_blocked_llm_host(host: str) -> bool:
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return host in {"metadata.google.internal", "metadata.goog"}
-    return ip.is_link_local or ip.is_multicast or str(ip) in {"169.254.169.254", "169.254.170.2", "100.100.100.200"}
-
-
-def _llm_host_matches(host: str, pattern: str) -> bool:
-    if pattern.startswith("*."):
-        suffix = pattern[2:]
-        return host.endswith(f".{suffix}") and host != suffix
-    return host == pattern
-
-
 def _validate_llm_base_url(base_url: str, *, key: str, provider: str) -> str:
     try:
-        validate_url(base_url, allow_http=True, allow_private=True, context=key)
-    except SSRFError:
+        return validate_llm_base_url(base_url, key=key)
+    except LLMBaseUrlError as exc:
+        if exc.reason == "not_allowed":
+            raise InvalidRequestError(
+                code="SECRET_TEST_BASE_URL_NOT_ALLOWED",
+                message=f"{key} host is not allowlisted.",
+                data={
+                    "provider": provider,
+                    "key": key,
+                    "base_url": base_url,
+                    "host": exc.host,
+                },
+                user_action="fix_input",
+            ) from None
         raise InvalidRequestError(
             code="SECRET_TEST_BASE_URL_INVALID",
             message=f"Invalid {key}",
             data={"provider": provider, "key": key, "base_url": base_url},
             user_action="fix_input",
         ) from None
-
-    parsed_host = urlparse(base_url).hostname
-    host = _normalize_llm_host(parsed_host or "")
-    if not host or _is_blocked_llm_host(host):
-        raise InvalidRequestError(
-            code="SECRET_TEST_BASE_URL_INVALID",
-            message=f"Invalid {key}",
-            data={"provider": provider, "key": key, "base_url": base_url},
-            user_action="fix_input",
-        )
-
-    allowed_patterns = [
-        pattern
-        for entry in _allowed_llm_hosts()
-        if (pattern := _normalize_llm_host(entry, allow_wildcard=True))
-    ]
-    if not any(_llm_host_matches(host, pattern) for pattern in allowed_patterns):
-        raise InvalidRequestError(
-            code="SECRET_TEST_BASE_URL_NOT_ALLOWED",
-            message=f"{key} host is not allowlisted.",
-            data={
-                "provider": provider,
-                "key": key,
-                "base_url": base_url,
-                "host": host,
-            },
-            user_action="fix_input",
-        )
-    return base_url
 
 
 def _extract_upstream_error(response: httpx.Response) -> str:
@@ -447,7 +377,7 @@ async def list_secrets(
 async def get_secret(
     secret_id: uuid.UUID = Depends(parse_secret_id),
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SecretResponse:
     svc = SecretService(db)
     secret = await svc.get_secret(secret_id)

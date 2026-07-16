@@ -123,3 +123,34 @@ async def test_authoring_chat_invalid_openai_base_url_returns_structured_error(d
         "retryable": False,
         "user_action": "fix_input",
     }
+
+
+@pytest.mark.asyncio
+async def test_authoring_chat_rejects_unallowlisted_openai_base_url(db_session, monkeypatch):
+    monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "api.openai.com")
+    secret = JoySafeterSecret(
+        name=f"authoring-unallowlisted-url-{uuid.uuid4()}",
+        provider="codex",
+        protocol="openai_responses",
+        data={"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"},
+    )
+    db_session.add(secret)
+    await db_session.commit()
+    await db_session.refresh(secret)
+
+    with pytest.raises(AppError) as exc_info:
+        await authoring_chat(_chat_req(secret.name), db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "SKILL_AUTHORING_BASE_URL_NOT_ALLOWED",
+        "message": "OPENAI_BASE_URL host is not allowlisted.",
+        "data": {
+            "secret_ref": secret.name,
+            "key": "OPENAI_BASE_URL",
+            "base_url": "https://evil.example.com/v1",
+            "host": "evil.example.com",
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }

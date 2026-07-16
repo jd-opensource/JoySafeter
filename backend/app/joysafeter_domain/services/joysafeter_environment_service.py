@@ -7,6 +7,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
+from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_environment import (
@@ -137,6 +138,9 @@ class EnvironmentService:
             agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
             if agent_name:
                 raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
+            schedule_name = await self.environment_is_referenced_by_schedule(env.name, env.id, project_id=project_id)
+            if schedule_name:
+                raise ValueError(f"Environment is referenced by schedule '{schedule_name}'.")
             if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
                 raise ValueError("Environment is referenced by one or more active sessions.")
         if req.name is not None:
@@ -169,6 +173,9 @@ class EnvironmentService:
         agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
         if agent_name:
             raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
+        schedule_name = await self.environment_is_referenced_by_schedule(env.name, env.id, project_id=project_id)
+        if schedule_name:
+            raise ValueError(f"Environment is referenced by schedule '{schedule_name}'.")
         if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
             raise ValueError("Environment is referenced by one or more active sessions.")
         env.deleted_at = utc_now()
@@ -191,6 +198,9 @@ class EnvironmentService:
         agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
         if agent_name:
             raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
+        schedule_name = await self.environment_is_referenced_by_schedule(env.name, env.id, project_id=project_id)
+        if schedule_name:
+            raise ValueError(f"Environment is referenced by schedule '{schedule_name}'.")
         if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
             raise ValueError("Environment is referenced by one or more active sessions.")
         env.archived_at = utc_now()
@@ -237,6 +247,23 @@ class EnvironmentService:
         for agent_name, environment_ref in result.all():
             if _environment_ref_matches(environment_ref, env_name, env_id):
                 return str(agent_name)
+        return None
+
+    async def environment_is_referenced_by_schedule(
+        self,
+        env_name: str,
+        env_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> Optional[str]:
+        conditions: list[ColumnElement[bool]] = [JoySafeterSchedule.environment_ref.is_not(None)]
+        if project_id is not None:
+            conditions.append(JoySafeterSchedule.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterSchedule.name, JoySafeterSchedule.environment_ref).where(and_(*conditions))
+        )
+        for schedule_name, environment_ref in result.all():
+            if _environment_ref_matches(environment_ref, env_name, env_id):
+                return str(schedule_name)
         return None
 
     async def active_task_environment_dependency(

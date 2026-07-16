@@ -76,6 +76,45 @@ def _validate_mount_path(path: str) -> str:
     return normalized
 
 
+def _ensure_session_resources_mutable(session, session_id: uuid.UUID) -> None:
+    """Session resources are part of the next-run input contract.
+
+    They may be changed only while the session is idle and active. This mirrors
+    the UI affordance and prevents stale clients from mutating inputs for a
+    running, rescheduling, terminated, or archived session.
+    """
+    if session.archived_at:
+        raise ResourceConflictError(
+            code="SESSION_ARCHIVED",
+            message="Session is archived",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
+    if session.status == "terminated":
+        raise ResourceConflictError(
+            code="SESSION_TERMINATED",
+            message="Session is terminated",
+            data={"session_id": str(session_id), "session_status": session.status},
+            user_action="refresh",
+        )
+    if session.status == "rescheduling":
+        raise ResourceConflictError(
+            code="SESSION_RESCHEDULING",
+            message="Session is rescheduling, try again later",
+            data={"session_id": str(session_id), "session_status": session.status},
+            retryable=True,
+            user_action="retry",
+        )
+    if session.status != "idle":
+        raise ResourceConflictError(
+            code="SESSION_ALREADY_RUNNING",
+            message="Session resources can only be changed while the session is idle",
+            data={"session_id": str(session_id), "session_status": session.status},
+            retryable=True,
+            user_action="retry",
+        )
+
+
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -343,6 +382,13 @@ async def create_session(
                 raise NotFoundError(
                     code="SESSION_VAULT_NOT_FOUND",
                     message=f"Vault not found: {vid_raw}",
+                    data={"vault_id": vid_raw},
+                    user_action="refresh",
+                )
+            if vault.archived_at is not None:
+                raise ResourceConflictError(
+                    code="SESSION_VAULT_ARCHIVED",
+                    message=f"Vault is archived: {vid_raw}",
                     data={"vault_id": vid_raw},
                     user_action="refresh",
                 )
@@ -2091,6 +2137,7 @@ async def add_session_resource(
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
+    _ensure_session_resources_mutable(session, session_id)
 
     if rtype == "file":
         try:
@@ -2255,6 +2302,7 @@ async def delete_session_resource(
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
+    _ensure_session_resources_mutable(session, session_id)
 
     rid = resource_id.removeprefix("sesrsc_")
     try:
@@ -2322,6 +2370,7 @@ async def update_repo_resource_token(
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
+    _ensure_session_resources_mutable(session, session_id)
 
     rid = resource_id.removeprefix("sesrsc_")
     try:

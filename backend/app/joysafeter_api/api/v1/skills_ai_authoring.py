@@ -44,10 +44,30 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["skill-ai-authoring"])
+
+
+def _authoring_base_url_error(exc: LLMBaseUrlError, *, secret_ref: str) -> InvalidRequestError:
+    data = {"secret_ref": secret_ref, "key": exc.key, "base_url": exc.base_url}
+    if exc.host:
+        data["host"] = exc.host
+    if exc.reason == "not_allowed":
+        return InvalidRequestError(
+            code="SKILL_AUTHORING_BASE_URL_NOT_ALLOWED",
+            message=f"{exc.key} host is not allowlisted.",
+            data=data,
+            user_action="fix_input",
+        )
+    return InvalidRequestError(
+        code="SKILL_AUTHORING_BASE_URL_INVALID",
+        message=f"Invalid {exc.key}.",
+        data=data,
+        user_action="fix_input",
+    )
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
@@ -233,17 +253,10 @@ async def authoring_chat(
             user_action="fix_input",
         )
     base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
-    from app.joysafeter_shared.security.ssrf_guard import SSRFError, validate_url
-
     try:
-        validate_url(base_url, allow_http=True, allow_private=True, context="OPENAI_BASE_URL")
-    except SSRFError:
-        raise InvalidRequestError(
-            code="SKILL_AUTHORING_BASE_URL_INVALID",
-            message="Invalid OPENAI_BASE_URL.",
-            data={"secret_ref": req.secret_ref, "key": "OPENAI_BASE_URL", "base_url": base_url},
-            user_action="fix_input",
-        ) from None
+        base_url = validate_llm_base_url(base_url, key="OPENAI_BASE_URL")
+    except LLMBaseUrlError as exc:
+        raise _authoring_base_url_error(exc, secret_ref=req.secret_ref) from None
     model = data.get("OPENAI_MODEL") or "gpt-5.5"
 
     history = [m.model_dump() for m in req.messages]

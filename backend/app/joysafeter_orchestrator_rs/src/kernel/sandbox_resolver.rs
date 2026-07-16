@@ -944,9 +944,14 @@ impl SandboxResolver {
         for vault_id in ids {
             let rows: Vec<(Option<String>, String)> = sqlx::query_as(
                 r#"
-                SELECT mcp_server_url, token_value
-                FROM joysafeter_vault_credentials
-                WHERE vault_id = $1
+                SELECT c.mcp_server_url, c.token_value
+                FROM joysafeter_vault_credentials c
+                JOIN joysafeter_vaults v ON v.id = c.vault_id
+                WHERE c.vault_id = $1
+                  AND c.deleted_at IS NULL
+                  AND c.archived_at IS NULL
+                  AND v.deleted_at IS NULL
+                  AND v.archived_at IS NULL
                 "#,
             )
             .bind(vault_id)

@@ -19,8 +19,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityService
+from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityScannerClient, SkillSecurityService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
+from app.joysafeter_shared.security.ssrf_guard import SSRFError
 
 
 def _make_service(*, scanner_raises=True):
@@ -128,3 +129,18 @@ async def test_scan_disabled_short_circuits(settings_mock):
     result = await svc.scan_for_write(failure_mode="fail_closed", **_COMMON)
     assert result is None
     svc.client.scan.assert_not_called()
+
+
+async def test_scanner_client_rejects_metadata_base_url_before_http(monkeypatch):
+    class AsyncClientShouldNotBeConstructed:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("unsafe scanner URL reached httpx")
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_skill_security.httpx.AsyncClient",
+        AsyncClientShouldNotBeConstructed,
+    )
+
+    client = SkillSecurityScannerClient("http://169.254.169.254/latest", timeout_seconds=1)
+    with pytest.raises(SSRFError):
+        await client.scan([])

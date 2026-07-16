@@ -141,6 +141,16 @@ def _memory_store_not_found_error(store_id: uuid.UUID) -> AppError:
     )
 
 
+def _memory_store_archived_error(store_id: uuid.UUID) -> AppError:
+    return ResourceConflictError(
+        code="MEMORY_STORE_ARCHIVED",
+        message="Memory store is archived",
+        data={"memory_store_id": str(store_id)},
+        retryable=False,
+        user_action="refresh",
+    )
+
+
 def _memory_not_found_error(store_id: uuid.UUID, memory_id: uuid.UUID) -> AppError:
     return NotFoundError(
         code="MEMORY_NOT_FOUND",
@@ -372,10 +382,27 @@ def _version_to_response(ver, view: Optional[str] = None) -> MemoryVersionRespon
     )
 
 
-async def _get_store_or_404(svc: MemoryService, store_id: uuid.UUID, project_id: str):
-    store = await svc.get_store(store_id, project_id=project_id)
+async def _get_store_or_404(
+    svc: MemoryService,
+    store_id: uuid.UUID,
+    project_id: str | None,
+    *,
+    include_archived: bool = False,
+):
+    store = await svc.get_store(store_id, project_id=project_id, include_archived=include_archived)
     if not store:
         raise _memory_store_not_found_error(store_id)
+    return store
+
+
+async def _get_readable_store_or_404(svc: MemoryService, store_id: uuid.UUID, project_id: str | None):
+    return await _get_store_or_404(svc, store_id, project_id, include_archived=True)
+
+
+async def _get_mutable_store_or_404(svc: MemoryService, store_id: uuid.UUID, project_id: str | None):
+    store = await _get_store_or_404(svc, store_id, project_id, include_archived=True)
+    if store.archived_at is not None:
+        raise _memory_store_archived_error(store_id)
     return store
 
 
@@ -423,7 +450,7 @@ async def get_memory_store(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> MemoryStoreResponse:
     svc = MemoryService(db)
-    store = await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    store = await _get_readable_store_or_404(svc, store_id, auth_ctx.project_id)
     return _store_to_response(store)
 
 
@@ -435,7 +462,7 @@ async def update_memory_store(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> MemoryStoreResponse:
     svc = MemoryService(db)
-    store = await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    store = await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
 
     # Partial metadata patching: merge incoming metadata with existing,
     # null values remove keys from the map.
@@ -469,7 +496,7 @@ async def delete_memory_store(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = MemoryService(db)
-    store = await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    store = await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
     response = _store_to_response(store)
     try:
         ok = await svc.delete_store(store_id, project_id=auth_ctx.project_id)
@@ -487,6 +514,7 @@ async def archive_memory_store(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = MemoryService(db)
+    await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
     try:
         ok = await svc.archive_store(store_id, project_id=auth_ctx.project_id)
     except ValueError as exc:
@@ -508,7 +536,7 @@ async def create_memory(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> MemoryResponse:
     svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
 
     # Unicode NFC path normalization and validation
     normalized_path = _normalize_and_validate_path(req.path)
@@ -577,7 +605,7 @@ async def list_memories(
         )
 
     svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    await _get_readable_store_or_404(svc, store_id, auth_ctx.project_id)
     memories, has_more = await svc.list_memories(
         store_id,
         limit,
@@ -615,7 +643,7 @@ async def get_memory(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> MemoryResponse:
     svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    await _get_readable_store_or_404(svc, store_id, auth_ctx.project_id)
     mem = await svc.get_memory(store_id, memory_id)
     if not mem:
         raise _memory_not_found_error(store_id, memory_id)
@@ -633,7 +661,7 @@ async def update_memory(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> MemoryResponse:
     svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
 
     # Handle precondition: support both legacy if_sha256 and new precondition object
     precondition_sha256 = req.if_sha256
@@ -706,7 +734,7 @@ async def delete_memory(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
     mem = await svc.get_memory(store_id, memory_id)
     if not mem:
         raise _memory_not_found_error(store_id, memory_id)
@@ -746,7 +774,7 @@ async def list_memory_versions(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[MemoryVersionResponse]:
     svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    await _get_readable_store_or_404(svc, store_id, auth_ctx.project_id)
     versions, has_more = await svc.list_versions(
         store_id,
         limit,
@@ -773,7 +801,7 @@ async def get_memory_version(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> MemoryVersionResponse:
     svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    await _get_readable_store_or_404(svc, store_id, auth_ctx.project_id)
     ver = await svc.get_version(store_id, version_id)
     if not ver:
         raise _memory_version_not_found_error(store_id, version_id)
@@ -788,7 +816,7 @@ async def redact_memory_version(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = MemoryService(db)
-    await _get_store_or_404(svc, store_id, auth_ctx.project_id)
+    await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
     ver = await svc.get_version(store_id, version_id)
     if not ver:
         raise _memory_version_not_found_error(store_id, version_id)

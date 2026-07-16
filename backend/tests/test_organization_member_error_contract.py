@@ -407,3 +407,44 @@ async def test_switch_context_requires_target_org_membership(db_session):
         "retryable": False,
         "user_action": "request_access",
     }
+
+
+@pytest.mark.asyncio
+async def test_switch_context_uses_active_project_when_default_is_archived(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(id="admin-user", name="Admin User", email=f"admin-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Switch Org", slug=f"switch-org-{uuid.uuid4()}")
+    db_session.add_all([user, org])
+    await db_session.flush()
+    db_session.add(Member(user_id="admin-user", organization_id=org_id, role="admin"))
+    archived_default = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Archived Default",
+        slug=f"archived-default-{uuid.uuid4()}",
+        is_default=True,
+        archived_at=utc_now(),
+    )
+    active_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Active",
+        slug=f"active-{uuid.uuid4()}",
+    )
+    db_session.add_all([archived_default, active_project])
+    await db_session.commit()
+
+    response = await switch_context(SwitchContextRequest(org_id=org_id), db_session, _auth_ctx("current-org"))
+
+    assert response["project_id"] == active_project.id
+    assert response["project"]["id"] == active_project.id
+    assert response["projects"] == [
+        {
+            "id": active_project.id,
+            "org_id": org_id,
+            "name": active_project.name,
+            "slug": active_project.slug,
+            "is_default": active_project.is_default,
+            "archived_at": None,
+        }
+    ]

@@ -28,10 +28,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterCollaboratorRole as CollaboratorRole
+from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityService
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
-from app.joysafeter_shared.common.app_errors import AccessDeniedError
+from app.joysafeter_shared.common.app_errors import AccessDeniedError, ResourceConflictError
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
-
 
 # ── fixtures ────────────────────────────────────────────────────
 
@@ -258,6 +258,133 @@ async def test_admin_collaborator_cannot_publish(monkeypatch):
             visibility="public",
         )
     assert ei.value.code == "SKILL_VISIBILITY_OWNER_ONLY"
+
+
+async def test_archived_skill_rejects_metadata_update_before_scan_or_commit(monkeypatch):
+    skill = SimpleNamespace(
+        id=uuid.uuid4(),
+        owner_id="alice",
+        is_public=False,
+        visibility="private",
+        project_id="proj-1",
+        name="x",
+        description="x",
+        content="x",
+        tags=[],
+        source_type="manual",
+        source_url=None,
+        root_path=None,
+        license=None,
+        compatibility=None,
+        meta_data={},
+        allowed_tools=[],
+        files=[],
+        lifecycle_status="archived",
+    )
+    svc = _make_skill_service(skill, current_user_id="alice")
+
+    async def _allow(*_args, **_kw):
+        return None
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
+        _allow,
+    )
+
+    with pytest.raises(ResourceConflictError) as ei:
+        await svc.update_skill(
+            skill_id=skill.id,
+            current_user_id="alice",
+            description="changed",
+        )
+
+    assert ei.value.code == "SKILL_ARCHIVED"
+    assert skill.description == "x"
+    svc.security_service.scan_for_write.assert_not_awaited()
+    svc.db.commit.assert_not_awaited()
+
+
+async def test_archived_skill_rejects_manual_rescan_before_scanning_or_background_dispatch(monkeypatch):
+    skill = SimpleNamespace(
+        id=uuid.uuid4(),
+        owner_id="alice",
+        is_public=False,
+        visibility="private",
+        project_id="proj-1",
+        name="x",
+        description="x",
+        content="x",
+        tags=[],
+        license=None,
+        files=[],
+        lifecycle_status="archived",
+    )
+    svc = _make_skill_service(skill, current_user_id="alice")
+    svc.security_service.skill_repo = MagicMock()
+    svc.security_service.skill_repo.get_with_files = AsyncMock(return_value=skill)
+    svc.security_service.files_from_skill = MagicMock(return_value=[])
+    svc.security_service.mark_scanning = AsyncMock()
+    svc.security_service.repo = MagicMock()
+    svc.security_service.repo.get_latest_by_skill = AsyncMock(return_value=None)
+    svc.security_service.rescan_existing_skill = AsyncMock()
+
+    async def _allow(*_args, **_kw):
+        return None
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
+        _allow,
+    )
+
+    with pytest.raises(ResourceConflictError) as ei:
+        await svc.rescan_skill_async(skill.id, current_user_id="alice")
+
+    assert ei.value.code == "SKILL_ARCHIVED"
+    svc.security_service.mark_scanning.assert_not_awaited()
+    svc.security_service.rescan_existing_skill.assert_not_awaited()
+    assert svc.drain_pending_async_scans() == []
+    svc.db.commit.assert_not_awaited()
+
+
+async def test_archived_skill_rejects_sync_rescan_before_scan_or_commit(monkeypatch):
+    skill = SimpleNamespace(
+        id=uuid.uuid4(),
+        owner_id="alice",
+        is_public=False,
+        visibility="private",
+        project_id="proj-1",
+        name="x",
+        description="x",
+        content="x",
+        tags=[],
+        license=None,
+        files=[],
+        lifecycle_status="archived",
+    )
+    svc = SkillSecurityService.__new__(SkillSecurityService)
+    svc.db = MagicMock()
+    svc.db.commit = AsyncMock()
+    svc.db.flush = AsyncMock()
+    svc.db.refresh = AsyncMock()
+    svc.skill_repo = MagicMock()
+    svc.skill_repo.get_with_files = AsyncMock(return_value=skill)
+    svc.scan_for_write = AsyncMock()
+    svc._active_org_id = None
+
+    async def _allow(*_args, **_kw):
+        return None
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_skill_security.check_skill_access",
+        _allow,
+    )
+
+    with pytest.raises(ResourceConflictError) as ei:
+        await svc.rescan_existing_skill(skill.id, current_user_id="alice")
+
+    assert ei.value.code == "SKILL_ARCHIVED"
+    svc.scan_for_write.assert_not_awaited()
+    svc.db.commit.assert_not_awaited()
 
 
 async def test_admin_collaborator_cannot_unpublish(monkeypatch):

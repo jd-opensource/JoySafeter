@@ -144,6 +144,17 @@ def _project_to_response(project: Project) -> ProjectResponse:
     )
 
 
+def _project_context_payload(project: Project) -> dict[str, object]:
+    return {
+        "id": project.id,
+        "org_id": project.org_id,
+        "name": project.name,
+        "slug": project.slug,
+        "is_default": project.is_default,
+        "archived_at": project.archived_at.isoformat() if project.archived_at else None,
+    }
+
+
 def _api_key_to_response(key) -> ApiKeyResponse:
     return ApiKeyResponse(
         id=str(key.id),
@@ -758,10 +769,7 @@ async def get_me(
         select(Project).where(Project.org_id == auth_ctx.org_id, Project.archived_at.is_(None))
     )
     all_projects = all_projects_result.scalars().all()
-    projects = [
-        {"id": p.id, "org_id": p.org_id, "name": p.name, "slug": p.slug, "is_default": p.is_default}
-        for p in all_projects
-    ]
+    projects = [_project_context_payload(p) for p in all_projects]
 
     return {
         "user": {
@@ -775,12 +783,15 @@ async def get_me(
             "slug": org.slug if org else "",
             "role": auth_ctx.role.value,
         },
-        "project": {
-            "id": proj.id if proj else auth_ctx.project_id,
-            "org_id": proj.org_id if proj else auth_ctx.org_id,
-            "name": proj.name if proj else "",
-            "slug": proj.slug if proj else "",
-            "is_default": proj.is_default if proj else True,
+        "project": _project_context_payload(proj)
+        if proj
+        else {
+            "id": auth_ctx.project_id,
+            "org_id": auth_ctx.org_id,
+            "name": "",
+            "slug": "",
+            "is_default": True,
+            "archived_at": None,
         },
         "organizations": organizations,
         "projects": projects,
@@ -816,8 +827,27 @@ async def switch_context(
     # Resolve project
     target_project_id = req.project_id
     if not target_project_id:
-        proj_svc = ProjectService(db)
-        default_proj = await proj_svc.get_default_project(target_org_id)
+        default_proj_result = await db.execute(
+            select(Project)
+            .where(
+                Project.org_id == target_org_id,
+                Project.is_default.is_(True),
+                Project.archived_at.is_(None),
+            )
+            .limit(1)
+        )
+        default_proj = default_proj_result.scalar_one_or_none()
+        if not default_proj:
+            fallback_project_result = await db.execute(
+                select(Project)
+                .where(
+                    Project.org_id == target_org_id,
+                    Project.archived_at.is_(None),
+                )
+                .order_by(Project.created_at)
+                .limit(1)
+            )
+            default_proj = fallback_project_result.scalar_one_or_none()
         if not default_proj:
             raise NotFoundError(
                 code="DEFAULT_PROJECT_NOT_FOUND",
@@ -865,18 +895,19 @@ async def switch_context(
 
     return {
         "org_id": target_org_id,
+        "project_id": target_project_id,
         "access_token": new_access_token,
-        "project": {
-            "id": resolved_project.id if resolved_project else target_project_id,
-            "org_id": resolved_project.org_id if resolved_project else target_org_id,
-            "name": resolved_project.name if resolved_project else "",
-            "slug": resolved_project.slug if resolved_project else "",
-            "is_default": resolved_project.is_default if resolved_project else False,
+        "project": _project_context_payload(resolved_project)
+        if resolved_project
+        else {
+            "id": target_project_id,
+            "org_id": target_org_id,
+            "name": "",
+            "slug": "",
+            "is_default": False,
+            "archived_at": None,
         },
-        "projects": [
-            {"id": p.id, "org_id": p.org_id, "name": p.name, "slug": p.slug, "is_default": p.is_default}
-            for p in all_projects
-        ],
+        "projects": [_project_context_payload(p) for p in all_projects],
     }
 
 
@@ -1017,6 +1048,13 @@ async def update_project(
     project = result.scalar_one_or_none()
     if not project:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    if project.archived_at is not None:
+        raise ResourceConflictError(
+            code="PROJECT_ARCHIVED",
+            message="Cannot update an archived project",
+            data={"project_id": project_id, "organization_id": auth_ctx.org_id},
+            user_action="refresh",
+        )
     if req.name is not None:
         project.name = req.name
     if req.slug is not None:
@@ -1155,6 +1193,9 @@ async def archive_project(
         )
         .values(archived_at=archived_at, status="terminated")
     )
+    from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
+
+    await JoySafeterScheduleService(db).pause_for_project_archive(project_id)
     project.archived_at = archived_at
     await db.commit()
     return {"status": "archived"}
@@ -1166,26 +1207,23 @@ async def set_default_project(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
 ) -> ProjectResponse:
-    result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
-    project = result.scalar_one_or_none()
-    if not project:
+    try:
+        project = await ProjectService(db).set_default_project(project_id, auth_ctx.org_id)
+    except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
-    if project.archived_at is not None:
-        raise ResourceConflictError(
-            code="PROJECT_ARCHIVED",
-            message="Cannot set an archived project as default",
-            data={"project_id": project_id, "organization_id": auth_ctx.org_id},
-            user_action="refresh",
-        )
-    # Unset current default
-    all_projects_result = await db.execute(
-        select(Project).where(Project.org_id == auth_ctx.org_id, Project.is_default.is_(True))
-    )
-    for p in all_projects_result.scalars().all():
-        p.is_default = False
-    project.is_default = True
-    await db.commit()
-    await db.refresh(project)
+    return _project_to_response(project)
+
+
+@router.post("/projects/{project_id}/restore")
+async def restore_project(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+) -> ProjectResponse:
+    try:
+        project = await ProjectService(db).restore_project(project_id, auth_ctx.org_id)
+    except ValueError:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     return _project_to_response(project)
 
 

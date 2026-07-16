@@ -660,7 +660,11 @@ async def admin_rescan_all_skills(
     from sqlalchemy import select as _select
 
     from app.joysafeter_domain.models.joysafeter_project import Project
-    from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillSecurityScan
+    from app.joysafeter_domain.models.joysafeter_skill import (
+        JoySafeterSkill,
+        JoySafeterSkillLifecycleStatus,
+        JoySafeterSkillSecurityScan,
+    )
     from app.joysafeter_domain.services.joysafeter_skill_security import (
         run_scan_in_background,
     )
@@ -674,6 +678,7 @@ async def admin_rescan_all_skills(
     # active org via a subquery on the projects table.
     org_project_ids = _select(Project.id).where(Project.org_id == auth_ctx.org_id).scalar_subquery()
     org_scope_filter = JoySafeterSkill.project_id.in_(org_project_ids)
+    mutable_skill_filter = JoySafeterSkill.lifecycle_status != JoySafeterSkillLifecycleStatus.ARCHIVED.value
 
     if ruleset_below:
         ruleset_filter = _or(
@@ -690,6 +695,7 @@ async def admin_rescan_all_skills(
                     ruleset_filter,
                 ),
                 org_scope_filter,
+                mutable_skill_filter,
             )
             .limit(limit)
         )
@@ -706,6 +712,7 @@ async def admin_rescan_all_skills(
                     JoySafeterSkillSecurityScan.ruleset_version.is_(None),
                 ),
                 org_scope_filter,
+                mutable_skill_filter,
             )
             .limit(limit)
         )

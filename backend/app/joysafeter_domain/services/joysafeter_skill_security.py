@@ -34,14 +34,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterCollaboratorRole,
     JoySafeterSkill,
+    JoySafeterSkillLifecycleStatus,
     JoySafeterSkillSecurityScan,
 )
 from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository, SkillSecurityScanRepository
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
+from app.joysafeter_shared.common.app_errors import (
+    AccessDeniedError,
+    InvalidRequestError,
+    NotFoundError,
+    ResourceConflictError,
+)
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.security.ssrf_guard import validate_url
 from app.joysafeter_shared.skill.yaml_parser import is_system_file
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -69,6 +76,17 @@ class SkillSecurityPolicyDecision:
     # detect drift. Lifting them to the module avoids ``__new__`` tricks at
     # the call site and keeps the canonical definition in one place — the
     # service still wraps them so existing call sites stay unchanged.
+
+
+def _ensure_scan_target_mutable(skill: JoySafeterSkill) -> None:
+    if getattr(skill, "lifecycle_status", None) == JoySafeterSkillLifecycleStatus.ARCHIVED.value:
+        raise ResourceConflictError(
+            "Skill is archived and read-only. Unarchive before rescanning.",
+            code="SKILL_ARCHIVED",
+            data={"skill_id": str(skill.id)},
+            retryable=False,
+            user_action="refresh",
+        )
 
 
 def _coerce_content(value: Any) -> str:
@@ -256,6 +274,7 @@ class SkillSecurityScannerClient:
                 for file in files
             ],
         }
+        validate_url(self.base_url, context="Skill security scanner URL")
         async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=False) as client:
             response = await client.post(f"{self.base_url}/scan", json=payload)
         response.raise_for_status()
@@ -446,6 +465,7 @@ class SkillSecurityService:
         await check_skill_access(
             self.db, skill, current_user_id, JoySafeterCollaboratorRole.editor, active_org_id=self._active_org_id
         )
+        _ensure_scan_target_mutable(skill)
 
         scan = await self.scan_for_write(
             enforce_write_policy=False,

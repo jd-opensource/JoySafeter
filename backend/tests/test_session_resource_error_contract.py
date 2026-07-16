@@ -4,10 +4,18 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import func, select
 
-from app.joysafeter_api.api.v1.sessions import add_session_resource, create_session, delete_session_resource
+from app.joysafeter_api.api.v1.sessions import (
+    UpdateRepoResourceRequest,
+    add_session_resource,
+    create_session,
+    delete_session_resource,
+    update_repo_resource_token,
+)
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
+from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault
 from app.joysafeter_domain.schemas.joysafeter_session import (
     CreateSessionRequest,
     SessionFileResourceRequest,
@@ -190,6 +198,31 @@ async def test_create_session_archived_agent_returns_structured_error_without_cr
 
 
 @pytest.mark.asyncio
+async def test_create_session_archived_vault_returns_structured_error_without_creating_session(db_session):
+    agent = await _create_agent(db_session)
+    vault = JoySafeterVault(name=f"archived-session-vault-{uuid.uuid4()}", description="", archived_at=utc_now())
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    vault_ref = f"vault_{vault.id}"
+    req = CreateSessionRequest(agent_id=agent.id, vault_ids=[vault_ref])
+
+    with pytest.raises(AppError) as exc_info:
+        await create_session(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_VAULT_ARCHIVED",
+        "message": f"Vault is archived: {vault_ref}",
+        "data": {"vault_id": vault_ref},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    assert await _session_count(db_session) == 0
+
+
+@pytest.mark.asyncio
 async def test_add_session_resource_rejects_non_object_body_with_structured_error(db_session):
     session = await _create_session(db_session)
 
@@ -225,6 +258,26 @@ async def test_add_session_resource_missing_file_returns_structured_error(db_ses
 
 
 @pytest.mark.asyncio
+async def test_add_session_resource_rejects_running_session_before_resource_lookup(db_session):
+    session = await _create_session(db_session)
+    session.status = "running"
+    await db_session.commit()
+    missing_file_id = f"file_{uuid.uuid4()}"
+
+    with pytest.raises(AppError) as exc_info:
+        await add_session_resource(session.id, {"type": "file", "file_id": missing_file_id}, _auth_ctx(), db_session)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_ALREADY_RUNNING",
+        "message": "Session resources can only be changed while the session is idle",
+        "data": {"session_id": str(session.id), "session_status": "running"},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+
+
+@pytest.mark.asyncio
 async def test_delete_session_resource_invalid_id_returns_structured_error(db_session):
     session = await _create_session(db_session)
 
@@ -239,3 +292,66 @@ async def test_delete_session_resource_invalid_id_returns_structured_error(db_se
         "retryable": False,
         "user_action": "fix_input",
     }
+
+
+@pytest.mark.asyncio
+async def test_delete_session_resource_rejects_archived_session_before_resource_lookup(db_session):
+    session = await _create_session(db_session)
+    session.archived_at = utc_now()
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_session_resource(session.id, f"sesrsc_{uuid.uuid4()}", _auth_ctx(), db_session)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_ARCHIVED",
+        "message": "Session is archived",
+        "data": {"session_id": str(session.id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+
+@pytest.mark.asyncio
+async def test_rotate_repo_resource_rejects_running_session_without_mutating_token(db_session):
+    session = await _create_session(db_session)
+    repo = JoySafeterSessionRepo(
+        session_id=session.id,
+        url="https://github.com/example/repo",
+        branch="main",
+        mount_path="/workspace/repo",
+        mount_name="repo",
+        encrypted_token="old-token-ciphertext",
+    )
+    db_session.add(repo)
+    await db_session.commit()
+    await db_session.refresh(repo)
+    repo_id = repo.id
+
+    session.status = "running"
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await update_repo_resource_token(
+            session.id,
+            f"sesrsc_{repo_id}",
+            UpdateRepoResourceRequest(authorization_token="new-token"),
+            _auth_ctx(),
+            db_session,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "SESSION_ALREADY_RUNNING",
+        "message": "Session resources can only be changed while the session is idle",
+        "data": {"session_id": str(session.id), "session_status": "running"},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+
+    db_session.expire_all()
+    row = (
+        await db_session.execute(select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.id == repo_id))
+    ).scalar_one()
+    assert row.encrypted_token == "old-token-ciphertext"

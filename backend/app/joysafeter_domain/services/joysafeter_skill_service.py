@@ -270,6 +270,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Security gate — refuse to publish a high-risk skill. ``blocked`` is
         # the verdict SkillSpector assigns when a scan finds HIGH/CRITICAL
@@ -435,6 +436,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
             raise NotFoundError(
@@ -530,6 +532,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
             raise NotFoundError(
@@ -613,6 +616,21 @@ from app.joysafeter_shared.skill.yaml_parser import (
 
 from .base import BaseService
 from .joysafeter_skill_security import SkillSecurityService
+
+
+def _skill_archived_error(skill) -> ResourceConflictError:
+    return ResourceConflictError(
+        "Skill is archived and read-only. Unarchive before editing.",
+        code="SKILL_ARCHIVED",
+        data={"skill_id": str(skill.id)},
+        retryable=False,
+        user_action="refresh",
+    )
+
+
+def _ensure_skill_mutable(skill) -> None:
+    if getattr(skill, "lifecycle_status", None) == JoySafeterSkillLifecycleStatus.ARCHIVED.value:
+        raise _skill_archived_error(skill)
 
 
 class SkillService(BaseService[JoySafeterSkill]):
@@ -1184,6 +1202,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             JoySafeterCollaboratorRole.editor,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Parse SKILL.md frontmatter if files contain SKILL.md
         if files:
@@ -1491,6 +1510,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             # Permission check: Only owner can delete
         if skill.owner_id != current_user_id:
             raise AccessDeniedError("Only the owner can delete a skill", code="SKILL_DELETE_FORBIDDEN")
+        _ensure_skill_mutable(skill)
 
             # Delete associated files
         await self.file_repo.delete_by_skill(skill_id)
@@ -1524,6 +1544,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             JoySafeterCollaboratorRole.editor,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Check if it's a system file
         if is_system_file(path) or is_system_file(file_name):
@@ -1650,6 +1671,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             JoySafeterCollaboratorRole.editor,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Deleting an empty file (a ``.gitkeep`` placeholder, or a file the
         # user created but never wrote into) removes nothing scannable — the
@@ -1735,6 +1757,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             JoySafeterCollaboratorRole.editor,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Check if it's a system file (if path is being updated)
         if path is not None:
@@ -2003,6 +2026,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             JoySafeterCollaboratorRole.editor,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Scanner disabled at deployment level: nothing to do, fall back to
         # the synchronous path which cleanly returns a not_scanned row.

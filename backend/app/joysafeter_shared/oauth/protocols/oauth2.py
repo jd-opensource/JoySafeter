@@ -15,6 +15,7 @@ from loguru import logger
 
 from app.joysafeter_shared.oauth.config import OAuthProviderConfig, get_oauth_config
 from app.joysafeter_shared.oauth.protocols.base import BaseProtocolHandler, UserInfo
+from app.joysafeter_shared.oauth.security import validate_oauth_endpoint_url
 
 LOG_PREFIX = "[OAuth2Handler]"
 
@@ -101,6 +102,7 @@ class OAuth2Handler(BaseProtocolHandler):
 
         if not token_url:
             raise ValueError(f"No token URL configured for {provider_config.name}")
+        token_url = validate_oauth_endpoint_url(token_url, endpoint_type="token")
 
         # Build request payload
         data = {
@@ -162,6 +164,7 @@ class OAuth2Handler(BaseProtocolHandler):
 
         if not userinfo_url:
             raise ValueError(f"No userinfo URL configured for {provider_config.name}")
+        userinfo_url = validate_oauth_endpoint_url(userinfo_url, endpoint_type="userinfo")
 
         # Build headers
         headers = {

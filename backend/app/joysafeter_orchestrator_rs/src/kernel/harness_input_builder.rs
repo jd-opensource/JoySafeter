@@ -549,9 +549,14 @@ impl HarnessInputBuilder {
         for vault_id in ids {
             match sqlx::query_as::<_, VaultCredentialRow>(
                 r#"
-                SELECT id, mcp_server_url, token_value, credential_type, oauth_config
-                FROM joysafeter_vault_credentials
-                WHERE vault_id = $1
+                SELECT c.id, c.mcp_server_url, c.token_value, c.credential_type, c.oauth_config
+                FROM joysafeter_vault_credentials c
+                JOIN joysafeter_vaults v ON v.id = c.vault_id
+                WHERE c.vault_id = $1
+                  AND c.deleted_at IS NULL
+                  AND c.archived_at IS NULL
+                  AND v.deleted_at IS NULL
+                  AND v.archived_at IS NULL
                 "#,
             )
             .bind(vault_id)

@@ -136,6 +136,11 @@ CATALOG: dict[str, CatalogEntry] = {
     "ENVIRONMENT_CONFLICT": CatalogEntry(
         code="ENVIRONMENT_CONFLICT", error_class=ResourceConflictError, default_message="Environment conflict"
     ),
+    "ENVIRONMENT_SCHEDULE_REFERENCE": CatalogEntry(
+        code="ENVIRONMENT_SCHEDULE_REFERENCE",
+        error_class=ResourceConflictError,
+        default_message="Environment schedule reference",
+    ),
     "ENVIRONMENT_IMAGE_BUILD_FAILED": CatalogEntry(
         code="ENVIRONMENT_IMAGE_BUILD_FAILED",
         error_class=InternalServiceError,
@@ -232,6 +237,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Memory store active session reference",
     ),
+    "MEMORY_STORE_ARCHIVED": CatalogEntry(
+        code="MEMORY_STORE_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Memory store is archived",
+    ),
     "MEMORY_STORE_CONFLICT": CatalogEntry(
         code="MEMORY_STORE_CONFLICT", error_class=ResourceConflictError, default_message="Memory store conflict"
     ),
@@ -279,10 +289,20 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="Oauth token exchange failed",
     ),
+    "OAUTH_TOKEN_URL_INVALID": CatalogEntry(
+        code="OAUTH_TOKEN_URL_INVALID",
+        error_class=InvalidRequestError,
+        default_message="OAuth token URL failed security validation",
+    ),
     "OAUTH_USERINFO_FETCH_FAILED": CatalogEntry(
         code="OAUTH_USERINFO_FETCH_FAILED",
         error_class=InvalidRequestError,
         default_message="Oauth userinfo fetch failed",
+    ),
+    "OAUTH_USERINFO_URL_INVALID": CatalogEntry(
+        code="OAUTH_USERINFO_URL_INVALID",
+        error_class=InvalidRequestError,
+        default_message="OAuth userinfo URL failed security validation",
     ),
     "ORGANIZATION_ACCESS_DENIED": CatalogEntry(
         code="ORGANIZATION_ACCESS_DENIED", error_class=AccessDeniedError, default_message="No access to organization"
@@ -355,6 +375,13 @@ CATALOG: dict[str, CatalogEntry] = {
     "PROJECT_NOT_FOUND": CatalogEntry(
         code="PROJECT_NOT_FOUND", error_class=NotFoundError, default_message="Project not found"
     ),
+    "PROJECT_TASK_LIMIT_EXCEEDED": CatalogEntry(
+        code="PROJECT_TASK_LIMIT_EXCEEDED",
+        error_class=RateLimitExceededError,
+        default_message="Project has reached its concurrent task limit.",
+        retryable=True,
+        user_action="retry",
+    ),
     "PROJECT_SANDBOX_DESTROY_FAILED": CatalogEntry(
         code="PROJECT_SANDBOX_DESTROY_FAILED",
         error_class=ServiceUnavailableError,
@@ -374,6 +401,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="QUICKSTART_BASE_URL_INVALID",
         error_class=InvalidRequestError,
         default_message="Invalid ANTHROPIC_BASE_URL",
+    ),
+    "QUICKSTART_BASE_URL_NOT_ALLOWED": CatalogEntry(
+        code="QUICKSTART_BASE_URL_NOT_ALLOWED",
+        error_class=InvalidRequestError,
+        default_message="LLM base URL host is not allowlisted.",
     ),
     "QUICKSTART_SECRET_MISSING_KEY": CatalogEntry(
         code="QUICKSTART_SECRET_MISSING_KEY",
@@ -607,6 +639,31 @@ CATALOG: dict[str, CatalogEntry] = {
     "SESSION_VAULT_NOT_FOUND": CatalogEntry(
         code="SESSION_VAULT_NOT_FOUND", error_class=NotFoundError, default_message="Session vault not found"
     ),
+    "SESSION_VAULT_ARCHIVED": CatalogEntry(
+        code="SESSION_VAULT_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Session vault is archived",
+    ),
+    "SCHEDULE_ENVIRONMENT_NOT_FOUND": CatalogEntry(
+        code="SCHEDULE_ENVIRONMENT_NOT_FOUND",
+        error_class=RequestValidationAppError,
+        default_message="Schedule environment not found",
+    ),
+    "SCHEDULE_AGENT_NOT_FOUND": CatalogEntry(
+        code="SCHEDULE_AGENT_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Schedule agent not found",
+    ),
+    "SCHEDULE_NAME_EXISTS": CatalogEntry(
+        code="SCHEDULE_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="A schedule with this name already exists in this project",
+    ),
+    "SCHEDULE_NOT_FOUND": CatalogEntry(
+        code="SCHEDULE_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Schedule not found",
+    ),
     "SKILL_ACCESS_DENIED": CatalogEntry(
         code="SKILL_ACCESS_DENIED",
         error_class=AccessDeniedError,
@@ -621,6 +678,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SKILL_AUTHORING_BASE_URL_INVALID",
         error_class=InvalidRequestError,
         default_message="Invalid OPENAI_BASE_URL.",
+    ),
+    "SKILL_AUTHORING_BASE_URL_NOT_ALLOWED": CatalogEntry(
+        code="SKILL_AUTHORING_BASE_URL_NOT_ALLOWED",
+        error_class=InvalidRequestError,
+        default_message="OPENAI_BASE_URL host is not allowlisted.",
     ),
     "SKILL_AUTHORING_SECRET_MISSING_KEY": CatalogEntry(
         code="SKILL_AUTHORING_SECRET_MISSING_KEY",
@@ -695,6 +757,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SKILL_LIFECYCLE_INVALID_TRANSITION",
         error_class=InvalidRequestError,
         default_message="Skill lifecycle invalid transition",
+    ),
+    "SKILL_ARCHIVED": CatalogEntry(
+        code="SKILL_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Skill is archived",
     ),
     "SKILL_NAME_ALREADY_EXISTS": CatalogEntry(
         code="SKILL_NAME_ALREADY_EXISTS", error_class=ResourceConflictError, default_message="Skill name already exists"
@@ -771,6 +838,11 @@ CATALOG: dict[str, CatalogEntry] = {
     "TASK_CANCEL_CONFLICT": CatalogEntry(
         code="TASK_CANCEL_CONFLICT", error_class=ResourceConflictError, default_message="Task cancel conflict"
     ),
+    "TASK_CANCEL_REDIS_RELAY_FAILED": CatalogEntry(
+        code="TASK_CANCEL_REDIS_RELAY_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Failed to cancel task in sandbox runtime.",
+    ),
     "TASK_CANCEL_SESSION_SYNC_FAILED": CatalogEntry(
         code="TASK_CANCEL_SESSION_SYNC_FAILED",
         error_class=ServiceUnavailableError,
@@ -824,11 +896,28 @@ CATALOG: dict[str, CatalogEntry] = {
     "USER_NOT_FOUND": CatalogEntry(
         code="USER_NOT_FOUND", error_class=AuthenticationError, default_message="User not found"
     ),
+    "USER_TASK_LIMIT_EXCEEDED": CatalogEntry(
+        code="USER_TASK_LIMIT_EXCEEDED",
+        error_class=RateLimitExceededError,
+        default_message="User has reached their concurrent task limit.",
+        retryable=True,
+        user_action="retry",
+    ),
     "VAULT_CREDENTIAL_NOT_FOUND": CatalogEntry(
         code="VAULT_CREDENTIAL_NOT_FOUND", error_class=NotFoundError, default_message="Credential not found"
     ),
+    "VAULT_CREDENTIAL_ARCHIVED": CatalogEntry(
+        code="VAULT_CREDENTIAL_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Credential is archived",
+    ),
     "VAULT_NOT_FOUND": CatalogEntry(
         code="VAULT_NOT_FOUND", error_class=NotFoundError, default_message="Vault not found"
+    ),
+    "VAULT_ARCHIVED": CatalogEntry(
+        code="VAULT_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Vault is archived",
     ),
     "VERIFICATION_TOKEN_EXPIRED": CatalogEntry(
         code="VERIFICATION_TOKEN_EXPIRED",

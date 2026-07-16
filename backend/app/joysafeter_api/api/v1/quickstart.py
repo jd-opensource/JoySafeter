@@ -20,6 +20,7 @@ from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 router = APIRouter(tags=["joysafeter-quickstart"])
 logger = logging.getLogger(__name__)
@@ -335,6 +336,25 @@ def _upstream_stream_error_event(message: str) -> dict:
 
 def _url_join(base_url: str, path: str) -> str:
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _quickstart_base_url_error(exc: LLMBaseUrlError, *, provider: str) -> InvalidRequestError:
+    data = {"provider": provider, "key": exc.key, "base_url": exc.base_url}
+    if exc.host:
+        data["host"] = exc.host
+    if exc.reason == "not_allowed":
+        return InvalidRequestError(
+            code="QUICKSTART_BASE_URL_NOT_ALLOWED",
+            message=f"{exc.key} host is not allowlisted.",
+            data=data,
+            user_action="fix_input",
+        )
+    return InvalidRequestError(
+        code="QUICKSTART_BASE_URL_INVALID",
+        message=f"Invalid {exc.key}",
+        data=data,
+        user_action="fix_input",
+    )
 
 
 def _messages_to_transcript(messages: list[dict]) -> str:
@@ -693,9 +713,6 @@ async def quickstart_chat(
     data = svc.get_secret_data(secret)
     provider = "codex" if req.provider == "codex" else "claude"
 
-    # SSRF protection: block cloud metadata endpoints, allow internal network
-    from app.joysafeter_shared.security.ssrf_guard import SSRFError, validate_url
-
     system_prompt = _build_system_prompt(req.current_step, req.agent_context)
     tools = _build_tools(req.current_step)
 
@@ -706,17 +723,6 @@ async def quickstart_chat(
 
     if provider == "claude":
         api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""
-        base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
-        try:
-            validate_url(base_url, allow_http=True, allow_private=True, context="ANTHROPIC_BASE_URL")
-        except SSRFError:
-            raise InvalidRequestError(
-                code="QUICKSTART_BASE_URL_INVALID",
-                message="Invalid ANTHROPIC_BASE_URL",
-                data={"provider": provider, "key": "ANTHROPIC_BASE_URL", "base_url": base_url},
-                user_action="fix_input",
-            ) from None
-
         if not api_key:
             raise InvalidRequestError(
                 code="QUICKSTART_SECRET_MISSING_KEY",
@@ -724,6 +730,11 @@ async def quickstart_chat(
                 data={"secret_ref": req.secret_ref, "provider": provider, "required_key": "ANTHROPIC_API_KEY"},
                 user_action="fix_input",
             )
+        base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+        try:
+            base_url = validate_llm_base_url(base_url, key="ANTHROPIC_BASE_URL")
+        except LLMBaseUrlError as exc:
+            raise _quickstart_base_url_error(exc, provider=provider) from None
 
         model = data.get("MODEL") or data.get("ANTHROPIC_MODEL") or "claude-sonnet-4-20250514"
         claude_body = {
@@ -742,17 +753,6 @@ async def quickstart_chat(
 
     else:
         api_key = data.get("OPENAI_API_KEY") or ""
-        base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
-        try:
-            validate_url(base_url, allow_http=True, allow_private=True, context="OPENAI_BASE_URL")
-        except SSRFError:
-            raise InvalidRequestError(
-                code="QUICKSTART_BASE_URL_INVALID",
-                message="Invalid OPENAI_BASE_URL",
-                data={"provider": provider, "key": "OPENAI_BASE_URL", "base_url": base_url},
-                user_action="fix_input",
-            ) from None
-
         if not api_key:
             raise InvalidRequestError(
                 code="QUICKSTART_SECRET_MISSING_KEY",
@@ -760,6 +760,11 @@ async def quickstart_chat(
                 data={"secret_ref": req.secret_ref, "provider": provider, "required_key": "OPENAI_API_KEY"},
                 user_action="fix_input",
             )
+        base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        try:
+            base_url = validate_llm_base_url(base_url, key="OPENAI_BASE_URL")
+        except LLMBaseUrlError as exc:
+            raise _quickstart_base_url_error(exc, provider=provider) from None
 
         model = data.get("OPENAI_MODEL") or "gpt-5.3-codex"
         protocol = getattr(secret, "protocol", "") or ""

@@ -13,6 +13,7 @@ from app.joysafeter_api.api.v1.environments import (
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
+from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.schemas.joysafeter_environment import (
@@ -359,6 +360,90 @@ async def test_delete_environment_rejects_agent_reference_without_active_task(db
 
 
 @pytest.mark.asyncio
+async def test_archive_environment_rejects_schedule_reference_without_active_task(db_session):
+    env = JoySafeterEnvironment(name=f"schedule-env-ref-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(name=f"schedule-env-agent-{uuid.uuid4()}")
+    db_session.add_all([env, agent])
+    await db_session.commit()
+    await db_session.refresh(env)
+    await db_session.refresh(agent)
+    env_id = env.id
+
+    schedule = JoySafeterSchedule(
+        name=f"env-schedule-{uuid.uuid4()}",
+        agent_id=agent.id,
+        prompt="run later",
+        cron_expr="*/5 * * * *",
+        timezone="UTC",
+        enabled=True,
+        next_run_at=utc_now(),
+        environment_ref=f"env_{env.id}",
+    )
+    db_session.add(schedule)
+    await db_session.commit()
+    schedule_name = schedule.name
+
+    with pytest.raises(AppError) as exc_info:
+        await archive_environment(env_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "ENVIRONMENT_SCHEDULE_REFERENCE",
+        "message": f"Environment is referenced by schedule '{schedule_name}'.",
+        "data": {"environment_id": str(env_id), "schedule_name": schedule_name},
+        "source": "api",
+        "retryable": False,
+    }
+
+    db_session.expire_all()
+    env_row = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == env_id))
+    ).scalar_one()
+    assert env_row.archived_at is None
+
+
+@pytest.mark.asyncio
+async def test_delete_environment_rejects_schedule_reference_without_active_task(db_session):
+    env = JoySafeterEnvironment(name=f"delete-schedule-env-ref-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(name=f"delete-schedule-env-agent-{uuid.uuid4()}")
+    db_session.add_all([env, agent])
+    await db_session.commit()
+    await db_session.refresh(env)
+    await db_session.refresh(agent)
+    env_id = env.id
+
+    schedule = JoySafeterSchedule(
+        name=f"delete-env-schedule-{uuid.uuid4()}",
+        agent_id=agent.id,
+        prompt="run later",
+        cron_expr="*/5 * * * *",
+        timezone="UTC",
+        enabled=False,
+        next_run_at=None,
+        environment_ref=env.name,
+    )
+    db_session.add(schedule)
+    await db_session.commit()
+    schedule_name = schedule.name
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_environment(env_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "ENVIRONMENT_SCHEDULE_REFERENCE",
+        "message": f"Environment is referenced by schedule '{schedule_name}'.",
+        "data": {"environment_id": str(env_id), "schedule_name": schedule_name},
+        "source": "api",
+        "retryable": False,
+    }
+
+    db_session.expire_all()
+    env_row = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == env_id))
+    ).scalar_one()
+    assert env_row.deleted_at is None
+
+
+@pytest.mark.asyncio
 async def test_update_environment_config_rejects_active_task_agent_reference(db_session):
     env = JoySafeterEnvironment(name=f"update-config-env-{uuid.uuid4()}", description="")
     db_session.add(env)
@@ -426,6 +511,50 @@ async def test_update_environment_name_rejects_agent_reference_without_active_ta
         "code": "ENVIRONMENT_AGENT_REFERENCE",
         "message": f"Environment is referenced by agent '{agent_name}'.",
         "data": {"environment_id": str(env_id), "agent_name": agent_name},
+        "source": "api",
+        "retryable": False,
+    }
+
+    db_session.expire_all()
+    env_row = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == env_id))
+    ).scalar_one()
+    assert env_row.name == original_name
+
+
+@pytest.mark.asyncio
+async def test_update_environment_name_rejects_schedule_reference_without_active_task(db_session):
+    env = JoySafeterEnvironment(name=f"update-schedule-env-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(name=f"update-schedule-agent-{uuid.uuid4()}")
+    db_session.add_all([env, agent])
+    await db_session.commit()
+    await db_session.refresh(env)
+    await db_session.refresh(agent)
+    env_id = env.id
+    original_name = env.name
+
+    schedule = JoySafeterSchedule(
+        name=f"update-env-schedule-{uuid.uuid4()}",
+        agent_id=agent.id,
+        prompt="run later",
+        cron_expr="*/5 * * * *",
+        timezone="UTC",
+        enabled=True,
+        next_run_at=utc_now(),
+        environment_ref=env.name,
+    )
+    db_session.add(schedule)
+    await db_session.commit()
+    schedule_name = schedule.name
+
+    req = UpdateEnvironmentRequest(name=f"renamed-env-{uuid.uuid4()}")
+    with pytest.raises(AppError) as exc_info:
+        await update_environment(req, env_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "ENVIRONMENT_SCHEDULE_REFERENCE",
+        "message": f"Environment is referenced by schedule '{schedule_name}'.",
+        "data": {"environment_id": str(env_id), "schedule_name": schedule_name},
         "source": "api",
         "retryable": False,
     }

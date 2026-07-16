@@ -20,9 +20,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
+from app.joysafeter_shared.common.app_errors import ResourceConflictError
 
 
-def _make_service(monkeypatch):
+def _make_service(monkeypatch, *, lifecycle_status="draft"):
     svc = SkillService.__new__(SkillService)
     svc._active_org_id = None
 
@@ -37,6 +38,7 @@ def _make_service(monkeypatch):
         license=None,
         files=[],
         security_status="passed",
+        lifecycle_status=lifecycle_status,
     )
 
     class _DB:
@@ -114,6 +116,23 @@ async def test_file_with_content_triggers_scan(monkeypatch):
         content="print('x')",
     )
     dispatch.assert_awaited_once()
+
+
+async def test_archived_skill_rejects_file_add_before_scan_or_commit(monkeypatch):
+    svc, dispatch = _make_service(monkeypatch, lifecycle_status="archived")
+
+    with pytest.raises(ResourceConflictError) as ei:
+        await svc.add_file(
+            skill_id=uuid.uuid4(),
+            current_user_id="user-1",
+            path="refs/",
+            file_name="notes.md",
+            file_type="markdown",
+            content="new content",
+        )
+
+    assert ei.value.code == "SKILL_ARCHIVED"
+    dispatch.assert_not_called()
 
 
 # ── delete_file: skip scan when the deleted file was empty ──────────────

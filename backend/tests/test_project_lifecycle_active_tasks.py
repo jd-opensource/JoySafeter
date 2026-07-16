@@ -5,7 +5,13 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
-from app.joysafeter_api.api.v1.auth import archive_project, set_default_project
+from app.joysafeter_api.api.v1.auth import (
+    UpdateProjectRequest,
+    archive_project,
+    restore_project,
+    set_default_project,
+    update_project,
+)
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -139,6 +145,69 @@ async def test_set_default_project_rejects_archived_project(db_session):
     archived_row = (await db_session.execute(select(Project).where(Project.id == archived_project_id))).scalar_one()
     assert active_row.is_default is True
     assert archived_row.is_default is False
+
+
+@pytest.mark.asyncio
+async def test_update_project_rejects_archived_project_without_mutating(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Archived Project Org", slug=f"archived-project-org-{uuid.uuid4()}")
+    archived_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Archived",
+        slug=f"archived-{uuid.uuid4()}",
+        archived_at=utc_now(),
+    )
+    db_session.add_all([org, archived_project])
+    await db_session.commit()
+    project_id = archived_project.id
+    original_slug = archived_project.slug
+
+    with pytest.raises(AppError) as exc_info:
+        await update_project(
+            project_id,
+            UpdateProjectRequest(name="Renamed", slug="renamed"),
+            db_session,
+            _admin_ctx(project_id, org_id),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "PROJECT_ARCHIVED",
+        "message": "Cannot update an archived project",
+        "data": {"project_id": project_id, "organization_id": org_id},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+    db_session.expire_all()
+    project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()
+    assert project_row.name == "Archived"
+    assert project_row.slug == original_slug
+
+
+@pytest.mark.asyncio
+async def test_restore_project_unarchives_archived_project_for_admin_context(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Restore Project Org", slug=f"restore-project-org-{uuid.uuid4()}")
+    archived_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Archived",
+        slug=f"archived-{uuid.uuid4()}",
+        archived_at=utc_now(),
+    )
+    db_session.add_all([org, archived_project])
+    await db_session.commit()
+    project_id = archived_project.id
+
+    response = await restore_project(project_id, db_session, _admin_ctx(project_id, org_id))
+
+    assert response.id == project_id
+    assert response.archived_at is None
+    db_session.expire_all()
+    project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()
+    assert project_row.archived_at is None
 
 
 @pytest.mark.asyncio

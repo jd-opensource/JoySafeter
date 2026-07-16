@@ -6,6 +6,9 @@ from app.joysafeter_api.api.v1 import oauth as oauth_api
 from app.joysafeter_domain.services import joysafeter_auth_service as auth_service_module
 from app.joysafeter_domain.services.joysafeter_auth_service import AuthService, OAuthService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
+from app.joysafeter_shared.oauth.config import OAuthProviderConfig
+from app.joysafeter_shared.oauth.protocols import oauth2 as oauth2_protocol
+from app.joysafeter_shared.oauth.protocols.oauth2 import OAuth2Handler
 
 
 class _FakeLogger:
@@ -55,6 +58,27 @@ class _FailingDeleteRedis:
         raise RuntimeError("redis unavailable")
 
 
+class _CapturingOAuthHttpClient:
+    calls: list[tuple[str, str]] = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def post(self, url: str, **kwargs):
+        self.calls.append(("POST", url))
+        raise AssertionError(f"unexpected POST {url}")
+
+    async def get(self, url: str, **kwargs):
+        self.calls.append(("GET", url))
+        raise AssertionError(f"unexpected GET {url}")
+
+
 class _SessionService:
     def __init__(self):
         self.invalidated: list[str] = []
@@ -84,6 +108,21 @@ def _auth_service() -> AuthService:
     svc = object.__new__(AuthService)
     svc.session_service = _SessionService()
     return svc
+
+
+def _oauth_provider(**kwargs) -> OAuthProviderConfig:
+    data = {
+        "name": "oidc",
+        "display_name": "OIDC",
+        "icon": "oidc",
+        "client_id": "client-1",
+        "client_secret": "secret-1",
+        "authorize_url": "https://issuer.example/authorize",
+        "token_url": "https://issuer.example/token",
+        "userinfo_url": "https://issuer.example/userinfo",
+    }
+    data.update(kwargs)
+    return OAuthProviderConfig(**data)
 
 
 @pytest.mark.asyncio
@@ -201,6 +240,72 @@ async def test_oauth_service_oidc_discovery_failure_logs_structured_boundary_err
             "detail": "RuntimeError",
         }
     }
+
+
+@pytest.mark.asyncio
+async def test_oauth2_handler_rejects_unsafe_token_url_before_http(monkeypatch):
+    monkeypatch.setattr(oauth2_protocol.httpx, "AsyncClient", _CapturingOAuthHttpClient)
+    _CapturingOAuthHttpClient.calls = []
+    handler = OAuth2Handler()
+    provider = _oauth_provider(token_url="http://169.254.169.254/latest")
+
+    with pytest.raises(ValueError, match="Invalid OAuth token URL"):
+        await handler._exchange_code_for_tokens(
+            provider_config=provider,
+            code="code-1",
+            redirect_uri="https://app.example/callback",
+        )
+
+    assert _CapturingOAuthHttpClient.calls == []
+
+
+@pytest.mark.asyncio
+async def test_oauth2_handler_rejects_unsafe_userinfo_url_before_http(monkeypatch):
+    monkeypatch.setattr(oauth2_protocol.httpx, "AsyncClient", _CapturingOAuthHttpClient)
+    _CapturingOAuthHttpClient.calls = []
+    handler = OAuth2Handler()
+    provider = _oauth_provider(userinfo_url="http://169.254.169.254/latest")
+
+    with pytest.raises(ValueError, match="Invalid OAuth userinfo URL"):
+        await handler._fetch_userinfo(provider_config=provider, access_token="token-1")
+
+    assert _CapturingOAuthHttpClient.calls == []
+
+
+@pytest.mark.asyncio
+async def test_oauth_service_rejects_unsafe_token_url_before_http(monkeypatch):
+    fake_logger = _FakeLogger()
+    monkeypatch.setattr(auth_service_module.httpx, "AsyncClient", _CapturingOAuthHttpClient)
+    monkeypatch.setattr(auth_service_module, "logger", fake_logger)
+    _CapturingOAuthHttpClient.calls = []
+    svc = _oauth_service(_oauth_provider(token_url="http://169.254.169.254/latest"))
+
+    with pytest.raises(InvalidRequestError) as exc_info:
+        await svc.exchange_code_for_tokens(
+            provider_name="oidc",
+            code="code-1",
+            redirect_uri="https://app.example/callback",
+        )
+
+    assert exc_info.value.code == "OAUTH_TOKEN_URL_INVALID"
+    assert _CapturingOAuthHttpClient.calls == []
+    assert fake_logger.bound["error"]["code"] == "OAUTH_TOKEN_URL_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_oauth_service_rejects_unsafe_userinfo_url_before_http(monkeypatch):
+    fake_logger = _FakeLogger()
+    monkeypatch.setattr(auth_service_module.httpx, "AsyncClient", _CapturingOAuthHttpClient)
+    monkeypatch.setattr(auth_service_module, "logger", fake_logger)
+    _CapturingOAuthHttpClient.calls = []
+    svc = _oauth_service(_oauth_provider(userinfo_url="http://169.254.169.254/latest"))
+
+    with pytest.raises(InvalidRequestError) as exc_info:
+        await svc.fetch_userinfo(provider_name="oidc", access_token="token-1")
+
+    assert exc_info.value.code == "OAUTH_USERINFO_URL_INVALID"
+    assert _CapturingOAuthHttpClient.calls == []
+    assert fake_logger.bound["error"]["code"] == "OAUTH_USERINFO_URL_INVALID"
 
 
 @pytest.mark.asyncio

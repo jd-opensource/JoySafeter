@@ -374,9 +374,10 @@ async def _auth_via_user_session(
         )
         verified_project = proj_result.scalar_one_or_none()
         if not verified_project:
-            project_id = None
-        elif verified_project.archived_at is not None:
-            project_id = None
+            raise AuthenticationError(
+                "Project not found or access denied",
+                code="PROJECT_ACCESS_DENIED",
+            )
 
     if not project_id:
         proj_result = await db.execute(

@@ -994,6 +994,7 @@ from app.joysafeter_domain.models.joysafeter_oauth_account import OAuthAccount
 from app.joysafeter_domain.services.base import BaseService
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.oauth import get_oauth_config
+from app.joysafeter_shared.oauth.security import validate_oauth_endpoint_url
 
 LOG_PREFIX = "[OAuthService]"
 
@@ -1271,6 +1272,24 @@ class OAuthService(BaseService):
 
         if not token_url:
             raise self._missing_endpoint(provider_name, "token")
+        try:
+            token_url = validate_oauth_endpoint_url(token_url, endpoint_type="token")
+        except ValueError as e:
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_TOKEN_URL_INVALID",
+                    message="OAuth token URL failed security validation",
+                    operation="validate_token_endpoint",
+                    provider_name=provider_name,
+                    source="api",
+                    detail=e.__class__.__name__,
+                )
+            ).error(f"{LOG_PREFIX} Invalid token URL")
+            raise InvalidRequestError(
+                f"Invalid OAuth token URL for {provider_name}",
+                code="OAUTH_TOKEN_URL_INVALID",
+                data={"provider_name": provider_name},
+            ) from None
 
         # Build request
         data = {
@@ -1385,6 +1404,24 @@ class OAuthService(BaseService):
 
         if not userinfo_url:
             raise self._missing_endpoint(provider_name, "userinfo")
+        try:
+            userinfo_url = validate_oauth_endpoint_url(userinfo_url, endpoint_type="userinfo")
+        except ValueError as e:
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_USERINFO_URL_INVALID",
+                    message="OAuth userinfo URL failed security validation",
+                    operation="validate_userinfo_endpoint",
+                    provider_name=provider_name,
+                    source="api",
+                    detail=e.__class__.__name__,
+                )
+            ).error(f"{LOG_PREFIX} Invalid userinfo URL")
+            raise InvalidRequestError(
+                f"Invalid OAuth userinfo URL for {provider_name}",
+                code="OAUTH_USERINFO_URL_INVALID",
+                data={"provider_name": provider_name},
+            ) from None
 
         headers = {
             "Authorization": f"Bearer {access_token}",

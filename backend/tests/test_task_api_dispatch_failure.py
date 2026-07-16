@@ -32,7 +32,8 @@ class _FakeRedis:
 
 
 class _FakeCommandRedis:
-    def __init__(self):
+    def __init__(self, *, cancel_receivers: int = 1):
+        self.cancel_receivers = cancel_receivers
         self.published: list[tuple[str, dict]] = []
         self.acks: dict[str, str] = {}
 
@@ -43,14 +44,14 @@ class _FakeCommandRedis:
     async def publish(self, channel: str, command: str) -> int:
         payload = json.loads(command)
         self.published.append((channel, payload))
-        if payload.get("ack_key"):
+        if self.cancel_receivers > 0 and payload.get("ack_key"):
             self.acks[payload["ack_key"]] = json.dumps(
                 {
                     "command_id": payload.get("command_id", ""),
                     "ok": True,
                 }
             )
-        return 1
+        return self.cancel_receivers
 
     async def blpop(self, key: str, timeout: int = 0):
         payload = self.acks.pop(key, None)
@@ -836,6 +837,70 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
     assert payload["sandbox_id"] == str(sandbox.id)
     assert payload["reason"] == "Cancelled via API"
     assert payload["ack_key"].startswith("joysafeter:cmd_ack:")
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_does_not_mark_cancelled_when_runtime_cancel_relay_fails(db_session, monkeypatch):
+    redis = _FakeCommandRedis(cancel_receivers=0)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    agent = JoySafeterAgent(name=f"cancel-relay-fail-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(agent_id=agent.id, status="running")
+    db_session.add(session)
+    await db_session.flush()
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session.id,
+        external_id="sandbox-cancel-relay-fail",
+        provider="docker",
+        status="running",
+        image="joysafeter/test:latest",
+    )
+    db_session.add(sandbox)
+    await db_session.flush()
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        chat_session_id=session.id,
+        sandbox_id=sandbox.id,
+        prompt="long running",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    task_id = task.id
+    session_id = session.id
+    sandbox_id = sandbox.id
+
+    with pytest.raises(AppError) as exc_info:
+        await cancel_task(task_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_CANCEL_REDIS_RELAY_FAILED",
+        "message": "Failed to cancel task in sandbox runtime.",
+        "data": {
+            "task_id": str(task_id),
+            "session_id": str(session_id),
+            "sandbox_id": str(sandbox_id),
+        },
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    command_publishes = [(channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
+    assert len(command_publishes) == 1
+
+    db_session.expire_all()
+    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    assert task_row.status == JoySafeterTaskStatus.RUNNING.value
+    assert session_row.status == "running"
 
 
 @pytest.mark.asyncio

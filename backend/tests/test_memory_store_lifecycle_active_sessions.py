@@ -12,16 +12,22 @@ from app.joysafeter_api.api.v1.memory_stores import (
     create_memory,
     delete_memory,
     delete_memory_store,
+    get_memory_store,
     list_memories,
     redact_memory_version,
     update_memory,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
-from app.joysafeter_domain.models.joysafeter_memory import JoySafeterMemoryStore, JoySafeterSessionMemoryStore
+from app.joysafeter_domain.models.joysafeter_memory import (
+    JoySafeterMemory,
+    JoySafeterMemoryStore,
+    JoySafeterSessionMemoryStore,
+)
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.schemas.joysafeter_memory import CreateMemoryRequest, UpdateMemoryRequest
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.utils.datetime import utc_now
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
@@ -164,6 +170,119 @@ async def test_delete_memory_store_rejects_active_session_reference(db_session):
         await db_session.execute(select(JoySafeterMemoryStore).where(JoySafeterMemoryStore.id == store_id))
     ).scalar_one()
     assert store_row.id == store_id
+
+
+@pytest.mark.asyncio
+async def test_archived_memory_store_remains_readable_with_memories(db_session):
+    store_id = await _memory_store(db_session)
+    memory = await create_memory(
+        store_id,
+        CreateMemoryRequest(path="/runbook.md", content="read-only after archive"),
+        view=None,
+        db=db_session,
+        auth_ctx=_auth_ctx(),
+    )
+    store = (
+        await db_session.execute(select(JoySafeterMemoryStore).where(JoySafeterMemoryStore.id == store_id))
+    ).scalar_one()
+    store.archived_at = utc_now()
+    await db_session.commit()
+
+    store_response = await get_memory_store(store_id, db_session, _auth_ctx())
+    assert store_response.id == store_id
+    assert store_response.archived_at is not None
+
+    memories = await list_memories(
+        store_id,
+        limit=20,
+        after_id=None,
+        path_prefix=None,
+        depth=None,
+        order_by="path",
+        order="asc",
+        view="full",
+        db=db_session,
+        auth_ctx=_auth_ctx(),
+    )
+    assert [item.id for item in memories.data] == [memory.id]
+    assert memories.data[0].content == "read-only after archive"
+
+
+@pytest.mark.asyncio
+async def test_create_memory_rejects_archived_store_without_creating_row(db_session):
+    store_id = await _memory_store(db_session)
+    store = (
+        await db_session.execute(select(JoySafeterMemoryStore).where(JoySafeterMemoryStore.id == store_id))
+    ).scalar_one()
+    store.archived_at = utc_now()
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await create_memory(
+            store_id,
+            CreateMemoryRequest(path="/new.md", content="new content"),
+            view=None,
+            db=db_session,
+            auth_ctx=_auth_ctx(),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "MEMORY_STORE_ARCHIVED",
+        "message": "Memory store is archived",
+        "data": {"memory_store_id": str(store_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    count = (
+        await db_session.execute(
+            select(JoySafeterMemory).where(
+                JoySafeterMemory.store_id == store_id,
+                JoySafeterMemory.path == "/new.md",
+            )
+        )
+    ).scalar_one_or_none()
+    assert count is None
+
+
+@pytest.mark.asyncio
+async def test_update_memory_rejects_archived_store_without_mutating_content(db_session):
+    store_id = await _memory_store(db_session)
+    memory = await create_memory(
+        store_id,
+        CreateMemoryRequest(path="/notes.txt", content="original"),
+        view=None,
+        db=db_session,
+        auth_ctx=_auth_ctx(),
+    )
+    store = (
+        await db_session.execute(select(JoySafeterMemoryStore).where(JoySafeterMemoryStore.id == store_id))
+    ).scalar_one()
+    store.archived_at = utc_now()
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await update_memory(
+            store_id,
+            memory.id,
+            UpdateMemoryRequest(content="changed"),
+            path=None,
+            view=None,
+            db=db_session,
+            auth_ctx=_auth_ctx(),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "MEMORY_STORE_ARCHIVED",
+        "message": "Memory store is archived",
+        "data": {"memory_store_id": str(store_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterMemory).where(JoySafeterMemory.id == memory.id))).scalar_one()
+    assert row.content == "original"
 
 
 @pytest.mark.asyncio

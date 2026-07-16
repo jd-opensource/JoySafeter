@@ -261,7 +261,10 @@ class VaultService:
                 vid = uuid.UUID(vid_str_clean)
             except ValueError:
                 continue
-            creds, _ = await self.list_credentials(vid, limit=500)
+            vault = await self.get_vault(vid)
+            if not vault or vault.archived_at is not None:
+                continue
+            creds, _ = await self.list_credentials(vid, limit=500, include_archived=False)
             for c in creds:
                 if c.mcp_server_url:
                     if self._cipher.is_enabled:
