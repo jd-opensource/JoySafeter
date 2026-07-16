@@ -23,10 +23,11 @@ from app.joysafeter_domain.schemas.joysafeter_schedule import (
     TriggerResponse,
 )
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
-from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
+from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -56,6 +57,40 @@ async def _resolve_agent_or_raise(db: AsyncSession, agent_id: uuid.UUID, project
     return agent
 
 
+async def _validate_environment_or_raise(db: AsyncSession, environment_ref: str | None, project_id) -> None:
+    if not environment_ref:
+        return
+    env = await EnvironmentService(db).get_environment_by_ref(environment_ref, project_id=project_id)
+    if env is None:
+        raise RequestValidationAppError(
+            code="SCHEDULE_ENVIRONMENT_NOT_FOUND",
+            message=f"Environment not found: {environment_ref}",
+            data={"environment_ref": environment_ref},
+            user_action="fix_input",
+        )
+    if env.archived_at is not None:
+        raise ResourceConflictError(
+            code="ENVIRONMENT_ARCHIVED",
+            message=f"Environment is archived: {environment_ref}",
+            data={"environment_ref": environment_ref, "environment_id": str(env.id)},
+            user_action="refresh",
+        )
+
+
+async def _validate_schedule_target_or_raise(
+    db: AsyncSession,
+    schedule,
+    *,
+    environment_ref: str | None,
+) -> None:
+    agent = await _resolve_agent_or_raise(db, schedule.agent_id, schedule.project_id)
+    await _validate_environment_or_raise(
+        db,
+        environment_ref or getattr(agent, "environment_ref", None),
+        schedule.project_id,
+    )
+
+
 @router.post("", status_code=201, response_model=ScheduleResponse)
 async def create_schedule(
     body: ScheduleCreateRequest,
@@ -70,7 +105,12 @@ async def create_schedule(
             data={"name": body.name},
             user_action="fix_input",
         )
-    await _resolve_agent_or_raise(db, body.agent_id, auth_ctx.project_id)
+    agent = await _resolve_agent_or_raise(db, body.agent_id, auth_ctx.project_id)
+    await _validate_environment_or_raise(
+        db,
+        body.environment_ref or getattr(agent, "environment_ref", None),
+        auth_ctx.project_id,
+    )
 
     schedule = await svc.create(
         name=body.name,
@@ -134,9 +174,29 @@ async def update_schedule(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
-    await _get_or_404(db, schedule_id, auth_ctx.project_id)
+    svc = JoySafeterScheduleService(db)
+    schedule = await _get_or_404(db, schedule_id, auth_ctx.project_id)
     fields = body.model_dump(exclude_unset=True)
-    updated = await JoySafeterScheduleService(db).update(schedule_id, auth_ctx.project_id, **fields)
+    if "name" in fields and fields["name"] != schedule.name:
+        existing = await svc.get_by_name(fields["name"], auth_ctx.project_id)
+        if existing is not None and existing.id != schedule_id:
+            raise ResourceConflictError(
+                code="SCHEDULE_NAME_EXISTS",
+                message=f"A schedule named '{fields['name']}' already exists in this project",
+                data={"name": fields["name"]},
+                user_action="fix_input",
+            )
+    if (
+        "environment_ref" in fields
+        or fields.get("enabled") is True
+        or (schedule.enabled and any(k in fields for k in ("cron_expr", "timezone")))
+    ):
+        await _validate_schedule_target_or_raise(
+            db,
+            schedule,
+            environment_ref=fields.get("environment_ref", schedule.environment_ref),
+        )
+    updated = await svc.update(schedule_id, auth_ctx.project_id, **fields)
     return ScheduleResponse.model_validate(updated)
 
 
@@ -156,7 +216,8 @@ async def enable_schedule(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
-    await _get_or_404(db, schedule_id, auth_ctx.project_id)
+    schedule = await _get_or_404(db, schedule_id, auth_ctx.project_id)
+    await _validate_schedule_target_or_raise(db, schedule, environment_ref=schedule.environment_ref)
     updated = await JoySafeterScheduleService(db).update(schedule_id, auth_ctx.project_id, enabled=True)
     return ScheduleResponse.model_validate(updated)
 
@@ -185,6 +246,8 @@ async def trigger_schedule(
     """
     schedule = await _get_or_404(db, schedule_id, auth_ctx.project_id)
     agent = await _resolve_agent_or_raise(db, schedule.agent_id, schedule.project_id)
+    environment_ref = schedule.environment_ref or getattr(agent, "environment_ref", None)
+    await _validate_environment_or_raise(db, environment_ref, auth_ctx.project_id)
 
     submission = TaskSubmissionService(db)
     await submission.enforce_admission(
@@ -193,7 +256,6 @@ async def trigger_schedule(
         enforce_user_quota=False,
     )
 
-    environment_ref = schedule.environment_ref or getattr(agent, "environment_ref", None)
     session_svc = SessionService(db)
     session = await session_svc.create_session(
         agent_id=agent.id,

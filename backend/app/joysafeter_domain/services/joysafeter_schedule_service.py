@@ -25,6 +25,7 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTask,
     JoySafeterTaskStatus,
 )
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_shared.utils.cron import compute_next_run
 
 _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYSAFETER_TERMINAL_STATUSES]
@@ -264,14 +265,36 @@ class JoySafeterScheduleService:
                 await self.db.commit()
                 return
         agent_result = await self.db.execute(
-            select(JoySafeterAgent.archived_at).where(JoySafeterAgent.id == schedule.agent_id)
+            select(JoySafeterAgent.archived_at, JoySafeterAgent.environment_ref).where(
+                JoySafeterAgent.id == schedule.agent_id
+            )
         )
-        if agent_result.scalar_one_or_none() is not None:
+        agent_row = agent_result.one_or_none()
+        if agent_row is None or agent_row.archived_at is not None:
             schedule.next_run_at = None
             await self.db.commit()
             return
+        environment_ref = schedule.environment_ref or agent_row.environment_ref
+        if environment_ref:
+            env = await EnvironmentService(self.db).get_environment_by_ref(
+                environment_ref,
+                project_id=schedule.project_id,
+            )
+            if env is None or env.archived_at is not None:
+                schedule.next_run_at = None
+                await self.db.commit()
+                return
         if schedule.enabled:
             schedule.next_run_at = compute_next_run(schedule.cron_expr, schedule.timezone)
+        await self.db.commit()
+
+    async def release_claim(self, schedule_id: uuid.UUID) -> None:
+        """Release a worker claim without marking the current cron slot handled."""
+        schedule = await self.get(schedule_id)
+        if schedule is None:
+            return
+        schedule.locked_by = None
+        schedule.locked_at = None
         await self.db.commit()
 
     # --- Concurrency-policy support ---

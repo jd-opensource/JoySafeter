@@ -22,15 +22,20 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule, ScheduleConcurrencyPolicy
-from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
-from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
+from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
+from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+def _should_retry_same_slot(exc: Exception) -> bool:
+    return isinstance(exc, AppError) and exc.code == "TASK_CANCEL_REDIS_RELAY_FAILED"
 
 
 class SchedulerLoop:
@@ -81,15 +86,25 @@ class SchedulerLoop:
         # Process each in its own session so one failure can't poison the batch.
         for schedule in schedules:
             fired_slot = schedule.next_run_at or datetime.now(timezone.utc)
+            retry_same_slot = False
             try:
                 await self._fire(schedule, fired_slot)
-            except Exception:
+            except Exception as exc:
+                retry_same_slot = _should_retry_same_slot(exc)
                 logger.exception("Scheduler failed to fire schedule %s", schedule.id)
             finally:
-                # Always release the lock and advance so the schedule neither
-                # stays stuck nor immediately re-fires the same slot.
                 async with AsyncSessionLocal() as db:
-                    await JoySafeterScheduleService(db).advance_after_fire(schedule.id, fired_slot)
+                    schedule_svc = JoySafeterScheduleService(db)
+                    if retry_same_slot:
+                        # The previous run is still active and was not safely
+                        # cancelled. Keep the current slot due so a later tick
+                        # can retry the replace cancellation instead of silently
+                        # dropping this fire.
+                        await schedule_svc.release_claim(schedule.id)
+                    else:
+                        # Release the lock and advance so the schedule neither
+                        # stays stuck nor immediately re-fires the same slot.
+                        await schedule_svc.advance_after_fire(schedule.id, fired_slot)
 
     async def _fire(self, schedule: JoySafeterSchedule, fired_slot: datetime) -> None:
         async with AsyncSessionLocal() as db:
@@ -109,12 +124,14 @@ class SchedulerLoop:
                         )
                         return
                     # replace: terminate the prior run(s) before firing a new one.
-                    tasks = JoySafeterTaskService(db)
+                    # Shared cancellation service so the DB transition AND the Redis
+                    # cancel command (which actually stops the running sandbox) always
+                    # happen together — a bare status flip left the old run executing.
+                    canceller = TaskCancellationService(db)
                     for task in active:
-                        await tasks.update_task_error(
-                            task.id,
-                            "Cancelled by schedule replace policy",
-                            JoySafeterTaskStatus.CANCELLED,
+                        await canceller.cancel(
+                            task,
+                            reason=f"Replaced by schedule {schedule.id} slot {fired_slot.isoformat()}",
                         )
                     logger.info("Schedule %s: replaced %d active task(s)", schedule.id, len(active))
 
@@ -138,6 +155,37 @@ class SchedulerLoop:
             # Fresh session per fire — each scheduled run is its own conversation,
             # sidestepping the one-active-task-per-session constraint entirely.
             environment_ref = schedule.environment_ref or getattr(agent, "environment_ref", None)
+            if environment_ref:
+                env = await EnvironmentService(db).get_environment_by_ref(
+                    environment_ref,
+                    project_id=schedule.project_id,
+                )
+                if env is None:
+                    logger.warning("Schedule %s targets missing environment %s; pausing", schedule.id, environment_ref)
+                    return
+                if getattr(env, "archived_at", None) is not None:
+                    logger.warning("Schedule %s targets archived environment %s; pausing", schedule.id, environment_ref)
+                    return
+
+            # Exactly-once firing: pre-check the idempotency key before creating
+            # the auto session. The INSERT unique constraint in create_task still
+            # remains the race-proof arbiter, but this avoids orphan-prone
+            # create-then-delete compensation on ordinary retries.
+            slot_epoch = int(fired_slot.timestamp())
+            idempotency_key = f"sched:{schedule.id}:{slot_epoch}"
+            existing_task = await submission.tasks.get_by_idempotency_key(
+                idempotency_key,
+                project_id=schedule.project_id,
+            )
+            if existing_task is not None:
+                logger.info(
+                    "Schedule %s slot %s already fired as task %s; no duplicate session",
+                    schedule.id,
+                    fired_slot.isoformat(),
+                    existing_task.id,
+                )
+                return
+
             session_svc = SessionService(db)
             session = await session_svc.create_session(
                 agent_id=agent.id,
@@ -147,11 +195,6 @@ class SchedulerLoop:
                 agent_snapshot={"name": agent.name, "model": getattr(agent, "model", None)},
                 project_id=schedule.project_id,
             )
-
-            # Exactly-once firing: the engine's idempotency unique constraint
-            # collapses duplicate (schedule, slot) submissions to one task.
-            slot_epoch = int(fired_slot.timestamp())
-            idempotency_key = f"sched:{schedule.id}:{slot_epoch}"
 
             task, created = await submission.create_and_dispatch(
                 agent_id=agent.id,

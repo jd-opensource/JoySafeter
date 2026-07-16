@@ -1,26 +1,5 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
-import Link from 'next/link'
-import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
-import { useSidebarStore } from '@/stores/sidebar/store'
-import { useSession, client } from '@/lib/auth/auth-client'
-import { useTheme } from 'next-themes'
-import { managedGet } from '@/lib/api-client'
-import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-} from '@/components/ui/dropdown-menu'
 import {
   Zap,
   Bot,
@@ -46,10 +25,35 @@ import {
   ChevronsUpDown,
   Search,
   Users,
+  CalendarClock,
 } from 'lucide-react'
+import Link from 'next/link'
+import { useRouter, usePathname } from 'next/navigation'
+import { useTheme } from 'next-themes'
+import { useEffect, useRef, useState } from 'react'
+
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { managedGet } from '@/lib/api-client'
+import { useSession, client } from '@/lib/auth/auth-client'
+import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
+
+
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ProjectInfo } from '@/stores/managed/project-store'
-import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { useSidebarStore } from '@/stores/sidebar/store'
 
 interface NavItem {
   to: string
@@ -61,6 +65,7 @@ const buildItems: NavItem[] = [
   { to: '/managed/quickstart', labelKey: 'nav.quickstart', icon: Zap },
   { to: '/managed/agents', labelKey: 'nav.agents', icon: Bot },
   { to: '/managed/sessions', labelKey: 'nav.sessions', icon: MessageSquare },
+  { to: '/managed/schedules', labelKey: 'nav.schedules', icon: CalendarClock },
   { to: '/managed/environments', labelKey: 'nav.environments', icon: Server },
   { to: '/managed/vaults', labelKey: 'nav.vaults', icon: KeyRound },
 ]
@@ -87,13 +92,16 @@ const manageItems: NavItem[] = [
 function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const { t } = useTranslation()
   const { projects, organizations, switchProject, orgId } = useProjectContext()
-  const { currentProjectId, currentOrgId } = useProjectStore()
+  const { currentProjectId, currentOrgId, currentProject: storedCurrentProject } = useProjectStore()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [allOrgProjects, setAllOrgProjects] = useState<Record<string, ProjectInfo[]>>({})
   const projectsLoadSeqRef = useRef(0)
   const switchCompletionSeqRef = useRef(0)
-  const currentProject = projects.find((p) => p.id === currentProjectId)
+  const currentProject =
+    storedCurrentProject?.id === currentProjectId
+      ? storedCurrentProject
+      : projects.find((p) => p.id === currentProjectId)
   const currentOrg = organizations.find((o) => o.id === (currentOrgId || orgId))
   const activeOrgId = currentOrgId || orgId
 

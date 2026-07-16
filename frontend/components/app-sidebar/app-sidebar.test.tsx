@@ -10,11 +10,16 @@ import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
 
 vi.mock('@/lib/api-client', () => ({
+  extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
+  managedDelete: vi.fn(),
   managedGet: vi.fn(),
+  managedPatch: vi.fn(),
   managedPost: vi.fn(),
+  managedPut: vi.fn(),
 }))
 
 vi.mock('@/lib/i18n', () => ({
+  i18n: { language: 'en' },
   useTranslation: () => ({
     t: (key: string) => key,
     i18n: { language: 'en', changeLanguage: vi.fn() },
@@ -166,6 +171,7 @@ function setProjectContext(orgId: string, project: ProjectInfo) {
   useProjectStore.setState({
     currentOrgId: orgId,
     currentProjectId: project.id,
+    currentProject: project,
     organizations,
     projects: [project],
   })
@@ -203,9 +209,42 @@ describe('AppSidebar project switcher lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
+  })
+
+  it('shows the archived current project even when it is absent from the active project list', async () => {
+    const archivedProject: ProjectInfo = {
+      id: 'project-archived',
+      name: 'Archived Project',
+      slug: 'project-archived',
+      is_default: false,
+      org_id: 'org-a',
+      archived_at: '2026-01-02T00:00:00Z',
+    }
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: archivedProject.id,
+      currentProject: archivedProject,
+      organizations,
+      projects: [],
+    })
+    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
+      if (path === '/auth/me') {
+        return Promise.resolve({
+          ...authContext('org-a', archivedProject),
+          projects: [],
+        })
+      }
+      return Promise.resolve([])
+    })
+    const { AppSidebar } = await import('./app-sidebar')
+
+    const view = renderSidebar(AppSidebar)
+
+    expect(view.getAllByText('Archived Project').length).toBeGreaterThan(0)
   })
 
   it('does not let an older all-projects load override the active org project list', async () => {

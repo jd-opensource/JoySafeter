@@ -6,9 +6,20 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.joysafeter_shared.utils.cron import validate_cron, validate_timezone
+
+
+def _strip_required(v: str) -> str:
+    return v.strip()
+
+
+def _strip_optional(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+    stripped = v.strip()
+    return stripped or None
 
 
 class ScheduleCreateRequest(BaseModel):
@@ -24,6 +35,20 @@ class ScheduleCreateRequest(BaseModel):
     max_retries: int = Field(default=2, ge=0)
     concurrency_policy: str = "allow"
     enabled: bool = True
+
+    @field_validator("name", "prompt", "cron_expr", "timezone", "concurrency_policy", mode="before")
+    @classmethod
+    def _strip_required_string(cls, v):
+        if isinstance(v, str):
+            return _strip_required(v)
+        return v
+
+    @field_validator("system_prompt", "environment_ref", "description", mode="before")
+    @classmethod
+    def _strip_optional_string(cls, v):
+        if isinstance(v, str):
+            return _strip_optional(v)
+        return v
 
     @field_validator("cron_expr")
     @classmethod
@@ -49,7 +74,7 @@ class ScheduleCreateRequest(BaseModel):
 
 class ScheduleUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    prompt: Optional[str] = None
+    prompt: Optional[str] = Field(default=None, min_length=1)
     cron_expr: Optional[str] = None
     timezone: Optional[str] = None
     system_prompt: Optional[str] = None
@@ -59,6 +84,37 @@ class ScheduleUpdateRequest(BaseModel):
     max_retries: Optional[int] = Field(default=None, ge=0)
     concurrency_policy: Optional[str] = None
     enabled: Optional[bool] = None
+
+    @field_validator("name", "prompt", "cron_expr", "timezone", "concurrency_policy", mode="before")
+    @classmethod
+    def _strip_required_string(cls, v):
+        if isinstance(v, str):
+            return _strip_required(v)
+        return v
+
+    @field_validator("system_prompt", "environment_ref", "description", mode="before")
+    @classmethod
+    def _strip_optional_string(cls, v):
+        if isinstance(v, str):
+            return _strip_optional(v)
+        return v
+
+    @model_validator(mode="after")
+    def _reject_null_for_non_nullable_updates(self) -> "ScheduleUpdateRequest":
+        non_nullable = {
+            "name",
+            "prompt",
+            "cron_expr",
+            "timezone",
+            "timeout_sec",
+            "max_retries",
+            "concurrency_policy",
+            "enabled",
+        }
+        for field in non_nullable & self.model_fields_set:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
 
     @field_validator("cron_expr")
     @classmethod
@@ -104,6 +160,14 @@ class ScheduleResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return f"sched_{v}"
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, v: uuid.UUID) -> str:
+        return f"agent_{v}"
+
 
 class ScheduleRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -111,14 +175,36 @@ class ScheduleRunResponse(BaseModel):
     id: uuid.UUID
     schedule_id: Optional[uuid.UUID]
     status: str
+    retry_count: int
+    max_retries: int
     chat_session_id: Optional[uuid.UUID]
     error: Optional[str]
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
 
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return f"task_{v}"
+
+    @field_serializer("schedule_id")
+    def serialize_schedule_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"sched_{v}" if v is not None else None
+
+    @field_serializer("chat_session_id")
+    def serialize_chat_session_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"sess_{v}" if v is not None else None
+
 
 class TriggerResponse(BaseModel):
     task_id: uuid.UUID
     session_id: uuid.UUID
     status: str
+
+    @field_serializer("task_id")
+    def serialize_task_id(self, v: uuid.UUID) -> str:
+        return f"task_{v}"
+
+    @field_serializer("session_id")
+    def serialize_session_id(self, v: uuid.UUID) -> str:
+        return f"sess_{v}"

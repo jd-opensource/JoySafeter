@@ -20,6 +20,8 @@ def test_validate_cron() -> None:
     assert validate_cron("0 9 * * 1-5")
     assert not validate_cron("not-a-cron")
     assert not validate_cron("* * * *")
+    assert not validate_cron("* * * * * *")
+    assert not validate_cron("@daily")
 
 
 def test_validate_timezone() -> None:

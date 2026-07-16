@@ -16,6 +16,8 @@ from croniter import croniter  # type: ignore[import-untyped]
 
 def validate_cron(cron_expr: str) -> bool:
     """True if *cron_expr* is a valid 5-field cron expression."""
+    if len(cron_expr.strip().split()) != 5:
+        return False
     return bool(croniter.is_valid(cron_expr))
 
 

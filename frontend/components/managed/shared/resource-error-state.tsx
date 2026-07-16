@@ -2,8 +2,8 @@
 
 import { AlertTriangle, ArrowLeft, FileQuestion, RefreshCw, ShieldAlert } from 'lucide-react'
 
-import { useTranslation } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/lib/i18n'
 
 type ManagedResourceKind =
   | 'agent'
@@ -12,6 +12,7 @@ type ManagedResourceKind =
   | 'file'
   | 'memoryStore'
   | 'project'
+  | 'schedule'
   | 'secret'
   | 'session'
   | 'skill'

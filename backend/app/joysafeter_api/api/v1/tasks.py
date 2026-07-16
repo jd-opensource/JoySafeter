@@ -154,30 +154,11 @@ def _task_stream_error_payload(
 
 
 async def _relay_task_cancel_to_orchestrator(task, db: AsyncSession, *, reason: str) -> bool:
-    sandbox_id = getattr(task, "sandbox_id", None)
-    if not sandbox_id and getattr(task, "chat_session_id", None):
-        from app.joysafeter_api.services import SandboxService
+    # Single-sourced with the scheduler's ``replace`` policy so the two cancel
+    # paths can never drift. See TaskCancellationService for the invariant.
+    from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 
-        sandbox = await SandboxService(db).find_by_session(task.chat_session_id)
-        sandbox_id = sandbox.id if sandbox else None
-    if not sandbox_id:
-        return False
-
-    from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis
-
-    return await relay_sandbox_command_via_redis(
-        sandbox_id,
-        command_type="cancel",
-        reason=reason,
-        boundary="task_api",
-        operation="cancel_task_relay_runner",
-        failure_code="TASK_CANCEL_REDIS_RELAY_FAILED",
-        failure_message="Task cancel Redis relay failed",
-        data={
-            "task_id": str(task.id),
-            "session_id": str(getattr(task, "chat_session_id", "") or ""),
-        },
-    )
+    return await TaskCancellationService(db).relay_cancel(task, reason=reason)
 
 
 def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
@@ -599,17 +580,16 @@ async def cancel_task(
             user_action="refresh",
         )
 
+    from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
+
     try:
-        task = await svc.cancel_task(task_id)
+        await TaskCancellationService(db).cancel(task, reason="Cancelled via API")
     except ValueError as e:
         raise _task_cancel_conflict_error(task_id, e) from e
-    # cancel_task returns None only if the task doesn't exist, which we
-    # already checked above.
+    task = await svc.get_task(task_id, project_id=auth_ctx.project_id)
     assert task is not None
 
     from app.joysafeter_shared.orchestrator_bridge import get_session_broadcaster
-
-    await _relay_task_cancel_to_orchestrator(task, db, reason="Cancelled via API")
 
     # Transition the linked ChatSession to idle with cancellation stop_reason
     session_id = task.chat_session_id
