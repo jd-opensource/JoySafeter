@@ -91,6 +91,17 @@ import { CreateMemoryStoreDialog } from './create-memory-store-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -111,6 +122,7 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -122,6 +134,7 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -173,6 +186,29 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith('memory_stores', expect.anything())
   })
 
+  it('does not create a memory store from old dialog state after the current project is archived', async () => {
+    const { getByPlaceholderText, getByText } = render(<Harness />)
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.memoryStores.namePlaceholder'), {
+        target: { value: 'Archived project memory store' },
+      })
+      fireEvent.input(getByPlaceholderText('managed.memoryStores.descriptionPlaceholder'), {
+        target: { value: 'Should not be written after archive' },
+      })
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(getByText('common.create'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('memory_stores', expect.anything())
+  })
+
   it('ignores a create completion after the managed project changes', async () => {
     const create = deferred<Record<string, never>>()
     managedPostMock.mockReturnValueOnce(create.promise)
@@ -194,6 +230,36 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      create.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it('ignores a create completion after the current project is archived', async () => {
+    const create = deferred<Record<string, never>>()
+    managedPostMock.mockReturnValueOnce(create.promise)
+    const onCreated = vi.fn()
+    const { getByPlaceholderText, getByText } = render(<Harness onCreated={onCreated} />)
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.memoryStores.namePlaceholder'), {
+        target: { value: 'Project A memory store' },
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('common.create'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
       create.resolve({})
       await Promise.resolve()
     })

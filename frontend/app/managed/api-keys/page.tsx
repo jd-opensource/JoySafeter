@@ -37,6 +37,10 @@ import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/l
 import { roleLabel, roleOptions } from '@/lib/managed/roles'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface ApiKey {
   id: string
@@ -67,6 +71,7 @@ export default function ApiKeysPage() {
   const { canEdit } = useUserPermissionsContext()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const managedScopeRef = useRef(managedScope)
   const createKeyRunRef = useRef(0)
@@ -117,6 +122,18 @@ export default function ApiKeysPage() {
     setCopied(false)
     setDeleteTarget(null)
   }, [managedScope])
+
+  useEffect(() => {
+    if (!projectReadOnly) return
+    createKeyRunRef.current += 1
+    revokeKeyRunRef.current += 1
+    setShowCreate(false)
+    setKeyName('')
+    setKeyRole('developer')
+    setNewRawKey(null)
+    setCopied(false)
+    setDeleteTarget(null)
+  }, [projectReadOnly])
 
   useEffect(() => {
     setDeleteTarget((target) => {
@@ -185,9 +202,12 @@ export default function ApiKeysPage() {
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
     managedScopeRef.current === scope && getCurrentManagedScope() === scope
 
+  const currentManagedScopeAllowsWrite = (scope = managedScopeRef.current) =>
+    currentManagedScopeIsActive(scope) && currentProjectAllowsWrite()
+
   const createKey = useMutation({
     mutationFn: (data: CreateKeyVariables) => {
-      if (!currentManagedScopeIsActive(data.scope) || data.runId !== createKeyRunRef.current) {
+      if (!currentManagedScopeAllowsWrite(data.scope) || data.runId !== createKeyRunRef.current) {
         throw new Error('Stale api key create ignored')
       }
       return managedPost<{ raw_key: string }>('/auth/api-keys', {
@@ -196,7 +216,7 @@ export default function ApiKeysPage() {
       }).then((res) => ({ res, runId: data.runId, scope: data.scope }))
     },
     onSuccess: ({ res, runId, scope }) => {
-      if (!currentManagedScopeIsActive(scope)) return
+      if (!currentManagedScopeAllowsWrite(scope)) return
       if (runId !== createKeyRunRef.current) return
       queryClient.invalidateQueries({ queryKey: ['api-keys'] })
       setNewRawKey(res.raw_key)
@@ -204,7 +224,10 @@ export default function ApiKeysPage() {
       setKeyName('')
     },
     onError: (error, variables) => {
-      if (!currentManagedScopeIsActive(variables.scope) || variables.runId !== createKeyRunRef.current) {
+      if (
+        !currentManagedScopeAllowsWrite(variables.scope) ||
+        variables.runId !== createKeyRunRef.current
+      ) {
         return
       }
       toastOperationError(t, error, 'common.operationFailed')
@@ -212,11 +235,13 @@ export default function ApiKeysPage() {
   })
 
   const openCreateDialog = () => {
+    if (!currentProjectAllowsWrite()) return
     createKeyRunRef.current += 1
     setShowCreate(true)
   }
 
   const handleCreateOpenChange = (open: boolean) => {
+    if (open && !currentProjectAllowsWrite()) return
     if (!open) {
       createKeyRunRef.current += 1
     }
@@ -226,7 +251,10 @@ export default function ApiKeysPage() {
   const submitCreateKey = () => {
     const name = keyName.trim()
     if (!name) return
-    if (!currentManagedScopeIsActive()) return
+    if (!currentManagedScopeAllowsWrite()) {
+      handleCreateOpenChange(false)
+      return
+    }
     const runId = createKeyRunRef.current + 1
     createKeyRunRef.current = runId
     createKey.mutate({ name, role: keyRole, runId, scope: managedScopeRef.current })
@@ -234,23 +262,24 @@ export default function ApiKeysPage() {
 
   const revokeKey = useMutation({
     mutationFn: ({ id, runId, scope }: RevokeKeyVariables) => {
-      if (!currentManagedScopeIsActive(scope) || runId !== revokeKeyRunRef.current) {
+      if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) {
         throw new Error('Stale api key revoke ignored')
       }
       return managedDelete(`/auth/api-keys/${id}`)
     },
     onSuccess: (_data, { runId, scope }) => {
-      if (!currentManagedScopeIsActive(scope) || runId !== revokeKeyRunRef.current) return
+      if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) return
       queryClient.invalidateQueries({ queryKey: ['api-keys'] })
     },
     onError: (error, { runId, scope }) => {
-      if (!currentManagedScopeIsActive(scope) || runId !== revokeKeyRunRef.current) return
+      if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   const currentApiKey = (key: ApiKey | null) => {
     if (!key) return null
+    if (!currentManagedScopeAllowsWrite()) return null
     return (
       queryClient
         .getQueryData<ApiKey[]>(['api-keys', currentOrgId, currentProjectId])
@@ -259,7 +288,7 @@ export default function ApiKeysPage() {
   }
 
   const openRevokeDialog = (key: ApiKey) => {
-    if (!currentManagedScopeIsActive()) return
+    if (!currentManagedScopeAllowsWrite()) return
     if (!currentApiKey(key)) return
 
     revokeKeyRunRef.current += 1
@@ -272,7 +301,10 @@ export default function ApiKeysPage() {
   }
 
   const submitRevokeKey = () => {
-    if (!currentManagedScopeIsActive()) return
+    if (!currentManagedScopeAllowsWrite()) {
+      closeRevokeDialog()
+      return
+    }
     const target = currentApiKey(deleteTarget)
     if (!target) {
       closeRevokeDialog()
@@ -316,7 +348,7 @@ export default function ApiKeysPage() {
         title={t('manage.apiKeys.title')}
         subtitle={t('manage.apiKeys.subtitle')}
         action={
-          canEdit ? (
+          canEdit && !projectReadOnly ? (
             <Button size="sm" onClick={openCreateDialog}>
               <Plus className="mr-1 h-4 w-4" />
               {t('manage.apiKeys.create')}
@@ -363,8 +395,8 @@ export default function ApiKeysPage() {
         filters={filters}
       />
 
-      {showCreate && (
-        <Dialog open={showCreate} onOpenChange={handleCreateOpenChange}>
+      {!projectReadOnly && showCreate && (
+        <Dialog open={!projectReadOnly && showCreate} onOpenChange={handleCreateOpenChange}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{t('manage.apiKeys.create')}</DialogTitle>
@@ -412,7 +444,7 @@ export default function ApiKeysPage() {
         loading={isLoading}
         emptyMessage={t('manage.apiKeys.empty')}
         actionMenu={
-          canEdit
+          canEdit && !projectReadOnly
             ? (key) => [
                 {
                   label: t('manage.apiKeys.revoke'),
@@ -425,7 +457,10 @@ export default function ApiKeysPage() {
         }
       />
 
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && closeRevokeDialog()}>
+      <Dialog
+        open={!projectReadOnly && !!deleteTarget}
+        onOpenChange={(open) => !open && closeRevokeDialog()}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.apiKeys.revokeTitle')}</DialogTitle>

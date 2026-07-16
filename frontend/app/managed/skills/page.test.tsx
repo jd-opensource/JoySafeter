@@ -316,6 +316,17 @@ function skillVersion(version: string, skillId: string): SkillVersionRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: unknown) => void
@@ -327,6 +338,7 @@ function deferred<T>() {
 }
 
 const skillA = skill('skill_a', 'Skill A')
+const archivedSkillA: SkillRecord = { ...skillA, lifecycle_status: 'archived' }
 const skillB = skill('skill_b', 'Skill B')
 const fileA = skillFile('sklfile_a', skillA.id, 'Skill A content')
 const helperFileA = skillFile('sklfile_a_helper', skillA.id, 'print("helper")', 'helper.py', '', 'python')
@@ -360,13 +372,13 @@ function getRowActionButton(
   return action
 }
 
-function setupManagedGetMock() {
+function setupManagedGetMock({ skillARecord = skillA }: { skillARecord?: SkillRecord } = {}) {
   managedGetMock.mockImplementation((url: string) => {
     if (url.startsWith('/skills?')) {
-      const rows = activeProject === 'project-a' ? [skillA, skillB] : [skillB]
+      const rows = activeProject === 'project-a' ? [skillARecord, skillB] : [skillB]
       return Promise.resolve({ data: rows, has_more: false })
     }
-    if (url === '/skills/a') return Promise.resolve(skillA)
+    if (url === '/skills/a') return Promise.resolve(skillARecord)
     if (url === '/skills/b') return Promise.resolve(skillB)
     if (url === '/skills/a/files') {
       return Promise.resolve({
@@ -412,6 +424,7 @@ describe('SkillManagerPage managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -423,6 +436,7 @@ describe('SkillManagerPage managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -1268,5 +1282,290 @@ describe('SkillManagerPage managed scope lifecycle', () => {
     })
 
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['skills'] })
+  })
+
+  it('does not offer destructive list actions for an archived skill', async () => {
+    setupManagedGetMock({ skillARecord: archivedSkillA })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = renderSkillsPage(queryClient)
+
+    await waitFor(() => {
+      expect(view.getByRole('button', { name: 'Skill A' })).toBeTruthy()
+    })
+
+    expect(view.getByText('skill_a:managed.skills.viewDetails')).toBeTruthy()
+    expect(view.queryByText('skill_a:managed.skills.deleteSkill')).toBeNull()
+  })
+
+  it('keeps an archived skill read-only across toolbar, keyboard, and workspace mutations', async () => {
+    setupManagedGetMock({ skillARecord: archivedSkillA })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = renderSkillsPage(queryClient)
+
+    await act(async () => {
+      fireEvent.click(await view.findByRole('button', { name: 'Skill A' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(view.getByRole('heading', { name: 'Skill A' })).toBeTruthy()
+      expect(view.getByText('helper.py')).toBeTruthy()
+    })
+
+    const rescanButton = view.getByRole('button', { name: /managed\.skills\.rescanSecurity/ })
+    const createVersionButton = view.getByRole('button', {
+      name: 'managed.skills.createVersionBtn',
+    })
+    expect(rescanButton.disabled).toBe(true)
+    expect(createVersionButton.disabled).toBe(true)
+
+    await act(async () => {
+      fireEvent.click(rescanButton)
+      fireEvent.click(createVersionButton)
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByText('helper.py'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.change(view.getByLabelText('code-editor'), {
+        target: { value: 'print("archived write attempt")' },
+      })
+      await Promise.resolve()
+    })
+
+    const saveButton = view.getByRole('button', { name: /managed\.skills\.saveChanges/ })
+    expect(saveButton.disabled).toBe(true)
+
+    await act(async () => {
+      fireEvent.click(saveButton)
+      fireEvent.keyDown(document, { key: 's', metaKey: true })
+      await Promise.resolve()
+    })
+
+    expect(() => getRowActionButton(view.container, 'helper.py')).toThrow()
+    expect(() => getRowActionButton(view.container, 'tools/', 1)).toThrow()
+    expect(managedPostMock).not.toHaveBeenCalled()
+    expect(managedPutMock).not.toHaveBeenCalled()
+    expect(managedDeleteMock).not.toHaveBeenCalled()
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = renderSkillsPage(queryClient)
+
+    await waitFor(() => {
+      expect(view.getByRole('button', { name: 'Skill A' })).toBeTruthy()
+    })
+
+    expect(view.queryByText('managed.skills.importSkill')).toBeNull()
+    expect(view.queryByText('managed.skills.aiAuthor.entry')).toBeNull()
+    expect(view.getByText('skill_a:managed.skills.viewDetails')).toBeTruthy()
+    expect(view.queryByText('skill_a:managed.skills.deleteSkill')).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: 'Skill A' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(view.getByRole('heading', { name: 'Skill A' })).toBeTruthy()
+      expect(view.getByText('helper.py')).toBeTruthy()
+    })
+
+    expect(
+      view.queryByRole('button', {
+        name: 'managed.skills.transition.submitForReview',
+      }),
+    ).toBeNull()
+    expect(view.getByRole('button', { name: /managed\.skills\.rescanSecurity/ }).disabled).toBe(
+      true,
+    )
+    expect(view.getByRole('button', { name: 'managed.skills.createVersionBtn' }).disabled).toBe(
+      true,
+    )
+    expect(view.getByRole('button', { name: /managed\.skills\.saveChanges/ }).disabled).toBe(true)
+    expect(() => getRowActionButton(view.container, 'helper.py')).toThrow()
+    expect(() => getRowActionButton(view.container, 'tools/', 1)).toThrow()
+  })
+
+  it('does not delete a skill from an old confirmation after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = renderSkillsPage(queryClient)
+
+    await waitFor(() => {
+      expect(view.getByText('Skill A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByText('skill_a:managed.skills.deleteSkill'))
+    })
+
+    const oldDeleteButton = view.getByRole('button', { name: 'managed.skills.deleteSkill' })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldDeleteButton)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a')
+  })
+
+  it('does not save metadata from an old skill editor after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = renderSkillsPage(queryClient)
+
+    await act(async () => {
+      fireEvent.click(await view.findByRole('button', { name: 'Skill A' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(view.getByRole('heading', { name: 'Skill A' })).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: 'managed.skills.metadata' }))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.input(view.getByPlaceholderText('managed.skills.namePlaceholder'), {
+        target: { value: 'Skill A archived-project rename' },
+      })
+      await Promise.resolve()
+    })
+
+    const oldSaveButton = view.getByRole('button', { name: /managed\.skills\.saveChanges/ })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldSaveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPutMock).not.toHaveBeenCalledWith(
+      '/skills/a',
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('does not rescan security from an old skill editor after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = renderSkillsPage(queryClient)
+
+    await act(async () => {
+      fireEvent.click(await view.findByRole('button', { name: 'Skill A' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(view.getByRole('heading', { name: 'Skill A' })).toBeTruthy()
+    })
+
+    const oldRescanButton = view.getByRole('button', { name: /managed\.skills\.rescanSecurity/ })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldRescanButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/skills/a/security-scans/rescan', {})
+  })
+
+  it('does not submit a lifecycle transition from an old skill editor after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = renderSkillsPage(queryClient)
+
+    await act(async () => {
+      fireEvent.click(await view.findByRole('button', { name: 'Skill A' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(
+        view.getByRole('button', {
+          name: 'managed.skills.transition.submitForReview',
+        }),
+      ).toBeTruthy()
+    })
+
+    const oldTransitionButton = view.getByRole('button', {
+      name: 'managed.skills.transition.submitForReview',
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldTransitionButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/skills/a/submit-review')
   })
 })

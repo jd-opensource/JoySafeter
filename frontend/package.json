@@ -43,6 +43,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "critters": "^0.0.25",
+    "cron-parser": "^4.9.0",
+    "cronstrue": "^2.50.0",
     "crypto-js": "^4.2.0",
     "date-fns": "4.1.0",
     "diff": "^9.0.0",

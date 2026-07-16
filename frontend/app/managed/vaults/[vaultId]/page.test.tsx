@@ -159,6 +159,17 @@ function vault(id: string, name: string) {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 interface CredentialRecord {
   id: string
   name: string
@@ -199,6 +210,7 @@ describe('VaultDetailPage route lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -216,10 +228,54 @@ describe('VaultDetailPage route lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('hides vault and credential write actions when the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/vaults/vault-a') return vault('vault-a', 'Vault A')
+      if (path === '/vaults/vault-a/credentials?limit=100&include_archived=false') {
+        return { data: [credential('cred-a', 'Credential A')], has_more: false }
+      }
+      return { data: [] }
+    })
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-archived',
+      currentProject: {
+        id: 'project-archived',
+        org_id: 'org-a',
+        name: 'Archived Project',
+        slug: 'project-archived',
+        is_default: false,
+        archived_at: '2026-01-02T00:00:00Z',
+      },
+      organizations: [],
+      projects: [],
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText, queryByText } = render(renderVaultPage(queryClient, 'vault-a'))
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+      expect(getByText('Credential A')).toBeTruthy()
+    })
+
+    expect(queryByText('common.archive')).toBeNull()
+    expect(queryByText('common.delete')).toBeNull()
+    expect(queryByText('managed.vaults.addCredential')).toBeNull()
+    expect(queryByText('cred-a:managed.vaults.credArchiveTitle')).toBeNull()
   })
 
   it('refetches vault detail resources after the managed project changes', async () => {
@@ -568,6 +624,198 @@ describe('VaultDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
+  })
+
+  it('does not archive the vault from an old confirmation after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByRole, getByText } = render(renderVaultPage(queryClient, 'vault-a'))
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('common.archive'))
+    })
+
+    const archiveButtons = getAllByRole('button', { name: 'common.archive' })
+    const oldArchiveButton = archiveButtons[archiveButtons.length - 1]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldArchiveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+  })
+
+  it('does not delete the vault from an old confirmation after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByRole, getByText } = render(renderVaultPage(queryClient, 'vault-a'))
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('common.delete'))
+    })
+
+    const deleteButtons = getAllByRole('button', { name: 'common.delete' })
+    const oldDeleteButton = deleteButtons[deleteButtons.length - 1]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldDeleteButton)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a')
+  })
+
+  it('does not archive a credential from an old confirmation after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/vaults/vault-a') return vault('vault-a', 'Vault A')
+      if (path === '/vaults/vault-a/credentials?limit=100&include_archived=false') {
+        return { data: [credential('cred-a', 'Credential A')], has_more: false }
+      }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByRole, getByText } = render(renderVaultPage(queryClient, 'vault-a'))
+
+    await waitFor(() => {
+      expect(getByText('Credential A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('cred-a:managed.vaults.credArchiveTitle'))
+    })
+
+    const archiveButtons = getAllByRole('button', { name: 'common.archive' })
+    const oldArchiveButton = archiveButtons[archiveButtons.length - 1]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldArchiveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/credentials/cred-a/archive',
+      {},
+    )
+  })
+
+  it('does not create a credential from an old dialog after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByPlaceholderText, getByText } = render(renderVaultPage(queryClient, 'vault-a'))
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('managed.vaults.addCredential'))
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('https://mcp.example.com'), {
+        target: { value: 'https://archived-project.example.com' },
+      })
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(getByText('managed.vaults.cred.connect'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/credentials', {
+      credential_type: 'mcp_oauth',
+      mcp_server_url: 'https://archived-project.example.com',
+      name: undefined,
+      token_value: '',
+    })
+  })
+
+  it('does not invalidate vaults from an archive completion after the current project is archived', async () => {
+    const archiveVault = deferred<Record<string, never>>()
+    managedPostMock.mockReturnValueOnce(archiveVault.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getAllByRole, getByText } = render(renderVaultPage(queryClient, 'vault-a'))
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('common.archive'))
+    })
+
+    await act(async () => {
+      const archiveButtons = getAllByRole('button', { name: 'common.archive' })
+      fireEvent.click(archiveButtons[archiveButtons.length - 1])
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      archiveVault.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['vault', 'org-a:project-a', 'vault-a'],
+    })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
   })
 })

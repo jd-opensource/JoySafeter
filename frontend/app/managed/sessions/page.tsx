@@ -21,6 +21,10 @@ import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/l
 import { toastOperationError } from '@/lib/managed/errors'
 import { CreateSessionDialog } from './components/create-session-dialog'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 export default function SessionListPage() {
   const { t } = useTranslation()
@@ -28,6 +32,7 @@ export default function SessionListPage() {
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const actionRunRef = useRef(0)
   const managedScopeRef = useRef(managedScope)
@@ -156,6 +161,12 @@ export default function SessionListPage() {
     [],
   )
 
+  useEffect(() => {
+    if (!projectReadOnly) return
+    actionRunRef.current += 1
+    setShowCreateDialog(false)
+  }, [projectReadOnly])
+
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
     return `${orgId ?? ''}:${projectId ?? ''}`
@@ -167,9 +178,11 @@ export default function SessionListPage() {
   const isCurrentAction = (runId: number, scope: string) =>
     actionRunRef.current === runId &&
     managedScopeRef.current === scope &&
-    currentManagedScopeIsActive(scope)
+    currentManagedScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   const handleArchive = async (session: Session) => {
+    if (!currentProjectAllowsWrite()) return
     const actionScope = managedScopeRef.current
     if (!currentManagedScopeIsActive(actionScope)) return
     const sessionStillCurrent = queryClient
@@ -205,10 +218,18 @@ export default function SessionListPage() {
         title={t('managed.sessions.title')}
         subtitle={t('managed.sessions.subtitle')}
         action={
-          <Button size="sm" onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4" />
-            {t('managed.sessions.new')}
-          </Button>
+          projectReadOnly ? null : (
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!currentProjectAllowsWrite()) return
+                setShowCreateDialog(true)
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              {t('managed.sessions.new')}
+            </Button>
+          )
         }
       />
 
@@ -229,7 +250,7 @@ export default function SessionListPage() {
         fetching={isFetching}
         onRowClick={(s) => router.push(`/managed/sessions/${s.id}`)}
         actionMenu={(s) =>
-          s.archived_at
+          projectReadOnly || s.archived_at
             ? []
             : [
                 {
@@ -253,8 +274,11 @@ export default function SessionListPage() {
       />
 
       <CreateSessionDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
+        open={!projectReadOnly && showCreateDialog}
+        onOpenChange={(open) => {
+          if (open && !currentProjectAllowsWrite()) return
+          setShowCreateDialog(open)
+        }}
         onCreated={(id) => {
           queryClient.invalidateQueries({ queryKey: ['sessions'] })
           router.push(`/managed/sessions/${id}`)

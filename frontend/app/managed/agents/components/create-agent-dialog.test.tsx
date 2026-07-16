@@ -126,6 +126,17 @@ import { CreateAgentDialog } from './create-agent-dialog'
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -141,6 +152,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -152,6 +164,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -425,6 +438,62 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith('/agents', expect.anything())
   })
 
+  it('does not submit a fully selected agent draft after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/secrets') return { data: [{ name: 'secret-a' }] }
+      if (path === '/skills') {
+        return { data: [{ id: 'skill-a', name: 'Skill A', latest_version: '1.0.0' }] }
+      }
+      if (path === '/environments') return { data: [{ id: 'env-a', name: 'Env A' }] }
+      return { data: [] }
+    })
+    managedPostMock.mockResolvedValue({ id: 'agent-created' })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByPlaceholderText, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateAgentDialog open onOpenChange={() => {}} onCreated={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('secret-a')).toBeTruthy()
+      expect(getByText('Env A')).toBeTruthy()
+      expect(getByText('Skill A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.agents.create.namePlaceholder'), {
+        target: { value: 'Archived Project Agent' },
+      })
+      fireEvent.input(getByPlaceholderText('managed.agents.create.descriptionPlaceholder'), {
+        target: { value: 'Uses resources from the archived project' },
+      })
+      fireEvent.input(getByPlaceholderText('managed.agents.create.systemPromptPlaceholder'), {
+        target: { value: 'Answer using archived project context.' },
+      })
+      fireEvent.click(getByText('Env A'))
+      fireEvent.click(getByText('Skill A'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(getByText('managed.agents.create.submit'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/agents', expect.anything())
+  })
+
   it('ignores a create completion after the managed project changes', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/secrets') return { data: [] }
@@ -469,6 +538,58 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
       create.resolve({ id: 'agent-created-in-project-a' })
+      await Promise.resolve()
+    })
+
+    expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it('ignores a create completion after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/secrets') return { data: [] }
+      if (path === '/skills') return { data: [] }
+      if (path === '/environments') return { data: [] }
+      return { data: [] }
+    })
+    const create = deferred<{ id: string }>()
+    managedPostMock.mockReturnValueOnce(create.promise)
+    const onCreated = vi.fn()
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByPlaceholderText, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateAgentDialog open onOpenChange={() => {}} onCreated={onCreated} />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.agents.create.namePlaceholder'), {
+        target: { value: 'Project A Agent' },
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('managed.agents.create.submit'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      create.resolve({ id: 'agent-created-in-archived-project' })
       await Promise.resolve()
     })
 

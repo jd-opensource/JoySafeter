@@ -25,6 +25,10 @@ import { apiStream, ApiError, managedGet, managedPost } from '@/lib/api-client'
 import { getOperationErrorMessageWithDetails } from '@/lib/managed/errors'
 import { getManagedStreamErrorMessage } from '@/lib/managed/stream-errors'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 const LEGACY_STORAGE_KEY = 'joysafeter:skill-authoring-state:v1'
 const STORAGE_KEY_PREFIX = 'joysafeter:skill-authoring-state:v2'
@@ -119,6 +123,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   const startFresh = options?.startFresh ?? false
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const storageKey = getStorageKey(managedScope)
   const [initialState] = useState(() => getInitialState(startFresh, storageKey))
@@ -140,10 +145,14 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     (scope: string) => managedScopeRef.current === scope && getCurrentManagedScope() === scope,
     [],
   )
+  const isCurrentWritableManagedScope = useCallback(
+    (scope: string) => isCurrentManagedScope(scope) && currentProjectAllowsWrite(),
+    [isCurrentManagedScope],
+  )
   const isCurrentLifecycleRun = useCallback(
     (scope: string, lifecycleRun: number) =>
-      isCurrentManagedScope(scope) && lifecycleRunRef.current === lifecycleRun,
-    [isCurrentManagedScope],
+      isCurrentWritableManagedScope(scope) && lifecycleRunRef.current === lifecycleRun,
+    [isCurrentWritableManagedScope],
   )
   // Ref-mirror of draft so the streaming handler always reads fresh state
   // even when React hasn't flushed the most recent setDraft yet (the SSE
@@ -162,6 +171,17 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     },
     [],
   )
+
+  useEffect(() => {
+    if (!projectReadOnly) return
+    lifecycleRunRef.current += 1
+    abortRef.current?.abort()
+    abortRef.current = null
+    streamInFlightRef.current = false
+    setStreaming(false)
+    setScanRunning(false)
+    setPublishing(false)
+  }, [projectReadOnly])
 
   // A fresh session (?new=1 in the URL) wipes the saved blob so a subsequent
   // refresh genuinely shows an empty workspace.
@@ -251,7 +271,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       }
 
       const scopeAtStart = managedScopeRef.current
-      if (!isCurrentManagedScope(scopeAtStart)) return
+      if (!isCurrentWritableManagedScope(scopeAtStart)) return
 
       // Append the user turn + a blank assistant placeholder we'll fold
       // streaming text into.
@@ -296,7 +316,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
           } catch {
             return
           }
-          if (!isCurrentManagedScope(scopeAtStart)) return
+          if (!isCurrentWritableManagedScope(scopeAtStart)) return
           switch (evt.type) {
             case 'text_delta':
               assistantAccum += (evt.text as string) || ''
@@ -344,7 +364,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
             }
             break
           }
-          if (!isCurrentManagedScope(scopeAtStart)) break
+          if (!isCurrentWritableManagedScope(scopeAtStart)) break
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n')
           buffer = lines.pop() || ''
@@ -390,7 +410,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
           // user cancelled — keep partial state
           return
         }
-        if (!isCurrentManagedScope(scopeAtStart) || abortRef.current !== controller) return
+        if (!isCurrentWritableManagedScope(scopeAtStart) || abortRef.current !== controller) return
         const message = err instanceof Error ? err.message : '连接失败,请稍后重试。'
         setMessages((prev) => {
           const updated = [...prev]
@@ -404,14 +424,14 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
           return updated
         })
       } finally {
-        if (abortRef.current === controller && isCurrentManagedScope(scopeAtStart)) {
+        if (abortRef.current === controller && isCurrentWritableManagedScope(scopeAtStart)) {
           streamInFlightRef.current = false
           abortRef.current = null
           setStreaming(false)
         }
       }
     },
-    [isCurrentManagedScope, messages],
+    [isCurrentWritableManagedScope, messages],
   )
 
   const cancel = useCallback(() => {

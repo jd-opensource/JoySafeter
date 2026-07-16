@@ -175,6 +175,17 @@ function agent(id: string, name: string): AgentRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 describe('AgentListPage row action lifecycle', () => {
   beforeEach(() => {
     managedDeleteMock.mockReset()
@@ -189,6 +200,7 @@ describe('AgentListPage row action lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -200,10 +212,49 @@ describe('AgentListPage row action lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-archived',
+      currentProject: {
+        id: 'project-archived',
+        org_id: 'org-a',
+        name: 'Archived Project',
+        slug: 'project-archived',
+        is_default: false,
+        archived_at: '2026-01-02T00:00:00Z',
+      },
+      organizations: [],
+      projects: [],
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { queryByText, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <AgentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    expect(queryByText('managed.agents.new')).toBeNull()
+    expect(queryByText('agent-a:managed.agents.archiveAgent')).toBeNull()
+    expect(queryByText('agent-a:common.delete')).toBeNull()
   })
 
   it('does not archive an agent from an old row action in the same turn as a project switch', async () => {
@@ -228,6 +279,38 @@ describe('AgentListPage row action lifecycle', () => {
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
       fireEvent.click(getByText('agent-a:managed.agents.archiveAgent'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a/archive', {})
+  })
+
+  it('does not archive an agent from an old row action after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <AgentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    const oldArchiveButton = getByText('agent-a:managed.agents.archiveAgent')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldArchiveButton)
       await Promise.resolve()
     })
 
@@ -308,6 +391,44 @@ describe('AgentListPage row action lifecycle', () => {
     unmount()
 
     await act(async () => {
+      archive.resolve()
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents'] })
+  })
+
+  it('does not invalidate agents from an archive completion after the current project is archived', async () => {
+    const archive = deferred<void>()
+    managedPostMock.mockReturnValueOnce(archive.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <AgentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('agent-a:managed.agents.archiveAgent'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
       archive.resolve()
       await Promise.resolve()
     })
@@ -399,6 +520,38 @@ describe('AgentListPage row action lifecycle', () => {
     expect(managedGetMock).not.toHaveBeenCalledWith('/agents/agent-a/delete_preview')
   })
 
+  it('does not request a delete preview from an old row action after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <AgentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    const oldDeleteButton = getByText('agent-a:common.delete')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldDeleteButton)
+      await Promise.resolve()
+    })
+
+    expect(managedGetMock).not.toHaveBeenCalledWith('/agents/agent-a/delete_preview')
+  })
+
   it('does not delete an agent target that leaves the current agents list before confirmation', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -437,5 +590,92 @@ describe('AgentListPage row action lifecycle', () => {
     })
 
     expect(managedDeleteMock).not.toHaveBeenCalledWith('/agents/agent-a')
+  })
+
+  it('does not delete an agent from an old confirmation after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByRole, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <AgentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('agent-a:common.delete'))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(getByRole('button', { name: 'managed.agents.permanentlyDelete' })).toBeTruthy()
+    })
+    const oldConfirmButton = getByRole('button', { name: 'managed.agents.permanentlyDelete' })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldConfirmButton)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/agents/agent-a')
+  })
+
+  it('does not invalidate agents from a delete completion after the current project is archived', async () => {
+    const deleteAgent = deferred<void>()
+    managedDeleteMock.mockReturnValueOnce(deleteAgent.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getByRole, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <AgentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('agent-a:common.delete'))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(getByRole('button', { name: 'managed.agents.permanentlyDelete' })).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: 'managed.agents.permanentlyDelete' }))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      deleteAgent.resolve()
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents'] })
   })
 })

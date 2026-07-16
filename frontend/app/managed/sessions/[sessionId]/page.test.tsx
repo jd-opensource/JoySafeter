@@ -14,6 +14,7 @@ vi.mock('@/lib/i18n', () => ({
 }))
 
 vi.mock('@/lib/api-client', () => ({
+  extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
   managedDelete: vi.fn(),
   managedGet: vi.fn(),
   managedPatch: vi.fn(),
@@ -162,6 +163,17 @@ function session(
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function event(id: string, text: string) {
   return {
     id,
@@ -198,6 +210,7 @@ describe('SessionDetailPage route lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -209,6 +222,7 @@ describe('SessionDetailPage route lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -346,11 +360,13 @@ describe('SessionDetailPage route lifecycle', () => {
       },
     })
 
-    const { getByPlaceholderText, getByRole } = render(renderSessionPage(queryClient, 'session-a'))
+    const { getByPlaceholderText } = render(renderSessionPage(queryClient, 'session-a'))
 
     const input = await waitFor(() =>
       getByPlaceholderText('managed.sessions.sendPlaceholder'),
     )
+    const sendButton = input.parentElement?.querySelector('button') as HTMLButtonElement
+    expect(sendButton).toBeTruthy()
 
     await act(async () => {
       fireEvent.input(input, { target: { value: 'stale message' } })
@@ -362,12 +378,55 @@ describe('SessionDetailPage route lifecycle', () => {
         ...session('session-a'),
         archived_at: '2026-01-02T00:00:00Z',
       })
-      fireEvent.click(getByRole('button', { name: 'managed.sessions.sendMessage' }))
+      fireEvent.click(sendButton)
       await Promise.resolve()
     })
 
     expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/events', {
       events: [{ type: 'user.message', content: [{ type: 'text', text: 'stale message' }] }],
+    })
+  })
+
+  it('does not send a message from old session UI after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/sessions/session-a') return session('session-a')
+      if (path === '/sessions/session-a/resources') return { data: [] }
+      if (path.includes('/events?')) return { data: [], has_more: false }
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByPlaceholderText } = render(renderSessionPage(queryClient, 'session-a'))
+
+    const input = await waitFor(() => getByPlaceholderText('managed.sessions.sendPlaceholder'))
+    const sendButton = input.parentElement?.querySelector('button') as HTMLButtonElement
+    expect(sendButton).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.input(input, { target: { value: 'message after project archive' } })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(sendButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/events', {
+      events: [
+        {
+          type: 'user.message',
+          content: [{ type: 'text', text: 'message after project archive' }],
+        },
+      ],
     })
   })
 
@@ -405,6 +464,39 @@ describe('SessionDetailPage route lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/stop', {})
   })
 
+  it('does not stop the session from old UI after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/sessions/session-a') return session('session-a', { status: 'running' })
+      if (path === '/sessions/session-a/resources') return { data: [] }
+      if (path.includes('/events?')) return { data: [], has_more: false }
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(renderSessionPage(queryClient, 'session-a'))
+
+    await waitFor(() => {
+      expect(getByText('managed.sessions.stopSession')).toBeTruthy()
+    })
+
+    const stopButton = getByText('managed.sessions.stopSession')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(stopButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/stop', {})
+  })
+
   it('does not archive the session after the current session detail becomes archived', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/sessions/session-a') return session('session-a')
@@ -433,6 +525,39 @@ describe('SessionDetailPage route lifecycle', () => {
         archived_at: '2026-01-02T00:00:00Z',
       })
       fireEvent.click(getByText('managed.sessions.archive'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+  })
+
+  it('does not archive the session from old UI after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/sessions/session-a') return session('session-a')
+      if (path === '/sessions/session-a/resources') return { data: [] }
+      if (path.includes('/events?')) return { data: [], has_more: false }
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(renderSessionPage(queryClient, 'session-a'))
+
+    await waitFor(() => {
+      expect(getByText('managed.sessions.archive')).toBeTruthy()
+    })
+
+    const archiveButton = getByText('managed.sessions.archive')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(archiveButton)
       await Promise.resolve()
     })
 
@@ -685,6 +810,167 @@ describe('SessionDetailPage route lifecycle', () => {
     })
   })
 
+  it('does not add a file from old drawer UI after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/sessions/session-a') return session('session-a')
+      if (path === '/sessions/session-a/resources') {
+        return {
+          data: [
+            {
+              id: 'session_resource_mounted',
+              type: 'file',
+              file_id: 'file_mounted',
+              mount_path: '/workspace/mounted.txt',
+              access: 'read',
+              created_at: '2026-01-01T00:00:00Z',
+            },
+          ],
+        }
+      }
+      if (path === '/files?limit=100') {
+        return {
+          data: [
+            {
+              id: 'file_project_archived',
+              filename: 'project-archived.txt',
+              purpose: 'assistants',
+              content_type: 'text/plain',
+              size_bytes: 12,
+              downloadable: true,
+              created_at: '2026-01-01T00:00:00Z',
+            },
+          ],
+        }
+      }
+      if (path.includes('/events?')) return { data: [], has_more: false }
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByRole, getByText } = render(renderSessionPage(queryClient, 'session-a'))
+
+    await waitFor(() => {
+      expect(getByRole('button', { name: /managed\.sessions\.create\.resources/ })).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /managed\.sessions\.create\.resources/ }))
+    })
+
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: 'managed.sessions.addFile' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(getByText('project-archived.txt')).toBeTruthy()
+    })
+
+    const oldFileButton = getByText('project-archived.txt')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(oldFileButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/resources', {
+      type: 'file',
+      file_id: 'file_project_archived',
+      mount_path: '/workspace/project-archived.txt',
+    })
+  })
+
+  it('does not add a file from an old drawer after the managed project changes to a same-id session', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/sessions/session-a') return session('session-a')
+      if (path === '/sessions/session-a/resources') {
+        return {
+          data: [
+            {
+              id: 'session_resource_existing_old_project',
+              type: 'file',
+              file_id: 'file_existing',
+              mount_path: '/workspace/existing.txt',
+              access: 'read',
+              created_at: '2026-01-01T00:00:00Z',
+            },
+          ],
+        }
+      }
+      if (path === '/files?limit=100') {
+        return {
+          data: [
+            {
+              id: 'file_old_project',
+              filename: 'old-project.txt',
+              purpose: 'assistants',
+              content_type: 'text/plain',
+              size_bytes: 12,
+              downloadable: true,
+              created_at: '2026-01-01T00:00:00Z',
+            },
+          ],
+        }
+      }
+      if (path.includes('/events?')) return { data: [], has_more: false }
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByRole, getByText } = render(renderSessionPage(queryClient, 'session-a'))
+
+    await waitFor(() => {
+      expect(getByRole('button', { name: /managed\.sessions\.create\.resources/ })).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /managed\.sessions\.create\.resources/ }))
+    })
+
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: 'managed.sessions.addFile' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(getByText('old-project.txt')).toBeTruthy()
+    })
+
+    const oldFileButton = getByText('old-project.txt')
+
+    await act(async () => {
+      queryClient.setQueryData(['session', 'session-a:org-a:project-b'], session('session-a'))
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.click(oldFileButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/resources', {
+      type: 'file',
+      file_id: 'file_old_project',
+      mount_path: '/workspace/old-project.txt',
+    })
+  })
+
   it('does not remove a mounted file after it leaves the current session resources', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/sessions/session-a') return session('session-a')
@@ -795,6 +1081,66 @@ describe('SessionDetailPage route lifecycle', () => {
 
     expect(managedDeleteMock).not.toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_stale_session',
+    )
+  })
+
+  it('does not remove a mounted file from an old drawer after the managed project changes to a same-id session', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/sessions/session-a') return session('session-a')
+      if (path === '/sessions/session-a/resources') {
+        return {
+          data: [
+            {
+              id: 'session_resource_old_project',
+              type: 'file',
+              file_id: 'file_mounted',
+              mount_path: '/workspace/mounted.txt',
+              access: 'read',
+              created_at: '2026-01-01T00:00:00Z',
+            },
+          ],
+        }
+      }
+      if (path.includes('/events?')) return { data: [], has_more: false }
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { container, getByRole } = render(renderSessionPage(queryClient, 'session-a'))
+
+    await waitFor(() => {
+      expect(getByRole('button', { name: /managed\.sessions\.create\.resources/ })).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /managed\.sessions\.create\.resources/ }))
+    })
+
+    const removeButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.innerHTML.includes('lucide-trash2'),
+    )
+    expect(removeButton).toBeTruthy()
+
+    await act(async () => {
+      queryClient.setQueryData(['session', 'session-a:org-a:project-b'], session('session-a'))
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.click(removeButton!)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/resources/session_resource_old_project',
     )
   })
 
@@ -1074,6 +1420,72 @@ describe('SessionDetailPage route lifecycle', () => {
     expect(managedPatchMock).not.toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_repo',
       { authorization_token: 'stale-session-token' },
+    )
+  })
+
+  it('does not rotate a repo token from an old drawer after the managed project changes to a same-id session', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/sessions/session-a') return session('session-a')
+      if (path === '/sessions/session-a/resources') {
+        return {
+          data: [
+            {
+              id: 'session_resource_repo_old_project',
+              type: 'github_repository',
+              url: 'https://github.com/example/repo',
+              branch: 'main',
+              mount_path: '/workspace/repo',
+              mount_name: 'repo',
+            },
+          ],
+        }
+      }
+      if (path.includes('/events?')) return { data: [], has_more: false }
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByPlaceholderText, getByRole } = render(renderSessionPage(queryClient, 'session-a'))
+
+    await waitFor(() => {
+      expect(getByRole('button', { name: /managed\.sessions\.create\.repositories/ })).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /managed\.sessions\.create\.repositories/ }))
+    })
+
+    const tokenInput = getByPlaceholderText(
+      'managed.sessions.rotateTokenPlaceholder',
+    ) as HTMLInputElement
+
+    await act(async () => {
+      fireEvent.input(tokenInput, { target: { value: 'old-project-token' } })
+    })
+
+    const rotateButton = getByRole('button', { name: 'managed.sessions.rotateToken' })
+
+    await act(async () => {
+      queryClient.setQueryData(['session', 'session-a:org-a:project-b'], session('session-a'))
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.click(rotateButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPatchMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/resources/session_resource_repo_old_project',
+      { authorization_token: 'old-project-token' },
     )
   })
 

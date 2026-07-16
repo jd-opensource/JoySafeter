@@ -10,10 +10,10 @@ const { emailOtpMock, sendVerificationOtpMock, refetchSessionMock, pushMock, sea
     sendVerificationOtpMock: vi.fn(),
     refetchSessionMock: vi.fn(),
     pushMock: vi.fn(),
-    searchParamValues: { redirectAfter: '/dashboard#after', invite_flow: 'true' } as Record<
-      string,
-      string | null
-    >,
+    searchParamValues: {
+      redirectAfter: '/dashboard#after',
+      invite_flow: 'true',
+    } as Record<string, string | null>,
   }))
 
 function deferred<T>() {

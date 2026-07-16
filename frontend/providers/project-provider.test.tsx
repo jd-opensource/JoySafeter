@@ -62,9 +62,33 @@ vi.mock('@/lib/api-client', () => {
   return {
     ApiError: MockApiError,
     createApiError: vi.fn((status: number, message: string) => new MockApiError(status, message)),
+    extractErrorFromResponse: vi.fn(
+      async (response: Response) => new MockApiError(response.status, response.statusText),
+    ),
     isUnauthorizedApiError: vi.fn(() => false),
     MANAGED_API_BASE: 'http://localhost:8000/api/v1',
     managedGet: vi.fn(),
+    managedDelete: vi.fn(async (url: string) => {
+      const response = await fetch(`http://localhost:8000/api/v1/${url.replace(/^\/+/, '')}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        throw new MockApiError(response.status, `API ${response.status}`)
+      }
+      const json = await response.json().catch(() => undefined)
+      return json?.data ?? json
+    }),
+    managedPatch: vi.fn(async (url: string, body?: unknown) => {
+      const response = await fetch(`http://localhost:8000/api/v1/${url.replace(/^\/+/, '')}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        throw new MockApiError(response.status, `API ${response.status}`)
+      }
+      const json = await response.json().catch(() => undefined)
+      return json?.data ?? json
+    }),
     managedPost: vi.fn(async (url: string, body?: unknown) => {
       const response = await fetch(`http://localhost:8000/api/v1/${url.replace(/^\/+/, '')}`, {
         method: 'POST',
@@ -76,6 +100,18 @@ vi.mock('@/lib/api-client', () => {
       const json = await response.json().catch(() => undefined)
       return json?.data ?? json
     }),
+    managedPut: vi.fn(async (url: string, body?: unknown) => {
+      const response = await fetch(`http://localhost:8000/api/v1/${url.replace(/^\/+/, '')}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        throw new MockApiError(response.status, `API ${response.status}`)
+      }
+      const json = await response.json().catch(() => undefined)
+      return json?.data ?? json
+    }),
+    managedUpload: vi.fn(),
     apiStream: vi.fn((url: string, body?: unknown, options?: { signal?: AbortSignal }) =>
       fetch(`http://localhost:8000/api/v1/${url.replace(/^\/+/, '')}`, {
         method: 'POST',
@@ -189,6 +225,31 @@ function authMe(userId: string, orgId: string, projectId: string) {
   }
 }
 
+function authMeWithProject(
+  userId: string,
+  orgId: string,
+  project: {
+    id: string
+    name: string
+    slug: string
+    is_default: boolean
+    archived_at?: string | null
+  },
+  projects = [project],
+) {
+  return {
+    user: {
+      id: userId,
+      email: `${userId}@example.com`,
+      name: userId,
+    },
+    organization: { id: orgId, name: orgId, slug: orgId, role: 'owner' },
+    project,
+    organizations: [{ id: orgId, name: orgId, slug: orgId, role: 'owner' }],
+    projects,
+  }
+}
+
 describe('ProjectProvider auth context lifecycle', () => {
   let originalFetch: typeof fetch | undefined
 
@@ -208,6 +269,7 @@ describe('ProjectProvider auth context lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -224,6 +286,7 @@ describe('ProjectProvider auth context lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -262,6 +325,7 @@ describe('ProjectProvider auth context lifecycle', () => {
       useProjectStore.setState({
         currentOrgId: null,
         currentProjectId: null,
+        currentProject: null,
         organizations: [],
         projects: [],
       })
@@ -339,5 +403,38 @@ describe('ProjectProvider auth context lifecycle', () => {
 
     expect(useProjectStore.getState().currentOrgId).toBe('org-b')
     expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+  })
+
+  it('preserves archived current project metadata even when active project list excludes it', async () => {
+    const archivedProject = {
+      id: 'project-archived',
+      name: 'Archived Project',
+      slug: 'archived-project',
+      is_default: false,
+      archived_at: '2026-01-02T00:00:00Z',
+    }
+    managedGetMock.mockResolvedValueOnce(authMeWithProject('user-a', 'org-a', archivedProject, []))
+    setMockSessionUser(user('user-a'))
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectProvider>
+          <div>ready</div>
+        </ProjectProvider>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(useProjectStore.getState().currentProjectId).toBe('project-archived')
+    })
+    expect(useProjectStore.getState().currentProject?.archived_at).toBe('2026-01-02T00:00:00Z')
+    expect(useProjectStore.getState().projects).toEqual([])
   })
 })

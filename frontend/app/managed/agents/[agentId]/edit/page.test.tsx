@@ -13,10 +13,12 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/lib/i18n', () => ({
+  i18n: { language: 'en' },
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
 vi.mock('@/lib/api-client', () => ({
+  extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
   managedGet: vi.fn(),
   managedPost: vi.fn(),
 }))
@@ -108,6 +110,17 @@ function agent(overrides: Partial<Agent>): Agent {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function renderPage(agentId: string, queryClient: QueryClient) {
   const params = {
     status: 'fulfilled',
@@ -131,6 +144,7 @@ describe('AgentEditPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -142,6 +156,7 @@ describe('AgentEditPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -337,6 +352,51 @@ describe('AgentEditPage object lifecycle', () => {
     expect(view.queryByDisplayValue('Agent A Refresh')).toBeNull()
   })
 
+  it('does not save an old agent draft to a new project that has the same agent id', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/agents/agent-a') {
+        return agent({ id: 'agent-a', name: 'Agent A', version: 1 })
+      }
+      if (path === '/secrets') return { data: [] }
+      if (path === '/skills') return { data: [] }
+      if (path === '/environments') return { data: [] }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(renderPage('agent-a', queryClient))
+
+    await waitFor(() => {
+      expect(view.getByDisplayValue('Agent A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.input(view.getByDisplayValue('Agent A'), {
+        target: { value: 'Old Project Agent Draft' },
+      })
+    })
+
+    queryClient.setQueryData(
+      ['agent', 'org-a:project-b', 'agent-a'],
+      agent({ id: 'agent-a', name: 'Project B Agent', version: 3 }),
+    )
+    const saveButton = view.getByText('managed.agents.saveChanges')
+
+    await act(async () => {
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      fireEvent.click(saveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a', expect.anything())
+  })
+
   it('does not submit a secret after it leaves the current selectable secret list', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/agents/agent-a') {
@@ -417,6 +477,42 @@ describe('AgentEditPage object lifecycle', () => {
     })
 
     expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a', expect.anything())
+  })
+
+  it('does not save after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/agents/agent-a') {
+        return agent({ id: 'agent-a', name: 'Agent A', version: 1 })
+      }
+      if (path === '/secrets') return { data: [] }
+      if (path === '/skills') return { data: [] }
+      if (path === '/environments') return { data: [] }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(renderPage('agent-a', queryClient))
+
+    await waitFor(() => {
+      expect(view.getByDisplayValue('Agent A')).toBeTruthy()
+    })
+
+    const saveButton = view.getByText('managed.agents.saveChanges')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(saveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a', expect.anything())
+    expect((view.getByText('managed.agents.saveChanges') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('does not navigate from a save completion after the page unmounts', async () => {

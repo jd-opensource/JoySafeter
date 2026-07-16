@@ -25,6 +25,7 @@ import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
@@ -231,13 +232,19 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const isCurrentCreateRun = (runId: number, scope: string) =>
     runId === createRunRef.current &&
     scope === managedScopeRef.current &&
-    scope === getCurrentManagedScope()
+    scope === getCurrentManagedScope() &&
+    currentProjectAllowsWrite()
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
     scope === getCurrentManagedScope()
 
   const handleSubmit = async () => {
     if (!name.trim()) return
+    if (!currentProjectAllowsWrite()) {
+      reset()
+      onOpenChange(false)
+      return
+    }
     const scopeAtStart = managedScopeRef.current
     if (!currentManagedScopeIsActive(scopeAtStart)) return
     const runId = createRunRef.current + 1
@@ -343,6 +350,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     <Dialog
       open={open}
       onOpenChange={(v) => {
+        if (v && !currentProjectAllowsWrite()) return
         if (!v) {
           createRunRef.current += 1
           reset()

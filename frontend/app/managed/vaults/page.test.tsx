@@ -157,6 +157,17 @@ function vault(id: string, name: string): VaultRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -176,6 +187,7 @@ describe('VaultListPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -187,6 +199,7 @@ describe('VaultListPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -488,5 +501,188 @@ describe('VaultListPage object lifecycle', () => {
     })
 
     expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText, queryByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <VaultListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    expect(queryByText('managed.vaults.new')).toBeNull()
+    expect(queryByText('vault-a:managed.vaults.archiveVault')).toBeNull()
+    expect(queryByText('vault-a:common.delete')).toBeNull()
+  })
+
+  it('does not create a vault from an old create dialog after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByPlaceholderText, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <VaultListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('managed.vaults.new'))
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.vaults.namePlaceholder'), {
+        target: { value: 'Archived project vault' },
+      })
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(getByText('common.create'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults', {
+      name: 'Archived project vault',
+    })
+  })
+
+  it('does not archive a vault from an old confirmation after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByRole, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <VaultListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('vault-a:managed.vaults.archiveVault'))
+    })
+
+    const oldArchiveButton = getByRole('button', { name: 'common.archive' })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldArchiveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+  })
+
+  it('does not delete a vault from an old confirmation after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByRole, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <VaultListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('vault-a:common.delete'))
+    })
+
+    const oldDeleteButton = getByRole('button', { name: 'common.delete' })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldDeleteButton)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a')
+  })
+
+  it('does not invalidate vaults from an archive completion after the current project is archived', async () => {
+    const archive = deferred<Record<string, never>>()
+    managedPostMock.mockReturnValueOnce(archive.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getByRole, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <VaultListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('vault-a:managed.vaults.archiveVault'))
+    })
+
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: 'common.archive' }))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      archive.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
   })
 })

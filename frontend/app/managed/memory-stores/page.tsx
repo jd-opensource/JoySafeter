@@ -24,6 +24,10 @@ import { CreateMemoryStoreDialog } from './components/create-memory-store-dialog
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 export default function MemoryStoreListPage() {
   const { t } = useTranslation()
@@ -31,6 +35,7 @@ export default function MemoryStoreListPage() {
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const actionRunRef = useRef(0)
   const managedScopeRef = useRef(managedScope)
@@ -104,14 +109,17 @@ export default function MemoryStoreListPage() {
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
     getCurrentManagedScope() === scope
 
+  const currentManagedScopeAllowsWrite = (scope = managedScopeRef.current) =>
+    currentManagedScopeIsActive(scope) && currentProjectAllowsWrite()
+
   const isCurrentAction = (runId: number, scope: string) =>
     actionRunRef.current === runId &&
     managedScopeRef.current === scope &&
-    currentManagedScopeIsActive(scope)
+    currentManagedScopeAllowsWrite(scope)
 
   const handleArchive = async (store: MemoryStore) => {
     const actionScope = managedScopeRef.current
-    if (!currentManagedScopeIsActive(actionScope)) return
+    if (!currentManagedScopeAllowsWrite(actionScope)) return
     const storeStillCurrent = queryClient
       .getQueriesData<{ data?: MemoryStore[] }>({
         queryKey: ['memory-stores', actionScope, '/memory_stores'],
@@ -173,10 +181,12 @@ export default function MemoryStoreListPage() {
         title={t('managed.memoryStores.title')}
         subtitle={t('managed.memoryStores.subtitle')}
         action={
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" />
-            {t('managed.memoryStores.new')}
-          </Button>
+          projectReadOnly ? null : (
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              {t('managed.memoryStores.new')}
+            </Button>
+          )
         }
       />
 
@@ -196,7 +206,7 @@ export default function MemoryStoreListPage() {
         fetching={isFetching}
         onRowClick={(s) => router.push(`/managed/memory-stores/${s.id}`)}
         actionMenu={(s) =>
-          s.archived_at
+          s.archived_at || projectReadOnly
             ? []
             : [{ label: t('managed.memoryStores.archiveStore'), onClick: () => handleArchive(s) }]
         }
@@ -215,8 +225,11 @@ export default function MemoryStoreListPage() {
       />
 
       <CreateMemoryStoreDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
+        open={!projectReadOnly && createOpen}
+        onOpenChange={(open) => {
+          if (open && !currentProjectAllowsWrite()) return
+          setCreateOpen(open)
+        }}
         onCreated={() => invalidate()}
       />
     </div>

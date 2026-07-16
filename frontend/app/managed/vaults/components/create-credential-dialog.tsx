@@ -7,6 +7,7 @@ import { managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import type { VaultCredential } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -62,16 +63,28 @@ export function CreateCredentialDialog({
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: ({ vaultId, payload }: CreateCredentialVariables) =>
-      managedPost<VaultCredential>(`/vaults/${vaultId}/credentials`, payload),
+    mutationFn: ({ vaultId, payload, scope }: CreateCredentialVariables) => {
+      if (operationScopeRef.current !== scope || !currentProjectAllowsWrite()) {
+        throw new Error('Stale vault credential create ignored')
+      }
+      return managedPost<VaultCredential>(`/vaults/${vaultId}/credentials`, payload)
+    },
     onSuccess: (_data, { queryKey, runId, scope }) => {
-      if (createRunRef.current !== runId || operationScopeRef.current !== scope) return
+      if (
+        createRunRef.current !== runId ||
+        operationScopeRef.current !== scope ||
+        !currentProjectAllowsWrite()
+      ) return
       queryClient.invalidateQueries({ queryKey })
       resetForm()
       onOpenChange(false)
     },
     onError: (error, { runId, scope }) => {
-      if (createRunRef.current !== runId || operationScopeRef.current !== scope) return
+      if (
+        createRunRef.current !== runId ||
+        operationScopeRef.current !== scope ||
+        !currentProjectAllowsWrite()
+      ) return
       toastOperationError(t, error, 'managed.vaults.cred.createFailed')
     },
   })
@@ -109,7 +122,7 @@ export function CreateCredentialDialog({
       return
     }
     if (credentialType === 'static_bearer' && !tokenValue.trim()) return
-    if (canSubmit && !canSubmit()) {
+    if (!currentProjectAllowsWrite() || (canSubmit && !canSubmit())) {
       resetForm()
       onOpenChange(false)
       return
@@ -131,6 +144,7 @@ export function CreateCredentialDialog({
   }
 
   const handleOpenChange = (next: boolean) => {
+    if (next && !currentProjectAllowsWrite()) return
     if (!next) {
       createRunRef.current += 1
       resetForm()

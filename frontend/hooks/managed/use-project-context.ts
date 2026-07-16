@@ -23,8 +23,9 @@ interface AuthMeResponse {
 
 interface SwitchContextResponse {
   org_id?: string
-  project: ProjectInfo
-  projects: ProjectInfo[]
+  project_id?: string
+  project?: ProjectInfo
+  projects?: ProjectInfo[]
 }
 
 async function loadAuthContext(): Promise<AuthMeResponse> {
@@ -63,7 +64,7 @@ export function useProjectContext() {
         const data = await loadAuthContext()
         if (cancelled || loadSeq !== contextLoadSeqRef.current) return
 
-        setContext(data.organization.id, data.project.id, data.organizations, data.projects)
+        setContext(data.organization.id, data.project.id, data.organizations, data.projects, data.project)
       } catch (err) {
         if (loadSeq === contextLoadSeqRef.current) {
           console.error('Failed to load project context:', err)
@@ -96,12 +97,14 @@ export function useProjectContext() {
           },
         )
         if (requestSeq !== switchRequestSeqRef.current) return
+        const resolvedProjectId = data.project?.id || data.project_id || projectId
         contextLoadSeqRef.current += 1
         setContext(
           data.org_id || orgId || currentOrgId || '',
-          data.project.id,
+          resolvedProjectId,
           organizations,
-          data.projects,
+          data.projects || projects,
+          data.project || null,
         )
         setIsLoading(false)
         clearNonSessionQueryData(queryClient)
@@ -110,7 +113,7 @@ export function useProjectContext() {
         throw err
       }
     },
-    [currentOrgId, organizations, setContext, queryClient],
+    [currentOrgId, organizations, projects, setContext, queryClient],
   )
 
   return {

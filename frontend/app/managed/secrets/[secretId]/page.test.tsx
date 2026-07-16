@@ -33,19 +33,35 @@ vi.mock('@/components/managed/shared', () => ({
   RelativeTime: ({ date }: { date: string }) => <span>{date}</span>,
   ResourceErrorState: () => null,
   SecretKeySelect: ({
+    disabled,
     onChange,
     value,
   }: {
+    disabled?: boolean
     onChange: (value: string) => void
     value: string
-  }) => <input value={value} onChange={(event) => onChange(event.target.value)} />,
+  }) => (
+    <input
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
   SecretModelInput: ({
+    disabled,
     onChange,
     value,
   }: {
+    disabled?: boolean
     onChange: (value: string) => void
     value: string
-  }) => <input value={value} onChange={(event) => onChange(event.target.value)} />,
+  }) => (
+    <input
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
 }))
 
 vi.mock('@/components/ui/button', () => ({
@@ -122,6 +138,17 @@ function secret(id: string, name: string, secretData: Record<string, string> = {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function renderSecretPage(queryClient: QueryClient, secretId: string) {
   const params = {
     status: 'fulfilled',
@@ -147,6 +174,7 @@ describe('SecretDetailPage managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -158,6 +186,7 @@ describe('SecretDetailPage managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -236,6 +265,48 @@ describe('SecretDetailPage managed scope lifecycle', () => {
     expect(view.queryByDisplayValue('server-refresh')).toBeNull()
   })
 
+  it('does not save an old secret draft to a new project that has the same secret id', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/secrets/secret-a') {
+        return secret('secret-a', 'Secret A', { API_KEY: 'old-project-key' })
+      }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(renderSecretPage(queryClient, 'secret-a'))
+
+    await waitFor(() => {
+      expect(view.getByDisplayValue('old-project-key')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.input(view.getByDisplayValue('old-project-key'), {
+        target: { value: 'old-project-local-draft' },
+      })
+    })
+
+    queryClient.setQueryData(
+      ['secret', 'org-a:project-b', 'secret-a'],
+      secret('secret-a', 'Project B Secret', { API_KEY: 'project-b-key' }),
+    )
+    const saveButton = view.getByText('common.save')
+
+    await act(async () => {
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      fireEvent.click(saveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPutMock).not.toHaveBeenCalledWith('/secrets/secret-a', expect.anything())
+  })
+
   it('does not save after the current secret detail no longer matches the route secret', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -305,5 +376,75 @@ describe('SecretDetailPage managed scope lifecycle', () => {
     })
 
     expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  it('renders secret detail as read-only when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/secrets/secret-a') {
+        return secret('secret-a', 'Secret A', { API_KEY: 'server-original' })
+      }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(renderSecretPage(queryClient, 'secret-a'))
+
+    await waitFor(() => {
+      expect(view.getByDisplayValue('server-original')).toBeTruthy()
+    })
+
+    expect(view.queryByText('managed.secrets.addPair')).toBeNull()
+    expect((view.getByText('common.save') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByDisplayValue('API_KEY') as HTMLInputElement).disabled).toBe(true)
+    expect((view.getByDisplayValue('server-original') as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('does not save an old secret draft after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/secrets/secret-a') {
+        return secret('secret-a', 'Secret A', { API_KEY: 'server-original' })
+      }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(renderSecretPage(queryClient, 'secret-a'))
+
+    await waitFor(() => {
+      expect(view.getByDisplayValue('server-original')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.input(view.getByDisplayValue('server-original'), {
+        target: { value: 'local-draft-before-project-archive' },
+      })
+    })
+
+    const saveButton = view.getByText('common.save')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(saveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPutMock).not.toHaveBeenCalledWith('/secrets/secret-a', expect.anything())
   })
 })

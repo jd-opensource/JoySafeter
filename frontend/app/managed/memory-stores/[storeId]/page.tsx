@@ -49,6 +49,10 @@ import {
   ResourceErrorState,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -310,6 +314,7 @@ function ContentPane({
   onSave,
   onCancel,
   t,
+  canWrite,
 }: {
   memory: Memory | null
   viewMode: ViewMode
@@ -321,6 +326,7 @@ function ContentPane({
   onSave: () => void
   onCancel: () => void
   t: (key: string, params?: Record<string, unknown>) => string
+  canWrite: boolean
 }) {
   if (!memory) {
     return (
@@ -369,7 +375,7 @@ function ContentPane({
           >
             <Code2 className="h-3.5 w-3.5" />
           </Button>
-          {!isArchived && (
+          {canWrite && !isArchived && (
             <Button
               variant={viewMode === 'edit' ? 'secondary' : 'ghost'}
               size="sm"
@@ -432,6 +438,7 @@ export default function MemoryStoreDetailPage({
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 
   // UI state
@@ -539,6 +546,7 @@ export default function MemoryStoreDetailPage({
   }, [memories, selectedMemory, viewMode])
 
   const isArchived = !!store?.archived_at
+  const canWriteStore = !projectReadOnly && !isArchived
 
   const getCurrentOperationScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
@@ -549,12 +557,15 @@ export default function MemoryStoreDetailPage({
     operationScopeRef.current === scope && getCurrentOperationScope() === scope
 
   const isCurrentAction = (runId: number, scope: string) =>
-    actionRunRef.current === runId && currentOperationScopeIsActive(scope)
+    actionRunRef.current === runId &&
+    currentOperationScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   const actionVariables = (
     extra?: Pick<MemoryStoreActionVariables, 'memId'>,
   ): MemoryStoreActionVariables | null => {
     if (!currentOperationScopeIsActive()) return null
+    if (!currentProjectAllowsWrite()) return null
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     return {
@@ -579,6 +590,7 @@ export default function MemoryStoreDetailPage({
 
   const currentStoreIsActive = () => {
     if (!currentOperationScopeIsActive()) return false
+    if (!currentProjectAllowsWrite()) return false
     const currentStore = queryClient.getQueryData<MemoryStore>(['memory-store', managedScope, rawId])
     return !!currentStore && currentStore.id === store?.id && !currentStore.archived_at
   }
@@ -593,6 +605,9 @@ export default function MemoryStoreDetailPage({
     mutationFn: ({ storeId, runId, scope }: MemoryStoreActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale memory store archive ignored')
+      }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project memory store archive ignored')
       }
       return managedPost(`/memory_stores/${storeId}/archive`, {})
     },
@@ -613,6 +628,9 @@ export default function MemoryStoreDetailPage({
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale memory store delete ignored')
       }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project memory store delete ignored')
+      }
       return managedDelete(`/memory_stores/${storeId}`)
     },
     onSuccess: (_data, { runId, scope }) => {
@@ -630,6 +648,9 @@ export default function MemoryStoreDetailPage({
     mutationFn: ({ storeId, memId, runId, scope }: MemoryStoreActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale memory delete ignored')
+      }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project memory delete ignored')
       }
       return managedDelete(`/memory_stores/${storeId}/memories/${stripIdPrefix(memId!)}`)
     },
@@ -664,6 +685,7 @@ export default function MemoryStoreDetailPage({
   }
 
   const handleViewModeChange = (mode: ViewMode) => {
+    if (mode === 'edit' && !canWriteStore) return
     if (mode !== viewMode && (mode === 'edit' || viewMode === 'edit')) {
       actionRunRef.current += 1
       if (mode !== 'edit') {
@@ -725,6 +747,7 @@ export default function MemoryStoreDetailPage({
   }
 
   const handleDeleteMemory = (mem: Memory) => {
+    if (!canWriteStore) return
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     const scope = operationScopeRef.current
@@ -783,6 +806,7 @@ export default function MemoryStoreDetailPage({
   }
 
   const handleCreateMemoryOpenChange = (open: boolean) => {
+    if (open && !currentProjectAllowsWrite()) return
     actionRunRef.current += 1
     if (!open) {
       setCreateMemLoading(false)
@@ -856,13 +880,13 @@ export default function MemoryStoreDetailPage({
         ]}
         action={
           <div className="flex items-center gap-2">
-            {!isArchived && (
+            {canWriteStore && (
               <Button size="sm" onClick={() => handleCreateMemoryOpenChange(true)}>
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
                 {t('managed.memoryStores.addMemory')}
               </Button>
             )}
-            {!isArchived && (
+            {canWriteStore && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8 w-8 p-0">
@@ -920,7 +944,7 @@ export default function MemoryStoreDetailPage({
               onToggleDir={handleToggleDir}
               onSelectFile={handleSelectFile}
               onDeleteMemory={handleDeleteMemory}
-              isArchived={isArchived}
+              isArchived={!canWriteStore}
             />
           )}
         </div>
@@ -932,6 +956,7 @@ export default function MemoryStoreDetailPage({
           editContent={editContent}
           editLoading={editLoading}
           isArchived={isArchived}
+          canWrite={canWriteStore}
           onViewModeChange={handleViewModeChange}
           onEditContentChange={setEditContent}
           onSave={handleSaveMemory}
@@ -952,7 +977,7 @@ export default function MemoryStoreDetailPage({
       />
 
       {/* Create memory dialog */}
-      <Dialog open={createMemOpen} onOpenChange={handleCreateMemoryOpenChange}>
+      <Dialog open={canWriteStore && createMemOpen} onOpenChange={handleCreateMemoryOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('managed.memoryStores.addMemory')}</DialogTitle>
@@ -989,7 +1014,9 @@ export default function MemoryStoreDetailPage({
             </Button>
             <Button
               onClick={handleCreateMemory}
-              disabled={createMemLoading || !newMemPath.trim() || !newMemContent.trim()}
+              disabled={
+                !canWriteStore || createMemLoading || !newMemPath.trim() || !newMemContent.trim()
+              }
             >
               {createMemLoading ? '...' : t('common.create')}
             </Button>

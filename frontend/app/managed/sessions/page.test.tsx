@@ -150,6 +150,17 @@ function session(id: string, title: string): SessionRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -170,6 +181,7 @@ describe('SessionListPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -181,10 +193,37 @@ describe('SessionListPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText, queryByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <SessionListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Session A')).toBeTruthy()
+    })
+
+    expect(queryByText('managed.sessions.new')).toBeNull()
+    expect(queryByText('session-a:managed.sessions.archiveSession')).toBeNull()
   })
 
   it('does not archive a session from an old row action in the same turn as a project switch', async () => {
@@ -209,6 +248,38 @@ describe('SessionListPage object lifecycle', () => {
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
       fireEvent.click(getByText('session-a:managed.sessions.archiveSession'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+  })
+
+  it('does not archive a session from an old row action after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <SessionListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Session A')).toBeTruthy()
+    })
+
+    const oldArchiveButton = getByText('session-a:managed.sessions.archiveSession')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldArchiveButton)
       await Promise.resolve()
     })
 
@@ -245,6 +316,44 @@ describe('SessionListPage object lifecycle', () => {
     unmount()
 
     await act(async () => {
+      archive.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['sessions'] })
+  })
+
+  it('does not invalidate sessions from an archive completion after the current project is archived', async () => {
+    const archive = deferred<Record<string, never>>()
+    managedPostMock.mockReturnValueOnce(archive.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <SessionListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Session A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('session-a:managed.sessions.archiveSession'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
       archive.resolve({})
       await Promise.resolve()
     })

@@ -79,12 +79,27 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 describe('useSkillAuthoring stream lifecycle', () => {
   beforeEach(() => {
     apiStreamMock.mockReset()
     managedGetMock.mockReset()
     managedPostMock.mockReset()
-    useProjectStore.setState({ currentOrgId: null, currentProjectId: null })
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-a',
+      currentProject: projectInfo(),
+    })
     window.localStorage.clear()
   })
 
@@ -92,7 +107,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     cleanup()
     vi.useRealTimers()
     vi.restoreAllMocks()
-    useProjectStore.setState({ currentOrgId: null, currentProjectId: null })
+    useProjectStore.setState({ currentOrgId: null, currentProjectId: null, currentProject: null })
     window.localStorage.clear()
   })
 
@@ -405,6 +420,92 @@ describe('useSkillAuthoring stream lifecycle', () => {
 
     expect(apiStreamMock).not.toHaveBeenCalled()
     expect(result.current.messages).toEqual([])
+  })
+
+  it('does not start authoring writes when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-a',
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+
+    const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
+
+    await act(async () => {
+      result.current.setDraft((prev) => ({
+        ...prev,
+        name: 'archived project draft',
+        content: '# Archived project draft',
+      }))
+      await wait(0)
+    })
+
+    let send!: Promise<void>
+    let save!: Promise<string | null>
+    let scan!: Promise<void>
+    let publish!: Promise<{ skillId: string | null; error?: string }>
+
+    await act(async () => {
+      send = result.current.send('build archived project skill', 'openai-prod')
+      save = result.current.saveDraft()
+      scan = result.current.runScan()
+      publish = result.current.publish()
+      await send
+      await save
+      await scan
+      await publish
+    })
+
+    expect(apiStreamMock).not.toHaveBeenCalled()
+    expect(managedPostMock).not.toHaveBeenCalled()
+    await expect(save).resolves.toBeNull()
+    await expect(publish).resolves.toEqual({ skillId: null, error: '发布已取消' })
+  })
+
+  it('aborts and ignores an in-flight authoring stream after the current project is archived', async () => {
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
+    })
+    const stream = controllableStreamResponse()
+    apiStreamMock.mockResolvedValueOnce(stream.response)
+
+    const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
+
+    let send!: Promise<void>
+    await act(async () => {
+      send = result.current.send('build a project skill', 'openai-prod')
+      await wait(10)
+    })
+
+    const signal = apiStreamMock.mock.calls[0][2]?.signal as AbortSignal
+    expect(signal.aborted).toBe(false)
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      await wait(0)
+    })
+
+    expect(signal.aborted).toBe(true)
+    expect(result.current.streaming).toBe(false)
+
+    await act(async () => {
+      stream.enqueue({
+        type: 'draft_patch',
+        patch: {
+          name: 'should-not-apply',
+          content: 'late archived project patch',
+        },
+      })
+      stream.close()
+      await send
+    })
+
+    expect(result.current.draft.name).toBe('')
+    expect(result.current.draft.content).toBe('')
   })
 
   it('does not keep polling a security scan after the hook unmounts', async () => {

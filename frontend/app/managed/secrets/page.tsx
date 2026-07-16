@@ -51,6 +51,10 @@ import {
 } from '@/components/ui/dialog'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface KVPair {
   key: string
@@ -78,6 +82,7 @@ export default function SecretListPage() {
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const managedScopeRef = useRef(managedScope)
   const createRunRef = useRef(0)
@@ -101,7 +106,10 @@ export default function SecretListPage() {
   const isCurrentScopedRun = (
     runRef: MutableRefObject<number>,
     action: ScopedRun,
-  ) => runRef.current === action.runId && isCurrentManagedScope(action.scope)
+  ) =>
+    runRef.current === action.runId &&
+    isCurrentManagedScope(action.scope) &&
+    currentProjectAllowsWrite()
   const {
     data: secrets,
     isLoading: secretsLoading,
@@ -204,6 +212,7 @@ export default function SecretListPage() {
   }
 
   const openCreateDialog = () => {
+    if (!currentProjectAllowsWrite()) return
     createRunRef.current += 1
     testRunRef.current += 1
     resetCreateDraft()
@@ -253,6 +262,7 @@ export default function SecretListPage() {
   const currentSecret = (secret: Secret | null) => {
     if (!secret) return null
     if (!isCurrentManagedScope(managedScopeRef.current)) return null
+    if (!currentProjectAllowsWrite()) return null
     return (
       queryClient
         .getQueriesData<{ data?: Secret[] }>({
@@ -265,6 +275,7 @@ export default function SecretListPage() {
 
   const handleCreate = async () => {
     if (!canCreate) return
+    if (!currentProjectAllowsWrite()) return
     const action = nextScopedRun(createRunRef)
     if (!isCurrentScopedRun(createRunRef, action)) return
     const data = buildSecretData()
@@ -297,6 +308,7 @@ export default function SecretListPage() {
 
   const handleTestConnection = async () => {
     if (validPairs.length === 0) return
+    if (!currentProjectAllowsWrite()) return
     const action = nextScopedRun(testRunRef)
     if (!isCurrentScopedRun(testRunRef, action)) return
     const provider = newProvider
@@ -428,10 +440,12 @@ export default function SecretListPage() {
         title={t('managed.secrets.title')}
         subtitle={t('managed.secrets.subtitle')}
         action={
-          <Button size="sm" onClick={openCreateDialog}>
-            <Plus className="h-4 w-4" />
-            {t('managed.secrets.new')}
-          </Button>
+          projectReadOnly ? null : (
+            <Button size="sm" onClick={openCreateDialog}>
+              <Plus className="h-4 w-4" />
+              {t('managed.secrets.new')}
+            </Button>
+          )
         }
       />
       <FilterBar
@@ -446,27 +460,31 @@ export default function SecretListPage() {
         loading={secretsLoading}
         fetching={secretsFetching}
         onRowClick={(s) => router.push(`/managed/secrets/${s.id}`)}
-        actionMenu={(s) => [
-          ...(s.is_default
+        actionMenu={(s) =>
+          projectReadOnly
             ? []
             : [
+                ...(s.is_default
+                  ? []
+                  : [
+                      {
+                        label: t('managed.secrets.setDefault'),
+                        icon: <Star className="h-4 w-4" />,
+                        onClick: () => handleSetDefault(s),
+                      },
+                    ]),
                 {
-                  label: t('managed.secrets.setDefault'),
-                  icon: <Star className="h-4 w-4" />,
-                  onClick: () => handleSetDefault(s),
-                },
-              ]),
-          {
-            label: t('common.delete'),
-            onClick: () => {
-              if (!currentSecret(s)) return
+                  label: t('common.delete'),
+                  onClick: () => {
+                    if (!currentSecret(s)) return
 
-              deleteRunRef.current += 1
-              setDeleteTarget(s)
-            },
-            destructive: true,
-          },
-        ]}
+                    deleteRunRef.current += 1
+                    setDeleteTarget(s)
+                  },
+                  destructive: true,
+                },
+              ]
+        }
         pagination={{
           hasNext,
           hasPrev,
@@ -482,7 +500,7 @@ export default function SecretListPage() {
       />
 
       <Dialog
-        open={showCreate}
+        open={!projectReadOnly && showCreate}
         onOpenChange={(open) => {
           if (open) openCreateDialog()
           else closeCreateDialog()
@@ -662,7 +680,10 @@ export default function SecretListPage() {
               )}
               {testingSecret ? t('managed.secrets.testing') : t('managed.secrets.testConnection')}
             </Button>
-            <Button onClick={handleCreate} disabled={!canCreate || creating || testingSecret}>
+            <Button
+              onClick={handleCreate}
+              disabled={!canCreate || projectReadOnly || creating || testingSecret}
+            >
               {creating ? t('common.loading') : t('common.create')}
             </Button>
           </DialogFooter>
@@ -670,7 +691,7 @@ export default function SecretListPage() {
       </Dialog>
 
       <ConfirmDialog
-        open={!!deleteTarget}
+        open={!projectReadOnly && !!deleteTarget}
         title={t('managed.secrets.deleteTitle')}
         description={t('managed.secrets.deleteDescription', {
           name: deleteTarget?.name,

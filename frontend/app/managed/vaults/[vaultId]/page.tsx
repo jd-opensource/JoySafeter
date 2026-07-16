@@ -23,6 +23,10 @@ import {
 } from '@/components/managed/shared'
 import { CreateCredentialDialog } from '../components/create-credential-dialog'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface VaultDetailActionVariables {
   vaultId: string
@@ -39,6 +43,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const operationScope = `${managedScope}:${id ?? ''}`
   const actionRunRef = useRef(0)
@@ -122,7 +127,9 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     operationScopeRef.current === scope && getCurrentOperationScope() === scope
 
   const isCurrentAction = (runId: number, scope: string) =>
-    actionRunRef.current === runId && currentOperationScopeIsActive(scope)
+    actionRunRef.current === runId &&
+    currentOperationScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   const closeConfirmDialog = () => {
     actionRunRef.current += 1
@@ -133,6 +140,9 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     mutationFn: ({ vaultId, runId, scope }: VaultDetailActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault detail archive ignored')
+      }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project vault detail archive ignored')
       }
       return managedPost(`/vaults/${vaultId}/archive`, {})
     },
@@ -153,6 +163,9 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault detail delete ignored')
       }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project vault detail delete ignored')
+      }
       return managedDelete(`/vaults/${vaultId}`)
     },
     onSuccess: (_data, { runId, scope }) => {
@@ -171,6 +184,9 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault credential archive ignored')
       }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project vault credential archive ignored')
+      }
       return managedPost(`/vaults/${vaultId}/credentials/${stripIdPrefix(credId!)}/archive`, {})
     },
     onSuccess: (_data, { id, runId, scope }) => {
@@ -186,6 +202,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
 
   const actionVariables = (extra?: Pick<VaultDetailActionVariables, 'credId'>) => {
     if (!currentOperationScopeIsActive()) return null
+    if (!currentProjectAllowsWrite()) return null
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     return {
@@ -198,6 +215,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   }
 
   const currentVaultIsActive = () => {
+    if (!currentProjectAllowsWrite()) return false
     if (!currentOperationScopeIsActive()) return false
     const currentVault = queryClient.getQueryData<Vault>(['vault', managedScope, id])
     return !!currentVault && currentVault.id === vault?.id && !currentVault.archived_at
@@ -205,6 +223,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
 
   const findCurrentCredential = (credId: string) =>
     currentOperationScopeIsActive() &&
+    currentProjectAllowsWrite() &&
     queryClient
       .getQueriesData<{ data?: VaultCredential[] }>({
         queryKey: ['vault-credentials', managedScope, id],
@@ -287,6 +306,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   }
 
   const isArchived = !!vault.archived_at
+  const canWriteVault = !projectReadOnly && !isArchived
 
   function formatCredentialType(type: string): string {
     switch (type) {
@@ -341,7 +361,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
           { label: vault.name },
         ]}
         action={
-          !isArchived ? (
+          canWriteVault ? (
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={handleArchiveVault}>
                 <Archive className="mr-1.5 h-3.5 w-3.5" />
@@ -365,8 +385,14 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
       {/* Credentials section */}
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t('managed.vaults.credentials')}</h2>
-        {!isArchived && (
-          <Button size="sm" onClick={() => setCreateCredOpen(true)}>
+        {canWriteVault && (
+          <Button
+            size="sm"
+            onClick={() => {
+              if (!currentProjectAllowsWrite()) return
+              setCreateCredOpen(true)
+            }}
+          >
             <Plus className="h-4 w-4" />
             {t('managed.vaults.addCredential')}
           </Button>
@@ -384,7 +410,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
         loading={credsLoading}
         fetching={credsFetching}
         actionMenu={(c) =>
-          c.archived_at
+          projectReadOnly || c.archived_at
             ? []
             : [
                 {
@@ -397,8 +423,11 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
       />
 
       <CreateCredentialDialog
-        open={createCredOpen}
-        onOpenChange={setCreateCredOpen}
+        open={canWriteVault && createCredOpen}
+        onOpenChange={(open) => {
+          if (open && !currentProjectAllowsWrite()) return
+          setCreateCredOpen(open)
+        }}
         vaultId={vaultId}
         queryKey={['vault-credentials', managedScope, id]}
         canSubmit={currentVaultIsActive}

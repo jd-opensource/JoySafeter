@@ -88,6 +88,7 @@ export function FileTreeNode({
   onDeleteFolder,
   onAddToFolder,
   onMove,
+  canEdit = true,
 }: {
   node: TreeNode
   depth: number
@@ -100,11 +101,12 @@ export function FileTreeNode({
    * ``sourcePath`` is a file's full path or a folder's ``fullPath`` (trailing
    * ``/``); ``destFolderPath`` is the target folder's ``fullPath`` or ``''``. */
   onMove?: (sourcePath: string, destFolderPath: string) => void
+  canEdit?: boolean
 }) {
   const [open, setOpen] = useState(true)
   const [dragOver, setDragOver] = useState(false)
   const paddingLeft = 12 + depth * 16
-  const dndEnabled = !!onMove
+  const dndEnabled = canEdit && !!onMove
 
   if (node.file) {
     if (node.name === '.gitkeep') return null
@@ -130,15 +132,17 @@ export function FileTreeNode({
         <span className="shrink-0 text-[10px] text-muted-foreground/50">
           {formatBytes(node.file!.size)}
         </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onDeleteFile(node.file!.id)
-          }}
-          className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
+        {canEdit && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDeleteFile(node.file!.id)
+            }}
+            className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
       </div>
     )
   }
@@ -186,24 +190,28 @@ export function FileTreeNode({
         {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         <FolderOpen className="h-4 w-4" />
         <span className="ml-1 flex-1">{node.name}/</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onAddToFolder(node.fullPath)
-          }}
-          className="hidden shrink-0 text-muted-foreground hover:text-foreground group-hover:block"
-        >
-          <Plus className="h-3 w-3" />
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onDeleteFolder(node.fullPath)
-          }}
-          className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
+        {canEdit && (
+          <>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onAddToFolder(node.fullPath)
+              }}
+              className="hidden shrink-0 text-muted-foreground hover:text-foreground group-hover:block"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDeleteFolder(node.fullPath)
+              }}
+              className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </>
+        )}
       </div>
       {open &&
         node.children.map((child, i) => (
@@ -217,6 +225,7 @@ export function FileTreeNode({
             onDeleteFolder={onDeleteFolder}
             onAddToFolder={onAddToFolder}
             onMove={onMove}
+            canEdit={canEdit}
           />
         ))}
     </>
@@ -233,6 +242,7 @@ export function SkillWorkspace({
   onDeleteFile,
   onDeleteFolder,
   isMainSelected,
+  canEdit = true,
 }: {
   files: SkillFileRecord[]
   selectedFileId: string | null
@@ -243,6 +253,7 @@ export function SkillWorkspace({
   onDeleteFile: (id: string) => void
   onDeleteFolder: (folderPath: string) => void
   isMainSelected: boolean
+  canEdit?: boolean
 }) {
   const { t } = useTranslation()
   const filteredFiles = files.filter(
@@ -258,6 +269,7 @@ export function SkillWorkspace({
           variant="ghost"
           size="sm"
           className="h-6 w-6 p-0"
+          disabled={!canEdit}
           onClick={onAddFolder}
           title={t('managed.skills.newFolder')}
         >
@@ -289,6 +301,7 @@ export function SkillWorkspace({
               onDeleteFile={onDeleteFile}
               onDeleteFolder={onDeleteFolder}
               onAddToFolder={onAddToFolder}
+              canEdit={canEdit}
             />
           ))
         ) : (

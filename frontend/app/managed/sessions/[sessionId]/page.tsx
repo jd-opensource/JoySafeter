@@ -35,6 +35,10 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 const TRANSCRIPT_TYPES = new Set([
   'user.message',
@@ -131,6 +135,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const sessionScope = `${id ?? ''}:${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const sessionScopeRef = useRef(sessionScope)
   const actionRunRef = useRef(0)
@@ -280,8 +285,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const isRunning = session?.status === 'running'
   const isIdle = session?.status === 'idle'
   const isArchived = !!session?.archived_at
-  const canEditMessage = !isArchived && !isSending
-  const canSendMessage = isIdle && !isArchived && !isSending
+  const canEditMessage = !projectReadOnly && !isArchived && !isSending
+  const canSendMessage = !projectReadOnly && isIdle && !isArchived && !isSending
   const wasRunningRef = useRef(false)
 
   // Update session status from live SSE events only. Initial SSE replay can contain
@@ -313,6 +318,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const handleSendMessage = async () => {
     const text = msgInput.trim()
     if (!text || !id || !canSendMessage) return
+    if (!currentProjectAllowsWrite()) return
     const current = currentSessionDetail()
     if (!current || current.status !== 'idle' || current.archived_at) return
     const runId = actionRunRef.current + 1
@@ -347,6 +353,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const sendToolConfirmation = useCallback(
     async (callId: string, approved: boolean, denyMessage?: string) => {
       if (!id || !callId) return
+      if (!currentProjectAllowsWrite()) return
       const current = currentSessionDetail()
       if (!current || current.archived_at) return
       const runId = actionRunRef.current + 1
@@ -383,6 +390,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
 
   const handleArchiveSession = async () => {
     if (!id) return
+    if (!currentProjectAllowsWrite()) return
     const current = currentSessionDetail()
     if (!current || current.archived_at) return
     const runId = actionRunRef.current + 1
@@ -402,6 +410,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
 
   const handleStopSession = async () => {
     if (!id) return
+    if (!currentProjectAllowsWrite()) return
     const current = currentSessionDetail()
     if (!current || current.status !== 'running' || current.archived_at) return
     const runId = actionRunRef.current + 1
@@ -421,6 +430,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   }
 
   const currentSessionCanMutateResources = useCallback(() => {
+    if (!currentProjectAllowsWrite()) return false
     const current = currentSessionDetail()
     return !!current && current.status === 'idle' && !current.archived_at
   }, [currentSessionDetail])
@@ -858,12 +868,18 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={handleStopSession} disabled={!isRunning || isArchived}>
+                  <DropdownMenuItem
+                    onSelect={handleStopSession}
+                    disabled={projectReadOnly || !isRunning || isArchived}
+                  >
                     <StopCircle className="w-3.5 h-3.5 mr-2" />
                     {t('managed.sessions.stopSession')}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={handleArchiveSession} disabled={isArchived}>
+                  <DropdownMenuItem
+                    onSelect={handleArchiveSession}
+                    disabled={projectReadOnly || isArchived}
+                  >
                     <Archive className="w-3.5 h-3.5 mr-2" />
                     {t('managed.sessions.archive')}
                   </DropdownMenuItem>
@@ -1043,14 +1059,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                     onChange={(e) =>
                       setDenyDraft((prev) => ({ ...prev, [p.callId]: e.target.value }))
                     }
-                    disabled={sending}
+                    disabled={projectReadOnly || sending}
                   />
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
                   <Button
                     size="sm"
                     className="h-7 px-3 bg-emerald-500 hover:bg-emerald-600 text-white"
-                    disabled={sending}
+                    disabled={projectReadOnly || sending}
                     onClick={() => sendToolConfirmation(p.callId, true)}
                   >
                     {sending
@@ -1061,7 +1077,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                     size="sm"
                     variant="outline"
                     className="h-7 px-3"
-                    disabled={sending}
+                    disabled={projectReadOnly || sending}
                     onClick={() =>
                       sendToolConfirmation(p.callId, false, denyDraft[p.callId] || undefined)
                     }
@@ -1137,8 +1153,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           sessionId={stripIdPrefix(id)}
           operationScope={sessionScope}
           files={mountedFiles}
-          isIdle={isIdle && !isArchived}
+          isIdle={!projectReadOnly && isIdle && !isArchived}
           canMutate={currentSessionCanMutateResources}
+          isScopeActive={currentSessionScopeIsActive}
           onClose={() => setActiveDrawer(null)}
           onChanged={() => invalidateSessionResources(sessionScope)}
         />
@@ -1148,8 +1165,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           sessionId={stripIdPrefix(id)}
           operationScope={sessionScope}
           repos={mountedRepos}
-          isIdle={isIdle && !isArchived}
+          isIdle={!projectReadOnly && isIdle && !isArchived}
           canMutate={currentSessionCanMutateResources}
+          isScopeActive={currentSessionScopeIsActive}
           onClose={() => setActiveDrawer(null)}
           onChanged={() => invalidateSessionResources(sessionScope)}
         />
@@ -1772,6 +1790,7 @@ function FilesDrawer({
   files,
   isIdle,
   canMutate,
+  isScopeActive,
   onClose,
   onChanged,
 }: {
@@ -1780,6 +1799,7 @@ function FilesDrawer({
   files: SessionFileResource[]
   isIdle: boolean
   canMutate: () => boolean
+  isScopeActive: (scope: string) => boolean
   onClose: () => void
   onChanged: () => void
 }) {
@@ -1804,9 +1824,10 @@ function FilesDrawer({
   )
 
   const isCurrentMutation = (runId: number, scope: string) =>
-    mutationRunRef.current === runId && operationScopeRef.current === scope
+    mutationRunRef.current === runId && operationScopeRef.current === scope && isScopeActive(scope)
 
   const nextMutation = () => {
+    if (!isScopeActive(operationScopeRef.current)) return null
     const runId = mutationRunRef.current + 1
     mutationRunRef.current = runId
     return { runId, scope: operationScopeRef.current }
@@ -1838,17 +1859,21 @@ function FilesDrawer({
     mutationFn: ({
       file,
       sessionId,
+      runId,
+      scope,
     }: {
       file: FileRecord
       sessionId: string
       runId: number
       scope: string
-    }) =>
-      managedPost(`/sessions/${sessionId}/resources`, {
+    }) => {
+      if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
+      return managedPost(`/sessions/${sessionId}/resources`, {
         type: 'file',
         file_id: file.id,
         mount_path: `/workspace/${file.filename}`,
-      }),
+      })
+    },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentMutation(runId, scope)) return
       onChanged()
@@ -1864,13 +1889,17 @@ function FilesDrawer({
     mutationFn: ({
       resourceId,
       sessionId,
+      runId,
+      scope,
     }: {
       resourceId: string
       sessionId: string
       runId: number
       scope: string
-    }) =>
-      managedDelete(`/sessions/${sessionId}/resources/${resourceId}`),
+    }) => {
+      if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
+      return managedDelete(`/sessions/${sessionId}/resources/${resourceId}`)
+    },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentMutation(runId, scope)) return
       onChanged()
@@ -1905,10 +1934,13 @@ function FilesDrawer({
     )
     if (currentMountedIds.has(currentFile.id)) return
 
+    const action = nextMutation()
+    if (!action) return
+
     addFileMutation.mutate({
       file: currentFile,
       sessionId,
-      ...nextMutation(),
+      ...action,
     })
   }
 
@@ -1924,10 +1956,13 @@ function FilesDrawer({
       .find((resource) => resource.id === resourceId)
     if (!currentFileResource) return
 
+    const action = nextMutation()
+    if (!action) return
+
     removeFileMutation.mutate({
       resourceId: currentFileResource.id,
       sessionId,
-      ...nextMutation(),
+      ...action,
     })
   }
 
@@ -2029,6 +2064,7 @@ function ReposDrawer({
   repos,
   isIdle,
   canMutate,
+  isScopeActive,
   onClose,
   onChanged,
 }: {
@@ -2037,6 +2073,7 @@ function ReposDrawer({
   repos: SessionRepoResource[]
   isIdle: boolean
   canMutate: () => boolean
+  isScopeActive: (scope: string) => boolean
   onClose: () => void
   onChanged: () => void
 }) {
@@ -2063,9 +2100,10 @@ function ReposDrawer({
   )
 
   const isCurrentMutation = (runId: number, scope: string) =>
-    mutationRunRef.current === runId && operationScopeRef.current === scope
+    mutationRunRef.current === runId && operationScopeRef.current === scope && isScopeActive(scope)
 
   const nextMutation = () => {
+    if (!isScopeActive(operationScopeRef.current)) return null
     const runId = mutationRunRef.current + 1
     mutationRunRef.current = runId
     return { runId, scope: operationScopeRef.current }
@@ -2081,6 +2119,8 @@ function ReposDrawer({
       resourceId,
       sessionId,
       token,
+      runId,
+      scope,
       draftVersion,
     }: {
       resourceId: string
@@ -2089,10 +2129,12 @@ function ReposDrawer({
       draftVersion: number
       runId: number
       scope: string
-    }) =>
-      managedPatch(`/sessions/${sessionId}/resources/${resourceId}`, {
+    }) => {
+      if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
+      return managedPatch(`/sessions/${sessionId}/resources/${resourceId}`, {
         authorization_token: token,
-      }),
+      })
+    },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return
       onChanged()
@@ -2125,12 +2167,15 @@ function ReposDrawer({
       .find((resource) => resource.id === repo.id)
     if (!currentRepo) return
 
+    const action = nextMutation()
+    if (!action) return
+
     rotateMutation.mutate({
       resourceId: currentRepo.id,
       sessionId,
       token,
       draftVersion: tokenDraftVersionsRef.current[currentRepo.id] ?? 0,
-      ...nextMutation(),
+      ...action,
     })
   }
 

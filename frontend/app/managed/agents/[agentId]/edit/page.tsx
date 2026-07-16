@@ -22,6 +22,10 @@ import {
 import { FieldHelp, PageHeader, SkillVersionSelect } from '@/components/managed/shared'
 import { Plus, Trash2 } from 'lucide-react'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
 
@@ -73,6 +77,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const { t } = useTranslation()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const operationScope = `${managedScope}:${agentId ?? ''}`
   const saveRunRef = useRef(0)
@@ -435,7 +440,12 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     return `${orgId ?? ''}:${projectId ?? ''}`
   }
 
+  const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
+    operationScopeRef.current === scope && getCurrentOperationScope() === scope
+
   const currentEditableAgent = () => {
+    if (!currentOperationScopeIsActive()) return null
+    if (!currentProjectAllowsWrite()) return null
     const current = queryClient.getQueryData<Agent>([
       'agent',
       getCurrentManagedScope(),
@@ -451,8 +461,11 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
   // ── Save mutation ──
   const mutation = useMutation({
-    mutationFn: ({ agentId, body }: SaveAgentVariables) =>
-      managedPost(`/agents/${stripIdPrefix(agentId)}`, body),
+    mutationFn: async ({ agentId, body, runId, scope }: SaveAgentVariables) => {
+      if (!isCurrentSaveRun(runId, scope)) return undefined
+      if (!currentProjectAllowsWrite()) return undefined
+      return managedPost(`/agents/${stripIdPrefix(agentId)}`, body)
+    },
     onSuccess: (_data, { agentId, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['agent', managedScope, agentId] })
@@ -469,6 +482,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   }
 
   const isArchived = !!agent.archived_at
+  const formReadOnly = isArchived || projectReadOnly
 
   return (
     <div>
@@ -487,7 +501,13 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             <AlertDescription>{t('managed.errors.resourceArchived')}</AlertDescription>
           </Alert>
         )}
+        {projectReadOnly && !isArchived && (
+          <Alert>
+            <AlertDescription>{t('managed.errors.projectArchived')}</AlertDescription>
+          </Alert>
+        )}
 
+        <fieldset disabled={formReadOnly} className="space-y-8">
         {/* ───────── Basic Info ───────── */}
         <section className="space-y-4">
           <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
@@ -865,6 +885,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             </div>
           ))}
         </section>
+        </fieldset>
 
         {/* ───────── Action buttons ───────── */}
         <div className="flex items-center gap-3 border-t border-border pt-2">
@@ -881,7 +902,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                 scope: operationScopeRef.current,
               })
             }}
-            disabled={isArchived || mutation.isPending}
+            disabled={formReadOnly || mutation.isPending}
           >
             {mutation.isPending ? t('managed.agents.saving') : t('managed.agents.saveChanges')}
           </Button>

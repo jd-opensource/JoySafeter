@@ -11,10 +11,12 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/lib/i18n', () => ({
+  i18n: { language: 'en' },
   useTranslation: () => ({ t: (key: string, _params?: unknown) => key }),
 }))
 
 vi.mock('@/lib/api-client', () => ({
+  extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
   managedDelete: vi.fn(),
   managedGet: vi.fn(),
   managedPost: vi.fn(),
@@ -173,6 +175,17 @@ function agent(id: string, name: string) {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function renderAgentPage(queryClient: QueryClient, agentId: string) {
   const params = {
     status: 'fulfilled',
@@ -198,6 +211,7 @@ describe('AgentDetailPage route lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -216,6 +230,7 @@ describe('AgentDetailPage route lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -558,6 +573,128 @@ describe('AgentDetailPage route lifecycle', () => {
     })
 
     expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', { agent: 'agent-a' })
+  })
+
+  it('hides agent project write actions when the current project is archived', async () => {
+    useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(renderAgentPage(queryClient, 'agent-a'))
+
+    await waitFor(() => {
+      expect(view.getByText('Agent A')).toBeTruthy()
+    })
+
+    expect(view.queryByText('managed.agents.startSession')).toBeNull()
+    expect(view.queryByText('managed.agents.guidedEdit')).toBeNull()
+    expect(view.queryByText('common.archive')).toBeNull()
+    expect(view.queryByText('common.delete')).toBeNull()
+    expect((view.getByText('common.edit').closest('button') as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+  })
+
+  it('does not start a session from old agent detail UI after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(renderAgentPage(queryClient, 'agent-a'))
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    const startButton = getByText('managed.agents.startSession')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(startButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', { agent: 'agent-a' })
+  })
+
+  it('does not request delete preview from old agent detail UI after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(renderAgentPage(queryClient, 'agent-a'))
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    const deleteButton = getByText('common.delete')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(deleteButton)
+      await Promise.resolve()
+    })
+
+    expect(managedGetMock).not.toHaveBeenCalledWith('/agents/agent-a/delete_preview')
+  })
+
+  it('does not archive a session from old agent detail UI after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/agents/agent-a') return agent('agent-a', 'Agent A')
+      if (path === '/agents/agent-a/sessions') {
+        return {
+          data: [
+            {
+              id: 'session-a',
+              title: 'Session A',
+              status: 'completed',
+              created_at: '2026-01-03T00:00:00Z',
+              agent: { version: 1 },
+            },
+          ],
+        }
+      }
+      if (path.endsWith('/sessions')) return { data: [] }
+      if (path.endsWith('/versions')) return { data: [] }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(renderAgentPage(queryClient, 'agent-a'))
+
+    await waitFor(() => {
+      expect(getByText('session-a:common.archive')).toBeTruthy()
+    })
+
+    const archiveSessionButton = getByText('session-a:common.archive')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(archiveSessionButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
   })
 
   it('does not navigate from a start-session completion after the managed project changes', async () => {

@@ -159,6 +159,17 @@ function environment(id: string, name: string): EnvironmentRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -176,6 +187,7 @@ describe('EnvironmentListPage create lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -187,10 +199,49 @@ describe('EnvironmentListPage create lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    managedGetMock.mockResolvedValue({ data: [environment('env-a', 'Env A')], has_more: false })
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-archived',
+      currentProject: {
+        id: 'project-archived',
+        org_id: 'org-a',
+        name: 'Archived Project',
+        slug: 'project-archived',
+        is_default: false,
+        archived_at: '2026-01-02T00:00:00Z',
+      },
+      organizations: [],
+      projects: [],
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText, queryByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Env A')).toBeTruthy()
+    })
+
+    expect(queryByText('managed.environments.add')).toBeNull()
+    expect(queryByText('env-a:managed.environments.archiveEnv')).toBeNull()
   })
 
   it('does not submit a create draft after the managed project changes', async () => {
@@ -296,6 +347,64 @@ describe('EnvironmentListPage create lifecycle', () => {
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      fireEvent.click(getAllByText('managed.environments.add').at(-1)!)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/environments', expect.anything())
+  })
+
+  it('does not create an environment from old dialog state after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByText, getByPlaceholderText } = render(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalled()
+    })
+
+    await act(async () => {
+      fireEvent.click(getAllByText('managed.environments.add')[0])
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.environments.namePlaceholder'), {
+        target: { value: 'Archived Project Environment' },
+      })
+      fireEvent.input(getByPlaceholderText('managed.environments.descPlaceholder'), {
+        target: { value: 'Only for project A before archive' },
+      })
+      fireEvent.input(getByPlaceholderText('api.example.com, github.com'), {
+        target: { value: 'api.project-a.example.com, github.com' },
+      })
+      fireEvent.input(getByPlaceholderText('curl, git, build-essential'), {
+        target: { value: 'curl, git' },
+      })
+      fireEvent.input(getByPlaceholderText('numpy, pandas, requests'), {
+        target: { value: 'requests' },
+      })
+      fireEvent.input(getByPlaceholderText('KEY=value, NODE_ENV=production'), {
+        target: { value: 'PROJECT=project-a' },
+      })
+      fireEvent.input(getByPlaceholderText('my-api-secret, db-credentials'), {
+        target: { value: 'project-a-secret' },
+      })
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
       fireEvent.click(getAllByText('managed.environments.add').at(-1)!)
       await Promise.resolve()
     })
@@ -424,6 +533,54 @@ describe('EnvironmentListPage create lifecycle', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['environments'] })
   })
 
+  it('does not invalidate environments from a create completion after the current project is archived', async () => {
+    const create = deferred<Record<string, unknown>>()
+    managedPostMock.mockReturnValueOnce(create.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getAllByText, getByPlaceholderText } = render(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalled()
+    })
+
+    await act(async () => {
+      fireEvent.click(getAllByText('managed.environments.add')[0])
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.environments.namePlaceholder'), {
+        target: { value: 'Archived Completion Environment' },
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(getAllByText('managed.environments.add').at(-1)!)
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      create.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['environments'] })
+  })
+
   it('does not invalidate environments from an archive completion after the page unmounts', async () => {
     const archive = deferred<Record<string, unknown>>()
     managedGetMock.mockResolvedValue({
@@ -458,6 +615,84 @@ describe('EnvironmentListPage create lifecycle', () => {
     unmount()
 
     await act(async () => {
+      archive.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['environments'] })
+  })
+
+  it('does not archive an environment from an old row action after the current project is archived', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [environment('env-a', 'Env A')],
+      has_more: false,
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Env A')).toBeTruthy()
+    })
+
+    const oldArchiveButton = getByText('env-a:managed.environments.archiveEnv')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldArchiveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a/archive', {})
+  })
+
+  it('does not invalidate environments from an archive completion after the current project is archived', async () => {
+    const archive = deferred<Record<string, unknown>>()
+    managedGetMock.mockResolvedValue({
+      data: [environment('env-a', 'Env A')],
+      has_more: false,
+    })
+    managedPostMock.mockReturnValueOnce(archive.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Env A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('env-a:managed.environments.archiveEnv'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
       archive.resolve({})
       await Promise.resolve()
     })

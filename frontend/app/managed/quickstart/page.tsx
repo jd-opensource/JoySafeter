@@ -53,6 +53,10 @@ import type {
 import { EventList, EventDetail, EventFilter } from '@/components/managed/session'
 import yaml from 'js-yaml'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 const TEMPLATE_ICONS: Record<string, typeof FileText> = {
   blank: FileText,
@@ -345,13 +349,25 @@ function StepCompleteCard({
 
 // -- TemplateCard -----------------------------------------------------------
 
-function TemplateCard({ templateId, onClick }: { templateId: string; onClick: () => void }) {
+function TemplateCard({
+  templateId,
+  onClick,
+  disabled = false,
+}: {
+  templateId: string
+  onClick: () => void
+  disabled?: boolean
+}) {
   const { t } = useTranslation()
   const Icon = TEMPLATE_ICONS[templateId] || FileText
   return (
     <button
       onClick={onClick}
-      className="flex items-start gap-3 rounded-xl border border-border bg-background p-4 text-left transition-colors hover:bg-muted/50"
+      disabled={disabled}
+      className={cn(
+        'flex items-start gap-3 rounded-xl border border-border bg-background p-4 text-left transition-colors hover:bg-muted/50',
+        disabled && 'cursor-not-allowed opacity-60 hover:bg-background',
+      )}
     >
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
         <Icon className="h-4.5 w-4.5 text-muted-foreground" />
@@ -549,6 +565,7 @@ export default function QuickstartPage() {
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const currentProjectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const [editorTab, setEditorTab] = useState<'yaml' | 'json'>('yaml')
   const [rightTab, setRightTab] = useState<'config' | 'preview'>('config')
@@ -631,6 +648,8 @@ export default function QuickstartPage() {
     getCurrentManagedScope() === scope
 
   const currentPageScopeIsActive = () => getCurrentManagedScope() === managedScopeRef.current
+  const currentPageProjectAllowsWrite = () =>
+    currentPageScopeIsActive() && currentProjectAllowsWrite()
 
   const { data: secretsRes } = useQuery({
     queryKey: ['secrets', managedScope],
@@ -846,7 +865,7 @@ export default function QuickstartPage() {
   }, [activeSession?.status, sessionEvents])
 
   const handleStopSession = async () => {
-    if (!sessionId || isStoppingSession || !currentPageScopeIsActive()) return
+    if (!sessionId || isStoppingSession || !currentPageProjectAllowsWrite()) return
     const currentSession = rawSessionId
       ? queryClient.getQueryData<Session>(['session', managedScope, rawSessionId])
       : null
@@ -881,7 +900,7 @@ export default function QuickstartPage() {
 
   const handleSendSessionMessage = async () => {
     const text = sessionMsgInput.trim()
-    if (!text || !sessionId || isSendingMsg || isSessionRunning || !currentPageScopeIsActive())
+    if (!text || !sessionId || isSendingMsg || isSessionRunning || !currentPageProjectAllowsWrite())
       return
     const currentSession = rawSessionId
       ? queryClient.getQueryData<Session>(['session', managedScope, rawSessionId])
@@ -947,7 +966,7 @@ export default function QuickstartPage() {
   }
 
   const confirmSelectedEnvironment = () => {
-    if (!currentPageScopeIsActive()) return
+    if (!currentPageProjectAllowsWrite()) return
     if (!pendingEnvId) {
       advanceStep()
       return
@@ -959,7 +978,7 @@ export default function QuickstartPage() {
   }
 
   const confirmSelectedVault = () => {
-    if (!currentPageScopeIsActive()) return
+    if (!currentPageProjectAllowsWrite()) return
     if (!pendingVaultId) {
       advanceStep()
       return
@@ -971,6 +990,7 @@ export default function QuickstartPage() {
   }
 
   const currentSessionAgentIsActive = () => {
+    if (!currentProjectAllowsWrite()) return false
     const agentId = resourceIds[3]
     if (!agentId) return false
     const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope, agentId])
@@ -1007,7 +1027,7 @@ export default function QuickstartPage() {
   }
 
   const handleCreateSession = () => {
-    if (!currentPageScopeIsActive()) return
+    if (!currentPageProjectAllowsWrite()) return
     if (!currentSessionAgentIsActive()) return
     createSession({
       environmentId: resolveSessionEnvironmentId(),
@@ -1029,19 +1049,39 @@ export default function QuickstartPage() {
 
   // Auto-send AI intro only when user chose "Something else" (AI mode)
   useEffect(() => {
-    if (currentStep === 4 && envUsesAI && !completedSteps.has(4) && !isStreaming) {
+    if (
+      !currentProjectReadOnly &&
+      currentStep === 4 &&
+      envUsesAI &&
+      !completedSteps.has(4) &&
+      !isStreaming
+    ) {
       if (!autoIntroSentRef.current.has(4)) {
         autoIntroSentRef.current.add(4)
         sendAutoIntro(4 as StepId)
       }
     }
-    if (currentStep === 5 && vaultUsesAI && !completedSteps.has(5) && !isStreaming) {
+    if (
+      !currentProjectReadOnly &&
+      currentStep === 5 &&
+      vaultUsesAI &&
+      !completedSteps.has(5) &&
+      !isStreaming
+    ) {
       if (!autoIntroSentRef.current.has(5)) {
         autoIntroSentRef.current.add(5)
         sendAutoIntro(5 as StepId)
       }
     }
-  }, [currentStep, completedSteps, isStreaming, sendAutoIntro, envUsesAI, vaultUsesAI])
+  }, [
+    currentStep,
+    completedSteps,
+    currentProjectReadOnly,
+    isStreaming,
+    sendAutoIntro,
+    envUsesAI,
+    vaultUsesAI,
+  ])
 
   // Auto-switch to preview and generate test message when session is created
   useEffect(() => {
@@ -1119,7 +1159,7 @@ export default function QuickstartPage() {
 
   const handleTestRun = async () => {
     const agentId = resourceIds[3]
-    if (!agentId || !currentPageScopeIsActive()) return
+    if (!agentId || !currentPageProjectAllowsWrite()) return
     const { runId, scope } = nextPageAction()
     setIsTestRunning(true)
     try {
@@ -1167,6 +1207,7 @@ export default function QuickstartPage() {
   }, [templateSearch, t])
 
   const handleTemplateClick = (templateId: string) => {
+    if (!currentPageProjectAllowsWrite()) return
     const name = t(`quickstart.template.${templateId}.name`)
     const desc = t(`quickstart.template.${templateId}.description`)
     if (templateId === 'blank') {
@@ -1225,7 +1266,7 @@ export default function QuickstartPage() {
 
   const handleSend = () => {
     const text = inputValue.trim()
-    if (!text || isStreaming || isSessionRunning) return
+    if (!text || isStreaming || isSessionRunning || !currentPageProjectAllowsWrite()) return
     setInputValue('')
     sendMessage(text)
   }
@@ -1244,11 +1285,13 @@ export default function QuickstartPage() {
   }
 
   const handleAgentSecretSelect = (name: string) => {
+    if (!currentPageProjectAllowsWrite()) return
     setSecretRef(name)
     selectAgentSecret()
   }
 
   const isMainInputDisabled =
+    currentProjectReadOnly ||
     isStreaming ||
     currentStep === 2 ||
     !generationSecret?.secretRef ||
@@ -1269,7 +1312,7 @@ export default function QuickstartPage() {
             <Button
               size="sm"
               className="gap-1.5 bg-foreground text-xs text-background hover:bg-foreground/90"
-              disabled={isStoppingSession}
+              disabled={isStoppingSession || currentProjectReadOnly}
               onClick={handleStopSession}
             >
               {isStoppingSession ? (
@@ -1283,7 +1326,7 @@ export default function QuickstartPage() {
             <Button
               size="sm"
               className="gap-1.5 text-xs"
-              disabled={!resourceIds[3] || isTestRunning}
+              disabled={!resourceIds[3] || isTestRunning || currentProjectReadOnly}
               onClick={handleTestRun}
             >
               {isTestRunning ? (
@@ -1395,7 +1438,12 @@ export default function QuickstartPage() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {filteredTemplates.map((id) => (
-                <TemplateCard key={id} templateId={id} onClick={() => handleTemplateClick(id)} />
+                <TemplateCard
+                  key={id}
+                  templateId={id}
+                  disabled={currentProjectReadOnly}
+                  onClick={() => handleTemplateClick(id)}
+                />
               ))}
             </div>
             {filteredTemplates.length === 0 && (
@@ -1471,7 +1519,7 @@ export default function QuickstartPage() {
                     <Button
                       className="h-10 rounded-xl px-5 text-sm font-semibold"
                       onClick={confirmStep}
-                      disabled={isCreating}
+                      disabled={isCreating || currentProjectReadOnly}
                     >
                       {isCreating ? (
                         <>
@@ -1640,7 +1688,7 @@ export default function QuickstartPage() {
                             <div className="flex items-center justify-between">
                               <Button
                                 className="h-9 rounded-xl px-4 text-sm"
-                                disabled={isCreating}
+                                disabled={isCreating || currentProjectReadOnly}
                                 onClick={async () => {
                                   const hosts = envHosts
                                     .split(',')
@@ -1760,7 +1808,7 @@ export default function QuickstartPage() {
                             <div className="flex items-center justify-between">
                               <Button
                                 className="h-9 rounded-xl px-4 text-sm"
-                                disabled={isCreating || !vaultName.trim()}
+                                disabled={isCreating || currentProjectReadOnly || !vaultName.trim()}
                                 onClick={async () => {
                                   const created = await createVault(vaultName.trim())
                                   if (!created) return
@@ -1817,7 +1865,7 @@ export default function QuickstartPage() {
                     </div>
                     <Button
                       className="h-10 rounded-xl px-5 text-sm"
-                      disabled={isCreating || !resourceIds[3]}
+                      disabled={isCreating || currentProjectReadOnly || !resourceIds[3]}
                       onClick={handleCreateSession}
                     >
                       {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
@@ -2157,7 +2205,7 @@ export default function QuickstartPage() {
                                 handleSendSessionMessage()
                               }
                             }}
-                            disabled={isSendingMsg}
+                            disabled={isSendingMsg || currentProjectReadOnly}
                             placeholder={
                               isSessionRunning
                                 ? t('managed.quickstart.agentProcessing')
@@ -2170,10 +2218,12 @@ export default function QuickstartPage() {
                           ) : (
                             <button
                               onClick={handleSendSessionMessage}
-                              disabled={isSendingMsg || !sessionMsgInput.trim()}
+                              disabled={
+                                isSendingMsg || currentProjectReadOnly || !sessionMsgInput.trim()
+                              }
                               className={cn(
                                 'inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-semibold text-primary-foreground shadow-sm transition-colors',
-                                isSendingMsg || !sessionMsgInput.trim()
+                                isSendingMsg || currentProjectReadOnly || !sessionMsgInput.trim()
                                   ? 'cursor-not-allowed bg-muted-foreground/30 text-white shadow-none'
                                   : 'bg-primary hover:bg-primary/90',
                               )}
@@ -2193,7 +2243,7 @@ export default function QuickstartPage() {
                         variant="outline"
                         size="sm"
                         className="gap-1.5"
-                        disabled={!resourceIds[3] || isTestRunning}
+                        disabled={!resourceIds[3] || isTestRunning || currentProjectReadOnly}
                         onClick={handleTestRun}
                       >
                         {isTestRunning ? (

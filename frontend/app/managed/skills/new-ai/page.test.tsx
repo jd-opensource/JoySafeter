@@ -59,13 +59,16 @@ vi.mock('@/hooks/managed/use-skill-authoring', () => ({
 vi.mock('@/components/managed/skills/skill-code-editor', () => ({
   SkillCodeEditor: ({
     onChange,
+    readOnly,
     value,
   }: {
     onChange: (value: string) => void
+    readOnly?: boolean
     value: string
   }) => (
     <textarea
       aria-label="code-editor"
+      disabled={readOnly}
       value={value}
       onChange={(event) => onChange(event.currentTarget.value)}
     />
@@ -157,6 +160,17 @@ function renderPage(queryClient: QueryClient) {
   )
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 describe('SkillAiAuthoringPage managed scope lifecycle', () => {
   beforeEach(() => {
     managedGetMock.mockReset()
@@ -165,6 +179,7 @@ describe('SkillAiAuthoringPage managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -176,6 +191,7 @@ describe('SkillAiAuthoringPage managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -265,5 +281,50 @@ describe('SkillAiAuthoringPage managed scope lifecycle', () => {
     })
 
     expect(skillAuthoringSendMock).toHaveBeenNthCalledWith(2, 'Second skill', 'secret-b')
+  })
+
+  it('renders the authoring workspace read-only when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = renderPage(queryClient)
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
+    })
+
+    const input = view.getByPlaceholderText(
+      'managed.skills.aiAuthor.inputPlaceholder',
+    ) as HTMLTextAreaElement
+    expect(input.disabled).toBe(true)
+    expect(
+      (view.getByText('managed.skills.aiAuthor.saveDraft').closest('button') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (view.getByText('managed.skills.aiAuthor.publish').closest('button') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (view.getByText('managed.skills.aiAuthor.scan.run').closest('button') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect((view.getByLabelText('code-editor') as HTMLTextAreaElement).disabled).toBe(true)
+
+    await act(async () => {
+      fireEvent.input(input, { target: { value: 'Should not send' } })
+      view.getByTitle('managed.skills.aiAuthor.send').click()
+      await Promise.resolve()
+    })
+
+    expect(skillAuthoringSendMock).not.toHaveBeenCalled()
   })
 })

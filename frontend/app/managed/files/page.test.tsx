@@ -111,6 +111,17 @@ function fileRecord(id: string, filename: string): FileRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -129,6 +140,7 @@ describe('FileListPage upload lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -140,10 +152,53 @@ describe('FileListPage upload lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('hides upload and delete actions when the current project is archived', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [fileRecord('file-a', 'File A')],
+      has_more: false,
+    })
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-archived',
+      currentProject: {
+        id: 'project-archived',
+        org_id: 'org-a',
+        name: 'Archived Project',
+        slug: 'project-archived',
+        is_default: false,
+        archived_at: '2026-01-02T00:00:00Z',
+      },
+      organizations: [],
+      projects: [],
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { container, getByText, queryByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <FileListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('File A')).toBeTruthy()
+    })
+
+    expect(queryByText('managed.files.upload')).toBeNull()
+    expect(queryByText('file-a:common.delete')).toBeNull()
+    expect(container.querySelector('input[type="file"]')).toBeNull()
   })
 
   it('does not continue a multi-file upload after the managed project changes', async () => {
@@ -197,6 +252,60 @@ describe('FileListPage upload lifecycle', () => {
     expect(uploadProjects).toEqual(['project-a'])
   })
 
+  it('does not continue a multi-file upload after the current project is archived', async () => {
+    const firstUpload = deferred<void>()
+    const uploadedNames: string[] = []
+    managedUploadMock.mockImplementation((_path: string, body: FormData) => {
+      uploadedNames.push((body.get('file') as File).name)
+      if (uploadedNames.length === 1) return firstUpload.promise
+      return Promise.resolve({})
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <FileListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalled()
+    })
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const firstFile = new File(['one'], 'one.txt', { type: 'text/plain' })
+    const secondFile = new File(['two'], 'two.txt', { type: 'text/plain' })
+
+    await act(async () => {
+      fireEvent.change(input, {
+        target: {
+          files: [firstFile, secondFile],
+        },
+      })
+      await Promise.resolve()
+    })
+
+    expect(uploadedNames).toEqual(['one.txt'])
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      firstUpload.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(uploadedNames).toEqual(['one.txt'])
+  })
+
   it('does not start an upload from an old file input after the managed project changes in the same tick', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -226,6 +335,45 @@ describe('FileListPage upload lifecycle', () => {
       fireEvent.change(input, {
         target: {
           files: [oldProjectFile],
+        },
+      })
+      await Promise.resolve()
+    })
+
+    expect(managedUploadMock).not.toHaveBeenCalledWith('/files', expect.any(FormData))
+  })
+
+  it('does not start an upload from an old file input after the current project is archived in the same tick', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <FileListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalled()
+    })
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const archivedProjectFile = new File(['archived project data'], 'archived-project.txt', {
+      type: 'text/plain',
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.change(input, {
+        target: {
+          files: [archivedProjectFile],
         },
       })
       await Promise.resolve()
@@ -271,6 +419,51 @@ describe('FileListPage upload lifecycle', () => {
     unmount()
 
     await act(async () => {
+      upload.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files'] })
+  })
+
+  it('does not invalidate files from an upload completion after the current project is archived', async () => {
+    const upload = deferred<Record<string, never>>()
+    managedUploadMock.mockReturnValueOnce(upload.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <FileListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalled()
+    })
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['one'], 'one.txt', { type: 'text/plain' })
+
+    await act(async () => {
+      fireEvent.change(input, {
+        target: {
+          files: [file],
+        },
+      })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
       upload.resolve({})
       await Promise.resolve()
     })
@@ -347,6 +540,42 @@ describe('FileListPage upload lifecycle', () => {
     expect(managedDeleteMock).not.toHaveBeenCalledWith('/files/file-a')
   })
 
+  it('does not delete a file from an old row action after the current project is archived', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [fileRecord('file-a', 'Project A File')],
+      has_more: false,
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <FileListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Project A File')).toBeTruthy()
+    })
+
+    const oldDeleteButton = getByText('file-a:common.delete')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldDeleteButton)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/files/file-a')
+  })
+
   it('does not invalidate files from a delete completion after the page unmounts', async () => {
     const deleteFile = deferred<Record<string, never>>()
     managedGetMock.mockResolvedValue({
@@ -381,6 +610,48 @@ describe('FileListPage upload lifecycle', () => {
     unmount()
 
     await act(async () => {
+      deleteFile.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files'] })
+  })
+
+  it('does not invalidate files from a delete completion after the current project is archived', async () => {
+    const deleteFile = deferred<Record<string, never>>()
+    managedGetMock.mockResolvedValue({
+      data: [fileRecord('file-a', 'File A')],
+      has_more: false,
+    })
+    managedDeleteMock.mockReturnValueOnce(deleteFile.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <FileListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('File A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('file-a:common.delete'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
       deleteFile.resolve({})
       await Promise.resolve()
     })

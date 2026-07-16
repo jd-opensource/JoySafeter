@@ -11,6 +11,7 @@ vi.mock('@/lib/i18n', () => ({
 vi.mock('@/lib/api-client', () => ({
   managedDelete: vi.fn(),
   managedGet: vi.fn(),
+  managedPatch: vi.fn(),
   managedPost: vi.fn(),
   managedPut: vi.fn(),
 }))
@@ -488,6 +489,104 @@ describe('OrganizationPage ownership transfer lifecycle', () => {
     })
     expect(useProjectStore.getState().currentOrgId).toBe('org-c')
     expect(useProjectStore.getState().currentProjectId).toBe('project-c')
+  })
+
+  it('stores switched organization project metadata from the switch-context response', async () => {
+    const organizations: OrganizationRecord[] = [
+      {
+        id: 'org-a',
+        name: 'Org A',
+        slug: 'org-a',
+        role: 'owner',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'org-b',
+        name: 'Org B',
+        slug: 'org-b',
+        role: 'owner',
+        created_at: '2026-01-02T00:00:00Z',
+      },
+    ]
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === 'auth/me') {
+        return {
+          organization: organizations[0],
+          organizations,
+        }
+      }
+      return { data: [] }
+    })
+    managedPostMock.mockResolvedValueOnce({
+      org_id: 'org-b',
+      project_id: 'project-b',
+      project: {
+        id: 'project-b',
+        org_id: 'org-b',
+        name: 'Project B',
+        slug: 'project-b',
+        is_default: true,
+        archived_at: null,
+      },
+      projects: [
+        {
+          id: 'project-b',
+          org_id: 'org-b',
+          name: 'Project B',
+          slug: 'project-b',
+          is_default: true,
+          archived_at: null,
+        },
+      ],
+    })
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-a',
+      currentProject: {
+        id: 'project-a',
+        org_id: 'org-a',
+        name: 'Project A',
+        slug: 'project-a',
+        is_default: true,
+      },
+      organizations,
+      projects: [
+        {
+          id: 'project-a',
+          org_id: 'org-a',
+          name: 'Project A',
+          slug: 'project-a',
+          is_default: true,
+        },
+      ],
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <OrganizationPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Org B')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('org-b:manage.organization.switch'))
+      await Promise.resolve()
+    })
+
+    expect(useProjectStore.getState().currentOrgId).toBe('org-b')
+    expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+    expect(useProjectStore.getState().currentProject?.name).toBe('Project B')
+    expect(useProjectStore.getState().projects.map((project) => project.id)).toEqual(['project-b'])
   })
 
   it('does not close a reopened create organization dialog when an older create finishes', async () => {

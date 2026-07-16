@@ -33,6 +33,10 @@ import {
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -47,6 +51,7 @@ export default function EnvironmentListPage() {
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 
   const [showArchived, setShowArchived] = useState(false)
@@ -140,6 +145,7 @@ export default function EnvironmentListPage() {
   }
 
   const resetDialog = (open: boolean) => {
+    if (open && !currentProjectAllowsWrite()) return
     createRunRef.current += 1
     if (open) {
       resetForm()
@@ -173,6 +179,15 @@ export default function EnvironmentListPage() {
     [],
   )
 
+  useEffect(() => {
+    if (!projectReadOnly) return
+    createRunRef.current += 1
+    actionRunRef.current += 1
+    setCreating(false)
+    setShowCreate(false)
+    resetForm()
+  }, [projectReadOnly])
+
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
     return `${orgId ?? ''}:${projectId ?? ''}`
@@ -184,14 +199,17 @@ export default function EnvironmentListPage() {
   const isCurrentCreateRun = (runId: number, scope: string) =>
     runId === createRunRef.current &&
     scope === managedScopeRef.current &&
-    currentManagedScopeIsActive(scope)
+    currentManagedScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   const isCurrentAction = (runId: number, scope: string) =>
     actionRunRef.current === runId &&
     managedScopeRef.current === scope &&
-    currentManagedScopeIsActive(scope)
+    currentManagedScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   const currentEnvironmentIsActive = (env: Environment, scope: string) =>
+    currentProjectAllowsWrite() &&
     queryClient
       .getQueriesData<{ data?: Environment[] }>({
         queryKey: ['environments', scope, '/environments'],
@@ -205,6 +223,7 @@ export default function EnvironmentListPage() {
 
   const handleCreate = useCallback(async () => {
     if (!name.trim()) return
+    if (!currentProjectAllowsWrite()) return
     if (!currentManagedScopeIsActive()) return
     const runId = createRunRef.current + 1
     createRunRef.current = runId
@@ -265,6 +284,7 @@ export default function EnvironmentListPage() {
   ])
 
   const handleArchive = async (env: Environment) => {
+    if (!currentProjectAllowsWrite()) return
     const actionScope = managedScopeRef.current
     if (!currentManagedScopeIsActive(actionScope)) return
     if (!currentEnvironmentIsActive(env, actionScope)) return
@@ -331,10 +351,12 @@ export default function EnvironmentListPage() {
         title={t('managed.environments.title')}
         subtitle={t('managed.environments.subtitle')}
         action={
-          <Button size="sm" onClick={() => resetDialog(true)}>
-            <Plus className="h-4 w-4" />
-            {t('managed.environments.add')}
-          </Button>
+          projectReadOnly ? null : (
+            <Button size="sm" onClick={() => resetDialog(true)}>
+              <Plus className="h-4 w-4" />
+              {t('managed.environments.add')}
+            </Button>
+          )
         }
       />
 
@@ -354,7 +376,7 @@ export default function EnvironmentListPage() {
         fetching={isFetching}
         onRowClick={(e) => router.push(`/managed/environments/${e.id}`)}
         actionMenu={(env) =>
-          env.archived_at
+          projectReadOnly || env.archived_at
             ? []
             : [
                 {
@@ -377,7 +399,7 @@ export default function EnvironmentListPage() {
         emptyMessage={t('managed.environments.empty')}
       />
 
-      <Dialog open={showCreate} onOpenChange={resetDialog}>
+      <Dialog open={!projectReadOnly && showCreate} onOpenChange={resetDialog}>
         <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('managed.environments.addTitle')}</DialogTitle>

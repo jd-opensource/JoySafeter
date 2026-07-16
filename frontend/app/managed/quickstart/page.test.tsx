@@ -126,6 +126,17 @@ const useQuickstartChatMock = useQuickstartChat as unknown as ReturnType<typeof 
 const useSessionStreamMock = useSessionStream as unknown as ReturnType<typeof vi.fn>
 const generateTestMessageMock = vi.fn()
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -200,6 +211,7 @@ describe('QuickstartPage managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -212,6 +224,7 @@ describe('QuickstartPage managed scope lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -283,6 +296,32 @@ describe('QuickstartPage managed scope lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', expect.anything())
   })
 
+  it('does not start a test run from old quickstart UI in the same turn as the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
+      { id: 'env-a', name: 'Env A', archived_at: null },
+    ])
+
+    const view = renderQuickstart(queryClient)
+    const testRunButton = await view.findByRole('button', {
+      name: /managed\.quickstart\.testRun/,
+    })
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-07-10T00:00:00Z') })
+      fireEvent.click(testRunButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', expect.anything())
+  })
+
   it('does not start a final session from old quickstart UI in the same turn as a project switch', async () => {
     const createSession = vi.fn()
     useQuickstartChatMock.mockReturnValue({
@@ -331,6 +370,61 @@ describe('QuickstartPage managed scope lifecycle', () => {
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      fireEvent.click(startButton)
+      await Promise.resolve()
+    })
+
+    expect(createSession).not.toHaveBeenCalled()
+  })
+
+  it('does not start a final session from old quickstart UI in the same turn as the current project is archived', async () => {
+    const createSession = vi.fn()
+    useQuickstartChatMock.mockReturnValue({
+      messages: [{ id: 'assistant-1', role: 'assistant', content: 'ready' }],
+      currentStep: 6,
+      selectedEngine: 'claude',
+      config: { agent: { name: 'Agent A', system: 'Help.' } },
+      isStreaming: false,
+      curls: {},
+      resourceIds: { 3: 'agent_a', 4: 'env-a', 5: 'vault-a' },
+      createdResourceIds: new Set(['agent_a']),
+      completedSteps: new Set([1, 2, 3, 4, 5]),
+      pendingConfirmation: null,
+      isCreating: false,
+      sendMessage: vi.fn(),
+      selectEngine: vi.fn(),
+      selectAgentSecret: vi.fn(),
+      advanceStep: vi.fn(),
+      confirmStep: vi.fn(),
+      keepRefining: vi.fn(),
+      createSession,
+      createEnvironment: vi.fn(),
+      selectExistingEnvironment: vi.fn(),
+      createVault: vi.fn(),
+      selectExistingVault: vi.fn(),
+      goToStep: vi.fn(),
+      sendAutoIntro: vi.fn(),
+      generateTestMessage: generateTestMessageMock,
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
+      { id: 'env-a', name: 'Env A', archived_at: null },
+    ])
+    queryClient.setQueryData(['vaults-active', 'org-a:project-a'], {
+      data: [{ id: 'vault-a', name: 'Vault A', archived_at: null }],
+    })
+
+    const view = renderQuickstart(queryClient)
+    const startButton = view.getByRole('button', { name: 'managed.quickstart.startSession' })
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-07-10T00:00:00Z') })
       fireEvent.click(startButton)
       await Promise.resolve()
     })
@@ -462,6 +556,8 @@ describe('QuickstartPage managed scope lifecycle', () => {
     const input = (await view.findByPlaceholderText(
       'managed.quickstart.sendMessage',
     )) as HTMLInputElement
+    const sendButton = input.parentElement?.querySelector('button') as HTMLButtonElement
+    expect(sendButton).toBeTruthy()
 
     await act(async () => {
       fireEvent.input(input, { target: { value: 'message after stale idle' } })
@@ -472,7 +568,7 @@ describe('QuickstartPage managed scope lifecycle', () => {
         id: 'session_a',
         status: 'running',
       })
-      fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
+      fireEvent.click(sendButton)
       await Promise.resolve()
     })
 
@@ -481,6 +577,91 @@ describe('QuickstartPage managed scope lifecycle', () => {
         {
           type: 'user.message',
           content: [{ type: 'text', text: 'message after stale idle' }],
+        },
+      ],
+    })
+  })
+
+  it('does not send a preview session message from old UI after the current project is archived', async () => {
+    useQuickstartChatMock.mockReturnValue({
+      messages: [{ id: 'assistant-1', role: 'assistant', content: 'ready' }],
+      currentStep: 6,
+      selectedEngine: 'claude',
+      config: { agent: { name: 'Agent A', system: 'Help.' } },
+      isStreaming: false,
+      curls: {},
+      resourceIds: { 3: 'agent_a', 6: 'session_a' },
+      completedSteps: new Set([1, 2, 3, 6]),
+      pendingConfirmation: null,
+      isCreating: false,
+      sendMessage: vi.fn(),
+      selectEngine: vi.fn(),
+      selectAgentSecret: vi.fn(),
+      advanceStep: vi.fn(),
+      confirmStep: vi.fn(),
+      keepRefining: vi.fn(),
+      createSession: vi.fn(),
+      createEnvironment: vi.fn(),
+      selectExistingEnvironment: vi.fn(),
+      createVault: vi.fn(),
+      selectExistingVault: vi.fn(),
+      goToStep: vi.fn(),
+      sendAutoIntro: vi.fn(),
+      generateTestMessage: generateTestMessageMock,
+    })
+    managedGetMock.mockImplementation((url: string) => {
+      if (url === '/secrets') {
+        return Promise.resolve({
+          data: [
+            {
+              name: 'anthropic-prod',
+              provider: 'anthropic',
+              protocol: 'anthropic_messages',
+              is_default: true,
+              keys: ['ANTHROPIC_API_KEY'],
+            },
+          ],
+        })
+      }
+      if (url === '/environments') return Promise.resolve({ data: [] })
+      if (url === '/vaults') return Promise.resolve({ data: [] })
+      if (url === '/sessions/session_a') {
+        return Promise.resolve({ id: 'session_a', status: 'idle', archived_at: null })
+      }
+      return Promise.resolve({ data: [] })
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    queryClient.setQueryData(['session', 'org-a:project-a', 'session_a'], {
+      id: 'session_a',
+      status: 'idle',
+      archived_at: null,
+    })
+
+    const view = renderQuickstart(queryClient)
+    const input = (await view.findByPlaceholderText(
+      'managed.quickstart.sendMessage',
+    )) as HTMLInputElement
+    const sendButton = input.parentElement?.querySelector('button') as HTMLButtonElement
+    expect(sendButton).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.input(input, { target: { value: 'message after archive' } })
+      useProjectStore.setState({ currentProject: projectInfo('2026-07-10T00:00:00Z') })
+      fireEvent.click(sendButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session_a/events', {
+      events: [
+        {
+          type: 'user.message',
+          content: [{ type: 'text', text: 'message after archive' }],
         },
       ],
     })
@@ -554,6 +735,82 @@ describe('QuickstartPage managed scope lifecycle', () => {
         status: 'idle',
         archived_at: null,
       })
+      fireEvent.click(view.getByRole('button', { name: 'managed.quickstart.stopSession' }))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session_a/stop', {})
+  })
+
+  it('does not stop a preview session from old UI after the current project is archived', async () => {
+    useQuickstartChatMock.mockReturnValue({
+      messages: [{ id: 'assistant-1', role: 'assistant', content: 'ready' }],
+      currentStep: 6,
+      selectedEngine: 'claude',
+      config: { agent: { name: 'Agent A', system: 'Help.' } },
+      isStreaming: false,
+      curls: {},
+      resourceIds: { 3: 'agent_a', 6: 'session_a' },
+      completedSteps: new Set([1, 2, 3, 6]),
+      pendingConfirmation: null,
+      isCreating: false,
+      sendMessage: vi.fn(),
+      selectEngine: vi.fn(),
+      selectAgentSecret: vi.fn(),
+      advanceStep: vi.fn(),
+      confirmStep: vi.fn(),
+      keepRefining: vi.fn(),
+      createSession: vi.fn(),
+      createEnvironment: vi.fn(),
+      selectExistingEnvironment: vi.fn(),
+      createVault: vi.fn(),
+      selectExistingVault: vi.fn(),
+      goToStep: vi.fn(),
+      sendAutoIntro: vi.fn(),
+      generateTestMessage: generateTestMessageMock,
+    })
+    managedGetMock.mockImplementation((url: string) => {
+      if (url === '/secrets') {
+        return Promise.resolve({
+          data: [
+            {
+              name: 'anthropic-prod',
+              provider: 'anthropic',
+              protocol: 'anthropic_messages',
+              is_default: true,
+              keys: ['ANTHROPIC_API_KEY'],
+            },
+          ],
+        })
+      }
+      if (url === '/environments') return Promise.resolve({ data: [] })
+      if (url === '/vaults') return Promise.resolve({ data: [] })
+      if (url === '/sessions/session_a') {
+        return Promise.resolve({ id: 'session_a', status: 'running', archived_at: null })
+      }
+      return Promise.resolve({ data: [] })
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    queryClient.setQueryData(['session', 'org-a:project-a', 'session_a'], {
+      id: 'session_a',
+      status: 'running',
+      archived_at: null,
+    })
+
+    const view = renderQuickstart(queryClient)
+
+    await waitFor(() => {
+      expect(view.getByRole('button', { name: 'managed.quickstart.stopSession' })).toBeTruthy()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-07-10T00:00:00Z') })
       fireEvent.click(view.getByRole('button', { name: 'managed.quickstart.stopSession' }))
       await Promise.resolve()
     })

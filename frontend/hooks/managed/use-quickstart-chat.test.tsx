@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useProjectStore } from '@/stores/managed/project-store'
 
@@ -11,6 +11,45 @@ vi.mock('@/lib/i18n', () => ({
     t: (key: string) => key,
   }),
 }))
+
+vi.mock('@/lib/api-client', () => {
+  class MockApiError extends Error {
+    code: string
+
+    constructor(
+      public readonly status = 500,
+      message = `API ${status}`,
+    ) {
+      super(message)
+      this.name = 'ApiError'
+      this.code = `HTTP_${status}`
+    }
+  }
+
+  const base = 'http://localhost:8000/api/v1'
+  const urlFor = (path: string) => `${base}/${path.replace(/^\/+/, '')}`
+  const postRequest = (path: string, body?: unknown, options?: { signal?: AbortSignal }) =>
+    fetch(urlFor(path), {
+      method: 'POST',
+      body: JSON.stringify(body),
+      signal: options?.signal,
+    })
+
+  return {
+    ApiError: MockApiError,
+    MANAGED_API_BASE: base,
+    apiStream: vi.fn(postRequest),
+    extractErrorFromResponse: vi.fn(
+      async (response: Response) => new MockApiError(response.status, `API ${response.status}`),
+    ),
+    managedPost: vi.fn(async (path: string, body?: unknown, options?: { signal?: AbortSignal }) => {
+      const response = await postRequest(path, body, options)
+      if (!response.ok) throw new MockApiError(response.status, `API ${response.status}`)
+      const json = await response.json().catch(() => undefined)
+      return json?.data ?? json
+    }),
+  }
+})
 
 vi.mock('@/lib/auth/csrf', () => ({
   getCsrfToken: () => null,
@@ -88,6 +127,23 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function setCurrentProject(archivedAt: string | null = null) {
+  useProjectStore.setState({
+    currentOrgId: 'org-a',
+    currentProjectId: 'project-a',
+    currentProject: {
+      id: 'project-a',
+      org_id: 'org-a',
+      name: 'Project A',
+      slug: 'project-a',
+      is_default: true,
+      archived_at: archivedAt,
+    },
+    organizations: [],
+    projects: [],
+  })
+}
+
 Object.assign(globalThis, {
   window: dom.window,
   document: dom.window.document,
@@ -100,18 +156,49 @@ Object.defineProperty(globalThis, 'navigator', {
 })
 
 describe('useQuickstartChat resource creation', () => {
+  beforeEach(() => {
+    setCurrentProject()
+  })
+
   afterEach(async () => {
     globalThis.fetch = originalFetch
     await act(async () => {
       useProjectStore.setState({
         currentOrgId: null,
         currentProjectId: null,
+        currentProject: null,
         organizations: [],
         projects: [],
       })
       await wait(0)
     })
     vi.restoreAllMocks()
+  })
+
+  it('does not start quickstart generation or create resources when the current project is archived', async () => {
+    setCurrentProject('2026-07-10T00:00:00Z')
+    const fetchMock = vi.fn()
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    let environmentCreated: boolean | undefined
+    let vaultCreated: boolean | undefined
+    let generated = ''
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+      environmentCreated = await result.current.createEnvironment('limited', ['api.example.com'])
+      vaultCreated = await result.current.createVault('prod-secrets')
+      generated = await result.current.generateTestMessage()
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(environmentCreated).toBe(false)
+    expect(vaultCreated).toBe(false)
+    expect(generated).toBe('managed.quickstart.trialRun.defaultPrompt')
+    expect(result.current.messages).toEqual([])
+    expect(result.current.resourceIds).toEqual({})
   })
 
   it('does not mark an environment created when the create API fails', async () => {
@@ -447,6 +534,25 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.resourceIds[6]).toBeUndefined()
   })
 
+  it('does not append or lock streaming from an old chat closure after a same-turn project switch', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    const fetchMock = vi.fn().mockResolvedValue(quickstartAgentConfigResponse('agent_a'))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+    const oldSendMessage = result.current.sendMessage
+
+    await act(async () => {
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      await oldSendMessage('make an agent', { stepOverride: 3 })
+      await wait(0)
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.messages).toEqual([])
+    expect(result.current.isStreaming).toBe(false)
+  })
+
   it('does not mark a session created after the managed project changes while the request is in flight', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
     const createSessionResponse = deferred<Response>()
@@ -530,6 +636,35 @@ describe('useQuickstartChat resource creation', () => {
 
     expect(result.current.resourceIds[3]).toBeUndefined()
     expect(result.current.completedSteps.has(3)).toBe(false)
+  })
+
+  it('does not confirm a pending generated resource after the current project is archived', async () => {
+    setCurrentProject(null)
+    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse())
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+    expect(result.current.pendingConfirmation).toEqual({
+      step: 3,
+      curl: 'curl -X POST /agents',
+    })
+
+    await act(async () => {
+      setCurrentProject('2026-07-10T00:00:00Z')
+      await result.current.confirmStep()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.current.resourceIds[3]).toBeUndefined()
+    expect(result.current.completedSteps.has(3)).toBe(false)
+    expect(result.current.pendingConfirmation).toEqual({
+      step: 3,
+      curl: 'curl -X POST /agents',
+    })
   })
 
   it('does not start a second chat stream while the first stream is still open', async () => {
@@ -688,6 +823,31 @@ describe('useQuickstartChat resource creation', () => {
     })
   })
 
+  it('does not generate a test message from an old quickstart closure after a same-turn project switch', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse('agent_a'))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+
+    const oldGenerateTestMessage = result.current.generateTestMessage
+    fetchMock.mockClear()
+
+    let generated = ''
+    await act(async () => {
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      generated = await oldGenerateTestMessage()
+      await wait(0)
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(generated).toBe('managed.quickstart.trialRun.defaultPrompt')
+  })
+
   it('does not create a session with resource ids from the previous managed project', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
 
@@ -747,6 +907,31 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.messages.at(-1)?.content).toBe(
       'managed.quickstart.errors.agentMissingForSession',
     )
+  })
+
+  it('does not create a session after the current project is archived with an agent already in quickstart state', async () => {
+    setCurrentProject(null)
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse('agent_a'))
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+
+    expect(result.current.resourceIds[3]).toBe('agent_a')
+
+    await act(async () => {
+      setCurrentProject('2026-07-10T00:00:00Z')
+      await result.current.createSession()
+    })
+
+    const sessionCalls = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/sessions'))
+    expect(sessionCalls).toHaveLength(0)
+    expect(result.current.resourceIds[6]).toBeUndefined()
+    expect(result.current.completedSteps.has(6)).toBe(false)
   })
 
   it('keeps a generated test message final text delta when the stream closes without a trailing newline', async () => {

@@ -50,7 +50,9 @@ vi.mock('@/components/managed/shared', () => ({
       ))}
     </div>
   ),
-  FilterBar: () => null,
+  FilterBar: ({ onArchivedChange }: { onArchivedChange?: (showArchived: boolean) => void }) => (
+    <button onClick={() => onArchivedChange?.(true)}>show-archived</button>
+  ),
   MonoId: ({ id }: { id: string }) => <span>{id}</span>,
   PageHeader: ({ title, action }: { title: string; action?: ReactNode }) => (
     <div>
@@ -178,6 +180,7 @@ describe('ProjectsPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -189,6 +192,7 @@ describe('ProjectsPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -602,9 +606,93 @@ describe('ProjectsPage object lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith('/auth/projects/project-a/set-default', {})
   })
 
-  it('does not submit a delete target that is no longer in the current projects list', async () => {
+  it('restores an archived project from the archived project list', async () => {
+    const archivedProject = {
+      ...project('project-archived', 'Archived'),
+      archived_at: '2026-01-02T00:00:00Z',
+    }
+    managedGetMock.mockImplementation((url: string) =>
+      Promise.resolve(url.includes('include_archived=true') ? [archivedProject] : []),
+    )
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      fireEvent.click(getByText('show-archived'))
+    })
+
+    await waitFor(() => {
+      expect(getByText('Archived')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('project-archived:common.restore'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).toHaveBeenCalledWith('/auth/projects/project-archived/restore', {})
+  })
+
+  it('does not restore an archived project target that leaves the current projects list', async () => {
+    const archivedProject = {
+      ...project('project-archived', 'Archived'),
+      archived_at: '2026-01-02T00:00:00Z',
+    }
+    const otherArchivedProject = {
+      ...project('project-other', 'Other Archived'),
+      archived_at: '2026-01-03T00:00:00Z',
+    }
+    managedGetMock.mockImplementation((url: string) =>
+      Promise.resolve(url.includes('include_archived=true') ? [archivedProject] : []),
+    )
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      fireEvent.click(getByText('show-archived'))
+    })
+
+    await waitFor(() => {
+      expect(getByText('Archived')).toBeTruthy()
+    })
+
+    const staleRestoreButton = getByText('project-archived:common.restore')
+
+    await act(async () => {
+      queryClient.setQueryData(['projects-list', 'org-a', true], [otherArchivedProject])
+      fireEvent.click(staleRestoreButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/auth/projects/project-archived/restore', {})
+  })
+
+  it('does not expose a permanent delete action when projects only support archive and restore', async () => {
     const projectA = project('project-a', 'Alpha')
-    const projectB = project('project-b', 'Beta')
     managedGetMock.mockResolvedValue([projectA])
 
     const queryClient = new QueryClient({
@@ -625,32 +713,14 @@ describe('ProjectsPage object lifecycle', () => {
       expect(getByText('Alpha')).toBeTruthy()
     })
 
-    await act(async () => {
-      fireEvent.click(getByText('project-a:common.delete'))
-    })
-
-    await act(async () => {
-      queryClient.setQueryData(['projects-list', 'org-a', false], [projectB])
-      await Promise.resolve()
-    })
-
-    await waitFor(() => {
-      expect(getByText('Beta')).toBeTruthy()
-    })
-
-    const deleteButton = queryByText('common.delete')
-    if (deleteButton) {
-      await act(async () => {
-        fireEvent.click(deleteButton)
-      })
-    }
-
-    expect(managedDeleteMock).not.toHaveBeenCalled()
+    expect(getByText('project-a:common.archive')).toBeTruthy()
+    expect(queryByText('project-a:common.delete')).toBeNull()
   })
 
-  it('does not submit a delete target that leaves the current projects list during confirmation', async () => {
+  it('does not invalidate project lists from an archive completion after the page unmounts', async () => {
+    const archive = deferred<Record<string, unknown>>()
     const projectA = project('project-a', 'Alpha')
-    const projectB = project('project-b', 'Beta')
+    managedDeleteMock.mockReturnValueOnce(archive.promise)
     managedGetMock.mockResolvedValue([projectA])
 
     const queryClient = new QueryClient({
@@ -660,28 +730,190 @@ describe('ProjectsPage object lifecycle', () => {
         },
       },
     })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    const { getByText } = render(
+    const view = render(
       <QueryClientProvider client={queryClient}>
         <ProjectsPage />
       </QueryClientProvider>,
     )
 
     await waitFor(() => {
-      expect(getByText('Alpha')).toBeTruthy()
+      expect(view.getByText('Alpha')).toBeTruthy()
     })
 
     await act(async () => {
-      fireEvent.click(getByText('project-a:common.delete'))
+      fireEvent.click(view.getByText('project-a:common.archive'))
     })
 
     await act(async () => {
-      queryClient.setQueryData(['projects-list', 'org-a', false], [projectB])
-      fireEvent.click(getByText('common.delete'))
+      fireEvent.click(view.getByText('manage.projects.archive'))
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/auth/projects/project-a')
+    expect(managedDeleteMock).toHaveBeenCalledWith('/auth/projects/project-a')
+
+    view.unmount()
+
+    await act(async () => {
+      archive.resolve({})
+      await archive.promise
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects-list'] })
+  })
+
+  it('does not invalidate project or auth data from an edit completion after the page unmounts', async () => {
+    const edit = deferred<Record<string, unknown>>()
+    const projectA = project('project-a', 'Alpha')
+    managedPatchMock.mockReturnValueOnce(edit.promise)
+    managedGetMock.mockResolvedValue([projectA])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(view.getByText('Alpha')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByText('project-a:common.edit'))
+    })
+
+    await act(async () => {
+      fireEvent.input(view.getByPlaceholderText('manage.projects.namePlaceholder'), {
+        target: { value: 'Renamed Alpha' },
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByText('common.save'))
+      await Promise.resolve()
+    })
+
+    expect(managedPatchMock).toHaveBeenCalledWith('/auth/projects/project-a', {
+      name: 'Renamed Alpha',
+    })
+
+    view.unmount()
+
+    await act(async () => {
+      edit.resolve({})
+      await edit.promise
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects-list'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['auth-me'] })
+  })
+
+  it('does not invalidate project lists from a set-default completion after the page unmounts', async () => {
+    const setDefault = deferred<Record<string, unknown>>()
+    const projectA = project('project-a', 'Alpha')
+    managedPostMock.mockReturnValueOnce(setDefault.promise)
+    managedGetMock.mockResolvedValue([projectA])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(view.getByText('Alpha')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByText('project-a:manage.projects.setDefault'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).toHaveBeenCalledWith('/auth/projects/project-a/set-default', {})
+
+    view.unmount()
+
+    await act(async () => {
+      setDefault.resolve({})
+      await setDefault.promise
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects-list'] })
+  })
+
+  it('does not invalidate project or auth data from a restore completion after the page unmounts', async () => {
+    const restore = deferred<Record<string, unknown>>()
+    const archivedProject = {
+      ...project('project-archived', 'Archived'),
+      archived_at: '2026-01-02T00:00:00Z',
+    }
+    managedPostMock.mockReturnValueOnce(restore.promise)
+    managedGetMock.mockImplementation((url: string) =>
+      Promise.resolve(url.includes('include_archived=true') ? [archivedProject] : []),
+    )
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      fireEvent.click(view.getByText('show-archived'))
+    })
+
+    await waitFor(() => {
+      expect(view.getByText('Archived')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByText('project-archived:common.restore'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).toHaveBeenCalledWith('/auth/projects/project-archived/restore', {})
+
+    view.unmount()
+
+    await act(async () => {
+      restore.resolve({})
+      await restore.promise
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects-list'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['auth-me'] })
   })
 
   it('does not invalidate project lists from a create completion after the page unmounts', async () => {

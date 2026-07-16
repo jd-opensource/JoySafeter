@@ -21,6 +21,7 @@ import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { Button } from '@/components/ui/button'
 import type { SkillLifecycleStatus } from '@/types/managed'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 
 interface TransitionResponse {
   skill_id: string
@@ -120,6 +121,7 @@ export function SkillLifecycleActions({
   // ``/skills/{id}/<action>``, matching the existing skill routes.
   const bareId = skillId.startsWith('skill_') ? skillId.slice('skill_'.length) : skillId
   const nextMutation = (endpoint: string) => {
+    if (!currentProjectAllowsWrite()) return null
     const runId = mutationRunRef.current + 1
     mutationRunRef.current = runId
     return {
@@ -131,7 +133,9 @@ export function SkillLifecycleActions({
     }
   }
   const isCurrentMutation = (runId: number, scope: string) =>
-    mutationRunRef.current === runId && operationScopeRef.current === scope
+    mutationRunRef.current === runId &&
+    operationScopeRef.current === scope &&
+    currentProjectAllowsWrite()
 
   const mutation = useMutation({
     mutationFn: async ({
@@ -146,6 +150,9 @@ export function SkillLifecycleActions({
       runId: number
       scope: string
     }) => {
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project skill lifecycle transition ignored')
+      }
       setBusyEndpoint(endpoint)
       try {
         const result = await managedPost<TransitionResponse>(`/skills/${bareId}/${endpoint}`)
@@ -191,8 +198,10 @@ export function SkillLifecycleActions({
           size="sm"
           disabled={busyEndpoint !== null}
           onClick={() => {
+            if (!currentProjectAllowsWrite()) return
             if (canSubmitTransition && !canSubmitTransition(edge.endpoint, currentStatus)) return
-            mutation.mutate(nextMutation(edge.endpoint))
+            const next = nextMutation(edge.endpoint)
+            if (next) mutation.mutate(next)
           }}
         >
           {t(edge.labelKey)}

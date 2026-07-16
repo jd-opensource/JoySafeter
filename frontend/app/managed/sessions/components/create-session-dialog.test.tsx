@@ -113,6 +113,17 @@ import { CreateSessionDialog } from './create-session-dialog'
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 describe('CreateSessionDialog managed object lifecycle', () => {
   beforeEach(() => {
     managedGetMock.mockReset()
@@ -120,6 +131,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -131,6 +143,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -386,6 +399,113 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', expect.anything())
   })
 
+  it('does not submit selected resources from old dialog state after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
+      }
+      if (path === '/environments') {
+        return { data: [{ id: 'env_a', name: 'Env A', archived_at: null }] }
+      }
+      if (path === '/vaults') {
+        return { data: [{ id: 'vault_a', name: 'Vault A', archived_at: null }] }
+      }
+      if (path === '/files?limit=100') {
+        return {
+          data: [
+            {
+              id: 'file_a',
+              filename: 'dataset.json',
+              purpose: 'assistants',
+              content_type: 'application/json',
+              size_bytes: 512,
+              downloadable: true,
+              created_at: '2026-07-10T00:00:00Z',
+            },
+          ],
+        }
+      }
+      if (path === '/memory_stores?limit=100') {
+        return { data: [{ id: 'mem_a', name: 'Memory A', archived_at: null }] }
+      }
+      return { data: [] }
+    })
+    managedPostMock.mockResolvedValue({ id: 'sess_created' })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateSessionDialog open onOpenChange={() => {}} onCreated={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+      expect(getByText('Env A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('Agent A'))
+      fireEvent.click(getByText('Env A'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('managed.sessions.create.selectVaults'))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(getByText('Vault A')).toBeTruthy()
+    })
+    await act(async () => {
+      fireEvent.click(getByText('Vault A'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('managed.sessions.create.addResource'))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(getByText('dataset.json')).toBeTruthy()
+    })
+    await act(async () => {
+      fireEvent.click(getByText('dataset.json'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('managed.sessions.create.addMemoryStore'))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(getByText('Memory A')).toBeTruthy()
+    })
+    await act(async () => {
+      fireEvent.click(getByText('Memory A'))
+      await Promise.resolve()
+    })
+
+    const submitButton = getByText('managed.sessions.create.submit') as HTMLButtonElement
+    expect(submitButton.disabled).toBe(false)
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(submitButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', expect.anything())
+  })
+
   it('ignores a stale create completion after the managed project changes', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/agents') return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
@@ -435,6 +555,64 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
       resolveCreate({ id: 'sess_created' })
+      await Promise.resolve()
+    })
+
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stale create completion after the current project is archived', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
+      if (path === '/environments') return { data: [] }
+      if (path === '/vaults') return { data: [] }
+      if (path === '/files?limit=100') return { data: [] }
+      if (path === '/memory_stores?limit=100') return { data: [] }
+      return { data: [] }
+    })
+    let resolveCreate: (value: { id: string }) => void = () => {}
+    managedPostMock.mockImplementation(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve
+        }),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const onOpenChange = vi.fn()
+    const onCreated = vi.fn()
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateSessionDialog open onOpenChange={onOpenChange} onCreated={onCreated} />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Agent A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      getByText('Agent A').click()
+    })
+
+    fireEvent.click(getByText('managed.sessions.create.submit'))
+
+    await waitFor(() => {
+      expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' })
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      resolveCreate({ id: 'sess_created_after_archive' })
       await Promise.resolve()
     })
 

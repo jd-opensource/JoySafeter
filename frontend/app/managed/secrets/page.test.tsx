@@ -189,6 +189,17 @@ function secret(id: string, name: string): SecretRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 describe('SecretListPage delete lifecycle', () => {
   beforeEach(() => {
     managedDeleteMock.mockReset()
@@ -200,6 +211,7 @@ describe('SecretListPage delete lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -211,6 +223,7 @@ describe('SecretListPage delete lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -804,5 +817,193 @@ describe('SecretListPage delete lifecycle', () => {
     })
 
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['secrets'] })
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText, queryByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <SecretListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Secret A')).toBeTruthy()
+    })
+
+    expect(queryByText('managed.secrets.new')).toBeNull()
+    expect(queryByText('secret-a:managed.secrets.setDefault')).toBeNull()
+    expect(queryByText('secret-a:common.delete')).toBeNull()
+  })
+
+  it('does not test a secret draft from old dialog state after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByRole } = render(
+      <QueryClientProvider client={queryClient}>
+        <SecretListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getAllByRole('button', { name: /managed\.secrets\.new/ })[0]).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getAllByRole('button', { name: /managed\.secrets\.new/ })[0])
+    })
+
+    const testButton = getAllByRole('button', { name: /managed\.secrets\.testConnection/ })[0]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(testButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets/test', expect.anything())
+  })
+
+  it('does not create a secret from old dialog state after the current project is archived', async () => {
+    managedPostMock.mockResolvedValueOnce({
+      ok: true,
+      provider: 'claude',
+      protocol: 'anthropic_messages',
+      message: 'ok',
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByRole, getByPlaceholderText, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <SecretListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getAllByRole('button', { name: /managed\.secrets\.new/ })[0]).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getAllByRole('button', { name: /managed\.secrets\.new/ })[0])
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.secrets.namePlaceholder'), {
+        target: { value: 'Archived Project Secret' },
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(getAllByRole('button', { name: /managed\.secrets\.testConnection/ })[0])
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(getByText('managed.secrets.testSucceeded')).toBeTruthy()
+    })
+
+    const createButton = getAllByRole('button', { name: /common\.create/ })[0]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(createButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets', expect.anything())
+  })
+
+  it('does not delete a secret from an old confirmation after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByRole, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <SecretListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Secret A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('secret-a:common.delete'))
+    })
+
+    const confirmDeleteButton = getByRole('button', { name: 'common.delete' })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(confirmDeleteButton)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/secrets/secret-a')
+  })
+
+  it('does not set default from an old row action after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <SecretListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Secret A')).toBeTruthy()
+    })
+
+    const setDefaultButton = getByText('secret-a:managed.secrets.setDefault')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(setDefaultButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets/secret-a/default', {})
   })
 })

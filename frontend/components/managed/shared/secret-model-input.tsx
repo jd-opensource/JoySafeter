@@ -12,6 +12,7 @@ interface SecretModelInputProps {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  disabled?: boolean
 }
 
 export function SecretModelInput({
@@ -19,6 +20,7 @@ export function SecretModelInput({
   onChange,
   placeholder,
   className,
+  disabled = false,
 }: SecretModelInputProps) {
   const [open, setOpen] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -39,6 +41,7 @@ export function SecretModelInput({
   }
 
   const openDropdown = () => {
+    if (disabled) return
     cancelPendingClose()
     setOpen(true)
   }
@@ -65,6 +68,7 @@ export function SecretModelInput({
   const showCustomValue = value.trim() && !MODEL_OPTIONS.includes(value.trim())
 
   const selectModel = (model: string) => {
+    if (disabled) return
     onChange(model)
     closeDropdown()
   }
@@ -74,6 +78,7 @@ export function SecretModelInput({
       <Input
         value={value}
         onChange={(event) => {
+          if (disabled) return
           onChange(event.target.value)
           openDropdown()
         }}
@@ -84,8 +89,9 @@ export function SecretModelInput({
         onBlur={scheduleCloseDropdown}
         placeholder={placeholder}
         className="pr-16 font-mono text-sm"
+        disabled={disabled}
       />
-      {value ? (
+      {value && !disabled ? (
         <Button
           type="button"
           variant="ghost"
@@ -105,8 +111,10 @@ export function SecretModelInput({
         variant="ghost"
         size="icon"
         className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
+          if (disabled) return
           cancelPendingClose()
           setOpen((nextOpen) => !nextOpen)
         }}

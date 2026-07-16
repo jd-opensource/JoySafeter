@@ -5,6 +5,7 @@ import { useTranslation } from '@/lib/i18n'
 import { managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -55,7 +56,8 @@ export function CreateMemoryStoreDialog({
   const isCurrentCreateRun = (runId: number, scope: string) =>
     runId === createRunRef.current &&
     scope === managedScopeRef.current &&
-    currentManagedScopeIsActive(scope)
+    currentManagedScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   useEffect(() => {
     if (managedScopeRef.current === managedScope) return
@@ -77,6 +79,11 @@ export function CreateMemoryStoreDialog({
   const handleCreate = async () => {
     if (!name.trim()) {
       setError(t('managed.memoryStores.nameRequired'))
+      return
+    }
+    if (!currentProjectAllowsWrite()) {
+      resetForm()
+      onOpenChange(false)
       return
     }
     const scopeAtStart = managedScopeRef.current
@@ -102,6 +109,7 @@ export function CreateMemoryStoreDialog({
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen && !currentProjectAllowsWrite()) return
     if (!nextOpen) {
       createRunRef.current += 1
       setLoading(false)

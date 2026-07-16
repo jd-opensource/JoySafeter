@@ -36,6 +36,10 @@ import {
   SECRET_PROVIDER_GROUPS,
 } from '@/lib/managed/secret-keys'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface SecretDetail {
   id: string
@@ -71,6 +75,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const operationScope = `${managedScope}:${secretId ?? ''}`
   const saveRunRef = useRef(0)
@@ -123,21 +128,25 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   }, [dirty, operationScope, secret])
 
   const updatePair = (index: number, field: 'key' | 'value', val: string) => {
+    if (!currentProjectAllowsWrite()) return
     setPairs((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: val } : p)))
     setDirty(true)
   }
 
   const removePair = (index: number) => {
+    if (!currentProjectAllowsWrite()) return
     setPairs((prev) => prev.filter((_, i) => i !== index))
     setDirty(true)
   }
 
   const addPair = () => {
+    if (!currentProjectAllowsWrite()) return
     setPairs((prev) => [...prev, { key: '', value: '' }])
     setDirty(true)
   }
 
   const updateProvider = (nextProvider: string) => {
+    if (!currentProjectAllowsWrite()) return
     const nextProtocol = getDefaultProtocol(nextProvider)
     setProvider(nextProvider)
     setProtocol(nextProtocol)
@@ -145,6 +154,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   }
 
   const updateProtocol = (nextProtocol: string) => {
+    if (!currentProjectAllowsWrite()) return
     setProtocol(nextProtocol)
     setDirty(true)
   }
@@ -174,7 +184,12 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
     return `${orgId ?? ''}:${projectId ?? ''}`
   }
 
+  const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
+    operationScopeRef.current === scope && getCurrentOperationScope() === scope
+
   const currentSecretDetail = () => {
+    if (!currentOperationScopeIsActive()) return null
+    if (!currentProjectAllowsWrite()) return null
     const current = queryClient.getQueryData<SecretDetail>([
       'secret',
       getCurrentManagedScope(),
@@ -186,11 +201,14 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   const isCurrentSaveRun = (runId: number, scope: string) =>
     saveRunRef.current === runId &&
     operationScopeRef.current === scope &&
-    getCurrentOperationScope() === scope
+    getCurrentOperationScope() === scope &&
+    currentProjectAllowsWrite()
 
   const saveMutation = useMutation({
-    mutationFn: ({ secretId, payload }: SaveSecretVariables) =>
-      managedPut(`/secrets/${stripIdPrefix(secretId)}`, payload),
+    mutationFn: async ({ secretId, payload, runId, scope }: SaveSecretVariables) => {
+      if (!isCurrentSaveRun(runId, scope)) return undefined
+      return managedPut(`/secrets/${stripIdPrefix(secretId)}`, payload)
+    },
     onSuccess: (_data, { secretId, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
       setDirty(false)
@@ -245,7 +263,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                   scope: operationScopeRef.current,
                 })
               }}
-              disabled={!dirty || saveMutation.isPending}
+              disabled={!dirty || projectReadOnly || saveMutation.isPending}
             >
               <Save className="mr-1 h-4 w-4" />
               {saveMutation.isPending ? t('common.saving') : t('common.save')}
@@ -264,8 +282,8 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
           <div className="space-y-1">
             <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
-            <Select value={provider} onValueChange={updateProvider}>
-              <SelectTrigger>
+            <Select value={provider} onValueChange={updateProvider} disabled={projectReadOnly}>
+              <SelectTrigger disabled={projectReadOnly}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -301,8 +319,8 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium">{t('managed.secrets.protocol')}</label>
-            <Select value={protocol} onValueChange={updateProtocol}>
-              <SelectTrigger>
+            <Select value={protocol} onValueChange={updateProtocol} disabled={projectReadOnly}>
+              <SelectTrigger disabled={projectReadOnly}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -337,6 +355,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                 className="min-w-0"
                 provider={provider}
                 protocol={protocol}
+                disabled={projectReadOnly}
               />
               {isModelKey(pair.key) ? (
                 <SecretModelInput
@@ -344,6 +363,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                   onChange={(v) => updatePair(i, 'value', v)}
                   placeholder={t('managed.secrets.selectModel')}
                   className="min-w-0"
+                  disabled={projectReadOnly}
                 />
               ) : (
                 <Input
@@ -352,24 +372,31 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
                   onChange={(e) => updatePair(i, 'value', e.target.value)}
                   className="min-w-0 font-mono text-sm"
                   type={!isSecretValueMaskedKey(pair.key) || showValues ? 'text' : 'password'}
+                  disabled={projectReadOnly}
                 />
               )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => removePair(i)}
-                className="h-10 w-10 text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              {projectReadOnly ? (
+                <div className="h-10 w-10" />
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removePair(i)}
+                  className="h-10 w-10 text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           ))}
         </div>
 
-        <Button variant="outline" size="sm" onClick={addPair}>
-          <Plus className="mr-1 h-3 w-3" />
-          {t('managed.secrets.addPair')}
-        </Button>
+        {!projectReadOnly && (
+          <Button variant="outline" size="sm" onClick={addPair}>
+            <Plus className="mr-1 h-3 w-3" />
+            {t('managed.secrets.addPair')}
+          </Button>
+        )}
       </div>
     </div>
   )

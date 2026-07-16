@@ -157,6 +157,17 @@ function memoryStore(id: string, name: string): MemoryStoreRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -177,6 +188,7 @@ describe('MemoryStoreListPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -188,6 +200,7 @@ describe('MemoryStoreListPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -216,6 +229,60 @@ describe('MemoryStoreListPage object lifecycle', () => {
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
       fireEvent.click(getByText('memstore_a:managed.memoryStores.archiveStore'))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('memory_stores/a/archive')
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText, queryByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryStoreListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Project A Store')).toBeTruthy()
+    })
+
+    expect(queryByText('managed.memoryStores.new')).toBeNull()
+    expect(queryByText('memstore_a:managed.memoryStores.archiveStore')).toBeNull()
+  })
+
+  it('does not archive a memory store from an old row action after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryStoreListPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Project A Store')).toBeTruthy()
+    })
+
+    const archiveButton = getByText('memstore_a:managed.memoryStores.archiveStore')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(archiveButton)
       await Promise.resolve()
     })
 

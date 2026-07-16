@@ -14,7 +14,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Star, Pencil, Archive, Trash2, RotateCcw } from 'lucide-react'
+import { Plus, Star, Pencil, Archive, RotateCcw } from 'lucide-react'
 import {
   DataTable,
   FilterBar,
@@ -100,7 +100,6 @@ export default function ProjectsPage() {
     setArchiveTarget(null)
     setEditTarget(null)
     setEditName('')
-    setDeleteTarget(null)
   }, [orgScope])
 
   useEffect(
@@ -135,6 +134,15 @@ export default function ProjectsPage() {
       .getQueryData<Project[]>(['projects-list', orgScopeRef.current, showArchived])
       ?.find((candidate) => candidate.id === project.id)
     return current && !current.archived_at && !current.is_default ? current : null
+  }
+
+  const currentRestorableArchivedProject = (project: Project | null) => {
+    if (!project) return null
+    if (!currentOrgScopeIsActive()) return null
+    const current = queryClient
+      .getQueryData<Project[]>(['projects-list', orgScopeRef.current, showArchived])
+      ?.find((candidate) => candidate.id === project.id)
+    return current?.archived_at ? current : null
   }
 
   const createProject = useMutation({
@@ -225,8 +233,6 @@ export default function ProjectsPage() {
     },
   })
 
-  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
-
   const openArchiveDialog = (project: Project) => {
     const current = currentMutableActiveProject(project)
     if (!current) return
@@ -240,18 +246,6 @@ export default function ProjectsPage() {
     setArchiveTarget(null)
   }
 
-  const openDeleteDialog = (project: Project) => {
-    if (!currentMutableActiveProject(project)) return
-
-    actionRunRef.current += 1
-    setDeleteTarget(project)
-  }
-
-  const closeDeleteDialog = () => {
-    actionRunRef.current += 1
-    setDeleteTarget(null)
-  }
-
   const restoreProject = useMutation({
     mutationFn: ({ projectId, runId, scope }: { projectId: string } & ProjectScopedAction) => {
       if (!isCurrentAction(runId, scope)) {
@@ -261,25 +255,6 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
-      queryClient.invalidateQueries({ queryKey: ['auth-me'] })
-    },
-    onError: (error, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  const deleteProject = useMutation({
-    mutationFn: ({ projectId, runId, scope }: { projectId: string } & ProjectScopedAction) => {
-      if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale project delete ignored')
-      }
-      return managedDelete(`/auth/projects/${projectId}`)
-    },
-    onSuccess: (_data, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      setDeleteTarget(null)
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
@@ -304,10 +279,6 @@ export default function ProjectsPage() {
       return current
     })
     setArchiveTarget((target) => {
-      if (!target) return null
-      return isMutableActiveProject(currentById.get(target.id)) ? target : null
-    })
-    setDeleteTarget((target) => {
       if (!target) return null
       return isMutableActiveProject(currentById.get(target.id)) ? target : null
     })
@@ -458,8 +429,10 @@ export default function ProjectsPage() {
                       label: t('common.restore'),
                       icon: <RotateCcw className="h-3.5 w-3.5" />,
                       onClick: () => {
+                        const current = currentRestorableArchivedProject(project)
+                        if (!current) return
                         const action = nextScopedAction()
-                        if (action) restoreProject.mutate({ projectId: project.id, ...action })
+                        if (action) restoreProject.mutate({ projectId: current.id, ...action })
                       },
                     },
                   ]
@@ -489,12 +462,6 @@ export default function ProjectsPage() {
                       label: t('common.archive'),
                       icon: <Archive className="h-3.5 w-3.5" />,
                       onClick: () => openArchiveDialog(project),
-                    },
-                    {
-                      label: t('common.delete'),
-                      icon: <Trash2 className="h-3.5 w-3.5" />,
-                      destructive: true,
-                      onClick: () => openDeleteDialog(project),
                     },
                   )
                 }
@@ -576,38 +543,6 @@ export default function ProjectsPage() {
               disabled={!editName.trim() || editProject.isPending}
             >
               {editProject.isPending ? t('common.loading') : t('common.save')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Project Dialog */}
-      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && closeDeleteDialog()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('manage.projects.delete')}</DialogTitle>
-            <DialogDescription>
-              {t('manage.projects.deleteConfirm', { name: deleteTarget?.name })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDeleteDialog}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                const current = currentMutableActiveProject(deleteTarget)
-                if (!current) {
-                  closeDeleteDialog()
-                  return
-                }
-                const action = nextScopedAction()
-                if (action) deleteProject.mutate({ projectId: current.id, ...action })
-              }}
-              disabled={deleteProject.isPending}
-            >
-              {deleteProject.isPending ? t('common.loading') : t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -5,10 +5,12 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/i18n', () => ({
+  i18n: { language: 'en' },
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
 vi.mock('@/lib/api-client', () => ({
+  extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
   managedPost: vi.fn(),
 }))
 
@@ -110,6 +112,14 @@ describe('CreateCredentialDialog object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: {
+        id: 'project-a',
+        org_id: 'org-a',
+        name: 'Project A',
+        slug: 'project-a',
+        is_default: true,
+        archived_at: null,
+      },
       organizations: [],
       projects: [],
     })
@@ -121,6 +131,7 @@ describe('CreateCredentialDialog object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })

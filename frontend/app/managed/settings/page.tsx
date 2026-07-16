@@ -29,6 +29,7 @@ import { canAdmin, canOwn, roleLabel } from '@/lib/managed/roles'
 import { clearNonSessionQueryData } from '@/lib/query-client-lifecycle'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { ProjectInfo } from '@/stores/managed/project-store'
 
 interface MeResponse {
   organization: {
@@ -170,7 +171,12 @@ export default function OrganizationPage() {
 
   const switchOrgMutation = useMutation({
     mutationFn: ({ orgId }: SwitchOrgVariables) =>
-      managedPost<{ org_id: string; project_id: string }>(
+      managedPost<{
+        org_id?: string
+        project_id?: string
+        project?: ProjectInfo
+        projects?: ProjectInfo[]
+      }>(
         'auth/switch-context',
         { org_id: orgId },
         {
@@ -180,10 +186,16 @@ export default function OrganizationPage() {
       ),
     onSuccess: (data, { orgId, requestSeq }) => {
       if (requestSeq !== switchOrgRequestSeqRef.current) return
-      const { setCurrentOrg, setCurrentProject } = useProjectStore.getState()
-      setCurrentOrg(data?.org_id || orgId)
-      if (data?.project_id) {
-        setCurrentProject(data.project_id)
+      const targetOrgId = data?.org_id || orgId
+      const targetProjectId = data?.project?.id || data?.project_id
+      const { setContext, setCurrentOrg, setCurrentProject } = useProjectStore.getState()
+      if (targetProjectId && data?.project && data?.projects) {
+        setContext(targetOrgId, targetProjectId, organizations, data.projects, data.project)
+      } else {
+        setCurrentOrg(targetOrgId)
+        if (targetProjectId) {
+          setCurrentProject(targetProjectId)
+        }
       }
       clearNonSessionQueryData(queryClient)
     },

@@ -113,6 +113,17 @@ function environment(
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function renderEnvironmentPage(queryClient: QueryClient, envId: string) {
   const params = {
     status: 'fulfilled',
@@ -141,6 +152,7 @@ describe('EnvironmentDetailPage save lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -152,6 +164,7 @@ describe('EnvironmentDetailPage save lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -218,6 +231,42 @@ describe('EnvironmentDetailPage save lifecycle', () => {
     expect(pushMock).not.toHaveBeenCalledWith('/managed/environments')
   })
 
+  it('does not save an old environment draft to a new project that has the same environment id', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(renderEnvironmentPage(queryClient, 'env-a'))
+
+    await waitFor(() => {
+      expect(view.getByDisplayValue('Env A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.input(view.getByDisplayValue('Env A'), {
+        target: { value: 'Old Project Env Draft' },
+      })
+    })
+
+    queryClient.setQueryData(
+      ['environment', 'org-a:project-b', 'env-a'],
+      environment('env-a', 'Project B Env'),
+    )
+    const saveButton = view.getByText('managed.environments.save')
+
+    await act(async () => {
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      fireEvent.click(saveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a', expect.anything())
+  })
+
   it('does not overwrite an unsaved environment draft when refreshed environment data arrives', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -282,6 +331,34 @@ describe('EnvironmentDetailPage save lifecycle', () => {
     })
 
     expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a', expect.anything())
+  })
+
+  it('does not save after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(renderEnvironmentPage(queryClient, 'env-a'))
+
+    await waitFor(() => {
+      expect(view.getByText('Env A')).toBeTruthy()
+    })
+
+    const saveButton = view.getByText('managed.environments.save')
+
+    await act(async () => {
+      useProjectStore.setState({ currentProject: projectInfo('2026-01-02T00:00:00Z') })
+      fireEvent.click(saveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a', expect.anything())
+    expect(view.queryByText('managed.environments.save')).toBeNull()
+    expect(view.getByText('managed.errors.projectArchived')).toBeTruthy()
   })
 
   it('does not navigate from a save completion after the page unmounts', async () => {

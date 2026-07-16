@@ -82,6 +82,10 @@ import { toastOperationError } from '@/lib/managed/errors'
 import { useToast } from '@/hooks/use-toast'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 function stripId(id: string): string {
   return id.replace(/^(skill_|sklver_|sklfile_)/, '')
@@ -110,6 +114,7 @@ function SkillCodeEditor({
   onChange,
   fileType,
   fileName,
+  readOnly = false,
   minHeight = '360px',
   height = '420px',
 }: {
@@ -117,6 +122,7 @@ function SkillCodeEditor({
   onChange: (value: string) => void
   fileType?: string
   fileName?: string
+  readOnly?: boolean
   minHeight?: string
   height?: string
 }) {
@@ -127,6 +133,8 @@ function SkillCodeEditor({
     <CodeMirror
       value={value}
       onChange={onChange}
+      readOnly={readOnly}
+      editable={!readOnly}
       theme={editorTheme}
       height={height}
       minHeight={minHeight}
@@ -222,6 +230,10 @@ function skillSecuritySearchTerms(skill: SkillRecord): string[] {
     scan.recommendation || '',
     scan.score !== null && scan.score !== undefined ? String(scan.score) : '',
   ]
+}
+
+function isSkillMutable(skill: SkillRecord | null | undefined): boolean {
+  return !!skill && skill.lifecycle_status !== 'archived'
 }
 
 type SecurityIssueView = {
@@ -428,6 +440,7 @@ function FileTreeNode({
   node,
   depth,
   selectedFileId,
+  canEdit,
   onSelectFile,
   onDeleteFile,
   onDeleteFolder,
@@ -437,6 +450,7 @@ function FileTreeNode({
   node: TreeNode
   depth: number
   selectedFileId: string | null
+  canEdit: boolean
   onSelectFile: (id: string) => void
   onDeleteFile: (id: string) => void
   onDeleteFolder: (folderPath: string) => void
@@ -449,7 +463,7 @@ function FileTreeNode({
   const [open, setOpen] = useState(true)
   const [dragOver, setDragOver] = useState(false)
   const paddingLeft = 12 + depth * 16
-  const dndEnabled = !!onMove
+  const dndEnabled = canEdit && !!onMove
 
   if (node.file) {
     if (node.name === '.gitkeep') return null
@@ -478,15 +492,17 @@ function FileTreeNode({
         <span className="shrink-0 text-[10px] text-muted-foreground/50">
           {formatBytes(node.file!.size)}
         </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onDeleteFile(node.file!.id)
-          }}
-          className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
+        {canEdit && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDeleteFile(node.file!.id)
+            }}
+            className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
       </div>
     )
   }
@@ -545,24 +561,28 @@ function FileTreeNode({
         )}
         <FolderOpen className="h-4 w-4" />
         <span className="ml-1 flex-1">{node.name}/</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onAddToFolder(node.fullPath)
-          }}
-          className="hidden shrink-0 text-muted-foreground hover:text-foreground group-hover:block"
-        >
-          <Plus className="h-3 w-3" />
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onDeleteFolder(node.fullPath)
-          }}
-          className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
+        {canEdit && (
+          <>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onAddToFolder(node.fullPath)
+              }}
+              className="hidden shrink-0 text-muted-foreground hover:text-foreground group-hover:block"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDeleteFolder(node.fullPath)
+              }}
+              className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </>
+        )}
       </div>
       {open &&
         node.children.map((child, i) => (
@@ -571,6 +591,7 @@ function FileTreeNode({
             node={child}
             depth={depth + 1}
             selectedFileId={selectedFileId}
+            canEdit={canEdit}
             onSelectFile={onSelectFile}
             onDeleteFile={onDeleteFile}
             onDeleteFolder={onDeleteFolder}
@@ -586,6 +607,7 @@ function SkillWorkspace({
   skillName,
   files,
   selectedFileId,
+  canEdit,
   onSelectFile,
   onSelectMain,
   onAddFolder,
@@ -598,6 +620,7 @@ function SkillWorkspace({
   skillName: string
   files: SkillFileRecord[]
   selectedFileId: string | null
+  canEdit: boolean
   onSelectFile: (id: string) => void
   onSelectMain: () => void
   onAddFolder: () => void
@@ -622,6 +645,7 @@ function SkillWorkspace({
           variant="ghost"
           size="sm"
           className="h-6 w-6 p-0"
+          disabled={!canEdit}
           onClick={onAddFolder}
           title={t('managed.skills.newFolder')}
         >
@@ -631,15 +655,19 @@ function SkillWorkspace({
 
       <div
         className="flex-1 overflow-y-auto py-1 text-sm"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          try {
-            const source = JSON.parse(e.dataTransfer.getData('text/plain')) as MoveSource
-            if (source) onMove?.(source, '')
-          } catch {
-            /* ignore */
-          }
-        }}
+        onDragOver={canEdit && onMove ? (e) => e.preventDefault() : undefined}
+        onDrop={
+          canEdit && onMove
+            ? (e) => {
+                try {
+                  const source = JSON.parse(e.dataTransfer.getData('text/plain')) as MoveSource
+                  if (source) onMove(source, '')
+                } catch {
+                  /* ignore */
+                }
+              }
+            : undefined
+        }
       >
         {/* Root node — the skill itself. SKILL.md and folders nest under it. */}
         <div
@@ -676,11 +704,12 @@ function SkillWorkspace({
                 node={child}
                 depth={1}
                 selectedFileId={selectedFileId}
+                canEdit={canEdit}
                 onSelectFile={onSelectFile}
                 onDeleteFile={onDeleteFile}
                 onDeleteFolder={onDeleteFolder}
                 onAddToFolder={onAddToFolder}
-                onMove={onMove}
+                onMove={canEdit ? onMove : undefined}
               />
             ))}
           </>
@@ -767,6 +796,7 @@ function SkillEditor({
   skill,
   files,
   selectedFileId,
+  canEdit,
   form,
   setForm,
   fileContent,
@@ -785,6 +815,7 @@ function SkillEditor({
   skill: SkillRecord
   files: SkillFileRecord[]
   selectedFileId: string | null
+  canEdit: boolean
   form: SkillFormState
   setForm: (f: SkillFormState) => void
   fileContent: string
@@ -863,10 +894,11 @@ function SkillEditor({
 
   const openDeleteVersionDialog = useCallback(
     (version: string) => {
+      if (!canEdit) return
       markVersionDeleteDialogActivity()
       setDeleteState({ version })
     },
-    [markVersionDeleteDialogActivity],
+    [canEdit, markVersionDeleteDialogActivity],
   )
 
   const closeDeleteVersionDialog = useCallback(() => {
@@ -907,6 +939,7 @@ function SkillEditor({
                   onChange={setFileContent}
                   fileType={selectedFile.file_type}
                   fileName={selectedFile.file_name}
+                  readOnly={!canEdit}
                   minHeight="400px"
                   height="100%"
                 />
@@ -954,6 +987,7 @@ function SkillEditor({
                     onChange={(value) => setForm({ ...form, content: value })}
                     fileType="markdown"
                     fileName="SKILL.md"
+                    readOnly={!canEdit}
                     minHeight="100%"
                     height="100%"
                   />
@@ -994,6 +1028,7 @@ function SkillEditor({
                 </div>
                 <Input
                   value={form.name}
+                  disabled={!canEdit}
                   onChange={(e) =>
                     setForm({
                       ...form,
@@ -1010,6 +1045,7 @@ function SkillEditor({
                 </label>
                 <Input
                   value={form.license}
+                  disabled={!canEdit}
                   onChange={(e) =>
                     setForm({ ...form, license: e.target.value })
                   }
@@ -1026,6 +1062,7 @@ function SkillEditor({
                 </label>
                 <Select
                   value={form.visibility || 'private'}
+                  disabled={!canEdit}
                   onValueChange={(v) =>
                     setForm({
                       ...form,
@@ -1062,6 +1099,7 @@ function SkillEditor({
               </div>
               <textarea
                 value={form.description}
+                disabled={!canEdit}
                 onChange={(e) =>
                   setForm({
                     ...form,
@@ -1081,6 +1119,7 @@ function SkillEditor({
               </label>
               <Input
                 value={form.tags}
+                disabled={!canEdit}
                 onChange={(e) => setForm({ ...form, tags: e.target.value })}
                 placeholder={t('managed.skills.tagsPlaceholder')}
                 className="h-8 text-sm"
@@ -1240,7 +1279,8 @@ function SkillEditor({
                             aria-label={t('managed.skills.deleteVersion', 'Delete version')}
                             title={t('managed.skills.deleteVersion', 'Delete version')}
                             onClick={() => openDeleteVersionDialog(v.version)}
-                            className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                            disabled={!canEdit}
+                            className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30 group-hover:opacity-100"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -1352,8 +1392,9 @@ function SkillEditor({
                     {t('managed.skills.cancel')}
                   </Button>
                   <Button
-                    disabled={isCreatingVersion || !semverOk}
+                    disabled={!canEdit || isCreatingVersion || !semverOk}
                     onClick={() => {
+                      if (!canEdit) return
                       onCreateVersion(newReleaseNotes.trim(), trimmed || undefined)
                       setShowVersionForm(false)
                       setNewReleaseNotes('')
@@ -1422,10 +1463,11 @@ function SkillEditor({
             </Button>
             <Button
               variant="destructive"
-              disabled={deleteState?.pending}
+              disabled={!canEdit || deleteState?.pending}
               onClick={async () => {
                 if (!deleteState) return
                 const force = (deleteState.referrers?.length ?? 0) > 0
+                if (!canEdit) return
                 const runId = versionDeleteRunRef.current + 1
                 versionDeleteRunRef.current = runId
                 setDeleteState({ ...deleteState, pending: true })
@@ -1465,6 +1507,7 @@ export default function SkillManagerPage() {
   const router = useRouter()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
@@ -1582,8 +1625,14 @@ export default function SkillManagerPage() {
     [getCurrentManagedScope],
   )
 
+  const currentManagedScopeAllowsWrite = useCallback(
+    (scope = managedScopeRef.current) =>
+      currentManagedScopeIsActive(scope) && currentProjectAllowsWrite(),
+    [currentManagedScopeIsActive],
+  )
+
   const nextSkillAction = useCallback((): SkillActionScope | null => {
-    if (!currentManagedScopeIsActive()) return null
+    if (!currentManagedScopeAllowsWrite()) return null
     const skillId = selectedSkillIdRef.current
     if (!skillId) return null
     const runId = mutationRunRef.current + 1
@@ -1593,32 +1642,32 @@ export default function SkillManagerPage() {
       scope: managedScopeRef.current,
       skillId,
     }
-  }, [currentManagedScopeIsActive])
+  }, [currentManagedScopeAllowsWrite])
 
   const isCurrentSkillAction = useCallback((action: SkillActionScope): boolean => {
     return (
       mutationRunRef.current === action.runId &&
-      currentManagedScopeIsActive(action.scope) &&
+      currentManagedScopeAllowsWrite(action.scope) &&
       selectedSkillIdRef.current === action.skillId
     )
-  }, [currentManagedScopeIsActive])
+  }, [currentManagedScopeAllowsWrite])
 
   const nextManagedAction = useCallback((): ManagedActionScope | null => {
-    if (!currentManagedScopeIsActive()) return null
+    if (!currentManagedScopeAllowsWrite()) return null
     const runId = mutationRunRef.current + 1
     mutationRunRef.current = runId
     return {
       runId,
       scope: managedScopeRef.current,
     }
-  }, [currentManagedScopeIsActive])
+  }, [currentManagedScopeAllowsWrite])
 
   const isCurrentManagedAction = useCallback((action: ManagedActionScope): boolean => {
     return (
       mutationRunRef.current === action.runId &&
-      currentManagedScopeIsActive(action.scope)
+      currentManagedScopeAllowsWrite(action.scope)
     )
-  }, [currentManagedScopeIsActive])
+  }, [currentManagedScopeAllowsWrite])
 
   const currentSkillInList = useCallback(
     (skillId: string | null) => {
@@ -1636,11 +1685,37 @@ export default function SkillManagerPage() {
     [currentManagedScopeIsActive, queryClient],
   )
 
+  const currentSkillDetail = useCallback(
+    (skillId: string | null) => {
+      if (!skillId) return null
+      if (!currentManagedScopeIsActive()) return null
+      return (
+        queryClient.getQueryData<SkillRecord>([
+          'skill',
+          managedScopeRef.current,
+          skillId,
+        ]) ?? null
+      )
+    },
+    [currentManagedScopeIsActive, queryClient],
+  )
+
   const nextCurrentSkillAction = useCallback((): SkillActionScope | null => {
     const action = nextSkillAction()
     if (!action) return null
     return currentSkillInList(action.skillId) ? action : null
   }, [currentSkillInList, nextSkillAction])
+
+  const nextCurrentMutableSkillAction = useCallback((): SkillActionScope | null => {
+    if (!currentProjectAllowsWrite()) return null
+    const action = nextSkillAction()
+    if (!action) return null
+    const listSkill = currentSkillInList(action.skillId)
+    if (!isSkillMutable(listSkill)) return null
+    const detailSkill = currentSkillDetail(action.skillId)
+    if (detailSkill && !isSkillMutable(detailSkill)) return null
+    return action
+  }, [currentSkillDetail, currentSkillInList, nextSkillAction])
 
   const currentSkillFiles = useCallback(
     (skillId = selectedSkillIdRef.current) => {
@@ -2276,7 +2351,7 @@ export default function SkillManagerPage() {
     async (version: string, force = false): Promise<
       { ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }
     > => {
-      const action = nextCurrentSkillAction()
+      const action = nextCurrentMutableSkillAction()
       if (!action) return { ok: true }
       if (!currentSkillVersion(version, action.skillId)) return { ok: true }
       if (!isCurrentSkillAction(action)) return { ok: true }
@@ -2305,7 +2380,7 @@ export default function SkillManagerPage() {
         throw e
       }
     },
-    [currentSkillVersion, isCurrentSkillAction, nextCurrentSkillAction, queryClient, t],
+    [currentSkillVersion, isCurrentSkillAction, nextCurrentMutableSkillAction, queryClient, t],
   )
 
   const rescanSecurityMutation = useMutation({
@@ -2353,7 +2428,7 @@ export default function SkillManagerPage() {
   }, [clearSavedFlash])
 
   const openDeleteSkillDialog = useCallback((id: string) => {
-    if (!currentSkillInList(id)) return
+    if (!isSkillMutable(currentSkillInList(id))) return
 
     mutationRunRef.current += 1
     setDeleteTarget(id)
@@ -2365,11 +2440,15 @@ export default function SkillManagerPage() {
   }, [])
 
   const openDeleteFileDialog = useCallback((id: string) => {
+    const skillId = selectedSkillIdRef.current
+    if (!isSkillMutable(currentSkillInList(skillId))) return
+    const detailSkill = currentSkillDetail(skillId)
+    if (detailSkill && !isSkillMutable(detailSkill)) return
     if (!currentSkillFile(id)) return
 
     mutationRunRef.current += 1
     setDeleteFileTarget(id)
-  }, [currentSkillFile])
+  }, [currentSkillDetail, currentSkillFile, currentSkillInList])
 
   const closeDeleteFileDialog = useCallback(() => {
     mutationRunRef.current += 1
@@ -2377,11 +2456,15 @@ export default function SkillManagerPage() {
   }, [])
 
   const openDeleteFolderDialog = useCallback((path: string) => {
+    const skillId = selectedSkillIdRef.current
+    if (!isSkillMutable(currentSkillInList(skillId))) return
+    const detailSkill = currentSkillDetail(skillId)
+    if (detailSkill && !isSkillMutable(detailSkill)) return
     if (currentFolderFiles(path).length === 0) return
 
     mutationRunRef.current += 1
     setDeleteFolderTarget(path)
-  }, [currentFolderFiles])
+  }, [currentFolderFiles, currentSkillDetail, currentSkillInList])
 
   const closeDeleteFolderDialog = useCallback(() => {
     mutationRunRef.current += 1
@@ -2416,24 +2499,27 @@ export default function SkillManagerPage() {
     }
   }, [skillFiles])
 
+  const canEditSelectedSkill = !projectReadOnly && isSkillMutable(selectedSkill)
+
   // -- Ctrl+S / Cmd+S --
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
+        if (!canEditSelectedSkill) return
         // Mirror the Save button: only save a file on the Editor tab;
         // otherwise save the skill-level metadata form.
         const savingFile = editorTab === 'editor' && !!selectedFileId
         if (savingFile && isFileDirty) {
-          const action = nextCurrentSkillAction()
+          const action = nextCurrentMutableSkillAction()
           const fileId = selectedFileIdRef.current
           const file = action && fileId ? currentSkillFile(fileId, action.skillId) : null
           if (action && file) {
             saveFileMutation.mutate({ ...action, fileId: file.id, content: fileContent })
           }
         } else if (!savingFile && selectedSkillId && isDirty) {
-          const action = nextCurrentSkillAction()
+          const action = nextCurrentMutableSkillAction()
           if (action) {
             saveMutation.mutate({ ...action, form })
           }
@@ -2451,7 +2537,8 @@ export default function SkillManagerPage() {
     isDirty,
     isFileDirty,
     currentSkillFile,
-    nextCurrentSkillAction,
+    canEditSelectedSkill,
+    nextCurrentMutableSkillAction,
     saveMutation,
     saveFileMutation,
   ])
@@ -2467,6 +2554,25 @@ export default function SkillManagerPage() {
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [isDirty, isFileDirty])
+
+  useEffect(() => {
+    if (!selectedSkill || canEditSelectedSkill) return
+    setShowVersionForm(false)
+    setShowAddFileDialog(false)
+    setDeleteFileTarget(null)
+    setDeleteFolderTarget(null)
+  }, [canEditSelectedSkill, selectedSkill])
+
+  useEffect(() => {
+    if (!projectReadOnly) return
+    mutationRunRef.current += 1
+    setShowVersionForm(false)
+    setShowAddFileDialog(false)
+    setDeleteTarget(null)
+    setDeleteFileTarget(null)
+    setDeleteFolderTarget(null)
+    setShowImportDialog(false)
+  }, [projectReadOnly])
 
   // -- Render --
 
@@ -2580,29 +2686,37 @@ export default function SkillManagerPage() {
           title={t('managed.skills.title')}
           subtitle={t('managed.skills.subtitle')}
           action={
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                className="h-10 gap-2 px-4 text-sm font-medium leading-none"
-                disabled={isImporting}
-                onClick={() => setShowImportDialog(true)}
-              >
-                {isImporting ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.25} />
-                ) : (
-                  <Upload className="h-4 w-4" strokeWidth={2.25} />
-                )}
-                {isImporting
-                  ? t('managed.skills.importingSkill')
-                  : t('managed.skills.importSkill')}
-              </Button>
-              <Button
-                className="h-10 gap-2 px-4 text-sm font-medium leading-none"
-                onClick={() => router.push('/managed/skills/new-ai?new=1')}
-              >
-                <Sparkles className="h-4 w-4" strokeWidth={2.25} />
-                {t('managed.skills.aiAuthor.entry')}
-              </Button>
-            </div>
+            projectReadOnly ? null : (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  className="h-10 gap-2 px-4 text-sm font-medium leading-none"
+                  disabled={isImporting}
+                  onClick={() => {
+                    if (!currentProjectAllowsWrite()) return
+                    setShowImportDialog(true)
+                  }}
+                >
+                  {isImporting ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" strokeWidth={2.25} />
+                  ) : (
+                    <Upload className="h-4 w-4" strokeWidth={2.25} />
+                  )}
+                  {isImporting
+                    ? t('managed.skills.importingSkill')
+                    : t('managed.skills.importSkill')}
+                </Button>
+                <Button
+                  className="h-10 gap-2 px-4 text-sm font-medium leading-none"
+                  onClick={() => {
+                    if (!currentProjectAllowsWrite()) return
+                    router.push('/managed/skills/new-ai?new=1')
+                  }}
+                >
+                  <Sparkles className="h-4 w-4" strokeWidth={2.25} />
+                  {t('managed.skills.aiAuthor.entry')}
+                </Button>
+              </div>
+            )
           }
         />
 
@@ -2656,11 +2770,15 @@ export default function SkillManagerPage() {
               label: t('managed.skills.viewDetails'),
               onClick: () => handleSelectSkill(s.id),
             },
-            {
-              label: t('managed.skills.deleteSkill'),
-              onClick: () => openDeleteSkillDialog(s.id),
-              destructive: true,
-            },
+            ...(!projectReadOnly && isSkillMutable(s)
+              ? [
+                  {
+                    label: t('managed.skills.deleteSkill'),
+                    onClick: () => openDeleteSkillDialog(s.id),
+                    destructive: true,
+                  },
+                ]
+              : []),
           ]}
           pagination={{
             hasNext,
@@ -2676,7 +2794,13 @@ export default function SkillManagerPage() {
           emptyMessage={t('managed.skills.empty')}
         />
 
-        <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <Dialog
+          open={!projectReadOnly && showImportDialog}
+          onOpenChange={(open) => {
+            if (open && !currentProjectAllowsWrite()) return
+            setShowImportDialog(open)
+          }}
+        >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>{t('managed.skills.chooseImportMethod')}</DialogTitle>
@@ -2728,14 +2852,14 @@ export default function SkillManagerPage() {
         </Dialog>
 
         <ConfirmDialog
-          open={deleteTarget !== null}
+          open={!projectReadOnly && deleteTarget !== null}
           title={t('managed.skills.deleteSkill')}
           description={t('managed.skills.deleteConfirm')}
           confirmLabel={t('managed.skills.deleteSkill')}
           destructive
           onConfirm={() => {
             const target = currentSkillInList(deleteTarget)
-            if (!target) {
+            if (!target || !isSkillMutable(target)) {
               closeDeleteSkillDialog()
               return
             }
@@ -2755,7 +2879,7 @@ export default function SkillManagerPage() {
   // skill-level metadata form, no matter which file the tree has selected.
   const isEditingFile =
     editorTab === 'editor' && selectedFileId !== null && selectedFile !== undefined
-  const canSave = isEditingFile ? isFileDirty : isDirty
+  const canSave = canEditSelectedSkill && (isEditingFile ? isFileDirty : isDirty)
   const selectedSecurityScore = skillSecurityScore(selectedSkill)
   const securityTriggerLabels: Record<string, string> = {
     create: t('managed.skills.securityTriggers.create'),
@@ -2799,22 +2923,25 @@ export default function SkillManagerPage() {
               )}
               {/* Lifecycle transition buttons — only the legal next
                   edges from the current state are rendered. */}
-              <SkillLifecycleActions
-                skillId={selectedSkill.id}
-                currentStatus={selectedSkill.lifecycle_status}
-                operationScope={`${managedScope}:${selectedSkill.id}`}
-                canSubmitTransition={() => {
-                  const current = currentSkillInList(selectedSkill.id)
-                  return (
-                    !!current &&
-                    current.lifecycle_status === selectedSkill.lifecycle_status
-                  )
-                }}
-                invalidateKeys={[
-                  ['skill', selectedSkillId],
-                  ['skills'],
-                ]}
-              />
+              {!projectReadOnly && (
+                <SkillLifecycleActions
+                  skillId={selectedSkill.id}
+                  currentStatus={selectedSkill.lifecycle_status}
+                  operationScope={`${managedScope}:${selectedSkill.id}`}
+                  canSubmitTransition={() => {
+                    if (!currentProjectAllowsWrite()) return false
+                    const current = currentSkillInList(selectedSkill.id)
+                    return (
+                      !!current &&
+                      current.lifecycle_status === selectedSkill.lifecycle_status
+                    )
+                  }}
+                  invalidateKeys={[
+                    ['skill', selectedSkillId],
+                    ['skills'],
+                  ]}
+                />
+              )}
               <Button
                 variant="outline"
                 className="h-9 gap-2"
@@ -2827,10 +2954,15 @@ export default function SkillManagerPage() {
                 variant="outline"
                 className="h-9 gap-2"
                 onClick={() => {
-                  const action = nextCurrentSkillAction()
+                  const action = nextCurrentMutableSkillAction()
                   if (action) rescanSecurityMutation.mutate(action)
                 }}
-                disabled={rescanSecurityMutation.isPending || saveMutation.isPending || saveFileMutation.isPending}
+                disabled={
+                  !canEditSelectedSkill ||
+                  rescanSecurityMutation.isPending ||
+                  saveMutation.isPending ||
+                  saveFileMutation.isPending
+                }
               >
                 <RefreshCw className={`h-4 w-4 ${rescanSecurityMutation.isPending ? 'animate-spin' : ''}`} />
                 {rescanSecurityMutation.isPending
@@ -2840,8 +2972,11 @@ export default function SkillManagerPage() {
               {!showVersionForm && (
                 <Button
                   className="relative h-9 gap-2"
-                  onClick={() => setShowVersionForm(true)}
-                  disabled={securityBlocked}
+                  onClick={() => {
+                    if (!canEditSelectedSkill) return
+                    setShowVersionForm(true)
+                  }}
+                  disabled={!canEditSelectedSkill || securityBlocked}
                   title={
                     securityBlocked
                       ? t('managed.skills.publishBlockedBySecurity')
@@ -2863,7 +2998,7 @@ export default function SkillManagerPage() {
               <Button
                 className="h-9 gap-2"
                 onClick={() => {
-                  const action = nextCurrentSkillAction()
+                  const action = nextCurrentMutableSkillAction()
                   if (!action) return
                   if (isEditingFile && selectedFileIdRef.current) {
                     const file = currentSkillFile(selectedFileIdRef.current, action.skillId)
@@ -2916,14 +3051,17 @@ export default function SkillManagerPage() {
           skillName={selectedSkill.name}
           files={skillFiles}
           selectedFileId={selectedFileId}
+          canEdit={canEditSelectedSkill}
           onSelectFile={handleSelectFile}
           onSelectMain={handleSelectMain}
           onAddFolder={() => {
+            if (!canEditSelectedSkill) return
             setNewFileMode('folder')
             setNewFileDir('')
             setShowAddFileDialog(true)
           }}
           onAddToFolder={(folderPath) => {
+            if (!canEditSelectedSkill) return
             setNewFileMode('file')
             setNewFileDir(folderPath.replace(/\/+$/, ''))
             setShowAddFileDialog(true)
@@ -2931,7 +3069,7 @@ export default function SkillManagerPage() {
           onDeleteFile={openDeleteFileDialog}
           onDeleteFolder={openDeleteFolderDialog}
           onMove={(source, destFolder) => {
-            const action = nextCurrentSkillAction()
+            const action = nextCurrentMutableSkillAction()
             if (!action) return
             const files = currentSkillFiles(action.skillId)
             if (source.kind === 'file') {
@@ -2955,6 +3093,7 @@ export default function SkillManagerPage() {
           skill={selectedSkill}
           files={skillFiles}
           selectedFileId={selectedFileId}
+          canEdit={canEditSelectedSkill}
           form={form}
           setForm={setForm}
           fileContent={fileContent}
@@ -2962,7 +3101,7 @@ export default function SkillManagerPage() {
           versions={versions}
           onCreateVersion={(notes, version) =>
             {
-              const action = nextCurrentSkillAction()
+              const action = nextCurrentMutableSkillAction()
               if (action) {
                 createVersionMutation.mutate({
                   ...action,
@@ -3200,6 +3339,7 @@ export default function SkillManagerPage() {
       <Dialog
         open={showAddFileDialog}
         onOpenChange={(open) => {
+          if (open && !canEditSelectedSkill) return
           setShowAddFileDialog(open)
           if (!open) {
             setNewFileMode('file')
@@ -3299,7 +3439,7 @@ export default function SkillManagerPage() {
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newFileName.trim()) {
-                    const action = nextCurrentSkillAction()
+                    const action = nextCurrentMutableSkillAction()
                     if (action) {
                       const dir = newFileDir.trim()
                       if (dir && currentFolderFiles(`${dir}/`, action.skillId).length === 0) return
@@ -3358,7 +3498,7 @@ export default function SkillManagerPage() {
             </Button>
             <Button
               onClick={() => {
-                const action = nextCurrentSkillAction()
+                const action = nextCurrentMutableSkillAction()
                 if (action) {
                   const dir = newFileDir.trim()
                   if (dir && currentFolderFiles(`${dir}/`, action.skillId).length === 0) return
@@ -3371,7 +3511,7 @@ export default function SkillManagerPage() {
                   })
                 }
               }}
-              disabled={!newFileName.trim() || createFileMutation.isPending}
+              disabled={!canEditSelectedSkill || !newFileName.trim() || createFileMutation.isPending}
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               {newFileMode === 'folder'
@@ -3404,7 +3544,7 @@ export default function SkillManagerPage() {
             <Button
               variant="destructive"
               onClick={() => {
-                const action = nextCurrentSkillAction()
+                const action = nextCurrentMutableSkillAction()
                 if (!action) return
                 const target = currentSkillFile(deleteFileTarget, action.skillId)
                 if (!target) {
@@ -3413,7 +3553,7 @@ export default function SkillManagerPage() {
                 }
                 deleteFileMutation.mutate({ ...action, fileId: target.id })
               }}
-              disabled={deleteFileMutation.isPending}
+              disabled={!canEditSelectedSkill || deleteFileMutation.isPending}
             >
               {t('managed.skills.deleteFile')}
             </Button>
@@ -3443,7 +3583,7 @@ export default function SkillManagerPage() {
             <Button
               variant="destructive"
               onClick={() => {
-                const action = nextCurrentSkillAction()
+                const action = nextCurrentMutableSkillAction()
                 if (!action) return
                 const filesToDelete = currentFolderFiles(deleteFolderTarget, action.skillId)
                 if (!deleteFolderTarget || filesToDelete.length === 0) {
@@ -3456,7 +3596,7 @@ export default function SkillManagerPage() {
                   filesToDelete,
                 })
               }}
-              disabled={deleteFolderMutation.isPending}
+              disabled={!canEditSelectedSkill || deleteFolderMutation.isPending}
             >
               {t('managed.skills.deleteFolder')}
             </Button>

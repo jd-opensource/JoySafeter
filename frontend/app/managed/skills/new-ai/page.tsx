@@ -63,6 +63,10 @@ import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
 import { downloadDraftZip } from '@/lib/managed/skill-draft-zip'
 import type { SkillFileRecord } from '@/types/managed'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 type SecretRecord = { id: string; name: string; is_default?: boolean }
 type SecretsResponse = { data?: SecretRecord[] } | SecretRecord[]
@@ -129,6 +133,7 @@ export default function SkillAiAuthoringPage() {
   const { toast } = useToast()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const isFresh = searchParams.get('new') === '1'
   useEffect(() => {
@@ -219,10 +224,12 @@ export default function SkillAiAuthoringPage() {
   }
 
   const onTreeDeleteFile = (id: string) => {
+    if (!currentProjectAllowsWrite()) return
     setDraft((prev) => ({ ...prev, files: prev.files.filter((f) => f.path !== id) }))
   }
 
   const onTreeDeleteFolder = (folderPath: string) => {
+    if (!currentProjectAllowsWrite()) return
     setDraft((prev) => ({
       ...prev,
       files: prev.files.filter((f) => !f.path.startsWith(folderPath)),
@@ -233,6 +240,7 @@ export default function SkillAiAuthoringPage() {
   // ``sourcePath`` is a file's full path or a folder's path (trailing ``/``);
   // ``destFolder`` is '' (root) or a folder path ending in ``/``.
   const onMove = (sourcePath: string, destFolder: string) => {
+    if (!currentProjectAllowsWrite()) return
     const dest = destFolder ? destFolder.replace(/\/*$/, '/') : ''
     const isFolder = !draft.files.some((f) => f.path === sourcePath)
 
@@ -284,6 +292,7 @@ export default function SkillAiAuthoringPage() {
   // folder "+" and toolbar "+" both drive that inline row now, so a name is
   // always supplied (no browser prompt).
   const onTreeAddToFolder = (folderPath: string, name?: string) => {
+    if (!currentProjectAllowsWrite()) return
     const raw = name
     if (!raw) return
     const cleanName = raw.trim().replace(/^\/+/, '')
@@ -298,6 +307,7 @@ export default function SkillAiAuthoringPage() {
   }
 
   const onAddFolder = (name?: string) => {
+    if (!currentProjectAllowsWrite()) return
     const raw = name
     if (!raw) return
     const cleanFolder = raw.trim().replace(/^\/+|\/+$/g, '')
@@ -312,9 +322,16 @@ export default function SkillAiAuthoringPage() {
   // ── upload / download ──────────────────────────────────────────────────
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const onUploadClick = () => fileInputRef.current?.click()
+  const onUploadClick = () => {
+    if (!currentProjectAllowsWrite()) return
+    fileInputRef.current?.click()
+  }
 
   const onUploadChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentProjectAllowsWrite()) {
+      e.target.value = ''
+      return
+    }
     const list = Array.from(e.target.files || [])
     e.target.value = '' // allow re-selecting the same file
     if (list.length === 0) return
@@ -376,6 +393,7 @@ export default function SkillAiAuthoringPage() {
   }
 
   const updateFileContent = (filePath: string, newContent: string) => {
+    if (!currentProjectAllowsWrite()) return
     setDraft((prev) => ({
       ...prev,
       files: prev.files.map((f) => (f.path === filePath ? { ...f, content: newContent } : f)),
@@ -384,6 +402,7 @@ export default function SkillAiAuthoringPage() {
 
   // ── chat ─────────────────────────────────────────────────────────────
   const onSend = async () => {
+    if (!currentProjectAllowsWrite()) return
     const text = input.trim()
     if (!text || streaming) return
     setInput('')
@@ -393,6 +412,7 @@ export default function SkillAiAuthoringPage() {
   // Publish: save → submit → approve → cut first version, so the skill
   // becomes referenceable by agents (which only see published versions).
   const onPublish = async () => {
+    if (!currentProjectAllowsWrite()) return
     if (!draft.name.trim()) {
       toast({ title: t('managed.skills.aiAuthor.errors.nameRequired'), variant: 'destructive' })
       return
@@ -425,7 +445,14 @@ export default function SkillAiAuthoringPage() {
   return (
     <div className="-m-5 flex h-screen flex-col bg-background">
       {/* Hidden file input for uploads (multi-file / folder import) */}
-      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onUploadChange} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={onUploadChange}
+        disabled={projectReadOnly}
+      />
       {/* Header bar */}
       <div className="flex items-center justify-between px-6 py-3">
         <div className="flex items-center gap-3">
@@ -456,7 +483,7 @@ export default function SkillAiAuthoringPage() {
               variant="outline"
               size="sm"
               onClick={runScan}
-              disabled={!draftSkillId || scanRunning}
+              disabled={projectReadOnly || !draftSkillId || scanRunning}
             >
               <Search className="mr-1 h-3.5 w-3.5" />
               {scanRunning
@@ -468,7 +495,7 @@ export default function SkillAiAuthoringPage() {
             variant="outline"
             size="sm"
             onClick={saveDraft}
-            disabled={streaming || publishing || !draft.name.trim()}
+            disabled={projectReadOnly || streaming || publishing || !draft.name.trim()}
           >
             <Save className="mr-1 h-3.5 w-3.5" />
             {t('managed.skills.aiAuthor.saveDraft')}
@@ -476,7 +503,7 @@ export default function SkillAiAuthoringPage() {
           <Button
             size="sm"
             onClick={onPublish}
-            disabled={streaming || publishing || !draft.name.trim()}
+            disabled={projectReadOnly || streaming || publishing || !draft.name.trim()}
           >
             {publishing
               ? t('managed.skills.aiAuthor.publishing')
@@ -507,6 +534,7 @@ export default function SkillAiAuthoringPage() {
             onSend={onSend}
             onCancel={cancel}
             streaming={streaming}
+            readOnly={projectReadOnly}
           />
         </div>
 
@@ -546,7 +574,7 @@ export default function SkillAiAuthoringPage() {
               ) : activeTab === TAB_METADATA ? (
                 <>
                   <SectionHeader title={t('managed.skills.aiAuthor.tabs.metadata')} />
-                  <MetadataPane draft={draft} onChange={setDraft} />
+                  <MetadataPane draft={draft} onChange={setDraft} readOnly={projectReadOnly} />
                 </>
               ) : (
                 <>
@@ -565,8 +593,12 @@ export default function SkillAiAuthoringPage() {
                     onTreeDeleteFolder={onTreeDeleteFolder}
                     onMove={onMove}
                     onSelectMain={() => setActiveFilePath('SKILL.md')}
-                    onEditSkillMd={(v) => setDraft((prev) => ({ ...prev, content: v }))}
+                    onEditSkillMd={(v) => {
+                      if (!currentProjectAllowsWrite()) return
+                      setDraft((prev) => ({ ...prev, content: v }))
+                    }}
                     onEditFile={updateFileContent}
+                    canEdit={!projectReadOnly}
                   />
                 </>
               )}
@@ -627,12 +659,14 @@ function ChatComposer({
   onSend,
   onCancel,
   streaming,
+  readOnly,
 }: {
   input: string
   setInput: (v: string) => void
   onSend: () => void
   onCancel: () => void
   streaming: boolean
+  readOnly: boolean
 }) {
   const { t } = useTranslation()
   return (
@@ -644,8 +678,12 @@ function ChatComposer({
       >
         <Textarea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            if (readOnly) return
+            setInput(e.target.value)
+          }}
           onKeyDown={(e) => {
+            if (readOnly) return
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               onSend()
@@ -653,7 +691,7 @@ function ChatComposer({
           }}
           placeholder={t('managed.skills.aiAuthor.inputPlaceholder')}
           className="min-h-[80px] resize-none border-0 bg-transparent px-4 pb-12 pt-3 text-sm leading-relaxed shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
-          disabled={streaming}
+          disabled={streaming || readOnly}
         />
         {/* Bottom action row overlaid on the textarea */}
         <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-center justify-end">
@@ -671,7 +709,7 @@ function ChatComposer({
               <button
                 type="button"
                 onClick={onSend}
-                disabled={!input.trim()}
+                disabled={readOnly || !input.trim()}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
                 title={t('managed.skills.aiAuthor.send')}
               >
@@ -751,6 +789,7 @@ function EditorSplitPane({
   onSelectMain,
   onEditSkillMd,
   onEditFile,
+  canEdit,
 }: {
   draft: SkillDraft
   tree: ReturnType<typeof buildFileTree>
@@ -767,6 +806,7 @@ function EditorSplitPane({
   onSelectMain: () => void
   onEditSkillMd: (v: string) => void
   onEditFile: (path: string, v: string) => void
+  canEdit: boolean
 }) {
   const { t } = useTranslation()
   const showingSkillMd = activeFilePath === 'SKILL.md'
@@ -778,6 +818,7 @@ function EditorSplitPane({
   const [targetFolder, setTargetFolder] = useState('')
 
   const startCreate = (kind: 'file' | 'folder', folder = '') => {
+    if (!canEdit) return
     setNewName('')
     setTargetFolder(folder)
     setCreating(kind)
@@ -788,6 +829,10 @@ function EditorSplitPane({
     setTargetFolder('')
   }
   const commitCreate = () => {
+    if (!canEdit) {
+      cancelCreate()
+      return
+    }
     const name = newName.trim()
     if (name) {
       if (creating === 'folder') onAddFolder(name)
@@ -805,27 +850,31 @@ function EditorSplitPane({
             {t('managed.skills.aiAuthor.tabs.projects')}
           </span>
           <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => startCreate('file')}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title={t('managed.skills.aiAuthor.fields.newFileName')}
-            >
-              <FilePlus className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => startCreate('folder')}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title={t('managed.skills.newFolder')}
-            >
-              <FolderPlus className="h-4 w-4" />
-            </button>
-            <button
-              onClick={onUpload}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title={t('managed.skills.aiAuthor.upload')}
-            >
-              <Upload className="h-4 w-4" />
-            </button>
+            {canEdit && (
+              <>
+                <button
+                  onClick={() => startCreate('file')}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  title={t('managed.skills.aiAuthor.fields.newFileName')}
+                >
+                  <FilePlus className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => startCreate('folder')}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  title={t('managed.skills.newFolder')}
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={onUpload}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  title={t('managed.skills.aiAuthor.upload')}
+                >
+                  <Upload className="h-4 w-4" />
+                </button>
+              </>
+            )}
             <button
               onClick={onDownload}
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -837,8 +886,9 @@ function EditorSplitPane({
         </div>
         <div
           className="flex-1 overflow-y-auto pb-2 text-sm"
-          onDragOver={(e) => e.preventDefault()}
+          onDragOver={canEdit ? (e) => e.preventDefault() : undefined}
           onDrop={(e) => {
+            if (!canEdit) return
             const source = e.dataTransfer.getData('text/plain')
             if (source) onMove(source, '')
           }}
@@ -864,13 +914,14 @@ function EditorSplitPane({
                   onDeleteFile={onTreeDeleteFile}
                   onDeleteFolder={onTreeDeleteFolder}
                   onAddToFolder={(folderPath) => startCreate('file', folderPath)}
-                  onMove={onMove}
+                  onMove={canEdit ? onMove : undefined}
+                  canEdit={canEdit}
                 />
               ))
             : null}
 
           {/* Inline new-file / new-folder input row */}
-          {creating && (
+          {canEdit && creating && (
             <div className="flex items-center gap-2 px-4 py-1.5">
               {creating === 'folder' ? (
                 <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -916,6 +967,7 @@ function EditorSplitPane({
             fileType="markdown"
             value={draft.content}
             onChange={onEditSkillMd}
+            readOnly={!canEdit}
           />
         ) : activeFile ? (
           <EditorPane
@@ -923,6 +975,7 @@ function EditorSplitPane({
             fileType={inferFileType(activeFile.path)}
             value={activeFile.content}
             onChange={(v) => onEditFile(activeFile.path, v)}
+            readOnly={!canEdit}
           />
         ) : null}
       </div>
@@ -933,9 +986,11 @@ function EditorSplitPane({
 function MetadataPane({
   draft,
   onChange,
+  readOnly,
 }: {
   draft: SkillDraft
   onChange: (updater: (prev: SkillDraft) => SkillDraft) => void
+  readOnly: boolean
 }) {
   const { t } = useTranslation()
   const tagsStr = draft.tags.join(', ')
@@ -948,8 +1003,12 @@ function MetadataPane({
         <Input
           value={draft.name}
           maxLength={64}
-          onChange={(e) => onChange((p) => ({ ...p, name: e.target.value }))}
+          onChange={(e) => {
+            if (readOnly) return
+            onChange((p) => ({ ...p, name: e.target.value }))
+          }}
           placeholder={t('managed.skills.aiAuthor.fields.namePlaceholder')}
+          disabled={readOnly}
         />
       </div>
       <div>
@@ -959,9 +1018,13 @@ function MetadataPane({
         <Textarea
           value={draft.description}
           maxLength={1024}
-          onChange={(e) => onChange((p) => ({ ...p, description: e.target.value }))}
+          onChange={(e) => {
+            if (readOnly) return
+            onChange((p) => ({ ...p, description: e.target.value }))
+          }}
           placeholder={t('managed.skills.aiAuthor.fields.descriptionPlaceholder')}
           className="min-h-[72px] resize-none"
+          disabled={readOnly}
         />
       </div>
       <div className="flex items-end gap-3">
@@ -971,7 +1034,8 @@ function MetadataPane({
           </label>
           <Input
             value={tagsStr}
-            onChange={(e) =>
+            onChange={(e) => {
+              if (readOnly) return
               onChange((p) => ({
                 ...p,
                 tags: e.target.value
@@ -979,8 +1043,9 @@ function MetadataPane({
                   .map((s) => s.trim())
                   .filter(Boolean),
               }))
-            }
+            }}
             placeholder={t('managed.skills.aiAuthor.fields.tagsPlaceholder')}
+            disabled={readOnly}
           />
         </div>
         <div className="w-[180px]">
@@ -989,11 +1054,13 @@ function MetadataPane({
           </label>
           <Select
             value={draft.visibility || 'private'}
-            onValueChange={(v) =>
+            onValueChange={(v) => {
+              if (readOnly) return
               onChange((p) => ({ ...p, visibility: v as SkillDraft['visibility'] }))
-            }
+            }}
+            disabled={readOnly}
           >
-            <SelectTrigger>
+            <SelectTrigger disabled={readOnly}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1015,11 +1082,13 @@ function EditorPane({
   fileType,
   value,
   onChange,
+  readOnly = false,
 }: {
   path: string
   fileType: string
   value: string
   onChange: (v: string) => void
+  readOnly?: boolean
 }) {
   return (
     <>
@@ -1031,6 +1100,7 @@ function EditorPane({
         <SkillCodeEditor
           value={value}
           onChange={onChange}
+          readOnly={readOnly}
           fileType={fileType}
           fileName={path.split('/').pop()}
           height="100%"

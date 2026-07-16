@@ -29,6 +29,7 @@ import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
 
@@ -232,12 +233,16 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const isCurrentCreateRun = (runId: number, scope: string) =>
     createRunRef.current === runId &&
     managedScopeRef.current === scope &&
-    currentManagedScopeIsActive(scope)
+    currentManagedScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   const createMutation = useMutation({
     mutationFn: async ({ body, scope }: CreateSessionMutationInput) => {
       if (!currentManagedScopeIsActive(scope)) {
         throw new Error('stale managed scope')
+      }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project session create ignored')
       }
       return managedPost<{ id: string }>('/sessions', body)
     },
@@ -276,6 +281,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const buildCreatePayload = () => {
     const scope = managedScopeRef.current
     if (!currentManagedScopeIsActive(scope)) return null
+    if (!currentProjectAllowsWrite()) return null
     const currentAgents =
       queryClient.getQueryData<Agent[]>(['agents-for-session', scope]) ?? agents
     const currentEnvironments =
@@ -344,6 +350,13 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
   const handleCreate = () => {
     if (!currentManagedScopeIsActive()) return
+    if (!currentProjectAllowsWrite()) {
+      createRunRef.current += 1
+      createMutation.reset()
+      resetForm()
+      onOpenChange(false)
+      return
+    }
     const body = buildCreatePayload()
     if (!body) return
     const runId = createRunRef.current + 1
@@ -356,6 +369,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen && !currentProjectAllowsWrite()) return
     onOpenChange(nextOpen)
     if (!nextOpen) {
       createRunRef.current += 1

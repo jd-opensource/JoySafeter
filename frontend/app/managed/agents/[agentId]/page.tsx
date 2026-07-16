@@ -33,6 +33,10 @@ import {
   ResourceErrorState,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface AgentVersion {
   version: number
@@ -60,6 +64,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const operationScope = `${managedScope}:${agentId ?? ''}`
   const actionRunRef = useRef(0)
@@ -114,6 +119,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
   const currentAgentIsActive = () => {
     if (!currentOperationScopeIsActive()) return false
+    if (!currentProjectAllowsWrite()) return false
     const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope, agentId])
     return !!currentAgent && currentAgent.id === agent?.id && !currentAgent.archived_at
   }
@@ -185,6 +191,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   }
 
   const handleGuidedEdit = () => {
+    if (!currentAgentIsActive()) return
     router.push(`/managed/agents/${agentId}/edit?guided=true`)
   }
 
@@ -309,7 +316,8 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   }
 
   const isArchived = !!agent.archived_at
-  const menuItems = isArchived
+  const menuItems =
+    isArchived || projectReadOnly
     ? []
     : [
         {
@@ -350,7 +358,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
             <Button
               variant="outline"
               size="sm"
-              onClick={() => router.push(`/managed/agents/${agentId}/edit`)}
+              disabled={isArchived || projectReadOnly}
+              onClick={() => {
+                if (!currentAgentIsActive()) return
+                router.push(`/managed/agents/${agentId}/edit`)
+              }}
             >
               <Pencil className="mr-1.5 h-3.5 w-3.5" />
               {t('common.edit')}
@@ -386,6 +398,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
             onArchivedChange={setShowArchived}
             onSelect={(s) => router.push(`/managed/sessions/${s.id}`)}
             onArchive={handleArchiveSession}
+            canArchive={!projectReadOnly && !isArchived}
           />
         </TabsContent>
       </Tabs>
@@ -784,12 +797,14 @@ function AgentSessions({
   onArchivedChange,
   onSelect,
   onArchive,
+  canArchive,
 }: {
   sessions: Session[]
   showArchived: boolean
   onArchivedChange: (v: boolean) => void
   onSelect: (s: Session) => void
   onArchive: (s: Session) => void
+  canArchive: boolean
 }) {
   const { t } = useTranslation()
   const [createdFilter, setCreatedFilter] = useState('all')
@@ -900,7 +915,7 @@ function AgentSessions({
         selectable
         actionMenu={(s) => [
           { label: t('managed.agents.viewDetails'), onClick: () => onSelect(s) },
-          ...(s.archived_at
+          ...(s.archived_at || !canArchive
             ? []
             : [{ label: t('common.archive'), onClick: () => onArchive(s), destructive: false }]),
         ]}

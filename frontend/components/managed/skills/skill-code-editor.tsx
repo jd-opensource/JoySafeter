@@ -31,6 +31,7 @@ export function SkillCodeEditor({
   fileName,
   minHeight = '360px',
   height = '420px',
+  readOnly = false,
 }: {
   value: string
   onChange: (value: string) => void
@@ -38,6 +39,7 @@ export function SkillCodeEditor({
   fileName?: string
   minHeight?: string
   height?: string
+  readOnly?: boolean
 }) {
   const { resolvedTheme } = useTheme()
   const editorTheme = resolvedTheme === 'dark' ? vscodeDark : 'light'
@@ -46,6 +48,8 @@ export function SkillCodeEditor({
     <CodeMirror
       value={value}
       onChange={onChange}
+      readOnly={readOnly}
+      editable={!readOnly}
       theme={editorTheme}
       height={height}
       minHeight={minHeight}

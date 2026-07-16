@@ -26,6 +26,10 @@ import {
 import { CreateAgentDialog } from './components/create-agent-dialog'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface DeletePreview {
   sessions: number
@@ -39,6 +43,7 @@ export default function AgentListPage() {
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const actionRunRef = useRef(0)
   const managedScopeRef = useRef(managedScope)
@@ -121,6 +126,14 @@ export default function AgentListPage() {
     [],
   )
 
+  useEffect(() => {
+    if (!projectReadOnly) return
+    actionRunRef.current += 1
+    setDeleteTarget(null)
+    setDeletePreview(null)
+    setShowCreateDialog(false)
+  }, [projectReadOnly])
+
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
     return `${orgId ?? ''}:${projectId ?? ''}`
@@ -132,9 +145,11 @@ export default function AgentListPage() {
   const isCurrentAction = (runId: number, scope: string) =>
     actionRunRef.current === runId &&
     managedScopeRef.current === scope &&
-    currentManagedScopeIsActive(scope)
+    currentManagedScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   const currentAgentIsActive = (agent: Agent, scope: string) =>
+    currentProjectAllowsWrite() &&
     queryClient
       .getQueriesData<{ data?: Agent[] }>({ queryKey: ['agents', scope, '/agents'] })
       .some(([, page]) =>
@@ -142,6 +157,7 @@ export default function AgentListPage() {
       )
 
   const handleDeleteClick = async (agent: Agent) => {
+    if (!currentProjectAllowsWrite()) return
     const actionScope = managedScopeRef.current
     if (!currentManagedScopeIsActive(actionScope)) return
     if (!currentAgentIsActive(agent, actionScope)) return
@@ -162,6 +178,11 @@ export default function AgentListPage() {
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return
+    if (!currentProjectAllowsWrite()) {
+      setDeleteTarget(null)
+      setDeletePreview(null)
+      return
+    }
     const actionScope = managedScopeRef.current
     if (!currentManagedScopeIsActive(actionScope)) return
     if (!currentAgentIsActive(deleteTarget, actionScope)) {
@@ -189,6 +210,7 @@ export default function AgentListPage() {
   }
 
   const handleArchive = async (agent: Agent) => {
+    if (!currentProjectAllowsWrite()) return
     const actionScope = managedScopeRef.current
     if (!currentManagedScopeIsActive(actionScope)) return
     if (!currentAgentIsActive(agent, actionScope)) return
@@ -289,10 +311,18 @@ export default function AgentListPage() {
         title={t('managed.agents.title')}
         subtitle={t('managed.agents.subtitle')}
         action={
-          <Button size="sm" onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4" />
-            {t('managed.agents.new')}
-          </Button>
+          projectReadOnly ? null : (
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!currentProjectAllowsWrite()) return
+                setShowCreateDialog(true)
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              {t('managed.agents.new')}
+            </Button>
+          )
         }
       />
       <FilterBar
@@ -312,7 +342,7 @@ export default function AgentListPage() {
         fetching={isFetching}
         onRowClick={(a) => router.push(`/managed/agents/${a.id}`)}
         actionMenu={(a) =>
-          a.archived_at
+          projectReadOnly || a.archived_at
             ? []
             : [
                 {
@@ -342,7 +372,7 @@ export default function AgentListPage() {
       />
 
       <ConfirmDialog
-        open={!!deleteTarget}
+        open={!projectReadOnly && !!deleteTarget}
         title={t('managed.agents.deleteTitle', { name: deleteTarget?.name })}
         description={buildDeleteDescription()}
         confirmLabel={t('managed.agents.permanentlyDelete')}
@@ -355,8 +385,11 @@ export default function AgentListPage() {
       />
 
       <CreateAgentDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
+        open={!projectReadOnly && showCreateDialog}
+        onOpenChange={(open) => {
+          if (open && !currentProjectAllowsWrite()) return
+          setShowCreateDialog(open)
+        }}
         onCreated={(id) => {
           queryClient.invalidateQueries({ queryKey: ['agents'] })
           router.push(`/managed/agents/${id}`)

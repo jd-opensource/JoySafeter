@@ -9,9 +9,9 @@ import { useProjectStore } from '@/stores/managed/project-store'
 
 interface AuthMeResponse {
   organization: { id: string; name: string; slug: string; role: string }
-  project: { id: string; name: string; slug: string; is_default: boolean }
+  project: { id: string; name: string; slug: string; is_default: boolean; archived_at?: string | null }
   organizations: Array<{ id: string; name: string; slug: string; role: string }>
-  projects: Array<{ id: string; name: string; slug: string; is_default: boolean }>
+  projects: Array<{ id: string; name: string; slug: string; is_default: boolean; archived_at?: string | null }>
 }
 
 interface AuthMeQueryResult {
@@ -66,7 +66,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       if (contextChangedSinceRequest) return
 
       const { data } = authMeResult
-      setContext(data.organization.id, data.project.id, data.organizations, data.projects)
+      setContext(data.organization.id, data.project.id, data.organizations, data.projects, data.project)
     }
   }, [authMeResult, currentOrgId, currentProjectId, setContext])
 

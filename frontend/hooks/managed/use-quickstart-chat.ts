@@ -9,6 +9,7 @@ import { stripIdPrefix } from '@/lib/managed/id'
 import { buildQuickstartAgentCreateBody } from '@/lib/managed/quickstart-create'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { currentProjectAllowsWrite } from './use-current-project-read-only'
 
 export type StepId = 1 | 2 | 3 | 4 | 5 | 6
 export type QuickstartEngine = 'claude' | 'codex' | 'native'
@@ -132,10 +133,19 @@ export function useQuickstartChat(
     (scope: string) => managedScopeRef.current === scope && getCurrentManagedScope() === scope,
     [],
   )
+  const isCurrentWritableManagedScope = useCallback(
+    (scope: string) => isCurrentManagedScope(scope) && currentProjectAllowsWrite(),
+    [isCurrentManagedScope],
+  )
   const isCurrentLifecycleRun = useCallback(
     (scope: string, lifecycleRun: number) =>
       isCurrentManagedScope(scope) && lifecycleRunRef.current === lifecycleRun,
     [isCurrentManagedScope],
+  )
+  const isCurrentWritableLifecycleRun = useCallback(
+    (scope: string, lifecycleRun: number) =>
+      isCurrentLifecycleRun(scope, lifecycleRun) && currentProjectAllowsWrite(),
+    [isCurrentLifecycleRun],
   )
   useEffect(() => {
     resourceIdsRef.current = resourceIds
@@ -201,6 +211,8 @@ export function useQuickstartChat(
       const provider = options?.providerOverride ?? generationSecret?.provider ?? 'claude'
       const requestSecretRef =
         options?.secretRefOverride ?? generationSecret?.secretRef ?? agentSecretRef
+      const scopeAtStart = managedScopeRef.current
+      if (!isCurrentWritableManagedScope(scopeAtStart)) return
 
       const userMsg: ChatMessage = {
         id: generateUUID(),
@@ -232,8 +244,6 @@ export function useQuickstartChat(
       const controller = new AbortController()
       abortRef.current = controller
 
-      const scopeAtStart = managedScopeRef.current
-      if (!isCurrentManagedScope(scopeAtStart)) return
       try {
         const historyForApi = newMessages.map((m) => ({
           role: m.role,
@@ -264,7 +274,7 @@ export function useQuickstartChat(
 
           try {
             const event: QuickstartEvent = JSON.parse(data)
-            if (!isCurrentManagedScope(scopeAtStart)) return
+            if (!isCurrentWritableManagedScope(scopeAtStart)) return
 
             switch (event.type) {
               case 'text_delta':
@@ -339,7 +349,7 @@ export function useQuickstartChat(
             }
             break
           }
-          if (!isCurrentManagedScope(scopeAtStart)) break
+          if (!isCurrentWritableManagedScope(scopeAtStart)) break
 
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n')
@@ -382,7 +392,7 @@ export function useQuickstartChat(
         }
       }
     },
-    [messages, currentStep, generationSecret, agentSecretRef, isCurrentManagedScope, t],
+    [messages, currentStep, generationSecret, agentSecretRef, isCurrentWritableManagedScope, t],
   )
 
   const createSession = useCallback(async (options: CreateSessionOptions = {}) => {
@@ -403,7 +413,7 @@ export function useQuickstartChat(
     }
 
     const scopeAtStart = managedScopeRef.current
-    if (!isCurrentManagedScope(scopeAtStart)) return
+    if (!isCurrentWritableManagedScope(scopeAtStart)) return
     const lifecycleRunAtStart = lifecycleRunRef.current
     setIsCreating(true)
     try {
@@ -414,7 +424,7 @@ export function useQuickstartChat(
       const result = await managedPost('sessions', body).catch((error) => {
         throw toApiStatusError(error)
       })
-      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
+      if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       const sessionId = getCreatedResourceId(result)
       if (!sessionId) throw new Error(t('managed.quickstart.errors.createSessionFailed'))
 
@@ -450,12 +460,12 @@ export function useQuickstartChat(
         setIsCreating(false)
       }
     }
-  }, [isCurrentLifecycleRun, isCurrentManagedScope, t])
+  }, [isCurrentLifecycleRun, isCurrentWritableLifecycleRun, isCurrentWritableManagedScope, t])
 
   const createEnvironment = useCallback(
     async (networkType: 'unrestricted' | 'limited', allowedHosts: string[]) => {
       const scopeAtStart = managedScopeRef.current
-      if (!isCurrentManagedScope(scopeAtStart)) return false
+      if (!isCurrentWritableManagedScope(scopeAtStart)) return false
       const lifecycleRunAtStart = lifecycleRunRef.current
       setIsCreating(true)
       try {
@@ -475,7 +485,7 @@ export function useQuickstartChat(
         const result = await managedPost('environments', envBody).catch((error) => {
           throw toApiStatusError(error)
         })
-        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
+        if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
         const environmentId = getCreatedResourceId(result)
         if (!environmentId) throw new Error(t('managed.quickstart.errors.createEnvironmentFailed'))
 
@@ -515,13 +525,13 @@ export function useQuickstartChat(
         }
       }
     },
-    [isCurrentLifecycleRun, isCurrentManagedScope, t],
+    [isCurrentLifecycleRun, isCurrentWritableLifecycleRun, isCurrentWritableManagedScope, t],
   )
 
   const createVault = useCallback(
     async (name: string) => {
       const scopeAtStart = managedScopeRef.current
-      if (!isCurrentManagedScope(scopeAtStart)) return false
+      if (!isCurrentWritableManagedScope(scopeAtStart)) return false
       const lifecycleRunAtStart = lifecycleRunRef.current
       setIsCreating(true)
       try {
@@ -529,7 +539,7 @@ export function useQuickstartChat(
         const result = await managedPost('vaults', vaultBody).catch((error) => {
           throw toApiStatusError(error)
         })
-        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
+        if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
         const vaultId = getCreatedResourceId(result)
         if (!vaultId) throw new Error(t('managed.quickstart.errors.createVaultFailed'))
 
@@ -569,7 +579,7 @@ export function useQuickstartChat(
         }
       }
     },
-    [isCurrentLifecycleRun, isCurrentManagedScope, t],
+    [isCurrentLifecycleRun, isCurrentWritableLifecycleRun, isCurrentWritableManagedScope, t],
   )
 
   const selectEngine = useCallback((engine: QuickstartEngine) => {
@@ -601,7 +611,7 @@ export function useQuickstartChat(
     if (!pendingConfirmation || isCreating) return
     const { step, curl } = pendingConfirmation
     const scopeAtStart = managedScopeRef.current
-    if (!isCurrentManagedScope(scopeAtStart)) return
+    if (!isCurrentWritableManagedScope(scopeAtStart)) return
     const lifecycleRunAtStart = lifecycleRunRef.current
     setIsCreating(true)
 
@@ -656,7 +666,7 @@ export function useQuickstartChat(
       } else {
         throw new Error(t('managed.quickstart.errors.unexpectedStep', { step }))
       }
-      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
+      if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       const createdResource = unwrapManagedResponse<Record<string, unknown>>(result)
       const createdAgent =
         step === 3
@@ -714,7 +724,8 @@ export function useQuickstartChat(
     agentSecretRef,
     selectedEngine,
     isCurrentLifecycleRun,
-    isCurrentManagedScope,
+    isCurrentWritableLifecycleRun,
+    isCurrentWritableManagedScope,
     t,
   ])
 
@@ -780,8 +791,12 @@ Agent: ${agentName}
 ${agentDesc ? `System prompt: ${agentDesc.slice(0, 300)}` : ''}
 ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
 
+    const scopeAtStart = managedScopeRef.current
+    if (!isCurrentWritableManagedScope(scopeAtStart)) {
+      return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
+    }
+
     try {
-      const scopeAtStart = managedScopeRef.current
       const response = await apiStream('quickstart/chat', {
         messages: [{ role: 'user', content: prompt }],
         current_step: 5,
@@ -816,7 +831,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
           }
           break
         }
-        if (!isCurrentManagedScope(scopeAtStart)) {
+        if (!isCurrentWritableManagedScope(scopeAtStart)) {
           return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
         }
         buffer += decoder.decode(value, { stream: true })
@@ -830,7 +845,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     } catch {
       return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     }
-  }, [agentSecretRef, generationSecret, isCurrentManagedScope, t])
+  }, [agentSecretRef, generationSecret, isCurrentWritableManagedScope, t])
 
   return {
     messages,

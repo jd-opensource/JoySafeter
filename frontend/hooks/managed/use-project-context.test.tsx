@@ -4,8 +4,12 @@ import { JSDOM } from 'jsdom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/api-client', () => ({
+  extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
+  managedDelete: vi.fn(),
   managedGet: vi.fn(),
+  managedPatch: vi.fn(),
   managedPost: vi.fn(),
+  managedPut: vi.fn(),
 }))
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' })
@@ -70,6 +74,7 @@ describe('useProjectContext managed cache lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -81,6 +86,7 @@ describe('useProjectContext managed cache lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -129,6 +135,44 @@ describe('useProjectContext managed cache lifecycle', () => {
     })
     expect(queryClient.getQueryData(['agents'])).toBeUndefined()
     expect(queryClient.getQueryData(['agent', 'agent-from-project-a'])).toBeUndefined()
+  })
+
+  it('accepts switch-context responses that only include the top-level project_id', async () => {
+    managedGetMock.mockResolvedValue(authContext('org-a', 'project-a'))
+    managedPostMock.mockResolvedValue({
+      org_id: 'org-b',
+      project_id: 'project-b',
+      projects: [{ id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true }],
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    let currentContext: ReturnType<typeof useProjectContext> | null = null
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Harness
+          onReady={(ctx) => {
+            currentContext = ctx
+          }}
+        />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(useProjectStore.getState().currentProjectId).toBe('project-a')
+    })
+
+    await act(async () => {
+      await currentContext!.switchProject('project-b', 'org-b')
+    })
+
+    expect(useProjectStore.getState().currentOrgId).toBe('org-b')
+    expect(useProjectStore.getState().currentProjectId).toBe('project-b')
   })
 
   it('does not let the initial auth context load overwrite a completed project switch', async () => {

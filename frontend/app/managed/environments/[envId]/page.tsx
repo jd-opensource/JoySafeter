@@ -26,6 +26,10 @@ import {
   ResourceErrorState,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface SaveEnvironmentVariables {
   envId: string
@@ -46,6 +50,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const envId = stripIdPrefix(rawId || '')
   const operationScope = `${managedScope}:${rawId ?? ''}`
@@ -169,7 +174,12 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     return `${orgId ?? ''}:${projectId ?? ''}`
   }
 
+  const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
+    operationScopeRef.current === scope && getCurrentOperationScope() === scope
+
   const currentEditableEnvironment = () => {
+    if (!currentOperationScopeIsActive()) return null
+    if (!currentProjectAllowsWrite()) return null
     const current = queryClient.getQueryData<Environment>([
       'environment',
       getCurrentManagedScope(),
@@ -184,8 +194,15 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     getCurrentOperationScope() === scope
 
   const saveMutation = useMutation({
-    mutationFn: ({ envId, payload }: SaveEnvironmentVariables) =>
-      managedPost<Environment>(`/environments/${envId}`, payload),
+    mutationFn: async ({ envId, payload, runId, scope }: SaveEnvironmentVariables) => {
+      if (!isCurrentSaveRun(runId, scope)) {
+        return undefined as unknown as Environment
+      }
+      if (!currentProjectAllowsWrite()) {
+        return undefined as unknown as Environment
+      }
+      return managedPost<Environment>(`/environments/${envId}`, payload)
+    },
     onSuccess: (_data, { rawId, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['environment', managedScope, rawId] })
@@ -211,6 +228,8 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
   if (isLoading || !env) {
     return <div className="text-muted-foreground">{t('common.loading')}</div>
   }
+
+  const isReadOnly = !!env.archived_at || projectReadOnly
 
   return (
     <div>
@@ -238,7 +257,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
         <RelativeTime date={env.created_at} />
       </div>
 
-      <fieldset disabled={!!env.archived_at} className="mt-6 max-w-2xl space-y-6">
+      <fieldset disabled={isReadOnly} className="mt-6 max-w-2xl space-y-6">
         <div className="space-y-2">
           <label className="text-sm font-medium">{t('managed.environments.name')}</label>
           <Input
@@ -363,7 +382,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
         </div>
 
         <div className="border-t pt-4">
-          {env.archived_at ? (
+          {isReadOnly ? (
             <p className="text-sm text-muted-foreground">{t('managed.errors.projectArchived')}</p>
           ) : (
             <Button

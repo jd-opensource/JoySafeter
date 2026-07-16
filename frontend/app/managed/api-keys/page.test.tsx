@@ -160,6 +160,17 @@ function apiKey(id: string, name: string): ApiKeyRecord {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function renderApiKeysPage(queryClient: QueryClient) {
   return render(
     <QueryClientProvider client={queryClient}>
@@ -189,6 +200,7 @@ describe('ApiKeysPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -201,10 +213,35 @@ describe('ApiKeysPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    const keyA = apiKey('key-a', 'Project A key')
+    managedGetMock.mockResolvedValue([keyA])
+    useProjectStore.setState({
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText, queryByText } = renderApiKeysPage(queryClient)
+
+    await waitFor(() => {
+      expect(getByText('Project A key')).toBeTruthy()
+    })
+
+    expect(queryByText('manage.apiKeys.create')).toBeNull()
+    expect(queryByText('key-a:manage.apiKeys.revoke')).toBeNull()
   })
 
   it('does not keep a newly created raw key visible after the managed project changes', async () => {
@@ -379,6 +416,84 @@ describe('ApiKeysPage object lifecycle', () => {
     })
   })
 
+  it('does not create an api key from an old create dialog after the current project is archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByRole, getByPlaceholderText } = renderApiKeysPage(queryClient)
+
+    await act(async () => {
+      fireEvent.click(getAllByRole('button', { name: /manage\.apiKeys\.create/ })[0])
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('manage.apiKeys.namePlaceholder'), {
+        target: { value: 'Project A production deploy key' },
+      })
+    })
+
+    const oldCreateButton = getAllByRole('button', { name: /manage\.apiKeys\.create/ })[1]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldCreateButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/auth/api-keys', {
+      name: 'Project A production deploy key',
+      role: 'developer',
+    })
+  })
+
+  it('does not show a raw key or invalidate api keys when create finishes after the current project is archived', async () => {
+    const pendingCreate = deferred<{ raw_key: string }>()
+    managedPostMock.mockReturnValueOnce(pendingCreate.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getAllByRole, getByPlaceholderText, queryByText } = renderApiKeysPage(queryClient)
+
+    await act(async () => {
+      fireEvent.click(getAllByRole('button', { name: /manage\.apiKeys\.create/ })[0])
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('manage.apiKeys.namePlaceholder'), {
+        target: { value: 'Project A key' },
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(getAllByRole('button', { name: /manage\.apiKeys\.create/ })[1])
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      pendingCreate.resolve({ raw_key: 'raw-archived-project-key' })
+      await Promise.resolve()
+    })
+
+    expect(queryByText('raw-archived-project-key')).toBeNull()
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['api-keys'] })
+  })
+
   it('does not close a reopened create dialog when an older api key create finishes', async () => {
     const pendingCreate = deferred<{ raw_key: string }>()
     managedPostMock.mockReturnValueOnce(pendingCreate.promise)
@@ -538,6 +653,41 @@ describe('ApiKeysPage object lifecycle', () => {
     expect(managedDeleteMock).not.toHaveBeenCalledWith('/auth/api-keys/key-a')
   })
 
+  it('does not revoke an api key from an old confirmation after the current project is archived', async () => {
+    const keyA = apiKey('key-a', 'Project A deploy key')
+    managedGetMock.mockResolvedValue([keyA])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = renderApiKeysPage(queryClient)
+
+    await waitFor(() => {
+      expect(getByText('Project A deploy key')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('key-a:manage.apiKeys.revoke'))
+    })
+
+    const oldRevokeButton = getByText('manage.apiKeys.revoke')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(oldRevokeButton)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/auth/api-keys/key-a')
+  })
+
   it('does not invalidate api keys from a revoke completion after the managed project changes', async () => {
     const keyA = apiKey('key-a', 'Project A key')
     const pendingRevoke = deferred<Record<string, never>>()
@@ -578,6 +728,47 @@ describe('ApiKeysPage object lifecycle', () => {
     })
 
     await act(async () => {
+      pendingRevoke.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['api-keys'] })
+  })
+
+  it('does not invalidate api keys from a revoke completion after the current project is archived', async () => {
+    const keyA = apiKey('key-a', 'Project A key')
+    const pendingRevoke = deferred<Record<string, never>>()
+    managedGetMock.mockResolvedValue([keyA])
+    managedDeleteMock.mockReturnValueOnce(pendingRevoke.promise)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const { getByText } = renderApiKeysPage(queryClient)
+
+    await waitFor(() => {
+      expect(getByText('Project A key')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('key-a:manage.apiKeys.revoke'))
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('manage.apiKeys.revoke'))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
       pendingRevoke.resolve({})
       await Promise.resolve()
     })

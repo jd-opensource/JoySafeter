@@ -20,6 +20,7 @@ interface SecretKeySelectProps {
   className?: string
   provider?: string
   protocol?: string
+  disabled?: boolean
 }
 
 export function SecretKeySelect({
@@ -29,6 +30,7 @@ export function SecretKeySelect({
   className,
   provider,
   protocol,
+  disabled = false,
 }: SecretKeySelectProps) {
   const { t } = useTranslation()
   const groups = getSecretKeyGroups(provider, protocol)
@@ -36,8 +38,8 @@ export function SecretKeySelect({
   const showCurrentKey = !!value && !visibleOptions.includes(value)
 
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className={cn('flex-1 font-mono text-sm', className)}>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className={cn('flex-1 font-mono text-sm', className)} disabled={disabled}>
         <SelectValue placeholder={placeholder || t('managed.secrets.selectKey')} />
       </SelectTrigger>
       <SelectContent>

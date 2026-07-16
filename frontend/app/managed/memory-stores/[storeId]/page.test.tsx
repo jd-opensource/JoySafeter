@@ -19,10 +19,12 @@ vi.mock('remark-gfm', () => ({
 }))
 
 vi.mock('@/lib/i18n', () => ({
+  i18n: { language: 'en' },
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
 vi.mock('@/lib/api-client', () => ({
+  extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
   managedDelete: vi.fn(),
   managedGet: vi.fn(),
   managedPost: vi.fn(),
@@ -174,6 +176,17 @@ function memory(overrides: Partial<Memory>): Memory {
   }
 }
 
+function projectInfo(archivedAt: string | null = null) {
+  return {
+    id: 'project-a',
+    org_id: 'org-a',
+    name: 'Project A',
+    slug: 'project-a',
+    is_default: true,
+    archived_at: archivedAt,
+  }
+}
+
 function renderPage(storeId: string, queryClient: QueryClient) {
   const params = {
     status: 'fulfilled',
@@ -208,6 +221,7 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
+      currentProject: projectInfo(null),
       organizations: [],
       projects: [],
     })
@@ -219,6 +233,7 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
     useProjectStore.setState({
       currentOrgId: null,
       currentProjectId: null,
+      currentProject: null,
       organizations: [],
       projects: [],
     })
@@ -978,5 +993,304 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
     })
 
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['memory-stores'] })
+  })
+
+  it('hides project write actions when the current project is archived', async () => {
+    useProjectStore.setState({
+      currentProject: projectInfo('2026-01-02T00:00:00Z'),
+    })
+    const storeA = store({ id: 'store-a', name: 'Store A' })
+    const memoryA = memory({
+      id: 'mem-a',
+      path: 'notes.md',
+      content: 'initial content',
+      content_size_bytes: 15,
+    })
+
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/memory_stores/store-a') return storeA
+      if (path === '/memory_stores/store-a/memories?limit=100&view=full') return [memoryA]
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { container, getByText, queryByText, queryByTitle } = render(
+      renderPage('store-a', queryClient),
+    )
+
+    await waitFor(() => {
+      expect(getByText('Store A')).toBeTruthy()
+      expect(getByText('notes.md')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('notes.md'))
+    })
+
+    expect(queryByText('managed.memoryStores.addMemory')).toBeNull()
+    expect(queryByText('common.archive')).toBeNull()
+    expect(queryByText('common.delete')).toBeNull()
+    expect(queryByTitle('Edit')).toBeNull()
+    expect(
+      Array.from(container.querySelectorAll('button')).filter((button) =>
+        button.className.includes('hover:text-destructive'),
+      ),
+    ).toHaveLength(0)
+  })
+
+  it('does not save a memory from old edit controls after the current project is archived', async () => {
+    const storeA = store({ id: 'store-a', name: 'Store A' })
+    const memoryA = memory({
+      id: 'mem-a',
+      path: 'notes.md',
+      content: 'initial content',
+      content_size_bytes: 15,
+    })
+
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/memory_stores/store-a') return storeA
+      if (path === '/memory_stores/store-a/memories?limit=100&view=full') return [memoryA]
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByDisplayValue, getByText, getByTitle } = render(renderPage('store-a', queryClient))
+
+    await waitFor(() => {
+      expect(getByText('notes.md')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('notes.md'))
+    })
+
+    await act(async () => {
+      fireEvent.click(getByTitle('Edit'))
+    })
+
+    await act(async () => {
+      fireEvent.input(getByDisplayValue('initial content'), {
+        target: { value: 'content written before project archive' },
+      })
+    })
+
+    const saveButton = getByText('common.save')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(saveButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories/mem-a', {
+      content: 'content written before project archive',
+    })
+  })
+
+  it('does not create a memory from an old create dialog after the current project is archived', async () => {
+    const storeA = store({ id: 'store-a', name: 'Store A' })
+
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/memory_stores/store-a') return storeA
+      if (path === '/memory_stores/store-a/memories?limit=100&view=full') return []
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByPlaceholderText, getByText } = render(renderPage('store-a', queryClient))
+
+    await waitFor(() => {
+      expect(getByText('Store A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('managed.memoryStores.addMemory'))
+    })
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('notes/ideas.md'), {
+        target: { value: 'notes/project-archived.md' },
+      })
+      fireEvent.input(getByPlaceholderText('managed.memoryStores.memContentPlaceholder'), {
+        target: { value: 'content written before project archive' },
+      })
+    })
+
+    const createButton = getByText('common.create')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(createButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories', {
+      path: 'notes/project-archived.md',
+      content: 'content written before project archive',
+    })
+  })
+
+  it('does not archive the memory store from an old confirmation after the current project is archived', async () => {
+    const storeA = store({ id: 'store-a', name: 'Store A' })
+
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/memory_stores/store-a') return storeA
+      if (path === '/memory_stores/store-a/memories?limit=100&view=full') return []
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByRole, getByText } = render(renderPage('store-a', queryClient))
+
+    await waitFor(() => {
+      expect(getByText('Store A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('common.archive'))
+    })
+
+    const archiveButtons = getAllByRole('button', { name: /common\.archive/ })
+    const confirmArchive = archiveButtons[archiveButtons.length - 1]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(confirmArchive)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/archive', {})
+  })
+
+  it('does not delete the memory store from an old confirmation after the current project is archived', async () => {
+    const storeA = store({ id: 'store-a', name: 'Store A' })
+
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/memory_stores/store-a') return storeA
+      if (path === '/memory_stores/store-a/memories?limit=100&view=full') return []
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByText, getByText } = render(renderPage('store-a', queryClient))
+
+    await waitFor(() => {
+      expect(getByText('Store A')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('common.delete'))
+    })
+
+    const deleteActions = getAllByText('common.delete')
+    const confirmDelete = deleteActions[deleteActions.length - 1]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(confirmDelete)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/memory_stores/store-a')
+  })
+
+  it('does not delete a memory from an old confirmation after the current project is archived', async () => {
+    const storeA = store({ id: 'store-a', name: 'Store A' })
+    const memoryA = memory({
+      id: 'mem-a',
+      path: 'notes.md',
+      content: 'initial content',
+      content_size_bytes: 15,
+    })
+
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/memory_stores/store-a') return storeA
+      if (path === '/memory_stores/store-a/memories?limit=100&view=full') return [memoryA]
+      return { data: [] }
+    })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { container, getAllByText, getByText } = render(renderPage('store-a', queryClient))
+
+    await waitFor(() => {
+      expect(getByText('notes.md')).toBeTruthy()
+    })
+
+    const deleteButtons = Array.from(container.querySelectorAll('button')).filter((button) =>
+      button.className.includes('hover:text-destructive'),
+    )
+    expect(deleteButtons.length).toBeGreaterThan(0)
+
+    await act(async () => {
+      fireEvent.click(deleteButtons[0])
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    await waitFor(() => {
+      expect(getByText('managed.memoryStores.deleteMemory')).toBeTruthy()
+    })
+
+    const deleteActions = getAllByText('common.delete')
+    const confirmDelete = deleteActions[deleteActions.length - 1]
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProject: projectInfo('2026-01-02T00:00:00Z'),
+      })
+      fireEvent.click(confirmDelete)
+      await Promise.resolve()
+    })
+
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories/mem-a')
   })
 })
