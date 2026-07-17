@@ -68,3 +68,13 @@ export function projectRoleOptions(t: Translator) {
     label: projectRoleLabel(t, role),
   }))
 }
+
+// ── Skill capability (owner/admin/editor/viewer/none) — the caller's effective ──
+// tier on a skill, returned by the skill detail route. Managing collaborators is
+// an admin-governance action, so only owner and admin qualify.
+
+export type SkillCapability = 'owner' | 'admin' | 'editor' | 'viewer' | 'none'
+
+export function canManageSkillCollaborators(capability?: string | null): boolean {
+  return capability === 'owner' || capability === 'admin'
+}

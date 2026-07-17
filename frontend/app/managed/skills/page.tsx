@@ -1,16 +1,10 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useTranslation } from '@/lib/i18n'
-import CodeMirror from '@uiw/react-codemirror'
 import { python } from '@codemirror/lang-python'
-import { vscodeDark } from '@uiw/codemirror-theme-vscode'
 import { EditorView } from '@codemirror/view'
-import { useTheme } from 'next-themes'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { vscodeDark } from '@uiw/codemirror-theme-vscode'
+import CodeMirror from '@uiw/react-codemirror'
 import {
   Plus,
   Trash2,
@@ -31,36 +25,12 @@ import {
   Sparkles,
   GitCompare,
 } from 'lucide-react'
-import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
-import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
-import {
-  SkillVersionDiffView,
-  type DiffViewMode,
-} from '@/components/managed/skills/skill-version-diff'
-import type {
-  SkillRecord,
-  SkillFileRecord,
-  SkillVersionRecord,
-  SkillSecurityScanRecord,
-} from '@/types/managed'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { useRouter } from 'next/navigation'
+import { useTheme } from 'next-themes'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+
 import {
   PageHeader,
   FilterBar,
@@ -73,6 +43,7 @@ import {
   ConfirmDialog,
   ResourceErrorState,
 } from '@/components/managed/shared'
+import { SkillCollaboratorsPanel } from '@/components/managed/skills/skill-collaborators-panel'
 import {
   SkillLifecycleBadge,
   SkillRiskScoreBadge,
@@ -81,21 +52,28 @@ import {
   SkillVisibilityBadge,
 } from '@/components/managed/skills/skill-status-badges'
 import { SkillLifecycleActions } from '@/components/managed/skills/skill-lifecycle-actions'
-import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import {
-  hasManagedRequestScope,
-  managedRequestOptions,
-  managedScopeKey,
-  useManagedRequestScope,
-  type ManagedRequestScope,
-} from '@/lib/managed/request-scope'
+  SkillVersionDiffView,
+  type DiffViewMode,
+} from '@/components/managed/skills/skill-version-diff'
+import { Button } from '@/components/ui/button'
 import {
-  getManagedSkillImportApiErrorMessage,
-  buildManagedSkillImportFromDirectory,
-  getManagedSkillImportValidationMessage,
-} from '@/lib/managed/skill-import'
-import { toastOperationError } from '@/lib/managed/errors'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -103,6 +81,31 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
+import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
+import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import { toastOperationError } from '@/lib/managed/errors'
+import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+  type ManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import { canManageSkillCollaborators } from '@/lib/managed/roles'
+import {
+  getManagedSkillImportApiErrorMessage,
+  buildManagedSkillImportFromDirectory,
+  getManagedSkillImportValidationMessage,
+} from '@/lib/managed/skill-import'
+import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
+import type {
+  SkillRecord,
+  SkillFileRecord,
+  SkillVersionRecord,
+  SkillSecurityScanRecord,
+} from '@/types/managed'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -842,8 +845,8 @@ function SkillEditor({
   >
   onDeleteVersionDialogActivity: () => void
   isCreatingVersion: boolean
-  editorTab: 'editor' | 'metadata' | 'versions'
-  setEditorTab: (tab: 'editor' | 'metadata' | 'versions') => void
+  editorTab: 'editor' | 'metadata' | 'versions' | 'collaborators'
+  setEditorTab: (tab: 'editor' | 'metadata' | 'versions' | 'collaborators') => void
   showVersionForm: boolean
   setShowVersionForm: (v: boolean) => void
   queryScope: string
@@ -928,13 +931,20 @@ function SkillEditor({
       {/* Tab bar */}
       <Tabs
         value={editorTab}
-        onValueChange={(v) => setEditorTab(v as 'editor' | 'metadata' | 'versions')}
+        onValueChange={(v) =>
+          setEditorTab(v as 'editor' | 'metadata' | 'versions' | 'collaborators')
+        }
       >
         <div className="flex items-center justify-between border-b border-border pr-3">
           <TabsList>
             <TabsTrigger value="editor">{t('managed.skills.editor')}</TabsTrigger>
             <TabsTrigger value="metadata">{t('managed.skills.metadata')}</TabsTrigger>
             <TabsTrigger value="versions">{t('managed.skills.versionHistory')}</TabsTrigger>
+            {canManageSkillCollaborators(skill.capability) && (
+              <TabsTrigger value="collaborators">
+                {t('managed.skills.collaborators.title')}
+              </TabsTrigger>
+            )}
           </TabsList>
         </div>
       </Tabs>
@@ -1332,6 +1342,15 @@ function SkillEditor({
         </div>
       )}
 
+      {editorTab === 'collaborators' && (
+        <SkillCollaboratorsPanel
+          skillId={apiResourceId(skill.id)}
+          capability={skill.capability}
+          requestScope={requestScope}
+          queryScopeKey={queryScope}
+        />
+      )}
+
       {/* Publish version dialog — mounted at SkillEditor top level so it works
           from any tab (the entry button lives in the global action bar). */}
       <Dialog
@@ -1541,7 +1560,9 @@ export default function SkillManagerPage() {
   // header's Save button can decide what to persist: on the Metadata tab
   // we always save the skill-level form, regardless of which file happens
   // to be selected in the tree.
-  const [editorTab, setEditorTab] = useState<'editor' | 'metadata' | 'versions'>('editor')
+  const [editorTab, setEditorTab] = useState<'editor' | 'metadata' | 'versions' | 'collaborators'>(
+    'editor',
+  )
   // Lifted so the "publish version" button can live in the top-right action
   // group while the form itself renders inside SkillEditor's versions tab.
   const [showVersionForm, setShowVersionForm] = useState(false)

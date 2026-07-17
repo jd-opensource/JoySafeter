@@ -299,6 +299,8 @@ export type SkillVisibility = 'private' | 'project' | 'organization' | 'public'
 
 export type SkillLifecycleStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'archived'
 
+export type SkillCapability = 'owner' | 'admin' | 'editor' | 'viewer' | 'none'
+
 export interface SkillRecord {
   id: string
   display_title?: string
@@ -322,6 +324,9 @@ export interface SkillRecord {
   created_at: string
   updated_at: string
   security_scan?: SkillSecurityScanSummary
+  // Caller's effective capability on this skill, resolved by the detail route.
+  // Absent on list rows (only the GET /skills/{id} detail populates it).
+  capability?: SkillCapability
 }
 
 export interface SkillVersionRecord {
