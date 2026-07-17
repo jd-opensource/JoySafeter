@@ -136,6 +136,10 @@ show_usage() {
   build              构建核心部署镜像（backend, frontend, orchestrator-rs, skillspector）
   push               构建并推送多架构镜像到仓库
   pull               拉取镜像，并把拉取到的镜像名同步到 deploy/.env
+  down               停止并移除本地 Compose 服务（保留数据卷）
+  logs               跟随查看服务日志（可跟服务名，如 logs api worker）
+  restart            重启本地 Compose 服务（可跟服务名）
+  status             查看本地 Compose 服务状态
 
 选项:
   -h, --help             显示帮助信息
@@ -227,6 +231,20 @@ show_usage() {
 
   # 拉取指定标签的镜像
   $0 pull --tag v1.0.0
+
+  # 查看本地栈运行状态
+  $0 status
+
+  # 跟随全部服务日志 / 只看某几个服务
+  $0 logs
+  $0 logs api worker
+
+  # 重启全部服务 / 只重启某个服务
+  $0 restart
+  $0 restart frontend
+
+  # 停止并移除本地栈（保留数据卷）
+  $0 down
 EOF
 }
 
@@ -603,6 +621,46 @@ run_local_doctor() {
     echo "下一步:"
     echo "  cd deploy"
     echo "  ./deploy.sh local"
+}
+
+# ---- 生命周期管理命令 ----
+# 统一在 SCRIPT_DIR 下、带本地部署的 profile 集合执行 compose 子命令，
+# 保证 down/logs/restart/status 覆盖 redis 与 rust-orchestrator 等 profile 服务，
+# 并复用与 local 一致的 env（deploy/.env + LOCAL_* 镜像变量）。
+compose_lifecycle() {
+    (
+        cd "$SCRIPT_DIR"
+        compose_local_env --profile local-redis --profile rust-orchestrator "$@"
+    )
+}
+
+run_down() {
+    log_info "停止并移除 JoySafeter 本地 Compose 服务（保留数据卷）..."
+    compose_lifecycle down "$@"
+    log_success "服务已停止；命名数据卷已保留。如需连数据一起清除，请手动执行：cd deploy && docker compose down -v"
+}
+
+run_logs() {
+    if [ "$#" -gt 0 ]; then
+        log_info "跟随服务日志: $*（Ctrl-C 退出）"
+    else
+        log_info "跟随全部服务日志（Ctrl-C 退出）"
+    fi
+    compose_lifecycle logs -f "$@"
+}
+
+run_restart() {
+    if [ "$#" -gt 0 ]; then
+        log_info "重启服务: $*"
+    else
+        log_info "重启全部 JoySafeter 本地 Compose 服务..."
+    fi
+    compose_lifecycle restart "$@"
+    log_success "服务已重启"
+}
+
+run_status() {
+    compose_lifecycle ps "$@"
 }
 
 # 初始化 Docker Buildx
@@ -1338,6 +1396,7 @@ main() {
     local NATIVE_ONLY=false
     local BUILD_ALL=false
     local ARCH_LIST_STR=""
+    local SERVICE_ARGS=()
 
     # 解析参数
     while [[ $# -gt 0 ]]; do
@@ -1456,14 +1515,21 @@ main() {
                 NO_CACHE=true
                 shift
                 ;;
-            doctor|local|build|push|pull)
+            doctor|local|build|push|pull|down|logs|restart|status)
                 COMMAND="$1"
                 shift
                 ;;
             *)
-                log_error "未知选项: $1"
-                show_usage
-                exit 1
+                # 生命周期命令（down/logs/restart/status）后面可跟服务名或原生
+                # compose 选项（如 --tail=100），原样透传给 docker compose。
+                if [ -n "$COMMAND" ] && { [ "$COMMAND" = down ] || [ "$COMMAND" = logs ] || [ "$COMMAND" = restart ] || [ "$COMMAND" = status ]; }; then
+                    SERVICE_ARGS+=("$1")
+                    shift
+                else
+                    log_error "未知选项: $1"
+                    show_usage
+                    exit 1
+                fi
                 ;;
         esac
     done
@@ -1533,6 +1599,18 @@ main() {
             ;;
         (pull)
             pull_images
+            ;;
+        (down)
+            run_down "${SERVICE_ARGS[@]}"
+            ;;
+        (logs)
+            run_logs "${SERVICE_ARGS[@]}"
+            ;;
+        (restart)
+            run_restart "${SERVICE_ARGS[@]}"
+            ;;
+        (status)
+            run_status "${SERVICE_ARGS[@]}"
             ;;
         (*)
             log_error "未知命令: $COMMAND"
