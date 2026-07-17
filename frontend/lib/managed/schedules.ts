@@ -11,8 +11,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { managedDelete, managedGet, managedPatch, managedPost } from '@/lib/api-client'
-import { stripIdPrefix } from '@/lib/managed/id'
-import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  apiCollectionPath,
+  apiResourceId,
+  apiResourcePath,
+  apiResourceSubpath,
+} from '@/lib/managed/api-paths'
+import {
+  hasManagedRequestScope,
+  type ManagedRequestScope,
+  managedRequestOptions,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 
 export type ScheduleConcurrencyPolicy = 'allow' | 'forbid' | 'replace'
 
@@ -52,6 +62,8 @@ export interface ScheduleCreate {
   enabled?: boolean
 }
 
+type ScheduleCreateInput = ScheduleCreate & { requestScope?: ManagedRequestScope }
+
 export type ScheduleUpdate = Partial<
   Pick<
     ScheduleCreate,
@@ -68,6 +80,8 @@ export type ScheduleUpdate = Partial<
     | 'enabled'
   >
 >
+
+type ScheduleUpdateInput = { id: string; body: ScheduleUpdate; requestScope?: ManagedRequestScope }
 
 export interface ScheduleRun {
   id: string
@@ -91,39 +105,36 @@ export interface TriggerResult {
 /** Run statuses that are still in flight — used to drive live polling. */
 const ACTIVE_RUN_STATUSES = new Set(['pending', 'scheduling', 'running'])
 
-/** React Query key namespace, scoped to the active org+project. */
-function useScope(): string {
-  const orgId = useProjectStore((s) => s.currentOrgId)
-  const projectId = useProjectStore((s) => s.currentProjectId)
-  return `${orgId ?? ''}:${projectId ?? ''}`
-}
-
 export function useSchedules(params?: { enabled?: boolean }) {
-  const scope = useScope()
-  const query = new URLSearchParams()
-  if (params?.enabled !== undefined) query.set('enabled', String(params.enabled))
-  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const scope = useManagedRequestScope()
+  const path = apiCollectionPath('schedules', { enabled: params?.enabled })
   return useQuery({
-    queryKey: ['schedules', scope, suffix],
-    queryFn: () => managedGet<Schedule[]>(`/schedules${suffix}`),
+    queryKey: ['schedules', scope.key, path],
+    queryFn: () => managedGet<Schedule[]>(path, managedRequestOptions(scope)),
+    enabled: hasManagedRequestScope(scope),
   })
 }
 
 export function useSchedule(scheduleId: string | undefined) {
-  const scope = useScope()
+  const scope = useManagedRequestScope()
   return useQuery({
-    queryKey: ['schedule', scope, scheduleId],
-    queryFn: () => managedGet<Schedule>(`/schedules/${scheduleId}`),
-    enabled: !!scheduleId,
+    queryKey: ['schedule', scope.key, scheduleId],
+    queryFn: () =>
+      managedGet<Schedule>(apiResourcePath('schedules', scheduleId), managedRequestOptions(scope)),
+    enabled: !!scheduleId && hasManagedRequestScope(scope),
   })
 }
 
 export function useScheduleRuns(scheduleId: string | undefined, limit = 50) {
-  const scope = useScope()
+  const scope = useManagedRequestScope()
   return useQuery({
-    queryKey: ['schedule-runs', scope, scheduleId, limit],
-    queryFn: () => managedGet<ScheduleRun[]>(`/schedules/${scheduleId}/runs?limit=${limit}`),
-    enabled: !!scheduleId,
+    queryKey: ['schedule-runs', scope.key, scheduleId, limit],
+    queryFn: () =>
+      managedGet<ScheduleRun[]>(
+        apiResourceSubpath('schedules', scheduleId, ['runs'], { limit }),
+        managedRequestOptions(scope),
+      ),
+    enabled: !!scheduleId && hasManagedRequestScope(scope),
     // Poll only while a run is still in flight, so a just-triggered run advances
     // to its terminal state in the UI without a manual refresh. Idle when all
     // runs are terminal (returns false → no polling).
@@ -136,41 +147,72 @@ export function useScheduleRuns(scheduleId: string | undefined, limit = 50) {
 
 export function useCreateSchedule() {
   const qc = useQueryClient()
+  const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: (body: ScheduleCreate) => managedPost<Schedule>('/schedules', body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['schedules'] }),
+    mutationFn: (input: ScheduleCreateInput) => {
+      const { requestScope = scope, ...body } = input
+      return managedPost<Schedule>(
+        apiCollectionPath('schedules'),
+        {
+          ...body,
+          agent_id: apiResourceId(body.agent_id),
+        },
+        managedRequestOptions(requestScope),
+      )
+    },
+    onSuccess: (_data, input) =>
+      qc.invalidateQueries({ queryKey: ['schedules', (input.requestScope ?? scope).key] }),
   })
 }
 
 export function useUpdateSchedule() {
   const qc = useQueryClient()
+  const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: ScheduleUpdate }) =>
-      managedPatch<Schedule>(`/schedules/${id}`, body),
-    onSuccess: (_data, { id }) => {
-      qc.invalidateQueries({ queryKey: ['schedules'] })
-      qc.invalidateQueries({ queryKey: ['schedule'] })
-      void id
+    mutationFn: ({ id, body, requestScope = scope }: ScheduleUpdateInput) =>
+      managedPatch<Schedule>(
+        apiResourcePath('schedules', id),
+        body,
+        managedRequestOptions(requestScope),
+      ),
+    onSuccess: (_data, { id, requestScope }) => {
+      const scopeKey = (requestScope ?? scope).key
+      qc.invalidateQueries({ queryKey: ['schedules', scopeKey] })
+      qc.invalidateQueries({ queryKey: ['schedule', scopeKey, id] })
     },
   })
 }
 
 export function useToggleSchedule() {
   const qc = useQueryClient()
+  const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      managedPost<Schedule>(`/schedules/${id}/${enabled ? 'enable' : 'disable'}`, {}),
+    mutationFn: ({
+      id,
+      enabled,
+      requestScope = scope,
+    }: {
+      id: string
+      enabled: boolean
+      requestScope?: ManagedRequestScope
+    }) =>
+      managedPost<Schedule>(
+        apiResourcePath('schedules', id, enabled ? 'enable' : 'disable'),
+        {},
+        managedRequestOptions(requestScope),
+      ),
     // Optimistically flip the toggled row so only that switch reacts instantly;
     // other rows stay interactive (no global pending disable). Rolls back on
     // error, and reconciles with the server on settle (next_run_at recompute).
-    onMutate: async ({ id, enabled }) => {
-      await qc.cancelQueries({ queryKey: ['schedules'] })
-      const snapshots = qc.getQueriesData<Schedule[]>({ queryKey: ['schedules'] })
+    onMutate: async ({ id, enabled, requestScope }) => {
+      const scopeKey = (requestScope ?? scope).key
+      await qc.cancelQueries({ queryKey: ['schedules', scopeKey] })
+      const snapshots = qc.getQueriesData<Schedule[]>({ queryKey: ['schedules', scopeKey] })
       for (const [key, list] of snapshots) {
         if (!list) continue
         qc.setQueryData<Schedule[]>(
           key,
-          list.map((s) => (stripIdPrefix(s.id) === id ? { ...s, enabled } : s)),
+          list.map((s) => (apiResourceId(s.id) === apiResourceId(id) ? { ...s, enabled } : s)),
         )
       }
       return { snapshots }
@@ -180,25 +222,47 @@ export function useToggleSchedule() {
         qc.setQueryData(key, list)
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['schedules'] }),
+    onSettled: (_data, _error, vars) =>
+      qc.invalidateQueries({ queryKey: ['schedules', (vars.requestScope ?? scope).key] }),
   })
 }
 
 export function useTriggerSchedule() {
   const qc = useQueryClient()
+  const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: (id: string) => managedPost<TriggerResult>(`/schedules/${id}/trigger`, {}),
-    onSuccess: (_data, id) => {
-      qc.invalidateQueries({ queryKey: ['schedule-runs'] })
-      void id
+    mutationFn: (input: string | { id: string; requestScope?: ManagedRequestScope }) => {
+      const id = typeof input === 'string' ? input : input.id
+      const requestScope = typeof input === 'string' ? scope : (input.requestScope ?? scope)
+      return managedPost<TriggerResult>(
+        apiResourcePath('schedules', id, 'trigger'),
+        {},
+        managedRequestOptions(requestScope),
+      )
+    },
+    onSuccess: (_data, input) => {
+      const id = typeof input === 'string' ? input : input.id
+      const requestScope = typeof input === 'string' ? scope : (input.requestScope ?? scope)
+      qc.invalidateQueries({ queryKey: ['schedule-runs', requestScope.key, id] })
     },
   })
 }
 
 export function useDeleteSchedule() {
   const qc = useQueryClient()
+  const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: (id: string) => managedDelete<void>(`/schedules/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['schedules'] }),
+    mutationFn: (input: string | { id: string; requestScope?: ManagedRequestScope }) => {
+      const id = typeof input === 'string' ? input : input.id
+      const requestScope = typeof input === 'string' ? scope : (input.requestScope ?? scope)
+      return managedDelete<void>(
+        apiResourcePath('schedules', id),
+        managedRequestOptions(requestScope),
+      )
+    },
+    onSuccess: (_data, input) => {
+      const requestScope = typeof input === 'string' ? scope : (input.requestScope ?? scope)
+      qc.invalidateQueries({ queryKey: ['schedules', requestScope.key] })
+    },
   })
 }

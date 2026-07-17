@@ -90,6 +90,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 describe('useSkillAuthoring stream lifecycle', () => {
   beforeEach(() => {
     apiStreamMock.mockReset()
@@ -175,6 +185,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     })
 
     const firstSignal = apiStreamMock.mock.calls[0][2]?.signal as AbortSignal
+    expect(apiStreamMock.mock.calls[0][2]).toMatchObject(managedOptions())
     expect(firstSignal.aborted).toBe(false)
 
     await act(async () => {
@@ -196,6 +207,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
 
     expect(apiStreamMock).toHaveBeenCalledTimes(2)
     const secondSignal = apiStreamMock.mock.calls[1][2]?.signal as AbortSignal
+    expect(apiStreamMock.mock.calls[1][2]).toMatchObject(managedOptions())
     expect(secondSignal.aborted).toBe(false)
 
     second.close()
@@ -217,6 +229,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     })
 
     const signal = apiStreamMock.mock.calls[0][2]?.signal as AbortSignal
+    expect(apiStreamMock.mock.calls[0][2]).toMatchObject(managedOptions())
     expect(signal.aborted).toBe(false)
 
     unmount()
@@ -403,6 +416,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith(
       'skills/ai-authoring/save-draft',
       expect.anything(),
+      managedOptions(),
     )
   })
 
@@ -480,6 +494,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     })
 
     const signal = apiStreamMock.mock.calls[0][2]?.signal as AbortSignal
+    expect(apiStreamMock.mock.calls[0][2]).toMatchObject(managedOptions())
     expect(signal.aborted).toBe(false)
 
     await act(async () => {
@@ -600,12 +615,26 @@ describe('useSkillAuthoring stream lifecycle', () => {
       1,
       'skills/ai-authoring/save-draft',
       expect.anything(),
+      managedOptions(),
     )
-    expect(managedPostMock).toHaveBeenNthCalledWith(2, 'skills/publish_blocked/submit-review', {})
-    expect(managedPostMock).not.toHaveBeenCalledWith('skills/publish_blocked/approve', {})
-    expect(managedPostMock).not.toHaveBeenCalledWith('skills/publish_blocked/versions', {
-      release_notes: null,
-    })
+    expect(managedPostMock).toHaveBeenNthCalledWith(
+      2,
+      '/skills/publish_blocked/submit-review',
+      {},
+      managedOptions(),
+    )
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/skills/publish_blocked/approve',
+      {},
+      managedOptions(),
+    )
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/skills/publish_blocked/versions',
+      {
+        release_notes: null,
+      },
+      managedOptions(),
+    )
     await expect(publish).resolves.toMatchObject({
       skillId: 'skill_publish_blocked',
       error: expect.any(String),

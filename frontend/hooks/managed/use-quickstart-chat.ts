@@ -6,6 +6,13 @@ import { ApiError, apiStream, MANAGED_API_BASE, managedPost } from '@/lib/api-cl
 import { useTranslation } from '@/lib/i18n'
 import { getOperationErrorMessage } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { apiResourceId } from '@/lib/managed/api-paths'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { buildQuickstartAgentCreateBody } from '@/lib/managed/quickstart-create'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -34,7 +41,7 @@ interface CreateSessionOptions {
 
 function getCurrentManagedScope() {
   const { currentOrgId, currentProjectId } = useProjectStore.getState()
-  return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  return managedScopeKey(currentOrgId, currentProjectId)
 }
 
 const ENGINE_CONFIG: Record<QuickstartEngine, { engineKind: string }> = {
@@ -100,9 +107,8 @@ export function useQuickstartChat(
   generationSecret?: { secretRef: string; provider: QuickstartEngine },
 ) {
   const { t } = useTranslation()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
+  const managedScopeKeyValue = managedScope.key
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const messagesRef = useRef<ChatMessage[]>([])
   const [currentStep, setCurrentStep] = useState<StepId>(1)
@@ -127,7 +133,8 @@ export function useQuickstartChat(
   const [isCreating, setIsCreating] = useState(false)
 
   const resourceIdsRef = useRef(resourceIds)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScopeKeyValue)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const lifecycleRunRef = useRef(0)
   const isCurrentManagedScope = useCallback(
     (scope: string) => managedScopeRef.current === scope && getCurrentManagedScope() === scope,
@@ -166,9 +173,10 @@ export function useQuickstartChat(
   )
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
+    if (managedScopeRef.current === managedScopeKeyValue) return
     lifecycleRunRef.current += 1
-    managedScopeRef.current = managedScope
+    managedScopeRef.current = managedScopeKeyValue
+    managedRequestScopeRef.current = managedScope
 
     abortRef.current?.abort()
     abortRef.current = null
@@ -192,7 +200,7 @@ export function useQuickstartChat(
     setCompletedSteps((prev) => new Set(Array.from(prev).filter((step) => step < 3)))
     setPendingConfirmation(null)
     setCurrentStep((prev) => (prev > 3 ? 3 : prev))
-  }, [managedScope])
+  }, [managedScopeKeyValue])
 
   const sendMessage = useCallback(
     async (
@@ -211,7 +219,8 @@ export function useQuickstartChat(
       const provider = options?.providerOverride ?? generationSecret?.provider ?? 'claude'
       const requestSecretRef =
         options?.secretRefOverride ?? generationSecret?.secretRef ?? agentSecretRef
-      const scopeAtStart = managedScopeRef.current
+      const requestScope = managedRequestScopeRef.current
+      const scopeAtStart = requestScope.key
       if (!isCurrentWritableManagedScope(scopeAtStart)) return
 
       const userMsg: ChatMessage = {
@@ -259,7 +268,7 @@ export function useQuickstartChat(
             secret_ref: requestSecretRef,
             agent_context: step === 4 || step === 5 ? configRef.current.agent : undefined,
           },
-          { signal: controller.signal },
+          { ...managedRequestOptions(requestScope), signal: controller.signal },
         )
 
         const reader = response.body!.getReader()
@@ -395,76 +404,86 @@ export function useQuickstartChat(
     [messages, currentStep, generationSecret, agentSecretRef, isCurrentWritableManagedScope, t],
   )
 
-  const createSession = useCallback(async (options: CreateSessionOptions = {}) => {
-    const agentId = resourceIdsRef.current[3]
-    const envId =
-      'environmentId' in options ? options.environmentId || undefined : resourceIdsRef.current[4]
-    const vaultId = 'vaultId' in options ? options.vaultId || undefined : resourceIdsRef.current[5]
-    if (!agentId) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: generateUUID(),
-          role: 'assistant',
-          content: t('managed.quickstart.errors.agentMissingForSession'),
-        },
-      ])
-      return
-    }
+  const createSession = useCallback(
+    async (options: CreateSessionOptions = {}) => {
+      const agentId = resourceIdsRef.current[3]
+      const envId =
+        'environmentId' in options ? options.environmentId || undefined : resourceIdsRef.current[4]
+      const vaultId =
+        'vaultId' in options ? options.vaultId || undefined : resourceIdsRef.current[5]
+      if (!agentId) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateUUID(),
+            role: 'assistant',
+            content: t('managed.quickstart.errors.agentMissingForSession'),
+          },
+        ])
+        return
+      }
 
-    const scopeAtStart = managedScopeRef.current
-    if (!isCurrentWritableManagedScope(scopeAtStart)) return
-    const lifecycleRunAtStart = lifecycleRunRef.current
-    setIsCreating(true)
-    try {
-      const body: Record<string, unknown> = { agent: stripIdPrefix(agentId) }
-      if (envId) body.environment_id = stripIdPrefix(envId)
-      if (vaultId) body.vault_ids = [stripIdPrefix(vaultId)]
+      const requestScope = managedRequestScopeRef.current
+      const scopeAtStart = requestScope.key
+      if (!isCurrentWritableManagedScope(scopeAtStart)) return
+      const lifecycleRunAtStart = lifecycleRunRef.current
+      setIsCreating(true)
+      try {
+        const body: Record<string, unknown> = { agent: apiResourceId(agentId) }
+        if (envId) body.environment_id = apiResourceId(envId)
+        if (vaultId) body.vault_ids = [apiResourceId(vaultId)]
 
-      const result = await managedPost('sessions', body).catch((error) => {
-        throw toApiStatusError(error)
-      })
-      if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
-      const sessionId = getCreatedResourceId(result)
-      if (!sessionId) throw new Error(t('managed.quickstart.errors.createSessionFailed'))
+        const result = await managedPost(
+          'sessions',
+          body,
+          managedRequestOptions(requestScope),
+        ).catch((error) => {
+          throw toApiStatusError(error)
+        })
+        if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
+        const sessionId = getCreatedResourceId(result)
+        if (!sessionId) throw new Error(t('managed.quickstart.errors.createSessionFailed'))
 
-      setResourceIds((prev) => {
-        const next = { ...prev, [6]: sessionId }
-        resourceIdsRef.current = next
-        return next
-      })
+        setResourceIds((prev) => {
+          const next = { ...prev, [6]: sessionId }
+          resourceIdsRef.current = next
+          return next
+        })
 
-      const sessionCurl = `curl -X POST ${MANAGED_API_BASE}/sessions \\
+        const sessionCurl = `curl -X POST ${MANAGED_API_BASE}/sessions \\
   -H "Content-Type: application/json" \\
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(body, null, 2)}'`
 
-      setCompletedSteps((prev) => new Set([...prev, 6]))
-      setCurls((prev) => ({ ...prev, [6]: sessionCurl }))
-    } catch (err) {
-      if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: generateUUID(),
-          role: 'assistant',
-          content: getOperationErrorMessage(
-            t,
-            err,
-            'managed.quickstart.errors.createSessionFailed',
-          ),
-        },
-      ])
-    } finally {
-      if (isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) {
-        setIsCreating(false)
+        setCompletedSteps((prev) => new Set([...prev, 6]))
+        setCurls((prev) => ({ ...prev, [6]: sessionCurl }))
+      } catch (err) {
+        if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateUUID(),
+            role: 'assistant',
+            content: getOperationErrorMessage(
+              t,
+              err,
+              'managed.quickstart.errors.createSessionFailed',
+            ),
+          },
+        ])
+      } finally {
+        if (isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) {
+          setIsCreating(false)
+        }
       }
-    }
-  }, [isCurrentLifecycleRun, isCurrentWritableLifecycleRun, isCurrentWritableManagedScope, t])
+    },
+    [isCurrentLifecycleRun, isCurrentWritableLifecycleRun, isCurrentWritableManagedScope, t],
+  )
 
   const createEnvironment = useCallback(
     async (networkType: 'unrestricted' | 'limited', allowedHosts: string[]) => {
-      const scopeAtStart = managedScopeRef.current
+      const requestScope = managedRequestScopeRef.current
+      const scopeAtStart = requestScope.key
       if (!isCurrentWritableManagedScope(scopeAtStart)) return false
       const lifecycleRunAtStart = lifecycleRunRef.current
       setIsCreating(true)
@@ -482,7 +501,11 @@ export function useQuickstartChat(
           },
         }
 
-        const result = await managedPost('environments', envBody).catch((error) => {
+        const result = await managedPost(
+          'environments',
+          envBody,
+          managedRequestOptions(requestScope),
+        ).catch((error) => {
           throw toApiStatusError(error)
         })
         if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
@@ -530,13 +553,18 @@ export function useQuickstartChat(
 
   const createVault = useCallback(
     async (name: string) => {
-      const scopeAtStart = managedScopeRef.current
+      const requestScope = managedRequestScopeRef.current
+      const scopeAtStart = requestScope.key
       if (!isCurrentWritableManagedScope(scopeAtStart)) return false
       const lifecycleRunAtStart = lifecycleRunRef.current
       setIsCreating(true)
       try {
         const vaultBody = { name }
-        const result = await managedPost('vaults', vaultBody).catch((error) => {
+        const result = await managedPost(
+          'vaults',
+          vaultBody,
+          managedRequestOptions(requestScope),
+        ).catch((error) => {
           throw toApiStatusError(error)
         })
         if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
@@ -610,7 +638,8 @@ export function useQuickstartChat(
   const confirmStep = useCallback(async () => {
     if (!pendingConfirmation || isCreating) return
     const { step, curl } = pendingConfirmation
-    const scopeAtStart = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    const scopeAtStart = requestScope.key
     if (!isCurrentWritableManagedScope(scopeAtStart)) return
     const lifecycleRunAtStart = lifecycleRunRef.current
     setIsCreating(true)
@@ -634,6 +663,7 @@ export function useQuickstartChat(
             secretRef: agentSecretRef,
             suffix,
           }),
+          managedRequestOptions(requestScope),
         ).catch((error) => {
           throw toApiStatusError(error)
         })
@@ -641,26 +671,34 @@ export function useQuickstartChat(
         const e = latestConfig.environment
         if (!e) throw new Error(t('managed.quickstart.errors.environmentConfigMissing'))
         const networking = e.networking as Record<string, unknown> | undefined
-        result = await managedPost('environments', {
-          name: (e.name || 'quickstart-env') + suffix,
-          description: e.description || '',
-          config: {
-            type: 'cloud',
-            networking: {
-              type: networking?.type || 'limited',
-              allowed_hosts: (networking?.allowed_hosts as string[]) || [],
+        result = await managedPost(
+          'environments',
+          {
+            name: (e.name || 'quickstart-env') + suffix,
+            description: e.description || '',
+            config: {
+              type: 'cloud',
+              networking: {
+                type: networking?.type || 'limited',
+                allowed_hosts: (networking?.allowed_hosts as string[]) || [],
+              },
             },
           },
-        }).catch((error) => {
+          managedRequestOptions(requestScope),
+        ).catch((error) => {
           throw toApiStatusError(error)
         })
       } else if (step === 5) {
         const v = latestConfig.vault
         if (!v) throw new Error(t('managed.quickstart.errors.vaultConfigMissing'))
-        result = await managedPost('vaults', {
-          name: (v.name || 'quickstart-vault') + suffix,
-          description: v.description || '',
-        }).catch((error) => {
+        result = await managedPost(
+          'vaults',
+          {
+            name: (v.name || 'quickstart-vault') + suffix,
+            description: v.description || '',
+          },
+          managedRequestOptions(requestScope),
+        ).catch((error) => {
           throw toApiStatusError(error)
         })
       } else {
@@ -791,19 +829,24 @@ Agent: ${agentName}
 ${agentDesc ? `System prompt: ${agentDesc.slice(0, 300)}` : ''}
 ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
 
-    const scopeAtStart = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    const scopeAtStart = requestScope.key
     if (!isCurrentWritableManagedScope(scopeAtStart)) {
       return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     }
 
     try {
-      const response = await apiStream('quickstart/chat', {
-        messages: [{ role: 'user', content: prompt }],
-        current_step: 5,
-        provider: generationSecret?.provider ?? 'claude',
-        secret_ref: generationSecret?.secretRef ?? agentSecretRef,
-        agent_context: agent,
-      })
+      const response = await apiStream(
+        'quickstart/chat',
+        {
+          messages: [{ role: 'user', content: prompt }],
+          current_step: 5,
+          provider: generationSecret?.provider ?? 'claude',
+          secret_ref: generationSecret?.secretRef ?? agentSecretRef,
+          agent_context: agent,
+        },
+        managedRequestOptions(requestScope),
+      )
 
       const reader = response.body!.getReader()
       const decoder = new TextDecoder()

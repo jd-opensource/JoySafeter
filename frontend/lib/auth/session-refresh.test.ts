@@ -51,4 +51,23 @@ describe('silent session refresh lifecycle', () => {
 
     expect(invalidateSpy).not.toHaveBeenCalled()
   })
+
+  it('invalidates only the auth session query after silent refresh', async () => {
+    const { startSilentSessionRefresh } = await import('./session-refresh')
+    refreshTokenMock.mockResolvedValueOnce(undefined)
+    vi.spyOn(Date, 'now').mockReturnValue(10_000_000_099_999)
+    const queryClient = new QueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const stopRefresh = startSilentSessionRefresh(queryClient)
+    try {
+      window.dispatchEvent(new dom.window.Event('focus'))
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['session'], exact: true })
+    } finally {
+      stopRefresh()
+    }
+  })
 })

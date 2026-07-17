@@ -4,8 +4,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { managedGet } from '@/lib/api-client'
-import { stripIdPrefix } from '@/lib/managed/id'
-import { useProjectStore } from '@/stores/managed/project-store'
+import { apiCollectionPath, apiResourceId } from '@/lib/managed/api-paths'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 
 interface PageResult<T> {
   data: T[]
@@ -43,36 +48,35 @@ interface UsePaginatedListResult<T> {
 
 async function apiPage<T extends { id?: string }>(
   path: string,
+  scope: ManagedRequestScope,
   cursor?: string,
   limit = 10,
   includeArchived = false,
 ): Promise<PageResult<T>> {
-  const params = new URLSearchParams()
-  params.set('limit', String(limit))
-  if (cursor) params.set('after_id', cursor)
-  if (includeArchived) params.set('include_archived', 'true')
-  const sep = path.includes('?') ? '&' : '?'
-  const url = `${path}${sep}${params.toString()}`
+  const url = apiCollectionPath(path, {
+    limit,
+    after_id: cursor ? apiResourceId(cursor) : undefined,
+    include_archived: includeArchived || undefined,
+  })
 
   const res = await managedGet<
     T[] | { data: T[]; has_more: boolean; first_id?: string; last_id?: string }
-  >(url)
+  >(url, managedRequestOptions(scope))
 
   if (Array.isArray(res)) {
     return { data: res, has_more: false }
   }
   const items = res.data
   const firstId = res.first_id
-    ? stripIdPrefix(res.first_id)
+    ? apiResourceId(res.first_id)
     : items.length > 0
-      ? stripIdPrefix(items[0].id || '')
+      ? apiResourceId(items[0].id || '')
       : undefined
-  const lastId =
-    res.last_id
-      ? stripIdPrefix(res.last_id)
-      : items.length > 0
-        ? stripIdPrefix(items[items.length - 1].id || '')
-        : undefined
+  const lastId = res.last_id
+    ? apiResourceId(res.last_id)
+    : items.length > 0
+      ? apiResourceId(items[items.length - 1].id || '')
+      : undefined
   return { data: items, has_more: res.has_more, first_id: firstId, last_id: lastId }
 }
 
@@ -85,13 +89,11 @@ export function usePaginatedList<T extends { id?: string }>({
   includeArchived = false,
 }: UsePaginatedListOptions): UsePaginatedListResult<T> {
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const defaultPageSize = pageSizeOptions.includes(limit) ? limit : pageSizeOptions[0]
   const [pageSize, setPageSizeState] = useState(defaultPageSize)
   const effectivePageSize = pageSizeOptions.includes(pageSize) ? pageSize : defaultPageSize
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const listScope = `${queryKey}:${path}:${managedScope}:${includeArchived}:${effectivePageSize}`
+  const listScope = `${queryKey}:${path}:${managedScope.key}:${includeArchived}:${effectivePageSize}`
   const [cursorState, setCursorState] = useState<{
     scope: string
     cursor?: string
@@ -107,18 +109,19 @@ export function usePaginatedList<T extends { id?: string }>({
     [cursorState, listScope],
   )
 
-  const fullKey = [queryKey, managedScope, path, cursor, includeArchived, effectivePageSize]
+  const fullKey = [queryKey, managedScope.key, path, cursor, includeArchived, effectivePageSize]
+  const queryEnabled = enabled && hasManagedRequestScope(managedScope)
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: fullKey,
-    queryFn: () => apiPage<T>(path, cursor, effectivePageSize, includeArchived),
-    enabled,
+    queryFn: () => apiPage<T>(path, managedScope, cursor, effectivePageSize, includeArchived),
+    enabled: queryEnabled,
     placeholderData: (previousData, previousQuery) => {
       const previousKey = previousQuery?.queryKey
       if (
         Array.isArray(previousKey) &&
         previousKey[0] === queryKey &&
-        previousKey[1] === managedScope &&
+        previousKey[1] === managedScope.key &&
         previousKey[2] === path &&
         previousKey[4] === includeArchived &&
         previousKey[5] === effectivePageSize
@@ -134,11 +137,19 @@ export function usePaginatedList<T extends { id?: string }>({
 
   // Prefetch next page when current page has more
   useEffect(() => {
-    if (page.has_more && page.last_id && enabled) {
-      const nextKey = [queryKey, managedScope, path, page.last_id, includeArchived, effectivePageSize]
+    if (page.has_more && page.last_id && queryEnabled) {
+      const nextKey = [
+        queryKey,
+        managedScope.key,
+        path,
+        page.last_id,
+        includeArchived,
+        effectivePageSize,
+      ]
       queryClient.prefetchQuery({
         queryKey: nextKey,
-        queryFn: () => apiPage<T>(path, page.last_id, effectivePageSize, includeArchived),
+        queryFn: () =>
+          apiPage<T>(path, managedScope, page.last_id, effectivePageSize, includeArchived),
         staleTime: 30_000,
       })
     }
@@ -150,7 +161,7 @@ export function usePaginatedList<T extends { id?: string }>({
     path,
     effectivePageSize,
     includeArchived,
-    enabled,
+    queryEnabled,
     queryClient,
   ])
 

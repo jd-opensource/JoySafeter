@@ -48,6 +48,18 @@ async function loadAuthContext(): Promise<AuthMeResponse> {
   }
 }
 
+function managedContextChangedSinceRequest(
+  requestedOrgId: string | null,
+  requestedProjectId: string | null,
+): boolean {
+  const { currentOrgId, currentProjectId } = useProjectStore.getState()
+  const requestStartedWithoutContext = requestedOrgId === null && requestedProjectId === null
+  if (requestStartedWithoutContext) {
+    return currentOrgId !== null || currentProjectId !== null
+  }
+  return requestedOrgId !== currentOrgId || requestedProjectId !== currentProjectId
+}
+
 export function useProjectContext() {
   const [isLoading, setIsLoading] = useState(true)
   const queryClient = useQueryClient()
@@ -56,15 +68,29 @@ export function useProjectContext() {
   const { currentOrgId, currentProjectId, organizations, projects, setContext } = useProjectStore()
 
   useEffect(() => {
+    if (currentOrgId && currentProjectId) {
+      setIsLoading(false)
+      return
+    }
+
     let cancelled = false
     const loadSeq = contextLoadSeqRef.current
 
     const loadContext = async () => {
+      const { currentOrgId: requestedOrgId, currentProjectId: requestedProjectId } =
+        useProjectStore.getState()
       try {
         const data = await loadAuthContext()
         if (cancelled || loadSeq !== contextLoadSeqRef.current) return
+        if (managedContextChangedSinceRequest(requestedOrgId, requestedProjectId)) return
 
-        setContext(data.organization.id, data.project.id, data.organizations, data.projects, data.project)
+        setContext(
+          data.organization.id,
+          data.project.id,
+          data.organizations,
+          data.projects,
+          data.project,
+        )
       } catch (err) {
         if (loadSeq === contextLoadSeqRef.current) {
           console.error('Failed to load project context:', err)
@@ -79,7 +105,7 @@ export function useProjectContext() {
     return () => {
       cancelled = true
     }
-  }, [setContext])
+  }, [currentOrgId, currentProjectId, setContext])
 
   const switchProject = useCallback(
     async (projectId: string, orgId?: string) => {

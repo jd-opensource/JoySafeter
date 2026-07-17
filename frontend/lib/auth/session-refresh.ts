@@ -31,7 +31,7 @@ async function runSilentSessionRefresh(
   try {
     await authApi.refreshToken()
     if (!isRefreshLifecycleActive(queryClient, generation)) return
-    await queryClient.invalidateQueries({ queryKey: ['session'] })
+    await queryClient.invalidateQueries({ queryKey: ['session'], exact: true })
   } catch (error) {
     if (!isRefreshLifecycleActive(queryClient, generation)) return
     if (isUnauthorizedApiError(error)) {

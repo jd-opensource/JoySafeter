@@ -93,6 +93,43 @@ describe('useProjectContext managed cache lifecycle', () => {
     localStorage.clear()
   })
 
+  it('uses existing managed context without bootstrapping auth context again', async () => {
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-a',
+      currentProject: { id: 'project-a', name: 'Project A', slug: 'project-a', is_default: true },
+      organizations: [{ id: 'org-a', name: 'Org A', slug: 'org-a', role: 'owner' }],
+      projects: [{ id: 'project-a', name: 'Project A', slug: 'project-a', is_default: true }],
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    let currentContext: ReturnType<typeof useProjectContext> | null = null
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Harness
+          onReady={(ctx) => {
+            currentContext = ctx
+          }}
+        />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(managedGetMock).not.toHaveBeenCalled()
+    expect(currentContext?.orgId).toBe('org-a')
+    expect(currentContext?.projectId).toBe('project-a')
+    expect(currentContext?.isLoading).toBe(false)
+  })
+
   it('clears old managed query data immediately after switching project context', async () => {
     managedGetMock.mockResolvedValue(authContext('org-a', 'project-a'))
     managedPostMock.mockResolvedValue({
@@ -208,6 +245,47 @@ describe('useProjectContext managed cache lifecycle', () => {
 
     expect(useProjectStore.getState().currentOrgId).toBe('org-b')
     expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+
+    await act(async () => {
+      initialLoad.resolve(authContext('org-a', 'project-a'))
+      await Promise.resolve()
+    })
+
+    expect(useProjectStore.getState().currentOrgId).toBe('org-b')
+    expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+  })
+
+  it('does not let an old auth context load overwrite a context changed by another hook instance', async () => {
+    const initialLoad = deferred<ReturnType<typeof authContext>>()
+    managedGetMock.mockReturnValue(initialLoad.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Harness onReady={() => undefined} />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalledWith('/auth/me')
+    })
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentOrgId: 'org-b',
+        currentProjectId: 'project-b',
+        currentProject: { id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true },
+        organizations: [{ id: 'org-b', name: 'Org B', slug: 'org-b', role: 'owner' }],
+        projects: [{ id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true }],
+      })
+      await Promise.resolve()
+    })
 
     await act(async () => {
       initialLoad.resolve(authContext('org-a', 'project-a'))

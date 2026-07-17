@@ -350,6 +350,46 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function getAbortReason(signal: AbortSignal): unknown {
+  return 'reason' in signal ? signal.reason : undefined
+}
+
+function createRequestAbortSignal(
+  timeout: number,
+  externalSignal?: AbortSignal | null,
+): {
+  signal: AbortSignal
+  didTimeout: () => boolean
+  cleanup: () => void
+} {
+  const controller = new AbortController()
+  let timedOut = false
+
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeout)
+
+  const abortFromExternal = () => {
+    controller.abort(externalSignal ? getAbortReason(externalSignal) : undefined)
+  }
+
+  if (externalSignal?.aborted) {
+    abortFromExternal()
+  } else {
+    externalSignal?.addEventListener('abort', abortFromExternal, { once: true })
+  }
+
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    cleanup: () => {
+      clearTimeout(timeoutId)
+      externalSignal?.removeEventListener('abort', abortFromExternal)
+    },
+  }
+}
+
 async function waitForRefreshLockRelease(startedAt: number, timeout: number): Promise<boolean> {
   const deadline = Date.now() + timeout
 
@@ -474,6 +514,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
     skipManagedContext,
     headers: customHeaders,
     method = 'GET',
+    signal: externalSignal,
     ...restOptions
   } = options
   const headers: Record<string, string> = {
@@ -498,8 +539,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
   }
 
   const fullUrl = buildUrl(url)
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeout)
+  const requestSignal = createRequestAbortSignal(timeout, externalSignal)
   let didRefresh = false
   const requestBody = json ? trimConfigStringFields(body) : body
 
@@ -515,7 +555,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
               ? JSON.stringify(requestBody)
               : (body as BodyInit)
             : undefined,
-        signal: controller.signal,
+        signal: requestSignal.signal,
         credentials: 'include',
       })
 
@@ -543,9 +583,16 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
       if (e instanceof ApiError) throw e
       if (e instanceof Error) {
         if (e.name === 'AbortError') {
-          throw createApiError(408, 'Request Timeout', {
-            code: 'REQUEST_TIMEOUT',
-            message: 'Request timed out',
+          if (requestSignal.didTimeout()) {
+            throw createApiError(408, 'Request Timeout', {
+              code: 'REQUEST_TIMEOUT',
+              message: 'Request timed out',
+              data: null,
+            })
+          }
+          throw createApiError(0, 'Request Aborted', {
+            code: 'REQUEST_ABORTED',
+            message: 'Request was aborted',
             data: null,
           })
         }
@@ -561,7 +608,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
         data: null,
       })
     } finally {
-      clearTimeout(timeoutId)
+      requestSignal.cleanup()
     }
   }
 
@@ -632,13 +679,19 @@ export async function apiUpload<T>(
 export async function apiStream(
   url: string,
   body: unknown,
-  options?: { signal?: AbortSignal; withAuth?: boolean; skipManagedContext?: boolean },
+  options?: {
+    signal?: AbortSignal
+    withAuth?: boolean
+    skipManagedContext?: boolean
+    headers?: HeadersInit
+  },
 ): Promise<Response> {
-  const { withAuth = true, signal, skipManagedContext } = options || {}
+  const { withAuth = true, signal, skipManagedContext, headers: customHeaders } = options || {}
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'text/event-stream',
+    ...(customHeaders as Record<string, string>),
   }
 
   if (withAuth) {

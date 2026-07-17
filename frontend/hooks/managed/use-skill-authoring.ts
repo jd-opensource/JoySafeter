@@ -16,13 +16,20 @@
  * reloads / device switches.
  *
  * Mirrors the SSE consumption pattern from use-quickstart-chat.ts (same
- * fetch + getReader + line-by-line parse loop). Auth headers built the
- * same way (CSRF + X-Org-Id + X-Project-Id from the project store).
+ * fetch + getReader + line-by-line parse loop). Managed scope is captured
+ * once per render and passed explicitly with every request.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { apiStream, ApiError, managedGet, managedPost } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { getOperationErrorMessageWithDetails } from '@/lib/managed/errors'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { getManagedStreamErrorMessage } from '@/lib/managed/stream-errors'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -98,13 +105,9 @@ function loadPersisted(storageKey: string): Partial<PersistedState> | null {
   }
 }
 
-function stripSkillIdPrefix(id: string): string {
-  return id.startsWith('skill_') ? id.slice('skill_'.length) : id
-}
-
 function getCurrentManagedScope() {
   const { currentOrgId, currentProjectId } = useProjectStore.getState()
-  return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  return managedScopeKey(currentOrgId, currentProjectId)
 }
 
 function getInitialState(startFresh: boolean, storageKey: string): PersistedState {
@@ -121,11 +124,10 @@ function getInitialState(startFresh: boolean, storageKey: string): PersistedStat
 
 export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   const startFresh = options?.startFresh ?? false
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const storageKey = getStorageKey(managedScope)
+  const managedScope = useManagedRequestScope()
+  const managedScopeKeyValue = managedScope.key
+  const storageKey = getStorageKey(managedScopeKeyValue)
   const [initialState] = useState(() => getInitialState(startFresh, storageKey))
   const [messages, setMessages] = useState<AuthoringMessage[]>(initialState.messages)
   const [draft, setDraft] = useState<SkillDraft>(initialState.draft)
@@ -138,7 +140,8 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   const [hydrated] = useState(true)
   const abortRef = useRef<AbortController | null>(null)
   const streamInFlightRef = useRef(false)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScopeKeyValue)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const storageKeyRef = useRef(storageKey)
   const lifecycleRunRef = useRef(0)
   const isCurrentManagedScope = useCallback(
@@ -199,13 +202,14 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   }, [startFresh])
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
+    if (managedScopeRef.current === managedScopeKeyValue) return
 
     lifecycleRunRef.current += 1
     abortRef.current?.abort()
     abortRef.current = null
     streamInFlightRef.current = false
-    managedScopeRef.current = managedScope
+    managedScopeRef.current = managedScopeKeyValue
+    managedRequestScopeRef.current = managedScope
     storageKeyRef.current = storageKey
 
     const next = getInitialState(false, storageKey)
@@ -218,13 +222,13 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     setScanRunning(false)
     setScanResult(null)
     setPublishing(false)
-  }, [managedScope, storageKey])
+  }, [managedScopeKeyValue, storageKey])
 
   // Mirror state into localStorage. Skipped until after hydration so we
   // don't immediately overwrite the saved blob with our empty defaults.
   useEffect(() => {
     if (!hydrated || typeof window === 'undefined') return
-    if (managedScopeRef.current !== managedScope) return
+    if (managedScopeRef.current !== managedScopeKeyValue) return
     try {
       const payload: PersistedState = { messages, draft, draftSkillId }
       window.localStorage.setItem(storageKey, JSON.stringify(payload))
@@ -232,7 +236,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       // Quota exceeded etc. — drop silently; the workspace still works
       // in-memory, just without resume-across-reload.
     }
-  }, [messages, draft, draftSkillId, hydrated, managedScope, storageKey])
+  }, [messages, draft, draftSkillId, hydrated, managedScopeKeyValue, storageKey])
 
   const reset = useCallback(() => {
     abortRef.current?.abort()
@@ -270,7 +274,8 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         return
       }
 
-      const scopeAtStart = managedScopeRef.current
+      const requestScope = managedRequestScopeRef.current
+      const scopeAtStart = requestScope.key
       if (!isCurrentWritableManagedScope(scopeAtStart)) return
 
       // Append the user turn + a blank assistant placeholder we'll fold
@@ -297,7 +302,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
             messages: nextMessages.slice(0, -1),
             draft: draftRef.current,
           },
-          { signal: controller.signal },
+          { ...managedRequestOptions(requestScope), signal: controller.signal },
         )
 
         const reader = resp.body!.getReader()
@@ -448,19 +453,24 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       setSaveError('请先填写技能名称才能保存草稿。')
       return null
     }
-    const scopeAtStart = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    const scopeAtStart = requestScope.key
     const lifecycleRunAtStart = lifecycleRunRef.current
     if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
     try {
-      const data = await managedPost<SaveDraftResponse>('skills/ai-authoring/save-draft', {
-        draft_skill_id: draftSkillId,
-        name: current.name,
-        description: current.description,
-        content: current.content,
-        tags: current.tags,
-        visibility: current.visibility,
-        files: current.files,
-      })
+      const data = await managedPost<SaveDraftResponse>(
+        'skills/ai-authoring/save-draft',
+        {
+          draft_skill_id: draftSkillId,
+          name: current.name,
+          description: current.description,
+          content: current.content,
+          tags: current.tags,
+          visibility: current.visibility,
+          files: current.files,
+        },
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
       if (data.error || !data.skill_id) {
         setSaveError(data.error || '保存失败: 响应缺少 skill_id')
@@ -477,15 +487,21 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     }
   }, [draftSkillId, isCurrentLifecycleRun])
 
-  const fetchLatestScan = useCallback(async (skillId: string): Promise<ScanRecord | null> => {
-    const sid = stripSkillIdPrefix(skillId)
-    return await managedGet<ScanRecord>(`skills/${sid}/security-scans/latest`)
-  }, [])
+  const fetchLatestScan = useCallback(
+    async (skillId: string, requestScope: ManagedRequestScope): Promise<ScanRecord | null> => {
+      return await managedGet<ScanRecord>(
+        apiResourcePath('skills', skillId, 'security-scans', 'latest'),
+        managedRequestOptions(requestScope),
+      )
+    },
+    [],
+  )
 
   const runScan = useCallback(async () => {
     // Need a draft row on the server first — scan operates on a real
     // skill_id. Auto-save before scanning if necessary.
-    const scopeAtStart = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    const scopeAtStart = requestScope.key
     const lifecycleRunAtStart = lifecycleRunRef.current
     if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
     let sid = draftSkillId
@@ -495,11 +511,11 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     }
     setScanRunning(true)
     setScanResult(null)
-    const justId = stripSkillIdPrefix(sid)
     try {
       const initialScan = await managedPost<ScanRecord>(
-        `skills/${justId}/security-scans/rescan`,
+        apiResourcePath('skills', sid, 'security-scans', 'rescan'),
         {},
+        managedRequestOptions(requestScope),
       )
       if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       setScanResult(initialScan)
@@ -509,7 +525,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 3000))
         if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
-        const latest = await fetchLatestScan(sid)
+        const latest = await fetchLatestScan(sid, requestScope)
         if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
         if (!latest) continue
         if (latest.status && latest.status !== 'scanning') {
@@ -542,7 +558,8 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   // any already-satisfied transition (e.g. re-publishing) is treated as a
   // no-op rather than a hard error. Returns the skill id on success.
   const publish = useCallback(async (): Promise<{ skillId: string | null; error?: string }> => {
-    const scopeAtStart = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    const scopeAtStart = requestScope.key
     const lifecycleRunAtStart = lifecycleRunRef.current
     const isCurrentPublish = () => isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)
     const sid = await saveDraft()
@@ -552,8 +569,6 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     if (!sid) {
       return { skillId: null, error: saveError || '保存失败' }
     }
-    const justId = stripSkillIdPrefix(sid)
-
     // Fire one lifecycle transition; tolerate "invalid transition" (the skill
     // is already past this state) so re-publishing an approved skill still
     // reaches the version-publish step.
@@ -563,7 +578,11 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
       if (!isCurrentPublish()) return { ok: false, error: '发布已取消' }
       try {
-        await managedPost(`skills/${justId}/${endpoint}`, {})
+        await managedPost(
+          apiResourcePath('skills', sid, endpoint),
+          {},
+          managedRequestOptions(requestScope),
+        )
         if (!isCurrentPublish()) return { ok: false, error: '发布已取消' }
         return { ok: true }
       } catch (error) {
@@ -574,11 +593,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         }
         return {
           ok: false,
-          error: getOperationErrorMessageWithDetails(
-            passthroughTranslator,
-            error,
-            fallbackMessage,
-          ),
+          error: getOperationErrorMessageWithDetails(passthroughTranslator, error, fallbackMessage),
         }
       }
     }
@@ -598,7 +613,11 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       // auto-assign (0.1.0 for the first release / bumped patch otherwise).
       try {
         if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
-        await managedPost(`skills/${justId}/versions`, { release_notes: null })
+        await managedPost(
+          apiResourcePath('skills', sid, 'versions'),
+          { release_notes: null },
+          managedRequestOptions(requestScope),
+        )
         if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
       } catch (error) {
         if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }

@@ -14,10 +14,15 @@ globalThis.navigator = dom.window.navigator
 globalThis.HTMLElement = dom.window.HTMLElement
 globalThis.localStorage = dom.window.localStorage
 
-function ActiveManagedQuery() {
+function ActiveManagedQuery({
+  queryFn = () => new Promise<Array<{ id: string }>>(() => {}),
+}: {
+  queryFn?: () => Promise<Array<{ id: string }>>
+}) {
   const { data } = useQuery({
     queryKey: ['agents'],
-    queryFn: () => new Promise<Array<{ id: string }>>(() => {}),
+    queryFn,
+    staleTime: Infinity,
     retry: false,
   })
   return <div data-testid="agents">{data?.map((agent) => agent.id).join(',') ?? ''}</div>
@@ -49,6 +54,10 @@ describe('query client lifecycle', () => {
       },
     })
     queryClient.setQueryData(['session'], { user: { id: 'user-1' } })
+    queryClient.setQueryData(['session', 'org-a:project-a', 'session-a'], {
+      id: 'session-a',
+      project_id: 'project-a',
+    })
     queryClient.setQueryData(['agents'], [{ id: 'agent-from-project-a' }])
     queryClient.setQueryData(['agent', 'agent-from-project-a'], { id: 'agent-from-project-a' })
 
@@ -68,7 +77,41 @@ describe('query client lifecycle', () => {
       expect(getByTestId('agents').textContent).toBe('')
     })
     expect(queryClient.getQueryData(['session'])).toEqual({ user: { id: 'user-1' } })
+    expect(queryClient.getQueryData(['session', 'org-a:project-a', 'session-a'])).toBeUndefined()
     expect(queryClient.getQueryData(['agent', 'agent-from-project-a'])).toBeUndefined()
+  })
+
+  it('does not refetch active managed queries by default while clearing context data', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    queryClient.setQueryData(['agents'], [{ id: 'agent-from-project-a' }])
+    let fetchCount = 0
+    const queryFn = async () => {
+      fetchCount += 1
+      return [{ id: 'agent-refetched-from-old-scope' }]
+    }
+
+    const { getByTestId } = render(
+      <QueryClientProvider client={queryClient}>
+        <ActiveManagedQuery queryFn={queryFn} />
+      </QueryClientProvider>,
+    )
+
+    expect(getByTestId('agents').textContent).toBe('agent-from-project-a')
+
+    await act(async () => {
+      clearNonSessionQueryData(queryClient)
+    })
+
+    await waitFor(() => {
+      expect(getByTestId('agents').textContent).toBe('')
+    })
+    expect(fetchCount).toBe(0)
   })
 
   it('refreshes the remaining active query client after the latest session subscriber unmounts', async () => {
@@ -85,7 +128,7 @@ describe('query client lifecycle', () => {
       window.dispatchEvent(new window.Event('focus'))
       await waitFor(() => expect(refreshTokenMock).toHaveBeenCalledTimes(1))
 
-      expect(firstInvalidate).toHaveBeenCalledWith({ queryKey: ['session'] })
+      expect(firstInvalidate).toHaveBeenCalledWith({ queryKey: ['session'], exact: true })
       expect(secondInvalidate).not.toHaveBeenCalled()
     } finally {
       cleanupFirst()

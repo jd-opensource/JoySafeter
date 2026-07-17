@@ -11,6 +11,7 @@ import {
   refreshAccessTokenOrRelogin,
 } from '@/lib/api-client'
 import { getCsrfToken } from '@/lib/auth/csrf'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { SessionEvent } from '@/types/managed'
 
@@ -31,12 +32,10 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
     scope: '',
     events: [],
   })
-  const [connectionState, setConnectionState] = useState<{ scope: string; connected: boolean }>(
-    {
-      scope: '',
-      connected: false,
-    },
-  )
+  const [connectionState, setConnectionState] = useState<{ scope: string; connected: boolean }>({
+    scope: '',
+    connected: false,
+  })
   const [errorState, setErrorState] = useState<{ scope: string; error: ApiError | null }>({
     scope: '',
     error: null,
@@ -85,7 +84,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
 
       try {
         const afterSeq = lastSeqRef.current
-        const url = `${MANAGED_API_BASE}/sessions/${sessionId}/events/stream?after_seq=${afterSeq}`
+        const url = `${MANAGED_API_BASE}${apiResourcePath('sessions', sessionId, 'events', 'stream')}?after_seq=${afterSeq}`
 
         if (process.env.NODE_ENV !== 'production') {
           // eslint-disable-next-line no-console

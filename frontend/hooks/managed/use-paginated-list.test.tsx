@@ -67,6 +67,22 @@ function HarnessWithNext() {
   )
 }
 
+function HarnessWithQueryPath() {
+  const { data, goNext, hasNext } = usePaginatedList<Item>({
+    queryKey: 'files',
+    path: '/files?scope_id=sess_123',
+  })
+
+  return (
+    <div>
+      <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
+      <button data-testid="next" disabled={!hasNext} onClick={goNext}>
+        next
+      </button>
+    </div>
+  )
+}
+
 function renderWithQueryClient(ui: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -76,9 +92,7 @@ function renderWithQueryClient(ui: ReactNode) {
     },
   })
 
-  const view = render(
-    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
-  )
+  const view = render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
 
   return { ...view, queryClient }
 }
@@ -93,6 +107,34 @@ describe('usePaginatedList managed context isolation', () => {
     cleanup()
     vi.restoreAllMocks()
     useProjectStore.setState({ currentOrgId: null, currentProjectId: null })
+  })
+
+  it('does not request managed lists until org and project context are available', async () => {
+    const { getByTestId } = renderWithQueryClient(<Harness />)
+
+    await act(async () => {
+      await wait(20)
+    })
+
+    expect(getByTestId('items').textContent).toBe('')
+    expect(managedGetMock).not.toHaveBeenCalled()
+  })
+
+  it('binds list requests to the same managed scope as the query key', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    managedGetMock.mockResolvedValue({ data: [], has_more: false })
+
+    renderWithQueryClient(<Harness />)
+
+    await waitFor(() => {
+      expect(managedGetMock).toHaveBeenCalledWith('/items?limit=10', {
+        headers: {
+          'X-Org-Id': 'org-a',
+          'X-Project-Id': 'project-a',
+        },
+        skipManagedContext: true,
+      })
+    })
   })
 
   it('does not reuse a previous project page after managed project changes', async () => {
@@ -236,6 +278,44 @@ describe('usePaginatedList managed context isolation', () => {
     expect(lastPath).not.toContain('after_id=item-a-1')
     expect(getByTestId('items').textContent).toBe('Project B first page')
     expect(getByTestId('page').textContent).toBe('1')
+  })
+
+  it('normalizes prefixed page cursors and preserves existing path query params', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    const requestedPaths: string[] = []
+    managedGetMock.mockImplementation(async (path: string) => {
+      requestedPaths.push(path)
+      if (path.includes('after_id=abc')) {
+        return {
+          data: [{ id: 'file_def', name: 'Second file' }],
+          has_more: false,
+          last_id: 'file_def',
+        }
+      }
+      return {
+        data: [{ id: 'file_abc', name: 'First file' }],
+        has_more: true,
+        last_id: 'file_abc',
+      }
+    })
+
+    const { getByTestId } = renderWithQueryClient(<HarnessWithQueryPath />)
+
+    await act(async () => {
+      await wait(20)
+    })
+
+    expect(requestedPaths[0]).toBe('/files?scope_id=sess_123&limit=10')
+
+    await act(async () => {
+      getByTestId('next').click()
+      await wait(20)
+    })
+
+    expect(
+      requestedPaths.some((path) => path === '/files?scope_id=sess_123&limit=10&after_id=abc'),
+    ).toBe(true)
+    expect(getByTestId('items').textContent).toBe('Second file')
   })
 
   it('uses the target page cursor when jumping backward by page number', async () => {

@@ -28,9 +28,14 @@ vi.mock('@/lib/api-client', () => {
 
   const base = 'http://localhost:8000/api/v1'
   const urlFor = (path: string) => `${base}/${path.replace(/^\/+/, '')}`
-  const postRequest = (path: string, body?: unknown, options?: { signal?: AbortSignal }) =>
+  const postRequest = (
+    path: string,
+    body?: unknown,
+    options?: { signal?: AbortSignal; headers?: HeadersInit },
+  ) =>
     fetch(urlFor(path), {
       method: 'POST',
+      headers: options?.headers,
       body: JSON.stringify(body),
       signal: options?.signal,
     })
@@ -141,6 +146,15 @@ function setCurrentProject(archivedAt: string | null = null) {
     },
     organizations: [],
     projects: [],
+  })
+}
+
+function expectManagedHeaders(call: unknown[] | undefined, projectId = 'project-a') {
+  expect(call).toBeTruthy()
+  const init = (call?.[1] ?? {}) as RequestInit
+  expect(init.headers).toMatchObject({
+    'X-Org-Id': 'org-a',
+    'X-Project-Id': projectId,
   })
 }
 
@@ -482,6 +496,7 @@ describe('useQuickstartChat resource creation', () => {
 
     const sessionCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/sessions'))
     expect(sessionCall).toBeTruthy()
+    expectManagedHeaders(sessionCall)
     expect(JSON.parse(sessionCall?.[1]?.body as string)).toEqual({ agent: '123' })
   })
 
@@ -807,6 +822,9 @@ describe('useQuickstartChat resource creation', () => {
       newSend = result.current.sendMessage('make a project-b agent', { stepOverride: 3 })
       await wait(10)
     })
+
+    expectManagedHeaders(fetchMock.mock.calls[0], 'project-a')
+    expectManagedHeaders(fetchMock.mock.calls[1], 'project-b')
 
     await act(async () => {
       oldStream.close()

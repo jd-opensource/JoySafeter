@@ -5,12 +5,12 @@ interface ClearNonSessionQueryDataOptions {
 }
 
 function isSessionQuery(query: Query): boolean {
-  return query.queryKey[0] === 'session'
+  return query.queryKey.length === 1 && query.queryKey[0] === 'session'
 }
 
 export function clearNonSessionQueryData(
   queryClient: QueryClient,
-  { refetchActive = true }: ClearNonSessionQueryDataOptions = {},
+  { refetchActive = false }: ClearNonSessionQueryDataOptions = {},
 ): void {
   const predicate = (query: Query) => !isSessionQuery(query)
   const queries = queryClient.getQueryCache().findAll({ predicate })

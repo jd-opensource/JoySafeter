@@ -35,25 +35,23 @@ describe('api-client error contract', () => {
   })
 
   it('preserves backend error payload and response trace id', async () => {
-    globalThis.fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            code: 'SERVICE_UNAVAILABLE',
-            message: 'Failed to enqueue task',
-            data: { queue: 'joysafeter:global_queue' },
-            source: 'runtime',
-            retryable: true,
-            user_action: 'retry',
-          }),
-          {
-            status: 503,
-            statusText: 'Service Unavailable',
-            headers: { 'content-type': 'application/json', 'x-trace-id': 'trace-123' },
-          },
-        ),
-      ) as typeof fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Failed to enqueue task',
+          data: { queue: 'joysafeter:global_queue' },
+          source: 'runtime',
+          retryable: true,
+          user_action: 'retry',
+        }),
+        {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: { 'content-type': 'application/json', 'x-trace-id': 'trace-123' },
+        },
+      ),
+    ) as typeof fetch
 
     try {
       await apiFetch('tasks', { withAuth: false })
@@ -73,15 +71,13 @@ describe('api-client error contract', () => {
   })
 
   it('keeps non-json error bodies instead of collapsing to status text', async () => {
-    globalThis.fetch = vi
-      .fn()
-      .mockResolvedValue(
-        new Response('upstream gateway exploded', {
-          status: 502,
-          statusText: 'Bad Gateway',
-          headers: { 'content-type': 'text/plain', 'x-trace-id': 'trace-502' },
-        }),
-      ) as typeof fetch
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response('upstream gateway exploded', {
+        status: 502,
+        statusText: 'Bad Gateway',
+        headers: { 'content-type': 'text/plain', 'x-trace-id': 'trace-502' },
+      }),
+    ) as typeof fetch
 
     try {
       await apiFetch('tasks', { withAuth: false })
@@ -109,6 +105,39 @@ describe('api-client error contract', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][1]?.body).toBe(JSON.stringify(''))
+  })
+
+  it('honors caller abort signals on JSON requests', async () => {
+    const controller = new AbortController()
+    let requestSignal: AbortSignal | undefined
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      requestSignal = init?.signal as AbortSignal
+      return new Promise<Response>((_resolve, reject) => {
+        requestSignal?.addEventListener(
+          'abort',
+          () => {
+            const error = new Error('aborted')
+            error.name = 'AbortError'
+            reject(error)
+          },
+          { once: true },
+        )
+      })
+    })
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const request = apiFetch('tasks', { withAuth: false, signal: controller.signal })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(requestSignal?.aborted).toBe(false)
+
+    controller.abort()
+
+    await expect(request).rejects.toMatchObject({
+      code: 'REQUEST_ABORTED',
+      status: 0,
+    })
+    expect(requestSignal?.aborted).toBe(true)
   })
 
   it('sends managed context headers on streaming requests', async () => {
