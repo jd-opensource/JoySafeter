@@ -15,6 +15,11 @@ export interface ProjectInfo {
   slug: string
   is_default: boolean
   archived_at?: string | null
+  // The caller's effective capability in this project (none/read/write/admin).
+  // Present on the active project from /auth/me and switch-context; may be
+  // absent on entries from the projects list or persisted legacy state.
+  capability?: string
+  project_role?: string | null
 }
 
 interface ProjectState {
