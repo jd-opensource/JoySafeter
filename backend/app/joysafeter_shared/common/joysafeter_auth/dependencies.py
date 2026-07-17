@@ -21,7 +21,12 @@ from app.joysafeter_shared.common.app_errors import AccessDeniedError, Authentic
 from app.joysafeter_shared.common.dependencies import get_current_user
 from app.joysafeter_shared.database import get_db
 
-from .context import JoySafeterAuthContext, JoySafeterRole
+from .context import (
+    JoySafeterAuthContext,
+    JoySafeterRole,
+    ProjectCapability,
+    effective_project_capability,
+)
 
 # ---------------------------------------------------------------------------
 # Mapping helpers
@@ -206,7 +211,8 @@ async def _verify_joysafeter_context(
         )
 
     role = _map_org_role(member.role)
-    project = await ProjectService(db).get_accessible_project(
+    project_service = ProjectService(db)
+    project = await project_service.get_accessible_project(
         project_id=project_id,
         org_id=org_id,
         user_id=user_id,
@@ -225,11 +231,13 @@ async def _verify_joysafeter_context(
             user_action="refresh",
         )
 
+    project_role = await project_service.get_project_member_role(project_id, user_id)
     return JoySafeterAuthContext(
         user_id=user_id,
         org_id=org_id,
         project_id=project_id,
-        role=_map_org_role(member.role),
+        role=role,
+        project_role=project_role,
     )
 
 
@@ -271,14 +279,17 @@ async def _auth_via_api_key(
         except Exception:
             pass
 
-    role = JoySafeterRole.normalize(api_key.role)
-
+    # A project-scoped API key is NOT an org super-user: its stored role is the
+    # key's capability WITHIN its own project. Carry it as project_role and keep
+    # the org role at the non-super-user baseline so effective_project_capability
+    # scopes it to this project only.
     return JoySafeterAuthContext(
         user_id=api_key.created_by,
         org_id=api_key.org_id,
         project_id=api_key.project_id,
-        role=role,
+        role=JoySafeterRole.VIEWER,
         principal_type="api_key",
+        project_role=api_key.role,
     )
 
 
@@ -359,7 +370,7 @@ async def _auth_via_user_session(
         await ProjectService(db).grant_project_membership(
             project_id=new_default_project.id,
             user_id=user.id,
-            role="owner",
+            role="admin",
         )
         await db.commit()
         await db.refresh(membership)
@@ -400,11 +411,13 @@ async def _auth_via_user_session(
             )
         project_id = default_project.id
 
+    project_role = await project_svc.get_project_member_role(project_id, user.id)
     return JoySafeterAuthContext(
         user_id=user.id,
         org_id=org_id,
         project_id=project_id,
         role=role,
+        project_role=project_role,
     )
 
 
@@ -456,12 +469,6 @@ def _require_user_principal(ctx: JoySafeterAuthContext) -> JoySafeterAuthContext
 
 
 async def _require_write_context(db: AsyncSession, ctx: JoySafeterAuthContext) -> JoySafeterAuthContext:
-    if not ctx.role.can_write():
-        raise AccessDeniedError(
-            "Write access required",
-            code="JOYSAFETER_WRITE_REQUIRED",
-        )
-
     ctx = await _verify_joysafeter_context(
         db,
         user_id=ctx.user_id,
@@ -469,7 +476,7 @@ async def _require_write_context(db: AsyncSession, ctx: JoySafeterAuthContext) -
         project_id=ctx.project_id,
         allow_archived_project=False,
     )
-    if not ctx.role.can_write():
+    if effective_project_capability(ctx.role, ctx.project_role) < ProjectCapability.WRITE:
         raise AccessDeniedError(
             "Write access required",
             code="JOYSAFETER_WRITE_REQUIRED",
