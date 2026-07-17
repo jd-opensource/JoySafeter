@@ -1,7 +1,6 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { useState } from 'react'
 
@@ -25,7 +24,7 @@ import {
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
-import { roleLabel, projectRoleLabel, projectRoleOptions } from '@/lib/managed/roles'
+import { roleLabel, projectRoleLabel } from '@/lib/managed/roles'
 
 interface ProjectMemberRecord {
   user_id: string
@@ -40,7 +39,10 @@ interface ProjectSummary {
   id: string
   name: string
   slug: string
+  is_default: boolean
 }
+
+const PROJECT_ROLE_VALUES = ['viewer', 'editor', 'admin'] as const
 
 export default function ProjectMembersPage() {
   const { t } = useTranslation()
@@ -48,8 +50,6 @@ export default function ProjectMembersPage() {
   const params = useParams<{ projectId: string }>()
   const projectId = params?.projectId ?? ''
 
-  const [grantTarget, setGrantTarget] = useState<ProjectMemberRecord | null>(null)
-  const [grantRole, setGrantRole] = useState('editor')
   const [removeTarget, setRemoveTarget] = useState<ProjectMemberRecord | null>(null)
 
   const { data: project } = useQuery({
@@ -72,10 +72,7 @@ export default function ProjectMembersPage() {
   const grantMut = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       managedPost(`auth/projects/${projectId}/members`, { user_id: userId, role }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-members', projectId] })
-      setGrantTarget(null)
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project-members', projectId] }),
     onError: (err: Error) => toastOperationError(t, err, 'common.operationFailed'),
   })
 
@@ -89,15 +86,16 @@ export default function ProjectMembersPage() {
     onError: (err: Error) => toastOperationError(t, err, 'common.operationFailed'),
   })
 
-  const openGrant = (member: ProjectMemberRecord) => {
-    setGrantRole(member.project_role || 'editor')
-    setGrantTarget(member)
-  }
-
-  const accessBadge = (member: ProjectMemberRecord) => {
-    if (member.access === 'org_wide') return t('manage.projectMembers.accessOrgWide')
-    if (member.access === 'explicit') return projectRoleLabel(t, member.project_role)
-    return t('manage.projectMembers.accessNone')
+  // Inline role change: selecting a role grants/updates; selecting "no access"
+  // is destructive, so it routes through an explicit confirm dialog instead.
+  const handleRoleChange = (member: ProjectMemberRecord, value: string) => {
+    const current = member.access === 'explicit' ? member.project_role || 'editor' : 'none'
+    if (value === current) return
+    if (value === 'none') {
+      setRemoveTarget(member)
+      return
+    }
+    grantMut.mutate({ userId: member.user_id, role: value })
   }
 
   const subtitle = project ? project.name : t('manage.projectMembers.subtitle')
@@ -121,11 +119,33 @@ export default function ProjectMembersPage() {
     {
       key: 'access',
       header: t('manage.projectMembers.access'),
-      render: (m) => (
-        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
-          {accessBadge(m)}
-        </span>
-      ),
+      render: (m) => {
+        if (m.access === 'org_wide') {
+          return (
+            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
+              {t('manage.projectMembers.accessOrgWide')}
+            </span>
+          )
+        }
+        const value = m.access === 'explicit' ? m.project_role || 'editor' : 'none'
+        return (
+          <Select value={value} onValueChange={(v) => handleRoleChange(m, v)}>
+            <SelectTrigger className="h-8 w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none" disabled={project?.is_default}>
+                {t('manage.projectMembers.accessNone')}
+              </SelectItem>
+              {PROJECT_ROLE_VALUES.map((role) => (
+                <SelectItem key={role} value={role}>
+                  {projectRoleLabel(t, role)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )
+      },
     },
   ]
 
@@ -147,69 +167,9 @@ export default function ProjectMembersPage() {
         data={members}
         loading={isLoading}
         emptyMessage={t('manage.members.empty')}
-        actionMenu={(member) => {
-          if (member.access === 'org_wide') return []
-          if (member.access === 'explicit') {
-            return [
-              {
-                label: t('manage.projectMembers.changeRole'),
-                onClick: () => openGrant(member),
-              },
-              {
-                label: t('manage.projectMembers.remove'),
-                icon: <Trash2 className="h-3.5 w-3.5" />,
-                destructive: true,
-                onClick: () => setRemoveTarget(member),
-              },
-            ]
-          }
-          return [
-            {
-              label: t('manage.projectMembers.add'),
-              onClick: () => openGrant(member),
-            },
-          ]
-        }}
       />
 
-      {/* Grant / change role dialog */}
-      <Dialog open={!!grantTarget} onOpenChange={(v) => !v && setGrantTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('manage.projectMembers.assignRole')}</DialogTitle>
-            <DialogDescription>{grantTarget?.display_name || grantTarget?.email}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Select value={grantRole} onValueChange={setGrantRole}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {projectRoleOptions(t).map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setGrantTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={() =>
-                grantTarget && grantMut.mutate({ userId: grantTarget.user_id, role: grantRole })
-              }
-              disabled={grantMut.isPending}
-            >
-              {grantMut.isPending ? t('common.loading') : t('common.save')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Remove confirm dialog */}
+      {/* Remove confirm dialog (destructive path of the inline role select) */}
       <Dialog open={!!removeTarget} onOpenChange={(v) => !v && setRemoveTarget(null)}>
         <DialogContent>
           <DialogHeader>
