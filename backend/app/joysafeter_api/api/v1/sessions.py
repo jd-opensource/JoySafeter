@@ -496,11 +496,11 @@ async def delete_session(
             },
         )
 
-    # Cleanup broadcaster subscriptions for this session
+    # Cleanup broadcaster subscriptions for this session. Use remove() so the
+    # per-subscriber Redis listener tasks are cancelled; a raw del of _channels
+    # drops the queues but leaks their _redis_subscriber tasks + pubsub conns.
     if broadcaster:
-        # Remove all subscriber queues for this session
-        if session_id in broadcaster._channels:
-            del broadcaster._channels[session_id]
+        broadcaster.remove(session_id)
 
     session_id_str = f"sess_{session_id}"
     return {"id": session_id_str, "object": "session", "deleted": True}
@@ -565,66 +565,82 @@ async def stop_session(
         )
 
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
+    from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
     from app.joysafeter_shared.orchestrator_bridge import get_session_broadcaster
 
     stop_reason = {"type": "cancelled"}
     task_svc = TaskService(db)
     active_tasks = await task_svc.list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
-    cancelled_task_ids: set[uuid.UUID] = set()
+
+    # Cancel each active task through the shared cancellation service. It relays
+    # the real cancel to the running sandbox and FAILS CLOSED — raising
+    # TASK_CANCEL_REDIS_RELAY_FAILED — when the runtime never confirmed the stop,
+    # rather than flipping the DB row and reporting success while the tooling keeps
+    # running against a live target. This is the same primitive that
+    # POST /tasks/{id}/cancel uses, so the two cancel paths cannot drift; cancel()
+    # also transitions the linked session to idle for each cancelled task.
+    cancellation = TaskCancellationService(db)
+    cancelled_count = 0
     for task in active_tasks:
         try:
-            cancelled = await task_svc.update_task_error(
+            await cancellation.cancel(task, reason="Cancelled via session stop")
+            cancelled_count += 1
+        except ValueError as exc:
+            # The task reached a terminal state between our active-task snapshot
+            # and this cancel (it finished on its own, or a prior/retried stop
+            # already cancelled it). The state machine raises ValueError for an
+            # already-terminal task; stopping a session is idempotent, so that is
+            # the desired end state — treat it as already-stopped and let the
+            # remaining-active re-check below fail closed if the task is somehow
+            # still live. Without this, the ValueError escapes as a 500.
+            if not str(exc).startswith("Task already in terminal state: "):
+                raise
+            logger.debug(
+                "Task %s already terminal during session stop; treating as stopped",
                 task.id,
-                "Cancelled via session stop",
-                JoySafeterTaskStatus.CANCELLED,
-            )
-            if cancelled:
-                cancelled_task_ids.add(task.id)
-        except Exception:
-            logger.debug("Failed to cancel task %s during session stop", task.id)
-
-    for task in active_tasks:
-        if task.id in cancelled_task_ids:
-            await _relay_cancel_via_redis(
-                session,
-                reason="Cancelled via session stop",
-                sandbox_id=getattr(task, "sandbox_id", None),
+                exc_info=True,
             )
 
+    # Defence in depth: cancel() relays before touching the DB and raises on an
+    # unconfirmed relay, but re-verify that every task actually reached a terminal
+    # state. If a DB transition silently no-op'd, fail closed rather than reporting
+    # the session stopped while a task is still active.
     remaining_active = await task_svc.list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
     if remaining_active:
-        logger.warning(
-            "Session stop could not cancel all active tasks for session %s: remaining=%s",
-            session_id,
-            [str(task.id) for task in remaining_active],
-        )
         raise ServiceUnavailableError(
             code="SESSION_STOP_CANCEL_TASKS_FAILED",
             message="Failed to cancel all active tasks",
-            data={"session_id": str(session_id), "active_task_ids": [str(task.id) for task in remaining_active]},
+            data={
+                "session_id": str(session_id),
+                "active_task_ids": [str(task.id) for task in remaining_active],
+            },
             source="runtime",
             retryable=True,
             user_action="retry",
         )
 
-    try:
-        await svc.update_session_status(session_id, "idle", stop_reason=stop_reason, project_id=auth_ctx.project_id)
-        await svc.send_event(session_id, "session.status_idle", {"stop_reason": stop_reason})
-    except Exception:
-        logger.debug(
-            "Could not transition session %s to idle during stop",
-            session_id,
-            exc_info=True,
-        )
-        raise ServiceUnavailableError(
-            code="SESSION_STOP_IDLE_SYNC_FAILED",
-            message="Failed to mark session idle",
-            data={"session_id": str(session_id)},
-            source="runtime",
-            retryable=True,
-            user_action="retry",
-        ) from None
+    # cancel() idles the session per cancelled task; make sure the session ends up
+    # idle even when there were no active tasks, and emit exactly one idle event
+    # (skip when a cancel already transitioned it to idle).
+    refreshed = await svc.get_session(session_id, project_id=auth_ctx.project_id)
+    if refreshed is not None and refreshed.status != "idle":
+        try:
+            await svc.update_session_status(session_id, "idle", stop_reason=stop_reason, project_id=auth_ctx.project_id)
+            await svc.send_event(session_id, "session.status_idle", {"stop_reason": stop_reason})
+        except Exception:
+            logger.debug(
+                "Could not transition session %s to idle during stop",
+                session_id,
+                exc_info=True,
+            )
+            raise ServiceUnavailableError(
+                code="SESSION_STOP_IDLE_SYNC_FAILED",
+                message="Failed to mark session idle",
+                data={"session_id": str(session_id)},
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+            ) from None
 
     broadcaster = get_session_broadcaster()
     if broadcaster:
@@ -636,7 +652,7 @@ async def stop_session(
     return {
         "id": f"sess_{session_id}",
         "status": "idle",
-        "cancelled_tasks": len(cancelled_task_ids),
+        "cancelled_tasks": cancelled_count,
     }
 
 
@@ -1584,52 +1600,24 @@ async def session_event_stream(
     async def event_generator():
         last_seq = after_seq or 0
 
-        # First, replay existing events after the cursor
-        if after_seq is not None:
-            from app.joysafeter_shared.database import AsyncSessionLocal
-
-            async with AsyncSessionLocal() as replay_db:
-                replay_svc = SessionService(replay_db)
-                events, _ = await replay_svc.list_events(
-                    session_id,
-                    1000,
-                    after_seq,
-                    project_id=auth_ctx.project_id,
-                )
-                for ev in events:
-                    last_seq = max(last_seq, ev.seq)
-                    data_dict = {
-                        "id": f"evt_{ev.id}",
-                        "type": ev.event_type,
-                        "seq": ev.seq,
-                    }
-                    if isinstance(ev.payload, dict):
-                        data_dict.update(ev.payload)
-                    data_dict["_sse_source"] = "db_replay"
-                    data = json.dumps(data_dict)
-                    yield f"id: evt_{ev.id}\ndata: {data}\n\n"
-                if events:
-                    logger.info(
-                        "SSE db_replay session=%s count=%s from_seq=%s to_seq=%s",
-                        session_id,
-                        len(events),
-                        after_seq,
-                        last_seq,
-                    )
-
-        # Subscribe to live events
-        if not broadcaster:
-            while True:
-                if await request.is_disconnected():
-                    break
+        # Subscribe to live events BEFORE replaying from the DB. Any event
+        # published during the replay window is buffered in the queue and
+        # delivered right after replay; the seq<=last_seq dedup in the consume
+        # loop drops anything already replayed. Subscribing after replay (the
+        # old order) left a handoff gap where such an event surfaced only via
+        # the 30s DB catch-up.
+        q = broadcaster.subscribe(session_id) if broadcaster else None
+        try:
+            # First, replay existing events after the cursor
+            if after_seq is not None:
                 from app.joysafeter_shared.database import AsyncSessionLocal
 
-                async with AsyncSessionLocal() as poll_db:
-                    poll_svc = SessionService(poll_db)
-                    events, _ = await poll_svc.list_events(
+                async with AsyncSessionLocal() as replay_db:
+                    replay_svc = SessionService(replay_db)
+                    events, _ = await replay_svc.list_events(
                         session_id,
                         1000,
-                        last_seq,
+                        after_seq,
                         project_id=auth_ctx.project_id,
                     )
                     for ev in events:
@@ -1641,21 +1629,56 @@ async def session_event_stream(
                         }
                         if isinstance(ev.payload, dict):
                             data_dict.update(ev.payload)
-                        data_dict["_sse_source"] = "db_fallback_no_broadcaster"
-                        yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
+                        data_dict["_sse_source"] = "db_replay"
+                        data = json.dumps(data_dict)
+                        yield f"id: evt_{ev.id}\ndata: {data}\n\n"
                     if events:
-                        logger.warning(
-                            "SSE db_fallback_no_broadcaster session=%s count=%s to_seq=%s",
+                        logger.info(
+                            "SSE db_replay session=%s count=%s from_seq=%s to_seq=%s",
                             session_id,
                             len(events),
+                            after_seq,
                             last_seq,
                         )
 
-                await asyncio.sleep(2)
-            return
+            # No broadcaster available: fall back to DB polling
+            if not broadcaster:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    from app.joysafeter_shared.database import AsyncSessionLocal
 
-        q = broadcaster.subscribe(session_id)
-        try:
+                    async with AsyncSessionLocal() as poll_db:
+                        poll_svc = SessionService(poll_db)
+                        events, _ = await poll_svc.list_events(
+                            session_id,
+                            1000,
+                            last_seq,
+                            project_id=auth_ctx.project_id,
+                        )
+                        for ev in events:
+                            last_seq = max(last_seq, ev.seq)
+                            data_dict = {
+                                "id": f"evt_{ev.id}",
+                                "type": ev.event_type,
+                                "seq": ev.seq,
+                            }
+                            if isinstance(ev.payload, dict):
+                                data_dict.update(ev.payload)
+                            data_dict["_sse_source"] = "db_fallback_no_broadcaster"
+                            yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
+                        if events:
+                            logger.warning(
+                                "SSE db_fallback_no_broadcaster session=%s count=%s to_seq=%s",
+                                session_id,
+                                len(events),
+                                last_seq,
+                            )
+
+                    await asyncio.sleep(2)
+                return
+
+            # Consume live events from the subscription opened above
             while True:
                 if await request.is_disconnected():
                     break
@@ -1717,7 +1740,8 @@ async def session_event_stream(
                             )
                     yield ": heartbeat\n\n"
         finally:
-            broadcaster.unsubscribe(session_id, q)
+            if broadcaster and q is not None:
+                broadcaster.unsubscribe(session_id, q)
 
     return StreamingResponse(
         event_generator(),

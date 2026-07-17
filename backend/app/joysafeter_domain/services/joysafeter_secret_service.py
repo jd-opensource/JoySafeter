@@ -28,9 +28,31 @@ def _get_cipher() -> VaultCipher:
     return _cipher
 
 
-def _is_sensitive_secret_key(key: str) -> bool:
+def _is_display_safe_secret_key(key: str) -> bool:
+    """Whether a secret key's value is safe to reveal in a masked response.
+
+    Default-deny: only a small allowlist of non-sensitive config keys (base_url /
+    model / provider / region / ...) is shown in cleartext. Every other key —
+    including unconventionally-named secrets like CONNECTION_STRING or DSN — is
+    masked, so a project reader can never read raw secret material via GET/list.
+    """
     normalized = key.upper()
-    return any(token in normalized for token in ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
+    return normalized in _DISPLAY_SAFE_SECRET_KEYS or normalized.endswith(_DISPLAY_SAFE_SECRET_SUFFIXES)
+
+
+_DISPLAY_SAFE_SECRET_KEYS = frozenset(
+    {"PROVIDER", "PROTOCOL", "MODEL", "BASE_URL", "REGION", "ENDPOINT", "API_VERSION", "VERSION"}
+)
+_DISPLAY_SAFE_SECRET_SUFFIXES = (
+    "_BASE_URL",
+    "_MODEL",
+    "_PROVIDER",
+    "_PROTOCOL",
+    "_REGION",
+    "_ENDPOINT",
+    "_API_VERSION",
+    "_VERSION",
+)
 
 
 def _mask_secret_value(value: str) -> str:
@@ -86,7 +108,7 @@ class SecretService:
     def get_masked_secret_data(self, secret: JoySafeterSecret | None) -> dict[str, str]:
         data = self.get_secret_data(secret)
         return {
-            key: _mask_secret_value(value) if _is_sensitive_secret_key(key) else value for key, value in data.items()
+            key: value if _is_display_safe_secret_key(key) else _mask_secret_value(value) for key, value in data.items()
         }
 
     @staticmethod
@@ -130,7 +152,7 @@ class SecretService:
             key_str = str(key)
             value_str = str(value)
             if (
-                _is_sensitive_secret_key(key_str)
+                not _is_display_safe_secret_key(key_str)
                 and key_str in existing_plain
                 and value_str == _mask_secret_value(existing_plain[key_str])
             ):
@@ -176,9 +198,7 @@ class SecretService:
         ]
         if project_id is not None:
             conditions.append(JoySafeterSecret.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterSecret).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterSecret).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def get_secret_by_name(self, name: str, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:

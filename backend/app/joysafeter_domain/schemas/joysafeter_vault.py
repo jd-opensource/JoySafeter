@@ -99,11 +99,10 @@ class VaultCredentialResponse(BaseModel):
 
     @field_serializer("token_value")
     def redact_token(self, v: str) -> str:
-        if not v:
-            return v
-        if v.startswith("enc:"):
-            return "********"
-        return v[:6] + "***" if len(v) > 6 else v + "***"
+        # Default-deny: never echo any part of a stored token. The previous
+        # first-6-chars fallback leaked plaintext prefixes (and whole short
+        # tokens) whenever a value was not enc:-prefixed.
+        return "********" if v else v
 
     @field_serializer("oauth_config")
     def redact_oauth_secrets(self, v: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
@@ -112,9 +111,5 @@ class VaultCredentialResponse(BaseModel):
         redacted = dict(v)
         for key in ("client_secret", "refresh_token"):
             if key in redacted and redacted[key]:
-                val = str(redacted[key])
-                if val.startswith("enc:"):
-                    redacted[key] = "********"
-                else:
-                    redacted[key] = val[:6] + "***" if len(val) > 6 else val + "***"
+                redacted[key] = "********"
         return redacted

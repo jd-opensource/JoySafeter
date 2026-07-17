@@ -739,7 +739,10 @@ def test_agent_child_resources_keep_parent_project_boundary_in_service_calls():
         "svc.archive_sessions_for_agent(agent_id, project_id=project_id)",
     ):
         assert call in agent_route_text
-    assert "get_agent_version_snapshot(\n            agent.id, pinned_version, project_id=auth_ctx.project_id" in session_route_text
+    # Formatting-tolerant: assert the call threads the parent project boundary,
+    # regardless of whether the formatter keeps the args on one line or wraps them.
+    assert "get_agent_version_snapshot(" in session_route_text
+    assert "agent.id, pinned_version, project_id=auth_ctx.project_id" in session_route_text
     assert "sandbox_svc.find_by_session(task.chat_session_id, project_id=project_id)" in agent_route_text
     assert "sandbox_svc.list_active_for_agent(agent_id, project_id=project_id)" in agent_route_text
     assert "JoySafeterSandbox" not in agent_route_text

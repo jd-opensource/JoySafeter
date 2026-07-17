@@ -12,6 +12,28 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
+# Methods that mutate server state and therefore need CSRF protection when the
+# request is authenticated by an ambient (browser-sent) session cookie.
+_CSRF_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Endpoints that legitimately mutate state without (yet) having a CSRF cookie:
+# pre-session identity bootstrap and the refresh/logout flows. These either run
+# unauthenticated (no session cookie → skipped anyway) or manage the session
+# cookie itself, so a stale/absent CSRF cookie must not lock the user out. Every
+# other authenticated mutation under /auth (members, api-keys, projects,
+# me/change-password, ...) stays protected.
+_CSRF_EXEMPT_PATH_SUFFIXES = (
+    "/auth/sign-up/email",
+    "/auth/sign-in/email",
+    "/auth/login/form",
+    "/auth/refresh",
+    "/auth/logout",
+    "/auth/forgot-password",
+    "/auth/reset-password",
+    "/auth/verify-email",
+    "/auth/resend-verification",
+)
+
 
 def _carry_over_headers(new_response: Response, original: Response) -> Response:
     """Copy the original response's raw headers (minus content-length) onto a
@@ -95,3 +117,75 @@ class ApiV1ResponseWrapperMiddleware(BaseHTTPMiddleware):
             ),
             response,
         )
+
+
+def _is_csrf_exempt_path(path: str) -> bool:
+    return any(path.endswith(suffix) for suffix in _CSRF_EXEMPT_PATH_SUFFIXES)
+
+
+def _request_uses_header_auth(request: Request) -> bool:
+    """A request authenticated by a header credential (Bearer / API key) is not
+    CSRF-able: the browser does not attach those automatically cross-site."""
+    if request.headers.get("X-Api-Key"):
+        return True
+    authorization = request.headers.get("Authorization", "")
+    return authorization.startswith("Bearer ")
+
+
+class CsrfProtectionMiddleware(BaseHTTPMiddleware):
+    """Enforce signed double-submit CSRF on cookie-authenticated mutations.
+
+    The check applies only when ALL of the following hold, so header-authenticated
+    API traffic and anonymous/safe requests are never affected:
+
+    * the method is state-changing (POST/PUT/PATCH/DELETE),
+    * the path is not a session-bootstrap endpoint,
+    * the request carries no header credential (Bearer / X-Api-Key), and
+    * an ambient session cookie is present.
+
+    In that case the ``X-CSRF-Token`` header must be a valid, unexpired CSRF JWT
+    and must equal the ``csrf_token`` cookie (double-submit). Otherwise the
+    request is rejected with a structured 403 so the client can refresh the token
+    and retry.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if self._requires_csrf(request) and not self._has_valid_csrf(request):
+            from app.joysafeter_shared.common.app_errors import AccessDeniedError
+            from app.joysafeter_shared.common.exceptions import create_error_response
+
+            return create_error_response(
+                status_code=403,
+                error=AccessDeniedError(
+                    "CSRF 校验失败，请刷新页面后重试 / CSRF validation failed",
+                    code="CSRF_VALIDATION_FAILED",
+                    user_action="refresh",
+                ),
+            )
+        return await call_next(request)
+
+    @staticmethod
+    def _requires_csrf(request: Request) -> bool:
+        if request.method not in _CSRF_UNSAFE_METHODS:
+            return False
+        if _is_csrf_exempt_path(request.url.path):
+            return False
+        if _request_uses_header_auth(request):
+            return False
+
+        from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
+
+        # Only ambient cookie sessions can be forged cross-site.
+        return bool(extract_token_from_cookies(request.cookies))
+
+    @staticmethod
+    def _has_valid_csrf(request: Request) -> bool:
+        header_token = request.headers.get("X-CSRF-Token")
+        cookie_token = request.cookies.get("csrf_token")
+        if not header_token or not cookie_token or header_token != cookie_token:
+            return False
+
+        from app.joysafeter_shared.security import decode_token
+
+        payload = decode_token(header_token)
+        return bool(payload and payload.type == "csrf")

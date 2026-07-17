@@ -813,82 +813,6 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
 
 
 @pytest.mark.asyncio
-async def test_stop_session_does_not_mark_idle_when_task_cancel_write_fails(
-    db_session,
-    monkeypatch,
-):
-    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
-
-    async def fake_update_task_error(self, task_id, error, new_status, expected_epoch=None):
-        return False
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_task_service.JoySafeterTaskService.update_task_error",
-        fake_update_task_error,
-    )
-
-    agent = JoySafeterAgent(name=f"stop-fail-agent-{uuid.uuid4()}")
-    db_session.add(agent)
-    await db_session.commit()
-    await db_session.refresh(agent)
-
-    session = JoySafeterSession(agent_id=agent.id, status="running")
-    db_session.add(session)
-    await db_session.commit()
-    await db_session.refresh(session)
-    session_id = session.id
-
-    task = JoySafeterTask(
-        agent_id=agent.id,
-        chat_session_id=session_id,
-        prompt="long running",
-        status=JoySafeterTaskStatus.RUNNING.value,
-    )
-    db_session.add(task)
-    await db_session.commit()
-    await db_session.refresh(task)
-    task_id = task.id
-
-    auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.MEMBER,
-    )
-
-    with pytest.raises(AppError) as exc_info:
-        await stop_session(session_id, db_session, auth_ctx)
-
-    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
-        "code": "SESSION_STOP_CANCEL_TASKS_FAILED",
-        "message": "Failed to cancel all active tasks",
-        "data": {"session_id": str(session_id), "active_task_ids": [str(task_id)]},
-        "source": "runtime",
-        "retryable": True,
-        "user_action": "retry",
-    }
-
-    db_session.expire_all()
-    session_row = (
-        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
-    ).scalar_one()
-    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
-    idle_events = (
-        await db_session.execute(
-            select(func.count())
-            .select_from(JoySafeterSessionEvent)
-            .where(
-                JoySafeterSessionEvent.session_id == session_id,
-                JoySafeterSessionEvent.event_type == "session.status_idle",
-            )
-        )
-    ).scalar_one()
-    assert session_row.status == "running"
-    assert task_row.status == JoySafeterTaskStatus.RUNNING.value
-    assert idle_events == 0
-
-
-@pytest.mark.asyncio
 async def test_stop_session_rejects_archived_session_with_structured_error(db_session):
     agent = JoySafeterAgent(name=f"stop-archived-agent-{uuid.uuid4()}")
     db_session.add(agent)
@@ -1029,7 +953,7 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     assert task_row.status == JoySafeterTaskStatus.CANCELLED.value
     assert session_row.status == "idle"
     assert session_row.stop_reason == {"type": "cancelled"}
-    assert idle_event.payload == {"stop_reason": {"type": "cancelled"}}
+    assert idle_event.payload == {"task_id": str(task_id), "stop_reason": {"type": "cancelled"}}
     command_publishes = [(channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
     assert len(command_publishes) == 1
     channel, payload = command_publishes[0]

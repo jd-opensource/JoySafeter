@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import json
 import logging
+import time
 import uuid
 from typing import Any, Optional
 
@@ -35,6 +37,41 @@ from app.joysafeter_shared.database import get_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["joysafeter-tasks"])
+
+# When a client omits Idempotency-Key we still derive a fallback key, scoped to a
+# short time window, so that an accidental double-submit (double-click, proxy or
+# network retry) collapses to a single task instead of firing the tooling twice.
+# A deliberate re-run in a later window hashes differently and creates a fresh
+# task, so intentional repeats are never silently swallowed.
+_AUTO_IDEMPOTENCY_WINDOW_SECONDS = 10
+
+
+def _auto_idempotency_window_bucket() -> int:
+    return int(time.time()) // _AUTO_IDEMPOTENCY_WINDOW_SECONDS
+
+
+def _derive_auto_idempotency_key(req: CreateTaskRequest, auth_ctx: JoySafeterAuthContext) -> str:
+    """Deterministic fallback idempotency key for submissions with no client key.
+
+    The key covers the fields that define "the same submission" (so a different
+    prompt/session/environment produces a different key and a distinct task) plus
+    a coarse time-window bucket (so identical submits collapse only when they are
+    near-simultaneous).
+    """
+    identity = "\x1f".join(
+        [
+            "auto",
+            str(auth_ctx.user_id or ""),
+            str(req.agent_id or ""),
+            str(req.agent_name or ""),
+            req.prompt or "",
+            req.system_prompt or "",
+            str(req.chat_session_id or ""),
+            str(req.environment_ref or ""),
+            str(_auto_idempotency_window_bucket()),
+        ]
+    )
+    return "auto:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
 def _task_idempotency_conflict_error(
@@ -203,7 +240,9 @@ async def _validate_task_environment_matches_existing_session(
 ) -> None:
     effective_ref = session.environment_ref or getattr(agent, "environment_ref", None)
     if effective_ref:
-        effective_environment = await EnvironmentService(db).get_environment_by_ref(effective_ref, project_id=project_id)
+        effective_environment = await EnvironmentService(db).get_environment_by_ref(
+            effective_ref, project_id=project_id
+        )
         if effective_environment and effective_environment.id == requested_environment.id:
             return
 
@@ -276,7 +315,10 @@ async def create_task(
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ) -> CreateTaskResponse:
     if not isinstance(idempotency_key, str) or not idempotency_key.strip():
-        idempotency_key = None
+        # No client-supplied key: derive a short-window fallback so an accidental
+        # resubmit does not fire the same real task twice. Clients that need
+        # guaranteed dedup across windows should still send an explicit key.
+        idempotency_key = _derive_auto_idempotency_key(req, auth_ctx)
     else:
         idempotency_key = idempotency_key.strip()
 
@@ -549,11 +591,7 @@ async def _authorize_task_stream(
         return (4001, "TASK_STREAM_AUTH_REQUIRED")
 
     member = (
-        await db.execute(
-            select(Member)
-            .where(Member.user_id == user_id, Member.organization_id == org_id)
-            .limit(1)
-        )
+        await db.execute(select(Member).where(Member.user_id == user_id, Member.organization_id == org_id).limit(1))
     ).scalar_one_or_none()
     if member is None:
         return (4003, "TASK_STREAM_PROJECT_ACCESS_DENIED")
