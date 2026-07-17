@@ -335,7 +335,7 @@ async def test_project_create_and_update_normalize_slug_at_service_boundary(db_s
         )
     ).scalar_one_or_none()
     assert project_member is not None
-    assert project_member.role == "member"
+    assert project_member.role == "admin"
 
     updated = await update_project(
         created.id,

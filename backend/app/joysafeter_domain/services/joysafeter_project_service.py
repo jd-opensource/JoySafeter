@@ -14,7 +14,11 @@ from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafete
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, ResourceConflictError, ServiceUnavailableError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
-from app.joysafeter_shared.common.joysafeter_auth.context import JoySafeterRole
+from app.joysafeter_shared.common.joysafeter_auth.context import (
+    JoySafeterRole,
+    ProjectRole,
+    default_project_role_for_org_role,
+)
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_destroy_via_redis
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -116,7 +120,7 @@ class ProjectService:
         *,
         project_id: str,
         user_id: str,
-        role: str = "member",
+        role: str = "editor",
         commit: bool = False,
     ) -> ProjectMember:
         result = await self.db.execute(
@@ -127,11 +131,20 @@ class ProjectService:
             )
             .limit(1)
         )
+        normalized = ProjectRole.normalize(role) or ProjectRole.VIEWER
+        project_role = normalized.value
         existing = result.scalar_one_or_none()
         if existing is not None:
+            if existing.role != project_role:
+                existing.role = project_role
+                if commit:
+                    await self.db.commit()
+                    await self.db.refresh(existing)
+                else:
+                    await self.db.flush()
             return existing
 
-        membership = ProjectMember(project_id=project_id, user_id=user_id, role=role)
+        membership = ProjectMember(project_id=project_id, user_id=user_id, role=project_role)
         self.db.add(membership)
         if commit:
             await self.db.commit()
@@ -145,7 +158,7 @@ class ProjectService:
         *,
         org_id: str,
         user_id: str,
-        role: str = "member",
+        role: str = "viewer",
     ) -> ProjectMember | None:
         project = await self.get_default_project(org_id)
         if project is None:
@@ -158,7 +171,8 @@ class ProjectService:
             project = result.scalar_one_or_none()
         if project is None:
             return None
-        return await self.grant_project_membership(project_id=project.id, user_id=user_id, role=role)
+        project_role = default_project_role_for_org_role(role).value
+        return await self.grant_project_membership(project_id=project.id, user_id=user_id, role=project_role)
 
     async def revoke_org_project_memberships(self, *, org_id: str, user_id: str) -> None:
         project_ids = select(Project.id).where(Project.org_id == org_id)
@@ -174,6 +188,22 @@ class ProjectService:
             select(ProjectMember).where(ProjectMember.project_id == project_id)
         )
         return list(result.scalars().all())
+
+    async def get_project_member_role(self, project_id: str, user_id: str) -> str | None:
+        """The caller's explicit ProjectMember role for a project, or None if no row.
+
+        Feeds JoySafeterAuthContext.project_role; capability is then derived via
+        effective_project_capability. Org super-users normally have no row (None).
+        """
+        result = await self.db.execute(
+            select(ProjectMember.role)
+            .where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.user_id == user_id,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def revoke_project_membership(self, *, project_id: str, user_id: str, commit: bool = False) -> bool:
         result = await self.db.execute(
@@ -262,7 +292,7 @@ class ProjectService:
         )
         self.db.add(project)
         if created_by_user_id is not None:
-            await self.grant_project_membership(project_id=project.id, user_id=created_by_user_id)
+            await self.grant_project_membership(project_id=project.id, user_id=created_by_user_id, role="admin")
         try:
             await self.db.commit()
         except IntegrityError as exc:

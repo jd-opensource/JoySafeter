@@ -43,4 +43,4 @@ async def test_auto_org_bootstrap_grants_owner_project_member(db_session):
         )
     ).scalar_one_or_none()
     assert project_member is not None
-    assert project_member.role == "owner"
+    assert project_member.role == "admin"

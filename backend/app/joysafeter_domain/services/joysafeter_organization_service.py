@@ -108,7 +108,7 @@ class OrganizationService:
         await ProjectService(self.db).grant_project_membership(
             project_id=default_project.id,
             user_id=owner_user_id,
-            role="owner",
+            role="admin",
         )
 
         await self.db.commit()

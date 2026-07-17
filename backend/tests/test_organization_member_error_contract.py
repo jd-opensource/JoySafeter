@@ -100,7 +100,7 @@ async def test_auth_create_organization_uses_domain_creation_contract(db_session
     )
     project_member = project_member_result.scalar_one_or_none()
     assert project_member is not None
-    assert project_member.role == "owner"
+    assert project_member.role == "admin"
 
 
 @pytest.mark.asyncio
@@ -139,7 +139,7 @@ async def test_scoped_create_organization_uses_same_slug_and_default_project_con
     )
     project_member = project_member_result.scalar_one_or_none()
     assert project_member is not None
-    assert project_member.role == "owner"
+    assert project_member.role == "admin"
 
 
 @pytest.mark.asyncio
@@ -288,7 +288,7 @@ async def test_invite_member_grants_default_project_membership(db_session):
         )
     ).scalar_one_or_none()
     assert project_member is not None
-    assert project_member.role == "developer"
+    assert project_member.role == "editor"
 
 
 @pytest.mark.asyncio
