@@ -5,11 +5,16 @@ from io import BytesIO
 from pathlib import PurePosixPath
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, UploadFile
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
 from app.joysafeter_api.api.v1.id_helpers import parse_skill_file_id, parse_skill_id, parse_skill_security_scan_id
-from app.joysafeter_api.services import SkillLifecycleService, SkillService, SkillVersionService
+from app.joysafeter_api.services import AuthService, SkillLifecycleService, SkillService, SkillVersionService
+from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_skill import JoySafeterCollaboratorRole, JoySafeterSkill
 from app.joysafeter_domain.schemas.joysafeter_skill import (
     CreateSkillFileRequest,
     CreateSkillRequest,
@@ -23,6 +28,8 @@ from app.joysafeter_domain.schemas.joysafeter_skill import (
     UpdateSkillFileRequest,
     UpdateSkillRequest,
 )
+from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
+from app.joysafeter_domain.services.joysafeter_skill_collaborator_service import SkillCollaboratorService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     InvalidRequestError,
@@ -438,7 +445,9 @@ async def get_skill(
 ) -> SkillResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id)
     skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
-    return SkillResponse.model_validate(skill)
+    resp = SkillResponse.model_validate(skill)
+    resp.capability = await _skill_capability_for(db, skill, auth_ctx)
+    return resp
 
 
 @router.get("/{skill_id}/security-scans/latest")
@@ -953,3 +962,233 @@ async def restore_skill_from_version(
     svc = SkillVersionService(db, active_org_id=auth_ctx.org_id)
     skill = await svc.restore_draft(skill_id, version, current_user_id=auth_ctx.user_id)
     return SkillResponse.model_validate(skill)
+
+
+# ---------------------------------------------------------------------------
+# Skill collaborator management
+#
+# A per-skill ACL surface mirroring project-member management: only a skill
+# admin (owner, a collaborator with the admin role, or an org super-user)
+# may list/grant/revoke collaborators. Roles use the project capability
+# vocabulary (admin / editor / viewer); check_skill_access is the single
+# authority for both the read gate and this admin gate.
+# ---------------------------------------------------------------------------
+
+
+class SkillCollaboratorResponse(BaseModel):
+    user_id: str
+    email: str
+    display_name: str
+    role: str
+
+
+class AddSkillCollaboratorRequest(BaseModel):
+    user_id: str
+    # Project-capability vocabulary (admin / editor / viewer). Defaults to the
+    # least-privilege viewer; the UI always sends an explicit role.
+    role: str = "viewer"
+
+
+def _normalize_skill_collaborator_role(role: str) -> str:
+    """Validate a collaborator role against the project vocabulary.
+
+    Folds the legacy ``publisher`` tier into ``admin`` and rejects any
+    unrecognized value (unlike the fail-closed runtime normalize).
+    """
+    normalized = (role or "").strip().lower()
+    if normalized == "publisher":
+        normalized = "admin"
+    try:
+        return JoySafeterCollaboratorRole(normalized).value
+    except ValueError:
+        raise InvalidRequestError(
+            code="SKILL_COLLABORATOR_ROLE_INVALID",
+            message="Invalid role. Must be one of: admin, editor, viewer",
+            data={"role": role, "allowed": [r.value for r in JoySafeterCollaboratorRole]},
+            user_action="fix_input",
+        )
+
+
+async def _skill_superuser_scope(db: AsyncSession, skill: JoySafeterSkill, auth_ctx: JoySafeterAuthContext) -> bool:
+    """Is the caller an org super-user *of the skill's own org*?
+
+    Org isolation applies before the super-user bypass: an org admin only
+    outranks skills that live in their active org, never ones referenced
+    across an org boundary.
+    """
+    if not auth_ctx.role.is_org_superuser():
+        return False
+    if not skill.project_id:
+        return False
+    skill_org_id = (await db.execute(select(Project.org_id).where(Project.id == skill.project_id))).scalar_one_or_none()
+    return skill_org_id is not None and skill_org_id == auth_ctx.org_id
+
+
+async def _skill_capability_for(db: AsyncSession, skill: JoySafeterSkill, auth_ctx: JoySafeterAuthContext) -> str:
+    """Caller's effective capability on ``skill`` for the detail response."""
+    from app.joysafeter_shared.common.skill_permissions import compute_skill_capability
+
+    is_superuser = await _skill_superuser_scope(db, skill, auth_ctx)
+    return await compute_skill_capability(
+        db,
+        skill,
+        auth_ctx.user_id,
+        is_superuser=is_superuser,
+        active_org_id=auth_ctx.org_id,
+    )
+
+
+async def _load_manageable_skill(db: AsyncSession, skill_id: uuid.UUID, auth_ctx: JoySafeterAuthContext):
+    """Load a skill for collaborator management.
+
+    404s if the skill is missing OR belongs to another organization (org
+    isolation is enforced BEFORE the super-user bypass, so an org admin cannot
+    reach a skill outside their own org by referencing its id). Then requires
+    the caller to have admin capability on the skill (owner, a collaborator
+    with the admin role, or an org super-user of the skill's own org).
+    """
+    from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository
+    from app.joysafeter_shared.common.skill_permissions import check_skill_access
+
+    # 404-only load: go straight to the repository so we do NOT inherit
+    # ``get_skill``'s visibility gate, which would reject a private skill for
+    # the anonymous (current_user_id=None) path before we ever reach the
+    # super-user-aware ADMIN gate below. Org-isolation + check_skill_access are
+    # the real gates for this route.
+    skill = await SkillRepository(db).get_with_files(skill_id)
+    if skill is None or not isinstance(skill, JoySafeterSkill):
+        raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
+
+    skill_org_id: str | None = None
+    if skill.project_id:
+        skill_org_id = (
+            await db.execute(select(Project.org_id).where(Project.id == skill.project_id))
+        ).scalar_one_or_none()
+    if skill_org_id is not None and skill_org_id != auth_ctx.org_id:
+        raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
+
+    is_superuser = auth_ctx.role.is_org_superuser() and skill_org_id == auth_ctx.org_id
+    await check_skill_access(
+        db,
+        skill,
+        auth_ctx.user_id,
+        JoySafeterCollaboratorRole.ADMIN,
+        is_superuser=is_superuser,
+        active_org_id=auth_ctx.org_id,
+    )
+    return skill
+
+
+@router.get("/{skill_id}/collaborators")
+async def list_skill_collaborators(
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> list[SkillCollaboratorResponse]:
+    """List a skill's collaborators (requires skill admin)."""
+    await _load_manageable_skill(db, skill_id, auth_ctx)
+    rows = await SkillCollaboratorService(db).list_collaborators(skill_id)
+    return [
+        SkillCollaboratorResponse(
+            user_id=collab.user_id,
+            email=user.email if user else "",
+            display_name=user.name if user else "",
+            role=collab.role,
+        )
+        for collab, user in rows
+    ]
+
+
+@router.post("/{skill_id}/collaborators", status_code=201)
+async def add_skill_collaborator(
+    req: AddSkillCollaboratorRequest,
+    request: Request,
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SkillCollaboratorResponse:
+    """Grant/update a collaborator on a skill (requires skill admin)."""
+    skill = await _load_manageable_skill(db, skill_id, auth_ctx)
+
+    role = _normalize_skill_collaborator_role(req.role)
+
+    # The owner already has full control; never model them as a collaborator.
+    if skill.owner_id and skill.owner_id == req.user_id:
+        raise InvalidRequestError(
+            code="SKILL_COLLABORATOR_OWNER_FORBIDDEN",
+            message="The skill owner cannot be added as a collaborator",
+            data={"skill_id": str(skill_id), "user_id": req.user_id},
+            user_action="fix_input",
+        )
+
+    # The target must be a member of the acting organization.
+    member = await OrganizationMemberService(db).get_member_by_user_id(auth_ctx.org_id, req.user_id)
+    if member is None:
+        raise NotFoundError(
+            code="ORGANIZATION_MEMBER_NOT_FOUND",
+            message="User is not a member of this organization",
+            data={"organization_id": auth_ctx.org_id, "user_id": req.user_id},
+            user_action="fix_input",
+        )
+    user = await AuthService(db).get_user_by_id(req.user_id)
+
+    await SkillCollaboratorService(db).grant_collaborator(
+        skill_id=skill_id,
+        user_id=req.user_id,
+        role=role,
+        invited_by=auth_ctx.user_id,
+        commit=True,
+    )
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="skill_collaborator.added",
+        target_type="skill_collaborator",
+        target_id=req.user_id,
+        details={"skill_id": str(skill_id), "assigned_role": role},
+    )
+    return SkillCollaboratorResponse(
+        user_id=req.user_id,
+        email=user.email if user else "",
+        display_name=user.name if user else "",
+        role=role,
+    )
+
+
+@router.delete("/{skill_id}/collaborators/{user_id}", status_code=204)
+async def remove_skill_collaborator(
+    user_id: str,
+    request: Request,
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> None:
+    """Revoke a collaborator from a skill (requires skill admin)."""
+    skill = await _load_manageable_skill(db, skill_id, auth_ctx)
+
+    if skill.owner_id and skill.owner_id == user_id:
+        raise InvalidRequestError(
+            code="SKILL_COLLABORATOR_OWNER_FORBIDDEN",
+            message="The skill owner cannot be removed as a collaborator",
+            data={"skill_id": str(skill_id), "user_id": user_id},
+            user_action="fix_input",
+        )
+
+    revoked = await SkillCollaboratorService(db).revoke_collaborator(skill_id=skill_id, user_id=user_id, commit=True)
+    if not revoked:
+        raise NotFoundError(
+            code="SKILL_COLLABORATOR_NOT_FOUND",
+            message="User is not a collaborator on this skill",
+            data={"skill_id": str(skill_id), "user_id": user_id},
+            user_action="refresh",
+        )
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="skill_collaborator.removed",
+        target_type="skill_collaborator",
+        target_id=user_id,
+        details={"skill_id": str(skill_id)},
+    )

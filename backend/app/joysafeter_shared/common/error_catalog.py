@@ -730,6 +730,21 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=AccessDeniedError,
         default_message="You don't have permission to access this skill",
     ),
+    "SKILL_COLLABORATOR_NOT_FOUND": CatalogEntry(
+        code="SKILL_COLLABORATOR_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="User is not a collaborator on this skill",
+    ),
+    "SKILL_COLLABORATOR_OWNER_FORBIDDEN": CatalogEntry(
+        code="SKILL_COLLABORATOR_OWNER_FORBIDDEN",
+        error_class=InvalidRequestError,
+        default_message="The skill owner cannot be added or removed as a collaborator",
+    ),
+    "SKILL_COLLABORATOR_ROLE_INVALID": CatalogEntry(
+        code="SKILL_COLLABORATOR_ROLE_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid role. Must be one of: admin, editor, viewer",
+    ),
     "SKILL_ADMIN_PERMISSION_DENIED": CatalogEntry(
         code="SKILL_ADMIN_PERMISSION_DENIED",
         error_class=AccessDeniedError,

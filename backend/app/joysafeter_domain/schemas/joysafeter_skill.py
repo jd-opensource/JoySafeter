@@ -168,6 +168,9 @@ class SkillResponse(BaseModel):
     metadata: dict = Field(default_factory=dict, alias="meta_data")
     allowed_tools: list = Field(default_factory=list)
     security_scan: SkillSecurityScanSummary = Field(default_factory=SkillSecurityScanSummary)
+    # Caller's effective capability on this skill: owner/admin/editor/viewer/none.
+    # Populated by the detail route; ``None`` on list rows that don't resolve it.
+    capability: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
