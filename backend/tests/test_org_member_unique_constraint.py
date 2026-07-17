@@ -23,7 +23,7 @@ async def test_duplicate_org_membership_is_rejected_by_db(db_session):
     await db_session.flush()
 
     db_session.add(Member(user_id=user.id, organization_id=org.id, role="admin"))
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="viewer"))
+    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
 
     with pytest.raises(IntegrityError):
         await db_session.flush()
@@ -42,7 +42,7 @@ async def test_add_member_race_converts_integrity_error_to_conflict(db_session, 
     await db_session.flush()
     db_session.add(Member(user_id=actor.id, organization_id=org.id, role="owner"))
     # The row a concurrent request "just committed" for the target.
-    db_session.add(Member(user_id=target.id, organization_id=org.id, role="viewer"))
+    db_session.add(Member(user_id=target.id, organization_id=org.id, role="member"))
     await db_session.commit()
 
     svc = OrganizationMemberService(db_session)
@@ -60,7 +60,7 @@ async def test_add_member_race_converts_integrity_error_to_conflict(db_session, 
             organization_id=org.id,
             user_id=target.id,
             actor_user_id=actor.id,
-            role="developer",
+            role="member",
         )
     assert exc_info.value.code == "ORGANIZATION_MEMBER_ALREADY_EXISTS"
 

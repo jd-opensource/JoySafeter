@@ -95,7 +95,7 @@ async def test_owner_pass_when_in_active_org(monkeypatch):
         _NullDB(),
         s,
         user_id="alice",
-        min_role=CollaboratorRole.admin,
+        min_role=CollaboratorRole.ADMIN,
         active_org_id="org-A",
     )
 
@@ -113,7 +113,7 @@ async def test_owner_denied_when_in_different_active_org(monkeypatch):
             _NullDB(),
             s,
             user_id="alice",
-            min_role=CollaboratorRole.admin,
+            min_role=CollaboratorRole.ADMIN,
             active_org_id="org-B",
         )
 
@@ -154,7 +154,7 @@ async def test_owner_pass_when_active_org_not_supplied(monkeypatch):
         _NullDB(),
         s,
         user_id="alice",
-        min_role=CollaboratorRole.admin,
+        min_role=CollaboratorRole.ADMIN,
         active_org_id=None,
     )
 
@@ -168,7 +168,7 @@ async def test_collaborator_denied_when_in_different_active_org(monkeypatch):
 
     async def _grant(_db, _skill_id, user_id):
         if user_id == "bob":
-            return SimpleNamespace(role=CollaboratorRole.editor)
+            return SimpleNamespace(role=CollaboratorRole.EDITOR)
         return None
 
     monkeypatch.setattr(
@@ -181,7 +181,7 @@ async def test_collaborator_denied_when_in_different_active_org(monkeypatch):
             _NullDB(),
             s,
             user_id="bob",
-            min_role=CollaboratorRole.editor,
+            min_role=CollaboratorRole.EDITOR,
             active_org_id="org-B",
         )
 
@@ -198,7 +198,7 @@ async def test_public_skill_still_crosses_active_org(monkeypatch):
         _NullDB(),
         s,
         user_id="stranger",
-        min_role=CollaboratorRole.viewer,
+        min_role=CollaboratorRole.VIEWER,
         active_org_id="org-B",
     )
 

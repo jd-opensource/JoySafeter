@@ -35,7 +35,7 @@ def _auth_ctx() -> JoySafeterAuthContext:
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
 

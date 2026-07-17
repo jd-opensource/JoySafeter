@@ -68,7 +68,7 @@ async def test_key_rejected_when_creator_lost_project_access(db_session):
     # Creator is still an org member (developer) but has no ProjectMember row on
     # the key's project (grant revoked) → non-super-user has no access → rejected.
     raw_key = await _key_setup(
-        db_session, creator_org_role="developer", creator_project_role=None
+        db_session, creator_org_role="member", creator_project_role=None
     )
     with pytest.raises(AccessDeniedError) as exc_info:
         await _auth_via_api_key(raw_key, db_session)
@@ -80,12 +80,12 @@ async def test_key_valid_when_creator_has_project_row(db_session):
     # Happy path: creator retains an explicit ProjectMember row. The key
     # authenticates and keeps its own capped identity (not rebuilt from creator).
     raw_key = await _key_setup(
-        db_session, creator_org_role="developer", creator_project_role="editor", key_role="viewer"
+        db_session, creator_org_role="member", creator_project_role="editor", key_role="viewer"
     )
     ctx = await _auth_via_api_key(raw_key, db_session)
     assert ctx is not None
     assert ctx.principal_type == "api_key"
-    assert ctx.role is JoySafeterRole.VIEWER
+    assert ctx.role is JoySafeterRole.MEMBER
     assert ctx.project_role == "viewer"
 
 

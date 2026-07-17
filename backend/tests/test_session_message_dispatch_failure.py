@@ -52,6 +52,9 @@ class _FakeBroadcaster:
     async def send(self, session_id: uuid.UUID, payload: dict) -> None:
         self.sent.append((session_id, payload))
 
+    def remove(self, session_id: uuid.UUID) -> None:
+        self._channels.pop(session_id, None)
+
 
 class _FakeCommandRedis:
     def __init__(self, *, input_receivers: int = 1, cancel_receivers: int = 1, destroy_receivers: int = 1):
@@ -231,7 +234,7 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     try:
@@ -382,7 +385,7 @@ async def test_user_message_rejects_idle_session_with_active_task(db_session, mo
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -450,7 +453,7 @@ async def test_user_message_idempotent_retry_after_enqueue_failure_stays_503(
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
     key = f"msg-{uuid.uuid4()}"
 
@@ -523,7 +526,7 @@ async def test_user_message_idempotency_key_prevents_duplicate_task(
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
     key = f"msg-{uuid.uuid4()}"
 
@@ -581,7 +584,7 @@ async def test_user_message_rejects_idempotency_key_reuse_for_different_message(
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
     key = f"msg-{uuid.uuid4()}"
     first = SendEventRequest(
@@ -655,7 +658,7 @@ async def test_tool_confirmation_fallback_enqueues_via_redis_without_local_sched
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     try:
@@ -708,7 +711,7 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     try:
@@ -775,7 +778,7 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     try:
@@ -850,7 +853,7 @@ async def test_stop_session_does_not_mark_idle_when_task_cancel_write_fails(
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -902,7 +905,7 @@ async def test_stop_session_rejects_archived_session_with_structured_error(db_se
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -935,7 +938,7 @@ async def test_stop_session_rejects_terminated_session_with_structured_error(db_
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -1002,7 +1005,7 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     response = await stop_session(session_id, db_session, auth_ctx)
@@ -1053,7 +1056,7 @@ async def test_delete_session_rejects_running_session_with_structured_error(db_s
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -1100,7 +1103,7 @@ async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_se
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -1162,7 +1165,7 @@ async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_pro
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     response = await delete_session_endpoint(session_id, db_session, auth_ctx)
@@ -1224,7 +1227,7 @@ async def test_delete_session_keeps_session_when_rust_destroy_relay_unavailable(
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
     with pytest.raises(AppError) as exc_info:

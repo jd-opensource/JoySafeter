@@ -32,7 +32,7 @@ async def test_org_member_without_project_row_is_denied(db_session):
     # task output, exactly as the HTTP read path denies them.
     org, project = await _org_project(db_session)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="developer"))
+    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
     await db_session.commit()
 
     rejection = await _authorize_task_stream(
@@ -45,7 +45,7 @@ async def test_org_member_without_project_row_is_denied(db_session):
 async def test_project_member_is_authorized(db_session):
     org, project = await _org_project(db_session)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="developer"))
+    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
     db_session.add(ProjectMember(project_id=project.id, user_id=user.id, role="viewer"))
     await db_session.commit()
 
@@ -120,7 +120,7 @@ async def test_project_member_on_different_project_is_denied(db_session):
     other = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Other", slug=f"other-{uuid.uuid4()}")
     db_session.add(other)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="developer"))
+    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
     await db_session.flush()
     db_session.add(ProjectMember(project_id=other.id, user_id=user.id, role="editor"))
     await db_session.commit()

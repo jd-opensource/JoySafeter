@@ -19,20 +19,20 @@ def test_org_owner_and_admin_are_admin_everywhere():
 
 
 def test_non_superuser_without_row_has_no_capability():
-    assert effective_project_capability(JoySafeterRole.DEVELOPER, None) is ProjectCapability.NONE
-    assert effective_project_capability(JoySafeterRole.VIEWER, None) is ProjectCapability.NONE
+    assert effective_project_capability(JoySafeterRole.MEMBER, None) is ProjectCapability.NONE
+    assert effective_project_capability(JoySafeterRole.MEMBER, None) is ProjectCapability.NONE
 
 
 def test_non_superuser_capability_comes_solely_from_project_role():
-    assert effective_project_capability(JoySafeterRole.DEVELOPER, "admin") is ProjectCapability.ADMIN
-    assert effective_project_capability(JoySafeterRole.DEVELOPER, "editor") is ProjectCapability.WRITE
-    assert effective_project_capability(JoySafeterRole.DEVELOPER, "viewer") is ProjectCapability.READ
+    assert effective_project_capability(JoySafeterRole.MEMBER, "admin") is ProjectCapability.ADMIN
+    assert effective_project_capability(JoySafeterRole.MEMBER, "editor") is ProjectCapability.WRITE
+    assert effective_project_capability(JoySafeterRole.MEMBER, "viewer") is ProjectCapability.READ
 
 
 def test_org_viewer_with_project_admin_role_is_admin():
     # The core GitHub-model rule: a non-super-user's capability is ONLY their
     # project role, independent of their org role. No intersection.
-    assert effective_project_capability(JoySafeterRole.VIEWER, "admin") is ProjectCapability.ADMIN
+    assert effective_project_capability(JoySafeterRole.MEMBER, "admin") is ProjectCapability.ADMIN
 
 
 def test_capability_is_ordered_for_threshold_checks():

@@ -22,13 +22,13 @@ async def _setup(db_session, project_role: str) -> JoySafeterAuthContext:
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=org_id, role="developer"),
+            Member(user_id=user.id, organization_id=org_id, role="member"),
             ProjectMember(project_id=project.id, user_id=user.id, role=project_role),
         ]
     )
     await db_session.commit()
     return JoySafeterAuthContext(
-        user_id=user.id, org_id=org_id, project_id=project.id, role=JoySafeterRole.DEVELOPER
+        user_id=user.id, org_id=org_id, project_id=project.id, role=JoySafeterRole.MEMBER
     )
 
 
@@ -53,7 +53,7 @@ async def _api_key_ctx(
     """Build the context that _auth_via_api_key produces for a project-scoped key.
 
     The creator's live org/project standing is written to the DB; the returned
-    context mirrors _auth_via_api_key: org role pinned to VIEWER (never a
+    context mirrors _auth_via_api_key: org role pinned to MEMBER (never a
     super-user) and the key's minted role carried as project_role.
     """
     org_id = f"org-{uuid.uuid4()}"
@@ -72,7 +72,7 @@ async def _api_key_ctx(
         user_id=creator.id,
         org_id=org_id,
         project_id=project.id,
-        role=JoySafeterRole.VIEWER,
+        role=JoySafeterRole.MEMBER,
         principal_type="api_key",
         project_role=key_role,
     )
@@ -107,7 +107,7 @@ async def test_write_gate_caps_api_key_at_demoted_creator_capability(db_session)
     # An editor key whose creator has since been demoted to project viewer must
     # drop to the creator's current (lower) capability: min(key, creator).
     ctx = await _api_key_ctx(
-        db_session, creator_org_role="developer", creator_project_role="viewer", key_role="editor"
+        db_session, creator_org_role="member", creator_project_role="viewer", key_role="editor"
     )
     with pytest.raises(AccessDeniedError) as exc_info:
         await _require_write_context(db_session, ctx)
@@ -117,7 +117,7 @@ async def test_write_gate_caps_api_key_at_demoted_creator_capability(db_session)
 @pytest.mark.asyncio
 async def test_admin_gate_rejects_api_key_principal(db_session):
     # Defense-in-depth (CB-4 same-class): an API key's org role is pinned to
-    # VIEWER, so it can never pass the admin gate regardless of its creator's
+    # MEMBER, so it can never pass the admin gate regardless of its creator's
     # org role — the pre-check fires before any creator re-derivation.
     ctx = await _api_key_ctx(
         db_session, creator_org_role="owner", creator_project_role=None, key_role="admin"
@@ -142,7 +142,7 @@ async def test_write_gate_rejects_api_key_of_removed_creator(db_session):
         user_id=creator.id,
         org_id=org_id,
         project_id=project.id,
-        role=JoySafeterRole.VIEWER,
+        role=JoySafeterRole.MEMBER,
         principal_type="api_key",
         project_role="editor",
     )

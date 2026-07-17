@@ -34,7 +34,7 @@ async def _member(db_session, *, org_id: str, role: str) -> AuthUser:
 
 
 @pytest.mark.asyncio
-async def test_demoting_admin_to_developer_grants_default_project_access(db_session):
+async def test_demoting_admin_to_member_grants_default_project_access(db_session):
     org, default_project = await _org_with_default_project(db_session)
     # Admin org-wide members have no ProjectMember row; after demotion they would
     # otherwise be locked out of every project including the default one.
@@ -46,7 +46,7 @@ async def test_demoting_admin_to_developer_grants_default_project_access(db_sess
         organization_id=org.id,
         user_id=target.id,
         actor_role=JoySafeterRole.OWNER,
-        role="developer",
+        role="member",
     )
 
     row = (
@@ -63,7 +63,7 @@ async def test_demoting_admin_to_developer_grants_default_project_access(db_sess
         project_id=default_project.id,
         org_id=org.id,
         user_id=target.id,
-        org_role=JoySafeterRole.DEVELOPER,
+        org_role=JoySafeterRole.MEMBER,
     )
     assert accessible is not None
 
@@ -80,14 +80,14 @@ async def test_demotion_preserves_existing_non_default_project_grants(db_session
     db_session.add(non_default)
     target = await _member(db_session, org_id=org.id, role="admin")
     # An explicit grant on a non-default project that must survive the demotion.
-    db_session.add(ProjectMember(project_id=non_default.id, user_id=target.id, role="member"))
+    db_session.add(ProjectMember(project_id=non_default.id, user_id=target.id, role="editor"))
     await db_session.commit()
 
     await OrganizationMemberService(db_session).update_member_role_by_user_id(
         organization_id=org.id,
         user_id=target.id,
         actor_role=JoySafeterRole.OWNER,
-        role="viewer",
+        role="member",
     )
 
     surviving = (
@@ -111,7 +111,7 @@ async def test_promotion_to_admin_grants_org_wide_access_without_row(db_session)
         slug=f"second-{uuid.uuid4()}",
     )
     db_session.add(non_default)
-    target = await _member(db_session, org_id=org.id, role="developer")
+    target = await _member(db_session, org_id=org.id, role="member")
     await db_session.commit()
 
     await OrganizationMemberService(db_session).update_member_role_by_user_id(

@@ -31,7 +31,7 @@ async def _ctx(db_session, *, org_role: str, project_role: str | None) -> JoySaf
 
 @pytest.mark.asyncio
 async def test_me_reports_write_capability_for_project_editor(db_session):
-    ctx = await _ctx(db_session, org_role="developer", project_role="editor")
+    ctx = await _ctx(db_session, org_role="member", project_role="editor")
     me = await get_me(db_session, ctx)
     assert me["project"]["capability"] == "write"
     assert me["project"]["project_role"] == "editor"
@@ -46,6 +46,6 @@ async def test_me_reports_admin_capability_for_org_admin_without_row(db_session)
 
 @pytest.mark.asyncio
 async def test_me_reports_read_capability_for_project_viewer(db_session):
-    ctx = await _ctx(db_session, org_role="developer", project_role="viewer")
+    ctx = await _ctx(db_session, org_role="member", project_role="viewer")
     me = await get_me(db_session, ctx)
     assert me["project"]["capability"] == "read"

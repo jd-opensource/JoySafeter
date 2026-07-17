@@ -76,12 +76,12 @@ async def test_owner_passes_without_db_hit(monkeypatch):
     """Owner check is the cheap first gate; it short-circuits before
     any collaborator or visibility lookup runs."""
     s = _skill(owner_id="alice")
-    await check_skill_access(_NullDB(), s, "alice", CollaboratorRole.admin)
+    await check_skill_access(_NullDB(), s, "alice", CollaboratorRole.ADMIN)
 
 
 async def test_superuser_always_passes():
     s = _skill(owner_id="someone-else", visibility="private")
-    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.admin, is_superuser=True)
+    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.ADMIN, is_superuser=True)
 
 
 async def test_collaborator_with_required_role_passes(monkeypatch):
@@ -89,7 +89,7 @@ async def test_collaborator_with_required_role_passes(monkeypatch):
 
     async def _grant(_db, _skill_id, user_id):
         if user_id == "bob":
-            return SimpleNamespace(role=CollaboratorRole.editor)
+            return SimpleNamespace(role=CollaboratorRole.EDITOR)
         return None
 
     monkeypatch.setattr(
@@ -97,23 +97,23 @@ async def test_collaborator_with_required_role_passes(monkeypatch):
         _grant,
     )
     # editor is enough for a viewer check
-    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
     # editor is enough for an editor check
-    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.editor)
+    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.EDITOR)
 
 
 async def test_collaborator_below_required_role_denied(monkeypatch):
     s = _skill(owner_id="alice", visibility="private")
 
     async def _grant(_db, _skill_id, user_id):
-        return SimpleNamespace(role=CollaboratorRole.viewer)
+        return SimpleNamespace(role=CollaboratorRole.VIEWER)
 
     monkeypatch.setattr(
         "app.joysafeter_shared.common.skill_permissions._get_collaborator",
         _grant,
     )
     with pytest.raises(AccessDeniedError) as ei:
-        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.editor)
+        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.EDITOR)
     assert ei.value.code == "SKILL_ACCESS_DENIED"
 
 
@@ -123,7 +123,7 @@ async def test_collaborator_below_required_role_denied(monkeypatch):
 async def test_public_skill_allows_viewer(monkeypatch):
     s = _skill(owner_id="alice", visibility="public")
     _patch_no_collaborator(monkeypatch)
-    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 async def test_public_skill_denies_higher_role(monkeypatch):
@@ -132,14 +132,14 @@ async def test_public_skill_denies_higher_role(monkeypatch):
     s = _skill(owner_id="alice", visibility="public")
     _patch_no_collaborator(monkeypatch)
     with pytest.raises(AccessDeniedError):
-        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.editor)
+        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.EDITOR)
 
 
 async def test_organization_skill_allows_org_member(monkeypatch):
     s = _skill(owner_id="alice", visibility="organization", project_id="proj-1")
     _patch_no_collaborator(monkeypatch)
     _patch_org_member(monkeypatch, org_id="org-A", is_member=True)
-    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 async def test_organization_skill_denies_non_member(monkeypatch):
@@ -147,7 +147,7 @@ async def test_organization_skill_denies_non_member(monkeypatch):
     _patch_no_collaborator(monkeypatch)
     _patch_org_member(monkeypatch, org_id="org-A", is_member=False)
     with pytest.raises(AccessDeniedError):
-        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 async def test_project_skill_requires_project_membership(monkeypatch):
@@ -160,7 +160,7 @@ async def test_project_skill_requires_project_membership(monkeypatch):
     _patch_org_member(monkeypatch, org_id="org-A", is_member=True)
     _patch_project_member(monkeypatch, project_id="proj-1", is_member=False)
     with pytest.raises(AccessDeniedError):
-        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 async def test_project_skill_allows_project_member(monkeypatch):
@@ -169,7 +169,7 @@ async def test_project_skill_allows_project_member(monkeypatch):
     s = _skill(owner_id="alice", visibility="project", project_id="proj-1")
     _patch_no_collaborator(monkeypatch)
     _patch_project_member(monkeypatch, project_id="proj-1", is_member=True)
-    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 async def test_org_skill_ignores_project_membership(monkeypatch):
@@ -180,7 +180,7 @@ async def test_org_skill_ignores_project_membership(monkeypatch):
     _patch_org_member(monkeypatch, org_id="org-A", is_member=True)
     # No project membership at all
     _patch_project_member(monkeypatch, project_id="proj-1", is_member=False)
-    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+    await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 async def test_project_skill_ignores_org_membership(monkeypatch):
@@ -192,14 +192,14 @@ async def test_project_skill_ignores_org_membership(monkeypatch):
     _patch_org_member(monkeypatch, org_id="org-A", is_member=True)
     _patch_project_member(monkeypatch, project_id="proj-1", is_member=False)
     with pytest.raises(AccessDeniedError):
-        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 async def test_private_skill_denies_stranger(monkeypatch):
     s = _skill(owner_id="alice", visibility="private")
     _patch_no_collaborator(monkeypatch)
     with pytest.raises(AccessDeniedError):
-        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 async def test_org_skill_without_project_id_denies(monkeypatch):
@@ -210,7 +210,7 @@ async def test_org_skill_without_project_id_denies(monkeypatch):
     _patch_no_collaborator(monkeypatch)
     _patch_org_member(monkeypatch, org_id=None, is_member=False)
     with pytest.raises(AccessDeniedError):
-        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.viewer)
+        await check_skill_access(_NullDB(), s, "bob", CollaboratorRole.VIEWER)
 
 
 # ── helpers ────────────────────────────────────────────────────

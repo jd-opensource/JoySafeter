@@ -65,7 +65,7 @@ def _auth_ctx() -> JoySafeterAuthContext:
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
 
@@ -74,7 +74,7 @@ def _project_auth_ctx(project_id: str) -> JoySafeterAuthContext:
         user_id="test-user",
         org_id="test-org",
         project_id=project_id,
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
     )
 
 
@@ -83,7 +83,7 @@ def _service_auth_ctx() -> JoySafeterAuthContext:
         user_id="test-user",
         org_id="test-org",
         project_id=None,  # type: ignore[arg-type]
-        role=JoySafeterRole.DEVELOPER,
+        role=JoySafeterRole.MEMBER,
         principal_type="api_key",
     )
 

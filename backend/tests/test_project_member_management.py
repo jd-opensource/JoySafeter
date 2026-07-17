@@ -58,7 +58,7 @@ async def test_add_project_member_grants_access_to_org_member(db_session):
         slug=f"second-{uuid.uuid4()}",
     )
     db_session.add(non_default)
-    developer = await _add_member(db_session, org_id=org.id, role="developer", name="Dev")
+    developer = await _add_member(db_session, org_id=org.id, role="member", name="Dev")
     await db_session.commit()
 
     response = await add_project_member(
@@ -94,9 +94,9 @@ async def test_list_project_members_annotates_access_status(db_session):
     )
     db_session.add(non_default)
     admin = await _add_member(db_session, org_id=org.id, role="admin", name="Admin")
-    granted_dev = await _add_member(db_session, org_id=org.id, role="developer", name="GrantedDev")
-    ungranted_dev = await _add_member(db_session, org_id=org.id, role="viewer", name="UngrantedViewer")
-    db_session.add(ProjectMember(project_id=non_default.id, user_id=granted_dev.id, role="member"))
+    granted_dev = await _add_member(db_session, org_id=org.id, role="member", name="GrantedDev")
+    ungranted_dev = await _add_member(db_session, org_id=org.id, role="member", name="UngrantedViewer")
+    db_session.add(ProjectMember(project_id=non_default.id, user_id=granted_dev.id, role="editor"))
     await db_session.commit()
 
     response = await list_project_members(non_default.id, db_session, _admin_ctx(org.id))
@@ -136,7 +136,7 @@ async def test_project_member_routes_reject_project_from_other_org(db_session):
         slug=f"foreign-{uuid.uuid4()}",
     )
     db_session.add_all([other_org, other_project])
-    dev = await _add_member(db_session, org_id=org.id, role="developer", name="Dev")
+    dev = await _add_member(db_session, org_id=org.id, role="member", name="Dev")
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
@@ -160,8 +160,8 @@ async def test_remove_project_member_revokes_explicit_access(db_session):
         slug=f"second-{uuid.uuid4()}",
     )
     db_session.add(non_default)
-    dev = await _add_member(db_session, org_id=org.id, role="developer", name="Dev")
-    db_session.add(ProjectMember(project_id=non_default.id, user_id=dev.id, role="member"))
+    dev = await _add_member(db_session, org_id=org.id, role="member", name="Dev")
+    db_session.add(ProjectMember(project_id=non_default.id, user_id=dev.id, role="editor"))
     await db_session.commit()
 
     await remove_project_member(
@@ -186,8 +186,8 @@ async def test_remove_project_member_revokes_explicit_access(db_session):
 @pytest.mark.asyncio
 async def test_remove_project_member_forbidden_on_default_project(db_session):
     org, default_project = await _org_with_default_project(db_session)
-    dev = await _add_member(db_session, org_id=org.id, role="developer", name="Dev")
-    db_session.add(ProjectMember(project_id=default_project.id, user_id=dev.id, role="member"))
+    dev = await _add_member(db_session, org_id=org.id, role="member", name="Dev")
+    db_session.add(ProjectMember(project_id=default_project.id, user_id=dev.id, role="editor"))
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
@@ -211,7 +211,7 @@ async def test_remove_project_member_missing_row_returns_not_found(db_session):
         slug=f"second-{uuid.uuid4()}",
     )
     db_session.add(non_default)
-    dev = await _add_member(db_session, org_id=org.id, role="developer", name="Dev")
+    dev = await _add_member(db_session, org_id=org.id, role="member", name="Dev")
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
@@ -235,8 +235,8 @@ async def test_get_project_member_role_returns_role_or_none(db_session):
         slug=f"second-{uuid.uuid4()}",
     )
     db_session.add(non_default)
-    dev = await _add_member(db_session, org_id=org.id, role="developer", name="Dev")
-    other = await _add_member(db_session, org_id=org.id, role="developer", name="Other")
+    dev = await _add_member(db_session, org_id=org.id, role="member", name="Dev")
+    other = await _add_member(db_session, org_id=org.id, role="member", name="Other")
     db_session.add(ProjectMember(project_id=non_default.id, user_id=dev.id, role="editor"))
     await db_session.commit()
 

@@ -206,7 +206,7 @@ async def test_add_member_returns_structured_duplicate_member_error(db_session):
     db_session.add_all(
         [
             Member(user_id=actor.id, organization_id=org.id, role="admin"),
-            Member(user_id=target.id, organization_id=org.id, role="developer"),
+            Member(user_id=target.id, organization_id=org.id, role="member"),
         ]
     )
     await db_session.commit()
@@ -230,7 +230,7 @@ async def test_invite_member_returns_structured_duplicate_member_error(db_sessio
     user = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
     db_session.add(user)
     await db_session.flush()
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="developer"))
+    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
     await db_session.commit()
     await db_session.refresh(user)
 
@@ -275,7 +275,7 @@ async def test_invite_member_grants_default_project_membership(db_session):
     await db_session.refresh(user)
 
     response = await invite_member(
-        InviteMemberRequest(email=user.email, role="developer"),
+        InviteMemberRequest(email=user.email, role="member"),
         None,  # type: ignore[arg-type]
         db_session,
         _auth_ctx(org.id),
@@ -288,7 +288,9 @@ async def test_invite_member_grants_default_project_membership(db_session):
         )
     ).scalar_one_or_none()
     assert project_member is not None
-    assert project_member.role == "editor"
+    # Ordinary members seed the default project at viewer (least privilege) under
+    # the 3-tier org model; higher access is granted explicitly.
+    assert project_member.role == "viewer"
 
 
 @pytest.mark.asyncio
@@ -299,12 +301,12 @@ async def test_remove_member_cleans_project_memberships(db_session):
     project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
     db_session.add_all([actor, target, project])
     await db_session.flush()
-    member = Member(user_id=target.id, organization_id=org.id, role="developer")
+    member = Member(user_id=target.id, organization_id=org.id, role="member")
     db_session.add_all(
         [
             Member(user_id=actor.id, organization_id=org.id, role="admin"),
             member,
-            ProjectMember(project_id=project.id, user_id=target.id, role="developer"),
+            ProjectMember(project_id=project.id, user_id=target.id, role="editor"),
         ]
     )
     await db_session.commit()
@@ -333,7 +335,7 @@ async def test_update_organization_member_missing_member_returns_structured_erro
         await update_member_role(
             org.id,
             missing_member_id,
-            UpdateMemberRequest(role="viewer"),
+            UpdateMemberRequest(role="member"),
             SimpleNamespace(id=actor.id),
             db_session,
         )
@@ -399,7 +401,7 @@ async def test_add_member_invalid_role_returns_structured_error(db_session):
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "ORGANIZATION_MEMBER_ROLE_INVALID",
         "message": "Invalid member role",
-        "data": {"role": "super-admin", "allowed": ["admin", "developer", "member", "owner", "viewer"]},
+        "data": {"role": "super-admin", "allowed": ["admin", "member", "owner"]},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -541,13 +543,13 @@ async def test_add_member_without_admin_permission_returns_structured_error(db_s
     actor = AuthUser(name="Actor User", email=f"actor-{uuid.uuid4()}@example.com")
     db_session.add(actor)
     await db_session.flush()
-    db_session.add(Member(user_id=actor.id, organization_id=org.id, role="viewer"))
+    db_session.add(Member(user_id=actor.id, organization_id=org.id, role="member"))
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
         await add_member(
             org.id,
-            AddMemberRequest(user_id="target-user", role="viewer"),
+            AddMemberRequest(user_id="target-user", role="member"),
             SimpleNamespace(id=actor.id),
             db_session,
         )
@@ -669,8 +671,8 @@ async def test_switch_context_rejects_inaccessible_project_for_non_admin_member(
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=org_id, role="developer"),
-            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="developer"),
+            Member(user_id=user.id, organization_id=org_id, role="member"),
+            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="editor"),
         ]
     )
     await db_session.commit()
@@ -714,8 +716,8 @@ async def test_get_me_lists_only_accessible_projects_for_non_admin_member(db_ses
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=org_id, role="developer"),
-            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="developer"),
+            Member(user_id=user.id, organization_id=org_id, role="member"),
+            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="editor"),
         ]
     )
     await db_session.commit()
@@ -726,7 +728,7 @@ async def test_get_me_lists_only_accessible_projects_for_non_admin_member(db_ses
             user_id=user.id,
             org_id=org_id,
             project_id=allowed_project.id,
-            role=JoySafeterRole.DEVELOPER,
+            role=JoySafeterRole.MEMBER,
         ),
     )
 
@@ -757,8 +759,8 @@ async def test_list_projects_filters_to_accessible_projects_for_non_admin_member
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=org_id, role="developer"),
-            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="developer"),
+            Member(user_id=user.id, organization_id=org_id, role="member"),
+            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="editor"),
         ]
     )
     await db_session.commit()
@@ -770,7 +772,7 @@ async def test_list_projects_filters_to_accessible_projects_for_non_admin_member
             user_id=user.id,
             org_id=org_id,
             project_id=allowed_project.id,
-            role=JoySafeterRole.DEVELOPER,
+            role=JoySafeterRole.MEMBER,
         ),
     )
 
@@ -800,8 +802,8 @@ async def test_get_project_rejects_inaccessible_project_for_non_admin_member(db_
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=org_id, role="developer"),
-            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="developer"),
+            Member(user_id=user.id, organization_id=org_id, role="member"),
+            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="editor"),
         ]
     )
     await db_session.commit()
@@ -814,7 +816,7 @@ async def test_get_project_rejects_inaccessible_project_for_non_admin_member(db_
                 user_id=user.id,
                 org_id=org_id,
                 project_id=allowed_project.id,
-                role=JoySafeterRole.DEVELOPER,
+                role=JoySafeterRole.MEMBER,
             ),
         )
 
