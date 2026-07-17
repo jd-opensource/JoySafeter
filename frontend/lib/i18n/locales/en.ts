@@ -465,8 +465,7 @@ const en = {
           },
           notFound: {
             title: 'Schedule not found',
-            description:
-              'This schedule may have been deleted, or the link is no longer valid.',
+            description: 'This schedule may have been deleted, or the link is no longer valid.',
           },
           unknown: {
             title: 'Could not load schedule',
@@ -1546,7 +1545,7 @@ const en = {
         joined: 'Joined',
         roleOwner: 'Owner',
         roleAdmin: 'Admin',
-        roleDeveloper: 'Developer',
+        roleMember: 'Member',
         roleViewer: 'Viewer',
         alreadyMember: 'Already a member',
         you: 'you',
@@ -1559,7 +1558,7 @@ const en = {
       projectMembers: {
         title: 'Project Members',
         subtitle: 'Grant organization members access to this project.',
-        adminOnly: 'Only a project admin can manage this project\'s members.',
+        adminOnly: "Only a project admin can manage this project's members.",
         orgRole: 'Org Role',
         access: 'Access',
         accessOrgWide: 'Org admin',

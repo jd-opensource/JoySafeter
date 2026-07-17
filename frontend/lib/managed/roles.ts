@@ -1,31 +1,31 @@
 type Translator = (key: string) => string
 
-export type ManagedRole = 'owner' | 'admin' | 'developer' | 'member' | 'viewer' | string
+// ── Organization role (owner/admin/member) — answers only "am I a super-user?" ──
+// Per-project write/read capability is NOT expressed here; it comes from the
+// backend `project.capability` string via useCurrentProjectReadOnly.
+
+export type ManagedRole = 'owner' | 'admin' | 'member' | string
 
 export function normalizeManagedRole(role?: string | null): ManagedRole {
-  if (!role) return 'viewer'
-  return role.toLowerCase() === 'member' ? 'developer' : role.toLowerCase()
+  const normalized = (role || '').toLowerCase()
+  if (normalized === 'owner' || normalized === 'admin') return normalized
+  // Legacy org roles (developer/viewer) and everything else fold into member.
+  return 'member'
 }
 
 export function roleRank(role?: string | null): number {
   const normalized = normalizeManagedRole(role)
-  if (normalized === 'owner') return 4
-  if (normalized === 'admin') return 3
-  if (normalized === 'developer') return 2
-  if (normalized === 'viewer') return 1
-  return 0
+  if (normalized === 'owner') return 3
+  if (normalized === 'admin') return 2
+  return 1
 }
 
 export function canRead(role?: string | null): boolean {
   return roleRank(role) >= 1
 }
 
-export function canWrite(role?: string | null): boolean {
-  return roleRank(role) >= 2
-}
-
 export function canAdmin(role?: string | null): boolean {
-  return roleRank(role) >= 3
+  return roleRank(role) >= 2
 }
 
 export function canOwn(role?: string | null): boolean {
@@ -36,26 +36,16 @@ export function roleLabel(t: Translator, role?: string | null): string {
   const normalized = normalizeManagedRole(role)
   if (normalized === 'owner') return t('manage.members.roleOwner')
   if (normalized === 'admin') return t('manage.members.roleAdmin')
-  if (normalized === 'developer') return t('manage.members.roleDeveloper')
-  if (normalized === 'viewer') return t('manage.members.roleViewer')
-  return role || '-'
+  return t('manage.members.roleMember')
 }
 
-export function roleOptions(
-  t: Translator,
-  options?: { includeOwner?: boolean; includeMemberAlias?: boolean },
-) {
-  const roles = [
-    ...(options?.includeOwner ? ['owner'] : []),
-    'admin',
-    options?.includeMemberAlias ? 'member' : 'developer',
-    'viewer',
-  ]
-
+export function roleOptions(t: Translator, options?: { includeOwner?: boolean }) {
+  const roles = [...(options?.includeOwner ? ['owner'] : []), 'admin', 'member']
   return roles.map((role) => ({ value: role, label: roleLabel(t, role) }))
 }
 
-// ── Per-project roles (admin/editor/viewer) — distinct from org roles above ──
+// ── Per-project roles (admin/editor/viewer) — the capability vocabulary, ──
+// also reused by API keys and skill collaborators.
 
 export type ProjectRole = 'admin' | 'editor' | 'viewer'
 

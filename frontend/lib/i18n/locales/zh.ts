@@ -127,7 +127,7 @@ const zh = {
         joined: '加入时间',
         roleOwner: '所有者',
         roleAdmin: '管理员',
-        roleDeveloper: '开发者',
+        roleMember: '成员',
         roleViewer: '查看者',
         alreadyMember: '已是成员',
         you: '你',

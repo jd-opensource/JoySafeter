@@ -34,8 +34,7 @@ import {
 } from '@/components/managed/shared'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { roleLabel, roleOptions } from '@/lib/managed/roles'
-import { useUserPermissionsContext } from '@/providers/permissions-provider'
+import { projectRoleLabel, projectRoleOptions } from '@/lib/managed/roles'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   currentProjectAllowsWrite,
@@ -68,7 +67,6 @@ interface CreateKeyVariables {
 export default function ApiKeysPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const { canEdit } = useUserPermissionsContext()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const projectReadOnly = useCurrentProjectReadOnly()
@@ -79,7 +77,7 @@ export default function ApiKeysPage() {
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [keyName, setKeyName] = useState('')
-  const [keyRole, setKeyRole] = useState('developer')
+  const [keyRole, setKeyRole] = useState('viewer')
   const [newRawKey, setNewRawKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null)
@@ -117,7 +115,7 @@ export default function ApiKeysPage() {
     }
     setShowCreate(false)
     setKeyName('')
-    setKeyRole('developer')
+    setKeyRole('viewer')
     setNewRawKey(null)
     setCopied(false)
     setDeleteTarget(null)
@@ -129,7 +127,7 @@ export default function ApiKeysPage() {
     revokeKeyRunRef.current += 1
     setShowCreate(false)
     setKeyName('')
-    setKeyRole('developer')
+    setKeyRole('viewer')
     setNewRawKey(null)
     setCopied(false)
     setDeleteTarget(null)
@@ -170,7 +168,9 @@ export default function ApiKeysPage() {
     {
       key: 'role',
       header: t('manage.apiKeys.role'),
-      render: (key) => <span className="text-muted-foreground">{roleLabel(t, key.role)}</span>,
+      render: (key) => (
+        <span className="text-muted-foreground">{projectRoleLabel(t, key.role)}</span>
+      ),
     },
     {
       key: 'created',
@@ -353,7 +353,7 @@ export default function ApiKeysPage() {
         title={t('manage.apiKeys.title')}
         subtitle={t('manage.apiKeys.subtitle')}
         action={
-          canEdit && !projectReadOnly ? (
+          !projectReadOnly ? (
             <Button size="sm" onClick={openCreateDialog}>
               <Plus className="mr-1 h-4 w-4" />
               {t('manage.apiKeys.create')}
@@ -418,13 +418,11 @@ export default function ApiKeysPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {roleOptions(t)
-                    .filter((option) => option.value !== 'viewer')
-                    .map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
+                  {projectRoleOptions(t).map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -446,7 +444,7 @@ export default function ApiKeysPage() {
         loading={isLoading}
         emptyMessage={t('manage.apiKeys.empty')}
         actionMenu={
-          canEdit && !projectReadOnly
+          !projectReadOnly
             ? (key) => [
                 {
                   label: t('manage.apiKeys.revoke'),
