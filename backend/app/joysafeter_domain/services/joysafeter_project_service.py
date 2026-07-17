@@ -115,14 +115,7 @@ class ProjectService:
     def role_has_org_wide_project_access(role: str | JoySafeterRole) -> bool:
         return JoySafeterRole.normalize(role.value if isinstance(role, JoySafeterRole) else role).can_manage_projects()
 
-    async def grant_project_membership(
-        self,
-        *,
-        project_id: str,
-        user_id: str,
-        role: str = "editor",
-        commit: bool = False,
-    ) -> ProjectMember:
+    async def _load_project_member(self, project_id: str, user_id: str) -> ProjectMember | None:
         result = await self.db.execute(
             select(ProjectMember)
             .where(
@@ -131,9 +124,20 @@ class ProjectService:
             )
             .limit(1)
         )
+        return result.scalar_one_or_none()
+
+    async def grant_project_membership(
+        self,
+        *,
+        project_id: str,
+        user_id: str,
+        role: str = "editor",
+        commit: bool = False,
+    ) -> ProjectMember:
         normalized = ProjectRole.normalize(role) or ProjectRole.VIEWER
         project_role = normalized.value
-        existing = result.scalar_one_or_none()
+
+        existing = await self._load_project_member(project_id, user_id)
         if existing is not None:
             if existing.role != project_role:
                 existing.role = project_role
@@ -146,11 +150,24 @@ class ProjectService:
 
         membership = ProjectMember(project_id=project_id, user_id=user_id, role=project_role)
         self.db.add(membership)
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(membership)
-        else:
+        if not commit:
             await self.db.flush()
+            return membership
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            # A concurrent grant inserted the same (project_id, user_id) first.
+            # This method is an idempotent upsert, so converge on the winning row
+            # and apply the requested role instead of surfacing a 500.
+            await self.db.rollback()
+            winner = await self._load_project_member(project_id, user_id)
+            if winner is None:
+                raise
+            if winner.role != project_role:
+                winner.role = project_role
+            membership = winner
+            await self.db.commit()
+        await self.db.refresh(membership)
         return membership
 
     async def grant_default_project_membership(
