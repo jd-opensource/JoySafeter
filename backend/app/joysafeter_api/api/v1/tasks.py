@@ -525,14 +525,55 @@ async def cancel_task(
     return {"id": str(task_id), "status": "cancelled"}
 
 
-@router.websocket("/{task_id}/stream")
-async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
-    """WebSocket endpoint for real-time task output streaming."""
+async def _authorize_task_stream(
+    db: AsyncSession, *, user_id: str, org_id: str, project_id: str
+) -> tuple[int, str] | None:
+    """Authorize a task-stream subscription's principal against the project.
+
+    Returns a ``(close_code, reason)`` to reject the socket with, or ``None`` when
+    the caller may stream. This mirrors the HTTP read path exactly: the caller
+    must be an active user, an org member, AND able to access the project — org
+    super-users reach every project in the org, everyone else needs an explicit
+    ProjectMember row. Checking only org membership (as an earlier version did)
+    let any org member stream a project they had no grant on.
+    """
     from sqlalchemy import select
 
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
     from app.joysafeter_domain.models.joysafeter_organization import Member
-    from app.joysafeter_domain.models.joysafeter_project import Project
+    from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
+    from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
+
+    user = (await db.execute(select(AuthUser).where(AuthUser.id == user_id))).scalar_one_or_none()
+    if not user or not user.is_active:
+        return (4001, "TASK_STREAM_AUTH_REQUIRED")
+
+    member = (
+        await db.execute(
+            select(Member)
+            .where(Member.user_id == user_id, Member.organization_id == org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        return (4003, "TASK_STREAM_PROJECT_ACCESS_DENIED")
+
+    project = await ProjectService(db).get_accessible_project(
+        project_id=project_id,
+        org_id=org_id,
+        user_id=user_id,
+        org_role=JoySafeterRole.normalize(member.role),
+        allow_archived=True,
+    )
+    if project is None:
+        return (4003, "TASK_STREAM_PROJECT_ACCESS_DENIED")
+
+    return None
+
+
+@router.websocket("/{task_id}/stream")
+async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
+    """WebSocket endpoint for real-time task output streaming."""
     from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
     from app.joysafeter_shared.security import decode_token
 
@@ -550,35 +591,15 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
     from app.joysafeter_shared.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as auth_db:
-        user_result = await auth_db.execute(select(AuthUser).where(AuthUser.id == str(payload.sub)))
-        user = user_result.scalar_one_or_none()
-        if not user or not user.is_active:
-            await websocket.close(code=4001, reason="TASK_STREAM_AUTH_REQUIRED")
-            return
-
-        member_result = await auth_db.execute(
-            select(Member)
-            .where(
-                Member.user_id == str(payload.sub),
-                Member.organization_id == str(payload.org_id),
-            )
-            .limit(1)
+        rejection = await _authorize_task_stream(
+            auth_db,
+            user_id=str(payload.sub),
+            org_id=str(payload.org_id),
+            project_id=str(payload.project_id),
         )
-        if not member_result.scalar_one_or_none():
-            await websocket.close(code=4003, reason="TASK_STREAM_PROJECT_ACCESS_DENIED")
-            return
-
-        project_result = await auth_db.execute(
-            select(Project)
-            .where(
-                Project.id == str(payload.project_id),
-                Project.org_id == str(payload.org_id),
-            )
-            .limit(1)
-        )
-        project = project_result.scalar_one_or_none()
-        if not project:
-            await websocket.close(code=4003, reason="TASK_STREAM_PROJECT_ACCESS_DENIED")
+        if rejection is not None:
+            code, reason = rejection
+            await websocket.close(code=code, reason=reason)
             return
 
         auth_svc = TaskService(auth_db)
