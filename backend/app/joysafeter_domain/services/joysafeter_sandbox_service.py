@@ -376,10 +376,8 @@ class JoySafeterSandboxService:
         return await self.state_machine.claim_pool_for_session(sandbox, session_id)
 
     async def stop_sandbox(self, sandbox_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
-        if project_id is not None:
-            if await self.get_sandbox(sandbox_id, project_id=project_id) is None:
-                return False
-            return await self.update_status_cas(sandbox_id, "idle", "stopping")
+        if project_id is not None and await self.get_sandbox(sandbox_id, project_id=project_id) is None:
+            return False
         return await self.update_status_cas(sandbox_id, "idle", "stopping")
 
     async def update_status(self, sandbox_id: uuid.UUID, status: str) -> None:

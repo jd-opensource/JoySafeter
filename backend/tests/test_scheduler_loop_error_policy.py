@@ -152,6 +152,10 @@ async def test_scheduler_session_sync_cancel_error_releases_claim_without_advanc
     await SchedulerLoop()._tick()
 
     assert calls == [("release", schedule.id)]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_non_retryable_fire_error_advances_slot(monkeypatch):
     schedule = SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc))
     calls: list[tuple[str, object]] = []
 

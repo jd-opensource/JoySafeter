@@ -410,7 +410,10 @@ class MemoryService:
         redacted_by: Optional[dict] = None,
         project_id: Optional[str] = None,
     ) -> bool:
-        store = await self.get_store(store_id, project_id=project_id)
+        # Redaction is a compliance operation and must work on archived stores
+        # too (consistent with get_version below), so it does not use the
+        # mutable-store guard that blocks ordinary writes to archived stores.
+        store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
             return False
         ver = await self.get_version(store_id, version_id, project_id=project_id)

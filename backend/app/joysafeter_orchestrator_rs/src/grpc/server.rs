@@ -43,6 +43,9 @@ const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
 
+// Wire format mirrors the Python producer `_encode_live_input` in
+// app/joysafeter_api/api/v1/sessions.py (same LIVE_INPUT_PREFIX and JSON shapes).
+// Keep the two in sync — a field change on one side must change the other.
 fn encode_db_control_input(
     event_type: &str,
     payload: Option<&serde_json::Value>,
