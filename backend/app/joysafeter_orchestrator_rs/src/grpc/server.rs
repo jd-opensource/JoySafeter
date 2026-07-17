@@ -41,6 +41,58 @@ const MAX_EXECUTIONS: usize = 1000;
 const MAX_MEMORIES_PER_STORE: i64 = 2000;
 const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
+
+fn encode_db_control_input(
+    event_type: &str,
+    payload: Option<&serde_json::Value>,
+    source_event_id: &Uuid,
+) -> Option<String> {
+    let value = match event_type {
+        "user.tool_confirmation" => {
+            let payload = payload?;
+            let call_id = payload
+                .get("call_id")
+                .or_else(|| payload.get("tool_use_id"))
+                .and_then(|v| v.as_str())?;
+            let mut value = json!({
+                "type": "tool_confirmation",
+                "tool_use_call_id": call_id,
+                "approved": payload.get("approved").and_then(|v| v.as_bool()).unwrap_or(false),
+            });
+            if let Some(message) = payload.get("deny_message").and_then(|v| v.as_str()) {
+                value["deny_message"] = json!(message);
+            }
+            value
+        }
+        "user.custom_tool_result" => {
+            let payload = payload?;
+            let call_id = payload
+                .get("call_id")
+                .or_else(|| payload.get("tool_use_id"))
+                .and_then(|v| v.as_str())?;
+            let content = match payload.get("content") {
+                Some(v) if v.is_string() => v.as_str().unwrap_or_default().to_string(),
+                Some(v) => v.to_string(),
+                None => String::new(),
+            };
+            json!({
+                "type": "custom_tool_result",
+                "tool_use_call_id": call_id,
+                "content": content,
+            })
+        }
+        // interrupt carries no payload fields (only the source event id), so it
+        // must still encode when the DB payload column is NULL. Unwrapping payload
+        // at the top previously dropped NULL-payload interrupts on reconnect.
+        "user.interrupt" => json!({
+            "type": "interrupt",
+            "source_event_id": source_event_id.to_string(),
+        }),
+        _ => return None,
+    };
+    Some(format!("{LIVE_INPUT_PREFIX}{value}"))
+}
 
 /// The AgentBridge gRPC service implementation.
 /// Full parity with Python `AgentBridgeServicer` (2753 lines).
@@ -1476,9 +1528,9 @@ async fn handle_reconnect_with_event_loop(
     // #1: Replay pending control inputs from DB (Python L409-428)
     // Query unprocessed events from DB (tool_confirmation, custom_tool_result, interrupt)
     if let Some(sid) = session_id {
-        let pending: Vec<(Uuid, Option<serde_json::Value>)> = sqlx::query_as(
+        let pending: Vec<(Uuid, String, Option<serde_json::Value>)> = sqlx::query_as(
             r#"
-            SELECT id, payload FROM joysafeter_session_events
+            SELECT id, event_type, payload FROM joysafeter_session_events
             WHERE session_id = $1
               AND event_type IN ('user.tool_confirmation', 'user.custom_tool_result', 'user.interrupt')
               AND processed_at IS NULL
@@ -1490,13 +1542,12 @@ async fn handle_reconnect_with_event_loop(
         .await
         .unwrap_or_default();
 
-        for (event_id, payload) in &pending {
-            let content = payload
-                .as_ref()
-                .and_then(|p| p.get("content"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+        for (event_id, event_type, payload) in &pending {
+            let Some(content) = encode_db_control_input(event_type, payload.as_ref(), event_id)
+            else {
+                warn!(task_id = %active_task_id, event_id = %event_id, event_type = %event_type, "Skipped unencodable DB control event on reconnect");
+                continue;
+            };
             let input_msg = OrchestratorMessage {
                 payload: Some(orchestrator_message::Payload::Input(proto::SendInput {
                     content,
@@ -2523,4 +2574,45 @@ pub async fn start_grpc_server(
 
     tokio::time::sleep(Duration::from_millis(100)).await;
     Ok(handle)
+}
+
+#[cfg(test)]
+mod encode_db_control_input_tests {
+    use super::encode_db_control_input;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    #[test]
+    fn interrupt_encodes_even_with_null_payload() {
+        // A NULL payload column must not drop an interrupt on reconnect: the
+        // interrupt branch needs only the source event id.
+        let src = Uuid::nil();
+        let out = encode_db_control_input("user.interrupt", None, &src)
+            .expect("interrupt with NULL payload must still encode");
+        assert!(out.contains("\"type\":\"interrupt\""));
+        assert!(out.contains(&src.to_string()));
+    }
+
+    #[test]
+    fn interrupt_encodes_with_empty_payload() {
+        let src = Uuid::nil();
+        let payload = json!({});
+        assert!(encode_db_control_input("user.interrupt", Some(&payload), &src).is_some());
+    }
+
+    #[test]
+    fn tool_confirmation_requires_payload_and_call_id() {
+        let src = Uuid::nil();
+        assert!(encode_db_control_input("user.tool_confirmation", None, &src).is_none());
+        let payload = json!({"call_id": "call-1", "approved": true});
+        let out = encode_db_control_input("user.tool_confirmation", Some(&payload), &src)
+            .expect("valid tool_confirmation must encode");
+        assert!(out.contains("\"tool_use_call_id\":\"call-1\""));
+    }
+
+    #[test]
+    fn unknown_event_type_is_none() {
+        let src = Uuid::nil();
+        assert!(encode_db_control_input("user.unknown", Some(&json!({})), &src).is_none());
+    }
 }

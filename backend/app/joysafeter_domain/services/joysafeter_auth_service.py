@@ -281,7 +281,7 @@ class AuthService(BaseService):
             from sqlalchemy import select
 
             from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
-            from app.joysafeter_domain.models.joysafeter_project import Project
+            from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 
             result = await self.db.execute(select(Member).where(Member.user_id == user_id).limit(1))
             membership = result.scalar_one_or_none()
@@ -306,6 +306,19 @@ class AuthService(BaseService):
                     is_default=True,
                 )
                 self.db.add(default_project)
+                await self.db.flush()
+                # Grant the owner an explicit ProjectMember row on their default
+                # project, matching every other bootstrap path. The owner is
+                # org-wide so this is not required for access today, but keeping
+                # the grant consistent avoids a lockout if the role is ever
+                # narrowed below admin.
+                self.db.add(
+                    ProjectMember(
+                        project_id=default_project.id,
+                        user_id=user_id,
+                        role="owner",
+                    )
+                )
                 await self.db.flush()
 
             org_id = membership.organization_id

@@ -26,6 +26,7 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTaskStatus,
 )
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
+from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError, ResourceConflictError
 from app.joysafeter_shared.utils.cron import compute_next_run
 
 _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYSAFETER_TERMINAL_STATUSES]
@@ -34,6 +35,55 @@ _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYS
 class JoySafeterScheduleService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def resolve_runnable_target(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        project_id: Optional[str],
+        environment_ref: Optional[str] = None,
+    ) -> tuple[JoySafeterAgent, Optional[str]]:
+        conditions = [JoySafeterAgent.id == agent_id, JoySafeterAgent.deleted_at.is_(None)]
+        if project_id is not None:
+            conditions.append(JoySafeterAgent.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterAgent).where(*conditions))
+        agent = result.scalar_one_or_none()
+        if agent is None:
+            raise NotFoundError(
+                code="SCHEDULE_AGENT_NOT_FOUND",
+                message="Agent not found",
+                data={"agent_id": str(agent_id)},
+                user_action="refresh",
+            )
+        if agent.archived_at is not None:
+            raise ResourceConflictError(
+                code="AGENT_ARCHIVED",
+                message="Agent is archived and cannot create new scheduled runs.",
+                data={"agent_id": str(agent_id)},
+                user_action="refresh",
+            )
+
+        effective_environment_ref = environment_ref or agent.environment_ref
+        if effective_environment_ref:
+            env = await EnvironmentService(self.db).get_environment_by_ref(
+                effective_environment_ref,
+                project_id=project_id,
+            )
+            if env is None:
+                raise RequestValidationAppError(
+                    code="SCHEDULE_ENVIRONMENT_NOT_FOUND",
+                    message=f"Environment not found: {effective_environment_ref}",
+                    data={"environment_ref": effective_environment_ref},
+                    user_action="fix_input",
+                )
+            if env.archived_at is not None:
+                raise ResourceConflictError(
+                    code="ENVIRONMENT_ARCHIVED",
+                    message=f"Environment is archived: {effective_environment_ref}",
+                    data={"environment_ref": effective_environment_ref, "environment_id": str(env.id)},
+                    user_action="refresh",
+                )
+        return agent, effective_environment_ref
 
     # --- CRUD ---
 
@@ -56,6 +106,11 @@ class JoySafeterScheduleService:
         user_id: Optional[str] = None,
         org_id: Optional[str] = None,
     ) -> JoySafeterSchedule:
+        await self.resolve_runnable_target(
+            agent_id=agent_id,
+            project_id=project_id,
+            environment_ref=environment_ref,
+        )
         schedule = JoySafeterSchedule(
             name=name,
             agent_id=agent_id,
@@ -124,6 +179,18 @@ class JoySafeterScheduleService:
         schedule = await self.get(schedule_id, project_id=project_id)
         if schedule is None:
             return None
+        next_environment_ref = fields["environment_ref"] if "environment_ref" in fields else schedule.environment_ref
+        should_validate_target = (
+            "environment_ref" in fields
+            or fields.get("enabled") is True
+            or (schedule.enabled and any(k in fields for k in ("cron_expr", "timezone")))
+        )
+        if should_validate_target:
+            await self.resolve_runnable_target(
+                agent_id=schedule.agent_id,
+                project_id=schedule.project_id,
+                environment_ref=next_environment_ref,
+            )
         for key, value in fields.items():
             setattr(schedule, key, value)
         # Recompute the next fire if cadence or enabled state changed.
@@ -299,8 +366,40 @@ class JoySafeterScheduleService:
 
     # --- Concurrency-policy support ---
 
-    async def get_active_tasks(self, schedule_id: uuid.UUID) -> Sequence[JoySafeterTask]:
-        """Non-terminal tasks previously fired by this schedule."""
+    async def list_runs(
+        self,
+        schedule_id: uuid.UUID,
+        *,
+        project_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Optional[Sequence[JoySafeterTask]]:
+        """Return execution history for a schedule after proving parent scope."""
+        if project_id is not None and not await self.get(schedule_id, project_id=project_id):
+            return None
+        result = await self.db.execute(
+            select(JoySafeterTask)
+            .where(JoySafeterTask.schedule_id == schedule_id)
+            .order_by(JoySafeterTask.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return result.scalars().all()
+
+    async def get_active_tasks(
+        self, schedule_id: uuid.UUID, project_id: Optional[str] = None
+    ) -> Sequence[JoySafeterTask]:
+        """Non-terminal tasks previously fired by this schedule.
+
+        Concurrency-policy enforcement (FORBID/REPLACE in the scheduler loop)
+        MUST call this with ``project_id=None`` so it sees every active run for
+        the schedule. Passing a ``project_id`` scopes the lookup for API listing
+        and returns an empty list on a scope miss — if a concurrency-policy
+        caller ever passed a mismatched ``project_id`` it would silently see no
+        active tasks and start a duplicate run instead of replacing/forbidding.
+        """
+        if project_id is not None and not await self.get(schedule_id, project_id=project_id):
+            return []
         result = await self.db.execute(
             select(JoySafeterTask).where(
                 JoySafeterTask.schedule_id == schedule_id,
