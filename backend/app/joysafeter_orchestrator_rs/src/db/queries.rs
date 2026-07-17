@@ -1049,10 +1049,19 @@ pub async fn task_has_agent_output(
     Ok(row.0)
 }
 
-/// Touch sandbox last_used_at timestamp.
+/// Touch sandbox last_used_at (and reset the idle clock).
+///
+/// This is the "sandbox was just (re)used" signal. It also refreshes
+/// `idle_since` so the idle reaper's clean-idle criterion (which reaps rows
+/// still in `idle` whose `idle_since` is older than the timeout) does not tear
+/// down a sandbox that a resolver just handed to a task. A reused idle sandbox
+/// keeps its `idle` status (task attach never transitions the sandbox), so
+/// without this refresh a stale `idle_since` let the reaper stop a sandbox
+/// mid-reuse. Only the clean-idle criterion reads `idle_since`; the
+/// bridge-disconnect and hard-timeout criteria are unaffected.
 pub async fn touch_sandbox(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE joysafeter_sandboxes SET last_used_at = NOW(), updated_at = NOW() WHERE id = $1",
+        "UPDATE joysafeter_sandboxes SET last_used_at = NOW(), idle_since = NOW(), updated_at = NOW() WHERE id = $1",
     )
     .bind(sandbox_id)
     .execute(pool)

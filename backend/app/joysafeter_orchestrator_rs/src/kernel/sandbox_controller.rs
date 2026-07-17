@@ -454,14 +454,21 @@ impl SandboxController {
         Ok(())
     }
 
-    /// Phase 3: Destroy stopped sandboxes past TTL.
+    /// Phase 3: Destroy stopped/errored sandboxes past TTL.
+    ///
+    /// `error` is a terminal-ish state set on failure ejection
+    /// (grpc/server.rs execute_sandbox_cleanup) WITHOUT a disconnected_at
+    /// marker, so the idle sweep does not reliably reach it. Include it here so
+    /// an errored sandbox's container / DB row / Envoy listeners are reclaimed
+    /// (error -> destroyed is a valid transition) rather than leaking until the
+    /// absolute hard timeout (or forever, when that timeout is disabled).
     async fn sweep_stopped_sandboxes(&self) -> anyhow::Result<()> {
         let ttl_secs = self.runtime_config.stopped_max_age_sec() as i64;
 
         let stopped: Vec<(Uuid, Option<String>)> = sqlx::query_as(
             r#"
             SELECT id, external_id FROM joysafeter_sandboxes
-            WHERE status = 'stopped'
+            WHERE status IN ('stopped', 'error')
               AND destroyed_at IS NULL
               AND last_used_at < NOW() - make_interval(secs => $1)
             LIMIT 10
