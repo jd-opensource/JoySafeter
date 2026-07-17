@@ -268,6 +268,34 @@ async def _auth_via_api_key(
     if api_key.expires_at is not None and api_key.expires_at < now:
         return None
 
+    # The key delegates its creator's authority, so it is only valid while the
+    # creator still has access to the key's project. Verify that on every request
+    # (the read path never re-verifies context otherwise), WITHOUT rebuilding the
+    # context from the creator — the key stays capped at its own stored role. A
+    # removed or project-revoked creator makes the key stop authenticating.
+    creator_member = (
+        await db.execute(
+            select(Member)
+            .where(Member.user_id == api_key.created_by, Member.organization_id == api_key.org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    creator_has_access = creator_member is not None and (
+        await ProjectService(db).get_accessible_project(
+            project_id=api_key.project_id,
+            org_id=api_key.org_id,
+            user_id=api_key.created_by,
+            org_role=JoySafeterRole.normalize(creator_member.role),
+            allow_archived=True,
+        )
+        is not None
+    )
+    if not creator_has_access:
+        raise AccessDeniedError(
+            "API key creator no longer has access to the project",
+            code="AUTH_API_KEY_ACCESS_REVOKED",
+        )
+
     # Best-effort update last_used_at (non-blocking; failures are swallowed)
     try:
         api_key.last_used_at = now

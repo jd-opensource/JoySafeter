@@ -83,6 +83,11 @@ CATALOG: dict[str, CatalogEntry] = {
     "API_KEY_NOT_FOUND": CatalogEntry(
         code="API_KEY_NOT_FOUND", error_class=NotFoundError, default_message="API key not found"
     ),
+    "AUTH_API_KEY_ACCESS_REVOKED": CatalogEntry(
+        code="AUTH_API_KEY_ACCESS_REVOKED",
+        error_class=AccessDeniedError,
+        default_message="API key creator no longer has access to the project",
+    ),
     "AUTH_INVALID_ASSIGNABLE_ROLE": CatalogEntry(
         code="AUTH_INVALID_ASSIGNABLE_ROLE",
         error_class=InvalidRequestError,
