@@ -157,6 +157,29 @@ def _project_context_payload(project: Project) -> dict[str, object]:
     }
 
 
+def _active_project_payload(
+    project: Project | None, *, project_id: str, org_id: str, org_role: JoySafeterRole, project_role: str | None
+) -> dict[str, object]:
+    """Project-context payload enriched with the caller's effective capability.
+
+    The frontend gates per-project write/admin UI on `capability`.
+    """
+    if project is not None:
+        payload = _project_context_payload(project)
+    else:
+        payload = {
+            "id": project_id,
+            "org_id": org_id,
+            "name": "",
+            "slug": "",
+            "is_default": True,
+            "archived_at": None,
+        }
+    payload["project_role"] = project_role
+    payload["capability"] = effective_project_capability(org_role, project_role).name.lower()
+    return payload
+
+
 def _api_key_to_response(key) -> ApiKeyResponse:
     return ApiKeyResponse(
         id=str(key.id),
@@ -771,16 +794,13 @@ async def get_me(
             "slug": org.slug if org else "",
             "role": auth_ctx.role.value,
         },
-        "project": _project_context_payload(proj)
-        if proj
-        else {
-            "id": auth_ctx.project_id,
-            "org_id": auth_ctx.org_id,
-            "name": "",
-            "slug": "",
-            "is_default": True,
-            "archived_at": None,
-        },
+        "project": _active_project_payload(
+            proj,
+            project_id=auth_ctx.project_id,
+            org_id=auth_ctx.org_id,
+            org_role=auth_ctx.role,
+            project_role=auth_ctx.project_role,
+        ),
         "organizations": organizations,
         "projects": projects,
     }
@@ -872,20 +892,18 @@ async def switch_context(
         role=JoySafeterRole.normalize(member.role).value,
     )
 
+    target_project_role = await project_svc.get_project_member_role(target_project_id, auth_ctx.user_id)
     return {
         "org_id": target_org_id,
         "project_id": target_project_id,
         "access_token": new_access_token,
-        "project": _project_context_payload(resolved_project)
-        if resolved_project
-        else {
-            "id": target_project_id,
-            "org_id": target_org_id,
-            "name": "",
-            "slug": "",
-            "is_default": False,
-            "archived_at": None,
-        },
+        "project": _active_project_payload(
+            resolved_project,
+            project_id=target_project_id,
+            org_id=target_org_id,
+            org_role=JoySafeterRole.normalize(member.role),
+            project_role=target_project_role,
+        ),
         "projects": [_project_context_payload(p) for p in all_projects],
     }
 
