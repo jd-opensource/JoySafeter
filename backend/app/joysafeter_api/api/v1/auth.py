@@ -235,13 +235,26 @@ def _normalize_assignable_role(role: str) -> JoySafeterRole:
     return JoySafeterRole(normalized)
 
 
-def _ensure_can_assign_role(actor_role: JoySafeterRole, target_role: JoySafeterRole) -> None:
-    if not actor_role.can_grant(target_role):
+def _ensure_key_capability_within_creator(
+    creator_role: JoySafeterRole,
+    creator_project_role: str | None,
+    requested_role: JoySafeterRole,
+) -> None:
+    """Cap a new API key's project capability at the creator's own.
+
+    A project-scoped key authenticates as a non-super-user whose ``project_role``
+    is its stored role (see ``_auth_via_api_key``), so its capability is computed
+    the same way here. Comparing against the creator's org-role rank would be the
+    wrong axis now that org role and project capability are decoupled.
+    """
+    creator_cap = effective_project_capability(creator_role, creator_project_role)
+    key_cap = effective_project_capability(JoySafeterRole.VIEWER, requested_role.value)
+    if key_cap > creator_cap:
         raise _auth_permission_error(
-            code="AUTH_ROLE_GRANT_FORBIDDEN",
-            message="Cannot grant a role higher than your own",
-            actor_role=actor_role.value,
-            target_role=target_role.value,
+            code="AUTH_API_KEY_CAPABILITY_EXCEEDED",
+            message="Cannot create an API key with higher capability than your own in this project",
+            actor_role=creator_role.value,
+            target_role=requested_role.value,
         )
 
 
@@ -962,7 +975,7 @@ async def create_api_key(
 ) -> ApiKeyCreateResponse:
     """Create a new API key. Returns the raw key once."""
     role = _normalize_assignable_role(req.role)
-    _ensure_can_assign_role(auth_ctx.role, role)
+    _ensure_key_capability_within_creator(auth_ctx.role, auth_ctx.project_role, role)
     svc = ApiKeyService(db)
     api_key, raw_key = await svc.create_api_key(
         project_id=auth_ctx.project_id,
