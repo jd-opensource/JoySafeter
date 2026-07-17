@@ -469,20 +469,37 @@ def _require_user_principal(ctx: JoySafeterAuthContext) -> JoySafeterAuthContext
 
 
 async def _require_write_context(db: AsyncSession, ctx: JoySafeterAuthContext) -> JoySafeterAuthContext:
-    ctx = await _verify_joysafeter_context(
+    verified = await _verify_joysafeter_context(
         db,
         user_id=ctx.user_id,
         org_id=ctx.org_id,
         project_id=ctx.project_id,
         allow_archived_project=False,
     )
-    if effective_project_capability(ctx.role, ctx.project_role) < ProjectCapability.WRITE:
+    creator_capability = effective_project_capability(verified.role, verified.project_role)
+
+    if ctx.principal_type == "api_key":
+        # A service key must never exceed the capability it was minted with, even
+        # if its creator is (or has since become) an org super-user. The re-verify
+        # above still runs so a removed/downgraded creator revokes the key's write
+        # access, but the effective capability is capped at min(key, creator) and
+        # the returned context keeps the key's own (non-super-user) identity so
+        # downstream quota accounting still treats it as a service principal.
+        key_capability = effective_project_capability(JoySafeterRole.VIEWER, ctx.project_role)
+        if min(creator_capability, key_capability) < ProjectCapability.WRITE:
+            raise AccessDeniedError(
+                "Write access required",
+                code="JOYSAFETER_WRITE_REQUIRED",
+            )
+        return ctx
+
+    if creator_capability < ProjectCapability.WRITE:
         raise AccessDeniedError(
             "Write access required",
             code="JOYSAFETER_WRITE_REQUIRED",
         )
 
-    return ctx
+    return verified
 
 
 async def _require_admin_context(db: AsyncSession, ctx: JoySafeterAuthContext) -> JoySafeterAuthContext:
