@@ -53,10 +53,8 @@ async def get_sandbox(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SandboxResponse:
     svc = SandboxService(db)
-    sandbox = await svc.get_sandbox(sandbox_id)
+    sandbox = await svc.get_sandbox(sandbox_id, project_id=auth_ctx.project_id)
     if not sandbox:
-        raise _sandbox_not_found_error(sandbox_id)
-    if sandbox.project_id != auth_ctx.project_id:
         raise _sandbox_not_found_error(sandbox_id)
     return SandboxResponse.model_validate(sandbox)
 
@@ -68,9 +66,6 @@ async def stop_sandbox(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
     svc = SandboxService(db)
-    sandbox = await svc.get_sandbox(sandbox_id)
-    if not sandbox:
+    stopped = await svc.stop_sandbox(sandbox_id, project_id=auth_ctx.project_id)
+    if not stopped:
         raise _sandbox_not_found_error(sandbox_id)
-    if sandbox.project_id != auth_ctx.project_id:
-        raise _sandbox_not_found_error(sandbox_id)
-    await svc.stop_sandbox(sandbox_id)

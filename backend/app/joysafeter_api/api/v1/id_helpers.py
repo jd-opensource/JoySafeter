@@ -49,6 +49,22 @@ def parse_secret_id(secret_id: str = Path(...)) -> uuid.UUID:
     return _strip_prefix(secret_id, "secret_", "secret_id")
 
 
+def parse_schedule_id(schedule_id: str = Path(...)) -> uuid.UUID:
+    return _strip_prefix(schedule_id, "sched_", "schedule_id")
+
+
+def parse_memory_store_id(store_id: str = Path(...)) -> uuid.UUID:
+    return _strip_prefix(store_id, "memstore_", "store_id")
+
+
+def parse_memory_id(memory_id: str = Path(...)) -> uuid.UUID:
+    return _strip_prefix(memory_id, "mem_", "memory_id")
+
+
+def parse_memory_version_id(version_id: str = Path(...)) -> uuid.UUID:
+    return _strip_prefix(version_id, "memver_", "version_id")
+
+
 def parse_sandbox_id(sandbox_id: str = Path(...)) -> uuid.UUID:
     return _strip_prefix(sandbox_id, "sbx_", "sandbox_id")
 

@@ -65,10 +65,8 @@ def _vault_credential_archived_error(vault_id: uuid.UUID, cred_id: uuid.UUID) ->
 
 
 async def _get_vault_or_404(svc: VaultService, vault_id: uuid.UUID, project_id: str):
-    vault = await svc.get_vault(vault_id)
+    vault = await svc.get_vault(vault_id, project_id=project_id)
     if not vault:
-        raise _vault_not_found_error(vault_id)
-    if vault.project_id != project_id:
         raise _vault_not_found_error(vault_id)
     return vault
 
@@ -164,7 +162,12 @@ async def update_vault(
 ) -> VaultResponse:
     svc = VaultService(db)
     await _get_mutable_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    vault = await svc.update_vault(vault_id, description=req.description, metadata=req.metadata)
+    vault = await svc.update_vault(
+        vault_id,
+        description=req.description,
+        metadata=req.metadata,
+        project_id=auth_ctx.project_id,
+    )
     if not vault:
         raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(
@@ -188,7 +191,7 @@ async def delete_vault(
 ) -> dict:
     svc = VaultService(db)
     await _get_mutable_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    ok = await svc.delete_vault(vault_id)
+    ok = await svc.delete_vault(vault_id, project_id=auth_ctx.project_id)
     if not ok:
         raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(
@@ -211,7 +214,7 @@ async def archive_vault(
 ) -> dict:
     svc = VaultService(db)
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    ok = await svc.archive_vault(vault_id)
+    ok = await svc.archive_vault(vault_id, project_id=auth_ctx.project_id)
     if not ok:
         raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(
@@ -244,8 +247,11 @@ async def create_credential(
         credential_type=req.credential_type,
         mcp_server_url=req.mcp_server_url,
         token_value=req.token_value,
-        oauth_config=req.oauth_config.model_dump() if req.oauth_config else None,
+        oauth_config=req.oauth_config.model_dump(mode="json") if req.oauth_config else None,
+        project_id=auth_ctx.project_id,
     )
+    if not cred:
+        raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(
         db,
         request,
@@ -269,7 +275,13 @@ async def list_credentials(
 ):
     svc = VaultService(db)
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    creds, has_more = await svc.list_credentials(vault_id, limit, after_id, include_archived=include_archived)
+    creds, has_more = await svc.list_credentials(
+        vault_id,
+        limit,
+        after_id,
+        include_archived=include_archived,
+        project_id=auth_ctx.project_id,
+    )
     items = [VaultCredentialResponse.model_validate(c) for c in creds]
     return {
         "data": [item.model_dump(mode="json") for item in items],
@@ -288,8 +300,8 @@ async def get_credential(
 ) -> VaultCredentialResponse:
     svc = VaultService(db)
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    cred = await svc.get_credential(cred_id)
-    if not cred or cred.vault_id != vault_id:
+    cred = await svc.get_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)
+    if not cred:
         raise _vault_credential_not_found_error(vault_id, cred_id)
     return VaultCredentialResponse.model_validate(cred)
 
@@ -305,15 +317,17 @@ async def update_credential(
 ) -> VaultCredentialResponse:
     svc = VaultService(db)
     await _get_mutable_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    cred = await svc.get_credential(cred_id)
-    if not cred or cred.vault_id != vault_id:
+    cred = await svc.get_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)
+    if not cred:
         raise _vault_credential_not_found_error(vault_id, cred_id)
     _ensure_credential_mutable(vault_id, cred)
     updated = await svc.update_credential(
         cred_id,
         name=req.name,
         token_value=req.token_value,
-        oauth_config=req.oauth_config.model_dump() if req.oauth_config else None,
+        oauth_config=req.oauth_config.model_dump(mode="json") if req.oauth_config else None,
+        vault_id=vault_id,
+        project_id=auth_ctx.project_id,
     )
     if not updated:
         raise _vault_credential_not_found_error(vault_id, cred_id)
@@ -339,11 +353,11 @@ async def archive_credential(
 ) -> dict:
     svc = VaultService(db)
     await _get_mutable_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    cred = await svc.get_credential(cred_id)
-    if not cred or cred.vault_id != vault_id:
+    cred = await svc.get_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)
+    if not cred:
         raise _vault_credential_not_found_error(vault_id, cred_id)
     _ensure_credential_mutable(vault_id, cred)
-    ok = await svc.archive_credential(cred_id)
+    ok = await svc.archive_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)
     if not ok:
         raise _vault_credential_not_found_error(vault_id, cred_id)
     await audit_joysafeter_event(
@@ -368,11 +382,11 @@ async def delete_credential(
 ) -> dict:
     svc = VaultService(db)
     await _get_mutable_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    cred = await svc.get_credential(cred_id)
-    if not cred or cred.vault_id != vault_id:
+    cred = await svc.get_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)
+    if not cred:
         raise _vault_credential_not_found_error(vault_id, cred_id)
     _ensure_credential_mutable(vault_id, cred)
-    ok = await svc.delete_credential(cred_id)
+    ok = await svc.delete_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)
     if not ok:
         raise _vault_credential_not_found_error(vault_id, cred_id)
     await audit_joysafeter_event(

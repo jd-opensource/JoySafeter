@@ -13,17 +13,16 @@ Covers two surfaces under a single `/api/v1/auth` prefix:
     in via the identity flow above.
 """
 
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Literal, Optional, cast
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import delete as sa_delete
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
@@ -31,23 +30,22 @@ from app.joysafeter_api.services import ApiKeyService, AuthService, AuthSessionS
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
+from app.joysafeter_domain.services.joysafeter_organization_service import OrganizationService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     AppError,
     AuthenticationError,
     InvalidRequestError,
     NotFoundError,
-    ResourceConflictError,
-    ServiceUnavailableError,
 )
-from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     JoySafeterRole,
-    get_joysafeter_auth_context,
-    require_joysafeter_admin,
-    require_joysafeter_write,
+    require_joysafeter_user_admin,
+    require_joysafeter_user_context,
+    require_joysafeter_user_write,
 )
 from app.joysafeter_shared.common.response import success_response
 from app.joysafeter_shared.config.settings import settings
@@ -217,26 +215,6 @@ def _ensure_can_assign_role(actor_role: JoySafeterRole, target_role: JoySafeterR
             message="Cannot grant a role higher than your own",
             actor_role=actor_role.value,
             target_role=target_role.value,
-        )
-
-
-def _ensure_can_modify_member(actor_role: JoySafeterRole, current_role: str, new_role: JoySafeterRole) -> None:
-    current = JoySafeterRole.normalize(current_role)
-    if current == JoySafeterRole.OWNER:
-        raise _auth_permission_error(
-            code="AUTH_OWNER_ROLE_CHANGE_FORBIDDEN",
-            message="Cannot change the owner's role",
-            actor_role=actor_role.value,
-            current_role=current.value,
-            target_role=new_role.value,
-        )
-    if not actor_role.can_grant(current) or not actor_role.can_grant(new_role):
-        raise _auth_permission_error(
-            code="AUTH_ROLE_MODIFY_FORBIDDEN",
-            message="Cannot modify or grant a role higher than your own",
-            actor_role=actor_role.value,
-            current_role=current.value,
-            target_role=new_role.value,
         )
 
 
@@ -731,7 +709,7 @@ async def refresh_token(
 @router.get("/me")
 async def get_me(
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ):
     """Return current user + org + project info in the format expected by the frontend."""
     # Look up user
@@ -742,9 +720,14 @@ async def get_me(
     org_result = await db.execute(select(Organization).where(Organization.id == auth_ctx.org_id).limit(1))
     org = org_result.scalar_one_or_none()
 
-    # Look up current project
-    proj_result = await db.execute(select(Project).where(Project.id == auth_ctx.project_id).limit(1))
-    proj = proj_result.scalar_one_or_none()
+    project_svc = ProjectService(db)
+    proj = await project_svc.get_accessible_project(
+        project_id=auth_ctx.project_id,
+        org_id=auth_ctx.org_id,
+        user_id=auth_ctx.user_id,
+        org_role=auth_ctx.role,
+        allow_archived=True,
+    )
 
     # List all orgs user belongs to
     all_members_result = await db.execute(
@@ -764,11 +747,12 @@ async def get_me(
         for m, o in all_memberships
     ]
 
-    # List all projects in current org
-    all_projects_result = await db.execute(
-        select(Project).where(Project.org_id == auth_ctx.org_id, Project.archived_at.is_(None))
+    # List projects accessible in current org
+    all_projects = await project_svc.list_accessible_projects(
+        org_id=auth_ctx.org_id,
+        user_id=auth_ctx.user_id,
+        org_role=auth_ctx.role,
     )
-    all_projects = all_projects_result.scalars().all()
     projects = [_project_context_payload(p) for p in all_projects]
 
     return {
@@ -802,7 +786,7 @@ async def get_me(
 async def switch_context(
     req: SwitchContextRequest,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ):
     """Switch the user's active org/project context. Validates membership."""
     target_org_id = req.org_id or auth_ctx.org_id
@@ -824,30 +808,19 @@ async def switch_context(
             organization_id=target_org_id,
         )
 
+    project_svc = ProjectService(db)
+
     # Resolve project
     target_project_id = req.project_id
     if not target_project_id:
-        default_proj_result = await db.execute(
-            select(Project)
-            .where(
-                Project.org_id == target_org_id,
-                Project.is_default.is_(True),
-                Project.archived_at.is_(None),
-            )
-            .limit(1)
+        accessible_projects = await project_svc.list_accessible_projects(
+            org_id=target_org_id,
+            user_id=auth_ctx.user_id,
+            org_role=JoySafeterRole.normalize(member.role),
         )
-        default_proj = default_proj_result.scalar_one_or_none()
-        if not default_proj:
-            fallback_project_result = await db.execute(
-                select(Project)
-                .where(
-                    Project.org_id == target_org_id,
-                    Project.archived_at.is_(None),
-                )
-                .order_by(Project.created_at)
-                .limit(1)
-            )
-            default_proj = fallback_project_result.scalar_one_or_none()
+        default_proj = next((project for project in accessible_projects if project.is_default), None)
+        if default_proj is None and accessible_projects:
+            default_proj = accessible_projects[0]
         if not default_proj:
             raise NotFoundError(
                 code="DEFAULT_PROJECT_NOT_FOUND",
@@ -857,15 +830,13 @@ async def switch_context(
             )
         target_project_id = default_proj.id
     else:
-        proj_result = await db.execute(
-            select(Project)
-            .where(
-                Project.id == target_project_id,
-                Project.org_id == target_org_id,
-            )
-            .limit(1)
+        proj = await project_svc.get_accessible_project(
+            project_id=target_project_id,
+            org_id=target_org_id,
+            user_id=auth_ctx.user_id,
+            org_role=JoySafeterRole.normalize(member.role),
+            allow_archived=True,
         )
-        proj = proj_result.scalar_one_or_none()
         if not proj:
             raise _project_not_found_error(
                 target_project_id,
@@ -873,15 +844,19 @@ async def switch_context(
                 message="Project not found in the target organization",
             )
 
-    # Fetch resolved project details
-    proj_result = await db.execute(select(Project).where(Project.id == target_project_id).limit(1))
-    resolved_project = proj_result.scalar_one_or_none()
-
-    # List all projects in target org
-    all_projects_result = await db.execute(
-        select(Project).where(Project.org_id == target_org_id, Project.archived_at.is_(None))
+    # Fetch resolved project details and accessible project list
+    resolved_project = await project_svc.get_accessible_project(
+        project_id=target_project_id,
+        org_id=target_org_id,
+        user_id=auth_ctx.user_id,
+        org_role=JoySafeterRole.normalize(member.role),
+        allow_archived=True,
     )
-    all_projects = all_projects_result.scalars().all()
+    all_projects = await project_svc.list_accessible_projects(
+        org_id=target_org_id,
+        user_id=auth_ctx.user_id,
+        org_role=JoySafeterRole.normalize(member.role),
+    )
 
     # Issue new JWT with updated org/project context
     from app.joysafeter_shared.security import create_access_token
@@ -915,11 +890,16 @@ async def switch_context(
 async def list_projects(
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> list[ProjectResponse]:
     """List projects for the current org."""
     svc = ProjectService(db)
-    projects = await svc.list_projects(auth_ctx.org_id, include_archived=include_archived)
+    projects = await svc.list_accessible_projects(
+        org_id=auth_ctx.org_id,
+        user_id=auth_ctx.user_id,
+        org_role=auth_ctx.role,
+        include_archived=include_archived,
+    )
     return [_project_to_response(p) for p in projects]
 
 
@@ -927,7 +907,7 @@ async def list_projects(
 async def create_project(
     req: CreateProjectRequest,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
     """Create a new project (requires admin role)."""
     svc = ProjectService(db)
@@ -935,6 +915,7 @@ async def create_project(
         org_id=auth_ctx.org_id,
         name=req.name,
         slug=req.slug,
+        created_by_user_id=auth_ctx.user_id,
     )
     return _project_to_response(project)
 
@@ -942,7 +923,7 @@ async def create_project(
 @router.get("/api-keys")
 async def list_api_keys(
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> list[ApiKeyResponse]:
     """List API keys for the current project."""
     svc = ApiKeyService(db)
@@ -955,7 +936,7 @@ async def create_api_key(
     req: CreateApiKeyRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_write),
 ) -> ApiKeyCreateResponse:
     """Create a new API key. Returns the raw key once."""
     role = _normalize_assignable_role(req.role)
@@ -992,7 +973,7 @@ async def revoke_api_key(
     key_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_write),
 ) -> None:
     """Revoke an API key."""
     svc = ApiKeyService(db)
@@ -1023,10 +1004,15 @@ async def revoke_api_key(
 async def get_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> ProjectResponse:
-    result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
-    project = result.scalar_one_or_none()
+    project = await ProjectService(db).get_accessible_project(
+        project_id=project_id,
+        org_id=auth_ctx.org_id,
+        user_id=auth_ctx.user_id,
+        org_role=auth_ctx.role,
+        allow_archived=True,
+    )
     if not project:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     return _project_to_response(project)
@@ -1042,162 +1028,30 @@ async def update_project(
     project_id: str,
     req: UpdateProjectRequest,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
-    result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
-    project = result.scalar_one_or_none()
-    if not project:
+    try:
+        project = await ProjectService(db).update_project(
+            project_id,
+            auth_ctx.org_id,
+            name=req.name,
+            slug=req.slug,
+        )
+    except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
-    if project.archived_at is not None:
-        raise ResourceConflictError(
-            code="PROJECT_ARCHIVED",
-            message="Cannot update an archived project",
-            data={"project_id": project_id, "organization_id": auth_ctx.org_id},
-            user_action="refresh",
-        )
-    if req.name is not None:
-        project.name = req.name
-    if req.slug is not None:
-        project.slug = req.slug
-    await db.commit()
-    await db.refresh(project)
     return _project_to_response(project)
-
-
-async def _cleanup_project_sessions_for_archive(project_id: str, db: AsyncSession) -> None:
-    from app.joysafeter_api.runtime_commands import relay_sandbox_destroy_via_redis
-    from app.joysafeter_api.services import SandboxService
-    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
-
-    result = await db.execute(
-        select(JoySafeterSession.id).where(
-            JoySafeterSession.project_id == project_id,
-            JoySafeterSession.archived_at.is_(None),
-        )
-    )
-    session_ids = list(result.scalars().all())
-    if not session_ids:
-        return
-
-    sandbox_svc = SandboxService(db)
-
-    for session_id in session_ids:
-        sandbox = await sandbox_svc.find_by_session(session_id)
-        if not sandbox or sandbox.status == "destroyed":
-            continue
-
-        destroy_relayed = await relay_sandbox_destroy_via_redis(
-            sandbox.id,
-            reason="project archived",
-            boundary="project_api",
-            operation="archive_project_destroy_sandbox",
-            failure_code="PROJECT_ARCHIVE_REDIS_DESTROY_FAILED",
-            failure_message="Redis sandbox destroy relay command failed",
-            external_id=str(sandbox.external_id or "") or None,
-            data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-        )
-        if not destroy_relayed:
-            raise ServiceUnavailableError(
-                code="PROJECT_ARCHIVE_REDIS_DESTROY_FAILED",
-                message="Failed to destroy project session sandbox runtime.",
-                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                source="runtime",
-                retryable=True,
-                user_action="retry",
-            )
-
-        try:
-            destroyed = await sandbox_svc.mark_destroyed_cas(sandbox.id, sandbox.status)
-            if not destroyed:
-                await sandbox_svc.mark_destroyed(sandbox.id)
-                destroyed = True
-        except Exception as exc:
-            log_boundary_failure_loguru(
-                logger,
-                boundary="project_api",
-                code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
-                message="Failed to mark sandbox destroyed during project archive",
-                operation="archive_project_mark_sandbox_destroyed",
-                error=exc,
-                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                source="api",
-            )
-            raise ServiceUnavailableError(
-                code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
-                message="Project could not be archived because sandbox state sync failed.",
-                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                source="api",
-                retryable=True,
-                user_action="retry",
-            ) from None
-        if not destroyed:
-            log_boundary_failure_loguru(
-                logger,
-                boundary="project_api",
-                code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
-                message="Failed to mark sandbox destroyed during project archive",
-                operation="archive_project_mark_sandbox_destroyed",
-                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                source="api",
-            )
-            raise ServiceUnavailableError(
-                code="PROJECT_SANDBOX_STATE_SYNC_FAILED",
-                message="Project could not be archived because sandbox state sync failed.",
-                data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
-                source="api",
-                retryable=True,
-                user_action="retry",
-            )
 
 
 @router.delete("/projects/{project_id}")
 async def archive_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> dict:
-    from datetime import datetime, timezone
-
-    result = await db.execute(select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id))
-    project = result.scalar_one_or_none()
-    if not project:
+    try:
+        await ProjectService(db).archive_project(project_id, auth_ctx.org_id)
+    except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
-    if project.is_default:
-        raise InvalidRequestError(
-            code="PROJECT_DEFAULT_ARCHIVE_FORBIDDEN",
-            message="Cannot archive the default project",
-            data={"project_id": project_id, "organization_id": auth_ctx.org_id},
-            user_action="fix_input",
-        )
-
-    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-
-    active_tasks = await TaskService(db).count_active_tasks_for_project(project_id)
-    if active_tasks > 0:
-        raise ResourceConflictError(
-            code="PROJECT_ACTIVE_TASKS",
-            message="Project has active tasks. Stop or wait for them before archiving.",
-            data={"project_id": project_id, "active": active_tasks},
-            retryable=True,
-            user_action="retry",
-        )
-    await _cleanup_project_sessions_for_archive(project_id, db)
-    archived_at = datetime.now(timezone.utc)
-    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
-
-    await db.execute(
-        update(JoySafeterSession)
-        .where(
-            JoySafeterSession.project_id == project_id,
-            JoySafeterSession.archived_at.is_(None),
-        )
-        .values(archived_at=archived_at, status="terminated")
-    )
-    from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
-
-    await JoySafeterScheduleService(db).pause_for_project_archive(project_id)
-    project.archived_at = archived_at
-    await db.commit()
     return {"status": "archived"}
 
 
@@ -1205,7 +1059,7 @@ async def archive_project(
 async def set_default_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
     try:
         project = await ProjectService(db).set_default_project(project_id, auth_ctx.org_id)
@@ -1218,13 +1072,164 @@ async def set_default_project(
 async def restore_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
     try:
         project = await ProjectService(db).restore_project(project_id, auth_ctx.org_id)
     except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     return _project_to_response(project)
+
+
+# ---------------------------------------------------------------------------
+# Project member management routes
+# ---------------------------------------------------------------------------
+
+
+class ProjectAccess(str, Enum):
+    """A member's effective access to a project."""
+
+    # owner/admin reach every project regardless of ProjectMember rows
+    ORG_WIDE = "org_wide"
+    # has an explicit ProjectMember row for this project
+    EXPLICIT = "explicit"
+    # developer/viewer without a row — cannot access
+    NONE = "none"
+
+
+class ProjectMemberResponse(BaseModel):
+    user_id: str
+    email: str
+    display_name: str
+    org_role: str
+    access: ProjectAccess
+    project_role: Optional[str] = None
+
+
+class AddProjectMemberRequest(BaseModel):
+    user_id: str
+    # ProjectMember.role is currently informational; the access gate only checks
+    # row presence. Kept for forward-compatibility with per-project roles.
+    role: str = "member"
+
+
+def _project_member_access(org_role: str, *, has_explicit_row: bool) -> ProjectAccess:
+    if ProjectService.role_has_org_wide_project_access(org_role):
+        return ProjectAccess.ORG_WIDE
+    return ProjectAccess.EXPLICIT if has_explicit_row else ProjectAccess.NONE
+
+
+@router.get("/projects/{project_id}/members")
+async def list_project_members(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
+) -> list[ProjectMemberResponse]:
+    """List organization members with their access status for a project (requires admin role)."""
+    svc = ProjectService(db)
+    project = await svc.get_project(project_id, auth_ctx.org_id)
+    if project is None:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+
+    explicit_role_by_user = {row.user_id: row.role for row in await svc.list_project_members(project_id)}
+
+    return [
+        ProjectMemberResponse(
+            user_id=member.user_id,
+            email=user.email,
+            display_name=user.name,
+            org_role=member.role,
+            access=_project_member_access(member.role, has_explicit_row=member.user_id in explicit_role_by_user),
+            project_role=explicit_role_by_user.get(member.user_id),
+        )
+        for member, user in await OrganizationMemberService(db).list_members_with_users(auth_ctx.org_id)
+    ]
+
+
+@router.post("/projects/{project_id}/members", status_code=201)
+async def add_project_member(
+    project_id: str,
+    req: AddProjectMemberRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
+) -> ProjectMemberResponse:
+    """Grant an organization member access to a project (requires admin role)."""
+    svc = ProjectService(db)
+    project = await svc.get_project(project_id, auth_ctx.org_id)
+    if project is None:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+
+    member = await OrganizationMemberService(db).get_member_by_user_id(auth_ctx.org_id, req.user_id)
+    if member is None:
+        raise NotFoundError(
+            code="ORGANIZATION_MEMBER_NOT_FOUND",
+            message="User is not a member of this organization",
+            data={"organization_id": auth_ctx.org_id, "user_id": req.user_id},
+            user_action="fix_input",
+        )
+    user = await AuthService(db).get_user_by_id(req.user_id)
+
+    await svc.grant_project_membership(project_id=project_id, user_id=req.user_id, role=req.role, commit=True)
+
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="project_member.added",
+        target_type="project_member",
+        target_id=req.user_id,
+        details={"project_id": project_id, "assigned_role": req.role},
+    )
+    return ProjectMemberResponse(
+        user_id=req.user_id,
+        email=user.email if user else "",
+        display_name=user.name if user else "",
+        org_role=member.role,
+        access=_project_member_access(member.role, has_explicit_row=True),
+        project_role=req.role,
+    )
+
+
+@router.delete("/projects/{project_id}/members/{user_id}", status_code=204)
+async def remove_project_member(
+    project_id: str,
+    user_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
+) -> None:
+    """Revoke an org member's explicit access to a project (requires admin role)."""
+    svc = ProjectService(db)
+    project = await svc.get_project(project_id, auth_ctx.org_id)
+    if project is None:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    if project.is_default:
+        raise InvalidRequestError(
+            code="PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN",
+            message="Cannot remove a member from the default project. Remove them from the organization instead.",
+            data={"project_id": project_id, "user_id": user_id},
+            user_action="fix_input",
+        )
+
+    revoked = await svc.revoke_project_membership(project_id=project_id, user_id=user_id, commit=True)
+    if not revoked:
+        raise NotFoundError(
+            code="PROJECT_MEMBER_NOT_FOUND",
+            message="User has no explicit membership in this project",
+            data={"project_id": project_id, "user_id": user_id},
+            user_action="refresh",
+        )
+
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="project_member.removed",
+        target_type="project_member",
+        target_id=user_id,
+        details={"project_id": project_id},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1237,7 +1242,7 @@ async def search_users(
     q: str = Query("", min_length=1, max_length=100),
     limit: int = Query(10, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ):
     """Search users by email or name for member invitation."""
     from sqlalchemy import or_
@@ -1283,6 +1288,7 @@ class OrganizationResponse(BaseModel):
     id: str
     name: str
     slug: str
+    project_id: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -1303,19 +1309,6 @@ class UpdateMemberRoleRequest(BaseModel):
     role: str
 
 
-def _slugify(name: str) -> str:
-    """Generate a URL-friendly slug from a name."""
-    slug = name.lower().strip()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug).strip("-")
-    if not slug:
-        slug = "org"
-    # Append short unique suffix to avoid collisions
-    slug = f"{slug}-{uuid.uuid4().hex[:6]}"
-    return slug
-
-
 def _project_not_found_error(
     project_id: str,
     *,
@@ -1333,61 +1326,24 @@ def _project_not_found_error(
     )
 
 
-def _organization_member_not_found_error(organization_id: str, user_id: str) -> AppError:
-    return NotFoundError(
-        code="ORGANIZATION_MEMBER_NOT_FOUND",
-        message="Member not found",
-        data={"organization_id": organization_id, "user_id": user_id},
-        user_action="refresh",
-    )
-
-
 @router.post("/organizations", status_code=201)
 async def create_organization(
     req: CreateOrganizationRequest,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> OrganizationResponse:
     """Create a new organization. The current user becomes the owner."""
-    if not req.name or not req.name.strip():
-        raise InvalidRequestError(
-            code="ORGANIZATION_NAME_REQUIRED",
-            message="Organization name is required",
-            data={"field": "name"},
-            user_action="fix_input",
-        )
-
-    slug = _slugify(req.name)
-
-    # Create organization
-    org = Organization(name=req.name.strip(), slug=slug)
-    db.add(org)
-    await db.flush()
-
-    # Create owner membership
-    member = Member(
-        user_id=auth_ctx.user_id,
-        organization_id=org.id,
-        role="owner",
+    created = await OrganizationService(db).create_with_owner_and_default_project(
+        name=req.name,
+        owner_user_id=auth_ctx.user_id,
     )
-    db.add(member)
-
-    # Create default project
-    project = Project(
-        org_id=org.id,
-        name="Default",
-        slug="default",
-        is_default=True,
-    )
-    db.add(project)
-
-    await db.commit()
-    await db.refresh(org)
+    org = created.organization
 
     return OrganizationResponse(
         id=org.id,
         name=org.name,
         slug=org.slug,
+        project_id=created.default_project.id,
         created_at=str(org.created_at) if org.created_at else None,
     )
 
@@ -1395,15 +1351,10 @@ async def create_organization(
 @router.get("/members")
 async def list_members(
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> list[MemberResponse]:
     """List members of the current organization."""
-    result = await db.execute(
-        select(Member, AuthUser)
-        .join(AuthUser, Member.user_id == AuthUser.id)
-        .where(Member.organization_id == auth_ctx.org_id)
-    )
-    rows = result.all()
+    rows = await OrganizationMemberService(db).list_members_with_users(auth_ctx.org_id)
     return [
         MemberResponse(
             user_id=member.user_id,
@@ -1421,48 +1372,15 @@ async def invite_member(
     req: InviteMemberRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> MemberResponse:
     """Invite a user to the current organization by email. Requires admin role."""
-    # Look up user by email
-    user_result = await db.execute(select(AuthUser).where(AuthUser.email == req.email.strip()).limit(1))
-    user = user_result.scalar_one_or_none()
-    if not user:
-        raise NotFoundError(
-            code="AUTH_USER_NOT_FOUND",
-            message="User not found with the given email",
-            data={"email": req.email.strip()},
-            user_action="fix_input",
-        )
-
-    # Check if already a member
-    existing = await db.execute(
-        select(Member)
-        .where(
-            Member.user_id == user.id,
-            Member.organization_id == auth_ctx.org_id,
-        )
-        .limit(1)
-    )
-    if existing.scalar_one_or_none():
-        raise ResourceConflictError(
-            code="ORGANIZATION_MEMBER_ALREADY_EXISTS",
-            message="User is already a member of this organization",
-            data={"organization_id": auth_ctx.org_id, "user_id": user.id},
-            user_action="refresh",
-        )
-
-    role = _normalize_assignable_role(req.role)
-    _ensure_can_assign_role(auth_ctx.role, role)
-
-    member = Member(
-        user_id=user.id,
+    member, user = await OrganizationMemberService(db).invite_member_by_email(
         organization_id=auth_ctx.org_id,
-        role=role.value,
+        actor_role=auth_ctx.role,
+        email=req.email,
+        role=req.role,
     )
-    db.add(member)
-    await db.commit()
-    await db.refresh(member)
     await audit_joysafeter_event(
         db,
         request,
@@ -1487,32 +1405,15 @@ async def remove_member(
     user_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> None:
     """Remove a member from the current organization. Cannot remove the owner."""
-    # Find the member
-    result = await db.execute(
-        select(Member)
-        .where(
-            Member.user_id == user_id,
-            Member.organization_id == auth_ctx.org_id,
-        )
-        .limit(1)
+    member = await OrganizationMemberService(db).remove_member_by_user_id(
+        organization_id=auth_ctx.org_id,
+        user_id=user_id,
+        actor_role=auth_ctx.role,
     )
-    member = result.scalar_one_or_none()
-    if not member:
-        raise _organization_member_not_found_error(auth_ctx.org_id, user_id)
-
     previous_role = member.role
-    _ensure_can_modify_member(auth_ctx.role, member.role, JoySafeterRole.VIEWER)
-
-    await db.execute(
-        sa_delete(Member).where(
-            Member.user_id == user_id,
-            Member.organization_id == auth_ctx.org_id,
-        )
-    )
-    await db.commit()
     await audit_joysafeter_event(
         db,
         request,
@@ -1530,29 +1431,17 @@ async def update_member_role(
     req: UpdateMemberRoleRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> MemberResponse:
     """Update a member's role. Cannot change the owner's role."""
-    # Find the member
-    result = await db.execute(
-        select(Member)
-        .where(
-            Member.user_id == user_id,
-            Member.organization_id == auth_ctx.org_id,
-        )
-        .limit(1)
+    existing_member = await OrganizationMemberService(db).get_member_by_user_id(auth_ctx.org_id, user_id)
+    previous_role = existing_member.role if existing_member is not None else None
+    member = await OrganizationMemberService(db).update_member_role_by_user_id(
+        organization_id=auth_ctx.org_id,
+        user_id=user_id,
+        actor_role=auth_ctx.role,
+        role=req.role,
     )
-    member = result.scalar_one_or_none()
-    if not member:
-        raise _organization_member_not_found_error(auth_ctx.org_id, user_id)
-
-    new_role = _normalize_assignable_role(req.role)
-    _ensure_can_modify_member(auth_ctx.role, member.role, new_role)
-
-    previous_role = member.role
-    member.role = new_role.value
-    await db.commit()
-    await db.refresh(member)
     await audit_joysafeter_event(
         db,
         request,

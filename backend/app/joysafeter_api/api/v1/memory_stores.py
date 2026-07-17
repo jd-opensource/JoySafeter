@@ -5,9 +5,10 @@ import unicodedata
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.id_helpers import parse_memory_id, parse_memory_store_id, parse_memory_version_id
 from app.joysafeter_api.services import (
     JoySafeterMemoryService as MemoryService,
 )
@@ -445,7 +446,7 @@ async def list_memory_stores(
 
 @router.get("/{store_id}")
 async def get_memory_store(
-    store_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> MemoryStoreResponse:
@@ -456,8 +457,8 @@ async def get_memory_store(
 
 @router.post("/{store_id}")
 async def update_memory_store(
-    store_id: uuid.UUID,
-    req: UpdateMemoryStoreRequest,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
+    req: UpdateMemoryStoreRequest = Body(...),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> MemoryStoreResponse:
@@ -491,7 +492,7 @@ async def update_memory_store(
 
 @router.delete("/{store_id}", status_code=200)
 async def delete_memory_store(
-    store_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
@@ -509,7 +510,7 @@ async def delete_memory_store(
 
 @router.post("/{store_id}/archive")
 async def archive_memory_store(
-    store_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
@@ -529,8 +530,8 @@ async def archive_memory_store(
 
 @router.post("/{store_id}/memories", status_code=201)
 async def create_memory(
-    store_id: uuid.UUID,
-    req: CreateMemoryRequest,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
+    req: CreateMemoryRequest = Body(...),
     view: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -552,7 +553,7 @@ async def create_memory(
         )
 
     # Path conflict check
-    existing = await svc.get_memory_by_path(store_id, normalized_path)
+    existing = await svc.get_memory_by_path(store_id, normalized_path, project_id=auth_ctx.project_id)
     if existing:
         raise ResourceConflictError(
             code="MEMORY_PATH_CONFLICT",
@@ -562,7 +563,7 @@ async def create_memory(
         )
 
     try:
-        mem = await svc.create_memory(store_id, normalized_path, req.content)
+        mem = await svc.create_memory(store_id, normalized_path, req.content, project_id=auth_ctx.project_id)
     except MemoryStoreLimitExceeded as exc:
         raise ResourceConflictError(
             code="MEMORY_STORE_LIMIT_EXCEEDED",
@@ -570,13 +571,15 @@ async def create_memory(
             data={"memory_store_id": str(store_id)},
             user_action="fix_input",
         ) from exc
+    if not mem:
+        raise _memory_store_not_found_error(store_id)
     await _broadcast_memory_update(store_id, mem.path, mem.content or "", "created", db)
     return _memory_to_response(mem, view=view)
 
 
 @router.get("/{store_id}/memories")
 async def list_memories(
-    store_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[uuid.UUID] = Query(None),
     path_prefix: Optional[str] = Query(None),
@@ -613,6 +616,7 @@ async def list_memories(
         path_prefix=path_prefix,
         order_by=order_by,
         order=order,
+        project_id=auth_ctx.project_id,
     )
 
     # Apply depth filter (hierarchical view): count segments relative to prefix
@@ -636,15 +640,15 @@ async def list_memories(
 
 @router.get("/{store_id}/memories/{memory_id}")
 async def get_memory(
-    store_id: uuid.UUID,
-    memory_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
+    memory_id: uuid.UUID = Depends(parse_memory_id),
     view: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> MemoryResponse:
     svc = MemoryService(db)
     await _get_readable_store_or_404(svc, store_id, auth_ctx.project_id)
-    mem = await svc.get_memory(store_id, memory_id)
+    mem = await svc.get_memory(store_id, memory_id, project_id=auth_ctx.project_id)
     if not mem:
         raise _memory_not_found_error(store_id, memory_id)
     return _memory_to_response(mem, view=view)
@@ -652,9 +656,9 @@ async def get_memory(
 
 @router.post("/{store_id}/memories/{memory_id}")
 async def update_memory(
-    store_id: uuid.UUID,
-    memory_id: uuid.UUID,
-    req: UpdateMemoryRequest,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
+    memory_id: uuid.UUID = Depends(parse_memory_id),
+    req: UpdateMemoryRequest = Body(...),
     path: Optional[str] = Query(None),
     view: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -672,7 +676,7 @@ async def update_memory(
     if path is not None:
         normalized_path = _normalize_and_validate_path(path)
         # Check for path conflict at target
-        existing = await svc.get_memory_by_path(store_id, normalized_path)
+        existing = await svc.get_memory_by_path(store_id, normalized_path, project_id=auth_ctx.project_id)
         if existing and existing.id != memory_id:
             raise ResourceConflictError(
                 code="MEMORY_PATH_CONFLICT",
@@ -680,7 +684,7 @@ async def update_memory(
                 data={"memory_store_id": str(store_id), "path": normalized_path},
                 user_action="fix_input",
             )
-        mem = await svc.get_memory(store_id, memory_id)
+        mem = await svc.get_memory(store_id, memory_id, project_id=auth_ctx.project_id)
         if not mem:
             raise _memory_not_found_error(store_id, memory_id)
         if precondition_sha256 is not None and mem.content_sha256 != precondition_sha256:
@@ -700,7 +704,13 @@ async def update_memory(
         # Now update content if provided
         if req.content is not None:
             try:
-                mem = await svc.update_memory(store_id, memory_id, req.content, if_sha256=None)
+                mem = await svc.update_memory(
+                    store_id,
+                    memory_id,
+                    req.content,
+                    if_sha256=None,
+                    project_id=auth_ctx.project_id,
+                )
             except PreconditionFailed as e:
                 raise _memory_precondition_exception_error(store_id=store_id, memory_id=memory_id, exc=e) from e
             if not mem:
@@ -710,13 +720,19 @@ async def update_memory(
 
     if req.content is None:
         # No content and no path move -- nothing to update
-        mem = await svc.get_memory(store_id, memory_id)
+        mem = await svc.get_memory(store_id, memory_id, project_id=auth_ctx.project_id)
         if not mem:
             raise _memory_not_found_error(store_id, memory_id)
         return _memory_to_response(mem, view=view)
 
     try:
-        mem = await svc.update_memory(store_id, memory_id, req.content, if_sha256=precondition_sha256)
+        mem = await svc.update_memory(
+            store_id,
+            memory_id,
+            req.content,
+            if_sha256=precondition_sha256,
+            project_id=auth_ctx.project_id,
+        )
     except PreconditionFailed as e:
         raise _memory_precondition_exception_error(store_id=store_id, memory_id=memory_id, exc=e) from e
     if not mem:
@@ -727,15 +743,15 @@ async def update_memory(
 
 @router.delete("/{store_id}/memories/{memory_id}", status_code=200)
 async def delete_memory(
-    store_id: uuid.UUID,
-    memory_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
+    memory_id: uuid.UUID = Depends(parse_memory_id),
     expected_content_sha256: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = MemoryService(db)
     await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
-    mem = await svc.get_memory(store_id, memory_id)
+    mem = await svc.get_memory(store_id, memory_id, project_id=auth_ctx.project_id)
     if not mem:
         raise _memory_not_found_error(store_id, memory_id)
 
@@ -751,7 +767,7 @@ async def delete_memory(
 
     response = _memory_to_response(mem, view="full")
     mem_path = mem.path
-    ok = await svc.delete_memory(store_id, memory_id)
+    ok = await svc.delete_memory(store_id, memory_id, project_id=auth_ctx.project_id)
     if not ok:
         raise _memory_not_found_error(store_id, memory_id)
     await _broadcast_memory_update(store_id, mem_path, "", "deleted", db)
@@ -763,7 +779,7 @@ async def delete_memory(
 
 @router.get("/{store_id}/memory_versions")
 async def list_memory_versions(
-    store_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[uuid.UUID] = Query(None),
     memory_id: Optional[uuid.UUID] = Query(None),
@@ -782,6 +798,7 @@ async def list_memory_versions(
         memory_id=memory_id,
         session_id=session_id,
         operation=operation,
+        project_id=auth_ctx.project_id,
     )
     data = [_version_to_response(v, view=view) for v in versions]
     return PaginatedResponse(
@@ -794,15 +811,15 @@ async def list_memory_versions(
 
 @router.get("/{store_id}/memory_versions/{version_id}")
 async def get_memory_version(
-    store_id: uuid.UUID,
-    version_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
+    version_id: uuid.UUID = Depends(parse_memory_version_id),
     view: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> MemoryVersionResponse:
     svc = MemoryService(db)
     await _get_readable_store_or_404(svc, store_id, auth_ctx.project_id)
-    ver = await svc.get_version(store_id, version_id)
+    ver = await svc.get_version(store_id, version_id, project_id=auth_ctx.project_id)
     if not ver:
         raise _memory_version_not_found_error(store_id, version_id)
     return _version_to_response(ver, view=view)
@@ -810,19 +827,19 @@ async def get_memory_version(
 
 @router.post("/{store_id}/memory_versions/{version_id}/redact")
 async def redact_memory_version(
-    store_id: uuid.UUID,
-    version_id: uuid.UUID,
+    store_id: uuid.UUID = Depends(parse_memory_store_id),
+    version_id: uuid.UUID = Depends(parse_memory_version_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = MemoryService(db)
     await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
-    ver = await svc.get_version(store_id, version_id)
+    ver = await svc.get_version(store_id, version_id, project_id=auth_ctx.project_id)
     if not ver:
         raise _memory_version_not_found_error(store_id, version_id)
 
     # Block redaction if this is the live (current) version of any memory
-    is_live = await svc.is_live_version(store_id, version_id)
+    is_live = await svc.is_live_version(store_id, version_id, project_id=auth_ctx.project_id)
     if is_live:
         raise ResourceConflictError(
             code="MEMORY_LIVE_VERSION_REDACTION_FORBIDDEN",
@@ -831,7 +848,7 @@ async def redact_memory_version(
             user_action="refresh",
         )
 
-    ok = await svc.redact_version(store_id, version_id)
+    ok = await svc.redact_version(store_id, version_id, project_id=auth_ctx.project_id)
     if not ok:
         raise _memory_version_not_found_error(store_id, version_id)
     return {"status": "redacted"}

@@ -65,7 +65,12 @@ def _parse_session_scope(scope_id: str | None) -> uuid.UUID | None:
     try:
         return uuid.UUID(s)
     except ValueError:
-        return None
+        raise InvalidRequestError(
+            code="SESSION_ID_INVALID",
+            message="Invalid session_id",
+            data={"session_id": scope_id},
+            user_action="fix_input",
+        )
 
 
 def _file_upload_validation_error(*, exc: ValueError, filename: str) -> AppError:

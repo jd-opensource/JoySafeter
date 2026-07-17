@@ -17,16 +17,13 @@ from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRe
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
 from app.joysafeter_shared.common.app_errors import (
     AppError,
-    ConflictError,
     InvalidRequestError,
     NotFoundError,
-    RateLimitExceededError,
     RequestValidationAppError,
     ResourceConflictError,
     ServiceUnavailableError,
 )
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
-from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -38,22 +35,6 @@ from app.joysafeter_shared.database import get_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["joysafeter-tasks"])
-
-
-def _raise_task_limit_exceeded(
-    *,
-    code: str,
-    message: str,
-    data: dict,
-) -> None:
-    raise RateLimitExceededError(
-        code=code,
-        message=message,
-        data=data,
-        source="api",
-        retryable=True,
-        user_action="retry",
-    )
 
 
 def _task_idempotency_conflict_error(
@@ -269,7 +250,7 @@ async def _validate_idempotent_task_environment_replay(
 
     effective_ref = None
     if existing.chat_session_id is not None:
-        session = await SessionService(db).get_session(existing.chat_session_id)
+        session = await SessionService(db).get_session(existing.chat_session_id, project_id=project_id)
         if session is not None:
             effective_ref = session.environment_ref
     if not effective_ref:
@@ -315,53 +296,6 @@ async def create_task(
             if existing.status == "failed" and "Failed to enqueue task" in (existing.error or ""):
                 raise _task_enqueue_failed_error(task_id=existing.id, session_id=existing.chat_session_id)
             return CreateTaskResponse(id=existing.id, status=existing.status)
-
-    # Per-project admission control (tenancy). The project is the tenant
-    # boundary; a single tenant must not occupy unbounded fleet capacity. Placed
-    # AFTER the idempotency short-circuit so a retry of an already-created task
-    # is never rejected. This is a soft limit: count-then-create can slightly
-    # over-admit under concurrent submits, which is acceptable for a fairness
-    # quota (unlike idempotency, which must be strict).
-    if auth_ctx.project_id is not None:
-        from app.joysafeter_shared.config.settings import settings
-
-        admission_svc = TaskService(db)
-        limit = await admission_svc.resolve_project_task_limit(
-            auth_ctx.project_id, default_limit=settings.max_concurrent_per_project
-        )
-        active = await admission_svc.count_active_tasks_for_project(auth_ctx.project_id)
-        if active >= limit:
-            _raise_task_limit_exceeded(
-                code="PROJECT_TASK_LIMIT_EXCEEDED",
-                message=f"Project has reached its concurrent task limit ({limit}).",
-                data={
-                    "limit": limit,
-                    "active": active,
-                    "project_id": auth_ctx.project_id,
-                },
-            )
-
-    # Per-user admission control (tenancy). Fairness quota so one human cannot
-    # occupy the whole project/fleet budget. Applies ONLY to human principals:
-    # a service API key is a single automation identity bounded by the
-    # per-project gate above, and keying its budget on the key's creator would
-    # silently clamp all of that key's traffic to one human's limit.
-    if auth_ctx.principal_type == "user" and auth_ctx.user_id:
-        from app.joysafeter_shared.config.settings import settings
-
-        user_svc = TaskService(db)
-        user_limit = settings.max_concurrent_per_user
-        user_active = await user_svc.count_active_tasks_for_user(auth_ctx.user_id)
-        if user_active >= user_limit:
-            _raise_task_limit_exceeded(
-                code="USER_TASK_LIMIT_EXCEEDED",
-                message=f"User has reached their concurrent task limit ({user_limit}).",
-                data={
-                    "limit": user_limit,
-                    "active": user_active,
-                    "user_id": auth_ctx.user_id,
-                },
-            )
 
     agent_svc = AgentService(db)
     agent = None
@@ -414,8 +348,8 @@ async def create_task(
         auto_created_session_id = session.id
     else:
         session_svc = SessionService(db)
-        existing_session = await session_svc.get_session(chat_session_id)
-        if not existing_session or existing_session.project_id != auth_ctx.project_id:
+        existing_session = await session_svc.get_session(chat_session_id, project_id=auth_ctx.project_id)
+        if not existing_session:
             raise NotFoundError(
                 code="TASK_SESSION_NOT_FOUND",
                 message="Session not found",
@@ -512,6 +446,7 @@ async def create_task(
         org_id=auth_ctx.org_id,
         idempotency_key=idempotency_key,
         auto_created_session_id=auto_created_session_id,
+        enforce_user_quota=auth_ctx.principal_type == "user",
     )
     return CreateTaskResponse(id=task.id, status=task.status)
 
@@ -586,72 +521,6 @@ async def cancel_task(
         await TaskCancellationService(db).cancel(task, reason="Cancelled via API")
     except ValueError as e:
         raise _task_cancel_conflict_error(task_id, e) from e
-    task = await svc.get_task(task_id, project_id=auth_ctx.project_id)
-    assert task is not None
-
-    from app.joysafeter_shared.orchestrator_bridge import get_session_broadcaster
-
-    # Transition the linked ChatSession to idle with cancellation stop_reason
-    session_id = task.chat_session_id
-    if session_id:
-        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-
-        session_svc = SessionService(db)
-        stop_reason = {"type": "cancelled"}
-        session_idle_updated = False
-        try:
-            session_idle_updated = await session_svc.update_session_status_for_task_event(
-                session_id,
-                SessionStatus.IDLE.value,
-                task_id,
-                stop_reason=stop_reason,
-            )
-        except ConflictError:
-            # The task is already cancelled; a terminal/otherwise stale session
-            # should not turn a successful task cancellation into a false failure.
-            logger.debug(
-                "Ignoring stale session idle transition while cancelling task %s for session %s",
-                task_id,
-                session_id,
-                exc_info=True,
-            )
-        except Exception as exc:
-            log_boundary_failure(
-                logger,
-                boundary="task_api",
-                code="TASK_CANCEL_SESSION_IDLE_MARK_FAILED",
-                message="Failed to mark session idle after cancelling task",
-                operation="cancel_task_mark_session_idle",
-                error=exc,
-                data={"session_id": str(session_id), "task_id": str(task_id)},
-            )
-            await db.rollback()
-            raise ServiceUnavailableError(
-                code="TASK_CANCEL_SESSION_SYNC_FAILED",
-                message="Task was cancelled, but failed to mark the linked session idle.",
-                data={"task_id": str(task_id), "session_id": str(session_id)},
-                source="api",
-                retryable=True,
-                user_action="refresh",
-            ) from None
-
-        if session_idle_updated:
-            try:
-                await session_svc.send_event(
-                    session_id,
-                    "session.status_idle",
-                    {"task_id": str(task_id), "stop_reason": stop_reason},
-                )
-            except Exception:
-                logger.debug("Failed to persist cancel idle event for session %s", session_id, exc_info=True)
-
-        # Emit SSE event so connected clients learn about the cancellation
-        broadcaster = get_session_broadcaster()
-        if broadcaster and session_idle_updated:
-            await broadcaster.send(
-                session_id,
-                {"type": "session.status_idle", "task_id": str(task_id), "stop_reason": stop_reason},
-            )
 
     return {"id": str(task_id), "status": "cancelled"}
 

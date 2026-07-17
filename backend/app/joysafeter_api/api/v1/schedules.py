@@ -10,11 +10,10 @@ from __future__ import annotations
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+from app.joysafeter_api.api.v1.id_helpers import parse_schedule_id
 from app.joysafeter_domain.schemas.joysafeter_schedule import (
     ScheduleCreateRequest,
     ScheduleResponse,
@@ -22,12 +21,10 @@ from app.joysafeter_domain.schemas.joysafeter_schedule import (
     ScheduleUpdateRequest,
     TriggerResponse,
 )
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
-from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
-from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError, ResourceConflictError
+from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -36,59 +33,6 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 from app.joysafeter_shared.database import get_db
 
 router = APIRouter(tags=["joysafeter-schedules"])
-
-
-async def _resolve_agent_or_raise(db: AsyncSession, agent_id: uuid.UUID, project_id):
-    agent = await JoySafeterAgentService(db).get_agent(agent_id, project_id=project_id)
-    if agent is None:
-        raise NotFoundError(
-            code="SCHEDULE_AGENT_NOT_FOUND",
-            message="Agent not found",
-            data={"agent_id": str(agent_id)},
-            user_action="refresh",
-        )
-    if agent.archived_at is not None:
-        raise ResourceConflictError(
-            code="AGENT_ARCHIVED",
-            message="Agent is archived and cannot create new scheduled runs.",
-            data={"agent_id": str(agent_id)},
-            user_action="refresh",
-        )
-    return agent
-
-
-async def _validate_environment_or_raise(db: AsyncSession, environment_ref: str | None, project_id) -> None:
-    if not environment_ref:
-        return
-    env = await EnvironmentService(db).get_environment_by_ref(environment_ref, project_id=project_id)
-    if env is None:
-        raise RequestValidationAppError(
-            code="SCHEDULE_ENVIRONMENT_NOT_FOUND",
-            message=f"Environment not found: {environment_ref}",
-            data={"environment_ref": environment_ref},
-            user_action="fix_input",
-        )
-    if env.archived_at is not None:
-        raise ResourceConflictError(
-            code="ENVIRONMENT_ARCHIVED",
-            message=f"Environment is archived: {environment_ref}",
-            data={"environment_ref": environment_ref, "environment_id": str(env.id)},
-            user_action="refresh",
-        )
-
-
-async def _validate_schedule_target_or_raise(
-    db: AsyncSession,
-    schedule,
-    *,
-    environment_ref: str | None,
-) -> None:
-    agent = await _resolve_agent_or_raise(db, schedule.agent_id, schedule.project_id)
-    await _validate_environment_or_raise(
-        db,
-        environment_ref or getattr(agent, "environment_ref", None),
-        schedule.project_id,
-    )
 
 
 @router.post("", status_code=201, response_model=ScheduleResponse)
@@ -105,12 +49,6 @@ async def create_schedule(
             data={"name": body.name},
             user_action="fix_input",
         )
-    agent = await _resolve_agent_or_raise(db, body.agent_id, auth_ctx.project_id)
-    await _validate_environment_or_raise(
-        db,
-        body.environment_ref or getattr(agent, "environment_ref", None),
-        auth_ctx.project_id,
-    )
 
     schedule = await svc.create(
         name=body.name,
@@ -160,7 +98,7 @@ async def _get_or_404(db: AsyncSession, schedule_id: uuid.UUID, project_id):
 
 @router.get("/{schedule_id}", response_model=ScheduleResponse)
 async def get_schedule(
-    schedule_id: uuid.UUID,
+    schedule_id: uuid.UUID = Depends(parse_schedule_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> ScheduleResponse:
@@ -169,8 +107,8 @@ async def get_schedule(
 
 @router.patch("/{schedule_id}", response_model=ScheduleResponse)
 async def update_schedule(
-    schedule_id: uuid.UUID,
-    body: ScheduleUpdateRequest,
+    schedule_id: uuid.UUID = Depends(parse_schedule_id),
+    body: ScheduleUpdateRequest = Body(...),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
@@ -186,23 +124,13 @@ async def update_schedule(
                 data={"name": fields["name"]},
                 user_action="fix_input",
             )
-    if (
-        "environment_ref" in fields
-        or fields.get("enabled") is True
-        or (schedule.enabled and any(k in fields for k in ("cron_expr", "timezone")))
-    ):
-        await _validate_schedule_target_or_raise(
-            db,
-            schedule,
-            environment_ref=fields.get("environment_ref", schedule.environment_ref),
-        )
     updated = await svc.update(schedule_id, auth_ctx.project_id, **fields)
     return ScheduleResponse.model_validate(updated)
 
 
 @router.delete("/{schedule_id}", status_code=204)
 async def delete_schedule(
-    schedule_id: uuid.UUID,
+    schedule_id: uuid.UUID = Depends(parse_schedule_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
@@ -212,19 +140,18 @@ async def delete_schedule(
 
 @router.post("/{schedule_id}/enable", response_model=ScheduleResponse)
 async def enable_schedule(
-    schedule_id: uuid.UUID,
+    schedule_id: uuid.UUID = Depends(parse_schedule_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
-    schedule = await _get_or_404(db, schedule_id, auth_ctx.project_id)
-    await _validate_schedule_target_or_raise(db, schedule, environment_ref=schedule.environment_ref)
+    await _get_or_404(db, schedule_id, auth_ctx.project_id)
     updated = await JoySafeterScheduleService(db).update(schedule_id, auth_ctx.project_id, enabled=True)
     return ScheduleResponse.model_validate(updated)
 
 
 @router.post("/{schedule_id}/disable", response_model=ScheduleResponse)
 async def disable_schedule(
-    schedule_id: uuid.UUID,
+    schedule_id: uuid.UUID = Depends(parse_schedule_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
@@ -235,7 +162,7 @@ async def disable_schedule(
 
 @router.post("/{schedule_id}/trigger", status_code=202, response_model=TriggerResponse)
 async def trigger_schedule(
-    schedule_id: uuid.UUID,
+    schedule_id: uuid.UUID = Depends(parse_schedule_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> TriggerResponse:
@@ -245,9 +172,11 @@ async def trigger_schedule(
     unique manual idempotency key is used so each manual trigger is its own run.
     """
     schedule = await _get_or_404(db, schedule_id, auth_ctx.project_id)
-    agent = await _resolve_agent_or_raise(db, schedule.agent_id, schedule.project_id)
-    environment_ref = schedule.environment_ref or getattr(agent, "environment_ref", None)
-    await _validate_environment_or_raise(db, environment_ref, auth_ctx.project_id)
+    agent, environment_ref = await JoySafeterScheduleService(db).resolve_runnable_target(
+        agent_id=schedule.agent_id,
+        project_id=schedule.project_id,
+        environment_ref=schedule.environment_ref,
+    )
 
     submission = TaskSubmissionService(db)
     await submission.enforce_admission(
@@ -279,24 +208,31 @@ async def trigger_schedule(
         idempotency_key=f"sched:{schedule.id}:manual:{uuid.uuid4().hex}",
         schedule_id=schedule.id,
         auto_created_session_id=session.id,
+        enforce_admission=False,
+        enforce_user_quota=False,
     )
     return TriggerResponse(task_id=task.id, session_id=session.id, status=task.status)
 
 
 @router.get("/{schedule_id}/runs", response_model=List[ScheduleRunResponse])
 async def list_schedule_runs(
-    schedule_id: uuid.UUID,
+    schedule_id: uuid.UUID = Depends(parse_schedule_id),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> List[ScheduleRunResponse]:
-    await _get_or_404(db, schedule_id, auth_ctx.project_id)
-    result = await db.execute(
-        select(JoySafeterTask)
-        .where(JoySafeterTask.schedule_id == schedule_id)
-        .order_by(JoySafeterTask.created_at.desc())
-        .limit(limit)
-        .offset(offset)
+    runs = await JoySafeterScheduleService(db).list_runs(
+        schedule_id,
+        project_id=auth_ctx.project_id,
+        limit=limit,
+        offset=offset,
     )
-    return [ScheduleRunResponse.model_validate(t) for t in result.scalars().all()]
+    if runs is None:
+        raise NotFoundError(
+            code="SCHEDULE_NOT_FOUND",
+            message="Schedule not found",
+            data={"schedule_id": str(schedule_id)},
+            user_action="refresh",
+        )
+    return [ScheduleRunResponse.model_validate(t) for t in runs]

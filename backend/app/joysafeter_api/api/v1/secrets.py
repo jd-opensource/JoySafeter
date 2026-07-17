@@ -380,10 +380,8 @@ async def get_secret(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SecretResponse:
     svc = SecretService(db)
-    secret = await svc.get_secret(secret_id)
+    secret = await svc.get_secret(secret_id, project_id=auth_ctx.project_id)
     if not secret:
-        raise _secret_not_found_error(secret_id)
-    if secret.project_id != auth_ctx.project_id:
         raise _secret_not_found_error(secret_id)
     return SecretResponse(
         id=f"secret_{secret.id}",
@@ -406,10 +404,8 @@ async def update_secret(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SecretResponse:
     svc = SecretService(db)
-    secret = await svc.get_secret(secret_id)
+    secret = await svc.get_secret(secret_id, project_id=auth_ctx.project_id)
     if not secret:
-        raise _secret_not_found_error(secret_id)
-    if secret.project_id != auth_ctx.project_id:
         raise _secret_not_found_error(secret_id)
     active_dependency = await svc.active_task_secret_dependency(secret.name, project_id=auth_ctx.project_id)
     if active_dependency:
@@ -422,7 +418,7 @@ async def update_secret(
             operation="updating",
         )
     try:
-        secret = await svc.update_secret(secret_id, req)
+        secret = await svc.update_secret(secret_id, req, project_id=auth_ctx.project_id)
     except ValueError as exc:
         raise _secret_value_error(exc=exc, operation="update") from exc
     if secret is None:
@@ -494,10 +490,8 @@ async def delete_secret(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
     svc = SecretService(db)
-    secret = await svc.get_secret(secret_id)
+    secret = await svc.get_secret(secret_id, project_id=auth_ctx.project_id)
     if not secret:
-        raise _secret_not_found_error(secret_id)
-    if secret.project_id != auth_ctx.project_id:
         raise _secret_not_found_error(secret_id)
 
     active_dependency = await svc.active_task_secret_dependency(secret.name, project_id=auth_ctx.project_id)
@@ -534,9 +528,11 @@ async def delete_secret(
             )
 
     if force:
-        await svc.hard_delete_secret(secret_id)
+        ok = await svc.hard_delete_secret(secret_id, project_id=auth_ctx.project_id)
+        if not ok:
+            raise _secret_not_found_error(secret_id)
     else:
-        ok = await svc.delete_secret(secret_id)
+        ok = await svc.delete_secret(secret_id, project_id=auth_ctx.project_id)
         if not ok:
             raise _secret_not_found_error(secret_id)
     await audit_joysafeter_event(

@@ -4,11 +4,9 @@ import uuid
 from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_agent_id
-from app.joysafeter_api.runtime_commands import relay_sandbox_command_via_redis, relay_sandbox_destroy_via_redis
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
 from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_api.services import SecretService, SessionService, _split_packed_items
@@ -41,6 +39,10 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.orchestrator_bridge.runtime_commands import (
+    relay_sandbox_command_via_redis,
+    relay_sandbox_destroy_via_redis,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -337,8 +339,6 @@ async def get_agent(
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
         raise _agent_not_found_error(agent_id)
-    if agent.project_id != auth_ctx.project_id:
-        raise _agent_not_found_error(agent_id)
     secret_svc = SecretService(db)
     model = await _resolve_agent_model(agent, secret_svc, project_id=auth_ctx.project_id)
     return _agent_to_response(agent, model=model)
@@ -411,7 +411,7 @@ async def update_agent(
         req.environment_ref is not None and req.environment_ref != current_agent.environment_ref
     )
     if dependency_ref_changed:
-        active_tasks = await svc.list_active_tasks_for_agent(agent_id)
+        active_tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=auth_ctx.project_id)
         if active_tasks:
             raise ResourceConflictError(
                 code="AGENT_ACTIVE_TASKS",
@@ -481,7 +481,7 @@ async def delete_agent(
 
     if not force:
         # Check for active tasks before soft delete
-        active_tasks = await svc.list_active_tasks_for_agent(agent_id)
+        active_tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=auth_ctx.project_id)
         if active_tasks:
             raise ResourceConflictError(
                 code="AGENT_ACTIVE_TASKS",
@@ -494,8 +494,13 @@ async def delete_agent(
                 user_action="retry",
             )
         try:
-            await _destroy_sandboxes_for_agent(agent_id, db, reason="Agent deleted")
-            await svc.hard_delete_agent(agent_id)
+            await _destroy_sandboxes_for_agent(
+                agent_id,
+                db,
+                reason="Agent deleted",
+                project_id=auth_ctx.project_id,
+            )
+            ok = await svc.hard_delete_agent(agent_id, project_id=auth_ctx.project_id)
         except ValueError as e:
             raise ResourceConflictError(
                 code="AGENT_ACTIVE_TASKS",
@@ -504,13 +509,20 @@ async def delete_agent(
                 retryable=True,
                 user_action="retry",
             ) from e
+        if not ok:
+            raise _agent_not_found_error(agent_id)
         return
 
     # Force delete: cascade cleanup
-    await _cancel_active_tasks_for_agent(agent_id, db)
-    await _destroy_sandboxes_for_agent(agent_id, db, reason="Agent force deleted")
+    await _cancel_active_tasks_for_agent(agent_id, db, project_id=auth_ctx.project_id)
+    await _destroy_sandboxes_for_agent(
+        agent_id,
+        db,
+        reason="Agent force deleted",
+        project_id=auth_ctx.project_id,
+    )
     try:
-        await svc.hard_delete_agent(agent_id)
+        ok = await svc.hard_delete_agent(agent_id, project_id=auth_ctx.project_id)
     except ValueError as e:
         raise ServiceUnavailableError(
             code="AGENT_FORCE_DELETE_ACTIVE_TASKS_REMAIN",
@@ -519,9 +531,13 @@ async def delete_agent(
             retryable=True,
             user_action="refresh",
         ) from e
+    if not ok:
+        raise _agent_not_found_error(agent_id)
 
 
-async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) -> None:
+async def _cancel_active_tasks_for_agent(
+    agent_id: uuid.UUID, db: AsyncSession, project_id: Optional[str] = None
+) -> None:
     """Cancel all active tasks through the Rust runtime boundary."""
     from app.joysafeter_api.services import JoySafeterTaskService as TaskService
     from app.joysafeter_api.services import SandboxService
@@ -530,13 +546,13 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
     task_svc = TaskService(db)
     sandbox_svc = SandboxService(db)
 
-    active_tasks = await svc.list_active_tasks_for_agent(agent_id)
+    active_tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=project_id)
     cancelled = 0
 
     for task in active_tasks:
         sandbox_id = getattr(task, "sandbox_id", None)
         if not sandbox_id and getattr(task, "chat_session_id", None):
-            sandbox = await sandbox_svc.find_by_session(task.chat_session_id)
+            sandbox = await sandbox_svc.find_by_session(task.chat_session_id, project_id=project_id)
             sandbox_id = sandbox.id if sandbox else None
         if sandbox_id:
             relayed = await relay_sandbox_command_via_redis(
@@ -565,7 +581,7 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
         except Exception:
             logger.debug("Failed to cancel task %s during agent force delete", task.id)
 
-    remaining_active = await svc.list_active_tasks_for_agent(agent_id)
+    remaining_active = await svc.list_active_tasks_for_agent(agent_id, project_id=project_id)
     if remaining_active:
         logger.warning(
             "Could not cancel all active tasks for agent %s: remaining=%s",
@@ -582,7 +598,7 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
         )
 
     try:
-        await svc.archive_sessions_for_agent(agent_id)
+        await svc.archive_sessions_for_agent(agent_id, project_id=project_id)
     except Exception as exc:
         log_boundary_failure(
             logger,
@@ -610,25 +626,20 @@ async def _cancel_active_tasks_for_agent(agent_id: uuid.UUID, db: AsyncSession) 
         )
 
 
-async def _destroy_sandboxes_for_agent(agent_id: uuid.UUID, db: AsyncSession, *, reason: str) -> None:
+async def _destroy_sandboxes_for_agent(
+    agent_id: uuid.UUID,
+    db: AsyncSession,
+    *,
+    reason: str,
+    project_id: Optional[str] = None,
+) -> None:
     from app.joysafeter_api.services import SandboxService
-    from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 
-    result = await db.execute(
-        select(JoySafeterSandbox)
-        .join(JoySafeterSession, JoySafeterSandbox.chat_session_id == JoySafeterSession.id)
-        .where(
-            JoySafeterSession.agent_id == agent_id,
-            JoySafeterSandbox.destroyed_at.is_(None),
-            JoySafeterSandbox.status != "destroyed",
-        )
-    )
-    sandboxes = list(result.scalars().all())
+    sandbox_svc = SandboxService(db)
+    sandboxes = await sandbox_svc.list_active_for_agent(agent_id, project_id=project_id)
     if not sandboxes:
         return
 
-    sandbox_svc = SandboxService(db)
     for sandbox in sandboxes:
         relayed = await relay_sandbox_destroy_via_redis(
             sandbox.id,
@@ -721,7 +732,7 @@ async def list_agent_tasks(
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
         raise _agent_not_found_error(agent_id)
-    tasks = await svc.list_active_tasks_for_agent(agent_id)
+    tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=auth_ctx.project_id)
     return [TaskResponse.model_validate(t) for t in tasks]
 
 
@@ -773,7 +784,7 @@ async def list_agent_versions(
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
         raise _agent_not_found_error(agent_id)
-    versions, has_more = await svc.list_versions(agent_id, limit, before_version)
+    versions, has_more = await svc.list_versions(agent_id, limit, before_version, project_id=auth_ctx.project_id)
     data = [AgentVersionResponse.model_validate(v) for v in versions]
     return PaginatedResponse(
         data=data,

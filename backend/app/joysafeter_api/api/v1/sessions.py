@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,14 +25,17 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SendEventRequest,
     SessionAgent,
     SessionEventResponse,
+    SessionFileResourceRequest,
+    SessionRepoResourceRequest,
     SessionRepoResourceResponse,
     SessionResourceResponse,
     SessionResponse,
     SessionUsage,
     SingleEventRequest,
+    UpdateRepoResourceRequest,
 )
+from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_shared.common.app_errors import (
-    AppError,
     InvalidRequestError,
     NotFoundError,
     RequestValidationAppError,
@@ -46,73 +49,11 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     get_joysafeter_auth_context,
     require_joysafeter_write,
 )
-from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["joysafeter-sessions"])
-
-
-def _validate_mount_path(path: str) -> str:
-    """Validate mount_path: must be under /workspace/, no '..' traversal."""
-    import posixpath
-
-    normalized = posixpath.normpath(path)
-    if not normalized.startswith("/workspace/"):
-        raise InvalidRequestError(
-            code="SESSION_RESOURCE_MOUNT_PATH_INVALID",
-            message="mount_path must be under /workspace/",
-            data={"mount_path": path},
-            user_action="fix_input",
-        )
-    if ".." in normalized.split("/"):
-        raise InvalidRequestError(
-            code="SESSION_RESOURCE_MOUNT_PATH_INVALID",
-            message="mount_path must not contain '..' components",
-            data={"mount_path": path},
-            user_action="fix_input",
-        )
-    return normalized
-
-
-def _ensure_session_resources_mutable(session, session_id: uuid.UUID) -> None:
-    """Session resources are part of the next-run input contract.
-
-    They may be changed only while the session is idle and active. This mirrors
-    the UI affordance and prevents stale clients from mutating inputs for a
-    running, rescheduling, terminated, or archived session.
-    """
-    if session.archived_at:
-        raise ResourceConflictError(
-            code="SESSION_ARCHIVED",
-            message="Session is archived",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
-    if session.status == "terminated":
-        raise ResourceConflictError(
-            code="SESSION_TERMINATED",
-            message="Session is terminated",
-            data={"session_id": str(session_id), "session_status": session.status},
-            user_action="refresh",
-        )
-    if session.status == "rescheduling":
-        raise ResourceConflictError(
-            code="SESSION_RESCHEDULING",
-            message="Session is rescheduling, try again later",
-            data={"session_id": str(session_id), "session_status": session.status},
-            retryable=True,
-            user_action="retry",
-        )
-    if session.status != "idle":
-        raise ResourceConflictError(
-            code="SESSION_ALREADY_RUNNING",
-            message="Session resources can only be changed while the session is idle",
-            data={"session_id": str(session_id), "session_status": session.status},
-            retryable=True,
-            user_action="retry",
-        )
 
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
@@ -180,32 +121,9 @@ def _networking_with_agent_mcp_hosts(networking: dict, mcp_configs: list[dict] |
     return {**networking, "allowed_hosts": allowed}
 
 
-def _session_task_enqueue_failed_stop_reason(
-    *, session_id: uuid.UUID, task_id: uuid.UUID | None = None
-) -> dict[str, object]:
-    data: dict[str, object] = {"session_id": str(session_id)}
-    if task_id is not None:
-        data["task_id"] = str(task_id)
-    return async_error_payload(
-        code="TASK_ENQUEUE_FAILED",
-        message="Failed to enqueue task",
-        data=data,
-        source="runtime",
-        retryable=True,
-        user_action="retry",
-    )
-
-
-async def _load_session_repos(db: AsyncSession, session_id: uuid.UUID) -> list:
+async def _load_session_repos(db: AsyncSession, session_id: uuid.UUID, project_id: Optional[str]) -> list:
     """Load a session's repo resources (without decrypting tokens)."""
-    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-
-    result = await db.execute(
-        select(JoySafeterSessionRepo)
-        .where(JoySafeterSessionRepo.session_id == session_id)
-        .order_by(JoySafeterSessionRepo.created_at)
-    )
-    return list(result.scalars().all())
+    return await SessionResourceService(db).list_repo_records(session_id, project_id=project_id)
 
 
 def _session_to_response(session, agent=None, resources=None, repo_resources=None) -> SessionResponse:
@@ -331,7 +249,9 @@ async def create_session(
         "model": agent.model,
     }
     if pinned_version is not None:
-        snapshot = await agent_svc.get_agent_version_snapshot(agent.id, pinned_version)
+        snapshot = await agent_svc.get_agent_version_snapshot(
+            agent.id, pinned_version, project_id=auth_ctx.project_id
+        )
         if snapshot is None:
             raise NotFoundError(
                 code="SESSION_AGENT_VERSION_NOT_FOUND",
@@ -377,8 +297,8 @@ async def create_session(
                     data={"vault_id": vid_raw},
                     user_action="fix_input",
                 )
-            vault = await vault_svc.get_vault(vid_uuid)
-            if not vault or vault.project_id != auth_ctx.project_id:
+            vault = await vault_svc.get_vault(vid_uuid, project_id=auth_ctx.project_id)
+            if not vault:
                 raise NotFoundError(
                     code="SESSION_VAULT_NOT_FOUND",
                     message=f"Vault not found: {vid_raw}",
@@ -393,64 +313,12 @@ async def create_session(
                     user_action="refresh",
                 )
 
-    # --- Validate file resources before creating the session ---
-    from app.joysafeter_domain.schemas.joysafeter_session import MAX_FILE_RESOURCES, MAX_REPO_RESOURCES
-
-    file_resource_records = []
-    if len(req.file_resources) > MAX_FILE_RESOURCES:
-        raise InvalidRequestError(
-            code="SESSION_FILE_RESOURCE_LIMIT_EXCEEDED",
-            message=f"Too many file resources (max {MAX_FILE_RESOURCES})",
-            data={"max": MAX_FILE_RESOURCES, "actual": len(req.file_resources)},
-            user_action="fix_input",
-        )
-    if req.file_resources:
-        from app.joysafeter_api.services import FileService
-        from app.joysafeter_shared.storage import get_storage
-
-        file_svc = FileService(get_storage())
-        for fr in req.file_resources:
-            file_id_str = fr.file_id.removeprefix("file_")
-            try:
-                fid = uuid.UUID(file_id_str)
-            except ValueError:
-                raise InvalidRequestError(
-                    code="SESSION_FILE_ID_INVALID",
-                    message=f"Invalid file_id: {fr.file_id}",
-                    data={"file_id": fr.file_id},
-                    user_action="fix_input",
-                )
-            record = await file_svc.get_metadata(db, fid, auth_ctx.project_id)
-            if not record:
-                raise NotFoundError(
-                    code="SESSION_FILE_NOT_FOUND",
-                    message=f"File not found: {fr.file_id}",
-                    data={"file_id": fr.file_id},
-                    user_action="refresh",
-                )
-            mount_path = _validate_mount_path(fr.mount_path or f"/workspace/{record.filename}")
-            file_resource_records.append((record.id, mount_path))
-
-    # --- Validate repo resources before creating the session ---
-    repo_resource_records = []
-    if len(req.repo_resources) > MAX_REPO_RESOURCES:
-        raise InvalidRequestError(
-            code="SESSION_REPO_RESOURCE_LIMIT_EXCEEDED",
-            message=f"Too many repo resources (max {MAX_REPO_RESOURCES})",
-            data={"max": MAX_REPO_RESOURCES, "actual": len(req.repo_resources)},
-            user_action="fix_input",
-        )
-    for rr in req.repo_resources:
-        if not rr.url or not rr.url.strip():
-            raise InvalidRequestError(
-                code="SESSION_REPO_URL_REQUIRED",
-                message="repo resource url is required",
-                data={"resource_type": "github_repository"},
-                user_action="fix_input",
-            )
-        mount_path = _validate_mount_path(rr.mount_path) if rr.mount_path else ""
-        mount_name = rr.mount_name or _slugify_mount_name(rr.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git"))
-        repo_resource_records.append((rr, mount_path, mount_name))
+    resource_svc = SessionResourceService(db)
+    file_resource_records = await resource_svc.prepare_file_resources(
+        req.file_resources,
+        project_id=auth_ctx.project_id,
+    )
+    repo_resource_records = await resource_svc.prepare_repo_resources(req.repo_resources)
 
     svc = SessionService(db)
     session = await svc.create_session(
@@ -468,44 +336,13 @@ async def create_session(
     if resource_dicts:
         resources = await svc.attach_memory_stores(session.id, resource_dicts)
 
-    # --- Attach file resources ---
-    if file_resource_records:
-        from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
+    await resource_svc.attach_prepared_resources(
+        session.id,
+        files=file_resource_records,
+        repos=repo_resource_records,
+    )
 
-        for file_id, mount_path in file_resource_records:
-            session_file = JoySafeterSessionFile(
-                session_id=session.id,
-                file_id=file_id,
-                mount_path=mount_path,
-                access="read_only",
-            )
-            db.add(session_file)
-        await db.commit()
-
-    # --- Attach repo resources (github_repository) ---
-    if repo_resource_records:
-        from app.joysafeter_api.services import SecretService
-        from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-
-        repo_secret_svc = SecretService(db)
-        for rr, mount_path, mount_name in repo_resource_records:
-            # Encrypt the clone token at rest; never store or echo it in plaintext.
-            encrypted_token = ""
-            if rr.authorization_token:
-                encrypted_token = repo_secret_svc.encrypt_data_for_storage({"token": rr.authorization_token})["token"]
-            db.add(
-                JoySafeterSessionRepo(
-                    session_id=session.id,
-                    url=rr.url.strip(),
-                    branch=rr.branch or "",
-                    mount_path=mount_path,
-                    mount_name=mount_name,
-                    encrypted_token=encrypted_token,
-                )
-            )
-        await db.commit()
-
-    repo_records = await _load_session_repos(db, session.id)
+    repo_records = await resource_svc.list_repo_records(session.id, project_id=auth_ctx.project_id)
     return _session_to_response(session, agent, resources=resources, repo_resources=repo_records)
 
 
@@ -563,7 +400,7 @@ async def get_session(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SessionResponse:
     svc = SessionService(db)
-    session = await svc.get_session(session_id)
+    session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
@@ -571,15 +408,8 @@ async def get_session(
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
-    if session.project_id != auth_ctx.project_id:
-        raise NotFoundError(
-            code="SESSION_NOT_FOUND",
-            message="Session not found",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
     resources = await svc.list_session_memory_stores(session_id)
-    repo_records = await _load_session_repos(db, session_id)
+    repo_records = await _load_session_repos(db, session_id, auth_ctx.project_id)
     agent = None
     if session.agent_id:
         agent_svc = AgentService(db)
@@ -594,15 +424,8 @@ async def delete_session(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = SessionService(db)
-    session = await svc.get_session(session_id)
+    session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
-        raise NotFoundError(
-            code="SESSION_NOT_FOUND",
-            message="Session not found",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
-    if session.project_id != auth_ctx.project_id:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
             message="Session not found",
@@ -637,7 +460,7 @@ async def delete_session(
     from app.joysafeter_api.services import SandboxService
 
     sandbox_svc = SandboxService(db)
-    sandbox = await sandbox_svc.find_by_session(session_id)
+    sandbox = await sandbox_svc.find_by_session(session_id, project_id=auth_ctx.project_id)
     if sandbox:
         if not await _relay_sandbox_destroy_via_redis(sandbox, session_id=session_id):
             raise ServiceUnavailableError(
@@ -654,7 +477,7 @@ async def delete_session(
         await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
 
     # Hard delete the session
-    ok = await svc.delete_session(session_id)
+    ok = await svc.delete_session(session_id, project_id=auth_ctx.project_id)
     if not ok:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
@@ -690,15 +513,15 @@ async def archive_session(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = SessionService(db)
-    session = await svc.get_session(session_id)
-    if not session or session.project_id != auth_ctx.project_id:
+    session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
+    if not session:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
             message="Session not found",
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
-    ok = await svc.archive_session(session_id)
+    ok = await svc.archive_session(session_id, project_id=auth_ctx.project_id)
     if not ok:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
@@ -716,8 +539,8 @@ async def stop_session(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = SessionService(db)
-    session = await svc.get_session(session_id)
-    if not session or session.project_id != auth_ctx.project_id:
+    session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
+    if not session:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
             message="Session not found",
@@ -786,7 +609,7 @@ async def stop_session(
         )
 
     try:
-        await svc.update_session_status(session_id, "idle", stop_reason=stop_reason)
+        await svc.update_session_status(session_id, "idle", stop_reason=stop_reason, project_id=auth_ctx.project_id)
         await svc.send_event(session_id, "session.status_idle", {"stop_reason": stop_reason})
     except Exception:
         logger.debug(
@@ -829,7 +652,7 @@ async def _publish_command_and_wait_for_ack(
     command_id: str,
     ack_key: str,
 ) -> bool:
-    from app.joysafeter_api.runtime_commands import publish_command_and_wait_for_ack
+    from app.joysafeter_shared.orchestrator_bridge.runtime_commands import publish_command_and_wait_for_ack
 
     return await publish_command_and_wait_for_ack(
         redis_client,
@@ -1037,7 +860,7 @@ async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID
 
 
 async def _relay_sandbox_destroy_via_redis(sandbox, *, session_id: uuid.UUID) -> bool:
-    from app.joysafeter_api.runtime_commands import relay_sandbox_destroy_via_redis
+    from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_destroy_via_redis
 
     external_id = str(getattr(sandbox, "external_id", "") or "")
     return await relay_sandbox_destroy_via_redis(
@@ -1124,21 +947,13 @@ async def _find_idempotent_user_message_event(
     db: AsyncSession,
     session_id: uuid.UUID,
     idempotency_key: str,
+    project_id: Optional[str] = None,
 ):
-    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
-
-    result = await db.execute(
-        select(JoySafeterSessionEvent)
-        .where(
-            JoySafeterSessionEvent.session_id == session_id,
-            JoySafeterSessionEvent.event_type == "user.message",
-            text("payload->>'_idempotency_key' = :idempotency_key"),
-        )
-        .params(idempotency_key=idempotency_key)
-        .order_by(JoySafeterSessionEvent.seq.asc())
-        .limit(1)
+    return await SessionService(db).find_user_message_event_by_idempotency_key(
+        session_id,
+        idempotency_key,
+        project_id=project_id,
     )
-    return result.scalar_one_or_none()
 
 
 def _session_event_response(event) -> SessionEventResponse:
@@ -1203,49 +1018,46 @@ async def _idempotent_user_message_replay_response(
                 user_action="retry",
             )
 
-    existing_event = await _find_idempotent_user_message_event(db, session_id, idempotency_key)
+    existing_event = await _find_idempotent_user_message_event(
+        db,
+        session_id,
+        idempotency_key,
+        project_id=project_id,
+    )
     if existing_event is not None and existing_task is not None:
         return _session_event_response(existing_event)
     return None
 
 
-async def _push_task_to_global_queue(task_id: uuid.UUID) -> None:
-    from app.joysafeter_api.services import enqueue_joysafeter_task
-
-    await enqueue_joysafeter_task(task_id)
-
-
 async def _create_and_enqueue_resume_task(
     *,
+    svc: SessionService,
     session_id: uuid.UUID,
     agent_id: uuid.UUID,
     project_id: Optional[str],
+    user_id: Optional[str],
+    org_id: Optional[str],
     prompt: str,
     failure_context: str,
+    source_event_id: uuid.UUID,
+    enforce_user_quota: bool,
 ) -> uuid.UUID:
-    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-    from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
-    from app.joysafeter_shared.database import AsyncSessionLocal
+    from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 
-    async with AsyncSessionLocal() as task_db:
-        task_svc = TaskService(task_db)
-        task = await task_svc.create_task(
-            agent_id=agent_id,
-            prompt=prompt,
-            chat_session_id=session_id,
-            project_id=project_id,
-        )
-
-    try:
-        await _push_task_to_global_queue(task.id)
-    except Exception as exc:
-        async with AsyncSessionLocal() as task_db:
-            await TaskService(task_db).update_task_error(
-                task.id,
-                f"Failed to enqueue fallback task for {failure_context}: {exc}",
-                JoySafeterTaskStatus.FAILED,
-            )
-        raise
+    task, _created = await TaskSubmissionService(svc.db).create_and_dispatch(
+        agent_id=agent_id,
+        prompt=prompt,
+        system_prompt=None,
+        chat_session_id=session_id,
+        session_svc=svc,
+        timeout_sec=7200,
+        max_retries=2,
+        project_id=project_id,
+        user_id=user_id,
+        org_id=org_id,
+        idempotency_key=f"session-control:{source_event_id}:{failure_context}",
+        enforce_user_quota=enforce_user_quota,
+    )
     return task.id
 
 
@@ -1340,15 +1152,8 @@ async def send_event(
         idempotency_key = idempotency_key.strip()
 
     svc = SessionService(db)
-    session = await svc.get_session(session_id)
+    session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
-        raise NotFoundError(
-            code="SESSION_NOT_FOUND",
-            message="Session not found",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
-    if session.project_id != auth_ctx.project_id:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
             message="Session not found",
@@ -1504,34 +1309,29 @@ async def send_event(
         # Dispatch by event type
         # ----------------------------------------------------------------
         if single.type == "user.message":
-            # Create task, mark session running, push to scheduler
-            task = None
-            try:
-                from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-                from app.joysafeter_shared.database import AsyncSessionLocal
+            from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 
-                async with AsyncSessionLocal() as task_db:
-                    task_svc = TaskService(task_db)
-                    task = await task_svc.create_task(
-                        agent_id=session.agent_id,
-                        prompt=message_text,
-                        chat_session_id=session_id,
-                        project_id=auth_ctx.project_id,
-                        idempotency_key=idempotency_key,
-                    )
-                # Transition session to running before writing the event anchor.
-                # If a concurrent active task already owns the session context,
-                # do not leave a misleading session.status_running event behind.
-                running_accepted = await svc.update_session_status_for_task_event(session_id, "running", task.id)
-                if not running_accepted:
-                    raise RuntimeError("Session already has another active task")
-
-                running_event = await svc.send_event(
+            task, _created = await TaskSubmissionService(db).create_and_dispatch(
+                agent_id=session.agent_id,
+                prompt=message_text,
+                system_prompt=None,
+                chat_session_id=session_id,
+                session_svc=svc,
+                timeout_sec=7200,
+                max_retries=2,
+                project_id=auth_ctx.project_id,
+                user_id=auth_ctx.user_id,
+                org_id=auth_ctx.org_id,
+                idempotency_key=idempotency_key,
+                enforce_user_quota=auth_ctx.principal_type == "user",
+            )
+            if broadcaster:
+                running_event = await svc.find_status_running_event_for_task(
                     session_id,
-                    "session.status_running",
-                    {"task_id": str(task.id)},
+                    task.id,
+                    project_id=auth_ctx.project_id,
                 )
-                if broadcaster:
+                if running_event is not None:
                     running_broadcast = {
                         "id": f"evt_{running_event.id}",
                         "type": running_event.event_type,
@@ -1540,110 +1340,6 @@ async def send_event(
                     if isinstance(running_event.payload, dict):
                         running_broadcast.update(running_event.payload)
                     await broadcaster.send(session_id, running_broadcast)
-                # Push task to the Rust runtime through the Redis-backed
-                # global queue.
-                await _push_task_to_global_queue(task.id)
-            except AppError:
-                raise
-            except Exception as exc:
-                log_boundary_failure(
-                    logger,
-                    boundary="session_api",
-                    code="SESSION_USER_MESSAGE_DISPATCH_FAILED",
-                    message="Failed to dispatch user.message for session",
-                    operation="dispatch_user_message",
-                    error=exc,
-                    data={"session_id": str(session_id), "task_id": str(task.id) if task is not None else ""},
-                )
-                try:
-                    if db.in_transaction():
-                        await db.rollback()
-                except Exception:
-                    logger.debug("Failed to rollback session DB after dispatch failure", exc_info=True)
-
-                from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
-
-                if task is not None:
-                    try:
-                        from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-                        from app.joysafeter_shared.database import AsyncSessionLocal
-
-                        async with AsyncSessionLocal() as task_db:
-                            await TaskService(task_db).update_task_error(
-                                task.id,
-                                f"Failed to enqueue task: {exc}",
-                                JoySafeterTaskStatus.FAILED,
-                            )
-                    except Exception as mark_exc:
-                        log_boundary_failure(
-                            logger,
-                            boundary="session_api",
-                            code="SESSION_UNQUEUED_TASK_MARK_FAILED",
-                            message="Failed to mark unqueued task as failed",
-                            operation="mark_unqueued_task_failed",
-                            error=mark_exc,
-                            data={
-                                "session_id": str(session_id),
-                                "task_id": str(getattr(task, "id", "")),
-                            },
-                        )
-
-                stop_reason = _session_task_enqueue_failed_stop_reason(
-                    session_id=session_id,
-                    task_id=task.id if task is not None else None,
-                )
-                idle_accepted = False
-                try:
-                    if task is not None:
-                        idle_accepted = await svc.update_session_status_for_task_event(
-                            session_id,
-                            "idle",
-                            task.id,
-                            stop_reason=stop_reason,
-                        )
-                    else:
-                        idle_accepted = await svc.update_session_status(session_id, "idle", stop_reason=stop_reason)
-                except Exception:
-                    logger.debug(
-                        "Could not compensate session %s to idle after dispatch failure",
-                        session_id,
-                        exc_info=True,
-                    )
-
-                try:
-                    if idle_accepted:
-                        idle_event = await svc.send_event(
-                            session_id,
-                            "session.status_idle",
-                            {
-                                **({"task_id": str(task.id)} if task is not None else {}),
-                                "stop_reason": stop_reason,
-                            },
-                        )
-                        if broadcaster:
-                            idle_broadcast = {
-                                "id": f"evt_{idle_event.id}",
-                                "type": idle_event.event_type,
-                                "seq": idle_event.seq,
-                            }
-                            if isinstance(idle_event.payload, dict):
-                                idle_broadcast.update(idle_event.payload)
-                            await broadcaster.send(session_id, idle_broadcast)
-                except Exception:
-                    logger.debug(
-                        "Failed to emit idle compensation event for session %s",
-                        session_id,
-                        exc_info=True,
-                    )
-
-                raise ServiceUnavailableError(
-                    code="TASK_ENQUEUE_FAILED",
-                    message="Failed to enqueue task",
-                    data={"session_id": str(session_id), "task_id": str(task.id if task is not None else None)},
-                    source="runtime",
-                    retryable=True,
-                    user_action="retry",
-                ) from exc
 
         elif single.type == "user.custom_tool_result":
             injected = False
@@ -1663,11 +1359,16 @@ async def send_event(
                 if resume_prompt and session.status != "running":
                     try:
                         await _create_and_enqueue_resume_task(
+                            svc=svc,
                             session_id=session_id,
                             agent_id=session.agent_id,
                             project_id=auth_ctx.project_id,
+                            user_id=auth_ctx.user_id,
+                            org_id=auth_ctx.org_id,
                             prompt=resume_prompt,
                             failure_context="custom_tool_result",
+                            source_event_id=event.id,
+                            enforce_user_quota=auth_ctx.principal_type == "user",
                         )
                     except Exception as exc:
                         logger.debug(
@@ -1712,11 +1413,16 @@ async def send_event(
                 if resume_prompt and session.status != "running":
                     try:
                         await _create_and_enqueue_resume_task(
+                            svc=svc,
                             session_id=session_id,
                             agent_id=session.agent_id,
                             project_id=auth_ctx.project_id,
+                            user_id=auth_ctx.user_id,
+                            org_id=auth_ctx.org_id,
                             prompt=resume_prompt,
                             failure_context="tool_confirmation",
+                            source_event_id=event.id,
+                            enforce_user_quota=auth_ctx.principal_type == "user",
                         )
                     except Exception as exc:
                         logger.debug(
@@ -1771,11 +1477,16 @@ async def send_event(
                 if resume_prompt and session.status != "running":
                     try:
                         await _create_and_enqueue_resume_task(
+                            svc=svc,
                             session_id=session_id,
                             agent_id=session.agent_id,
                             project_id=auth_ctx.project_id,
+                            user_id=auth_ctx.user_id,
+                            org_id=auth_ctx.org_id,
                             prompt=resume_prompt,
                             failure_context="interrupt",
+                            source_event_id=event.id,
+                            enforce_user_quota=auth_ctx.principal_type == "user",
                         )
                     except Exception as exc:
                         logger.debug(
@@ -1815,15 +1526,15 @@ async def list_events(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[SessionEventResponse]:
     svc = SessionService(db)
-    session = await svc.get_session(session_id)
-    if not session or session.project_id != auth_ctx.project_id:
+    session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
+    if not session:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
             message="Session not found",
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
-    events, has_more = await svc.list_events(session_id, limit, after_seq)
+    events, has_more = await svc.list_events(session_id, limit, after_seq, project_id=auth_ctx.project_id)
     data = [SessionEventResponse.model_validate(e) for e in events]
     return PaginatedResponse(
         data=data,
@@ -1843,15 +1554,8 @@ async def session_event_stream(
 ):
     """SSE endpoint for real-time session event streaming."""
     svc = SessionService(db)
-    session = await svc.get_session(session_id)
+    session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
-        raise NotFoundError(
-            code="SESSION_NOT_FOUND",
-            message="Session not found",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
-    if session.project_id != auth_ctx.project_id:
         raise NotFoundError(
             code="SESSION_NOT_FOUND",
             message="Session not found",
@@ -1886,7 +1590,12 @@ async def session_event_stream(
 
             async with AsyncSessionLocal() as replay_db:
                 replay_svc = SessionService(replay_db)
-                events, _ = await replay_svc.list_events(session_id, 1000, after_seq)
+                events, _ = await replay_svc.list_events(
+                    session_id,
+                    1000,
+                    after_seq,
+                    project_id=auth_ctx.project_id,
+                )
                 for ev in events:
                     last_seq = max(last_seq, ev.seq)
                     data_dict = {
@@ -1917,7 +1626,12 @@ async def session_event_stream(
 
                 async with AsyncSessionLocal() as poll_db:
                     poll_svc = SessionService(poll_db)
-                    events, _ = await poll_svc.list_events(session_id, 1000, last_seq)
+                    events, _ = await poll_svc.list_events(
+                        session_id,
+                        1000,
+                        last_seq,
+                        project_id=auth_ctx.project_id,
+                    )
                     for ev in events:
                         last_seq = max(last_seq, ev.seq)
                         data_dict = {
@@ -1973,7 +1687,12 @@ async def session_event_stream(
 
                     async with AsyncSessionLocal() as poll_db:
                         poll_svc = SessionService(poll_db)
-                        events, _ = await poll_svc.list_events(session_id, 1000, last_seq)
+                        events, _ = await poll_svc.list_events(
+                            session_id,
+                            1000,
+                            last_seq,
+                            project_id=auth_ctx.project_id,
+                        )
                         for ev in events:
                             last_seq = max(last_seq, ev.seq)
                             data_dict = {
@@ -2011,97 +1730,15 @@ async def session_event_stream(
     )
 
 
-# ══════════════════════════════════════════════════════════════════════
-# Session File Resources
-# ══════════════════════════════════════════════════════════════════════
-
-from datetime import datetime  # noqa: E402
-
-from pydantic import BaseModel as PydanticBaseModel  # noqa: E402
-
-
-class SessionFileResourceResponse(PydanticBaseModel):
-    id: str
-    type: str = "file"
-    file_id: str
-    mount_path: str
-    access: str
-    created_at: datetime
-
-
-class AddSessionFileRequest(PydanticBaseModel):
-    type: str = "file"
-    file_id: str
-    mount_path: Optional[str] = None
-
-
-class AddSessionRepoRequest(PydanticBaseModel):
-    """Mount a github_repository on an already-running session.
-
-    Mirrors the official ``resources.add`` semantics: the unified endpoint
-    accepts either a file or a github_repository, discriminated by ``type``.
-    """
-
-    type: str = "github_repository"
-    url: str
-    branch: Optional[str] = None
-    mount_path: Optional[str] = None
-    mount_name: Optional[str] = None
-    authorization_token: Optional[str] = None
-
-
-class UpdateRepoResourceRequest(PydanticBaseModel):
-    """Rotate the clone credential on a github_repository resource."""
-
-    authorization_token: str
-
-
 @router.get("/{session_id}/resources")
 async def list_session_resources(
     session_id: uuid.UUID,
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    from sqlalchemy import select as sa_select
-
-    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
-
-    svc = SessionService(db)
-    session = await svc.get_session(session_id)
-    if not session or session.project_id != auth_ctx.project_id:
-        raise NotFoundError(
-            code="SESSION_NOT_FOUND",
-            message="Session not found",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
-
-    result = await db.execute(sa_select(JoySafeterSessionFile).where(JoySafeterSessionFile.session_id == session_id))
-    rows = result.scalars().all()
-    data = [
-        SessionFileResourceResponse(
-            id=f"sesrsc_{r.id}",
-            file_id=f"file_{r.file_id}",
-            mount_path=r.mount_path,
-            access=r.access,
-            created_at=r.created_at,
-        ).model_dump(mode="json")
-        for r in rows
-    ]
-
-    # Repo resources — never include the clone token.
-    repo_records = await _load_session_repos(db, session_id)
-    data.extend(
-        SessionRepoResourceResponse(
-            id=rr.id,
-            url=rr.url,
-            branch=rr.branch or "",
-            mount_path=rr.mount_path or "",
-            mount_name=rr.mount_name or "",
-        ).model_dump(mode="json")
-        for rr in repo_records
-    )
-    return {"data": data}
+    resource_svc = SessionResourceService(db)
+    await resource_svc.get_project_session_or_raise(session_id, auth_ctx.project_id)
+    return {"data": await resource_svc.list_resource_payloads(session_id, project_id=auth_ctx.project_id)}
 
 
 @router.post("/{session_id}/resources", status_code=201)
@@ -2128,20 +1765,13 @@ async def add_session_resource(
         )
     rtype = req.get("type") or "file"
 
-    svc = SessionService(db)
-    session = await svc.get_session(session_id)
-    if not session or session.project_id != auth_ctx.project_id:
-        raise NotFoundError(
-            code="SESSION_NOT_FOUND",
-            message="Session not found",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
-    _ensure_session_resources_mutable(session, session_id)
+    resource_svc = SessionResourceService(db)
+    session = await resource_svc.get_project_session_or_raise(session_id, auth_ctx.project_id)
+    resource_svc.ensure_mutable(session, session_id)
 
     if rtype == "file":
         try:
-            file_req = AddSessionFileRequest.model_validate(req)
+            file_req = SessionFileResourceRequest.model_validate(req)
         except Exception as e:
             raise InvalidRequestError(
                 code="SESSION_FILE_RESOURCE_INVALID",
@@ -2150,11 +1780,11 @@ async def add_session_resource(
                 detail=str(e),
                 user_action="fix_input",
             ) from e
-        return await _add_file_resource(db, session_id, file_req, auth_ctx)
+        return await resource_svc.add_file_resource(session_id, file_req, project_id=auth_ctx.project_id)
 
     if rtype == "github_repository":
         try:
-            repo_req = AddSessionRepoRequest.model_validate(req)
+            repo_req = SessionRepoResourceRequest.model_validate(req)
         except Exception as e:
             raise InvalidRequestError(
                 code="SESSION_REPO_RESOURCE_INVALID",
@@ -2163,121 +1793,13 @@ async def add_session_resource(
                 detail=str(e),
                 user_action="fix_input",
             ) from e
-        return await _add_repo_resource(db, session_id, repo_req)
+        return await resource_svc.add_repo_resource(session_id, repo_req, project_id=auth_ctx.project_id)
 
     raise InvalidRequestError(
         code="SESSION_RESOURCE_TYPE_UNSUPPORTED",
         message=f"Unsupported resource type: {rtype}",
         data={"resource_type": str(rtype)},
         user_action="fix_input",
-    )
-
-
-async def _add_file_resource(
-    db: AsyncSession,
-    session_id: uuid.UUID,
-    req: AddSessionFileRequest,
-    auth_ctx: JoySafeterAuthContext,
-) -> SessionFileResourceResponse:
-    from app.joysafeter_api.services import FileService
-    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
-    from app.joysafeter_shared.storage import get_storage
-
-    file_id_str = req.file_id.removeprefix("file_")
-    try:
-        fid = uuid.UUID(file_id_str)
-    except ValueError:
-        raise InvalidRequestError(
-            code="SESSION_FILE_ID_INVALID",
-            message=f"Invalid file_id: {req.file_id}",
-            data={"session_id": str(session_id), "file_id": req.file_id},
-            user_action="fix_input",
-        )
-
-    file_svc = FileService(get_storage())
-    record = await file_svc.get_metadata(db, fid, auth_ctx.project_id)
-    if not record:
-        raise NotFoundError(
-            code="SESSION_FILE_NOT_FOUND",
-            message=f"File not found: {req.file_id}",
-            data={"session_id": str(session_id), "file_id": req.file_id},
-            user_action="refresh",
-        )
-
-    mount_path = _validate_mount_path(req.mount_path or f"/workspace/{record.filename}")
-    session_file = JoySafeterSessionFile(
-        session_id=session_id,
-        file_id=record.id,
-        mount_path=mount_path,
-        access="read_only",
-    )
-    db.add(session_file)
-    await db.commit()
-    await db.refresh(session_file)
-
-    return SessionFileResourceResponse(
-        id=f"sesrsc_{session_file.id}",
-        file_id=f"file_{session_file.file_id}",
-        mount_path=session_file.mount_path,
-        access=session_file.access,
-        created_at=session_file.created_at,
-    )
-
-
-async def _add_repo_resource(
-    db: AsyncSession,
-    session_id: uuid.UUID,
-    req: AddSessionRepoRequest,
-) -> SessionRepoResourceResponse:
-    from app.joysafeter_api.services import SecretService
-    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-
-    if not req.url or not req.url.strip():
-        raise InvalidRequestError(
-            code="SESSION_REPO_URL_REQUIRED",
-            message="Repo url is required",
-            data={"session_id": str(session_id), "resource_type": "github_repository"},
-            user_action="fix_input",
-        )
-
-    # Enforce per-session repo cap (mirrors create flow).
-    from app.joysafeter_domain.schemas.joysafeter_session import MAX_REPO_RESOURCES
-
-    existing = await _load_session_repos(db, session_id)
-    if len(existing) >= MAX_REPO_RESOURCES:
-        raise InvalidRequestError(
-            code="SESSION_REPO_RESOURCE_LIMIT_EXCEEDED",
-            message=f"Too many repo resources (max {MAX_REPO_RESOURCES})",
-            data={"session_id": str(session_id), "max": MAX_REPO_RESOURCES, "actual": len(existing) + 1},
-            user_action="fix_input",
-        )
-
-    mount_path = _validate_mount_path(req.mount_path) if req.mount_path else ""
-    mount_name = req.mount_name or _slugify_mount_name(req.url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git"))
-
-    encrypted_token = ""
-    if req.authorization_token:
-        secret_svc = SecretService(db)
-        encrypted_token = secret_svc.encrypt_data_for_storage({"token": req.authorization_token})["token"]
-
-    repo = JoySafeterSessionRepo(
-        session_id=session_id,
-        url=req.url.strip(),
-        branch=req.branch or "",
-        mount_path=mount_path,
-        mount_name=mount_name,
-        encrypted_token=encrypted_token,
-    )
-    db.add(repo)
-    await db.commit()
-    await db.refresh(repo)
-
-    return SessionRepoResourceResponse(
-        id=repo.id,
-        url=repo.url,
-        branch=repo.branch or "",
-        mount_path=repo.mount_path or "",
-        mount_name=repo.mount_name or "",
     )
 
 
@@ -2288,60 +1810,10 @@ async def delete_session_resource(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     db: AsyncSession = Depends(get_db),
 ):
-    from sqlalchemy import select as sa_select
-
-    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
-    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-
-    svc = SessionService(db)
-    session = await svc.get_session(session_id)
-    if not session or session.project_id != auth_ctx.project_id:
-        raise NotFoundError(
-            code="SESSION_NOT_FOUND",
-            message="Session not found",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
-    _ensure_session_resources_mutable(session, session_id)
-
-    rid = resource_id.removeprefix("sesrsc_")
-    try:
-        rid_uuid = uuid.UUID(rid)
-    except ValueError:
-        raise InvalidRequestError(
-            code="SESSION_RESOURCE_ID_INVALID",
-            message="Invalid resource_id",
-            data={"session_id": str(session_id), "resource_id": resource_id},
-            user_action="fix_input",
-        )
-
-    # Resource id space is shared by files and repos — look in both tables.
-    result = await db.execute(
-        sa_select(JoySafeterSessionFile).where(
-            JoySafeterSessionFile.id == rid_uuid,
-            JoySafeterSessionFile.session_id == session_id,
-        )
-    )
-    row = result.scalar_one_or_none()
-    if not row:
-        result = await db.execute(
-            sa_select(JoySafeterSessionRepo).where(
-                JoySafeterSessionRepo.id == rid_uuid,
-                JoySafeterSessionRepo.session_id == session_id,
-            )
-        )
-        row = result.scalar_one_or_none()
-    if not row:
-        raise NotFoundError(
-            code="SESSION_RESOURCE_NOT_FOUND",
-            message="Resource not found",
-            data={"session_id": str(session_id), "resource_id": resource_id},
-            user_action="refresh",
-        )
-
-    await db.delete(row)
-    await db.commit()
-    return {"id": resource_id, "deleted": True}
+    resource_svc = SessionResourceService(db)
+    session = await resource_svc.get_project_session_or_raise(session_id, auth_ctx.project_id)
+    resource_svc.ensure_mutable(session, session_id)
+    return await resource_svc.delete_resource(session_id, resource_id, project_id=auth_ctx.project_id)
 
 
 @router.patch("/{session_id}/resources/{resource_id}")
@@ -2356,61 +1828,12 @@ async def update_repo_resource_token(
 
     The new token is re-encrypted at rest; the response never echoes it.
     """
-    from sqlalchemy import select as sa_select
-
-    from app.joysafeter_api.services import SecretService
-    from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-
-    svc = SessionService(db)
-    session = await svc.get_session(session_id)
-    if not session or session.project_id != auth_ctx.project_id:
-        raise NotFoundError(
-            code="SESSION_NOT_FOUND",
-            message="Session not found",
-            data={"session_id": str(session_id)},
-            user_action="refresh",
-        )
-    _ensure_session_resources_mutable(session, session_id)
-
-    rid = resource_id.removeprefix("sesrsc_")
-    try:
-        rid_uuid = uuid.UUID(rid)
-    except ValueError:
-        raise InvalidRequestError(
-            code="SESSION_RESOURCE_ID_INVALID",
-            message="Invalid resource_id",
-            data={"session_id": str(session_id), "resource_id": resource_id},
-            user_action="fix_input",
-        )
-
-    result = await db.execute(
-        sa_select(JoySafeterSessionRepo).where(
-            JoySafeterSessionRepo.id == rid_uuid,
-            JoySafeterSessionRepo.session_id == session_id,
-        )
-    )
-    row = result.scalar_one_or_none()
-    if not row:
-        raise NotFoundError(
-            code="SESSION_REPO_RESOURCE_NOT_FOUND",
-            message="Repo resource not found",
-            data={"session_id": str(session_id), "resource_id": resource_id},
-            user_action="refresh",
-        )
-
-    secret_svc = SecretService(db)
-    row.encrypted_token = (
-        secret_svc.encrypt_data_for_storage({"token": req.authorization_token})["token"]
-        if req.authorization_token
-        else ""
-    )
-    await db.commit()
-    await db.refresh(row)
-
-    return SessionRepoResourceResponse(
-        id=row.id,
-        url=row.url,
-        branch=row.branch or "",
-        mount_path=row.mount_path or "",
-        mount_name=row.mount_name or "",
+    resource_svc = SessionResourceService(db)
+    session = await resource_svc.get_project_session_or_raise(session_id, auth_ctx.project_id)
+    resource_svc.ensure_mutable(session, session_id)
+    return await resource_svc.rotate_repo_token(
+        session_id,
+        resource_id,
+        req.authorization_token,
+        project_id=auth_ctx.project_id,
     )

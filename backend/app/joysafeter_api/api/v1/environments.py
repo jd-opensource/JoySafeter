@@ -131,7 +131,7 @@ async def _build_image_update(env) -> _EnvironmentImageUpdate:
     Raises an AppError if the build fails so the caller can propagate the
     error to the client.
     """
-    from app.joysafeter_api.runtime_commands import relay_environment_image_build_via_redis
+    from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_environment_image_build_via_redis
 
     config = env.config or {}
     packages = config.get("packages", {}) if isinstance(config, dict) else {}
