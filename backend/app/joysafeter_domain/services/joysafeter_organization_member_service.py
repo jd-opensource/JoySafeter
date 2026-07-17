@@ -17,8 +17,10 @@ from app.joysafeter_shared.common.app_errors import (
 )
 from app.joysafeter_shared.common.joysafeter_auth.context import JoySafeterRole
 
-VALID_MEMBER_ROLES = {"owner", "admin", "developer", "member", "viewer"}
-NON_OWNER_ASSIGNABLE_ROLES = {"admin", "developer", "member", "viewer"}
+# Org roles are the 3-tier vocabulary (owner/admin/member); derive the valid and
+# assignable sets from the enum so there is one source of truth.
+VALID_MEMBER_ROLES = frozenset(r.value for r in JoySafeterRole)
+NON_OWNER_ASSIGNABLE_ROLES = frozenset(r.value for r in JoySafeterRole if r is not JoySafeterRole.OWNER)
 
 
 @dataclass(frozen=True)
@@ -59,8 +61,10 @@ def _permission_error(
 
 def _normalize_role_value(role: str) -> str:
     normalized = (role or "").strip().lower()
-    if normalized == "member":
-        return "developer"
+    # Legacy org synonyms fold into the 3-tier vocab; genuinely unknown values
+    # pass through unchanged so validate_member_role can reject them.
+    if normalized in ("developer", "viewer"):
+        return "member"
     return normalized
 
 
@@ -79,11 +83,11 @@ def validate_member_role(role: str, *, allow_owner: bool = True) -> str:
 
 def validate_auth_assignable_role(role: str) -> JoySafeterRole:
     normalized = _normalize_role_value(role)
-    allowed = [JoySafeterRole.ADMIN.value, JoySafeterRole.DEVELOPER.value, JoySafeterRole.VIEWER.value]
+    allowed = [JoySafeterRole.ADMIN.value, JoySafeterRole.MEMBER.value]
     if normalized not in set(allowed):
         raise InvalidRequestError(
             code="AUTH_INVALID_ASSIGNABLE_ROLE",
-            message="Invalid role. Must be one of: admin, developer, viewer",
+            message="Invalid role. Must be one of: admin, member",
             data={"role": role, "allowed": allowed},
             source="auth",
             user_action="correct_request",
@@ -341,11 +345,10 @@ class OrganizationMemberService:
         user_id: str,
         new_role: str,
     ) -> None:
-        # owner/admin reach every project without a ProjectMember row. A member
-        # who is not org-wide (developer/viewer) needs an explicit row, so when
-        # demoting from owner/admin — who may have no rows at all — backfill the
-        # default project to avoid locking them out. Existing explicit grants on
-        # other projects are preserved.
+        # owner/admin reach every project without a ProjectMember row. An ordinary
+        # member needs an explicit row, so when demoting from owner/admin — who may
+        # have no rows at all — backfill the default project to avoid locking them
+        # out. Existing explicit grants on other projects are preserved.
         if ProjectService.role_has_org_wide_project_access(new_role):
             return
         await ProjectService(self.db).grant_default_project_membership(
@@ -471,7 +474,7 @@ class OrganizationMemberService:
                 user_action="refresh",
             )
 
-        ensure_can_modify_auth_member(actor_role, member.role, JoySafeterRole.VIEWER)
+        ensure_can_modify_auth_member(actor_role, member.role, JoySafeterRole.MEMBER)
         await ProjectService(self.db).revoke_org_project_memberships(
             org_id=organization_id,
             user_id=member.user_id,

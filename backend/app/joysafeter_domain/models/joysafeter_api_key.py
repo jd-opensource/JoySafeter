@@ -43,7 +43,9 @@ class JoySafeterApiKey(JoySafeterBaseModel):
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    role: Mapped[str] = mapped_column(Text, nullable=False, default="developer")
+    # Per-project capability in the project vocabulary (admin / editor / viewer;
+    # see ProjectRole). Defaults to viewer (least privilege).
+    role: Mapped[str] = mapped_column(Text, nullable=False, default="viewer")
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

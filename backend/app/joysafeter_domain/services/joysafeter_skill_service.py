@@ -182,7 +182,7 @@ class SkillLifecycleService:
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.admin,
+            JoySafeterCollaboratorRole.ADMIN,
             active_org_id=self._active_org_id,
         )
 
@@ -266,7 +266,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.publisher,
+            JoySafeterCollaboratorRole.ADMIN,
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
@@ -366,7 +366,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.viewer,
+            JoySafeterCollaboratorRole.VIEWER,
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
@@ -384,7 +384,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.viewer,
+            JoySafeterCollaboratorRole.VIEWER,
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
@@ -408,7 +408,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.viewer,
+            JoySafeterCollaboratorRole.VIEWER,
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
@@ -432,7 +432,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.admin,
+            JoySafeterCollaboratorRole.ADMIN,
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
@@ -528,7 +528,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.publisher,
+            JoySafeterCollaboratorRole.ADMIN,
             is_superuser=is_superuser,
             active_org_id=self._active_org_id,
         )
@@ -874,7 +874,7 @@ class SkillService(BaseService[JoySafeterSkill]):
                 self.db,
                 skill,
                 current_user_id,
-                JoySafeterCollaboratorRole.viewer,
+                JoySafeterCollaboratorRole.VIEWER,
                 active_org_id=self._active_org_id,
             )
         else:
@@ -1199,7 +1199,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            JoySafeterCollaboratorRole.EDITOR,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1514,7 +1514,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.admin,
+            JoySafeterCollaboratorRole.ADMIN,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1548,7 +1548,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            JoySafeterCollaboratorRole.EDITOR,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1675,7 +1675,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            JoySafeterCollaboratorRole.EDITOR,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1761,7 +1761,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            JoySafeterCollaboratorRole.EDITOR,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -2030,7 +2030,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            JoySafeterCollaboratorRole.EDITOR,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)

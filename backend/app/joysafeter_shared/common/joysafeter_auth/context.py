@@ -9,32 +9,39 @@ from enum import Enum, IntEnum
 
 
 class JoySafeterRole(str, Enum):
-    """JoySafeter-level roles (superset of OrgRole for finer-grained control)."""
+    """Organization-level role.
+
+    Answers exactly one question: is this principal an org super-user? Owner and
+    admin reach every project; ``member`` is an ordinary member whose per-project
+    capability comes solely from ``ProjectRole``. The org layer no longer carries
+    a read/write capability, so the legacy ``developer``/``viewer`` values fold
+    into ``member``.
+    """
 
     OWNER = "owner"
     ADMIN = "admin"
-    DEVELOPER = "developer"
-    VIEWER = "viewer"
+    MEMBER = "member"
 
     @classmethod
     def normalize(cls, role: str | None) -> "JoySafeterRole":
         if not role:
-            return cls.VIEWER
+            return cls.MEMBER
         normalized = role.strip().lower()
-        if normalized == "member":
-            return cls.DEVELOPER
+        # Legacy org vocab (developer/viewer) carried project capability at the
+        # org layer; in the 3-tier model they are just ordinary members.
+        if normalized in ("member", "developer", "viewer"):
+            return cls.MEMBER
         try:
             return cls(normalized)
         except ValueError:
-            return cls.VIEWER
+            return cls.MEMBER
 
     @property
     def rank(self) -> int:
         return {
-            JoySafeterRole.VIEWER: 1,
-            JoySafeterRole.DEVELOPER: 2,
-            JoySafeterRole.ADMIN: 3,
-            JoySafeterRole.OWNER: 4,
+            JoySafeterRole.MEMBER: 1,
+            JoySafeterRole.ADMIN: 2,
+            JoySafeterRole.OWNER: 3,
         }[self]
 
     def can_manage_members(self) -> bool:
@@ -54,6 +61,10 @@ class JoySafeterRole(str, Enum):
         return self in (JoySafeterRole.OWNER, JoySafeterRole.ADMIN)
 
 
+# Legacy project-role values written before the admin/editor/viewer vocabulary.
+_PROJECT_ROLE_LEGACY = {"owner": "admin", "developer": "editor", "member": "editor"}
+
+
 class ProjectRole(str, Enum):
     """Per-project role. For non-super-users this is the SOLE source of capability."""
 
@@ -62,22 +73,33 @@ class ProjectRole(str, Enum):
     VIEWER = "viewer"
 
     @classmethod
+    def _canonical(cls, role: str) -> str:
+        normalized = role.strip().lower()
+        return _PROJECT_ROLE_LEGACY.get(normalized, normalized)
+
+    @classmethod
     def normalize(cls, role: "str | ProjectRole | None") -> "ProjectRole | None":
         if role is None:
             return None
         if isinstance(role, ProjectRole):
             return role
-        normalized = role.strip().lower()
-        if not normalized:
+        canonical = cls._canonical(role)
+        if not canonical:
             return None
-        # Legacy values written before the admin/editor/viewer vocabulary existed.
-        legacy = {"owner": cls.ADMIN, "developer": cls.EDITOR, "member": cls.EDITOR}
-        if normalized in legacy:
-            return legacy[normalized]
         try:
-            return cls(normalized)
+            return cls(canonical)
         except ValueError:
             return cls.VIEWER  # unrecognized but present role → least privilege
+
+    @classmethod
+    def parse_strict(cls, role: str) -> "ProjectRole":
+        """Parse a role in the project vocabulary, folding legacy synonyms.
+
+        Unlike ``normalize`` (fail-closed to VIEWER), this raises ``ValueError``
+        on an unrecognized or empty value, so a user-facing assignment endpoint
+        can reject bad input rather than silently downgrading it.
+        """
+        return cls(cls._canonical(role or ""))
 
 
 class ProjectCapability(IntEnum):
@@ -115,14 +137,13 @@ def effective_project_capability(
 def default_project_role_for_org_role(org_role: "str | JoySafeterRole") -> ProjectRole:
     """The project role to seed when granting default-project access to a member.
 
-    Super-users map to admin; org developer→editor; everyone else→viewer. This is
-    the one place the legacy org-role vocabulary is translated into project roles.
+    Super-users map to admin; every ordinary member seeds as viewer (least
+    privilege). Higher per-project access is granted explicitly through the
+    project-member management surface.
     """
     org = org_role if isinstance(org_role, JoySafeterRole) else JoySafeterRole.normalize(org_role)
     if org.is_org_superuser():
         return ProjectRole.ADMIN
-    if org is JoySafeterRole.DEVELOPER:
-        return ProjectRole.EDITOR
     return ProjectRole.VIEWER
 
 

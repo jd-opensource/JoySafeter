@@ -8,14 +8,6 @@ varchar — no migration needed.  They provide type safety and IDE autocomplete.
 import enum
 
 
-class OrgRole(str, enum.Enum):
-    """Organization membership roles."""
-
-    OWNER = "owner"
-    ADMIN = "admin"
-    MEMBER = "member"
-
-
 class McpConnectionStatus(str, enum.Enum):
     """Connection status for MCP servers."""
 

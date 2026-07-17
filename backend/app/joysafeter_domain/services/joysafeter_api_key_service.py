@@ -19,7 +19,7 @@ class ApiKeyService:
         org_id: str,
         name: str,
         created_by: str,
-        role: str = "developer",
+        role: str = "viewer",
     ) -> Tuple[JoySafeterApiKey, str]:
         raw_key = f"cnkey_{uuid.uuid4().hex}"
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()

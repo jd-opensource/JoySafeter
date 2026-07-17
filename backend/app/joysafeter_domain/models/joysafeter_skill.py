@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, List, Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -385,16 +385,34 @@ class JoySafeterSkillVersionFile(BaseModel):
 
 
 class JoySafeterCollaboratorRole(str, enum.Enum):
-    """Roles ordered by privilege: viewer < editor < publisher < admin."""
+    """Per-skill collaborator role, ordered by privilege: viewer < editor < admin.
 
-    viewer = "viewer"
-    editor = "editor"
-    publisher = "publisher"
-    admin = "admin"
+    Shares the project capability vocabulary (admin / editor / viewer). The
+    legacy ``publisher`` tier folded into ``admin`` (publishing is an admin
+    action). Stored as a plain varchar; use ``normalize`` when reading.
+    """
+
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    ADMIN = "admin"
+
+    @classmethod
+    def normalize(cls, role: "str | JoySafeterCollaboratorRole | None") -> "JoySafeterCollaboratorRole":
+        if isinstance(role, cls):
+            return role
+        if not role:
+            return cls.VIEWER
+        normalized = str(role).strip().lower()
+        if normalized == "publisher":
+            return cls.ADMIN
+        try:
+            return cls(normalized)
+        except ValueError:
+            return cls.VIEWER
 
     @classmethod
     def rank(cls, role: "JoySafeterCollaboratorRole") -> int:
-        _order = [cls.viewer, cls.editor, cls.publisher, cls.admin]
+        _order = [cls.VIEWER, cls.EDITOR, cls.ADMIN]
         return _order.index(role)
 
     def __ge__(self, other):
@@ -433,10 +451,10 @@ class JoySafeterSkillCollaborator(BaseModel):
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    role: Mapped[JoySafeterCollaboratorRole] = mapped_column(
-        Enum(JoySafeterCollaboratorRole, name="collaborator_role", create_constraint=True),
-        nullable=False,
-    )
+    # Per-skill capability in the project vocabulary (admin / editor / viewer;
+    # see JoySafeterCollaboratorRole). Stored as varchar for consistency with the
+    # other role columns; normalize with JoySafeterCollaboratorRole.normalize.
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="viewer")
     invited_by: Mapped[str] = mapped_column(
         String(255),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),

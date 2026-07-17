@@ -76,26 +76,15 @@ class Project(Base, TimestampMixin):
 class ProjectMember(Base, TimestampMixin):
     """Membership row binding a user to a specific project.
 
-    P2.8 introduces this table so the four-tier ``visibility`` model can
-    actually distinguish ``project`` from ``organization``:
-
-      - ``project`` skill → only members of THAT project can see / load
-      - ``organization`` skill → anyone in the parent org can
-
-    Before P2.8 both tiers collapsed to "is the user in the same org",
-    making ``project`` indistinguishable from ``organization`` at the
-    permission layer. The migration that creates this table
-    (``20260625_000007_project_members``) backfills every existing org
-    member into the org's default project so legacy data keeps working
-    without the user explicitly granting per-project access.
-
-    ``role`` is the authoritative per-project capability for non-super-users
-    (``admin`` / ``editor`` / ``viewer``; see ``ProjectRole``). The
-    ``effective_project_capability`` function derives read/write/admin
-    solely from this value, so it is no longer free-form or presence-only.
-    Legacy values (``owner`` / ``developer`` / ``member``) are normalized
-    both by a data migration (``20260717_000014_normalize_project_member_roles``)
-    and at runtime by ``ProjectRole.normalize``.
+    A row grants a non-super-user access to a project; org owner/admin reach
+    every project without one. ``role`` is the authoritative per-project
+    capability for non-super-users (``admin`` / ``editor`` / ``viewer``; see
+    ``ProjectRole``). The ``effective_project_capability`` function derives
+    read/write/admin solely from this value, so it is not free-form or
+    presence-only. Legacy values (``owner`` / ``developer`` / ``member``) are
+    normalized both by a data migration
+    (``20260717_000014_normalize_project_member_roles``) and at runtime by
+    ``ProjectRole.normalize``.
     """
 
     __tablename__ = "joysafeter_project_members"
@@ -117,7 +106,8 @@ class ProjectMember(Base, TimestampMixin):
     )
     # Per-project capability: admin / editor / viewer (see ProjectRole).
     # Legacy values are normalized by ProjectRole.normalize at runtime.
-    role: Mapped[str] = mapped_column(String(50), nullable=False, default="member")
+    # Defaults to viewer (least privilege) if a grant path ever omits the role.
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="viewer")
 
     # relationships
     project: Mapped["Project"] = relationship("Project", lazy="selectin")

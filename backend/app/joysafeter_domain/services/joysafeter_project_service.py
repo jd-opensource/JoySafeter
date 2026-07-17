@@ -131,7 +131,7 @@ class ProjectService:
         *,
         project_id: str,
         user_id: str,
-        role: str = "editor",
+        role: str = "viewer",
         commit: bool = False,
     ) -> ProjectMember:
         normalized = ProjectRole.normalize(role) or ProjectRole.VIEWER

@@ -463,7 +463,7 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.editor, active_org_id=self._active_org_id
+            self.db, skill, current_user_id, JoySafeterCollaboratorRole.EDITOR, active_org_id=self._active_org_id
         )
         _ensure_scan_target_mutable(skill)
 
@@ -529,7 +529,7 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.viewer, active_org_id=self._active_org_id
+            self.db, skill, current_user_id, JoySafeterCollaboratorRole.VIEWER, active_org_id=self._active_org_id
         )
         return await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
 
@@ -538,7 +538,7 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.viewer, active_org_id=self._active_org_id
+            self.db, skill, current_user_id, JoySafeterCollaboratorRole.VIEWER, active_org_id=self._active_org_id
         )
         scan = await self.repo.get_latest_by_skill(skill_id)
         if not scan:
@@ -562,7 +562,7 @@ class SkillSecurityService:
             if not skill:
                 raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(scan.skill_id)})
             await check_skill_access(
-                self.db, skill, current_user_id, JoySafeterCollaboratorRole.viewer, active_org_id=self._active_org_id
+                self.db, skill, current_user_id, JoySafeterCollaboratorRole.VIEWER, active_org_id=self._active_org_id
             )
         elif scan.created_by_id != current_user_id and scan.owner_id != current_user_id:
             raise AccessDeniedError(

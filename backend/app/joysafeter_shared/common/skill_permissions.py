@@ -149,13 +149,13 @@ async def check_skill_access(
         #    a collaborator entry only counts inside the active org so
         #    a multi-org admin can't "phase through" by switching context.
     collab = await _get_collaborator(db, skill.id, user_id)
-    if collab and collab.role >= min_role and in_active_org:
+    if collab and JoySafeterCollaboratorRole.normalize(collab.role) >= min_role and in_active_org:
         return
 
         # Beyond this point we only let viewer-tier callers through —
         # higher roles (editor/admin) require either ownership or a real
         # collaborator entry, never visibility-tier auto-grants.
-    if min_role != JoySafeterCollaboratorRole.viewer:
+    if min_role != JoySafeterCollaboratorRole.VIEWER:
         raise AccessDeniedError(
             "You don't have permission to access this skill",
             code="SKILL_ACCESS_DENIED",

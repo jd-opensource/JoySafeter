@@ -91,7 +91,7 @@ CATALOG: dict[str, CatalogEntry] = {
     "AUTH_INVALID_ASSIGNABLE_ROLE": CatalogEntry(
         code="AUTH_INVALID_ASSIGNABLE_ROLE",
         error_class=InvalidRequestError,
-        default_message="Invalid role. Must be one of: admin, developer, viewer",
+        default_message="Invalid role for this operation",
     ),
     "AUTH_REQUIRED": CatalogEntry(
         code="AUTH_REQUIRED", error_class=AuthenticationError, default_message="Authentication required"
@@ -107,6 +107,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="CLIENT_CLOSED", error_class=ClientClosedError, default_message="客户端已关闭连接"
     ),
     "CONFLICT": CatalogEntry(code="CONFLICT", error_class=ResourceConflictError, default_message="资源冲突"),
+    "CSRF_VALIDATION_FAILED": CatalogEntry(
+        code="CSRF_VALIDATION_FAILED",
+        error_class=AccessDeniedError,
+        default_message="CSRF 校验失败，请刷新页面后重试 / CSRF validation failed",
+    ),
     "DEFAULT_PROJECT_NOT_FOUND": CatalogEntry(
         code="DEFAULT_PROJECT_NOT_FOUND",
         error_class=NotFoundError,

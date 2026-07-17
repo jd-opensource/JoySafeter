@@ -49,6 +49,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.common.joysafeter_auth.context import (
     ProjectCapability,
+    ProjectRole,
     effective_project_capability,
 )
 from app.joysafeter_shared.common.response import success_response
@@ -125,7 +126,7 @@ class ApiKeyCreateResponse(BaseModel):
 
 class CreateApiKeyRequest(BaseModel):
     name: str
-    role: str = "developer"
+    role: str = "viewer"
 
 
 # ---------------------------------------------------------------------------
@@ -219,26 +220,30 @@ def _auth_permission_error(
     )
 
 
-def _normalize_assignable_role(role: str) -> JoySafeterRole:
-    normalized = (role or "").strip().lower()
-    if normalized == "member":
-        normalized = "developer"
-    allowed = [JoySafeterRole.ADMIN.value, JoySafeterRole.DEVELOPER.value, JoySafeterRole.VIEWER.value]
-    if normalized not in set(allowed):
+def _normalize_api_key_role(role: str) -> ProjectRole:
+    """Validate an API-key role against the project capability vocabulary.
+
+    An API key is pinned to one project and authenticates as a non-super-user
+    whose capability is its stored role, so its role uses the project vocabulary
+    (admin / editor / viewer). Legacy values are folded in by ProjectRole; a
+    truly unrecognized value is rejected.
+    """
+    try:
+        return ProjectRole.parse_strict(role)
+    except ValueError:
         raise InvalidRequestError(
             code="AUTH_INVALID_ASSIGNABLE_ROLE",
-            message="Invalid role. Must be one of: admin, developer, viewer",
-            data={"role": role, "allowed": allowed},
+            message="Invalid role. Must be one of: admin, editor, viewer",
+            data={"role": role, "allowed": [r.value for r in ProjectRole]},
             source="auth",
             user_action="correct_request",
         )
-    return JoySafeterRole(normalized)
 
 
 def _ensure_key_capability_within_creator(
     creator_role: JoySafeterRole,
     creator_project_role: str | None,
-    requested_role: JoySafeterRole,
+    requested_role: ProjectRole,
 ) -> None:
     """Cap a new API key's project capability at the creator's own.
 
@@ -248,7 +253,7 @@ def _ensure_key_capability_within_creator(
     wrong axis now that org role and project capability are decoupled.
     """
     creator_cap = effective_project_capability(creator_role, creator_project_role)
-    key_cap = effective_project_capability(JoySafeterRole.VIEWER, requested_role.value)
+    key_cap = effective_project_capability(JoySafeterRole.MEMBER, requested_role.value)
     if key_cap > creator_cap:
         raise _auth_permission_error(
             code="AUTH_API_KEY_CAPABILITY_EXCEEDED",
@@ -974,7 +979,7 @@ async def create_api_key(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_write),
 ) -> ApiKeyCreateResponse:
     """Create a new API key. Returns the raw key once."""
-    role = _normalize_assignable_role(req.role)
+    role = _normalize_api_key_role(req.role)
     _ensure_key_capability_within_creator(auth_ctx.role, auth_ctx.project_role, role)
     svc = ApiKeyService(db)
     api_key, raw_key = await svc.create_api_key(
@@ -1128,7 +1133,7 @@ class ProjectAccess(str, Enum):
     ORG_WIDE = "org_wide"
     # has an explicit ProjectMember row for this project
     EXPLICIT = "explicit"
-    # developer/viewer without a row — cannot access
+    # ordinary member without a row — cannot access
     NONE = "none"
 
 
@@ -1144,8 +1149,9 @@ class ProjectMemberResponse(BaseModel):
 class AddProjectMemberRequest(BaseModel):
     user_id: str
     # Project role: admin / editor / viewer. Normalized on grant; drives the
-    # member's effective capability in this project.
-    role: str = "editor"
+    # member's effective capability in this project. Defaults to viewer (least
+    # privilege); the management UI always sends an explicit role.
+    role: str = "viewer"
 
 
 def _project_member_access(org_role: str, *, has_explicit_row: bool) -> ProjectAccess:

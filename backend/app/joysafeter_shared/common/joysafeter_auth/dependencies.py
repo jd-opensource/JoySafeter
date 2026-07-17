@@ -33,10 +33,9 @@ from .context import (
 # ---------------------------------------------------------------------------
 
 
-# Map OrgRole string values (from the member table) to JoySafeterRole.
-# OrgRole has: owner, admin, member.  "member" maps to "developer" in joysafeter.
+# Map a stored org-member role string (from the member table) to JoySafeterRole.
 def _map_org_role(role_value: str) -> JoySafeterRole:
-    """Convert an OrgRole string to a JoySafeterRole, defaulting to VIEWER."""
+    """Convert a stored org-member role string to a JoySafeterRole."""
     return JoySafeterRole.normalize(role_value)
 
 
@@ -315,7 +314,7 @@ async def _auth_via_api_key(
         user_id=api_key.created_by,
         org_id=api_key.org_id,
         project_id=api_key.project_id,
-        role=JoySafeterRole.VIEWER,
+        role=JoySafeterRole.MEMBER,
         principal_type="api_key",
         project_role=api_key.role,
     )
@@ -459,7 +458,7 @@ async def require_joysafeter_write(
     db: AsyncSession = Depends(get_db),
     ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> JoySafeterAuthContext:
-    """Require at least write-level access (owner / admin / developer).
+    """Require at least write-level access.
 
     Performs a real-time DB check to verify the user still has membership
     and the project still belongs to their org. This prevents stale JWT
@@ -513,7 +512,7 @@ async def _require_write_context(db: AsyncSession, ctx: JoySafeterAuthContext) -
         # access, but the effective capability is capped at min(key, creator) and
         # the returned context keeps the key's own (non-super-user) identity so
         # downstream quota accounting still treats it as a service principal.
-        key_capability = effective_project_capability(JoySafeterRole.VIEWER, ctx.project_role)
+        key_capability = effective_project_capability(JoySafeterRole.MEMBER, ctx.project_role)
         if min(creator_capability, key_capability) < ProjectCapability.WRITE:
             raise AccessDeniedError(
                 "Write access required",
