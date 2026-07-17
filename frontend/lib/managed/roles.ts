@@ -54,3 +54,27 @@ export function roleOptions(
 
   return roles.map((role) => ({ value: role, label: roleLabel(t, role) }))
 }
+
+// ── Per-project roles (admin/editor/viewer) — distinct from org roles above ──
+
+export type ProjectRole = 'admin' | 'editor' | 'viewer'
+
+export function projectRoleLabel(t: Translator, role?: string | null): string {
+  switch ((role || '').toLowerCase()) {
+    case 'admin':
+      return t('manage.projectMembers.roleAdmin')
+    case 'editor':
+      return t('manage.projectMembers.roleEditor')
+    case 'viewer':
+      return t('manage.projectMembers.roleViewer')
+    default:
+      return role || '-'
+  }
+}
+
+export function projectRoleOptions(t: Translator) {
+  return (['admin', 'editor', 'viewer'] as const).map((role) => ({
+    value: role,
+    label: projectRoleLabel(t, role),
+  }))
+}

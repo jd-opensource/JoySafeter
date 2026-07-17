@@ -86,6 +86,7 @@ const manageItems: NavItem[] = [
   { to: '/managed/settings', labelKey: 'nav.organization', icon: Building2 },
   { to: '/managed/projects', labelKey: 'nav.projects', icon: FolderCode },
   { to: '/managed/members', labelKey: 'nav.members', icon: Users },
+  { to: '/managed/project-members', labelKey: 'nav.projectMembers', icon: Users },
   { to: '/managed/api-keys', labelKey: 'nav.apiKeys', icon: KeyRound },
 ]
 
