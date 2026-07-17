@@ -194,6 +194,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=AuthenticationError,
         default_message="凭证缺失或无效，请重新登录 / Missing or invalid credentials",
     ),
+    "JOYSAFETER_USER_SESSION_REQUIRED": CatalogEntry(
+        code="JOYSAFETER_USER_SESSION_REQUIRED",
+        error_class=AccessDeniedError,
+        default_message="User session required",
+    ),
     "JOYSAFETER_WRITE_REQUIRED": CatalogEntry(
         code="JOYSAFETER_WRITE_REQUIRED", error_class=AccessDeniedError, default_message="Write access required"
     ),
@@ -341,6 +346,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=AccessDeniedError,
         default_message="Insufficient organization permission",
     ),
+    "ORGANIZATION_PROJECT_RESOURCES_EXIST": CatalogEntry(
+        code="ORGANIZATION_PROJECT_RESOURCES_EXIST",
+        error_class=ResourceConflictError,
+        default_message="Organization has project resources",
+    ),
     "PROJECT_ACCESS_DENIED": CatalogEntry(
         code="PROJECT_ACCESS_DENIED", error_class=AccessDeniedError, default_message="No access to project"
     ),
@@ -361,7 +371,7 @@ CATALOG: dict[str, CatalogEntry] = {
     ),
     "PROJECT_ARCHIVED": CatalogEntry(
         code="PROJECT_ARCHIVED",
-        error_class=AccessDeniedError,
+        error_class=ResourceConflictError,
         default_message="项目已归档，仅支持只读操作 / Project is archived and read-only",
     ),
     "PROJECT_DEFAULT_ARCHIVE_FORBIDDEN": CatalogEntry(
@@ -369,11 +379,44 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="Cannot archive the default project",
     ),
-    "PROJECT_ID_REQUIRED": CatalogEntry(
-        code="PROJECT_ID_REQUIRED", error_class=NotFoundError, default_message="project_id required"
+    "PROJECT_NAME_REQUIRED": CatalogEntry(
+        code="PROJECT_NAME_REQUIRED", error_class=InvalidRequestError, default_message="Project name is required"
+    ),
+    "PROJECT_NAME_TOO_LONG": CatalogEntry(
+        code="PROJECT_NAME_TOO_LONG",
+        error_class=InvalidRequestError,
+        default_message="Project name must be 255 characters or fewer",
     ),
     "PROJECT_NOT_FOUND": CatalogEntry(
         code="PROJECT_NOT_FOUND", error_class=NotFoundError, default_message="Project not found"
+    ),
+    "PROJECT_MEMBER_NOT_FOUND": CatalogEntry(
+        code="PROJECT_MEMBER_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="User has no explicit membership in this project",
+    ),
+    "PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN": CatalogEntry(
+        code="PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN",
+        error_class=InvalidRequestError,
+        default_message="Cannot remove a member from the default project",
+    ),
+    "PROJECT_SLUG_CONFLICT": CatalogEntry(
+        code="PROJECT_SLUG_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="Project slug already exists in this organization",
+    ),
+    "PROJECT_SLUG_INVALID": CatalogEntry(
+        code="PROJECT_SLUG_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Project slug must contain only lowercase letters, numbers, and hyphens",
+    ),
+    "PROJECT_SLUG_REQUIRED": CatalogEntry(
+        code="PROJECT_SLUG_REQUIRED", error_class=InvalidRequestError, default_message="Project slug is required"
+    ),
+    "PROJECT_SLUG_TOO_LONG": CatalogEntry(
+        code="PROJECT_SLUG_TOO_LONG",
+        error_class=InvalidRequestError,
+        default_message="Project slug must be 255 characters or fewer",
     ),
     "PROJECT_TASK_LIMIT_EXCEEDED": CatalogEntry(
         code="PROJECT_TASK_LIMIT_EXCEEDED",
@@ -546,6 +589,9 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SESSION_IDEMPOTENCY_KEY_MISMATCH",
         error_class=ResourceConflictError,
         default_message="Idempotency-Key was already used for a different session",
+    ),
+    "SESSION_ID_INVALID": CatalogEntry(
+        code="SESSION_ID_INVALID", error_class=InvalidRequestError, default_message="Invalid session_id"
     ),
     "SESSION_INTERRUPT_DELIVERY_FAILED": CatalogEntry(
         code="SESSION_INTERRUPT_DELIVERY_FAILED",
