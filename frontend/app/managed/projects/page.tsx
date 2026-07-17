@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -14,7 +15,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Star, Pencil, Archive, RotateCcw } from 'lucide-react'
+import { Plus, Star, Pencil, Archive, RotateCcw, Users } from 'lucide-react'
 import {
   DataTable,
   FilterBar,
@@ -51,6 +52,7 @@ interface ProjectScopedAction {
 export default function ProjectsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const router = useRouter()
   const { canAdmin } = useUserPermissionsContext()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const orgScope = currentOrgId ?? ''
@@ -450,6 +452,11 @@ export default function ProjectsPage() {
                     label: t('common.edit'),
                     icon: <Pencil className="h-3.5 w-3.5" />,
                     onClick: () => openEditDialog(project),
+                  },
+                  {
+                    label: t('manage.projects.members'),
+                    icon: <Users className="h-3.5 w-3.5" />,
+                    onClick: () => router.push(`/managed/projects/${project.id}/members`),
                   },
                 ]
 

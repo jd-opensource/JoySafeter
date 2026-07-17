@@ -8,6 +8,10 @@ vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string, _params?: unknown) => key }),
 }))
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 vi.mock('@/lib/api-client', () => ({
   managedDelete: vi.fn(),
   managedGet: vi.fn(),

@@ -63,7 +63,6 @@ const zh = {
       memory: '记忆',
       manage: '管理',
       members: '成员',
-      projectMembers: '项目成员',
       apiKeys: 'API 密钥',
       projects: '项目',
       organization: '组织',
@@ -172,6 +171,7 @@ const zh = {
         revoke: '撤销',
       },
       projects: {
+        members: '成员',
         title: '项目管理',
         subtitle: '管理组织下的项目。',
         create: '新建项目',

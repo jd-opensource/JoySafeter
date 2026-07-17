@@ -58,7 +58,6 @@ const en = {
       memory: 'Memory',
       manage: 'Manage',
       members: 'Members',
-      projectMembers: 'Project Members',
       apiKeys: 'API Keys',
       projects: 'Projects',
       organization: 'Organization',
@@ -1592,6 +1591,7 @@ const en = {
         revoke: 'Revoke',
       },
       projects: {
+        members: 'Members',
         title: 'Projects',
         subtitle: 'Manage projects in this organization.',
         create: 'New Project',
