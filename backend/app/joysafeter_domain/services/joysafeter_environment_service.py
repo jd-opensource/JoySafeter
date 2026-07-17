@@ -10,6 +10,7 @@ from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnviro
 from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     UpdateEnvironmentRequest,
@@ -31,15 +32,15 @@ class EnvironmentService:
     async def create_environment(
         self, req: CreateEnvironmentRequest, project_id: Optional[str] = None
     ) -> JoySafeterEnvironment:
-        # Purge any soft-deleted rows with the same name before inserting
-        await self.db.execute(
-            delete(JoySafeterEnvironment).where(
-                and_(
-                    JoySafeterEnvironment.name == req.name,
-                    JoySafeterEnvironment.deleted_at.is_not(None),
-                )
-            )
-        )
+        purge_conditions: list[ColumnElement[bool]] = [
+            JoySafeterEnvironment.name == req.name,
+            JoySafeterEnvironment.deleted_at.is_not(None),
+        ]
+        if project_id is not None:
+            purge_conditions.append(JoySafeterEnvironment.project_id == project_id)
+        else:
+            purge_conditions.append(JoySafeterEnvironment.project_id.is_(None))
+        await self.db.execute(delete(JoySafeterEnvironment).where(and_(*purge_conditions)))
         kwargs = dict(
             name=req.name,
             description=req.description,
@@ -103,9 +104,7 @@ class EnvironmentService:
             q = q.where(JoySafeterEnvironment.archived_at.is_(None))
         if project_id is not None:
             q = q.where(JoySafeterEnvironment.project_id == project_id)
-        if after_id:
-            q = q.where(JoySafeterEnvironment.id < after_id)
-        q = q.order_by(JoySafeterEnvironment.created_at.desc()).limit(limit + 1)
+        q = apply_created_at_desc_cursor(q, JoySafeterEnvironment, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         envs = list(result.scalars().all())
         has_more = len(envs) > limit

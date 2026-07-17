@@ -20,6 +20,7 @@ from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkillSecurityScan,
     JoySafeterSkillVisibility,
 )
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 
 from .base import BaseRepository
 
@@ -182,13 +183,10 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
             for tag in tags:
                 conditions.append(JoySafeterSkill.tags.contains([tag]))
 
-        if after_id:
-            conditions.append(JoySafeterSkill.id < after_id)
-
         if conditions:
             query = query.where(and_(*conditions))
 
-        query = query.order_by(JoySafeterSkill.created_at.desc()).limit(limit + 1)
+        query = apply_created_at_desc_cursor(query, JoySafeterSkill, after_id).limit(limit + 1)
         result = await self.db.execute(query)
         items = list(result.scalars().all())
         has_more = len(items) > limit
@@ -250,9 +248,7 @@ class SkillSecurityScanRepository(BaseRepository[JoySafeterSkillSecurityScan]):
     ) -> tuple[List[JoySafeterSkillSecurityScan], bool]:
         """List scan history for a skill with cursor pagination."""
         query = select(JoySafeterSkillSecurityScan).where(JoySafeterSkillSecurityScan.skill_id == skill_id)
-        if after_id:
-            query = query.where(JoySafeterSkillSecurityScan.id < after_id)
-        query = query.order_by(JoySafeterSkillSecurityScan.created_at.desc()).limit(limit + 1)
+        query = apply_created_at_desc_cursor(query, JoySafeterSkillSecurityScan, after_id).limit(limit + 1)
         result = await self.db.execute(query)
         items = list(result.scalars().all())
         has_more = len(items) > limit

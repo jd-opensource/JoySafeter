@@ -7,11 +7,13 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid_utils import uuid7
 
 from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.storage.base import StorageBackend
 
@@ -176,13 +178,18 @@ class FileService:
                 JoySafeterFile.project_id == project_id,
                 JoySafeterFile.deleted_at.is_(None),
             )
-            .order_by(desc(JoySafeterFile.created_at))
         )
         if session_id:
-            q = q.where(JoySafeterFile.session_id == session_id)
-        if after_id:
-            q = q.where(JoySafeterFile.id < after_id)
-        q = q.limit(limit + 1)
+            q = q.where(
+                JoySafeterFile.session_id == session_id,
+                select(JoySafeterSession.id)
+                .where(
+                    JoySafeterSession.id == session_id,
+                    JoySafeterSession.project_id == project_id,
+                )
+                .exists(),
+            )
+        q = apply_created_at_desc_cursor(q, JoySafeterFile, after_id).limit(limit + 1)
 
         result = await db.execute(q)
         rows = list(result.scalars().all())

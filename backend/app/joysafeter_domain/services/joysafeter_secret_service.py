@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import and_, delete, outerjoin, select, update
+from sqlalchemy import and_, delete, or_, outerjoin, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -143,15 +143,15 @@ class SecretService:
         return next_data
 
     async def create_secret(self, req: CreateSecretRequest, project_id: Optional[str] = None) -> JoySafeterSecret:
-        # Purge any soft-deleted row with the same name before inserting
-        await self.db.execute(
-            delete(JoySafeterSecret).where(
-                and_(
-                    JoySafeterSecret.name == req.name,
-                    JoySafeterSecret.deleted_at.is_not(None),
-                )
-            )
-        )
+        purge_conditions: list[ColumnElement[bool]] = [
+            JoySafeterSecret.name == req.name,
+            JoySafeterSecret.deleted_at.is_not(None),
+        ]
+        if project_id is not None:
+            purge_conditions.append(JoySafeterSecret.project_id == project_id)
+        else:
+            purge_conditions.append(JoySafeterSecret.project_id.is_(None))
+        await self.db.execute(delete(JoySafeterSecret).where(and_(*purge_conditions)))
         kwargs = dict(
             name=req.name,
             provider=req.provider,
@@ -169,14 +169,15 @@ class SecretService:
         await self.db.refresh(secret)
         return secret
 
-    async def get_secret(self, secret_id: uuid.UUID) -> Optional[JoySafeterSecret]:
+    async def get_secret(self, secret_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:
+        conditions: list[ColumnElement[bool]] = [
+            JoySafeterSecret.id == secret_id,
+            JoySafeterSecret.deleted_at.is_(None),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterSecret.project_id == project_id)
         result = await self.db.execute(
-            select(JoySafeterSecret).where(
-                and_(
-                    JoySafeterSecret.id == secret_id,
-                    JoySafeterSecret.deleted_at.is_(None),
-                )
-            )
+            select(JoySafeterSecret).where(and_(*conditions))
         )
         return result.scalar_one_or_none()
 
@@ -185,7 +186,7 @@ class SecretService:
             JoySafeterSecret.name == name,
             JoySafeterSecret.deleted_at.is_(None),
         ]
-        if project_id:
+        if project_id is not None:
             conditions.append(JoySafeterSecret.project_id == project_id)
         result = await self.db.execute(select(JoySafeterSecret).where(and_(*conditions)))
         return result.scalar_one_or_none()
@@ -195,7 +196,7 @@ class SecretService:
             JoySafeterSecret.is_default.is_(True),
             JoySafeterSecret.deleted_at.is_(None),
         ]
-        if project_id:
+        if project_id is not None:
             conditions.append(JoySafeterSecret.project_id == project_id)
         result = await self.db.execute(
             select(JoySafeterSecret).where(and_(*conditions)).order_by(JoySafeterSecret.updated_at.desc()).limit(1)
@@ -207,7 +208,7 @@ class SecretService:
             JoySafeterSecret.is_default.is_(True),
             JoySafeterSecret.deleted_at.is_(None),
         ]
-        if project_id:
+        if project_id is not None:
             conditions.append(JoySafeterSecret.project_id == project_id)
         await self.db.execute(
             update(JoySafeterSecret).where(and_(*conditions)).values(is_default=False, updated_at=utc_now())
@@ -217,10 +218,8 @@ class SecretService:
     async def set_default_secret(
         self, secret_id: uuid.UUID, project_id: Optional[str] = None
     ) -> Optional[JoySafeterSecret]:
-        secret = await self.get_secret(secret_id)
+        secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
-            return None
-        if project_id is not None and secret.project_id != project_id:
             return None
         await self.clear_default_secret(project_id=project_id)
         secret.is_default = True
@@ -239,15 +238,44 @@ class SecretService:
         if project_id is not None:
             q = q.where(JoySafeterSecret.project_id == project_id)
         if after_id:
-            q = q.where(JoySafeterSecret.id < after_id)
-        q = q.order_by(JoySafeterSecret.is_default.desc(), JoySafeterSecret.created_at.desc()).limit(limit + 1)
+            cursor_is_default = (
+                select(JoySafeterSecret.is_default).where(JoySafeterSecret.id == after_id).scalar_subquery()
+            )
+            cursor_created_at = (
+                select(JoySafeterSecret.created_at).where(JoySafeterSecret.id == after_id).scalar_subquery()
+            )
+            q = q.where(
+                or_(
+                    JoySafeterSecret.is_default < cursor_is_default,
+                    and_(
+                        JoySafeterSecret.is_default == cursor_is_default,
+                        or_(
+                            JoySafeterSecret.created_at < cursor_created_at,
+                            and_(
+                                JoySafeterSecret.created_at == cursor_created_at,
+                                JoySafeterSecret.id < after_id,
+                            ),
+                        ),
+                    ),
+                )
+            )
+        q = q.order_by(
+            JoySafeterSecret.is_default.desc(),
+            JoySafeterSecret.created_at.desc(),
+            JoySafeterSecret.id.desc(),
+        ).limit(limit + 1)
         result = await self.db.execute(q)
         secrets = list(result.scalars().all())
         has_more = len(secrets) > limit
         return secrets[:limit], has_more
 
-    async def update_secret(self, secret_id: uuid.UUID, req: UpdateSecretRequest) -> Optional[JoySafeterSecret]:
-        secret = await self.get_secret(secret_id)
+    async def update_secret(
+        self,
+        secret_id: uuid.UUID,
+        req: UpdateSecretRequest,
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterSecret]:
+        secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
             return None
         if req.provider is not None:
@@ -260,8 +288,8 @@ class SecretService:
         await self.db.refresh(secret)
         return secret
 
-    async def delete_secret(self, secret_id: uuid.UUID) -> bool:
-        secret = await self.get_secret(secret_id)
+    async def delete_secret(self, secret_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+        secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
             return False
         secret.deleted_at = utc_now()
@@ -270,10 +298,14 @@ class SecretService:
         await self.db.commit()
         return True
 
-    async def hard_delete_secret(self, secret_id: uuid.UUID) -> None:
+    async def hard_delete_secret(self, secret_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
         """Physical DELETE FROM joysafeter_secrets WHERE id = :id."""
-        await self.db.execute(delete(JoySafeterSecret).where(JoySafeterSecret.id == secret_id))
+        conditions: list[ColumnElement[bool]] = [JoySafeterSecret.id == secret_id]
+        if project_id is not None:
+            conditions.append(JoySafeterSecret.project_id == project_id)
+        result = await self.db.execute(delete(JoySafeterSecret).where(and_(*conditions)))
         await self.db.commit()
+        return bool(result.rowcount)
 
     async def secret_is_referenced(self, name: str, project_id: Optional[str] = None) -> bool:
         """Check if any live agent or environment references this secret name."""

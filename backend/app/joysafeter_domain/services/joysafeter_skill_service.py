@@ -1510,6 +1510,13 @@ class SkillService(BaseService[JoySafeterSkill]):
             # Permission check: Only owner can delete
         if skill.owner_id != current_user_id:
             raise AccessDeniedError("Only the owner can delete a skill", code="SKILL_DELETE_FORBIDDEN")
+        await check_skill_access(
+            self.db,
+            skill,
+            current_user_id,
+            JoySafeterCollaboratorRole.admin,
+            active_org_id=self._active_org_id,
+        )
         _ensure_skill_mutable(skill)
 
             # Delete associated files

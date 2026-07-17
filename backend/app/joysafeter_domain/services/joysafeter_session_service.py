@@ -265,6 +265,7 @@ from sqlalchemy import and_, update
 from app.joysafeter_domain.models.joysafeter_session import (
     SessionStatus,
 )
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 
 # State machine ``_VALID_TRANSITIONS`` and ``_RETRYABLE_DB_ERROR_MARKERS`` /
 # ``_is_retryable_db_error`` were defined identically in an earlier merged
@@ -322,8 +323,15 @@ class SessionService:
         await self.db.refresh(session)
         return session
 
-    async def get_session(self, session_id: uuid.UUID) -> Optional[JoySafeterSession]:
-        result = await self.db.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    async def get_session(
+        self,
+        session_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterSession]:
+        conditions = [JoySafeterSession.id == session_id]
+        if project_id is not None:
+            conditions.append(JoySafeterSession.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterSession).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def list_sessions(
@@ -338,12 +346,7 @@ class SessionService:
             q = q.where(JoySafeterSession.archived_at.is_(None))
         if project_id is not None:
             q = q.where(JoySafeterSession.project_id == project_id)
-        if after_id:
-            cursor_created_at = (
-                select(JoySafeterSession.created_at).where(JoySafeterSession.id == after_id).scalar_subquery()
-            )
-            q = q.where(JoySafeterSession.created_at < cursor_created_at)
-        q = q.order_by(JoySafeterSession.created_at.desc()).limit(limit + 1)
+        q = apply_created_at_desc_cursor(q, JoySafeterSession, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         sessions = list(result.scalars().all())
         has_more = len(sessions) > limit
@@ -362,41 +365,36 @@ class SessionService:
             q = q.where(JoySafeterSession.archived_at.is_(None))
         if project_id is not None:
             q = q.where(JoySafeterSession.project_id == project_id)
-        if after_id:
-            cursor_created_at = (
-                select(JoySafeterSession.created_at).where(JoySafeterSession.id == after_id).scalar_subquery()
-            )
-            q = q.where(JoySafeterSession.created_at < cursor_created_at)
-        q = q.order_by(JoySafeterSession.created_at.desc()).limit(limit + 1)
+        q = apply_created_at_desc_cursor(q, JoySafeterSession, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         sessions = list(result.scalars().all())
         has_more = len(sessions) > limit
         return sessions[:limit], has_more
 
-    async def delete_session(self, session_id: uuid.UUID) -> bool:
-        session = await self.get_session(session_id)
+    async def delete_session(self, session_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+        session = await self.get_session(session_id, project_id=project_id)
         if not session:
             return False
         from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
         from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 
         terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+        active_conditions = [
+            JoySafeterTask.chat_session_id == session_id,
+            JoySafeterTask.status.notin_(terminal_values),
+        ]
+        if project_id is not None:
+            active_conditions.append(JoySafeterTask.project_id == project_id)
         active_result = await self.db.execute(
-            select(func.count())
-            .select_from(JoySafeterTask)
-            .where(
-                and_(
-                    JoySafeterTask.chat_session_id == session_id,
-                    JoySafeterTask.status.notin_(terminal_values),
-                )
-            )
+            select(func.count()).select_from(JoySafeterTask).where(and_(*active_conditions))
         )
         if (active_result.scalar() or 0) > 0:
             raise ConflictError(code="CONFLICT", message="Cannot delete session with active tasks")
 
-        await self.db.execute(
-            update(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id).values(chat_session_id=None)
-        )
+        task_detach_conditions = [JoySafeterTask.chat_session_id == session_id]
+        if project_id is not None:
+            task_detach_conditions.append(JoySafeterTask.project_id == project_id)
+        await self.db.execute(update(JoySafeterTask).where(and_(*task_detach_conditions)).values(chat_session_id=None))
         from sqlalchemy import delete as sa_delete
 
         await self.db.execute(
@@ -406,8 +404,8 @@ class SessionService:
         await self.db.commit()
         return True
 
-    async def archive_session(self, session_id: uuid.UUID) -> bool:
-        session = await self.get_session(session_id)
+    async def archive_session(self, session_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+        session = await self.get_session(session_id, project_id=project_id)
         if not session:
             return False
         if session.status == SessionStatus.RUNNING.value:
@@ -415,22 +413,21 @@ class SessionService:
         from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 
         terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+        active_conditions = [
+            JoySafeterTask.chat_session_id == session_id,
+            JoySafeterTask.status.notin_(terminal_values),
+        ]
+        if project_id is not None:
+            active_conditions.append(JoySafeterTask.project_id == project_id)
         active_result = await self.db.execute(
-            select(func.count())
-            .select_from(JoySafeterTask)
-            .where(
-                and_(
-                    JoySafeterTask.chat_session_id == session_id,
-                    JoySafeterTask.status.notin_(terminal_values),
-                )
-            )
+            select(func.count()).select_from(JoySafeterTask).where(and_(*active_conditions))
         )
         if (active_result.scalar() or 0) > 0:
             raise ConflictError(code="CONFLICT", message="Cannot archive session with active tasks")
         if session.archived_at:
             return True
         if session.status != SessionStatus.TERMINATED.value:
-            await self.update_session_status(session_id, SessionStatus.TERMINATED.value)
+            await self.update_session_status(session_id, SessionStatus.TERMINATED.value, project_id=project_id)
         session.archived_at = utc_now()
         await self.db.commit()
         return True
@@ -440,6 +437,7 @@ class SessionService:
         session_id: uuid.UUID,
         status: str,
         stop_reason: Optional[dict] = None,
+        project_id: Optional[str] = None,
     ) -> bool:
         # CRITICAL FIX: Acquire advisory lock BEFORE row lock to prevent deadlocks.
         # The batch_writer acquires advisory lock then touches session rows via FK.
@@ -448,9 +446,10 @@ class SessionService:
         lock_key = session_advisory_lock_key(session_id)
         await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
-        result = await self.db.execute(
-            select(JoySafeterSession).where(JoySafeterSession.id == session_id).with_for_update()
-        )
+        conditions = [JoySafeterSession.id == session_id]
+        if project_id is not None:
+            conditions.append(JoySafeterSession.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterSession).where(and_(*conditions)).with_for_update())
         session = result.scalar_one_or_none()
         if not session:
             return False
@@ -679,8 +678,18 @@ class SessionService:
         session_id: uuid.UUID,
         limit: int = 50,
         after_seq: Optional[int] = None,
+        project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterSessionEvent], bool]:
         q = select(JoySafeterSessionEvent).where(JoySafeterSessionEvent.session_id == session_id)
+        if project_id is not None:
+            q = q.where(
+                select(JoySafeterSession.id)
+                .where(
+                    JoySafeterSession.id == session_id,
+                    JoySafeterSession.project_id == project_id,
+                )
+                .exists()
+            )
         if after_seq is not None:
             q = q.where(JoySafeterSessionEvent.seq > after_seq)
         q = q.order_by(JoySafeterSessionEvent.seq.asc(), JoySafeterSessionEvent.id.asc()).limit(limit + 1)
@@ -688,6 +697,64 @@ class SessionService:
         events = list(result.scalars().all())
         has_more = len(events) > limit
         return events[:limit], has_more
+
+    async def find_user_message_event_by_idempotency_key(
+        self,
+        session_id: uuid.UUID,
+        idempotency_key: str,
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterSessionEvent]:
+        conditions = [
+            JoySafeterSessionEvent.session_id == session_id,
+            JoySafeterSessionEvent.event_type == "user.message",
+            text("payload->>'_idempotency_key' = :idempotency_key"),
+        ]
+        if project_id is not None:
+            conditions.append(
+                select(JoySafeterSession.id)
+                .where(
+                    JoySafeterSession.id == session_id,
+                    JoySafeterSession.project_id == project_id,
+                )
+                .exists()
+            )
+        result = await self.db.execute(
+            select(JoySafeterSessionEvent)
+            .where(and_(*conditions))
+            .params(idempotency_key=idempotency_key)
+            .order_by(JoySafeterSessionEvent.seq.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def find_status_running_event_for_task(
+        self,
+        session_id: uuid.UUID,
+        task_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterSessionEvent]:
+        conditions = [
+            JoySafeterSessionEvent.session_id == session_id,
+            JoySafeterSessionEvent.event_type == "session.status_running",
+            text("payload->>'task_id' = :task_id"),
+        ]
+        if project_id is not None:
+            conditions.append(
+                select(JoySafeterSession.id)
+                .where(
+                    JoySafeterSession.id == session_id,
+                    JoySafeterSession.project_id == project_id,
+                )
+                .exists()
+            )
+        result = await self.db.execute(
+            select(JoySafeterSessionEvent)
+            .where(and_(*conditions))
+            .params(task_id=str(task_id))
+            .order_by(JoySafeterSessionEvent.seq.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def task_has_agent_output(self, task_id: uuid.UUID, session_id: uuid.UUID) -> bool:
         """Check if a task has emitted agent.message events (produced output)."""

@@ -22,6 +22,7 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTask,
     JoySafeterTaskStatus,
 )
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
 
 
@@ -139,11 +140,13 @@ class JoySafeterTaskService:
         agent_id: uuid.UUID,
         limit: int = 20,
         after_id: Optional[uuid.UUID] = None,
+        project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterTask], bool]:
-        q = select(JoySafeterTask).where(JoySafeterTask.agent_id == agent_id)
-        if after_id:
-            q = q.where(JoySafeterTask.id < after_id)
-        q = q.order_by(JoySafeterTask.created_at.desc()).limit(limit + 1)
+        conditions = [JoySafeterTask.agent_id == agent_id]
+        if project_id is not None:
+            conditions.append(JoySafeterTask.project_id == project_id)
+        q = select(JoySafeterTask).where(and_(*conditions))
+        q = apply_created_at_desc_cursor(q, JoySafeterTask, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         tasks = list(result.scalars().all())
         has_more = len(tasks) > limit
@@ -168,11 +171,9 @@ class JoySafeterTaskService:
             conditions.append(JoySafeterTask.status == status)
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
-        if after_id:
-            conditions.append(JoySafeterTask.id < after_id)
         if conditions:
             q = q.where(and_(*conditions))
-        q = q.order_by(JoySafeterTask.created_at.desc()).limit(limit + 1)
+        q = apply_created_at_desc_cursor(q, JoySafeterTask, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         tasks = list(result.scalars().all())
         has_more = len(tasks) > limit
@@ -303,17 +304,18 @@ class JoySafeterTaskService:
     async def increment_retry(self, task_id: uuid.UUID, expected_epoch: Optional[int] = None) -> bool:
         return await self.state_machine.retry(task_id, expected_epoch=expected_epoch)
 
-    async def agent_has_active_tasks(self, agent_id: uuid.UUID) -> bool:
+    async def agent_has_active_tasks(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
         terminal_values = [s.value for s in TERMINAL_STATUSES]
+        conditions = [
+            JoySafeterTask.agent_id == agent_id,
+            JoySafeterTask.status.notin_(terminal_values),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterTask.project_id == project_id)
         result = await self.db.execute(
             select(func.count())
             .select_from(JoySafeterTask)
-            .where(
-                and_(
-                    JoySafeterTask.agent_id == agent_id,
-                    JoySafeterTask.status.notin_(terminal_values),
-                )
-            )
+            .where(and_(*conditions))
         )
         return cast(int, result.scalar()) > 0
 
