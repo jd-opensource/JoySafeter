@@ -141,6 +141,16 @@ import { useProjectStore } from '@/stores/managed/project-store'
 
 import AgentListPage from './page'
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 interface AgentRecord {
   id: string
   name: string
@@ -282,7 +292,11 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not archive an agent from an old row action after the current project is archived', async () => {
@@ -314,7 +328,11 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not invalidate the current project after an older project archive finishes', async () => {
@@ -356,9 +374,9 @@ describe('AgentListPage row action lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedPostMock).toHaveBeenCalledWith('/agents/agent-a/archive', {})
+      expect(managedPostMock).toHaveBeenCalledWith('/agents/agent-a/archive', {}, managedOptions())
     })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents', 'org-a:project-b'] })
   })
 
   it('does not invalidate agents from an archive completion after the page unmounts', async () => {
@@ -395,7 +413,7 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents', 'org-a:project-a'] })
   })
 
   it('does not invalidate agents from an archive completion after the current project is archived', async () => {
@@ -433,7 +451,7 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents', 'org-a:project-a'] })
   })
 
   it('does not archive an agent target that is no longer in the current agents list', async () => {
@@ -464,7 +482,11 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('exposes the delete action for an active agent row', async () => {
@@ -517,7 +539,10 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedGetMock).not.toHaveBeenCalledWith('/agents/agent-a/delete_preview')
+    expect(managedGetMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/delete_preview',
+      managedOptions(),
+    )
   })
 
   it('does not request a delete preview from an old row action after the current project is archived', async () => {
@@ -549,7 +574,10 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedGetMock).not.toHaveBeenCalledWith('/agents/agent-a/delete_preview')
+    expect(managedGetMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/delete_preview',
+      managedOptions(),
+    )
   })
 
   it('does not delete an agent target that leaves the current agents list before confirmation', async () => {
@@ -589,7 +617,7 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/agents/agent-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/agents/agent-a', managedOptions())
   })
 
   it('does not delete an agent from an old confirmation after the current project is archived', async () => {
@@ -629,7 +657,7 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/agents/agent-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/agents/agent-a', managedOptions())
   })
 
   it('does not invalidate agents from a delete completion after the current project is archived', async () => {
@@ -676,6 +704,6 @@ describe('AgentListPage row action lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['agents', 'org-a:project-a'] })
   })
 })

@@ -200,6 +200,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions() {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': 'project-a',
+    },
+    skipManagedContext: true,
+  }
+}
+
 describe('SecretListPage delete lifecycle', () => {
   beforeEach(() => {
     managedDeleteMock.mockReset()
@@ -307,7 +317,7 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/secrets/secret-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/secrets/secret-a', managedOptions())
   })
 
   it('does not set default on a secret target that leaves the current secrets list', async () => {
@@ -338,7 +348,11 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets/secret-a/default', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/secrets/secret-a/default',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not test a secret draft from old dialog state in the same turn as a project switch', async () => {
@@ -372,7 +386,11 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets/test', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/secrets/test',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not create a secret from old dialog state in the same turn as a project switch', async () => {
@@ -427,7 +445,11 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/secrets',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not delete a secret from an old confirmation in the same turn as a project switch', async () => {
@@ -461,7 +483,7 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/secrets/secret-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/secrets/secret-a', managedOptions())
   })
 
   it('does not set default from an old row action in the same turn as a project switch', async () => {
@@ -491,7 +513,11 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets/secret-a/default', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/secrets/secret-a/default',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not apply a test-connection result after the managed project changes', async () => {
@@ -622,9 +648,9 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect((getByPlaceholderText('managed.secrets.namePlaceholder') as HTMLInputElement).value).toBe(
-      'New Secret',
-    )
+    expect(
+      (getByPlaceholderText('managed.secrets.namePlaceholder') as HTMLInputElement).value,
+    ).toBe('New Secret')
   })
 
   it('does not close a new delete confirmation when an older delete finishes', async () => {
@@ -738,7 +764,7 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['secrets'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['secrets', 'org-a:project-a'] })
   })
 
   it('does not invalidate secrets from a delete completion after the page unmounts', async () => {
@@ -779,7 +805,7 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['secrets'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['secrets', 'org-a:project-a'] })
   })
 
   it('does not invalidate secrets from a set-default completion after the page unmounts', async () => {
@@ -816,7 +842,7 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['secrets'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['secrets', 'org-a:project-a'] })
   })
 
   it('hides project write actions when the current project is archived', async () => {
@@ -879,7 +905,11 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets/test', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/secrets/test',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not create a secret from old dialog state after the current project is archived', async () => {
@@ -936,7 +966,11 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/secrets',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not delete a secret from an old confirmation after the current project is archived', async () => {
@@ -972,7 +1006,7 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/secrets/secret-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/secrets/secret-a', managedOptions())
   })
 
   it('does not set default from an old row action after the current project is archived', async () => {
@@ -1004,6 +1038,10 @@ describe('SecretListPage delete lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/secrets/secret-a/default', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/secrets/secret-a/default',
+      {},
+      managedOptions(),
+    )
   })
 })

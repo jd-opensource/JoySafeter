@@ -168,7 +168,7 @@ export default function MembersPage() {
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(inviteRunRef, runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['org-members'] })
+      queryClient.invalidateQueries({ queryKey: ['org-members', scope] })
       resetInviteDialog(false)
     },
     onError: (err: Error, variables) => {
@@ -186,7 +186,7 @@ export default function MembersPage() {
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(removeRunRef, runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['org-members'] })
+      queryClient.invalidateQueries({ queryKey: ['org-members', scope] })
       setRemoveTarget(null)
     },
     onError: (err: Error, variables) => {
@@ -218,7 +218,7 @@ export default function MembersPage() {
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(roleRunRef, runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['org-members'] })
+      queryClient.invalidateQueries({ queryKey: ['org-members', scope] })
       setRoleTarget(null)
     },
     onError: (err: Error, variables) => {
@@ -262,18 +262,12 @@ export default function MembersPage() {
         const results = await managedGet<
           { id: string; email: string; name: string; image?: string; already_member: boolean }[]
         >(`/auth/search-users?q=${encodeURIComponent(value)}&limit=5`)
-        if (
-          requestSeq !== searchRequestSeqRef.current ||
-          !currentOrgScopeIsActive(requestScope)
-        )
+        if (requestSeq !== searchRequestSeqRef.current || !currentOrgScopeIsActive(requestScope))
           return
         setSearchResults(results)
         setShowDropdown(true)
       } catch {
-        if (
-          requestSeq !== searchRequestSeqRef.current ||
-          !currentOrgScopeIsActive(requestScope)
-        )
+        if (requestSeq !== searchRequestSeqRef.current || !currentOrgScopeIsActive(requestScope))
           return
         setSearchResults([])
       }

@@ -6,8 +6,15 @@ import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Archive, Trash2 } from 'lucide-react'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
+import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+  type ManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import type { Vault, VaultCredential } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import {
@@ -34,6 +41,8 @@ interface VaultDetailActionVariables {
   credId?: string
   runId: number
   scope: string
+  scopeKey: string
+  requestScope: ManagedRequestScope
 }
 
 export default function VaultDetailPage({ params }: { params: Promise<{ vaultId: string }> }) {
@@ -41,13 +50,12 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const operationScope = `${managedScope}:${id ?? ''}`
+  const operationScope = `${managedScope.key}:${id ?? ''}`
   const actionRunRef = useRef(0)
   const operationScopeRef = useRef(operationScope)
+  const managedRequestScopeRef = useRef(managedScope)
   const [showArchivedCredentials, setShowArchivedCredentials] = useState(false)
   const [createCredOpen, setCreateCredOpen] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -66,11 +74,12 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     onConfirm: () => {},
   })
 
-  const vaultId = stripIdPrefix(id || '')
+  const vaultId = apiResourceId(id || '')
 
   useEffect(() => {
     actionRunRef.current += 1
     operationScopeRef.current = operationScope
+    managedRequestScopeRef.current = managedScope
     setCreateCredOpen(false)
     setConfirmDialog({
       open: false,
@@ -80,7 +89,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
       destructive: false,
       onConfirm: () => {},
     })
-  }, [operationScope])
+  }, [operationScope, managedScope])
 
   useEffect(
     () => () => {
@@ -95,9 +104,10 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     isError,
     error,
   } = useQuery({
-    queryKey: ['vault', managedScope, id],
-    queryFn: () => managedGet<Vault>(`/vaults/${vaultId}`),
-    enabled: !!id,
+    queryKey: ['vault', managedScope.key, id],
+    queryFn: () =>
+      managedGet<Vault>(apiResourcePath('vaults', vaultId), managedRequestOptions(managedScope)),
+    enabled: !!id && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
 
@@ -106,12 +116,16 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     isLoading: credsLoading,
     isFetching: credsFetching,
   } = useQuery({
-    queryKey: ['vault-credentials', managedScope, id, showArchivedCredentials],
+    queryKey: ['vault-credentials', managedScope.key, id, showArchivedCredentials],
     queryFn: () =>
       managedGet<{ data: VaultCredential[]; has_more: boolean }>(
-        `/vaults/${vaultId}/credentials?limit=100&include_archived=${showArchivedCredentials}`,
+        apiResourceSubpath('vaults', vaultId, ['credentials'], {
+          limit: 100,
+          include_archived: showArchivedCredentials,
+        }),
+        managedRequestOptions(managedScope),
       ),
-    enabled: !!id,
+    enabled: !!id && hasManagedRequestScope(managedScope),
   })
 
   const credentials = (credsRes?.data || []).filter(
@@ -120,7 +134,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
 
   const getCurrentOperationScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}:${id ?? ''}`
+    return `${managedScopeKey(orgId, projectId)}:${id ?? ''}`
   }
 
   const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
@@ -137,19 +151,23 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   }
 
   const archiveVaultMutation = useMutation({
-    mutationFn: ({ vaultId, runId, scope }: VaultDetailActionVariables) => {
+    mutationFn: ({ vaultId, requestScope, runId, scope }: VaultDetailActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault detail archive ignored')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault detail archive ignored')
       }
-      return managedPost(`/vaults/${vaultId}/archive`, {})
+      return managedPost(
+        apiResourcePath('vaults', vaultId, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
     },
-    onSuccess: (_data, { id, runId, scope }) => {
+    onSuccess: (_data, { id, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vault', managedScope, id] })
-      queryClient.invalidateQueries({ queryKey: ['vaults'] })
+      queryClient.invalidateQueries({ queryKey: ['vault', scopeKey, id] })
+      queryClient.invalidateQueries({ queryKey: ['vaults', scopeKey] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
     onError: (error, { runId, scope }) => {
@@ -159,18 +177,18 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   })
 
   const deleteVaultMutation = useMutation({
-    mutationFn: ({ vaultId, runId, scope }: VaultDetailActionVariables) => {
+    mutationFn: ({ vaultId, requestScope, runId, scope }: VaultDetailActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault detail delete ignored')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault detail delete ignored')
       }
-      return managedDelete(`/vaults/${vaultId}`)
+      return managedDelete(apiResourcePath('vaults', vaultId), managedRequestOptions(requestScope))
     },
-    onSuccess: (_data, { runId, scope }) => {
+    onSuccess: (_data, { runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults'] })
+      queryClient.invalidateQueries({ queryKey: ['vaults', scopeKey] })
       router.push('/managed/vaults')
     },
     onError: (error, { runId, scope }) => {
@@ -180,18 +198,22 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   })
 
   const archiveCredMutation = useMutation({
-    mutationFn: ({ vaultId, credId, runId, scope }: VaultDetailActionVariables) => {
+    mutationFn: ({ vaultId, credId, requestScope, runId, scope }: VaultDetailActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault credential archive ignored')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault credential archive ignored')
       }
-      return managedPost(`/vaults/${vaultId}/credentials/${stripIdPrefix(credId!)}/archive`, {})
+      return managedPost(
+        apiResourcePath('vaults', vaultId, 'credentials', apiResourceId(credId!), 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
     },
-    onSuccess: (_data, { id, runId, scope }) => {
+    onSuccess: (_data, { id, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vault-credentials', managedScope, id] })
+      queryClient.invalidateQueries({ queryKey: ['vault-credentials', scopeKey, id] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
     onError: (error, { runId, scope }) => {
@@ -210,6 +232,8 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
       id,
       runId,
       scope: operationScopeRef.current,
+      scopeKey: managedRequestScopeRef.current.key,
+      requestScope: managedRequestScopeRef.current,
       ...extra,
     }
   }
@@ -217,7 +241,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   const currentVaultIsActive = () => {
     if (!currentProjectAllowsWrite()) return false
     if (!currentOperationScopeIsActive()) return false
-    const currentVault = queryClient.getQueryData<Vault>(['vault', managedScope, id])
+    const currentVault = queryClient.getQueryData<Vault>(['vault', managedScope.key, id])
     return !!currentVault && currentVault.id === vault?.id && !currentVault.archived_at
   }
 
@@ -226,7 +250,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     currentProjectAllowsWrite() &&
     queryClient
       .getQueriesData<{ data?: VaultCredential[] }>({
-        queryKey: ['vault-credentials', managedScope, id],
+        queryKey: ['vault-credentials', managedScope.key, id],
       })
       .some(([, page]) => page?.data?.some((credential) => credential.id === credId))
 
@@ -389,7 +413,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
           <Button
             size="sm"
             onClick={() => {
-              if (!currentProjectAllowsWrite()) return
+              if (!currentOperationScopeIsActive() || !currentProjectAllowsWrite()) return
               setCreateCredOpen(true)
             }}
           >
@@ -425,11 +449,11 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
       <CreateCredentialDialog
         open={canWriteVault && createCredOpen}
         onOpenChange={(open) => {
-          if (open && !currentProjectAllowsWrite()) return
+          if (open && (!currentOperationScopeIsActive() || !currentProjectAllowsWrite())) return
           setCreateCredOpen(open)
         }}
         vaultId={vaultId}
-        queryKey={['vault-credentials', managedScope, id]}
+        queryKey={['vault-credentials', managedScope.key, id]}
         canSubmit={currentVaultIsActive}
       />
 

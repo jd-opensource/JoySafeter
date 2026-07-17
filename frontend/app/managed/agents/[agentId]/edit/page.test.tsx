@@ -121,6 +121,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function renderPage(agentId: string, queryClient: QueryClient) {
   const params = {
     status: 'fulfilled',
@@ -187,10 +197,10 @@ describe('AgentEditPage object lifecycle', () => {
 
     await waitFor(() => {
       expect(getByDisplayValue('Agent A')).toBeTruthy()
-      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a')
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
-      expect(managedGetMock).toHaveBeenCalledWith('/skills')
-      expect(managedGetMock).toHaveBeenCalledWith('/environments')
+      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith('/skills', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith('/environments', managedOptions())
     })
     expect(managedGetMock.mock.calls.filter(([path]) => path === '/agents/agent-a')).toHaveLength(1)
     expect(managedGetMock.mock.calls.filter(([path]) => path === '/secrets')).toHaveLength(1)
@@ -203,10 +213,16 @@ describe('AgentEditPage object lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/agents/agent-a')).toHaveLength(2)
+      expect(managedGetMock.mock.calls.filter(([path]) => path === '/agents/agent-a')).toHaveLength(
+        2,
+      )
+      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a', managedOptions('project-b'))
       expect(managedGetMock.mock.calls.filter(([path]) => path === '/secrets')).toHaveLength(2)
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions('project-b'))
       expect(managedGetMock.mock.calls.filter(([path]) => path === '/skills')).toHaveLength(2)
+      expect(managedGetMock).toHaveBeenCalledWith('/skills', managedOptions('project-b'))
       expect(managedGetMock.mock.calls.filter(([path]) => path === '/environments')).toHaveLength(2)
+      expect(managedGetMock).toHaveBeenCalledWith('/environments', managedOptions('project-b'))
     })
   })
 
@@ -281,6 +297,7 @@ describe('AgentEditPage object lifecycle', () => {
     })
     expect(managedPostMock.mock.calls[0][0]).toBe('/agents/agent-b')
     const payload = managedPostMock.mock.calls[0][1] as Record<string, unknown>
+    expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
     expect(payload).toMatchObject({
       version: 3,
       mcp_servers: [],
@@ -394,7 +411,7 @@ describe('AgentEditPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 
   it('does not submit a secret after it leaves the current selectable secret list', async () => {
@@ -435,6 +452,11 @@ describe('AgentEditPage object lifecycle', () => {
     await waitFor(() => {
       expect(managedPostMock).toHaveBeenCalledTimes(1)
     })
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/agents/agent-a',
+      expect.anything(),
+      managedOptions(),
+    )
     expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('secret_ref')
   })
 
@@ -476,7 +498,7 @@ describe('AgentEditPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 
   it('does not save after the current project is archived', async () => {
@@ -511,7 +533,7 @@ describe('AgentEditPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalled()
     expect((view.getByText('managed.agents.saveChanges') as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -545,6 +567,12 @@ describe('AgentEditPage object lifecycle', () => {
       fireEvent.click(view.getByText('managed.agents.saveChanges'))
       await Promise.resolve()
     })
+
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/agents/agent-a',
+      expect.anything(),
+      managedOptions(),
+    )
 
     view.unmount()
 

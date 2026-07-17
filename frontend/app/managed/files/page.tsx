@@ -8,6 +8,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { FileRecord } from '@/types/managed'
 import { managedUpload, managedDelete } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
 import {
   PageHeader,
@@ -35,14 +40,13 @@ function formatSize(bytes: number): string {
 export default function FileListPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadRunRef = useRef(0)
   const actionRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef(managedScope)
   const [uploading, setUploading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
@@ -79,14 +83,15 @@ export default function FileListPage() {
   ]
 
   useEffect(() => {
-    if (managedScopeRef.current !== managedScope) {
+    if (managedScopeRef.current !== managedScope.key) {
       uploadRunRef.current += 1
       actionRunRef.current += 1
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
-    managedScopeRef.current = managedScope
-  }, [managedScope])
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -108,7 +113,7 @@ export default function FileListPage() {
 
   const getCurrentManagedScope = () => {
     const { currentOrgId, currentProjectId } = useProjectStore.getState()
-    return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+    return managedScopeKey(currentOrgId, currentProjectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
@@ -133,6 +138,7 @@ export default function FileListPage() {
     const runId = uploadRunRef.current + 1
     uploadRunRef.current = runId
     const uploadScope = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentManagedScopeIsActive(uploadScope)) {
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
@@ -144,10 +150,10 @@ export default function FileListPage() {
         if (!isCurrentUpload(runId, uploadScope)) break
         const formData = new FormData()
         formData.append('file', file)
-        await managedUpload('/files', formData)
+        await managedUpload('/files', formData, managedRequestOptions(requestScope))
       }
       if (isCurrentUpload(runId, uploadScope)) {
-        queryClient.invalidateQueries({ queryKey: ['files'] })
+        queryClient.invalidateQueries({ queryKey: ['files', uploadScope] })
       }
     } catch (err) {
       if (isCurrentUpload(runId, uploadScope)) {
@@ -196,6 +202,7 @@ export default function FileListPage() {
   const handleDelete = async (file: FileRecord) => {
     if (!currentProjectAllowsWrite()) return
     const actionScope = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentManagedScopeIsActive(actionScope)) return
     const fileStillCurrent = queryClient
       .getQueriesData<{ data?: FileRecord[] }>({ queryKey: ['files', actionScope, '/files'] })
@@ -206,9 +213,9 @@ export default function FileListPage() {
     actionRunRef.current = runId
     if (!currentManagedScopeIsActive(actionScope)) return
     try {
-      await managedDelete(`/files/${file.id}`)
+      await managedDelete(`/files/${file.id}`, managedRequestOptions(requestScope))
       if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['files'] })
+      queryClient.invalidateQueries({ queryKey: ['files', actionScope] })
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -220,7 +227,7 @@ export default function FileListPage() {
       <ResourceErrorState
         error={error}
         resource="file"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['files'] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['files', managedScope.key] })}
       />
     )
   }
@@ -232,19 +239,19 @@ export default function FileListPage() {
         subtitle={t('managed.files.subtitle')}
         action={
           projectReadOnly ? null : (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={handleUpload}
-            />
-            <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-              <Upload className="mr-1 h-4 w-4" />
-              {uploading ? t('common.loading') : t('managed.files.upload')}
-            </Button>
-          </>
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleUpload}
+              />
+              <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                <Upload className="mr-1 h-4 w-4" />
+                {uploading ? t('common.loading') : t('managed.files.upload')}
+              </Button>
+            </>
           )
         }
       />

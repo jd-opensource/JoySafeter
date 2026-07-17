@@ -142,6 +142,16 @@ const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 const managedDeleteMock = managedDelete as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -291,9 +301,10 @@ describe('VaultDetailPage route lifecycle', () => {
 
     await waitFor(() => {
       expect(getByText('Vault A')).toBeTruthy()
-      expect(managedGetMock).toHaveBeenCalledWith('/vaults/vault-a')
+      expect(managedGetMock).toHaveBeenCalledWith('/vaults/vault-a', managedOptions())
       expect(managedGetMock).toHaveBeenCalledWith(
         '/vaults/vault-a/credentials?limit=100&include_archived=false',
+        managedOptions(),
       )
     })
     expect(managedGetMock.mock.calls.filter(([path]) => path === '/vaults/vault-a')).toHaveLength(1)
@@ -309,13 +320,20 @@ describe('VaultDetailPage route lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/vaults/vault-a')).toHaveLength(2)
+      expect(managedGetMock.mock.calls.filter(([path]) => path === '/vaults/vault-a')).toHaveLength(
+        2,
+      )
       expect(
         managedGetMock.mock.calls.filter(
           ([path]) => path === '/vaults/vault-a/credentials?limit=100&include_archived=false',
         ),
       ).toHaveLength(2)
     })
+    expect(managedGetMock).toHaveBeenCalledWith('/vaults/vault-a', managedOptions('project-b'))
+    expect(managedGetMock).toHaveBeenCalledWith(
+      '/vaults/vault-a/credentials?limit=100&include_archived=false',
+      managedOptions('project-b'),
+    )
   })
 
   it('does not run an archive confirmation captured for a previous route vault', async () => {
@@ -428,7 +446,11 @@ describe('VaultDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not delete the vault after the current vault detail is no longer active', async () => {
@@ -460,7 +482,7 @@ describe('VaultDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a', managedOptions())
   })
 
   it('does not archive a credential after it leaves the current credential list before confirmation', async () => {
@@ -502,6 +524,7 @@ describe('VaultDetailPage route lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith(
       '/vaults/vault-a/credentials/cred-a/archive',
       {},
+      managedOptions(),
     )
   })
 
@@ -544,6 +567,7 @@ describe('VaultDetailPage route lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith(
       '/vaults/vault-a/credentials/cred-a/archive',
       {},
+      managedOptions(),
     )
   })
 
@@ -581,12 +605,16 @@ describe('VaultDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/credentials', {
-      credential_type: 'mcp_oauth',
-      mcp_server_url: 'https://mcp-a.example.com',
-      name: undefined,
-      token_value: '',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/credentials',
+      {
+        credential_type: 'mcp_oauth',
+        mcp_server_url: 'https://mcp-a.example.com',
+        name: undefined,
+        token_value: '',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not invalidate vaults from a delete completion after the page unmounts', async () => {
@@ -624,7 +652,7 @@ describe('VaultDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
   })
 
   it('does not archive the vault from an old confirmation after the current project is archived', async () => {
@@ -657,7 +685,11 @@ describe('VaultDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not delete the vault from an old confirmation after the current project is archived', async () => {
@@ -690,7 +722,7 @@ describe('VaultDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a', managedOptions())
   })
 
   it('does not archive a credential from an old confirmation after the current project is archived', async () => {
@@ -733,6 +765,7 @@ describe('VaultDetailPage route lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith(
       '/vaults/vault-a/credentials/cred-a/archive',
       {},
+      managedOptions(),
     )
   })
 
@@ -769,12 +802,16 @@ describe('VaultDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/credentials', {
-      credential_type: 'mcp_oauth',
-      mcp_server_url: 'https://archived-project.example.com',
-      name: undefined,
-      token_value: '',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/credentials',
+      {
+        credential_type: 'mcp_oauth',
+        mcp_server_url: 'https://archived-project.example.com',
+        name: undefined,
+        token_value: '',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not invalidate vaults from an archive completion after the current project is archived', async () => {
@@ -816,6 +853,6 @@ describe('VaultDetailPage route lifecycle', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({
       queryKey: ['vault', 'org-a:project-a', 'vault-a'],
     })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
   })
 })

@@ -6,8 +6,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/i18n'
 import { Pencil, ChevronRight, Package, Globe, Play, Sparkles, Archive, Trash2 } from 'lucide-react'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
+import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
 import type { Agent, AgentTool, McpServer, PaginatedResponse, Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
@@ -62,13 +69,12 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const operationScope = `${managedScope}:${agentId ?? ''}`
+  const managedScope = useManagedRequestScope()
+  const operationScope = `${managedScope.key}:${agentId ?? ''}`
   const actionRunRef = useRef(0)
   const operationScopeRef = useRef(operationScope)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [showArchived, setShowArchived] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean
@@ -89,6 +95,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   useEffect(() => {
     actionRunRef.current += 1
     operationScopeRef.current = operationScope
+    managedRequestScopeRef.current = managedScope
     setConfirmDialog({
       open: false,
       title: '',
@@ -108,7 +115,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
   const getCurrentOperationScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}:${agentId ?? ''}`
+    return `${managedScopeKey(orgId, projectId)}:${agentId ?? ''}`
   }
 
   const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
@@ -120,7 +127,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const currentAgentIsActive = () => {
     if (!currentOperationScopeIsActive()) return false
     if (!currentProjectAllowsWrite()) return false
-    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope, agentId])
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
     return !!currentAgent && currentAgent.id === agent?.id && !currentAgent.archived_at
   }
 
@@ -145,32 +152,37 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     isError,
     error,
   } = useQuery({
-    queryKey: ['agent', managedScope, agentId],
-    queryFn: () => managedGet<Agent>(`/agents/${stripIdPrefix(agentId)}`),
-    enabled: !!agentId,
+    queryKey: ['agent', managedScope.key, agentId],
+    queryFn: () =>
+      managedGet<Agent>(apiResourcePath('agents', agentId), managedRequestOptions(managedScope)),
+    enabled: !!agentId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
 
   const { data: sessions } = useQuery({
-    queryKey: ['agent-sessions', managedScope, agentId, showArchived],
+    queryKey: ['agent-sessions', managedScope.key, agentId, showArchived],
     queryFn: async () => {
       const res = await managedGet<PaginatedResponse<Session>>(
-        `/agents/${stripIdPrefix(agentId)}/sessions${showArchived ? '?include_archived=true' : ''}`,
+        apiResourceSubpath('agents', agentId, ['sessions'], {
+          include_archived: showArchived || undefined,
+        }),
+        managedRequestOptions(managedScope),
       )
       return res.data || []
     },
-    enabled: !!agentId,
+    enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
 
   const { data: versions } = useQuery({
-    queryKey: ['agent-versions', managedScope, agentId],
+    queryKey: ['agent-versions', managedScope.key, agentId],
     queryFn: async () => {
       const res = await managedGet<{ data: AgentVersion[] }>(
-        `/agents/${stripIdPrefix(agentId)}/versions`,
+        apiResourcePath('agents', agentId, 'versions'),
+        managedRequestOptions(managedScope),
       )
       return res.data || []
     },
-    enabled: !!agentId,
+    enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
 
   const handleStartSession = async () => {
@@ -179,9 +191,14 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     const actionScope = operationScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentOperationScopeIsActive(actionScope)) return
     try {
-      const res = await managedPost<{ id: string }>('/sessions', { agent: agentId })
+      const res = await managedPost<{ id: string }>(
+        '/sessions',
+        { agent: apiResourceId(agentId) },
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, actionScope)) return
       router.push(`/managed/sessions/${res.id}`)
     } catch (e) {
@@ -212,10 +229,15 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         const action = nextAction()
         if (!action) return
         const { runId, scope } = action
+        const requestScope = managedRequestScopeRef.current
         try {
-          await managedPost(`/agents/${stripIdPrefix(agentId)}/archive`, {})
+          await managedPost(
+            apiResourcePath('agents', agentId, 'archive'),
+            {},
+            managedRequestOptions(requestScope),
+          )
           if (!isCurrentAction(runId, scope)) return
-          queryClient.invalidateQueries({ queryKey: ['agent', managedScope, agentId] })
+          queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
           setConfirmDialog((prev) => ({ ...prev, open: false }))
         } catch (e) {
           if (!isCurrentAction(runId, scope)) return
@@ -232,9 +254,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     const action = nextAction()
     if (!action) return
     const { runId, scope } = action
+    const requestScope = managedRequestScopeRef.current
     try {
       const preview = await managedGet<DeletePreview>(
-        `/agents/${stripIdPrefix(agentId)}/delete_preview`,
+        apiResourcePath('agents', agentId, 'delete_preview'),
+        managedRequestOptions(requestScope),
       )
       if (!isCurrentAction(runId, scope) || !currentAgentIsActive()) return
       const desc = t('managed.agents.deleteDescription', {
@@ -256,8 +280,12 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
           }
           const action = nextAction()
           if (!action) return
+          const requestScope = managedRequestScopeRef.current
           try {
-            await managedDelete(`/agents/${stripIdPrefix(agentId)}`)
+            await managedDelete(
+              apiResourcePath('agents', agentId),
+              managedRequestOptions(requestScope),
+            )
             if (!isCurrentAction(action.runId, action.scope)) return
             router.push('/managed/agents')
           } catch (e) {
@@ -278,7 +306,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
     const currentSessions = queryClient.getQueryData<Session[]>([
       'agent-sessions',
-      managedScope,
+      managedScope.key,
       agentId,
       showArchived,
     ])
@@ -287,11 +315,16 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     const action = nextAction()
     if (!action) return
     const { runId, scope } = action
+    const requestScope = managedRequestScopeRef.current
     try {
-      await managedPost(`/sessions/${stripIdPrefix(session.id)}/archive`, {})
+      await managedPost(
+        apiResourcePath('sessions', session.id, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({
-        queryKey: ['agent-sessions', managedScope, agentId],
+        queryKey: ['agent-sessions', requestScope.key, agentId],
         exact: false,
       })
     } catch (e) {
@@ -318,31 +351,31 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const isArchived = !!agent.archived_at
   const menuItems =
     isArchived || projectReadOnly
-    ? []
-    : [
-        {
-          label: t('managed.agents.startSession'),
-          onClick: handleStartSession,
-          icon: <Play className="h-3.5 w-3.5" />,
-        },
-        {
-          label: t('managed.agents.guidedEdit'),
-          onClick: handleGuidedEdit,
-          icon: <Sparkles className="h-3.5 w-3.5" />,
-        },
-        {
-          label: t('common.archive'),
-          onClick: handleArchive,
-          icon: <Archive className="h-3.5 w-3.5" />,
-          separator: true,
-        },
-        {
-          label: t('common.delete'),
-          onClick: handleDelete,
-          icon: <Trash2 className="h-3.5 w-3.5" />,
-          destructive: true,
-        },
-      ]
+      ? []
+      : [
+          {
+            label: t('managed.agents.startSession'),
+            onClick: handleStartSession,
+            icon: <Play className="h-3.5 w-3.5" />,
+          },
+          {
+            label: t('managed.agents.guidedEdit'),
+            onClick: handleGuidedEdit,
+            icon: <Sparkles className="h-3.5 w-3.5" />,
+          },
+          {
+            label: t('common.archive'),
+            onClick: handleArchive,
+            icon: <Archive className="h-3.5 w-3.5" />,
+            separator: true,
+          },
+          {
+            label: t('common.delete'),
+            onClick: handleDelete,
+            icon: <Trash2 className="h-3.5 w-3.5" />,
+            destructive: true,
+          },
+        ]
 
   return (
     <div>

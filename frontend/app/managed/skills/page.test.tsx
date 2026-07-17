@@ -27,13 +27,7 @@ vi.mock('@uiw/codemirror-theme-vscode', () => ({
 }))
 
 vi.mock('@uiw/react-codemirror', () => ({
-  default: ({
-    onChange,
-    value,
-  }: {
-    onChange: (value: string) => void
-    value: string
-  }) => (
+  default: ({ onChange, value }: { onChange: (value: string) => void; value: string }) => (
     <textarea
       aria-label="code-editor"
       value={value}
@@ -327,6 +321,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: unknown) => void
@@ -341,7 +345,14 @@ const skillA = skill('skill_a', 'Skill A')
 const archivedSkillA: SkillRecord = { ...skillA, lifecycle_status: 'archived' }
 const skillB = skill('skill_b', 'Skill B')
 const fileA = skillFile('sklfile_a', skillA.id, 'Skill A content')
-const helperFileA = skillFile('sklfile_a_helper', skillA.id, 'print("helper")', 'helper.py', '', 'python')
+const helperFileA = skillFile(
+  'sklfile_a_helper',
+  skillA.id,
+  'print("helper")',
+  'helper.py',
+  '',
+  'python',
+)
 const secondHelperFileA = skillFile(
   'sklfile_a_helper_two',
   skillA.id,
@@ -350,7 +361,14 @@ const secondHelperFileA = skillFile(
   '',
   'python',
 )
-const toolsFileA = skillFile('sklfile_a_tools', skillA.id, 'print("tools")', 'tool.py', 'tools/', 'python')
+const toolsFileA = skillFile(
+  'sklfile_a_tools',
+  skillA.id,
+  'print("tools")',
+  'tool.py',
+  'tools/',
+  'python',
+)
 const docsFileA = skillFile('sklfile_a_docs', skillA.id, '# docs', 'readme.md', 'docs/', 'markdown')
 const fileB = skillFile('sklfile_b', skillB.id, 'Skill B content')
 const versionAOne = skillVersion('1.0.0', skillA.id)
@@ -472,7 +490,11 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith('/skills/a/security-scans/rescan', {})
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/skills/a/security-scans/rescan',
+      {},
+      managedOptions(),
+    )
 
     await act(async () => {
       activeProject = 'project-b'
@@ -501,8 +523,12 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['skill', 'skill_b'] })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['skill-security-scans', 'skill_b'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['skill', 'org-a:project-b', 'skill_b'],
+    })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['skill-security-scans', 'org-a:project-b', 'skill_b'],
+    })
   })
 
   it('does not show an error toast when an old security rescan fails after the selected skill changes', async () => {
@@ -605,6 +631,14 @@ describe('SkillManagerPage managed scope lifecycle', () => {
     })
 
     expect(view.getByText('managed.skills.savedSuccess')).toBeTruthy()
+    expect(managedPutMock).toHaveBeenCalledWith(
+      '/skills/a',
+      expect.objectContaining({ name: 'Skill A renamed' }),
+      {
+        ...managedOptions(),
+        timeout: 200000,
+      },
+    )
 
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: 'managed.skills.title' }))
@@ -694,7 +728,7 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a', managedOptions())
   })
 
   it('does not close a new file delete confirmation when an older file delete finishes', async () => {
@@ -778,7 +812,7 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a/files/a_helper')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a/files/a_helper', managedOptions())
   })
 
   it('does not close a new folder delete confirmation when an older folder delete finishes', async () => {
@@ -862,7 +896,7 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a/files/a_tools')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a/files/a_tools', managedOptions())
   })
 
   it('does not close a new version delete confirmation when an older version delete finishes', async () => {
@@ -969,11 +1003,10 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPutMock).not.toHaveBeenCalledWith(
-      '/skills/a',
-      expect.anything(),
-      expect.anything(),
-    )
+    expect(managedPutMock).not.toHaveBeenCalledWith('/skills/a', expect.anything(), {
+      ...managedOptions(),
+      timeout: 200000,
+    })
   })
 
   it('does not save metadata from an old skill editor after the managed project changes in the same tick', async () => {
@@ -1016,11 +1049,10 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPutMock).not.toHaveBeenCalledWith(
-      '/skills/a',
-      expect.anything(),
-      expect.anything(),
-    )
+    expect(managedPutMock).not.toHaveBeenCalledWith('/skills/a', expect.anything(), {
+      ...managedOptions(),
+      timeout: 200000,
+    })
   })
 
   it('does not keyboard-save a file that leaves the current skill files list', async () => {
@@ -1064,11 +1096,10 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPutMock).not.toHaveBeenCalledWith(
-      '/skills/a/files/a_helper',
-      expect.anything(),
-      expect.anything(),
-    )
+    expect(managedPutMock).not.toHaveBeenCalledWith('/skills/a/files/a_helper', expect.anything(), {
+      ...managedOptions(),
+      timeout: 200000,
+    })
   })
 
   it('does not create a version for a skill that leaves the current skills list', async () => {
@@ -1108,7 +1139,11 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/skills/a/versions', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/skills/a/versions',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not rescan security for a skill that leaves the current skills list', async () => {
@@ -1140,7 +1175,11 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/skills/a/security-scans/rescan', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/skills/a/security-scans/rescan',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not rescan security from an old skill editor after the managed project changes in the same tick', async () => {
@@ -1171,7 +1210,11 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/skills/a/security-scans/rescan', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/skills/a/security-scans/rescan',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not delete an old project skill after the managed project changes in the same tick', async () => {
@@ -1201,7 +1244,7 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a', managedOptions())
   })
 
   it('does not submit a lifecycle transition for a skill that leaves the current skills list', async () => {
@@ -1242,7 +1285,11 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/skills/a/submit-review')
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/skills/a/submit-review',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not invalidate skills from a security rescan completion after the page unmounts', async () => {
@@ -1445,7 +1492,7 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/skills/a', managedOptions())
   })
 
   it('does not save metadata from an old skill editor after the current project is archived', async () => {
@@ -1490,11 +1537,10 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPutMock).not.toHaveBeenCalledWith(
-      '/skills/a',
-      expect.anything(),
-      expect.anything(),
-    )
+    expect(managedPutMock).not.toHaveBeenCalledWith('/skills/a', expect.anything(), {
+      ...managedOptions(),
+      timeout: 200000,
+    })
   })
 
   it('does not rescan security from an old skill editor after the current project is archived', async () => {
@@ -1527,7 +1573,11 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/skills/a/security-scans/rescan', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/skills/a/security-scans/rescan',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not submit a lifecycle transition from an old skill editor after the current project is archived', async () => {
@@ -1566,6 +1616,10 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/skills/a/submit-review')
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/skills/a/submit-review',
+      {},
+      managedOptions(),
+    )
   })
 })

@@ -22,7 +22,14 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+  type ManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import type { MemoryStore } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -89,6 +96,8 @@ interface MemoryStoreActionVariables {
   memId?: string
   runId: number
   scope: string
+  scopeKey: string
+  requestScope: ManagedRequestScope
 }
 
 function normalizeMemoriesResponse(response: MemoryListResponse | undefined): Memory[] {
@@ -436,10 +445,8 @@ export default function MemoryStoreDetailPage({
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 
   // UI state
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null)
@@ -467,10 +474,11 @@ export default function MemoryStoreDetailPage({
     onConfirm: () => {},
   })
 
-  const storeId = stripIdPrefix(rawId || '')
-  const operationScope = `${managedScope}:${rawId ?? ''}`
+  const storeId = apiResourceId(rawId || '')
+  const operationScope = `${managedScope.key}:${rawId ?? ''}`
   const actionRunRef = useRef(0)
   const operationScopeRef = useRef(operationScope)
+  const managedRequestScopeRef = useRef(managedScope)
 
   // Fetch store
   const {
@@ -479,18 +487,28 @@ export default function MemoryStoreDetailPage({
     isError,
     error,
   } = useQuery({
-    queryKey: ['memory-store', managedScope, rawId],
-    queryFn: () => managedGet<MemoryStore>(`/memory_stores/${storeId}`),
-    enabled: !!rawId,
+    queryKey: ['memory-store', managedScope.key, rawId],
+    queryFn: () =>
+      managedGet<MemoryStore>(
+        apiResourcePath('memory_stores', storeId),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!rawId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
 
   // Fetch memories
   const { data: memoriesRes, isLoading: memLoading } = useQuery({
-    queryKey: ['memory-store-memories', managedScope, rawId],
+    queryKey: ['memory-store-memories', managedScope.key, rawId],
     queryFn: () =>
-      managedGet<MemoryListResponse>(`/memory_stores/${storeId}/memories?limit=100&view=full`),
-    enabled: !!rawId,
+      managedGet<MemoryListResponse>(
+        apiResourceSubpath('memory_stores', storeId, ['memories'], {
+          limit: 100,
+          view: 'full',
+        }),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!rawId && hasManagedRequestScope(managedScope),
   })
 
   const memories = normalizeMemoriesResponse(memoriesRes)
@@ -501,6 +519,7 @@ export default function MemoryStoreDetailPage({
   useEffect(() => {
     actionRunRef.current += 1
     operationScopeRef.current = operationScope
+    managedRequestScopeRef.current = managedScope
     setSelectedMemory(null)
     setViewMode('view')
     setEditContent('')
@@ -511,7 +530,7 @@ export default function MemoryStoreDetailPage({
     setEditLoading(false)
     setCreateMemLoading(false)
     setConfirmDialog((prev) => ({ ...prev, open: false }))
-  }, [operationScope])
+  }, [operationScope, managedScope])
 
   useEffect(
     () => () => {
@@ -550,7 +569,7 @@ export default function MemoryStoreDetailPage({
 
   const getCurrentOperationScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}:${rawId ?? ''}`
+    return `${managedScopeKey(orgId, projectId)}:${rawId ?? ''}`
   }
 
   const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
@@ -573,6 +592,8 @@ export default function MemoryStoreDetailPage({
       rawId,
       runId,
       scope: operationScopeRef.current,
+      scopeKey: managedRequestScopeRef.current.key,
+      requestScope: managedRequestScopeRef.current,
       ...extra,
     }
   }
@@ -582,7 +603,7 @@ export default function MemoryStoreDetailPage({
       ? normalizeMemoriesResponse(
           queryClient.getQueryData<MemoryListResponse>([
             'memory-store-memories',
-            managedScope,
+            managedScope.key,
             rawId,
           ]),
         ).find((mem) => mem.id === memId)
@@ -591,7 +612,11 @@ export default function MemoryStoreDetailPage({
   const currentStoreIsActive = () => {
     if (!currentOperationScopeIsActive()) return false
     if (!currentProjectAllowsWrite()) return false
-    const currentStore = queryClient.getQueryData<MemoryStore>(['memory-store', managedScope, rawId])
+    const currentStore = queryClient.getQueryData<MemoryStore>([
+      'memory-store',
+      managedScope.key,
+      rawId,
+    ])
     return !!currentStore && currentStore.id === store?.id && !currentStore.archived_at
   }
 
@@ -602,19 +627,23 @@ export default function MemoryStoreDetailPage({
 
   // Mutations
   const archiveMutation = useMutation({
-    mutationFn: ({ storeId, runId, scope }: MemoryStoreActionVariables) => {
+    mutationFn: ({ storeId, requestScope, runId, scope }: MemoryStoreActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale memory store archive ignored')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project memory store archive ignored')
       }
-      return managedPost(`/memory_stores/${storeId}/archive`, {})
+      return managedPost(
+        apiResourcePath('memory_stores', storeId, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
     },
-    onSuccess: (_data, { rawId, runId, scope }) => {
+    onSuccess: (_data, { rawId, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['memory-store', managedScope, rawId] })
-      queryClient.invalidateQueries({ queryKey: ['memory-stores'] })
+      queryClient.invalidateQueries({ queryKey: ['memory-store', scopeKey, rawId] })
+      queryClient.invalidateQueries({ queryKey: ['memory-stores', scopeKey] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
     onError: (error, { runId, scope }) => {
@@ -624,18 +653,21 @@ export default function MemoryStoreDetailPage({
   })
 
   const deleteMutation = useMutation({
-    mutationFn: ({ storeId, runId, scope }: MemoryStoreActionVariables) => {
+    mutationFn: ({ storeId, requestScope, runId, scope }: MemoryStoreActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale memory store delete ignored')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project memory store delete ignored')
       }
-      return managedDelete(`/memory_stores/${storeId}`)
+      return managedDelete(
+        apiResourcePath('memory_stores', storeId),
+        managedRequestOptions(requestScope),
+      )
     },
-    onSuccess: (_data, { runId, scope }) => {
+    onSuccess: (_data, { runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['memory-stores'] })
+      queryClient.invalidateQueries({ queryKey: ['memory-stores', scopeKey] })
       router.push('/managed/memory-stores')
     },
     onError: (error, { runId, scope }) => {
@@ -645,18 +677,23 @@ export default function MemoryStoreDetailPage({
   })
 
   const deleteMemoryMutation = useMutation({
-    mutationFn: ({ storeId, memId, runId, scope }: MemoryStoreActionVariables) => {
+    mutationFn: ({ storeId, memId, requestScope, runId, scope }: MemoryStoreActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale memory delete ignored')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project memory delete ignored')
       }
-      return managedDelete(`/memory_stores/${storeId}/memories/${stripIdPrefix(memId!)}`)
+      return managedDelete(
+        apiResourcePath('memory_stores', storeId, 'memories', apiResourceId(memId!)),
+        managedRequestOptions(requestScope),
+      )
     },
-    onSuccess: (_data, { memId, rawId, runId, scope }) => {
+    onSuccess: (_data, { memId, rawId, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['memory-store-memories', managedScope, rawId] })
+      queryClient.invalidateQueries({
+        queryKey: ['memory-store-memories', scopeKey, rawId],
+      })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
       if (selectedMemory && memId === selectedMemory.id) {
         setSelectedMemory(null)
@@ -723,16 +760,23 @@ export default function MemoryStoreDetailPage({
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     const scope = operationScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentOperationScopeIsActive(scope)) return
     const memId = currentMemory.id
     const content = editContent
     setEditLoading(true)
     try {
-      await managedPost(`/memory_stores/${storeId}/memories/${stripIdPrefix(memId)}`, {
-        content,
-      })
+      await managedPost(
+        apiResourcePath('memory_stores', storeId, 'memories', apiResourceId(memId)),
+        {
+          content,
+        },
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['memory-store-memories', managedScope, rawId] })
+      queryClient.invalidateQueries({
+        queryKey: ['memory-store-memories', requestScope.key, rawId],
+      })
       // Update the selected memory content in place
       setSelectedMemory((prev) => (prev?.id === memId ? { ...prev, content } : prev))
       setViewMode('view')
@@ -751,6 +795,7 @@ export default function MemoryStoreDetailPage({
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     const scope = operationScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentOperationScopeIsActive(scope)) return
     setTimeout(() => {
       if (!isCurrentAction(runId, scope)) return
@@ -781,20 +826,27 @@ export default function MemoryStoreDetailPage({
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     const scope = operationScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentOperationScopeIsActive(scope)) return
     const path = newMemPath.trim()
     const content = newMemContent.trim()
     setCreateMemLoading(true)
     try {
-      await managedPost(`/memory_stores/${storeId}/memories`, {
-        path,
-        content,
-      })
+      await managedPost(
+        apiResourcePath('memory_stores', storeId, 'memories'),
+        {
+          path,
+          content,
+        },
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, scope)) return
       setNewMemPath('')
       setNewMemContent('')
       setCreateMemOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['memory-store-memories', managedScope, rawId] })
+      queryClient.invalidateQueries({
+        queryKey: ['memory-store-memories', requestScope.key, rawId],
+      })
     } catch (error) {
       if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'managed.memoryStores.saveFailed')
@@ -806,7 +858,7 @@ export default function MemoryStoreDetailPage({
   }
 
   const handleCreateMemoryOpenChange = (open: boolean) => {
-    if (open && !currentProjectAllowsWrite()) return
+    if (open && (!currentOperationScopeIsActive() || !currentProjectAllowsWrite())) return
     actionRunRef.current += 1
     if (!open) {
       setCreateMemLoading(false)

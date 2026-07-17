@@ -137,6 +137,26 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
+function managedOptionsContaining(projectId = 'project-a') {
+  return expect.objectContaining({
+    headers: expect.objectContaining({
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    }),
+    skipManagedContext: true,
+  })
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -241,10 +261,13 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env-a', name: 'Env A', archived_at: null },
-      { id: 'env-b', name: 'Env B', archived_at: null },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [
+        { id: 'env-a', name: 'Env A', archived_at: null },
+        { id: 'env-b', name: 'Env B', archived_at: null },
+      ],
+    )
 
     const view = renderQuickstart(queryClient)
 
@@ -253,7 +276,7 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'agent_a' })
+    expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' }, managedOptions())
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -267,7 +290,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
     })
 
     expect(useSessionStreamMock).not.toHaveBeenCalledWith('session_from_project_a', true)
-    expect(managedGetMock).not.toHaveBeenCalledWith('/sessions/session_from_project_a')
+    expect(managedGetMock).not.toHaveBeenCalledWith(
+      '/sessions/session_from_project_a',
+      managedOptions(),
+    )
   })
 
   it('does not start a test run from old quickstart UI in the same turn as a project switch', async () => {
@@ -278,9 +304,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env-a', name: 'Env A', archived_at: null },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [{ id: 'env-a', name: 'Env A', archived_at: null }],
+    )
 
     const view = renderQuickstart(queryClient)
     const testRunButton = await view.findByRole('button', {
@@ -293,7 +320,7 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 
   it('does not start a test run from old quickstart UI in the same turn as the current project is archived', async () => {
@@ -304,9 +331,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env-a', name: 'Env A', archived_at: null },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [{ id: 'env-a', name: 'Env A', archived_at: null }],
+    )
 
     const view = renderQuickstart(queryClient)
     const testRunButton = await view.findByRole('button', {
@@ -319,7 +347,7 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 
   it('does not start a final session from old quickstart UI in the same turn as a project switch', async () => {
@@ -358,9 +386,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env-a', name: 'Env A', archived_at: null },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [{ id: 'env-a', name: 'Env A', archived_at: null }],
+    )
     queryClient.setQueryData(['vaults-active', 'org-a:project-a'], {
       data: [{ id: 'vault-a', name: 'Vault A', archived_at: null }],
     })
@@ -413,9 +442,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env-a', name: 'Env A', archived_at: null },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [{ id: 'env-a', name: 'Env A', archived_at: null }],
+    )
     queryClient.setQueryData(['vaults-active', 'org-a:project-a'], {
       data: [{ id: 'vault-a', name: 'Vault A', archived_at: null }],
     })
@@ -572,14 +602,18 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session_a/events', {
-      events: [
-        {
-          type: 'user.message',
-          content: [{ type: 'text', text: 'message after stale idle' }],
-        },
-      ],
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session_a/events',
+      {
+        events: [
+          {
+            type: 'user.message',
+            content: [{ type: 'text', text: 'message after stale idle' }],
+          },
+        ],
+      },
+      managedOptionsContaining(),
+    )
   })
 
   it('does not send a preview session message from old UI after the current project is archived', async () => {
@@ -657,14 +691,18 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session_a/events', {
-      events: [
-        {
-          type: 'user.message',
-          content: [{ type: 'text', text: 'message after archive' }],
-        },
-      ],
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session_a/events',
+      {
+        events: [
+          {
+            type: 'user.message',
+            content: [{ type: 'text', text: 'message after archive' }],
+          },
+        ],
+      },
+      managedOptionsContaining(),
+    )
   })
 
   it('does not stop a preview session after the current session is no longer running', async () => {
@@ -739,7 +777,11 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session_a/stop', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session_a/stop',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not stop a preview session from old UI after the current project is archived', async () => {
@@ -815,7 +857,11 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session_a/stop', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session_a/stop',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not create a test session with an environment that is no longer active', async () => {
@@ -865,9 +911,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
     })
 
     await act(async () => {
-      queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-        { id: 'env-b', name: 'Env B', archived_at: null },
-      ])
+      queryClient.setQueryData(
+        ['environments-active', 'org-a:project-a'],
+        [{ id: 'env-b', name: 'Env B', archived_at: null }],
+      )
       await Promise.resolve()
     })
 
@@ -881,11 +928,15 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'agent_a' })
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', {
-      agent: 'agent_a',
-      environment_id: 'env-a',
-    })
+    expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' }, managedOptions())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions',
+      {
+        agent: 'a',
+        environment_id: 'env-a',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not create a test session with an environment that leaves the active list in the same turn', async () => {
@@ -935,18 +986,23 @@ describe('QuickstartPage managed scope lifecycle', () => {
     })
 
     await act(async () => {
-      queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-        { id: 'env-b', name: 'Env B', archived_at: null },
-      ])
+      queryClient.setQueryData(
+        ['environments-active', 'org-a:project-a'],
+        [{ id: 'env-b', name: 'Env B', archived_at: null }],
+      )
       fireEvent.click(view.getAllByRole('button', { name: /managed\.quickstart\.testRun/ })[0])
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'agent_a' })
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', {
-      agent: 'agent_a',
-      environment_id: 'env-a',
-    })
+    expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' }, managedOptions())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions',
+      {
+        agent: 'a',
+        environment_id: 'env-a',
+      },
+      managedOptions(),
+    )
   })
 
   it('creates a test session with a quickstart-created environment even when the active list cache predates creation', async () => {
@@ -1022,10 +1078,14 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith('/sessions', {
-      agent: 'agent_a',
-      environment_id: 'created',
-    })
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/sessions',
+      {
+        agent: 'a',
+        environment_id: 'created',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not create a test session with a quickstart-created environment that is now archived', async () => {
@@ -1093,9 +1153,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env_created', name: 'Created Env', archived_at: '2026-07-10T00:00:00Z' },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [{ id: 'env_created', name: 'Created Env', archived_at: '2026-07-10T00:00:00Z' }],
+    )
 
     const view = renderQuickstart(queryClient)
 
@@ -1113,11 +1174,15 @@ describe('QuickstartPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'agent_a' })
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', {
-      agent: 'agent_a',
-      environment_id: 'created',
-    })
+    expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' }, managedOptions())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions',
+      {
+        agent: 'a',
+        environment_id: 'created',
+      },
+      managedOptions(),
+    )
   })
 
   it('starts a session with quickstart-created resources even when active list caches predate creation', async () => {
@@ -1208,9 +1273,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env-b', name: 'Env B', archived_at: null },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [{ id: 'env-b', name: 'Env B', archived_at: null }],
+    )
     queryClient.setQueryData(['vaults-active', 'org-a:project-a'], {
       data: [{ id: 'vault-b', name: 'Vault B', archived_at: null }],
     })
@@ -1264,9 +1330,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env_created', name: 'Created Env', archived_at: '2026-07-10T00:00:00Z' },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [{ id: 'env_created', name: 'Created Env', archived_at: '2026-07-10T00:00:00Z' }],
+    )
     queryClient.setQueryData(['vaults-active', 'org-a:project-a'], {
       data: [
         {
@@ -1454,18 +1521,22 @@ describe('QuickstartPage managed scope lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-      { id: 'env-a', name: 'Env A', archived_at: null },
-      { id: 'env-b', name: 'Env B', archived_at: null },
-    ])
+    queryClient.setQueryData(
+      ['environments-active', 'org-a:project-a'],
+      [
+        { id: 'env-a', name: 'Env A', archived_at: null },
+        { id: 'env-b', name: 'Env B', archived_at: null },
+      ],
+    )
 
     const view = renderQuickstart(queryClient)
     const envAButton = await view.findByRole('button', { name: /Env A/ })
 
     await act(async () => {
-      queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-        { id: 'env-b', name: 'Env B', archived_at: null },
-      ])
+      queryClient.setQueryData(
+        ['environments-active', 'org-a:project-a'],
+        [{ id: 'env-b', name: 'Env B', archived_at: null }],
+      )
       fireEvent.click(envAButton)
       await Promise.resolve()
     })
@@ -1630,9 +1701,10 @@ describe('QuickstartPage managed scope lifecycle', () => {
     })
 
     await act(async () => {
-      queryClient.setQueryData(['environments-active', 'org-a:project-a'], [
-        { id: 'env-b', name: 'Env B', archived_at: null },
-      ])
+      queryClient.setQueryData(
+        ['environments-active', 'org-a:project-a'],
+        [{ id: 'env-b', name: 'Env B', archived_at: null }],
+      )
       fireEvent.click(view.getByRole('button', { name: 'managed.quickstart.nextConfigureVault' }))
       await Promise.resolve()
     })

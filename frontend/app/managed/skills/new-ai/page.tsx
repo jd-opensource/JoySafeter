@@ -62,7 +62,11 @@ import { FileTreeNode, buildFileTree } from '@/components/managed/skills/skill-w
 import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
 import { downloadDraftZip } from '@/lib/managed/skill-draft-zip'
 import type { SkillFileRecord } from '@/types/managed'
-import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
@@ -131,10 +135,8 @@ export default function SkillAiAuthoringPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
   const isFresh = searchParams.get('new') === '1'
   useEffect(() => {
     if (isFresh && typeof window !== 'undefined') {
@@ -173,8 +175,9 @@ export default function SkillAiAuthoringPage() {
   const [activeFilePath, setActiveFilePath] = useState<string>('SKILL.md')
 
   const { data: secretsRes } = useQuery({
-    queryKey: ['secrets', managedScope],
-    queryFn: () => managedGet<SecretsResponse>('/secrets'),
+    queryKey: ['secrets', managedScope.key],
+    queryFn: () => managedGet<SecretsResponse>('/secrets', managedRequestOptions(managedScope)),
+    enabled: hasManagedRequestScope(managedScope),
   })
   const secrets = useMemo<SecretRecord[]>(() => {
     if (!secretsRes) return []
@@ -197,7 +200,7 @@ export default function SkillAiAuthoringPage() {
     setSecretRef('')
     setActiveTab(TAB_EDITOR)
     setActiveFilePath('SKILL.md')
-  }, [managedScope])
+  }, [managedScope.key])
 
   // When the split-view focus is on a file that no longer exists (AI rewrote
   // files[], or the user deleted it), fall back to SKILL.md.

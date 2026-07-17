@@ -6,6 +6,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
 import { managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import type { Vault } from '@/types/managed'
@@ -30,21 +36,21 @@ interface CreateVaultVariables {
   vaultName: string
   runId: number
   scope: string
+  requestScope: ManagedRequestScope
 }
 
 export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps) {
   const { t } = useTranslation()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
   const createRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [name, setName] = useState('')
   const queryClient = useQueryClient()
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
@@ -62,18 +68,18 @@ export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps
   }
 
   const mutation = useMutation({
-    mutationFn: ({ vaultName, scope }: CreateVaultVariables) => {
+    mutationFn: ({ vaultName, scope, requestScope }: CreateVaultVariables) => {
       if (!currentManagedScopeIsActive(scope)) {
         throw new Error('stale managed scope')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault create ignored')
       }
-      return managedPost<Vault>('/vaults', { name: vaultName })
+      return managedPost<Vault>('/vaults', { name: vaultName }, managedRequestOptions(requestScope))
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentCreateRun(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults'] })
+      queryClient.invalidateQueries({ queryKey: ['vaults', scope] })
       setName('')
       onOpenChange(false)
     },
@@ -84,13 +90,14 @@ export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps
   })
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
-    managedScopeRef.current = managedScope
+    if (managedScopeRef.current === managedScope.key) return
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
     createRunRef.current += 1
     resetForm()
     onOpenChange(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managedScope])
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -109,13 +116,17 @@ export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps
       onOpenChange(false)
       return
     }
+    const requestScope = managedRequestScopeRef.current
+    const scope = requestScope.key
+    if (!currentManagedScopeIsActive(scope)) return
     const runId = createRunRef.current + 1
     createRunRef.current = runId
-    mutation.mutate({ vaultName: trimmed, runId, scope: managedScopeRef.current })
+    mutation.mutate({ vaultName: trimmed, runId, scope, requestScope })
   }
 
   const handleOpenChange = (next: boolean) => {
     if (next && !currentProjectAllowsWrite()) return
+    if (next && !currentManagedScopeIsActive()) return
     if (!next) {
       createRunRef.current += 1
       resetForm()

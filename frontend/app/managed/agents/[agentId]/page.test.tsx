@@ -186,6 +186,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function renderAgentPage(queryClient: QueryClient, agentId: string) {
   const params = {
     status: 'fulfilled',
@@ -250,9 +260,9 @@ describe('AgentDetailPage route lifecycle', () => {
 
     await waitFor(() => {
       expect(getByText('Agent A')).toBeTruthy()
-      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a')
-      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a/sessions')
-      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a/versions')
+      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a/sessions', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a/versions', managedOptions())
     })
     expect(managedGetMock.mock.calls.filter(([path]) => path === '/agents/agent-a')).toHaveLength(1)
     expect(
@@ -268,13 +278,24 @@ describe('AgentDetailPage route lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/agents/agent-a')).toHaveLength(2)
+      expect(managedGetMock.mock.calls.filter(([path]) => path === '/agents/agent-a')).toHaveLength(
+        2,
+      )
+      expect(managedGetMock).toHaveBeenCalledWith('/agents/agent-a', managedOptions('project-b'))
       expect(
         managedGetMock.mock.calls.filter(([path]) => path === '/agents/agent-a/sessions'),
       ).toHaveLength(2)
+      expect(managedGetMock).toHaveBeenCalledWith(
+        '/agents/agent-a/sessions',
+        managedOptions('project-b'),
+      )
       expect(
         managedGetMock.mock.calls.filter(([path]) => path === '/agents/agent-a/versions'),
       ).toHaveLength(2)
+      expect(managedGetMock).toHaveBeenCalledWith(
+        '/agents/agent-a/versions',
+        managedOptions('project-b'),
+      )
     })
   })
 
@@ -314,7 +335,11 @@ describe('AgentDetailPage route lifecycle', () => {
       })
     }
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not invalidate from an archive completion after the route agent changes', async () => {
@@ -393,7 +418,11 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents/agent-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not invalidate session list from a session archive completion after the route agent changes', async () => {
@@ -499,7 +528,11 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not archive a session after the current agent detail is no longer active', async () => {
@@ -545,7 +578,11 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not start a session after the current agent detail is no longer active', async () => {
@@ -572,7 +609,11 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', { agent: 'agent-a' })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions',
+      { agent: 'agent-a' },
+      managedOptions(),
+    )
   })
 
   it('hides agent project write actions when the current project is archived', async () => {
@@ -623,7 +664,11 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', { agent: 'agent-a' })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions',
+      { agent: 'agent-a' },
+      managedOptions(),
+    )
   })
 
   it('does not request delete preview from old agent detail UI after the current project is archived', async () => {
@@ -649,7 +694,10 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedGetMock).not.toHaveBeenCalledWith('/agents/agent-a/delete_preview')
+    expect(managedGetMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/delete_preview',
+      managedOptions(),
+    )
   })
 
   it('does not archive a session from old agent detail UI after the current project is archived', async () => {
@@ -694,7 +742,11 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not navigate from a start-session completion after the managed project changes', async () => {
@@ -725,7 +777,11 @@ describe('AgentDetailPage route lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'agent-a' })
+      expect(managedPostMock).toHaveBeenCalledWith(
+        '/sessions',
+        { agent: 'agent-a' },
+        managedOptions(),
+      )
     })
 
     await act(async () => {
@@ -852,7 +908,10 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedGetMock).not.toHaveBeenCalledWith('/agents/agent-a/delete_preview')
+    expect(managedGetMock).not.toHaveBeenCalledWith(
+      '/agents/agent-a/delete_preview',
+      managedOptions(),
+    )
   })
 
   it('does not delete after the current agent detail is no longer active', async () => {
@@ -888,6 +947,6 @@ describe('AgentDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/agents/agent-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/agents/agent-a', managedOptions())
   })
 })

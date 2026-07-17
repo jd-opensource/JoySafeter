@@ -36,6 +36,11 @@ import {
   useDeleteSchedule,
   type ScheduleRun,
 } from '@/lib/managed/schedules'
+import {
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 
 export default function ScheduleDetailPage({
@@ -50,10 +55,9 @@ export default function ScheduleDetailPage({
   const router = useRouter()
   const queryClient = useQueryClient()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const currentOrgId = useProjectStore((s) => s.currentOrgId)
-  const currentProjectId = useProjectStore((s) => s.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const managedScopeRef = useRef(managedScope)
+  const managedScope = useManagedRequestScope()
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
 
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -68,12 +72,13 @@ export default function ScheduleDetailPage({
   const runs = runsQuery.data ?? []
 
   useEffect(() => {
-    if (managedScopeRef.current !== managedScope) {
+    if (managedScopeRef.current !== managedScope.key) {
       setEditOpen(false)
       setDeleteOpen(false)
     }
-    managedScopeRef.current = managedScope
-  }, [managedScope])
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
+  }, [managedScope.key])
 
   useEffect(() => {
     if (projectReadOnly) {
@@ -82,10 +87,18 @@ export default function ScheduleDetailPage({
     }
   }, [projectReadOnly])
 
+  const currentManagedScopeAllowsWrite = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return (
+      managedScopeRef.current === managedScopeKey(orgId, projectId) && currentProjectAllowsWrite()
+    )
+  }
+
   const handleTrigger = async () => {
-    if (!currentProjectAllowsWrite()) return
+    if (!currentManagedScopeAllowsWrite()) return
+    const requestScope = managedRequestScopeRef.current
     try {
-      await triggerMut.mutateAsync(scheduleId)
+      await triggerMut.mutateAsync({ id: scheduleId, requestScope })
       toastSuccess(t('managed.schedules.triggered', { name: schedule?.name ?? '' }))
     } catch (err) {
       toastOperationError(t, err, 'managed.schedules.triggerFailed')
@@ -93,23 +106,25 @@ export default function ScheduleDetailPage({
   }
 
   const handleToggle = async (enabled: boolean) => {
-    if (!currentProjectAllowsWrite()) return
+    if (!currentManagedScopeAllowsWrite()) return
+    const requestScope = managedRequestScopeRef.current
     try {
-      await toggleMut.mutateAsync({ id: scheduleId, enabled })
+      await toggleMut.mutateAsync({ id: scheduleId, enabled, requestScope })
       // The toggle hook only patches the list caches; refresh this detail view.
-      queryClient.invalidateQueries({ queryKey: ['schedule', managedScope, scheduleId] })
+      queryClient.invalidateQueries({ queryKey: ['schedule', requestScope.key, scheduleId] })
     } catch (err) {
       toastOperationError(t, err, 'managed.schedules.toggleFailed')
     }
   }
 
   const handleDelete = async () => {
-    if (!currentProjectAllowsWrite()) {
+    if (!currentManagedScopeAllowsWrite()) {
       setDeleteOpen(false)
       return
     }
+    const requestScope = managedRequestScopeRef.current
     try {
-      await deleteMut.mutateAsync(scheduleId)
+      await deleteMut.mutateAsync({ id: scheduleId, requestScope })
       router.push('/managed/schedules')
     } catch (err) {
       toastOperationError(t, err, 'managed.schedules.deleteFailed')
@@ -296,11 +311,25 @@ export default function ScheduleDetailPage({
                 <Play className="mr-1.5 h-3.5 w-3.5" />
                 {t('managed.schedules.runNow')}
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (!currentManagedScopeAllowsWrite()) return
+                  setEditOpen(true)
+                }}
+              >
                 <Pencil className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.edit')}
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setDeleteOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (!currentManagedScopeAllowsWrite()) return
+                  setDeleteOpen(true)
+                }}
+              >
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.delete')}
               </Button>
@@ -356,10 +385,12 @@ export default function ScheduleDetailPage({
         open={canWrite && editOpen}
         schedule={schedule}
         onOpenChange={(open) => {
-          if (open && !currentProjectAllowsWrite()) return
+          if (open && !currentManagedScopeAllowsWrite()) return
           setEditOpen(open)
           if (!open) {
-            queryClient.invalidateQueries({ queryKey: ['schedule', managedScope, scheduleId] })
+            queryClient.invalidateQueries({
+              queryKey: ['schedule', managedRequestScopeRef.current.key, scheduleId],
+            })
           }
         }}
       />

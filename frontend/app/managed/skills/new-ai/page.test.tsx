@@ -45,8 +45,7 @@ vi.mock('@/hooks/managed/use-skill-authoring', () => ({
       publishing: false,
       hydrated: true,
       setDraft: vi.fn(),
-      send: (...args: Parameters<typeof skillAuthoringSendMock>) =>
-        skillAuthoringSendMock(...args),
+      send: (...args: Parameters<typeof skillAuthoringSendMock>) => skillAuthoringSendMock(...args),
       cancel: vi.fn(),
       saveDraft: vi.fn(),
       runScan: vi.fn(),
@@ -171,11 +170,23 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 describe('SkillAiAuthoringPage managed scope lifecycle', () => {
   beforeEach(() => {
     managedGetMock.mockReset()
     skillAuthoringSendMock = vi.fn()
-    managedGetMock.mockResolvedValue({ data: [{ id: 'secret-a', name: 'secret-a', is_default: true }] })
+    managedGetMock.mockResolvedValue({
+      data: [{ id: 'secret-a', name: 'secret-a', is_default: true }],
+    })
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
@@ -210,7 +221,7 @@ describe('SkillAiAuthoringPage managed scope lifecycle', () => {
     renderPage(queryClient)
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions())
     })
     expect(managedGetMock).toHaveBeenCalledTimes(1)
 
@@ -222,6 +233,7 @@ describe('SkillAiAuthoringPage managed scope lifecycle', () => {
     await waitFor(() => {
       expect(managedGetMock).toHaveBeenCalledTimes(2)
     })
+    expect(managedGetMock).toHaveBeenLastCalledWith('/secrets', managedOptions('project-b'))
   })
 
   it('sends chat requests with the current secret after the secrets list changes', async () => {
@@ -298,7 +310,7 @@ describe('SkillAiAuthoringPage managed scope lifecycle', () => {
     const view = renderPage(queryClient)
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions())
     })
 
     const input = view.getByPlaceholderText(

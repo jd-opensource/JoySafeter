@@ -137,6 +137,16 @@ import { CreateScheduleDialog } from './create-schedule-dialog'
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function projectInfo(id = 'project-a', archivedAt: string | null = null) {
   return {
     id,
@@ -210,9 +220,15 @@ describe('CreateScheduleDialog managed lifecycle', () => {
     renderDialog()
 
     await waitFor(() => {
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/agents?limit=200')).toHaveLength(1)
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/environments?limit=200')).toHaveLength(1)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path === '/agents?limit=200'),
+      ).toHaveLength(1)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path === '/environments?limit=200'),
+      ).toHaveLength(1)
     })
+    expect(managedGetMock).toHaveBeenCalledWith('/agents?limit=200', managedOptions())
+    expect(managedGetMock).toHaveBeenCalledWith('/environments?limit=200', managedOptions())
 
     await act(async () => {
       activeProject('project-b')
@@ -220,9 +236,18 @@ describe('CreateScheduleDialog managed lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/agents?limit=200')).toHaveLength(2)
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/environments?limit=200')).toHaveLength(2)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path === '/agents?limit=200'),
+      ).toHaveLength(2)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path === '/environments?limit=200'),
+      ).toHaveLength(2)
     })
+    expect(managedGetMock).toHaveBeenCalledWith('/agents?limit=200', managedOptions('project-b'))
+    expect(managedGetMock).toHaveBeenCalledWith(
+      '/environments?limit=200',
+      managedOptions('project-b'),
+    )
   })
 
   it('does not apply stale submit completion after the managed scope changes', async () => {
@@ -251,11 +276,15 @@ describe('CreateScheduleDialog managed lifecycle', () => {
     await act(async () => {
       fireEvent.click(getByText('common.create'))
     })
-    expect(managedPostMock).toHaveBeenCalledWith('/schedules', expect.objectContaining({
-      name: 'Daily report',
-      agent_id: 'agent-a',
-      prompt: 'Summarize yesterday',
-    }))
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/schedules',
+      expect.objectContaining({
+        name: 'Daily report',
+        agent_id: 'agent-a',
+        prompt: 'Summarize yesterday',
+      }),
+      managedOptions(),
+    )
 
     await act(async () => {
       activeProject('project-b')

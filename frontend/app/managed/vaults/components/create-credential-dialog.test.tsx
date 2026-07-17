@@ -80,6 +80,16 @@ import { CreateCredentialDialog } from './create-credential-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions() {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': 'project-a',
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -198,6 +208,15 @@ describe('CreateCredentialDialog object lifecycle', () => {
       await Promise.resolve()
     })
 
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/vaults/vault-a/credentials',
+      expect.objectContaining({
+        credential_type: 'mcp_oauth',
+        mcp_server_url: 'https://mcp-a.example.com',
+      }),
+      managedOptions(),
+    )
+
     await act(async () => {
       rerender(renderDialog('vault-b', queryClient))
       create.resolve({ id: 'cred-created-in-vault-a' })
@@ -243,5 +262,4 @@ describe('CreateCredentialDialog object lifecycle', () => {
     expect(invalidateSpy).not.toHaveBeenCalled()
     expect(onOpenChange).not.toHaveBeenCalled()
   })
-
 })

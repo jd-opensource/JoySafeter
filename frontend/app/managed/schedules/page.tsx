@@ -28,7 +28,7 @@ import { useTranslation } from '@/lib/i18n'
 import { describeCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { useManagedRequestScope } from '@/lib/managed/request-scope'
 import { toastSuccess } from '@/lib/utils/toast'
 import {
   useSchedules,
@@ -49,8 +49,10 @@ export default function ScheduleListPage() {
   const projectReadOnly = useCurrentProjectReadOnly()
   const currentOrgId = useProjectStore((s) => s.currentOrgId)
   const currentProjectId = useProjectStore((s) => s.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const requestScope = useManagedRequestScope()
+  const managedScope = requestScope.key || `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const managedScopeRef = useRef(managedScope)
+  const managedRequestScopeRef = useRef(requestScope)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Schedule | null>(null)
@@ -78,8 +80,7 @@ export default function ScheduleListPage() {
         (s) =>
           matchesSearch(searchQuery, [s.name, s.description, s.cron_expr, s.id]) &&
           filterByCreatedTime(s.created_at, createdFilter) &&
-          (statusFilter === 'all' ||
-            (statusFilter === 'enabled' ? s.enabled : !s.enabled)),
+          (statusFilter === 'all' || (statusFilter === 'enabled' ? s.enabled : !s.enabled)),
       ),
     [schedules, searchQuery, createdFilter, statusFilter],
   )
@@ -101,7 +102,8 @@ export default function ScheduleListPage() {
       setDeleteTarget(null)
     }
     managedScopeRef.current = managedScope
-  }, [managedScope])
+    managedRequestScopeRef.current = requestScope
+  }, [managedScope, requestScope])
 
   useEffect(() => {
     if (projectReadOnly) {
@@ -113,8 +115,10 @@ export default function ScheduleListPage() {
 
   const handleToggle = async (s: Schedule, enabled: boolean) => {
     if (!currentProjectAllowsWrite()) return
+    const requestScope = managedRequestScopeRef.current
+    if (managedScopeRef.current !== requestScope.key) return
     try {
-      await toggleMut.mutateAsync({ id: stripIdPrefix(s.id), enabled })
+      await toggleMut.mutateAsync({ id: s.id, enabled, requestScope })
     } catch (err) {
       toastOperationError(t, err, 'managed.schedules.toggleFailed')
     }
@@ -122,8 +126,10 @@ export default function ScheduleListPage() {
 
   const handleTrigger = async (s: Schedule) => {
     if (!currentProjectAllowsWrite()) return
+    const requestScope = managedRequestScopeRef.current
+    if (managedScopeRef.current !== requestScope.key) return
     try {
-      await triggerMut.mutateAsync(stripIdPrefix(s.id))
+      await triggerMut.mutateAsync({ id: s.id, requestScope })
       toastSuccess(t('managed.schedules.triggered', { name: s.name }))
     } catch (err) {
       toastOperationError(t, err, 'managed.schedules.triggerFailed')
@@ -135,8 +141,13 @@ export default function ScheduleListPage() {
       setDeleteTarget(null)
       return
     }
+    const requestScope = managedRequestScopeRef.current
+    if (managedScopeRef.current !== requestScope.key) {
+      setDeleteTarget(null)
+      return
+    }
     try {
-      await deleteMut.mutateAsync(stripIdPrefix(deleteTarget.id))
+      await deleteMut.mutateAsync({ id: deleteTarget.id, requestScope })
     } catch (err) {
       toastOperationError(t, err, 'managed.schedules.deleteFailed')
     } finally {
@@ -233,7 +244,7 @@ export default function ScheduleListPage() {
       <ResourceErrorState
         error={schedulesQuery.error}
         resource="schedule"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['schedules'] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['schedules', requestScope.key] })}
       />
     )
   }
@@ -249,6 +260,7 @@ export default function ScheduleListPage() {
               size="sm"
               onClick={() => {
                 if (!currentProjectAllowsWrite()) return
+                if (managedScopeRef.current !== managedRequestScopeRef.current.key) return
                 setCreateOpen(true)
               }}
             >
@@ -271,14 +283,14 @@ export default function ScheduleListPage() {
         data={paged}
         loading={schedulesQuery.isLoading}
         fetching={schedulesQuery.isFetching}
-        onRowClick={(s) => router.push(`/managed/schedules/${stripIdPrefix(s.id)}`)}
+        onRowClick={(s) => router.push(`/managed/schedules/${s.id}`)}
         actionMenu={(s) =>
           projectReadOnly
             ? [
                 {
                   label: t('managed.schedules.viewRuns'),
                   icon: <History className="h-3.5 w-3.5" />,
-                  onClick: () => router.push(`/managed/schedules/${stripIdPrefix(s.id)}`),
+                  onClick: () => router.push(`/managed/schedules/${s.id}`),
                 },
               ]
             : [
@@ -295,7 +307,7 @@ export default function ScheduleListPage() {
                 {
                   label: t('managed.schedules.viewRuns'),
                   icon: <History className="h-3.5 w-3.5" />,
-                  onClick: () => router.push(`/managed/schedules/${stripIdPrefix(s.id)}`),
+                  onClick: () => router.push(`/managed/schedules/${s.id}`),
                 },
                 {
                   label: t('common.delete'),
@@ -325,6 +337,7 @@ export default function ScheduleListPage() {
         open={!projectReadOnly && createOpen}
         onOpenChange={(open) => {
           if (open && !currentProjectAllowsWrite()) return
+          if (open && managedScopeRef.current !== managedRequestScopeRef.current.key) return
           setCreateOpen(open)
         }}
       />

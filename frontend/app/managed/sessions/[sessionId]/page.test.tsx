@@ -135,6 +135,16 @@ const managedDeleteMock = managedDelete as unknown as ReturnType<typeof vi.fn>
 const managedPatchMock = managedPatch as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -254,7 +264,7 @@ describe('SessionDetailPage route lifecycle', () => {
     const { getByTestId, rerender } = render(renderSessionPage(queryClient, 'session-a'))
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/sessions/session-a')
+      expect(managedGetMock).toHaveBeenCalledWith('/sessions/session-a', managedOptions())
     })
 
     await act(async () => {
@@ -263,7 +273,7 @@ describe('SessionDetailPage route lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/sessions/session-b')
+      expect(managedGetMock).toHaveBeenCalledWith('/sessions/session-b', managedOptions())
     })
 
     await act(async () => {
@@ -298,9 +308,7 @@ describe('SessionDetailPage route lifecycle', () => {
     })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    const { getByText, rerender } = render(
-      renderSessionPage(queryClient, 'session-a'),
-    )
+    const { getByText, rerender } = render(renderSessionPage(queryClient, 'session-a'))
 
     await waitFor(() => {
       expect(getByText('managed.sessions.archive')).toBeTruthy()
@@ -311,7 +319,11 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/sessions/session-a/archive',
+      {},
+      managedOptions(),
+    )
 
     await act(async () => {
       rerender(renderSessionPage(queryClient, 'session-b'))
@@ -319,7 +331,7 @@ describe('SessionDetailPage route lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/sessions/session-b')
+      expect(managedGetMock).toHaveBeenCalledWith('/sessions/session-b', managedOptions())
     })
 
     await act(async () => {
@@ -328,7 +340,9 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['session', 'session-a'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['session', 'session-b:org-a:project-a'],
+    })
   })
 
   it('does not send a message after the current session detail becomes archived', async () => {
@@ -362,9 +376,7 @@ describe('SessionDetailPage route lifecycle', () => {
 
     const { getByPlaceholderText } = render(renderSessionPage(queryClient, 'session-a'))
 
-    const input = await waitFor(() =>
-      getByPlaceholderText('managed.sessions.sendPlaceholder'),
-    )
+    const input = await waitFor(() => getByPlaceholderText('managed.sessions.sendPlaceholder'))
     const sendButton = input.parentElement?.querySelector('button') as HTMLButtonElement
     expect(sendButton).toBeTruthy()
 
@@ -382,9 +394,16 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/events', {
-      events: [{ type: 'user.message', content: [{ type: 'text', text: 'stale message' }] }],
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/events',
+      {
+        events: [{ type: 'user.message', content: [{ type: 'text', text: 'stale message' }] }],
+      },
+      expect.objectContaining({
+        headers: expect.objectContaining(managedOptions().headers),
+        skipManagedContext: true,
+      }),
+    )
   })
 
   it('does not send a message from old session UI after the current project is archived', async () => {
@@ -420,14 +439,72 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/events', {
-      events: [
-        {
-          type: 'user.message',
-          content: [{ type: 'text', text: 'message after project archive' }],
-        },
-      ],
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/events',
+      {
+        events: [
+          {
+            type: 'user.message',
+            content: [{ type: 'text', text: 'message after project archive' }],
+          },
+        ],
+      },
+      expect.objectContaining({
+        headers: expect.objectContaining(managedOptions().headers),
+        skipManagedContext: true,
+      }),
+    )
+  })
+
+  it('does not send a message from old session UI after the managed project changes to a same-id session', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/sessions/session-a') return session('session-a')
+      if (path === '/sessions/session-a/resources') return { data: [] }
+      if (path.includes('/events?')) return { data: [], has_more: false }
+      return { data: [] }
     })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByPlaceholderText } = render(renderSessionPage(queryClient, 'session-a'))
+
+    const input = await waitFor(() => getByPlaceholderText('managed.sessions.sendPlaceholder'))
+    const sendButton = input.parentElement?.querySelector('button') as HTMLButtonElement
+    expect(sendButton).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.input(input, { target: { value: 'message after project switch' } })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      queryClient.setQueryData(['session', 'session-a:org-a:project-b'], session('session-a'))
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
+      fireEvent.click(sendButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/events',
+      {
+        events: [
+          {
+            type: 'user.message',
+            content: [{ type: 'text', text: 'message after project switch' }],
+          },
+        ],
+      },
+      expect.objectContaining({
+        headers: expect.objectContaining(managedOptions().headers),
+        skipManagedContext: true,
+      }),
+    )
   })
 
   it('does not stop the session after the current session detail is no longer running', async () => {
@@ -461,7 +538,11 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/stop', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/stop',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not stop the session from old UI after the current project is archived', async () => {
@@ -494,7 +575,11 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/stop', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/stop',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not archive the session after the current session detail becomes archived', async () => {
@@ -528,7 +613,11 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not archive the session from old UI after the current project is archived', async () => {
@@ -561,7 +650,11 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not close a reopened add-file dropdown when an older add finishes', async () => {
@@ -724,11 +817,15 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/resources', {
-      type: 'file',
-      file_id: 'file_stale',
-      mount_path: '/workspace/stale.txt',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/resources',
+      {
+        type: 'file',
+        file_id: 'file_stale',
+        mount_path: '/workspace/stale.txt',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not add a file after the current session is no longer idle', async () => {
@@ -803,11 +900,15 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/resources', {
-      type: 'file',
-      file_id: 'file_stale_session',
-      mount_path: '/workspace/stale-session.txt',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/resources',
+      {
+        type: 'file',
+        file_id: 'file_stale_session',
+        mount_path: '/workspace/stale-session.txt',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not add a file from old drawer UI after the current project is archived', async () => {
@@ -881,11 +982,15 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/resources', {
-      type: 'file',
-      file_id: 'file_project_archived',
-      mount_path: '/workspace/project-archived.txt',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/resources',
+      {
+        type: 'file',
+        file_id: 'file_project_archived',
+        mount_path: '/workspace/project-archived.txt',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not add a file from an old drawer after the managed project changes to a same-id session', async () => {
@@ -964,11 +1069,15 @@ describe('SessionDetailPage route lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/resources', {
-      type: 'file',
-      file_id: 'file_old_project',
-      mount_path: '/workspace/old-project.txt',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions/session-a/resources',
+      {
+        type: 'file',
+        file_id: 'file_old_project',
+        mount_path: '/workspace/old-project.txt',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not remove a mounted file after it leaves the current session resources', async () => {
@@ -1023,6 +1132,7 @@ describe('SessionDetailPage route lifecycle', () => {
 
     expect(managedDeleteMock).not.toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_stale',
+      managedOptions(),
     )
   })
 
@@ -1081,6 +1191,7 @@ describe('SessionDetailPage route lifecycle', () => {
 
     expect(managedDeleteMock).not.toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_stale_session',
+      managedOptions(),
     )
   })
 
@@ -1141,6 +1252,7 @@ describe('SessionDetailPage route lifecycle', () => {
 
     expect(managedDeleteMock).not.toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_old_project',
+      managedOptions(),
     )
   })
 
@@ -1287,6 +1399,7 @@ describe('SessionDetailPage route lifecycle', () => {
     expect(managedPatchMock).toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_repo',
       { authorization_token: 'old-token' },
+      managedOptions(),
     )
 
     await act(async () => {
@@ -1358,6 +1471,7 @@ describe('SessionDetailPage route lifecycle', () => {
     expect(managedPatchMock).not.toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_repo',
       { authorization_token: 'stale-token' },
+      managedOptions(),
     )
   })
 
@@ -1420,6 +1534,7 @@ describe('SessionDetailPage route lifecycle', () => {
     expect(managedPatchMock).not.toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_repo',
       { authorization_token: 'stale-session-token' },
+      managedOptions(),
     )
   })
 
@@ -1486,6 +1601,7 @@ describe('SessionDetailPage route lifecycle', () => {
     expect(managedPatchMock).not.toHaveBeenCalledWith(
       '/sessions/session-a/resources/session_resource_repo_old_project',
       { authorization_token: 'old-project-token' },
+      managedOptions(),
     )
   })
 
@@ -1530,9 +1646,7 @@ describe('SessionDetailPage route lifecycle', () => {
     })
 
     await act(async () => {
-      fireEvent.click(
-        view.getByRole('button', { name: /managed\.sessions\.create\.repositories/ }),
-      )
+      fireEvent.click(view.getByRole('button', { name: /managed\.sessions\.create\.repositories/ }))
     })
 
     const tokenInput = view.getByPlaceholderText(

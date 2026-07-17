@@ -8,8 +8,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import type { Vault } from '@/types/managed'
 import { managedPost, managedDelete } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
 import {
   PageHeader,
@@ -35,6 +41,7 @@ interface VaultActionVariables {
   vault: Vault
   runId: number
   scope: string
+  requestScope: ManagedRequestScope
 }
 
 export default function VaultListPage() {
@@ -47,16 +54,15 @@ export default function VaultListPage() {
   const [deleteTarget, setDeleteTarget] = useState<Vault | null>(null)
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const actionRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
@@ -73,7 +79,9 @@ export default function VaultListPage() {
     queryClient
       .getQueriesData<{ data?: Vault[] }>({ queryKey: ['vaults', scope, '/vaults'] })
       .some(([, page]) =>
-        page?.data?.some((currentVault) => currentVault.id === vault.id && !currentVault.archived_at),
+        page?.data?.some(
+          (currentVault) => currentVault.id === vault.id && !currentVault.archived_at,
+        ),
       )
 
   const openArchiveDialog = (vault: Vault) => {
@@ -124,18 +132,22 @@ export default function VaultListPage() {
   })
 
   const archiveMutation = useMutation({
-    mutationFn: ({ vault, runId, scope }: VaultActionVariables) => {
+    mutationFn: ({ vault, runId, scope, requestScope }: VaultActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault archive ignored')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault archive ignored')
       }
-      return managedPost(`/vaults/${stripIdPrefix(vault.id)}/archive`, {})
+      return managedPost(
+        apiResourcePath('vaults', vault.id, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults'] })
+      queryClient.invalidateQueries({ queryKey: ['vaults', scope] })
       setArchiveTarget(null)
     },
     onError: (error, { runId, scope }) => {
@@ -145,18 +157,18 @@ export default function VaultListPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: ({ vault, runId, scope }: VaultActionVariables) => {
+    mutationFn: ({ vault, runId, scope, requestScope }: VaultActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault delete ignored')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault delete ignored')
       }
-      return managedDelete(`/vaults/${stripIdPrefix(vault.id)}`)
+      return managedDelete(apiResourcePath('vaults', vault.id), managedRequestOptions(requestScope))
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults'] })
+      queryClient.invalidateQueries({ queryKey: ['vaults', scope] })
       setDeleteTarget(null)
     },
     onError: (error, { runId, scope }) => {
@@ -181,13 +193,14 @@ export default function VaultListPage() {
   ]
 
   useEffect(() => {
-    if (managedScopeRef.current !== managedScope) {
+    if (managedScopeRef.current !== managedScope.key) {
       actionRunRef.current += 1
       setArchiveTarget(null)
       setDeleteTarget(null)
     }
-    managedScopeRef.current = managedScope
-  }, [managedScope])
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -251,7 +264,7 @@ export default function VaultListPage() {
       <ResourceErrorState
         error={error}
         resource="vault"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['vaults'] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['vaults', managedScope.key] })}
       />
     )
   }
@@ -263,16 +276,17 @@ export default function VaultListPage() {
         subtitle={t('managed.vaults.subtitle')}
         action={
           projectReadOnly ? null : (
-          <Button
-            size="sm"
-            onClick={() => {
-              if (!currentProjectAllowsWrite()) return
-              setCreateOpen(true)
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            {t('managed.vaults.new')}
-          </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!currentProjectAllowsWrite()) return
+                if (!currentManagedScopeIsActive()) return
+                setCreateOpen(true)
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              {t('managed.vaults.new')}
+            </Button>
           )
         }
       />
@@ -326,6 +340,7 @@ export default function VaultListPage() {
         open={!projectReadOnly && createOpen}
         onOpenChange={(open) => {
           if (open && !currentProjectAllowsWrite()) return
+          if (open && !currentManagedScopeIsActive()) return
           setCreateOpen(open)
         }}
       />
@@ -344,7 +359,8 @@ export default function VaultListPage() {
             return
           }
           if (archiveTarget) {
-            const scope = managedScopeRef.current
+            const requestScope = managedRequestScopeRef.current
+            const scope = requestScope.key
             if (!currentVaultIsActive(archiveTarget, scope)) {
               closeArchiveDialog()
               return
@@ -355,6 +371,7 @@ export default function VaultListPage() {
               vault: archiveTarget,
               runId,
               scope,
+              requestScope,
             })
           }
         }}
@@ -375,7 +392,8 @@ export default function VaultListPage() {
             return
           }
           if (deleteTarget) {
-            const scope = managedScopeRef.current
+            const requestScope = managedRequestScopeRef.current
+            const scope = requestScope.key
             if (!currentVaultIsActive(deleteTarget, scope)) {
               closeDeleteDialog()
               return
@@ -386,6 +404,7 @@ export default function VaultListPage() {
               vault: deleteTarget,
               runId,
               scope,
+              requestScope,
             })
           }
         }}

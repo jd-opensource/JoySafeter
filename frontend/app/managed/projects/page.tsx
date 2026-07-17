@@ -114,6 +114,8 @@ export default function ProjectsPage() {
   const currentOrgScopeIsActive = (scope = orgScopeRef.current) =>
     orgScopeRef.current === scope && getCurrentOrgScope() === scope
 
+  const projectsQueryKey = (scope = orgScopeRef.current) => ['projects-list', scope] as const
+
   const isCurrentAction = (runId: number, scope: string) =>
     actionRunRef.current === runId && currentOrgScopeIsActive(scope)
 
@@ -154,7 +156,7 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
       resetCreateDraft()
     },
     onError: (error, variables) => {
@@ -172,7 +174,7 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
     },
     onError: (error, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
@@ -189,7 +191,7 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
     },
     onError: (error, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
@@ -215,7 +217,12 @@ export default function ProjectsPage() {
   }
 
   const editProject = useMutation({
-    mutationFn: ({ id, name, runId, scope }: { id: string; name: string } & ProjectScopedAction) => {
+    mutationFn: ({
+      id,
+      name,
+      runId,
+      scope,
+    }: { id: string; name: string } & ProjectScopedAction) => {
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale project edit ignored')
       }
@@ -224,7 +231,7 @@ export default function ProjectsPage() {
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
       setEditTarget(null)
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
     onError: (error, variables) => {
@@ -255,7 +262,7 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
     onError: (error, variables) => {
@@ -345,7 +352,7 @@ export default function ProjectsPage() {
       <ResourceErrorState
         error={error}
         resource="project"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['projects-list'] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: projectsQueryKey() })}
       />
     )
   }

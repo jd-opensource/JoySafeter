@@ -5,10 +5,40 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useMemo, useRef, useEffect, type ReactNode } from 'react'
 import { i18n, useTranslation } from '@/lib/i18n'
-import { Copy, Search, Package, Globe, KeyRound, Timer, MessageSquare, Clock, X, ArrowRight, Circle, ChevronRight, ChevronDown, Send, Archive, StopCircle, FileIcon, Plus, Trash2, GitBranch } from 'lucide-react'
+import {
+  Copy,
+  Search,
+  Package,
+  Globe,
+  KeyRound,
+  Timer,
+  MessageSquare,
+  Clock,
+  X,
+  ArrowRight,
+  Circle,
+  ChevronRight,
+  ChevronDown,
+  Send,
+  Archive,
+  StopCircle,
+  FileIcon,
+  Plus,
+  Trash2,
+  GitBranch,
+} from 'lucide-react'
 import { managedGet, managedPost, managedDelete, managedPatch } from '@/lib/api-client'
+import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { generateUUID } from '@/lib/utils/uuid'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import {
   collapseRepeatedStatusEvents,
   getEventType,
@@ -19,7 +49,20 @@ import {
   sortSessionEvents,
 } from '@/lib/managed/session-events'
 import { useSessionStream } from '@/lib/managed/sse'
-import type { Agent, Environment, Vault, VaultCredential, Session, SessionEvent, AgentTool, McpServer, SessionFileResource, SessionRepoResource, SessionResource, FileRecord } from '@/types/managed'
+import type {
+  Agent,
+  Environment,
+  Vault,
+  VaultCredential,
+  Session,
+  SessionEvent,
+  AgentTool,
+  McpServer,
+  SessionFileResource,
+  SessionRepoResource,
+  SessionResource,
+  FileRecord,
+} from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -128,16 +171,18 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const [debugFilter, setDebugFilter] = useState<Set<string>>(ALL_EVENT_TYPES)
   const [searchText, setSearchText] = useState('')
   const [showSearch, setShowSearch] = useState(false)
-  const [activeDrawer, setActiveDrawer] = useState<'agent' | 'env' | 'vault' | 'files' | 'repos' | null>(null)
+  const [activeDrawer, setActiveDrawer] = useState<
+    'agent' | 'env' | 'vault' | 'files' | 'repos' | null
+  >(null)
   const [msgInput, setMsgInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [streamForced, setStreamForced] = useState(false)
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const sessionScope = `${id ?? ''}:${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const sessionScope = `${id ?? ''}:${managedScope.key}`
   const sessionScopeRef = useRef(sessionScope)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const actionRunRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -145,12 +190,18 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   // new events auto-scroll into view; when the user scrolls up to read history,
   // we stop yanking them back down.
   const stickToBottomRef = useRef(true)
-  const { events: streamEvents, connected: sseConnected } = useSessionStream(stripIdPrefix(id || ''), !!id)
+  const { events: streamEvents, connected: sseConnected } = useSessionStream(id || '', !!id)
 
-  const { data: session, isLoading, isError, error } = useQuery({
+  const {
+    data: session,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: ['session', sessionScope],
-    queryFn: () => managedGet<Session>(`/sessions/${stripIdPrefix(id)}`),
-    enabled: !!id,
+    queryFn: () =>
+      managedGet<Session>(apiResourcePath('sessions', id), managedRequestOptions(managedScope)),
+    enabled: !!id && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
     refetchInterval: (query) => {
       const status = query.state.data?.status
@@ -163,41 +214,58 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const agentId = session?.agent?.agent_id || session?.agent?.id
   const { data: agentDetail } = useQuery({
     queryKey: ['agent', sessionScope, agentId],
-    queryFn: () => managedGet<Agent>(`/agents/${stripIdPrefix(agentId!)}`),
-    enabled: !!agentId && activeDrawer === 'agent',
+    queryFn: () =>
+      managedGet<Agent>(apiResourcePath('agents', agentId!), managedRequestOptions(managedScope)),
+    enabled: !!agentId && activeDrawer === 'agent' && hasManagedRequestScope(managedScope),
   })
 
   const envId = session?.environment_id
   const { data: envDetail } = useQuery({
     queryKey: ['environment', sessionScope, envId],
-    queryFn: () => managedGet<Environment>(`/environments/${stripIdPrefix(envId!)}`),
-    enabled: !!envId,
+    queryFn: () =>
+      managedGet<Environment>(
+        apiResourcePath('environments', envId!),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!envId && hasManagedRequestScope(managedScope),
   })
 
   const vaultId = session?.vault_ids?.[0]
   const { data: vaultDetail } = useQuery({
     queryKey: ['vault', sessionScope, vaultId],
-    queryFn: () => managedGet<Vault>(`/vaults/${stripIdPrefix(vaultId!)}`),
-    enabled: !!vaultId,
+    queryFn: () =>
+      managedGet<Vault>(apiResourcePath('vaults', vaultId!), managedRequestOptions(managedScope)),
+    enabled: !!vaultId && hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultCredentials } = useQuery({
     queryKey: ['vault-credentials', sessionScope, vaultId],
-    queryFn: () => managedGet<{ data: VaultCredential[] }>(`/vaults/${stripIdPrefix(vaultId!)}/credentials?limit=100`),
-    enabled: !!vaultId && activeDrawer === 'vault',
+    queryFn: () =>
+      managedGet<{ data: VaultCredential[] }>(
+        apiResourceSubpath('vaults', vaultId!, ['credentials'], { limit: 100 }),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!vaultId && activeDrawer === 'vault' && hasManagedRequestScope(managedScope),
   })
 
   const { data: sessionResources } = useQuery({
     queryKey: ['session-resources', sessionScope],
-    queryFn: () => managedGet<{ data: SessionResource[] }>(`/sessions/${stripIdPrefix(id)}/resources`),
-    enabled: !!id,
+    queryFn: () =>
+      managedGet<{ data: SessionResource[] }>(
+        apiResourcePath('sessions', id, 'resources'),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!id && hasManagedRequestScope(managedScope),
   })
   const mountedFiles = useMemo(
     () => (sessionResources?.data || []).filter((r): r is SessionFileResource => r.type === 'file'),
     [sessionResources],
   )
   const mountedRepos = useMemo(
-    () => (sessionResources?.data || []).filter((r): r is SessionRepoResource => r.type === 'github_repository'),
+    () =>
+      (sessionResources?.data || []).filter(
+        (r): r is SessionRepoResource => r.type === 'github_repository',
+      ),
     [sessionResources],
   )
 
@@ -209,6 +277,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   useEffect(() => {
     if (sessionScopeRef.current === sessionScope) return
     sessionScopeRef.current = sessionScope
+    managedRequestScopeRef.current = managedScope
     actionRunRef.current += 1
     eventsLoadedRef.current = false
     setLoadedEvents([])
@@ -224,7 +293,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const currentSessionScopeIsActive = useCallback(
     (scope = sessionScopeRef.current) => {
       const state = useProjectStore.getState()
-      const currentScope = `${id ?? ''}:${state.currentOrgId ?? ''}:${state.currentProjectId ?? ''}`
+      const currentScope = `${id ?? ''}:${managedScopeKey(state.currentOrgId, state.currentProjectId)}`
       return sessionScopeRef.current === scope && currentScope === scope
     },
     [id],
@@ -244,30 +313,38 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     return current?.id === id ? current : null
   }, [currentSessionScopeIsActive, id, queryClient])
 
-  const loadEvents = useCallback(async (afterSeq?: number) => {
-    if (!id) return
-    const requestScope = sessionScopeRef.current
-    if (!currentSessionScopeIsActive(requestScope)) return
-    setIsLoadingMore(true)
-    try {
-      const params = new URLSearchParams({ limit: '100' })
-      if (afterSeq != null) params.set('after_seq', String(afterSeq))
-      const res = await managedGet<{ data: SessionEvent[]; has_more: boolean }>(`/sessions/${stripIdPrefix(id)}/events?${params.toString()}`)
-      if (!currentSessionScopeIsActive(requestScope)) return
-      const newEvents = Array.isArray(res) ? res : res.data
-      const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
-      setLoadedEvents((prev) =>
-        sortSessionEvents(afterSeq != null ? [...prev, ...newEvents] : newEvents),
-      )
-      setHasMoreEvents(hasMore)
-    } catch {
-      // silently fail
-    } finally {
-      if (currentSessionScopeIsActive(requestScope)) {
-        setIsLoadingMore(false)
+  const loadEvents = useCallback(
+    async (afterSeq?: number) => {
+      if (!id) return
+      const actionScope = sessionScopeRef.current
+      const requestScope = managedRequestScopeRef.current
+      if (!currentSessionScopeIsActive(actionScope)) return
+      setIsLoadingMore(true)
+      try {
+        const res = await managedGet<{ data: SessionEvent[]; has_more: boolean }>(
+          apiResourceSubpath('sessions', id, ['events'], {
+            limit: 100,
+            after_seq: afterSeq,
+          }),
+          managedRequestOptions(requestScope),
+        )
+        if (!currentSessionScopeIsActive(actionScope)) return
+        const newEvents = Array.isArray(res) ? res : res.data
+        const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
+        setLoadedEvents((prev) =>
+          sortSessionEvents(afterSeq != null ? [...prev, ...newEvents] : newEvents),
+        )
+        setHasMoreEvents(hasMore)
+      } catch {
+        // silently fail
+      } finally {
+        if (currentSessionScopeIsActive(actionScope)) {
+          setIsLoadingMore(false)
+        }
       }
-    }
-  }, [currentSessionScopeIsActive, id])
+    },
+    [currentSessionScopeIsActive, id],
+  )
 
   useEffect(() => {
     if (id && !eventsLoadedRef.current) {
@@ -311,7 +388,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     if (streamForced && wasRunningRef.current && !isRunning) {
       setStreamForced(false)
       wasRunningRef.current = false
-      eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+      eventsLoadedRef.current = false
+      setLoadedEvents([])
+      loadEvents()
     }
   }, [isRunning, streamForced, id, queryClient])
 
@@ -324,18 +403,31 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     const actionScope = sessionScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentSessionScopeIsActive(actionScope)) return
     const sessionId = id
     setIsSending(true)
     setMsgInput('')
     setStreamForced(true)
     try {
-      await managedPost(`/sessions/${stripIdPrefix(sessionId)}/events`, {
-        events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
-      })
+      await managedPost(
+        apiResourcePath('sessions', sessionId, 'events'),
+        {
+          events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
+        },
+        {
+          ...managedRequestOptions(requestScope),
+          headers: {
+            ...managedRequestOptions(requestScope).headers,
+            'Idempotency-Key': `session-message:${generateUUID()}`,
+          },
+        },
+      )
       if (!isCurrentAction(runId, actionScope)) return
       queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-      eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+      eventsLoadedRef.current = false
+      setLoadedEvents([])
+      loadEvents()
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -359,6 +451,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       const runId = actionRunRef.current + 1
       actionRunRef.current = runId
       const actionScope = sessionScopeRef.current
+      const requestScope = managedRequestScopeRef.current
       if (!currentSessionScopeIsActive(actionScope)) return
       const sessionId = id
       setApprovingCallId(callId)
@@ -370,12 +463,18 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           approved,
         }
         if (!approved && denyMessage) payload.deny_message = denyMessage
-        await managedPost(`/sessions/${stripIdPrefix(sessionId)}/events`, {
-          events: [payload],
-        })
+        await managedPost(
+          apiResourcePath('sessions', sessionId, 'events'),
+          {
+            events: [payload],
+          },
+          managedRequestOptions(requestScope),
+        )
         if (!isCurrentAction(runId, actionScope)) return
         queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-        eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+        eventsLoadedRef.current = false
+        setLoadedEvents([])
+        loadEvents()
       } catch (e) {
         if (!isCurrentAction(runId, actionScope)) return
         toastOperationError(t, e, 'common.operationFailed')
@@ -396,10 +495,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     const actionScope = sessionScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentSessionScopeIsActive(actionScope)) return
     const sessionId = id
     try {
-      await managedPost(`/sessions/${stripIdPrefix(sessionId)}/archive`, {})
+      await managedPost(
+        apiResourcePath('sessions', sessionId, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, actionScope)) return
       queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
     } catch (e) {
@@ -416,13 +520,20 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     const actionScope = sessionScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentSessionScopeIsActive(actionScope)) return
     const sessionId = id
     try {
-      await managedPost(`/sessions/${stripIdPrefix(sessionId)}/stop`, {})
+      await managedPost(
+        apiResourcePath('sessions', sessionId, 'stop'),
+        {},
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, actionScope)) return
       queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-      eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+      eventsLoadedRef.current = false
+      setLoadedEvents([])
+      loadEvents()
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -454,8 +565,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     for (const evt of allEvents) {
       const t = evt.type || evt.event_type || ''
       if (t === 'user.tool_confirmation') {
-        const cid = (evt as { call_id?: string; tool_use_id?: string }).call_id
-          || (evt as { tool_use_id?: string }).tool_use_id
+        const cid =
+          (evt as { call_id?: string; tool_use_id?: string }).call_id ||
+          (evt as { tool_use_id?: string }).tool_use_id
         if (cid) confirmed.add(cid)
       }
     }
@@ -541,7 +653,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       for (const evt of events) {
         const t = evt.type || evt.event_type || ''
         const prev = step1[step1.length - 1]
-        const prevType = prev ? (prev.type || prev.event_type || '') : ''
+        const prevType = prev ? prev.type || prev.event_type || '' : ''
         if (t === 'agent.thinking' && prevType === t) {
           const combined = extractDbgText(prev) + extractDbgText(evt)
           step1[step1.length - 1] = { ...prev, content: [{ type: 'text', text: combined }] }
@@ -556,7 +668,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       for (const evt of step1) {
         const t = evt.type || evt.event_type || ''
         const callId = evt._call_id || evt.call_id || evt.tool_use_id || ''
-        if ((t === 'agent.tool_result' || t === 'agent.mcp_tool_result') && callId && !seenResultCallIds.has(callId)) {
+        if (
+          (t === 'agent.tool_result' || t === 'agent.mcp_tool_result') &&
+          callId &&
+          !seenResultCallIds.has(callId)
+        ) {
           seenResultCallIds.add(callId)
           resultsByCallId.set(callId, evt)
         }
@@ -604,8 +720,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     // 1. Consecutive agent.message / agent.thinking -> combine text
     // 2. tool_result -> fold into matching tool_use by call_id, compute duration
     // 3. span.model_request_end -> attach usage (tokens) to preceding agent/tool row
-    const TOOL_USE_TYPES_SET = new Set(['agent.tool_use', 'agent.mcp_tool_use', 'agent.custom_tool_use'])
-    const TOOL_RESULT_TYPES_SET = new Set(['agent.tool_result', 'agent.mcp_tool_result', 'user.tool_result', 'user.custom_tool_result'])
+    const TOOL_USE_TYPES_SET = new Set([
+      'agent.tool_use',
+      'agent.mcp_tool_use',
+      'agent.custom_tool_use',
+    ])
+    const TOOL_RESULT_TYPES_SET = new Set([
+      'agent.tool_result',
+      'agent.mcp_tool_result',
+      'user.tool_result',
+      'user.custom_tool_result',
+    ])
     const merged: typeof events = []
     const extractText = (e: SessionEvent): string => {
       if (Array.isArray(e.content)) return e.content.map((b) => b.text || '').join('')
@@ -616,7 +741,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     for (const evt of events) {
       const t = evt.type || evt.event_type || ''
       const prev = merged[merged.length - 1]
-      const prevType = prev ? (prev.type || prev.event_type || '') : ''
+      const prevType = prev ? prev.type || prev.event_type || '' : ''
 
       // Merge consecutive agent.message or agent.thinking
       if ((t === 'agent.message' || t === 'agent.thinking') && prevType === t) {
@@ -646,7 +771,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                   durationMs = end - start
                 }
               }
-              merged[j] = { ...candidate, is_error: candidate.is_error || evt.is_error || false, duration_ms: durationMs }
+              merged[j] = {
+                ...candidate,
+                is_error: candidate.is_error || evt.is_error || false,
+                duration_ms: durationMs,
+              }
               break
             }
           }
@@ -689,12 +818,28 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   useEffect(() => {
     // Skip auto-loading more events when SSE is connected — SSE pushes live events
     if (sseConnected) return
-    if (tab !== 'transcript' || searchText || !hasMoreEvents || isLoadingMore || loadedEvents.length === 0) return
+    if (
+      tab !== 'transcript' ||
+      searchText ||
+      !hasMoreEvents ||
+      isLoadingMore ||
+      loadedEvents.length === 0
+    )
+      return
 
     if (filteredEvents.length < MIN_TRANSCRIPT_EVENTS) {
       loadMoreEvents()
     }
-  }, [tab, searchText, hasMoreEvents, isLoadingMore, loadedEvents.length, filteredEvents.length, loadMoreEvents, sseConnected])
+  }, [
+    tab,
+    searchText,
+    hasMoreEvents,
+    isLoadingMore,
+    loadedEvents.length,
+    filteredEvents.length,
+    loadMoreEvents,
+    sseConnected,
+  ])
 
   // Auto-scroll to the newest event when the transcript grows, but only while
   // the user is pinned to the bottom (stickToBottomRef). Scrolling up to read
@@ -738,14 +883,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       // Unterminated running period: still running → count to now; otherwise
       // (timed out / reaped without a closing idle) → count to last activity.
       if (runningAt !== null) {
-        const endMs = session?.status === 'running'
-          ? Date.now()
-          : Math.max(lastEventMs, runningAt)
+        const endMs = session?.status === 'running' ? Date.now() : Math.max(lastEventMs, runningAt)
         total += (endMs - runningAt) / 1000
       }
       if (total > 0) return Math.round(total)
     }
-    const statsDur = session?.stats?.duration_seconds ?? (session?.stats?.duration_ms ? session.stats.duration_ms / 1000 : 0)
+    const statsDur =
+      session?.stats?.duration_seconds ??
+      (session?.stats?.duration_ms ? session.stats.duration_ms / 1000 : 0)
     return statsDur > 0 ? Math.round(statsDur) : 0
   }, [allEvents, session?.stats, session?.status])
 
@@ -761,16 +906,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   }
 
   if (isLoading || !session) {
-    return <div className="text-muted-foreground p-8">{t('common.loading')}</div>
+    return <div className="p-8 text-muted-foreground">{t('common.loading')}</div>
   }
 
   const sessionStart = session.created_at
 
   // Build metadata items
-  const metaItems: { icon: ReactNode; label: ReactNode; tooltip?: string; onClick?: () => void }[] = []
+  const metaItems: { icon: ReactNode; label: ReactNode; tooltip?: string; onClick?: () => void }[] =
+    []
   if (session.agent) {
     metaItems.push({
-      icon: <Package className="w-3.5 h-3.5" />,
+      icon: <Package className="h-3.5 w-3.5" />,
       label: session.agent.name,
       tooltip: session.agent.name,
       onClick: () => setActiveDrawer('agent'),
@@ -778,7 +924,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   }
   if (session.environment_id) {
     metaItems.push({
-      icon: <Globe className="w-3.5 h-3.5" />,
+      icon: <Globe className="h-3.5 w-3.5" />,
       label: envDetail?.name || stripIdPrefix(session.environment_id).slice(0, 12),
       tooltip: envDetail?.name || session.environment_id,
       onClick: () => setActiveDrawer('env'),
@@ -786,34 +932,40 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   }
   if (session.vault_ids && session.vault_ids.length > 0) {
     metaItems.push({
-      icon: <KeyRound className="w-3.5 h-3.5" />,
-      label: vaultDetail?.name || (session.vault_ids.length > 1 ? `${session.vault_ids.length} vaults` : stripIdPrefix(session.vault_ids[0]).slice(0, 12)),
+      icon: <KeyRound className="h-3.5 w-3.5" />,
+      label:
+        vaultDetail?.name ||
+        (session.vault_ids.length > 1
+          ? `${session.vault_ids.length} vaults`
+          : stripIdPrefix(session.vault_ids[0]).slice(0, 12)),
       tooltip: vaultDetail?.name || session.vault_ids[0],
       onClick: () => setActiveDrawer('vault'),
     })
   }
   // Duration
-  const durationSec = session.stats?.duration_seconds ?? (session.stats?.duration_ms ? session.stats.duration_ms / 1000 : 0)
+  const durationSec =
+    session.stats?.duration_seconds ??
+    (session.stats?.duration_ms ? session.stats.duration_ms / 1000 : 0)
   if (durationSec > 0) {
     const m = Math.floor(durationSec / 60)
     const s = Math.round(durationSec % 60)
     metaItems.push({
-      icon: <Timer className="w-3.5 h-3.5" />,
+      icon: <Timer className="h-3.5 w-3.5" />,
       label: m > 0 ? `${m}m ${s}s` : `${s}s`,
     })
   }
   // Token usage
   if (session.usage && (session.usage.input_tokens > 0 || session.usage.output_tokens > 0)) {
-    const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+    const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
     metaItems.push({
-      icon: <MessageSquare className="w-3.5 h-3.5" />,
+      icon: <MessageSquare className="h-3.5 w-3.5" />,
       label: `${fmt(session.usage.input_tokens)}/${fmt(session.usage.output_tokens)}`,
     })
   }
   // Mounted files
   if (mountedFiles.length > 0) {
     metaItems.push({
-      icon: <FileIcon className="w-3.5 h-3.5" />,
+      icon: <FileIcon className="h-3.5 w-3.5" />,
       label: `${mountedFiles.length} ${t('managed.sessions.create.resources').toLowerCase()}`,
       onClick: () => setActiveDrawer('files'),
     })
@@ -821,7 +973,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   // Mounted repos
   if (mountedRepos.length > 0) {
     metaItems.push({
-      icon: <GitBranch className="w-3.5 h-3.5" />,
+      icon: <GitBranch className="h-3.5 w-3.5" />,
       label: `${mountedRepos.length} ${t('managed.sessions.create.repositories').toLowerCase()}`,
       onClick: () => setActiveDrawer('repos'),
     })
@@ -834,21 +986,21 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     const s = runtimeSec % 60
     const runtimeLabel = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`
     metaItems.push({
-      icon: <Timer className="w-3.5 h-3.5" />,
+      icon: <Timer className="h-3.5 w-3.5" />,
       label: runtimeLabel,
       tooltip: t('managed.sessions.runtimeDuration'),
     })
   }
   // Created time
   metaItems.push({
-    icon: <Clock className="w-3.5 h-3.5" />,
+    icon: <Clock className="h-3.5 w-3.5" />,
     label: formatRelativeTime(session.created_at),
   })
 
   const sessionDisplayName = formatSessionId(session.id)
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col">
+    <div className="flex h-[calc(100vh-4rem)] flex-col">
       {/* Header */}
       <div className="shrink-0">
         <PageHeader
@@ -858,13 +1010,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             { label: t('managed.sessions.title'), to: '/managed/sessions' },
             { label: sessionDisplayName },
           ]}
-          action={(
+          action={
             <div className="flex items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
                     {t('managed.sessions.actions')}
-                    <ChevronDown className="w-3.5 h-3.5 ml-1" />
+                    <ChevronDown className="ml-1 h-3.5 w-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -872,7 +1024,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                     onSelect={handleStopSession}
                     disabled={projectReadOnly || !isRunning || isArchived}
                   >
-                    <StopCircle className="w-3.5 h-3.5 mr-2" />
+                    <StopCircle className="mr-2 h-3.5 w-3.5" />
                     {t('managed.sessions.stopSession')}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -880,7 +1032,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                     onSelect={handleArchiveSession}
                     disabled={projectReadOnly || isArchived}
                   >
-                    <Archive className="w-3.5 h-3.5 mr-2" />
+                    <Archive className="mr-2 h-3.5 w-3.5" />
                     {t('managed.sessions.archive')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -896,11 +1048,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                 }}
                 disabled={!canEditMessage}
               >
-                <Send className="w-3.5 h-3.5 mr-1" />
+                <Send className="mr-1 h-3.5 w-3.5" />
                 {t('managed.sessions.sendMessage')}
               </Button>
             </div>
-          )}
+          }
         />
 
         {/* Metadata bar - own line */}
@@ -911,7 +1063,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
               <button
                 type="button"
                 title={item.tooltip}
-                className={`inline-flex items-center gap-1.5 ${item.onClick ? 'hover:text-foreground cursor-pointer' : 'cursor-default'} transition-colors`}
+                className={`inline-flex items-center gap-1.5 ${item.onClick ? 'cursor-pointer hover:text-foreground' : 'cursor-default'} transition-colors`}
                 onClick={item.onClick}
                 disabled={!item.onClick}
               >
@@ -924,7 +1076,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       </div>
 
       {/* Tab bar + toolbar */}
-      <div className="shrink-0 flex items-center justify-between border-b border-border pb-0 mb-0">
+      <div className="mb-0 flex shrink-0 items-center justify-between border-b border-border pb-0">
         <div className="flex items-center gap-4">
           <Tabs value={tab} onValueChange={(v) => setTab(v as 'transcript' | 'debug')}>
             <TabsList>
@@ -933,28 +1085,30 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             </TabsList>
           </Tabs>
 
-          <EventFilter selected={debugFilter} onChange={setDebugFilter} availableTypes={availableTypes} />
+          <EventFilter
+            selected={debugFilter}
+            onChange={setDebugFilter}
+            availableTypes={availableTypes}
+          />
 
           <button
             type="button"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => setShowSearch(!showSearch)}
           >
-            <Search className="w-4 h-4" />
+            <Search className="h-4 w-4" />
           </button>
         </div>
 
         <div className="flex items-center gap-2 pb-1">
-          {isRunning && (
-            <Circle className="w-3 h-3 fill-red-500 text-red-500" />
-          )}
+          {isRunning && <Circle className="h-3 w-3 fill-red-500 text-red-500" />}
           <Button
             variant="outline"
             size="sm"
             className="h-7 text-xs"
             onClick={() => navigator.clipboard.writeText(JSON.stringify(allEvents, null, 2))}
           >
-            <Copy className="w-3 h-3 mr-1" />
+            <Copy className="mr-1 h-3 w-3" />
             {t('managed.sessions.copyAll')}
           </Button>
         </div>
@@ -964,36 +1118,45 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       {showSearch && (
         <div className="shrink-0 pt-2">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="session-search"
               autoFocus
               placeholder={t('managed.sessions.searchEvents')}
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
-              className="pl-7 h-7 text-xs w-[240px]"
+              className="h-7 w-[240px] pl-7 text-xs"
             />
           </div>
         </div>
       )}
 
       {/* Timeline */}
-      <div className="shrink-0 mt-3">
-        <EventTimeline events={filteredEvents} sessionStart={sessionStart} selectedId={selectedEvent?.id || null} onSelect={setSelectedEvent} />
+      <div className="mt-3 shrink-0">
+        <EventTimeline
+          events={filteredEvents}
+          sessionStart={sessionStart}
+          selectedId={selectedEvent?.id || null}
+          onSelect={setSelectedEvent}
+        />
       </div>
 
       {/* Content: event list + detail panel */}
-      <div className="flex-1 flex overflow-hidden border border-border rounded-lg">
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto" onScroll={(e) => {
-          const el = e.currentTarget
-          const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-          // Pin to bottom only when the user is within 80px of it, so live events
-          // keep following; scrolling up to read history releases the pin.
-          stickToBottomRef.current = distanceFromBottom < 80
-          if (distanceFromBottom < 100 && hasMoreEvents && !isLoadingMore) {
-            loadMoreEvents()
-          }
-        }}>
+      <div className="flex flex-1 overflow-hidden rounded-lg border border-border">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto"
+          onScroll={(e) => {
+            const el = e.currentTarget
+            const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+            // Pin to bottom only when the user is within 80px of it, so live events
+            // keep following; scrolling up to read history releases the pin.
+            stickToBottomRef.current = distanceFromBottom < 80
+            if (distanceFromBottom < 100 && hasMoreEvents && !isLoadingMore) {
+              loadMoreEvents()
+            }
+          }}
+        >
           <EventList
             events={filteredEvents}
             sessionStart={sessionStart}
@@ -1022,7 +1185,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
 
       {/* Tool-confirmation approvals (always_ask) */}
       {pendingApprovals.length > 0 && (
-        <div className="shrink-0 border-t border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 space-y-2">
+        <div className="shrink-0 space-y-2 border-t border-amber-300 bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
           {pendingApprovals.map((p) => {
             const sending = approvingCallId === p.callId
             const previewText = (() => {
@@ -1041,19 +1204,19 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             return (
               <div
                 key={p.callId}
-                className="flex items-start gap-3 rounded-md border border-amber-300 bg-white dark:bg-background p-2"
+                className="flex items-start gap-3 rounded-md border border-amber-300 bg-white p-2 dark:bg-background"
               >
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium text-amber-800 dark:text-amber-300">
                     {t('managed.sessions.events.approvalBannerTitle', { tool: p.tool })}
                   </div>
                   {previewText && (
-                    <div className="text-xs text-muted-foreground font-mono truncate mt-1">
+                    <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
                       {previewText}
                     </div>
                   )}
                   <Input
-                    className="mt-2 text-xs h-7"
+                    className="mt-2 h-7 text-xs"
                     placeholder={t('managed.sessions.events.approvalDenyPlaceholder')}
                     value={denyDraft[p.callId] || ''}
                     onChange={(e) =>
@@ -1062,10 +1225,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                     disabled={projectReadOnly || sending}
                   />
                 </div>
-                <div className="flex flex-col gap-1 shrink-0">
+                <div className="flex shrink-0 flex-col gap-1">
                   <Button
                     size="sm"
-                    className="h-7 px-3 bg-emerald-500 hover:bg-emerald-600 text-white"
+                    className="h-7 bg-emerald-500 px-3 text-white hover:bg-emerald-600"
                     disabled={projectReadOnly || sending}
                     onClick={() => sendToolConfirmation(p.callId, true)}
                   >
@@ -1096,10 +1259,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
           <input
             ref={inputRef}
-            className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             value={msgInput}
             onChange={(e) => setMsgInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSendMessage()
+              }
+            }}
             disabled={!canEditMessage}
             placeholder={
               isArchived
@@ -1116,7 +1284,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             onClick={handleSendMessage}
             disabled={!msgInput.trim() || !canSendMessage}
           >
-            <Send className="w-4 h-4" />
+            <Send className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -1127,6 +1295,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           session={session}
           agent={agentDetail || null}
           queryScope={sessionScope}
+          requestScope={managedScope}
           onClose={() => setActiveDrawer(null)}
           onGoToAgent={() => {
             if (agentId) router.push(`/managed/agents/${agentId}`)
@@ -1150,8 +1319,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       )}
       {activeDrawer === 'files' && (
         <FilesDrawer
-          sessionId={stripIdPrefix(id)}
+          sessionId={id}
           operationScope={sessionScope}
+          requestScope={managedScope}
           files={mountedFiles}
           isIdle={!projectReadOnly && isIdle && !isArchived}
           canMutate={currentSessionCanMutateResources}
@@ -1162,8 +1332,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       )}
       {activeDrawer === 'repos' && (
         <ReposDrawer
-          sessionId={stripIdPrefix(id)}
+          sessionId={id}
           operationScope={sessionScope}
+          requestScope={managedScope}
           repos={mountedRepos}
           isIdle={!projectReadOnly && isIdle && !isArchived}
           canMutate={currentSessionCanMutateResources}
@@ -1186,12 +1357,14 @@ function AgentDrawer({
   session,
   agent,
   queryScope,
+  requestScope,
   onClose,
   onGoToAgent,
 }: {
   session: Session
   agent: Agent | null
   queryScope: string
+  requestScope: ManagedRequestScope
   onClose: () => void
   onGoToAgent: () => void
 }) {
@@ -1201,12 +1374,16 @@ function AgentDrawer({
   const [versionDropdownOpen, setVersionDropdownOpen] = useState(false)
 
   const agentId = agent?.id || session.agent?.id
-  const rawAgentId = agentId ? stripIdPrefix(agentId) : null
+  const rawAgentId = agentId ? apiResourceId(agentId) : null
 
   const { data: versionsData } = useQuery({
     queryKey: ['agent-versions', queryScope, rawAgentId],
-    queryFn: () => managedGet<{ data: AgentVersionEntry[] }>(`/agents/${rawAgentId}/versions`),
-    enabled: !!rawAgentId,
+    queryFn: () =>
+      managedGet<{ data: AgentVersionEntry[] }>(
+        apiResourcePath('agents', rawAgentId, 'versions'),
+        managedRequestOptions(requestScope),
+      ),
+    enabled: !!rawAgentId && hasManagedRequestScope(requestScope),
   })
 
   const rawVersions = versionsData?.data || []
@@ -1243,22 +1420,31 @@ function AgentDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-[480px] max-w-full bg-background border-l border-border h-full overflow-y-auto shadow-xl">
-        <Button variant="ghost" size="icon" className="absolute right-4 top-4 h-8 w-8 z-10" onClick={onClose}>
-          <X className="w-4 h-4" />
+      <div className="relative h-full w-[480px] max-w-full overflow-y-auto border-l border-border bg-background shadow-xl">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-4 top-4 z-10 h-8 w-8"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
         </Button>
 
-        <div className="px-6 py-5 space-y-6">
+        <div className="space-y-6 px-6 py-5">
           {/* Header */}
           <section>
             <h2 className="text-base font-semibold text-foreground">{agentName}</h2>
-            <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
-              {displayAgent && <div className="font-mono"><MonoId id={displayAgent.id} truncate={false} /></div>}
+            <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+              {displayAgent && (
+                <div className="font-mono">
+                  <MonoId id={displayAgent.id} truncate={false} />
+                </div>
+              )}
               <button
                 className="inline-flex items-center gap-1 text-primary hover:underline"
                 onClick={onGoToAgent}
               >
-                {t('managed.sessions.goToAgent')} <ArrowRight className="w-3 h-3" />
+                {t('managed.sessions.goToAgent')} <ArrowRight className="h-3 w-3" />
               </button>
             </div>
           </section>
@@ -1268,19 +1454,23 @@ function AgentDrawer({
             <div className="relative">
               <button
                 type="button"
-                className="w-full flex items-center justify-between border border-border rounded-lg px-3 py-2 text-sm text-foreground hover:bg-muted/50 transition-colors"
+                className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted/50"
                 onClick={() => setVersionDropdownOpen(!versionDropdownOpen)}
               >
-                <span>{t('managed.sessions.version')}: v{activeVersion}</span>
-                <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${versionDropdownOpen ? 'rotate-180' : ''}`} />
+                <span>
+                  {t('managed.sessions.version')}: v{activeVersion}
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 text-muted-foreground transition-transform ${versionDropdownOpen ? 'rotate-180' : ''}`}
+                />
               </button>
               {versionDropdownOpen && versions.length > 0 && (
-                <div className="absolute z-20 mt-1 w-full bg-background border border-border rounded-lg shadow-lg overflow-hidden">
+                <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-border bg-background shadow-lg">
                   {versions.map((v) => (
                     <button
                       key={v.version}
                       type="button"
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${v.version === activeVersion ? 'bg-muted font-medium' : ''}`}
+                      className={`w-full px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${v.version === activeVersion ? 'bg-muted font-medium' : ''}`}
                       onClick={() => {
                         setSelectedVersion(v.version)
                         setVersionDropdownOpen(false)
@@ -1295,13 +1485,17 @@ function AgentDrawer({
           </section>
 
           {!displayAgent ? (
-            <div className="text-sm text-muted-foreground">{t('managed.sessions.loadingAgent')}</div>
+            <div className="text-sm text-muted-foreground">
+              {t('managed.sessions.loadingAgent')}
+            </div>
           ) : (
             <>
               {/* Engine */}
               <section>
-                <h3 className="text-sm font-semibold text-foreground mb-1">{t('managed.sessions.engineKind')}</h3>
-                <p className="text-sm text-muted-foreground font-mono">
+                <h3 className="mb-1 text-sm font-semibold text-foreground">
+                  {t('managed.sessions.engineKind')}
+                </h3>
+                <p className="font-mono text-sm text-muted-foreground">
                   {displayAgent.engine_kind
                     ? ENGINE_KIND_LABELS[displayAgent.engine_kind] || displayAgent.engine_kind
                     : '-'}
@@ -1310,8 +1504,12 @@ function AgentDrawer({
 
               {/* Model */}
               <section>
-                <h3 className="text-sm font-semibold text-foreground mb-1">{t('managed.sessions.model')}</h3>
-                <p className="text-sm text-muted-foreground font-mono">{displayAgent.model?.id || "-"}</p>
+                <h3 className="mb-1 text-sm font-semibold text-foreground">
+                  {t('managed.sessions.model')}
+                </h3>
+                <p className="font-mono text-sm text-muted-foreground">
+                  {displayAgent.model?.id || '-'}
+                </p>
               </section>
 
               {/* System prompt */}
@@ -1319,14 +1517,16 @@ function AgentDrawer({
                 <section>
                   <button
                     type="button"
-                    className="flex items-center gap-1.5 text-sm font-semibold text-foreground mb-2"
+                    className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground"
                     onClick={() => setPromptExpanded(!promptExpanded)}
                   >
-                    <ChevronRight className={`w-3.5 h-3.5 transition-transform ${promptExpanded ? 'rotate-90' : ''}`} />
+                    <ChevronRight
+                      className={`h-3.5 w-3.5 transition-transform ${promptExpanded ? 'rotate-90' : ''}`}
+                    />
                     {t('managed.sessions.systemPrompt')}
                   </button>
                   {promptExpanded && (
-                    <pre className="bg-muted p-4 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap font-mono max-h-[300px] overflow-y-auto leading-relaxed">
+                    <pre className="max-h-[300px] overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
                       {displayAgent.system || displayAgent.system_prompt}
                     </pre>
                   )}
@@ -1335,7 +1535,9 @@ function AgentDrawer({
 
               {/* MCPs and tools */}
               <section>
-                <h3 className="text-sm font-semibold text-foreground mb-3">{t('managed.sessions.mcpsAndTools')}</h3>
+                <h3 className="mb-3 text-sm font-semibold text-foreground">
+                  {t('managed.sessions.mcpsAndTools')}
+                </h3>
                 {displayAgent.tools && displayAgent.tools.length > 0 ? (
                   <div className="space-y-3">
                     {displayAgent.tools.map((tool, i) => (
@@ -1349,7 +1551,9 @@ function AgentDrawer({
 
               {/* Skills */}
               <section>
-                <h3 className="text-sm font-semibold text-foreground mb-1">{t('managed.sessions.skillsLabel')}</h3>
+                <h3 className="mb-1 text-sm font-semibold text-foreground">
+                  {t('managed.sessions.skillsLabel')}
+                </h3>
                 <p className="text-sm text-muted-foreground">
                   {displayAgent.skills && displayAgent.skills.length > 0
                     ? t('managed.sessions.skillsConfigured', { count: displayAgent.skills.length })
@@ -1372,44 +1576,54 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
     const configs = tool.configs || []
     const defaultPolicy = tool.default_config?.permission_policy?.type || 'always_allow'
     return (
-      <div className="border border-border rounded-lg p-3">
+      <div className="rounded-lg border border-border p-3">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-            <Package className="w-4 h-4 text-muted-foreground" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+            <Package className="h-4 w-4 text-muted-foreground" />
           </div>
           <div>
             <div className="text-sm font-medium">{t('managed.sessions.builtInTools')}</div>
-            <div className="text-xs text-muted-foreground font-mono">agent_toolset_20260401</div>
+            <div className="font-mono text-xs text-muted-foreground">agent_toolset_20260401</div>
           </div>
         </div>
         <div className="mt-2 flex items-center justify-between">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+            />
             {t('managed.sessions.toolPermissions')}
             {configs.length > 0 && (
-              <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0">{configs.length}</Badge>
+              <Badge variant="outline" className="ml-1 px-1.5 py-0 text-[10px]">
+                {configs.length}
+              </Badge>
             )}
           </button>
           <span className="text-xs text-muted-foreground">{formatPolicy(defaultPolicy, t)}</span>
         </div>
         {expanded && configs.length > 0 && (
-          <div className="mt-2 ml-5 space-y-1 border-l border-border pl-3">
+          <div className="ml-5 mt-2 space-y-1 border-l border-border pl-3">
             {configs.map((cfg, j) => {
               const enabled = cfg.enabled !== false
               const effectivePolicy = cfg.permission_policy?.type || defaultPolicy
               const isInherited = !cfg.permission_policy
               return (
-                <div key={j} className="flex items-center justify-between text-xs py-0.5">
+                <div key={j} className="flex items-center justify-between py-0.5 text-xs">
                   <span className="flex items-center gap-2">
                     {enabled ? (
                       <span
                         className="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-emerald-500 text-white"
                         aria-label="enabled"
                       >
-                        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={4}>
+                        <svg
+                          className="h-2.5 w-2.5"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={4}
+                        >
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                         </svg>
                       </span>
@@ -1419,14 +1633,18 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
                         aria-label="disabled"
                       />
                     )}
-                    <span className={`font-mono ${enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+                    <span
+                      className={`font-mono ${enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}
+                    >
                       {cfg.name}
                     </span>
                   </span>
                   <span className="text-muted-foreground">
                     {formatPolicy(effectivePolicy, t)}
                     {isInherited && (
-                      <span className="ml-1 text-[10px] opacity-60">({t('managed.policy.inherit')})</span>
+                      <span className="ml-1 text-[10px] opacity-60">
+                        ({t('managed.policy.inherit')})
+                      </span>
                     )}
                   </span>
                 </div>
@@ -1443,46 +1661,60 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
     const server = mcpServers?.find((s) => s.name === tool.mcp_server_name)
     const defaultPolicy = tool.default_config?.permission_policy?.type || 'always_ask'
     return (
-      <div className="border border-border rounded-lg p-3">
+      <div className="rounded-lg border border-border p-3">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-            <Globe className="w-4 h-4 text-muted-foreground" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+            <Globe className="h-4 w-4 text-muted-foreground" />
           </div>
           <div>
             <div className="text-sm font-medium">{tool.mcp_server_name}</div>
-            {server && <div className="text-xs text-muted-foreground font-mono">{server.url}</div>}
+            {server && <div className="font-mono text-xs text-muted-foreground">{server.url}</div>}
           </div>
         </div>
         {(configs.length > 0 || defaultPolicy) && (
           <div className="mt-2 flex items-center justify-between">
             <button
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
-              <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+              <ChevronRight
+                className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+              />
               {t('managed.sessions.toolPermissions')}
               {configs.length > 0 && (
-                <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0">{configs.length}</Badge>
+                <Badge variant="outline" className="ml-1 px-1.5 py-0 text-[10px]">
+                  {configs.length}
+                </Badge>
               )}
             </button>
-            {defaultPolicy && <span className="text-xs text-muted-foreground">{formatPolicy(defaultPolicy, t)}</span>}
+            {defaultPolicy && (
+              <span className="text-xs text-muted-foreground">
+                {formatPolicy(defaultPolicy, t)}
+              </span>
+            )}
           </div>
         )}
         {expanded && configs.length > 0 && (
-          <div className="mt-2 ml-5 space-y-1 border-l border-border pl-3">
+          <div className="ml-5 mt-2 space-y-1 border-l border-border pl-3">
             {configs.map((cfg, j) => {
               const enabled = cfg.enabled !== false
               const effectivePolicy = cfg.permission_policy?.type || defaultPolicy
               const isInherited = !cfg.permission_policy
               return (
-                <div key={j} className="flex items-center justify-between text-xs py-0.5">
+                <div key={j} className="flex items-center justify-between py-0.5 text-xs">
                   <span className="flex items-center gap-2">
                     {enabled ? (
                       <span
                         className="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-emerald-500 text-white"
                         aria-label="enabled"
                       >
-                        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={4}>
+                        <svg
+                          className="h-2.5 w-2.5"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={4}
+                        >
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                         </svg>
                       </span>
@@ -1492,14 +1724,18 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
                         aria-label="disabled"
                       />
                     )}
-                    <span className={`font-mono ${enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+                    <span
+                      className={`font-mono ${enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}
+                    >
                       {cfg.name}
                     </span>
                   </span>
                   <span className="text-muted-foreground">
                     {formatPolicy(effectivePolicy, t)}
                     {isInherited && (
-                      <span className="ml-1 text-[10px] opacity-60">({t('managed.policy.inherit')})</span>
+                      <span className="ml-1 text-[10px] opacity-60">
+                        ({t('managed.policy.inherit')})
+                      </span>
                     )}
                   </span>
                 </div>
@@ -1513,10 +1749,10 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
 
   if (tool.type === 'custom') {
     return (
-      <div className="border border-border rounded-lg p-3">
+      <div className="rounded-lg border border-border p-3">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-            <Package className="w-4 h-4 text-muted-foreground" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+            <Package className="h-4 w-4 text-muted-foreground" />
           </div>
           <div>
             <div className="text-sm font-medium">{tool.name}</div>
@@ -1532,12 +1768,18 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
 
 function formatPolicy(policy: string, t: (key: string) => string): string {
   switch (policy) {
-    case 'always_allow': return t('managed.policy.alwaysAllow')
-    case 'always_ask': return t('managed.policy.alwaysAsk')
-    case 'always_deny': return t('managed.policy.alwaysDeny')
-    case 'ask': return t('managed.policy.ask')
-    case 'inherit': return t('managed.policy.inherit')
-    default: return policy.replace(/_/g, ' ')
+    case 'always_allow':
+      return t('managed.policy.alwaysAllow')
+    case 'always_ask':
+      return t('managed.policy.alwaysAsk')
+    case 'always_deny':
+      return t('managed.policy.alwaysDeny')
+    case 'ask':
+      return t('managed.policy.ask')
+    case 'inherit':
+      return t('managed.policy.inherit')
+    default:
+      return policy.replace(/_/g, ' ')
   }
 }
 
@@ -1555,51 +1797,71 @@ function EnvDrawer({
   const envType = env.config?.type || 'cloud'
   const networking = env.config?.networking
   const packages = env.config?.packages
-  const hasPackages = packages && (
-    (packages.apt?.length ?? 0) + (packages.pip?.length ?? 0) + (packages.npm?.length ?? 0) +
-    (packages.cargo?.length ?? 0) + (packages.gem?.length ?? 0) + (packages.go?.length ?? 0) > 0
-  )
+  const hasPackages =
+    packages &&
+    (packages.apt?.length ?? 0) +
+      (packages.pip?.length ?? 0) +
+      (packages.npm?.length ?? 0) +
+      (packages.cargo?.length ?? 0) +
+      (packages.gem?.length ?? 0) +
+      (packages.go?.length ?? 0) >
+      0
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-[480px] max-w-full bg-background border-l border-border h-full overflow-y-auto shadow-xl">
-        <Button variant="ghost" size="icon" className="absolute right-4 top-4 h-8 w-8 z-10" onClick={onClose}>
-          <X className="w-4 h-4" />
+      <div className="relative h-full w-[480px] max-w-full overflow-y-auto border-l border-border bg-background shadow-xl">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-4 top-4 z-10 h-8 w-8"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
         </Button>
 
-        <div className="px-6 py-5 space-y-6">
+        <div className="space-y-6 px-6 py-5">
           {/* Header */}
           <section>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-semibold text-foreground">{env.name}</h2>
               <StatusBadge status={isArchived ? 'archived' : 'active'} />
-              <Badge variant="outline" className="text-xs capitalize">{envType}</Badge>
+              <Badge variant="outline" className="text-xs capitalize">
+                {envType}
+              </Badge>
             </div>
             {env.description && (
-              <p className="text-sm text-muted-foreground mt-1">{env.description}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{env.description}</p>
             )}
-            <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
-              <div className="font-mono"><MonoId id={env.id} truncate={false} /></div>
+            <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+              <div className="font-mono">
+                <MonoId id={env.id} truncate={false} />
+              </div>
               <button
                 className="inline-flex items-center gap-1 text-primary hover:underline"
                 onClick={onGoToEnv}
               >
-                {t('managed.sessions.goToEnv')} <ArrowRight className="w-3 h-3" />
+                {t('managed.sessions.goToEnv')} <ArrowRight className="h-3 w-3" />
               </button>
             </div>
           </section>
 
           {/* Overview */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-3">{t('managed.sessions.overview')}</h3>
+            <h3 className="mb-3 text-sm font-semibold text-foreground">
+              {t('managed.sessions.overview')}
+            </h3>
             <div className="space-y-2">
               <div className="flex items-center text-sm">
-                <span className="w-28 text-muted-foreground shrink-0">{t('managed.sessions.scope')}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">
+                  {t('managed.sessions.scope')}
+                </span>
                 <span className="text-foreground">{t('managed.sessions.organization')}</span>
               </div>
               <div className="flex items-center text-sm">
-                <span className="w-28 text-muted-foreground shrink-0">{t('managed.sessions.created')}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">
+                  {t('managed.sessions.created')}
+                </span>
                 <span className="text-foreground">{formatRelativeTime(env.created_at)}</span>
               </div>
             </div>
@@ -1607,27 +1869,49 @@ function EnvDrawer({
 
           {/* Networking */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-1">{t('managed.sessions.networking')}</h3>
-            <p className="text-xs text-muted-foreground mb-3">{t('managed.sessions.networkingDesc')}</p>
+            <h3 className="mb-1 text-sm font-semibold text-foreground">
+              {t('managed.sessions.networking')}
+            </h3>
+            <p className="mb-3 text-xs text-muted-foreground">
+              {t('managed.sessions.networkingDesc')}
+            </p>
             <div className="space-y-2">
               <div className="flex items-center text-sm">
-                <span className="w-28 text-muted-foreground shrink-0">{t('managed.sessions.type')}</span>
-                <span className="text-foreground capitalize">{networking?.type || 'limited'}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">
+                  {t('managed.sessions.type')}
+                </span>
+                <span className="capitalize text-foreground">{networking?.type || 'limited'}</span>
               </div>
               <div className="flex items-center text-sm">
-                <span className="w-28 text-muted-foreground shrink-0">{t('managed.sessions.mcpAccess')}</span>
-                <span className="text-foreground">{networking?.allow_mcp_servers ? t('managed.sessions.enabled') : t('managed.sessions.disabled')}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">
+                  {t('managed.sessions.mcpAccess')}
+                </span>
+                <span className="text-foreground">
+                  {networking?.allow_mcp_servers
+                    ? t('managed.sessions.enabled')
+                    : t('managed.sessions.disabled')}
+                </span>
               </div>
               <div className="flex items-center text-sm">
-                <span className="w-28 text-muted-foreground shrink-0">{t('managed.sessions.packages')}</span>
-                <span className="text-foreground">{networking?.allow_package_managers ? t('managed.sessions.enabled') : t('managed.sessions.disabled')}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">
+                  {t('managed.sessions.packages')}
+                </span>
+                <span className="text-foreground">
+                  {networking?.allow_package_managers
+                    ? t('managed.sessions.enabled')
+                    : t('managed.sessions.disabled')}
+                </span>
               </div>
               {networking?.allowed_hosts && networking.allowed_hosts.length > 0 && (
                 <div className="flex items-start text-sm">
-                  <span className="w-28 text-muted-foreground shrink-0 pt-0.5">{t('managed.sessions.hosts')}</span>
+                  <span className="w-28 shrink-0 pt-0.5 text-muted-foreground">
+                    {t('managed.sessions.hosts')}
+                  </span>
                   <div className="flex flex-wrap gap-1.5">
                     {networking.allowed_hosts.map((host) => (
-                      <code key={host} className="bg-muted px-2 py-0.5 rounded text-xs font-mono">{host}</code>
+                      <code key={host} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
+                        {host}
+                      </code>
                     ))}
                   </div>
                 </div>
@@ -1637,60 +1921,88 @@ function EnvDrawer({
 
           {/* Packages */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-2">{t('managed.sessions.packages')}</h3>
+            <h3 className="mb-2 text-sm font-semibold text-foreground">
+              {t('managed.sessions.packages')}
+            </h3>
             {hasPackages ? (
               <div className="space-y-2">
                 {packages.apt && packages.apt.length > 0 && (
                   <div className="flex items-start text-sm">
-                    <span className="w-28 text-muted-foreground shrink-0">apt</span>
+                    <span className="w-28 shrink-0 text-muted-foreground">apt</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {packages.apt.map((p) => <code key={p} className="bg-muted px-2 py-0.5 rounded text-xs font-mono">{p}</code>)}
+                      {packages.apt.map((p) => (
+                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
+                          {p}
+                        </code>
+                      ))}
                     </div>
                   </div>
                 )}
                 {packages.pip && packages.pip.length > 0 && (
                   <div className="flex items-start text-sm">
-                    <span className="w-28 text-muted-foreground shrink-0">pip</span>
+                    <span className="w-28 shrink-0 text-muted-foreground">pip</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {packages.pip.map((p) => <code key={p} className="bg-muted px-2 py-0.5 rounded text-xs font-mono">{p}</code>)}
+                      {packages.pip.map((p) => (
+                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
+                          {p}
+                        </code>
+                      ))}
                     </div>
                   </div>
                 )}
                 {packages.npm && packages.npm.length > 0 && (
                   <div className="flex items-start text-sm">
-                    <span className="w-28 text-muted-foreground shrink-0">npm</span>
+                    <span className="w-28 shrink-0 text-muted-foreground">npm</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {packages.npm.map((p) => <code key={p} className="bg-muted px-2 py-0.5 rounded text-xs font-mono">{p}</code>)}
+                      {packages.npm.map((p) => (
+                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
+                          {p}
+                        </code>
+                      ))}
                     </div>
                   </div>
                 )}
                 {packages.cargo && packages.cargo.length > 0 && (
                   <div className="flex items-start text-sm">
-                    <span className="w-28 text-muted-foreground shrink-0">cargo</span>
+                    <span className="w-28 shrink-0 text-muted-foreground">cargo</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {packages.cargo.map((p) => <code key={p} className="bg-muted px-2 py-0.5 rounded text-xs font-mono">{p}</code>)}
+                      {packages.cargo.map((p) => (
+                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
+                          {p}
+                        </code>
+                      ))}
                     </div>
                   </div>
                 )}
                 {packages.gem && packages.gem.length > 0 && (
                   <div className="flex items-start text-sm">
-                    <span className="w-28 text-muted-foreground shrink-0">gem</span>
+                    <span className="w-28 shrink-0 text-muted-foreground">gem</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {packages.gem.map((p) => <code key={p} className="bg-muted px-2 py-0.5 rounded text-xs font-mono">{p}</code>)}
+                      {packages.gem.map((p) => (
+                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
+                          {p}
+                        </code>
+                      ))}
                     </div>
                   </div>
                 )}
                 {packages.go && packages.go.length > 0 && (
                   <div className="flex items-start text-sm">
-                    <span className="w-28 text-muted-foreground shrink-0">go</span>
+                    <span className="w-28 shrink-0 text-muted-foreground">go</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {packages.go.map((p) => <code key={p} className="bg-muted px-2 py-0.5 rounded text-xs font-mono">{p}</code>)}
+                      {packages.go.map((p) => (
+                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
+                          {p}
+                        </code>
+                      ))}
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground italic">{t('managed.sessions.noneConfigured')}</p>
+              <p className="text-sm italic text-muted-foreground">
+                {t('managed.sessions.noneConfigured')}
+              </p>
             )}
           </section>
         </div>
@@ -1717,15 +2029,17 @@ function VaultDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-[480px] max-w-full bg-background border-l border-border h-full overflow-y-auto shadow-xl">
-        <div className="sticky top-0 bg-background border-b border-border px-6 py-4 flex items-center justify-between">
+      <div className="relative h-full w-[480px] max-w-full overflow-y-auto border-l border-border bg-background shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-border bg-background px-6 py-4">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold">{vault.name}</h2>
               <StatusBadge status={isArchived ? 'archived' : 'active'} />
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-              <span>{t('managed.sessions.created')} <RelativeTime date={vault.created_at} /></span>
+            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+              <span>
+                {t('managed.sessions.created')} <RelativeTime date={vault.created_at} />
+              </span>
               <span>&middot;</span>
               <MonoId id={vault.id} />
               <span>&middot;</span>
@@ -1733,18 +2047,20 @@ function VaultDrawer({
                 className="inline-flex items-center gap-1 text-primary hover:underline"
                 onClick={onGoToVault}
               >
-                {t('managed.sessions.goToVault')} <ArrowRight className="w-3 h-3" />
+                {t('managed.sessions.goToVault')} <ArrowRight className="h-3 w-3" />
               </button>
             </div>
           </div>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="px-6 py-5">
-          <h3 className="text-sm font-semibold text-foreground">{t('managed.sessions.credentials')}</h3>
-          <p className="text-xs text-muted-foreground mb-4">
+          <h3 className="text-sm font-semibold text-foreground">
+            {t('managed.sessions.credentials')}
+          </h3>
+          <p className="mb-4 text-xs text-muted-foreground">
             {t('managed.sessions.credentialsDesc')}
           </p>
 
@@ -1753,9 +2069,11 @@ function VaultDrawer({
           ) : (
             <div className="space-y-4">
               {activeCreds.map((cred) => (
-                <div key={cred.id} className="border border-border rounded-lg p-4 space-y-1.5">
+                <div key={cred.id} className="space-y-1.5 rounded-lg border border-border p-4">
                   <div className="text-sm font-semibold text-foreground">{cred.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{cred.mcp_server_url}</div>
+                  <div className="font-mono text-xs text-muted-foreground">
+                    {cred.mcp_server_url}
+                  </div>
                   {cred.oauth_config?.expires_at && (
                     <div className="flex items-center text-xs text-muted-foreground">
                       <span className="w-16 shrink-0">{t('managed.sessions.expires')}</span>
@@ -1787,6 +2105,7 @@ function VaultDrawer({
 function FilesDrawer({
   sessionId,
   operationScope,
+  requestScope,
   files,
   isIdle,
   canMutate,
@@ -1796,6 +2115,7 @@ function FilesDrawer({
 }: {
   sessionId: string
   operationScope: string
+  requestScope: ManagedRequestScope
   files: SessionFileResource[]
   isIdle: boolean
   canMutate: () => boolean
@@ -1844,8 +2164,9 @@ function FilesDrawer({
 
   const { data: allFilesResp } = useQuery({
     queryKey: ['files-for-add', operationScope],
-    queryFn: () => managedGet<{ data: FileRecord[] }>('/files?limit=100'),
-    enabled: showAddDropdown,
+    queryFn: () =>
+      managedGet<{ data: FileRecord[] }>('/files?limit=100', managedRequestOptions(requestScope)),
+    enabled: showAddDropdown && hasManagedRequestScope(requestScope),
   })
   const allFiles = useMemo(() => {
     if (!allFilesResp) return []
@@ -1868,11 +2189,15 @@ function FilesDrawer({
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPost(`/sessions/${sessionId}/resources`, {
-        type: 'file',
-        file_id: file.id,
-        mount_path: `/workspace/${file.filename}`,
-      })
+      return managedPost(
+        apiResourcePath('sessions', sessionId, 'resources'),
+        {
+          type: 'file',
+          file_id: file.id,
+          mount_path: `/workspace/${file.filename}`,
+        },
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentMutation(runId, scope)) return
@@ -1898,7 +2223,10 @@ function FilesDrawer({
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedDelete(`/sessions/${sessionId}/resources/${resourceId}`)
+      return managedDelete(
+        apiResourcePath('sessions', sessionId, 'resources', resourceId),
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentMutation(runId, scope)) return
@@ -1969,27 +2297,30 @@ function FilesDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-[480px] max-w-full bg-background border-l border-border h-full overflow-y-auto shadow-xl">
-        <Button variant="ghost" size="icon" className="absolute right-4 top-4 h-8 w-8 z-10" onClick={onClose}>
-          <X className="w-4 h-4" />
+      <div className="relative h-full w-[480px] max-w-full overflow-y-auto border-l border-border bg-background shadow-xl">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-4 top-4 z-10 h-8 w-8"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
         </Button>
 
-        <div className="px-6 py-5 space-y-6">
+        <div className="space-y-6 px-6 py-5">
           <section>
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-foreground">{t('managed.sessions.mountedFiles')}</h2>
+              <h2 className="text-base font-semibold text-foreground">
+                {t('managed.sessions.mountedFiles')}
+              </h2>
               {isIdle && (
                 <div className="relative">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={toggleAddDropdown}
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" />
+                  <Button variant="outline" size="sm" onClick={toggleAddDropdown}>
+                    <Plus className="mr-1 h-3.5 w-3.5" />
                     {t('managed.sessions.addFile')}
                   </Button>
                   {showAddDropdown && (
-                    <div className="absolute right-0 z-50 mt-1 w-64 rounded-md border border-border bg-background py-1 shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute right-0 z-50 mt-1 max-h-48 w-64 overflow-y-auto rounded-md border border-border bg-background py-1 shadow-lg">
                       {availableFiles.length === 0 ? (
                         <div className="px-3 py-2 text-sm text-muted-foreground">
                           {t('managed.sessions.create.noFiles')}
@@ -2002,7 +2333,7 @@ function FilesDrawer({
                             onClick={() => handleAddFile(f)}
                             className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
                           >
-                            <FileIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             <span className="truncate">{f.filename}</span>
                           </button>
                         ))
@@ -2012,7 +2343,7 @@ function FilesDrawer({
                 </div>
               )}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="mt-1 text-xs text-muted-foreground">
               {t('managed.sessions.create.resourcesDesc')}
             </p>
           </section>
@@ -2022,11 +2353,11 @@ function FilesDrawer({
           ) : (
             <div className="space-y-3">
               {files.map((f) => (
-                <div key={f.id} className="border border-border rounded-lg p-3 space-y-1.5">
+                <div key={f.id} className="space-y-1.5 rounded-lg border border-border p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <FileIcon className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm font-medium font-mono">{f.file_id}</span>
+                      <FileIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-mono text-sm font-medium">{f.file_id}</span>
                     </div>
                     {isIdle && (
                       <Button
@@ -2036,13 +2367,13 @@ function FilesDrawer({
                         onClick={() => handleRemoveFile(f.id)}
                         disabled={removeFileMutation.isPending}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     )}
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground">
                     <span className="w-20 shrink-0">{t('managed.sessions.create.mountPath')}</span>
-                    <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{f.mount_path}</code>
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{f.mount_path}</code>
                   </div>
                   <div className="flex items-center text-xs text-muted-foreground">
                     <span className="w-20 shrink-0">{t('managed.sessions.type')}</span>
@@ -2061,6 +2392,7 @@ function FilesDrawer({
 function ReposDrawer({
   sessionId,
   operationScope,
+  requestScope,
   repos,
   isIdle,
   canMutate,
@@ -2070,6 +2402,7 @@ function ReposDrawer({
 }: {
   sessionId: string
   operationScope: string
+  requestScope: ManagedRequestScope
   repos: SessionRepoResource[]
   isIdle: boolean
   canMutate: () => boolean
@@ -2131,9 +2464,13 @@ function ReposDrawer({
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPatch(`/sessions/${sessionId}/resources/${resourceId}`, {
-        authorization_token: token,
-      })
+      return managedPatch(
+        apiResourcePath('sessions', sessionId, 'resources', resourceId),
+        {
+          authorization_token: token,
+        },
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return
@@ -2182,15 +2519,24 @@ function ReposDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative w-[480px] max-w-full bg-background border-l border-border h-full overflow-y-auto shadow-xl">
-        <Button variant="ghost" size="icon" className="absolute right-4 top-4 h-8 w-8 z-10" onClick={onClose}>
-          <X className="w-4 h-4" />
+      <div className="relative h-full w-[480px] max-w-full overflow-y-auto border-l border-border bg-background shadow-xl">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-4 top-4 z-10 h-8 w-8"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
         </Button>
 
-        <div className="px-6 py-5 space-y-6">
+        <div className="space-y-6 px-6 py-5">
           <section>
-            <h2 className="text-base font-semibold text-foreground">{t('managed.sessions.mountedRepos')}</h2>
-            <p className="text-xs text-muted-foreground mt-1">{t('managed.sessions.create.repositoriesDesc')}</p>
+            <h2 className="text-base font-semibold text-foreground">
+              {t('managed.sessions.mountedRepos')}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('managed.sessions.create.repositoriesDesc')}
+            </p>
           </section>
 
           {repos.length === 0 ? (
@@ -2198,21 +2544,27 @@ function ReposDrawer({
           ) : (
             <div className="space-y-3">
               {repos.map((r) => (
-                <div key={r.id} className="border border-border rounded-lg p-3 space-y-1.5">
+                <div key={r.id} className="space-y-1.5 rounded-lg border border-border p-3">
                   <div className="flex items-center gap-2">
-                    <GitBranch className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span className="text-sm font-medium font-mono truncate">{r.url}</span>
+                    <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate font-mono text-sm font-medium">{r.url}</span>
                   </div>
                   {r.branch && (
                     <div className="flex items-center text-xs text-muted-foreground">
-                      <span className="w-20 shrink-0">{t('managed.sessions.create.repoBranch')}</span>
-                      <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{r.branch}</code>
+                      <span className="w-20 shrink-0">
+                        {t('managed.sessions.create.repoBranch')}
+                      </span>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{r.branch}</code>
                     </div>
                   )}
                   {r.mount_path && (
                     <div className="flex items-center text-xs text-muted-foreground">
-                      <span className="w-20 shrink-0">{t('managed.sessions.create.mountPath')}</span>
-                      <code className="bg-muted px-1.5 py-0.5 rounded font-mono">{r.mount_path}</code>
+                      <span className="w-20 shrink-0">
+                        {t('managed.sessions.create.mountPath')}
+                      </span>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono">
+                        {r.mount_path}
+                      </code>
                     </div>
                   )}
                   {isIdle && (
@@ -2222,7 +2574,7 @@ function ReposDrawer({
                         autoComplete="new-password"
                         value={tokenEdits[r.id] ?? ''}
                         onChange={(e) => updateTokenDraft(r.id, e.target.value)}
-                        className="h-7 text-xs font-mono"
+                        className="h-7 font-mono text-xs"
                         placeholder={t('managed.sessions.rotateTokenPlaceholder')}
                       />
                       <Button

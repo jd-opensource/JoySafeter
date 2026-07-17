@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { managedPost } from '@/lib/api-client'
 import { toastSuccess } from '@/lib/utils/toast'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 vi.mock('@/lib/api-client', () => ({
   managedPost: vi.fn(),
@@ -67,6 +68,13 @@ describe('SkillLifecycleActions lifecycle', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+    useProjectStore.setState({
+      currentOrgId: null,
+      currentProjectId: null,
+      currentProject: null,
+      organizations: [],
+      projects: [],
+    })
   })
 
   it('does not toast or invalidate queries after a lifecycle mutation resolves post-unmount', async () => {
@@ -81,11 +89,26 @@ describe('SkillLifecycleActions lifecycle', () => {
       defaultOptions: { queries: { retry: false } },
     })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    useProjectStore.setState({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-a',
+      currentProject: {
+        id: 'project-a',
+        org_id: 'org-a',
+        name: 'Project A',
+        slug: 'project-a',
+        is_default: true,
+        archived_at: null,
+      },
+      organizations: [],
+      projects: [],
+    })
 
     const view = renderWithClient(
       <SkillLifecycleActions
         skillId="skill_123"
         currentStatus="draft"
+        requestScope={{ orgId: 'org-a', projectId: 'project-a', key: 'org-a:project-a' }}
         operationScope="org-a:project-a:skill_123"
         invalidateKeys={[['skills', 'org-a:project-a']]}
       />,
@@ -96,6 +119,18 @@ describe('SkillLifecycleActions lifecycle', () => {
       fireEvent.click(view.getByText('managed.skills.transition.submitForReview'))
       await Promise.resolve()
     })
+
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/skills/123/submit-review',
+      {},
+      {
+        headers: {
+          'X-Org-Id': 'org-a',
+          'X-Project-Id': 'project-a',
+        },
+        skipManagedContext: true,
+      },
+    )
 
     view.unmount()
 

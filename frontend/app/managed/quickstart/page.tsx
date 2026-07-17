@@ -37,8 +37,17 @@ import {
   type StepId,
 } from '@/hooks/managed/use-quickstart-chat'
 import { ApiError, managedGet, managedPost } from '@/lib/api-client'
+import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { shortIdWithPrefix, stripIdPrefix } from '@/lib/managed/id'
+import { generateUUID } from '@/lib/utils/uuid'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSessionStream } from '@/lib/managed/sse'
 import { useRouter } from 'next/navigation'
@@ -108,7 +117,7 @@ function unwrapActiveVaultsCache(value: ActiveVaultsCache | undefined) {
 
 function getCurrentManagedScope() {
   const { currentOrgId, currentProjectId } = useProjectStore.getState()
-  return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  return managedScopeKey(currentOrgId, currentProjectId)
 }
 
 function isSecretCompatible(secret: QuickstartSecret | undefined, engine: QuickstartEngine | null) {
@@ -563,10 +572,8 @@ export default function QuickstartPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const currentProjectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
   const [editorTab, setEditorTab] = useState<'yaml' | 'json'>('yaml')
   const [rightTab, setRightTab] = useState<'config' | 'preview'>('config')
   const [secretRef, setSecretRef] = useState('')
@@ -585,7 +592,8 @@ export default function QuickstartPage() {
   const [showPreviewSearch, setShowPreviewSearch] = useState(false)
   const [selectedPreviewEvent, setSelectedPreviewEvent] = useState<SessionEvent | null>(null)
   const autoIntroSentRef = useRef<Set<number>>(new Set())
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const pageActionRunRef = useRef(0)
 
   // Sub-step state for environment (step 2) inline flow
@@ -608,8 +616,9 @@ export default function QuickstartPage() {
   const [pendingVaultId, setPendingVaultId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
-    managedScopeRef.current = managedScope
+    if (managedScopeRef.current === managedScope.key) return
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
     pageActionRunRef.current += 1
     setSelectedEnvId('')
     setLocalSessionId('')
@@ -634,7 +643,7 @@ export default function QuickstartPage() {
     setVaultAnswers({})
     setVaultName('')
     autoIntroSentRef.current = new Set()
-  }, [managedScope])
+  }, [managedScope.key])
 
   const nextPageAction = () => {
     const runId = pageActionRunRef.current + 1
@@ -652,22 +661,29 @@ export default function QuickstartPage() {
     currentPageScopeIsActive() && currentProjectAllowsWrite()
 
   const { data: secretsRes } = useQuery({
-    queryKey: ['secrets', managedScope],
-    queryFn: () => managedGet<{ data: QuickstartSecret[] }>('/secrets'),
+    queryKey: ['secrets', managedScope.key],
+    queryFn: () =>
+      managedGet<{ data: QuickstartSecret[] }>('/secrets', managedRequestOptions(managedScope)),
+    enabled: hasManagedRequestScope(managedScope),
   })
   const secrets = secretsRes?.data
 
   const { data: environments } = useQuery({
-    queryKey: ['environments-active', managedScope],
+    queryKey: ['environments-active', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Environment>>('/environments')
+      const res = await managedGet<PaginatedResponse<Environment>>(
+        '/environments',
+        managedRequestOptions(managedScope),
+      )
       return res.data || []
     },
+    enabled: hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultsRes } = useQuery({
-    queryKey: ['vaults-active', managedScope],
-    queryFn: () => managedGet<{ data: Vault[] }>('/vaults'),
+    queryKey: ['vaults-active', managedScope.key],
+    queryFn: () => managedGet<{ data: Vault[] }>('/vaults', managedRequestOptions(managedScope)),
+    enabled: hasManagedRequestScope(managedScope),
   })
   const vaults = vaultsRes?.data
 
@@ -740,12 +756,19 @@ export default function QuickstartPage() {
   const sessionId = rawSessionId ? stripIdPrefix(rawSessionId) : ''
   const isSessionActive = !!sessionId
 
-  const { events: sessionEvents } = useSessionStream(sessionId, isSessionActive)
+  const { events: sessionEvents } = useSessionStream(
+    sessionId,
+    isSessionActive && hasManagedRequestScope(managedScope),
+  )
 
   const { data: activeSession } = useQuery({
-    queryKey: ['session', managedScope, rawSessionId],
-    queryFn: () => managedGet<Session>(`/sessions/${sessionId}`),
-    enabled: isSessionActive,
+    queryKey: ['session', managedScope.key, rawSessionId],
+    queryFn: () =>
+      managedGet<Session>(
+        apiResourcePath('sessions', rawSessionId || sessionId),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: isSessionActive && hasManagedRequestScope(managedScope),
     refetchInterval: (query) => {
       const status = query.state.data?.status
       return status === 'running' ? 3000 : false
@@ -837,10 +860,7 @@ export default function QuickstartPage() {
   const sessionMsgInputRef = useRef('')
   const sessionMsgDraftVersionRef = useRef(0)
 
-  const setSessionMessageDraft = (
-    value: string,
-    options: { userEdit?: boolean } = {},
-  ) => {
+  const setSessionMessageDraft = (value: string, options: { userEdit?: boolean } = {}) => {
     if (options.userEdit) {
       sessionMsgDraftVersionRef.current += 1
     }
@@ -866,8 +886,9 @@ export default function QuickstartPage() {
 
   const handleStopSession = async () => {
     if (!sessionId || isStoppingSession || !currentPageProjectAllowsWrite()) return
+    const requestScope = managedRequestScopeRef.current
     const currentSession = rawSessionId
-      ? queryClient.getQueryData<Session>(['session', managedScope, rawSessionId])
+      ? queryClient.getQueryData<Session>(['session', requestScope.key, rawSessionId])
       : null
     if (currentSession) {
       if (
@@ -885,7 +906,11 @@ export default function QuickstartPage() {
     const targetSessionId = sessionId
     setIsStoppingSession(true)
     try {
-      await managedPost(`/sessions/${targetSessionId}/stop`, {})
+      await managedPost(
+        apiResourcePath('sessions', targetSessionId, 'stop'),
+        {},
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentPageAction(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['session', scope, targetRawSessionId] })
     } catch (e) {
@@ -902,8 +927,9 @@ export default function QuickstartPage() {
     const text = sessionMsgInput.trim()
     if (!text || !sessionId || isSendingMsg || isSessionRunning || !currentPageProjectAllowsWrite())
       return
+    const requestScope = managedRequestScopeRef.current
     const currentSession = rawSessionId
-      ? queryClient.getQueryData<Session>(['session', managedScope, rawSessionId])
+      ? queryClient.getQueryData<Session>(['session', requestScope.key, rawSessionId])
       : null
     if (currentSession) {
       if (
@@ -921,9 +947,20 @@ export default function QuickstartPage() {
     setIsSendingMsg(true)
     setSessionMessageDraft('', { userEdit: true })
     try {
-      await managedPost(`/sessions/${targetSessionId}/events`, {
-        events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
-      })
+      const requestOptions = managedRequestOptions(requestScope)
+      await managedPost(
+        apiResourcePath('sessions', targetSessionId, 'events'),
+        {
+          events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
+        },
+        {
+          ...requestOptions,
+          headers: {
+            ...requestOptions.headers,
+            'Idempotency-Key': `session-message:${generateUUID()}`,
+          },
+        },
+      )
     } catch (e) {
       if (!isCurrentPageAction(runId, scope)) return
       const sessionBusy =
@@ -950,7 +987,7 @@ export default function QuickstartPage() {
   const readCurrentActiveEnvironments = () => {
     const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
       'environments-active',
-      managedScope,
+      managedScope.key,
     ])
     return (currentEnvironmentData || activeEnvironments).filter((env) => !env.archived_at)
   }
@@ -958,7 +995,7 @@ export default function QuickstartPage() {
   const readCurrentActiveVaults = () => {
     const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
       'vaults-active',
-      managedScope,
+      managedScope.key,
     ])
     return (unwrapActiveVaultsCache(currentVaultData) || activeVaults).filter(
       (vault) => !vault.archived_at,
@@ -993,7 +1030,7 @@ export default function QuickstartPage() {
     if (!currentProjectAllowsWrite()) return false
     const agentId = resourceIds[3]
     if (!agentId) return false
-    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope, agentId])
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
     if (currentAgent) return currentAgent.id === agentId && !currentAgent.archived_at
     return createdResourceIds.has(agentId)
   }
@@ -1003,7 +1040,7 @@ export default function QuickstartPage() {
     if (!envId) return null
     const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
       'environments-active',
-      managedScope,
+      managedScope.key,
     ])
     const currentEnvRecord = currentEnvironmentData?.find((env) => env.id === envId)
     if (currentEnvRecord?.archived_at) return null
@@ -1016,7 +1053,7 @@ export default function QuickstartPage() {
     if (!vaultId) return null
     const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
       'vaults-active',
-      managedScope,
+      managedScope.key,
     ])
     const currentVaultRecord = unwrapActiveVaultsCache(currentVaultData)?.find(
       (vault) => vault.id === vaultId,
@@ -1113,7 +1150,7 @@ export default function QuickstartPage() {
     setSelectedEnvId(quickstartEnvId)
     if (!createdResourceIds.has(quickstartEnvId)) return
     queryClient.setQueryData<Environment[] | undefined>(
-      ['environments-active', managedScope],
+      ['environments-active', managedScope.key],
       (current) => {
         if (!current || current.some((env) => env.id === quickstartEnvId)) return current
         const generatedName =
@@ -1123,9 +1160,7 @@ export default function QuickstartPage() {
           {
             id: quickstartEnvId,
             name:
-              envAnswers.choiceLabel ||
-              generatedName ||
-              shortIdWithPrefix(quickstartEnvId, 'env_'),
+              envAnswers.choiceLabel || generatedName || shortIdWithPrefix(quickstartEnvId, 'env_'),
             created_at: '',
             updated_at: '',
             archived_at: null,
@@ -1160,13 +1195,14 @@ export default function QuickstartPage() {
   const handleTestRun = async () => {
     const agentId = resourceIds[3]
     if (!agentId || !currentPageProjectAllowsWrite()) return
+    const requestScope = managedRequestScopeRef.current
     const { runId, scope } = nextPageAction()
     setIsTestRunning(true)
     try {
-      const body: Record<string, unknown> = { agent: agentId }
+      const body: Record<string, unknown> = { agent: apiResourceId(agentId) }
       const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
         'environments-active',
-        managedScope,
+        requestScope.key,
       ])
       const currentActiveEnvironments = readCurrentActiveEnvironments()
       const currentSelectedEnv = currentActiveEnvironments.find((env) => env.id === selectedEnvId)
@@ -1180,9 +1216,13 @@ export default function QuickstartPage() {
       const selectedEnvCanBeSubmitted =
         !!currentSelectedEnv || selectedEnvIsCurrentQuickstartResource
       if (selectedEnvId && selectedEnvCanBeSubmitted) {
-        body.environment_id = stripIdPrefix(currentSelectedEnv?.id || selectedEnvId)
+        body.environment_id = apiResourceId(currentSelectedEnv?.id || selectedEnvId)
       }
-      const res = await managedPost<{ id: string }>('/sessions', body)
+      const res = await managedPost<{ id: string }>(
+        '/sessions',
+        body,
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentPageAction(runId, scope)) return
       setLocalSessionId(res.id)
       setRightTab('preview')

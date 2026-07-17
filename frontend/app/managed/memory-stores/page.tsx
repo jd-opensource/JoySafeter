@@ -7,6 +7,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedPost } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import type { MemoryStore } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,12 +39,11 @@ export default function MemoryStoreListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   const actionRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef(managedScope)
   const [showArchived, setShowArchived] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -85,14 +90,16 @@ export default function MemoryStoreListPage() {
     },
   ]
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['memory-stores'] })
+  const invalidate = (scope = managedScopeRef.current) =>
+    queryClient.invalidateQueries({ queryKey: ['memory-stores', scope] })
 
   useEffect(() => {
-    if (managedScopeRef.current !== managedScope) {
+    if (managedScopeRef.current !== managedScope.key) {
       actionRunRef.current += 1
     }
-    managedScopeRef.current = managedScope
-  }, [managedScope])
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -103,7 +110,7 @@ export default function MemoryStoreListPage() {
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
@@ -119,6 +126,7 @@ export default function MemoryStoreListPage() {
 
   const handleArchive = async (store: MemoryStore) => {
     const actionScope = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentManagedScopeAllowsWrite(actionScope)) return
     const storeStillCurrent = queryClient
       .getQueriesData<{ data?: MemoryStore[] }>({
@@ -130,9 +138,13 @@ export default function MemoryStoreListPage() {
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     try {
-      await managedPost(`memory_stores/${store.id.replace('memstore_', '')}/archive`)
+      await managedPost(
+        apiResourcePath('memory_stores', store.id, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, actionScope)) return
-      invalidate()
+      invalidate(actionScope)
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')

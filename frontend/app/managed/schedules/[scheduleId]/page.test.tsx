@@ -241,6 +241,14 @@ function activeProject() {
   })
 }
 
+function requestScope(projectId = 'project-a') {
+  return {
+    orgId: 'org-a',
+    projectId,
+    key: `org-a:${projectId}`,
+  }
+}
+
 function renderPage() {
   const params = {
     status: 'fulfilled',
@@ -258,6 +266,7 @@ function renderPage() {
 describe('ScheduleDetailPage', () => {
   beforeEach(() => {
     hoisted.triggerMutate.mockReset().mockResolvedValue({})
+    hoisted.toggleMutate.mockReset().mockResolvedValue({})
     hoisted.deleteMutate.mockReset().mockResolvedValue({})
     hoisted.state.schedule = scheduleRecord()
     hoisted.state.runs = []
@@ -298,7 +307,54 @@ describe('ScheduleDetailPage', () => {
     await act(async () => {
       fireEvent.click(getByText('managed.schedules.runNow'))
     })
-    expect(hoisted.triggerMutate).toHaveBeenCalledWith(SCHEDULE_UUID)
+    expect(hoisted.triggerMutate).toHaveBeenCalledWith({
+      id: SCHEDULE_UUID,
+      requestScope: requestScope(),
+    })
+  })
+
+  it('does not trigger from an old detail header after the managed project changes in the same tick', async () => {
+    const { getByText } = renderPage()
+    const oldTriggerButton = getByText('managed.schedules.runNow')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProjectId: 'project-b',
+        currentProject: {
+          id: 'project-b',
+          org_id: 'org-a',
+          name: 'Project B',
+          slug: 'project-b',
+          is_default: false,
+          archived_at: null,
+        },
+      })
+      fireEvent.click(oldTriggerButton)
+    })
+
+    expect(hoisted.triggerMutate).not.toHaveBeenCalled()
+  })
+
+  it('does not toggle from an old detail header after the managed project changes in the same tick', async () => {
+    const { getByRole } = renderPage()
+    const oldToggle = getByRole('switch')
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProjectId: 'project-b',
+        currentProject: {
+          id: 'project-b',
+          org_id: 'org-a',
+          name: 'Project B',
+          slug: 'project-b',
+          is_default: false,
+          archived_at: null,
+        },
+      })
+      fireEvent.click(oldToggle)
+    })
+
+    expect(hoisted.toggleMutate).not.toHaveBeenCalled()
   })
 
   it('opens the scheduled run session using the managed session id', async () => {
@@ -321,9 +377,38 @@ describe('ScheduleDetailPage', () => {
       fireEvent.click(getAllByText('common.delete').at(-1)!)
     })
     await waitFor(() => {
-      expect(hoisted.deleteMutate).toHaveBeenCalledWith(SCHEDULE_UUID)
+      expect(hoisted.deleteMutate).toHaveBeenCalledWith({
+        id: SCHEDULE_UUID,
+        requestScope: requestScope(),
+      })
     })
     expect(pushMock).toHaveBeenCalledWith('/managed/schedules')
+  })
+
+  it('does not delete from an old confirmation after the managed project changes in the same tick', async () => {
+    const { getByText, getAllByText } = renderPage()
+    await act(async () => {
+      fireEvent.click(getByText('common.delete'))
+    })
+    const oldConfirmButton = getAllByText('common.delete').at(-1)!
+
+    await act(async () => {
+      useProjectStore.setState({
+        currentProjectId: 'project-b',
+        currentProject: {
+          id: 'project-b',
+          org_id: 'org-a',
+          name: 'Project B',
+          slug: 'project-b',
+          is_default: false,
+          archived_at: null,
+        },
+      })
+      fireEvent.click(oldConfirmButton)
+    })
+
+    expect(hoisted.deleteMutate).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
   })
 
   it('closes destructive confirmation state when the managed scope changes', async () => {

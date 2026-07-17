@@ -161,6 +161,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -251,7 +261,7 @@ describe('SessionListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 
   it('does not archive a session from an old row action after the current project is archived', async () => {
@@ -283,7 +293,7 @@ describe('SessionListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 
   it('does not invalidate sessions from an archive completion after the page unmounts', async () => {
@@ -313,6 +323,12 @@ describe('SessionListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/sessions/session-a/archive',
+      {},
+      managedOptions(),
+    )
+
     unmount()
 
     await act(async () => {
@@ -320,7 +336,7 @@ describe('SessionListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['sessions'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['sessions', 'org-a:project-a'] })
   })
 
   it('does not invalidate sessions from an archive completion after the current project is archived', async () => {
@@ -350,6 +366,12 @@ describe('SessionListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/sessions/session-a/archive',
+      {},
+      managedOptions(),
+    )
+
     await act(async () => {
       useProjectStore.setState({
         currentProject: projectInfo('2026-01-02T00:00:00Z'),
@@ -358,7 +380,7 @@ describe('SessionListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['sessions'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['sessions', 'org-a:project-a'] })
   })
 
   it('does not archive a session target that is no longer in the current sessions list', async () => {
@@ -389,6 +411,6 @@ describe('SessionListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions/session-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 })

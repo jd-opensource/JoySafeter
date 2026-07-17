@@ -17,6 +17,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { managedPost } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
+import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/request-scope'
 import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { Button } from '@/components/ui/button'
@@ -82,8 +84,12 @@ const TRANSITIONS: Array<{
 interface SkillLifecycleActionsProps {
   skillId: string
   currentStatus: SkillLifecycleStatus | string | undefined
+  requestScope: ManagedRequestScope
   operationScope: string
-  canSubmitTransition?: (endpoint: string, currentStatus: SkillLifecycleStatus | string | undefined) => boolean
+  canSubmitTransition?: (
+    endpoint: string,
+    currentStatus: SkillLifecycleStatus | string | undefined,
+  ) => boolean
   // Optional invalidation keys — list views can pass their list key
   // to force a refetch after a transition lands.
   invalidateKeys?: Array<readonly unknown[]>
@@ -92,6 +98,7 @@ interface SkillLifecycleActionsProps {
 export function SkillLifecycleActions({
   skillId,
   currentStatus,
+  requestScope,
   operationScope,
   canSubmitTransition,
   invalidateKeys = [],
@@ -100,14 +107,16 @@ export function SkillLifecycleActions({
   const qc = useQueryClient()
   const [busyEndpoint, setBusyEndpoint] = useState<string | null>(null)
   const operationScopeRef = useRef(operationScope)
+  const requestScopeRef = useRef(requestScope)
   const mutationRunRef = useRef(0)
 
   useEffect(() => {
     if (operationScopeRef.current === operationScope) return
     operationScopeRef.current = operationScope
+    requestScopeRef.current = requestScope
     mutationRunRef.current += 1
     setBusyEndpoint(null)
-  }, [operationScope])
+  }, [operationScope, requestScope])
 
   useEffect(
     () => () => {
@@ -116,18 +125,15 @@ export function SkillLifecycleActions({
     [],
   )
 
-  // ``managedPost`` strips the resource prefix from the id before
-  // hitting the endpoint. The backend route uses the bare UUID under
-  // ``/skills/{id}/<action>``, matching the existing skill routes.
-  const bareId = skillId.startsWith('skill_') ? skillId.slice('skill_'.length) : skillId
   const nextMutation = (endpoint: string) => {
     if (!currentProjectAllowsWrite()) return null
     const runId = mutationRunRef.current + 1
     mutationRunRef.current = runId
     return {
       endpoint,
-      bareId,
+      skillId,
       invalidateKeys: [...invalidateKeys],
+      requestScope: requestScopeRef.current,
       runId,
       scope: operationScopeRef.current,
     }
@@ -139,14 +145,16 @@ export function SkillLifecycleActions({
 
   const mutation = useMutation({
     mutationFn: async ({
-      bareId,
+      skillId,
       endpoint,
+      requestScope,
       runId,
       scope,
     }: {
-      bareId: string
+      skillId: string
       endpoint: string
       invalidateKeys: Array<readonly unknown[]>
+      requestScope: ManagedRequestScope
       runId: number
       scope: string
     }) => {
@@ -155,7 +163,11 @@ export function SkillLifecycleActions({
       }
       setBusyEndpoint(endpoint)
       try {
-        const result = await managedPost<TransitionResponse>(`/skills/${bareId}/${endpoint}`)
+        const result = await managedPost<TransitionResponse>(
+          apiResourcePath('skills', skillId, endpoint),
+          {},
+          managedRequestOptions(requestScope),
+        )
         return result
       } finally {
         if (isCurrentMutation(runId, scope)) {

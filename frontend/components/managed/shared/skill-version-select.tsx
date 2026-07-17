@@ -3,9 +3,13 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { managedGet } from '@/lib/api-client'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { apiResourceSubpath } from '@/lib/managed/api-paths'
 import { useTranslation } from '@/lib/i18n'
-import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import {
   Select,
   SelectContent,
@@ -48,17 +52,16 @@ export function SkillVersionSelect({
   className,
 }: SkillVersionSelectProps) {
   const { t } = useTranslation()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
 
   const { data } = useQuery({
-    queryKey: ['skill-versions', managedScope, skillId],
+    queryKey: ['skill-versions', managedScope.key, skillId],
     queryFn: () =>
       managedGet<{ data: SkillVersionRecord[] }>(
-        `/skills/${stripIdPrefix(skillId)}/versions?limit=50`,
+        apiResourceSubpath('skills', skillId, ['versions'], { limit: 50 }),
+        managedRequestOptions(managedScope),
       ),
-    enabled: enabled && !!skillId,
+    enabled: enabled && !!skillId && hasManagedRequestScope(managedScope),
     staleTime: 30_000,
   })
 

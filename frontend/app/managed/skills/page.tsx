@@ -33,7 +33,10 @@ import {
 } from 'lucide-react'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
 import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
-import { SkillVersionDiffView, type DiffViewMode } from '@/components/managed/skills/skill-version-diff'
+import {
+  SkillVersionDiffView,
+  type DiffViewMode,
+} from '@/components/managed/skills/skill-version-diff'
 import type {
   SkillRecord,
   SkillFileRecord,
@@ -42,7 +45,13 @@ import type {
 } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -73,6 +82,14 @@ import {
 } from '@/components/managed/skills/skill-status-badges'
 import { SkillLifecycleActions } from '@/components/managed/skills/skill-lifecycle-actions'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+  type ManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import {
   getManagedSkillImportApiErrorMessage,
   buildManagedSkillImportFromDirectory,
@@ -86,10 +103,6 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
-
-function stripId(id: string): string {
-  return id.replace(/^(skill_|sklver_|sklfile_)/, '')
-}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -172,13 +185,7 @@ const FILE_TYPE_EXT: Record<string, string> = {
   shell: '.sh',
 }
 
-function SkillScanProgressNotice({
-  title,
-  description,
-}: {
-  title: string
-  description: string
-}) {
+function SkillScanProgressNotice({ title, description }: { title: string; description: string }) {
   return (
     <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-muted/35 px-4 py-3">
       <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
@@ -301,7 +308,9 @@ const SECURITY_ISSUE_SEVERITY_ORDER: Record<string, number> = {
   INFORMATIONAL: 4,
 }
 
-function getSecurityIssueSeverityDistribution(scan: SkillSecurityScanRecord): Array<{ severity: string; count: number }> {
+function getSecurityIssueSeverityDistribution(
+  scan: SkillSecurityScanRecord,
+): Array<{ severity: string; count: number }> {
   return [
     { severity: 'CRITICAL', count: scan.critical_count },
     { severity: 'HIGH', count: scan.high_count },
@@ -310,7 +319,9 @@ function getSecurityIssueSeverityDistribution(scan: SkillSecurityScanRecord): Ar
   ]
 }
 
-function getRawScannerRisk(scan: SkillSecurityScanRecord): { score: number | null; severity: string | null; recommendation: string | null } | null {
+function getRawScannerRisk(
+  scan: SkillSecurityScanRecord,
+): { score: number | null; severity: string | null; recommendation: string | null } | null {
   const report = scan.report
   if (!isRecord(report)) return null
 
@@ -356,7 +367,9 @@ function getSecurityIssues(scan: SkillSecurityScanRecord): SecurityIssueView[] {
   return report.issues
     .filter(isRecord)
     .map((issue, index) => {
-      const severity = (readString(issue, ['severity', 'level', 'risk', 'priority']) || 'UNKNOWN').toUpperCase()
+      const severity = (
+        readString(issue, ['severity', 'level', 'risk', 'priority']) || 'UNKNOWN'
+      ).toUpperCase()
       const id = readString(issue, ['id', 'rule_id', 'ruleId', 'code'])
       const pattern = readString(issue, ['pattern', 'rule', 'title', 'name'])
       const category = readString(issue, ['category', 'type'])
@@ -389,9 +402,7 @@ function getSecurityIssues(scan: SkillSecurityScanRecord): SecurityIssueView[] {
 
 /** Drag payload for a move. A file carries its real id; a folder carries its
  * ``fullPath`` (trailing ``/``). ``path`` on a file is its directory. */
-type MoveSource =
-  | { kind: 'file'; id: string; path: string }
-  | { kind: 'folder'; path: string }
+type MoveSource = { kind: 'file'; id: string; path: string } | { kind: 'folder'; path: string }
 
 interface TreeNode {
   name: string
@@ -476,7 +487,11 @@ function FileTreeNode({
             ? (e) => {
                 e.dataTransfer.setData(
                   'text/plain',
-                  JSON.stringify({ kind: 'file', id: node.file!.id, path: node.file!.path } as MoveSource),
+                  JSON.stringify({
+                    kind: 'file',
+                    id: node.file!.id,
+                    path: node.file!.path,
+                  } as MoveSource),
                 )
                 e.dataTransfer.effectAllowed = 'move'
               }
@@ -554,11 +569,7 @@ function FileTreeNode({
         }`}
         style={{ paddingLeft }}
       >
-        {open ? (
-          <ChevronDown className="h-3.5 w-3.5" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5" />
-        )}
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         <FolderOpen className="h-4 w-4" />
         <span className="ml-1 flex-1">{node.name}/</span>
         {canEdit && (
@@ -735,13 +746,13 @@ interface SkillFormState {
 
 interface SkillActionScope {
   runId: number
-  scope: string
+  scope: ManagedRequestScope
   skillId: string
 }
 
 interface ManagedActionScope {
   runId: number
-  scope: string
+  scope: ManagedRequestScope
 }
 
 interface ImportFolderVariables extends ManagedActionScope {
@@ -811,6 +822,7 @@ function SkillEditor({
   showVersionForm,
   setShowVersionForm,
   queryScope,
+  requestScope,
 }: {
   skill: SkillRecord
   files: SkillFileRecord[]
@@ -825,7 +837,9 @@ function SkillEditor({
   onDeleteVersion: (
     version: string,
     force?: boolean,
-  ) => Promise<{ ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }>
+  ) => Promise<
+    { ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }
+  >
   onDeleteVersionDialogActivity: () => void
   isCreatingVersion: boolean
   editorTab: 'editor' | 'metadata' | 'versions'
@@ -833,6 +847,7 @@ function SkillEditor({
   showVersionForm: boolean
   setShowVersionForm: (v: boolean) => void
   queryScope: string
+  requestScope: ManagedRequestScope
 }) {
   const { t, i18n } = useTranslation()
   const [contentMode, setContentMode] = useState<'edit' | 'preview'>('edit')
@@ -857,12 +872,13 @@ function SkillEditor({
   // Fetch the FULL file snapshot of both compared versions on demand. The
   // version list only carries SKILL.md's main content, so we hit the
   // per-version files endpoint to diff the whole skill package.
-  const skillIdForDiff = stripId(skill.id)
+  const skillIdForDiff = apiResourceId(skill.id)
   const { data: fromFiles = [] } = useQuery({
     queryKey: ['skill-version-files', queryScope, skillIdForDiff, diffTarget?.fromVersion],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
-        `/skills/${skillIdForDiff}/versions/${encodeURIComponent(diffTarget!.fromVersion)}/files`,
+        apiResourcePath('skills', skillIdForDiff, 'versions', diffTarget!.fromVersion, 'files'),
+        managedRequestOptions(requestScope),
       )
       return Array.isArray(res) ? res : res.data || []
     },
@@ -872,7 +888,8 @@ function SkillEditor({
     queryKey: ['skill-version-files', queryScope, skillIdForDiff, diffTarget?.toVersion],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
-        `/skills/${skillIdForDiff}/versions/${encodeURIComponent(diffTarget!.toVersion)}/files`,
+        apiResourcePath('skills', skillIdForDiff, 'versions', diffTarget!.toVersion, 'files'),
+        managedRequestOptions(requestScope),
       )
       return Array.isArray(res) ? res : res.data || []
     },
@@ -917,9 +934,7 @@ function SkillEditor({
           <TabsList>
             <TabsTrigger value="editor">{t('managed.skills.editor')}</TabsTrigger>
             <TabsTrigger value="metadata">{t('managed.skills.metadata')}</TabsTrigger>
-            <TabsTrigger value="versions">
-              {t('managed.skills.versionHistory')}
-            </TabsTrigger>
+            <TabsTrigger value="versions">{t('managed.skills.versionHistory')}</TabsTrigger>
           </TabsList>
         </div>
       </Tabs>
@@ -931,7 +946,8 @@ function SkillEditor({
             <div className="flex h-full min-h-0 flex-col overflow-hidden">
               <div className="shrink-0 border-b border-border bg-muted/10 px-4 py-2 text-xs text-muted-foreground">
                 <FileText className="mr-1 inline h-3 w-3" />
-                {selectedFile.path}{selectedFile.file_name}
+                {selectedFile.path}
+                {selectedFile.file_name}
               </div>
               <div className="min-h-0 flex-1 overflow-hidden">
                 <SkillCodeEditor
@@ -995,9 +1011,7 @@ function SkillEditor({
                   <div className="h-full overflow-y-auto bg-background p-6">
                     {form.content ? (
                       <div className="prose prose-sm max-w-none dark:prose-invert">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {form.content}
-                        </ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{form.content}</ReactMarkdown>
                       </div>
                     ) : (
                       <p className="text-sm italic text-muted-foreground">
@@ -1046,9 +1060,7 @@ function SkillEditor({
                 <Input
                   value={form.license}
                   disabled={!canEdit}
-                  onChange={(e) =>
-                    setForm({ ...form, license: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, license: e.target.value })}
                   placeholder="MIT"
                   className="h-8 text-sm"
                 />
@@ -1078,10 +1090,21 @@ function SkillEditor({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>{t('managed.skills.visibility.private')}</SelectItem>
-                    <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>{t('managed.skills.visibility.project')}</SelectItem>
-                    <SelectItem value="organization" title={t('managed.skills.visibility.organizationHint')}>{t('managed.skills.visibility.organization')}</SelectItem>
-                    <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>{t('managed.skills.visibility.public')}</SelectItem>
+                    <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>
+                      {t('managed.skills.visibility.private')}
+                    </SelectItem>
+                    <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>
+                      {t('managed.skills.visibility.project')}
+                    </SelectItem>
+                    <SelectItem
+                      value="organization"
+                      title={t('managed.skills.visibility.organizationHint')}
+                    >
+                      {t('managed.skills.visibility.organization')}
+                    </SelectItem>
+                    <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>
+                      {t('managed.skills.visibility.public')}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1144,9 +1167,13 @@ function SkillEditor({
                   {t('managed.skills.diffBackToVersions')}
                 </button>
                 <div className="flex items-center gap-2 font-mono text-sm">
-                  <span className="rounded bg-muted px-1.5 py-0.5">{formatVersion(diffTarget.fromVersion)}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5">
+                    {formatVersion(diffTarget.fromVersion)}
+                  </span>
                   <span className="text-muted-foreground">→</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5">{formatVersion(diffTarget.toVersion)}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5">
+                    {formatVersion(diffTarget.toVersion)}
+                  </span>
                 </div>
                 {/* Unified / Split toggle */}
                 <div className="ml-auto flex items-center gap-px rounded-md bg-muted p-0.5">
@@ -1179,11 +1206,17 @@ function SkillEditor({
                   {/* Summary bar */}
                   <div className="mb-2.5 flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-1.5 font-mono text-xs">
                     <span className="text-muted-foreground">
-                      {t('managed.skills.versionDiffFilesChanged', { count: versionDiff.changedCount })}
+                      {t('managed.skills.versionDiffFilesChanged', {
+                        count: versionDiff.changedCount,
+                      })}
                     </span>
                     <span className="ml-auto flex items-center gap-2">
-                      <span className="text-green-600 dark:text-green-400">+{versionDiff.totalAdded}</span>
-                      <span className="text-red-600 dark:text-red-400">−{versionDiff.totalRemoved}</span>
+                      <span className="text-green-600 dark:text-green-400">
+                        +{versionDiff.totalAdded}
+                      </span>
+                      <span className="text-red-600 dark:text-red-400">
+                        −{versionDiff.totalRemoved}
+                      </span>
                     </span>
                   </div>
                   <SkillVersionDiffView diff={versionDiff} mode={diffMode} />
@@ -1191,112 +1224,110 @@ function SkillEditor({
               ) : null}
             </div>
           ) : (
-          <div className="max-w-4xl">
-            {versions.length > 0 && (
-              <div className="mb-3 flex items-center gap-2">
-                <History className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">
-                  {t('managed.skills.versionHistory')}
-                </span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  {versions.length}
-                </span>
-              </div>
-            )}
+            <div className="max-w-4xl">
+              {versions.length > 0 && (
+                <div className="mb-3 flex items-center gap-2">
+                  <History className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-foreground">
+                    {t('managed.skills.versionHistory')}
+                  </span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    {versions.length}
+                  </span>
+                </div>
+              )}
 
-            {versions.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-16 text-center">
-                <History className="h-8 w-8 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">
-                  {t('managed.skills.noVersions')}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {versions.map((v, idx) => (
-                  <div key={v.id} className="flex gap-3">
-                    {/* Time column — the timeline axis */}
-                    <div className="w-24 shrink-0 pt-[13px] text-right leading-tight">
-                      <div className="text-xs font-medium text-foreground/80">
-                        {timelineDateParts(v.created_at, i18n.language).date}
+              {versions.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-16 text-center">
+                  <History className="h-8 w-8 text-muted-foreground/30" />
+                  <p className="text-sm text-muted-foreground">{t('managed.skills.noVersions')}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {versions.map((v, idx) => (
+                    <div key={v.id} className="flex gap-3">
+                      {/* Time column — the timeline axis */}
+                      <div className="w-24 shrink-0 pt-[13px] text-right leading-tight">
+                        <div className="text-xs font-medium text-foreground/80">
+                          {timelineDateParts(v.created_at, i18n.language).date}
+                        </div>
+                        <div className="text-[11px] tabular-nums text-muted-foreground/60">
+                          {timelineDateParts(v.created_at, i18n.language).time}
+                        </div>
                       </div>
-                      <div className="text-[11px] tabular-nums text-muted-foreground/60">
-                        {timelineDateParts(v.created_at, i18n.language).time}
+                      {/* Rail + node */}
+                      <div className="relative flex w-3 shrink-0 justify-center">
+                        {idx < versions.length - 1 && (
+                          <span className="absolute bottom-[-12px] top-6 w-px bg-border" />
+                        )}
+                        <span
+                          className={`absolute top-[15px] flex h-3.5 w-3.5 items-center justify-center rounded-full ring-4 ring-background ${
+                            idx === 0 ? 'bg-primary' : 'bg-muted-foreground/30'
+                          }`}
+                        >
+                          {idx === 0 && <span className="h-1.5 w-1.5 rounded-full bg-background" />}
+                        </span>
                       </div>
-                    </div>
-                    {/* Rail + node */}
-                    <div className="relative flex w-3 shrink-0 justify-center">
-                      {idx < versions.length - 1 && (
-                        <span className="absolute top-6 bottom-[-12px] w-px bg-border" />
-                      )}
-                      <span
-                        className={`absolute top-[15px] flex h-3.5 w-3.5 items-center justify-center rounded-full ring-4 ring-background ${
-                          idx === 0 ? 'bg-primary' : 'bg-muted-foreground/30'
+                      {/* Content card */}
+                      <div
+                        className={`group relative min-w-0 flex-1 overflow-hidden rounded-xl border bg-card p-4 transition-all hover:shadow-md ${
+                          idx === 0
+                            ? 'border-primary/40 bg-gradient-to-br from-primary/[0.04] to-transparent'
+                            : 'border-border/60 hover:border-border'
                         }`}
                       >
-                        {idx === 0 && <span className="h-1.5 w-1.5 rounded-full bg-background" />}
-                      </span>
-                    </div>
-                    {/* Content card */}
-                    <div
-                      className={`group relative min-w-0 flex-1 overflow-hidden rounded-xl border bg-card p-4 transition-all hover:shadow-md ${
-                        idx === 0
-                          ? 'border-primary/40 bg-gradient-to-br from-primary/[0.04] to-transparent'
-                          : 'border-border/60 hover:border-border'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2.5">
-                          <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 font-mono text-sm font-semibold text-foreground">
-                            {formatVersion(v.version)}
-                          </span>
-                          {idx === 0 && (
-                            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                              latest
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 font-mono text-sm font-semibold text-foreground">
+                              {formatVersion(v.version)}
                             </span>
-                          )}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          {idx < versions.length - 1 && (
+                            {idx === 0 && (
+                              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                latest
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {idx < versions.length - 1 && (
+                              <button
+                                type="button"
+                                aria-label={t('managed.skills.compareWithPrevious')}
+                                title={t('managed.skills.compareWithPrevious')}
+                                onClick={() =>
+                                  setDiffTarget({
+                                    fromVersion: versions[idx + 1].version,
+                                    toVersion: v.version,
+                                  })
+                                }
+                                className="border-border/60 flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                              >
+                                <GitCompare className="h-3.5 w-3.5" />
+                                {t('managed.skills.compareWithPrevious')}
+                              </button>
+                            )}
                             <button
                               type="button"
-                              aria-label={t('managed.skills.compareWithPrevious')}
-                              title={t('managed.skills.compareWithPrevious')}
-                              onClick={() =>
-                                setDiffTarget({
-                                  fromVersion: versions[idx + 1].version,
-                                  toVersion: v.version,
-                                })
-                              }
-                              className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                              aria-label={t('managed.skills.deleteVersion', 'Delete version')}
+                              title={t('managed.skills.deleteVersion', 'Delete version')}
+                              onClick={() => openDeleteVersionDialog(v.version)}
+                              disabled={!canEdit}
+                              className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30 group-hover:opacity-100"
                             >
-                              <GitCompare className="h-3.5 w-3.5" />
-                              {t('managed.skills.compareWithPrevious')}
+                              <Trash2 className="h-4 w-4" />
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            aria-label={t('managed.skills.deleteVersion', 'Delete version')}
-                            title={t('managed.skills.deleteVersion', 'Delete version')}
-                            onClick={() => openDeleteVersionDialog(v.version)}
-                            disabled={!canEdit}
-                            className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30 group-hover:opacity-100"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          </div>
                         </div>
+                        {v.release_notes && (
+                          <p className="border-border/50 mt-2.5 whitespace-pre-wrap border-l-2 pl-3 text-sm text-muted-foreground">
+                            {v.release_notes}
+                          </p>
+                        )}
                       </div>
-                      {v.release_notes && (
-                        <p className="mt-2.5 whitespace-pre-wrap border-l-2 border-border/50 pl-3 text-sm text-muted-foreground">
-                          {v.release_notes}
-                        </p>
-                      )}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -1366,10 +1397,7 @@ function SkillEditor({
                               'Current highest: v{{v}}. New version must be greater.',
                               { v: highest },
                             )
-                          : t(
-                              'managed.skills.versionFirstHint',
-                              'Leave empty to start at v0.1.0.',
-                            )}
+                          : t('managed.skills.versionFirstHint', 'Leave empty to start at v0.1.0.')}
                     </div>
                   </div>
                   <textarea
@@ -1493,7 +1521,6 @@ function SkillEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
   )
 }
@@ -1505,10 +1532,8 @@ export default function SkillManagerPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const router = useRouter()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
 
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
@@ -1527,9 +1552,7 @@ export default function SkillManagerPage() {
   const [newFileType, setNewFileType] = useState('text')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null)
-  const [deleteFolderTarget, setDeleteFolderTarget] = useState<string | null>(
-    null,
-  )
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<string | null>(null)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showSecurityHistoryDialog, setShowSecurityHistoryDialog] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -1612,21 +1635,21 @@ export default function SkillManagerPage() {
     clearSavedFlash()
     setFileContent('')
     setFileContentSnapshot('')
-  }, [managedScope, clearSavedFlash])
+  }, [managedScope.key, clearSavedFlash])
 
   const getCurrentManagedScope = useCallback(() => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }, [])
 
   const currentManagedScopeIsActive = useCallback(
-    (scope = managedScopeRef.current) =>
-      managedScopeRef.current === scope && getCurrentManagedScope() === scope,
+    (scope = managedScopeRef.current.key) =>
+      managedScopeRef.current.key === scope && getCurrentManagedScope() === scope,
     [getCurrentManagedScope],
   )
 
   const currentManagedScopeAllowsWrite = useCallback(
-    (scope = managedScopeRef.current) =>
+    (scope = managedScopeRef.current.key) =>
       currentManagedScopeIsActive(scope) && currentProjectAllowsWrite(),
     [currentManagedScopeIsActive],
   )
@@ -1644,13 +1667,16 @@ export default function SkillManagerPage() {
     }
   }, [currentManagedScopeAllowsWrite])
 
-  const isCurrentSkillAction = useCallback((action: SkillActionScope): boolean => {
-    return (
-      mutationRunRef.current === action.runId &&
-      currentManagedScopeAllowsWrite(action.scope) &&
-      selectedSkillIdRef.current === action.skillId
-    )
-  }, [currentManagedScopeAllowsWrite])
+  const isCurrentSkillAction = useCallback(
+    (action: SkillActionScope): boolean => {
+      return (
+        mutationRunRef.current === action.runId &&
+        currentManagedScopeAllowsWrite(action.scope.key) &&
+        selectedSkillIdRef.current === action.skillId
+      )
+    },
+    [currentManagedScopeAllowsWrite],
+  )
 
   const nextManagedAction = useCallback((): ManagedActionScope | null => {
     if (!currentManagedScopeAllowsWrite()) return null
@@ -1662,12 +1688,14 @@ export default function SkillManagerPage() {
     }
   }, [currentManagedScopeAllowsWrite])
 
-  const isCurrentManagedAction = useCallback((action: ManagedActionScope): boolean => {
-    return (
-      mutationRunRef.current === action.runId &&
-      currentManagedScopeAllowsWrite(action.scope)
-    )
-  }, [currentManagedScopeAllowsWrite])
+  const isCurrentManagedAction = useCallback(
+    (action: ManagedActionScope): boolean => {
+      return (
+        mutationRunRef.current === action.runId && currentManagedScopeAllowsWrite(action.scope.key)
+      )
+    },
+    [currentManagedScopeAllowsWrite],
+  )
 
   const currentSkillInList = useCallback(
     (skillId: string | null) => {
@@ -1676,7 +1704,7 @@ export default function SkillManagerPage() {
       return (
         queryClient
           .getQueriesData<{ data?: SkillRecord[] }>({
-            queryKey: ['skills', managedScopeRef.current, '/skills'],
+            queryKey: ['skills', managedScopeRef.current.key, '/skills'],
           })
           .flatMap(([, page]) => page?.data ?? [])
           .find((skill) => skill.id === skillId) ?? null
@@ -1690,11 +1718,8 @@ export default function SkillManagerPage() {
       if (!skillId) return null
       if (!currentManagedScopeIsActive()) return null
       return (
-        queryClient.getQueryData<SkillRecord>([
-          'skill',
-          managedScopeRef.current,
-          skillId,
-        ]) ?? null
+        queryClient.getQueryData<SkillRecord>(['skill', managedScopeRef.current.key, skillId]) ??
+        null
       )
     },
     [currentManagedScopeIsActive, queryClient],
@@ -1724,7 +1749,7 @@ export default function SkillManagerPage() {
       return (
         queryClient.getQueryData<SkillFileRecord[]>([
           'skill-files',
-          managedScopeRef.current,
+          managedScopeRef.current.key,
           skillId,
         ]) ?? []
       )
@@ -1755,7 +1780,7 @@ export default function SkillManagerPage() {
       const currentVersions =
         queryClient.getQueryData<SkillVersionRecord[]>([
           'skill-versions',
-          managedScopeRef.current,
+          managedScopeRef.current.key,
           skillId,
         ]) ?? []
       return currentVersions.find((item) => item.version === version) ?? null
@@ -1764,12 +1789,12 @@ export default function SkillManagerPage() {
   )
 
   const invalidateSkillResources = useCallback(
-    (skillId: string) => {
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
-      queryClient.invalidateQueries({ queryKey: ['skill', managedScopeRef.current, skillId] })
-      queryClient.invalidateQueries({ queryKey: ['skill-files', managedScopeRef.current, skillId] })
+    (skillId: string, scopeKey = managedScopeRef.current.key) => {
+      queryClient.invalidateQueries({ queryKey: ['skills', scopeKey] })
+      queryClient.invalidateQueries({ queryKey: ['skill', scopeKey, skillId] })
+      queryClient.invalidateQueries({ queryKey: ['skill-files', scopeKey, skillId] })
       queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', managedScopeRef.current, skillId],
+        queryKey: ['skill-security-scans', scopeKey, skillId],
       })
     },
     [queryClient],
@@ -1794,11 +1819,18 @@ export default function SkillManagerPage() {
     setPageSize,
   } = usePaginatedList<SkillRecord>({ queryKey: 'skills', path: '/skills' })
 
-  const { data: selectedSkill, isError: selectedSkillIsError, error: selectedSkillError } = useQuery({
-    queryKey: ['skill', managedScope, selectedSkillId],
+  const {
+    data: selectedSkill,
+    isError: selectedSkillIsError,
+    error: selectedSkillError,
+  } = useQuery({
+    queryKey: ['skill', managedScope.key, selectedSkillId],
     queryFn: () =>
-      managedGet<SkillRecord>(`/skills/${stripId(selectedSkillId!)}`),
-    enabled: !!selectedSkillId,
+      managedGet<SkillRecord>(
+        apiResourcePath('skills', selectedSkillId!),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
     // While a security scan is running in the background (rescan dispatches
     // async because LLM analysis is slow), poll the skill so the security
     // badge / score refresh automatically once the verdict lands.
@@ -1809,25 +1841,27 @@ export default function SkillManagerPage() {
   })
 
   const { data: skillFiles = [] } = useQuery({
-    queryKey: ['skill-files', managedScope, selectedSkillId],
+    queryKey: ['skill-files', managedScope.key, selectedSkillId],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
-        `/skills/${stripId(selectedSkillId!)}/files`,
+        apiResourcePath('skills', selectedSkillId!, 'files'),
+        managedRequestOptions(managedScope),
       )
       return Array.isArray(res) ? res : res.data || []
     },
-    enabled: !!selectedSkillId,
+    enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
   })
 
   const { data: versions = [] } = useQuery({
-    queryKey: ['skill-versions', managedScope, selectedSkillId],
+    queryKey: ['skill-versions', managedScope.key, selectedSkillId],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillVersionRecord[] } | SkillVersionRecord[]>(
-        `/skills/${stripId(selectedSkillId!)}/versions?limit=50`,
+        apiResourceSubpath('skills', selectedSkillId!, ['versions'], { limit: 50 }),
+        managedRequestOptions(managedScope),
       )
       return Array.isArray(res) ? res : res.data || []
     },
-    enabled: !!selectedSkillId,
+    enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
   })
 
   // Files of the latest published version — used to detect "unpublished
@@ -1835,16 +1869,15 @@ export default function SkillManagerPage() {
   // main content. Only fetched when at least one version exists.
   const latestPublishedVersion = versions.length > 0 ? versions[0].version : null
   const { data: latestVersionFiles = [] } = useQuery({
-    queryKey: ['skill-version-files', managedScope, selectedSkillId, latestPublishedVersion],
+    queryKey: ['skill-version-files', managedScope.key, selectedSkillId, latestPublishedVersion],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
-        `/skills/${stripId(selectedSkillId!)}/versions/${encodeURIComponent(
-          latestPublishedVersion!,
-        )}/files`,
+        apiResourcePath('skills', selectedSkillId!, 'versions', latestPublishedVersion!, 'files'),
+        managedRequestOptions(managedScope),
       )
       return Array.isArray(res) ? res : res.data || []
     },
-    enabled: !!selectedSkillId && !!latestPublishedVersion,
+    enabled: !!selectedSkillId && !!latestPublishedVersion && hasManagedRequestScope(managedScope),
   })
 
   const {
@@ -1852,22 +1885,21 @@ export default function SkillManagerPage() {
     isFetching: securityScansFetching,
     isError: securityScansIsError,
   } = useQuery({
-    queryKey: ['skill-security-scans', managedScope, selectedSkillId],
+    queryKey: ['skill-security-scans', managedScope.key, selectedSkillId],
     queryFn: async () => {
       const res = await managedGet<{ data: SkillSecurityScanRecord[] } | SkillSecurityScanRecord[]>(
-        `/skills/${stripId(selectedSkillId!)}/security-scans?limit=20`,
+        apiResourceSubpath('skills', selectedSkillId!, ['security-scans'], { limit: 20 }),
+        managedRequestOptions(managedScope),
       )
       return Array.isArray(res) ? res : res.data || []
     },
-    enabled: !!selectedSkillId && showSecurityHistoryDialog,
+    enabled: !!selectedSkillId && showSecurityHistoryDialog && hasManagedRequestScope(managedScope),
   })
 
   // -- Load skill into form --
 
   const loadSkillIntoForm = useCallback((skill: SkillRecord) => {
-    const tagsStr = Array.isArray(skill.tags)
-      ? (skill.tags as string[]).join(', ')
-      : ''
+    const tagsStr = Array.isArray(skill.tags) ? (skill.tags as string[]).join(', ') : ''
     const newForm: SkillFormState = {
       name: skill.name || '',
       description: skill.description || '',
@@ -1884,11 +1916,7 @@ export default function SkillManagerPage() {
   }, [])
 
   const prevSkillRef = useState<string | null>(null)
-  if (
-    selectedSkill &&
-    selectedSkillId &&
-    prevSkillRef[0] !== selectedSkillId
-  ) {
+  if (selectedSkill && selectedSkillId && prevSkillRef[0] !== selectedSkillId) {
     prevSkillRef[1](selectedSkillId)
     loadSkillIntoForm(selectedSkill)
   }
@@ -1959,12 +1987,13 @@ export default function SkillManagerPage() {
         throw new Error('Stale skill folder import ignored')
       }
       return managedPost<SkillRecord>('/skills', result.skillData, {
+        ...managedRequestOptions(variables.scope),
         timeout: SKILL_SCAN_TIMEOUT_MS,
       })
     },
     onSuccess: (skill, variables) => {
       if (!isCurrentManagedAction(variables)) return
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({ queryKey: ['skills', variables.scope.key] })
       mutationRunRef.current += 1
       selectedSkillIdRef.current = skill.id
       selectedFileIdRef.current = null
@@ -1990,11 +2019,15 @@ export default function SkillManagerPage() {
       }
       const formData = new FormData()
       formData.append('file', variables.file)
-      return managedUpload<SkillRecord>('/skills/import-zip', formData)
+      return managedUpload<SkillRecord>(
+        '/skills/import-zip',
+        formData,
+        managedRequestOptions(variables.scope),
+      )
     },
     onSuccess: (skill, variables) => {
       if (!isCurrentManagedAction(variables)) return
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({ queryKey: ['skills', variables.scope.key] })
       mutationRunRef.current += 1
       selectedSkillIdRef.current = skill.id
       selectedFileIdRef.current = null
@@ -2049,7 +2082,7 @@ export default function SkillManagerPage() {
         .map((s) => s.trim())
         .filter(Boolean)
       return managedPut<SkillRecord>(
-        `/skills/${stripId(skillId)}`,
+        apiResourcePath('skills', skillId),
         {
           name: form.name,
           description: form.description,
@@ -2061,12 +2094,15 @@ export default function SkillManagerPage() {
           source_type: form.source_type,
           source_url: form.source_url,
         },
-        { timeout: SKILL_SCAN_TIMEOUT_MS },
+        {
+          ...managedRequestOptions(variables.scope),
+          timeout: SKILL_SCAN_TIMEOUT_MS,
+        },
       )
     },
     onSuccess: (updated, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      invalidateSkillResources(variables.skillId)
+      invalidateSkillResources(variables.skillId, variables.scope.key)
       loadSkillIntoForm(updated)
       triggerFlash()
     },
@@ -2081,11 +2117,14 @@ export default function SkillManagerPage() {
       if (!isCurrentManagedAction(variables)) {
         throw new Error('Stale skill delete ignored')
       }
-      return managedDelete(`/skills/${stripId(variables.id)}`)
+      return managedDelete(
+        apiResourcePath('skills', variables.id),
+        managedRequestOptions(variables.scope),
+      )
     },
     onSuccess: (_result, variables) => {
       if (!isCurrentManagedAction(variables)) return
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({ queryKey: ['skills', variables.scope.key] })
       if (selectedSkillIdRef.current === variables.id) {
         selectedSkillIdRef.current = null
         selectedFileIdRef.current = null
@@ -2105,25 +2144,15 @@ export default function SkillManagerPage() {
       if (!isCurrentSkillAction(variables)) {
         throw new Error('Stale skill file create ignored')
       }
-      const {
-        dir,
-        fileName,
-        fileType,
-        mode,
-        skillId,
-      } = variables
+      const { dir, fileName, fileType, mode, skillId } = variables
       const cleanDir = dir.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
       let path: string
       let name: string
 
       if (mode === 'folder') {
-        const depth = cleanDir
-          ? cleanDir.split('/').filter(Boolean).length + 1
-          : 1
+        const depth = cleanDir ? cleanDir.split('/').filter(Boolean).length + 1 : 1
         if (depth > MAX_FOLDER_DEPTH) {
-          return Promise.reject(
-            new Error(`Folder nesting limited to ${MAX_FOLDER_DEPTH} levels`),
-          )
+          return Promise.reject(new Error(`Folder nesting limited to ${MAX_FOLDER_DEPTH} levels`))
         }
         path = cleanDir ? `${cleanDir}/${fileName}/` : `${fileName}/`
         name = '.gitkeep'
@@ -2133,19 +2162,22 @@ export default function SkillManagerPage() {
       }
 
       return managedPost<SkillFileRecord>(
-        `/skills/${stripId(skillId)}/files`,
+        apiResourcePath('skills', skillId, 'files'),
         {
           path,
           file_name: name,
           file_type: fileType,
           content: '',
         },
-        { timeout: SKILL_SCAN_TIMEOUT_MS },
+        {
+          ...managedRequestOptions(variables.scope),
+          timeout: SKILL_SCAN_TIMEOUT_MS,
+        },
       )
     },
     onSuccess: (_file, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      invalidateSkillResources(variables.skillId)
+      invalidateSkillResources(variables.skillId, variables.scope.key)
       if (variables.mode === 'file') {
         setSelectedFileId(_file.id)
         selectedFileIdRef.current = _file.id
@@ -2169,14 +2201,17 @@ export default function SkillManagerPage() {
         throw new Error('Stale skill file save ignored')
       }
       return managedPut<SkillFileRecord>(
-        `/skills/${stripId(variables.skillId)}/files/${stripId(variables.fileId)}`,
+        apiResourcePath('skills', variables.skillId, 'files', apiResourceId(variables.fileId)),
         { content: variables.content },
-        { timeout: SKILL_SCAN_TIMEOUT_MS },
+        {
+          ...managedRequestOptions(variables.scope),
+          timeout: SKILL_SCAN_TIMEOUT_MS,
+        },
       )
     },
     onSuccess: (_file, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      invalidateSkillResources(variables.skillId)
+      invalidateSkillResources(variables.skillId, variables.scope.key)
       setFileContentSnapshot(variables.content)
       triggerFlash()
     },
@@ -2192,12 +2227,13 @@ export default function SkillManagerPage() {
         throw new Error('Stale skill file delete ignored')
       }
       return managedDelete(
-        `/skills/${stripId(variables.skillId)}/files/${stripId(variables.fileId)}`,
+        apiResourcePath('skills', variables.skillId, 'files', apiResourceId(variables.fileId)),
+        managedRequestOptions(variables.scope),
       )
     },
     onSuccess: (_result, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      invalidateSkillResources(variables.skillId)
+      invalidateSkillResources(variables.skillId, variables.scope.key)
       if (selectedFileIdRef.current === variables.fileId) {
         setSelectedFileId(null)
         selectedFileIdRef.current = null
@@ -2219,14 +2255,15 @@ export default function SkillManagerPage() {
       return Promise.all(
         filesToDelete.map((f) =>
           managedDelete(
-            `/skills/${stripId(skillId)}/files/${stripId(f.id)}`,
+            apiResourcePath('skills', skillId, 'files', apiResourceId(f.id)),
+            managedRequestOptions(variables.scope),
           ),
         ),
       )
     },
     onSuccess: (_result, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      invalidateSkillResources(variables.skillId)
+      invalidateSkillResources(variables.skillId, variables.scope.key)
       const folderPath = variables.folderPath
       if (
         folderPath &&
@@ -2255,7 +2292,6 @@ export default function SkillManagerPage() {
       }
       const { files, source, destFolder, skillId } = variables
       const dest = destFolder ? destFolder.replace(/\/*$/, '/') : ''
-      const sid = stripId(skillId)
 
       if (source.kind === 'file') {
         if (source.path === dest) return // no-op: already there
@@ -2271,9 +2307,12 @@ export default function SkillManagerPage() {
           throw new Error('MOVE_CONFLICT')
         }
         await managedPut<SkillFileRecord>(
-          `/skills/${sid}/files/${stripId(source.id)}`,
+          apiResourcePath('skills', skillId, 'files', apiResourceId(source.id)),
           { path: dest },
-          { timeout: SKILL_SCAN_TIMEOUT_MS },
+          {
+            ...managedRequestOptions(variables.scope),
+            timeout: SKILL_SCAN_TIMEOUT_MS,
+          },
         )
         return
       }
@@ -2296,20 +2335,26 @@ export default function SkillManagerPage() {
             throw new Error('MOVE_CONFLICT')
           }
           return managedPut<SkillFileRecord>(
-            `/skills/${sid}/files/${stripId(f.id)}`,
+            apiResourcePath('skills', skillId, 'files', apiResourceId(f.id)),
             { path: newDir },
-            { timeout: SKILL_SCAN_TIMEOUT_MS },
+            {
+              ...managedRequestOptions(variables.scope),
+              timeout: SKILL_SCAN_TIMEOUT_MS,
+            },
           )
         }),
       )
     },
     onSuccess: (_result, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      invalidateSkillResources(variables.skillId)
+      invalidateSkillResources(variables.skillId, variables.scope.key)
     },
     onError: (error, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      if (error instanceof Error && (error.message === 'MOVE_CONFLICT' || error.message === 'MOVE_INTO_SELF')) {
+      if (
+        error instanceof Error &&
+        (error.message === 'MOVE_CONFLICT' || error.message === 'MOVE_INTO_SELF')
+      ) {
         toast({ title: t('managed.skills.moveConflict'), variant: 'destructive' })
         return
       }
@@ -2323,7 +2368,7 @@ export default function SkillManagerPage() {
         throw new Error('Stale skill version create ignored')
       }
       return managedPost<SkillVersionRecord>(
-        `/skills/${stripId(variables.skillId)}/versions`,
+        apiResourcePath('skills', variables.skillId, 'versions'),
         {
           name: form.name,
           description: form.description,
@@ -2331,12 +2376,13 @@ export default function SkillManagerPage() {
           release_notes: variables.releaseNotes,
           ...(variables.version ? { version: variables.version } : {}),
         },
+        managedRequestOptions(variables.scope),
       )
     },
     onSuccess: (_version, variables) => {
       if (!isCurrentSkillAction(variables)) return
       queryClient.invalidateQueries({
-        queryKey: ['skill-versions', variables.scope, variables.skillId],
+        queryKey: ['skill-versions', variables.scope.key, variables.skillId],
       })
     },
     onError: (error, variables) => {
@@ -2348,7 +2394,10 @@ export default function SkillManagerPage() {
   /** Delete a published skill version. Returns 409-payload referrers on conflict
    * so the dialog can offer a force retry; throws on any other error. */
   const deleteVersion = useCallback(
-    async (version: string, force = false): Promise<
+    async (
+      version: string,
+      force = false,
+    ): Promise<
       { ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }
     > => {
       const action = nextCurrentMutableSkillAction()
@@ -2357,18 +2406,25 @@ export default function SkillManagerPage() {
       if (!isCurrentSkillAction(action)) return { ok: true }
       try {
         await managedDelete(
-          `/skills/${stripId(action.skillId)}/versions/${encodeURIComponent(version)}${
-            force ? '?force=true' : ''
-          }`,
+          apiResourceSubpath('skills', action.skillId, ['versions', version], {
+            force: force || undefined,
+          }),
+          managedRequestOptions(action.scope),
         )
         if (isCurrentSkillAction(action)) {
-          queryClient.invalidateQueries({ queryKey: ['skill-versions', action.scope, action.skillId] })
+          queryClient.invalidateQueries({
+            queryKey: ['skill-versions', action.scope.key, action.skillId],
+          })
         }
         return { ok: true }
       } catch (e) {
         if (!isCurrentSkillAction(action)) return { ok: true }
         // 409 with referrer list → caller shows a force-confirm UI.
-        const err = e as { status?: number; code?: string; data?: { referrers?: unknown[]; hint?: string } }
+        const err = e as {
+          status?: number
+          code?: string
+          data?: { referrers?: unknown[]; hint?: string }
+        }
         if (err?.status === 409 && err?.code === 'SKILL_VERSION_IN_USE') {
           return {
             ok: false,
@@ -2389,8 +2445,9 @@ export default function SkillManagerPage() {
         throw new Error('Stale skill security rescan ignored')
       }
       return managedPost<SkillSecurityScanRecord>(
-        `/skills/${stripId(variables.skillId)}/security-scans/rescan`,
+        apiResourcePath('skills', variables.skillId, 'security-scans', 'rescan'),
         {},
+        managedRequestOptions(variables.scope),
         // Rescan dispatches asynchronously on the backend and returns
         // immediately with a scanning-state row, so the default 30s client
         // timeout is plenty — no override needed. The selectedSkill query
@@ -2399,12 +2456,12 @@ export default function SkillManagerPage() {
     },
     onSuccess: (_scan, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      queryClient.invalidateQueries({ queryKey: ['skills'] })
+      queryClient.invalidateQueries({ queryKey: ['skills', variables.scope.key] })
       queryClient.invalidateQueries({
-        queryKey: ['skill', variables.scope, variables.skillId],
+        queryKey: ['skill', variables.scope.key, variables.skillId],
       })
       queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', variables.scope, variables.skillId],
+        queryKey: ['skill-security-scans', variables.scope.key, variables.skillId],
       })
       // Scan now runs in the background; tell the user it started rather
       // than that it completed.
@@ -2418,53 +2475,65 @@ export default function SkillManagerPage() {
 
   // -- Handlers --
 
-  const handleSelectSkill = useCallback((id: string) => {
-    mutationRunRef.current += 1
-    selectedSkillIdRef.current = id
-    selectedFileIdRef.current = null
-    clearSavedFlash()
-    setSelectedSkillId(id)
-    setSelectedFileId(null)
-  }, [clearSavedFlash])
+  const handleSelectSkill = useCallback(
+    (id: string) => {
+      mutationRunRef.current += 1
+      selectedSkillIdRef.current = id
+      selectedFileIdRef.current = null
+      clearSavedFlash()
+      setSelectedSkillId(id)
+      setSelectedFileId(null)
+    },
+    [clearSavedFlash],
+  )
 
-  const openDeleteSkillDialog = useCallback((id: string) => {
-    if (!isSkillMutable(currentSkillInList(id))) return
+  const openDeleteSkillDialog = useCallback(
+    (id: string) => {
+      if (!isSkillMutable(currentSkillInList(id))) return
 
-    mutationRunRef.current += 1
-    setDeleteTarget(id)
-  }, [currentSkillInList])
+      mutationRunRef.current += 1
+      setDeleteTarget(id)
+    },
+    [currentSkillInList],
+  )
 
   const closeDeleteSkillDialog = useCallback(() => {
     mutationRunRef.current += 1
     setDeleteTarget(null)
   }, [])
 
-  const openDeleteFileDialog = useCallback((id: string) => {
-    const skillId = selectedSkillIdRef.current
-    if (!isSkillMutable(currentSkillInList(skillId))) return
-    const detailSkill = currentSkillDetail(skillId)
-    if (detailSkill && !isSkillMutable(detailSkill)) return
-    if (!currentSkillFile(id)) return
+  const openDeleteFileDialog = useCallback(
+    (id: string) => {
+      const skillId = selectedSkillIdRef.current
+      if (!isSkillMutable(currentSkillInList(skillId))) return
+      const detailSkill = currentSkillDetail(skillId)
+      if (detailSkill && !isSkillMutable(detailSkill)) return
+      if (!currentSkillFile(id)) return
 
-    mutationRunRef.current += 1
-    setDeleteFileTarget(id)
-  }, [currentSkillDetail, currentSkillFile, currentSkillInList])
+      mutationRunRef.current += 1
+      setDeleteFileTarget(id)
+    },
+    [currentSkillDetail, currentSkillFile, currentSkillInList],
+  )
 
   const closeDeleteFileDialog = useCallback(() => {
     mutationRunRef.current += 1
     setDeleteFileTarget(null)
   }, [])
 
-  const openDeleteFolderDialog = useCallback((path: string) => {
-    const skillId = selectedSkillIdRef.current
-    if (!isSkillMutable(currentSkillInList(skillId))) return
-    const detailSkill = currentSkillDetail(skillId)
-    if (detailSkill && !isSkillMutable(detailSkill)) return
-    if (currentFolderFiles(path).length === 0) return
+  const openDeleteFolderDialog = useCallback(
+    (path: string) => {
+      const skillId = selectedSkillIdRef.current
+      if (!isSkillMutable(currentSkillInList(skillId))) return
+      const detailSkill = currentSkillDetail(skillId)
+      if (detailSkill && !isSkillMutable(detailSkill)) return
+      if (currentFolderFiles(path).length === 0) return
 
-    mutationRunRef.current += 1
-    setDeleteFolderTarget(path)
-  }, [currentFolderFiles, currentSkillDetail, currentSkillInList])
+      mutationRunRef.current += 1
+      setDeleteFolderTarget(path)
+    },
+    [currentFolderFiles, currentSkillDetail, currentSkillInList],
+  )
 
   const closeDeleteFolderDialog = useCallback(() => {
     mutationRunRef.current += 1
@@ -2577,25 +2646,42 @@ export default function SkillManagerPage() {
   // -- Render --
 
   if (skillsIsError) {
-    return <ResourceErrorState error={skillsError} resource="skill" onRetry={() => queryClient.invalidateQueries({ queryKey: ['skills'] })} />
+    return (
+      <ResourceErrorState
+        error={skillsError}
+        resource="skill"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['skills', managedScope.key] })}
+      />
+    )
   }
 
   if (selectedSkillIsError) {
-    return <ResourceErrorState error={selectedSkillError} resource="skill" onRetry={() => queryClient.invalidateQueries({ queryKey: ['skill', managedScope, selectedSkillId] })} />
+    return (
+      <ResourceErrorState
+        error={selectedSkillError}
+        resource="skill"
+        onRetry={() =>
+          queryClient.invalidateQueries({
+            queryKey: ['skill', managedScope.key, selectedSkillId],
+          })
+        }
+      />
+    )
   }
 
   if (!selectedSkill) {
     // -- List Homepage (consistent with other pages) --
-    const filteredSkills = skills.filter((s) =>
-      filterByCreatedTime(s.created_at, createdFilter) &&
-      matchesSearch(searchQuery, [
-        s.id,
-        s.name,
-        s.description,
-        s.license,
-        s.is_public ? 'public' : 'private',
-        ...skillSecuritySearchTerms(s),
-      ]),
+    const filteredSkills = skills.filter(
+      (s) =>
+        filterByCreatedTime(s.created_at, createdFilter) &&
+        matchesSearch(searchQuery, [
+          s.id,
+          s.name,
+          s.description,
+          s.license,
+          s.is_public ? 'public' : 'private',
+          ...skillSecuritySearchTerms(s),
+        ]),
     )
 
     const filters: FilterDef[] = [
@@ -2617,18 +2703,14 @@ export default function SkillManagerPage() {
         key: 'name',
         header: t('managed.table.name'),
         width: '12%',
-        render: (s) => (
-          <span className="font-medium text-foreground">{s.name}</span>
-        ),
+        render: (s) => <span className="font-medium text-foreground">{s.name}</span>,
       },
       {
         key: 'description',
         header: t('managed.skills.description'),
         width: '16%',
         render: (s) => (
-          <span className="block truncate text-muted-foreground">
-            {s.description || '-'}
-          </span>
+          <span className="block truncate text-muted-foreground">{s.description || '-'}</span>
         ),
       },
       {
@@ -2638,10 +2720,7 @@ export default function SkillManagerPage() {
         render: (s) => (
           <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
             <SkillLifecycleBadge status={s.lifecycle_status} />
-            <SkillVisibilityBadge
-              visibility={s.visibility}
-              isPublic={s.is_public}
-            />
+            <SkillVisibilityBadge visibility={s.visibility} isPublic={s.is_public} />
             {s.latest_version ? (
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
                 {t('managed.skills.published')} v{s.latest_version}
@@ -2673,7 +2752,7 @@ export default function SkillManagerPage() {
         header: t('managed.table.lastUpdated'),
         width: '10%',
         render: (s) => (
-          <span className="text-muted-foreground text-xs">
+          <span className="text-xs text-muted-foreground">
             <RelativeTime date={s.updated_at} />
           </span>
         ),
@@ -2750,9 +2829,7 @@ export default function SkillManagerPage() {
           onSearchChange={setSearchQuery}
           onSearch={(id) => {
             const match = skills.find(
-              (s) =>
-                s.id.includes(id) ||
-                s.name.toLowerCase().includes(id.toLowerCase()),
+              (s) => s.id.includes(id) || s.name.toLowerCase().includes(id.toLowerCase()),
             )
             if (match) handleSelectSkill(match.id)
           }}
@@ -2891,12 +2968,12 @@ export default function SkillManagerPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col px-6 py-5 -m-5">
+    <div className="-m-5 flex h-screen flex-col px-6 py-5">
       <div className="shrink-0">
         <PageHeader
           title={selectedSkill.name}
-          titleExtra={(
-            <div className="flex items-center gap-2 flex-wrap">
+          titleExtra={
+            <div className="flex flex-wrap items-center gap-2">
               {/* Visibility is shown here as a read-only badge. Editing it
                   lives in the Metadata form (SkillEditor), so the header
                   stays a status snapshot rather than a control surface. */}
@@ -2905,7 +2982,7 @@ export default function SkillManagerPage() {
                 <SkillRiskScoreBadge score={selectedSecurityScore} />
               )}
             </div>
-          )}
+          }
           breadcrumb={[
             {
               label: t('managed.skills.title'),
@@ -2913,7 +2990,7 @@ export default function SkillManagerPage() {
             },
             { label: selectedSkill.name },
           ]}
-          action={(
+          action={
             <div className="flex items-center gap-3">
               {savedFlash && (
                 <span className="flex items-center gap-1 text-xs text-green-600">
@@ -2927,18 +3004,16 @@ export default function SkillManagerPage() {
                 <SkillLifecycleActions
                   skillId={selectedSkill.id}
                   currentStatus={selectedSkill.lifecycle_status}
-                  operationScope={`${managedScope}:${selectedSkill.id}`}
+                  requestScope={managedScope}
+                  operationScope={`${managedScope.key}:${selectedSkill.id}`}
                   canSubmitTransition={() => {
                     if (!currentProjectAllowsWrite()) return false
                     const current = currentSkillInList(selectedSkill.id)
-                    return (
-                      !!current &&
-                      current.lifecycle_status === selectedSkill.lifecycle_status
-                    )
+                    return !!current && current.lifecycle_status === selectedSkill.lifecycle_status
                   }}
                   invalidateKeys={[
-                    ['skill', selectedSkillId],
-                    ['skills'],
+                    ['skill', managedScope.key, selectedSkillId],
+                    ['skills', managedScope.key],
                   ]}
                 />
               )}
@@ -2964,7 +3039,9 @@ export default function SkillManagerPage() {
                   saveFileMutation.isPending
                 }
               >
-                <RefreshCw className={`h-4 w-4 ${rescanSecurityMutation.isPending ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`h-4 w-4 ${rescanSecurityMutation.isPending ? 'animate-spin' : ''}`}
+                />
                 {rescanSecurityMutation.isPending
                   ? t('managed.skills.rescanningSecurity')
                   : t('managed.skills.rescanSecurity')}
@@ -3015,10 +3092,12 @@ export default function SkillManagerPage() {
                 disabled={saveMutation.isPending || saveFileMutation.isPending || !canSave}
               >
                 <Save className="h-4 w-4" />
-                {saveMutation.isPending || saveFileMutation.isPending ? t('managed.skills.saving') : t('managed.skills.saveChanges')}
+                {saveMutation.isPending || saveFileMutation.isPending
+                  ? t('managed.skills.saving')
+                  : t('managed.skills.saveChanges')}
               </Button>
             </div>
-          )}
+          }
         />
       </div>
 
@@ -3099,18 +3178,16 @@ export default function SkillManagerPage() {
           fileContent={fileContent}
           setFileContent={setFileContent}
           versions={versions}
-          onCreateVersion={(notes, version) =>
-            {
-              const action = nextCurrentMutableSkillAction()
-              if (action) {
-                createVersionMutation.mutate({
-                  ...action,
-                  releaseNotes: notes,
-                  version,
-                })
-              }
+          onCreateVersion={(notes, version) => {
+            const action = nextCurrentMutableSkillAction()
+            if (action) {
+              createVersionMutation.mutate({
+                ...action,
+                releaseNotes: notes,
+                version,
+              })
             }
-          }
+          }}
           onDeleteVersion={deleteVersion}
           onDeleteVersionDialogActivity={() => {
             mutationRunRef.current += 1
@@ -3120,7 +3197,8 @@ export default function SkillManagerPage() {
           setEditorTab={setEditorTab}
           showVersionForm={showVersionForm}
           setShowVersionForm={setShowVersionForm}
-          queryScope={managedScope}
+          queryScope={managedScope.key}
+          requestScope={managedScope}
         />
       </div>
 
@@ -3128,9 +3206,7 @@ export default function SkillManagerPage() {
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{t('managed.skills.securityHistory')}</DialogTitle>
-            <DialogDescription>
-              {t('managed.skills.securityHistoryDescription')}
-            </DialogDescription>
+            <DialogDescription>{t('managed.skills.securityHistoryDescription')}</DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-auto rounded-md border border-border">
             {securityScansFetching ? (
@@ -3152,7 +3228,10 @@ export default function SkillManagerPage() {
                   const severityDistribution = getSecurityIssueSeverityDistribution(scan)
                   const rawScannerRisk = getRawScannerRisk(scan)
                   return (
-                    <div key={scan.id} className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]">
+                    <div
+                      key={scan.id}
+                      className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]"
+                    >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <StatusBadge status={scan.status} />
@@ -3205,7 +3284,8 @@ export default function SkillManagerPage() {
                               {t('managed.skills.securitySeverity')}: {scan.severity || '-'}
                             </span>
                             <span className="text-muted-foreground">
-                              {t('managed.skills.securityRecommendation')}: {scan.recommendation || '-'}
+                              {t('managed.skills.securityRecommendation')}:{' '}
+                              {scan.recommendation || '-'}
                             </span>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -3220,7 +3300,8 @@ export default function SkillManagerPage() {
                           </div>
                           <div className="mt-2 text-muted-foreground">
                             {t('managed.skills.securityAggregateRiskDescription', {
-                              score: scan.score !== null && scan.score !== undefined ? scan.score : '-',
+                              score:
+                                scan.score !== null && scan.score !== undefined ? scan.score : '-',
                               severity: scan.severity || '-',
                               recommendation: scan.recommendation || '-',
                             })}
@@ -3252,7 +3333,8 @@ export default function SkillManagerPage() {
                           {issues.length > 0 ? (
                             <div className="space-y-2">
                               {issues.map((issue) => {
-                                const isHighRisk = issue.severity === 'CRITICAL' || issue.severity === 'HIGH'
+                                const isHighRisk =
+                                  issue.severity === 'CRITICAL' || issue.severity === 'HIGH'
                                 return (
                                   <details
                                     key={issue.key}
@@ -3260,7 +3342,9 @@ export default function SkillManagerPage() {
                                     className={`rounded-md border bg-background ${securityIssueBorderClass(issue.severity)}`}
                                   >
                                     <summary className="grid cursor-pointer gap-2 px-3 py-2 text-sm outline-none transition-colors hover:bg-muted/60 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-                                      <span className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${securityIssueSeverityClass(issue.severity)}`}>
+                                      <span
+                                        className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${securityIssueSeverityClass(issue.severity)}`}
+                                      >
                                         {t('managed.skills.securitySingleIssueSeverity', {
                                           severity: issue.severity,
                                         })}
@@ -3276,12 +3360,14 @@ export default function SkillManagerPage() {
                                       <div className="flex flex-wrap gap-x-4 gap-y-1">
                                         {issue.category ? (
                                           <span>
-                                            {t('managed.skills.securityIssueCategory')}: {issue.category}
+                                            {t('managed.skills.securityIssueCategory')}:{' '}
+                                            {issue.category}
                                           </span>
                                         ) : null}
                                         {issue.confidence ? (
                                           <span>
-                                            {t('managed.skills.securityIssueConfidence')}: {issue.confidence}
+                                            {t('managed.skills.securityIssueConfidence')}:{' '}
+                                            {issue.confidence}
                                           </span>
                                         ) : null}
                                       </div>
@@ -3382,16 +3468,12 @@ export default function SkillManagerPage() {
             {/* File / Folder toggle */}
             {newFileDir &&
               (() => {
-                const currentDepth = newFileDir
-                  .split('/')
-                  .filter(Boolean).length
+                const currentDepth = newFileDir.split('/').filter(Boolean).length
                 const canCreateSubfolder = currentDepth < MAX_FOLDER_DEPTH
                 return (
                   <div className="flex gap-2">
                     <Button
-                      variant={
-                        newFileMode === 'file' ? 'default' : 'outline'
-                      }
+                      variant={newFileMode === 'file' ? 'default' : 'outline'}
                       size="sm"
                       className="flex-1"
                       onClick={() => {
@@ -3403,9 +3485,7 @@ export default function SkillManagerPage() {
                       {t('managed.skills.file')}
                     </Button>
                     <Button
-                      variant={
-                        newFileMode === 'folder' ? 'default' : 'outline'
-                      }
+                      variant={newFileMode === 'folder' ? 'default' : 'outline'}
                       size="sm"
                       className="flex-1"
                       disabled={!canCreateSubfolder}
@@ -3472,7 +3552,9 @@ export default function SkillManagerPage() {
                     <SelectItem value="json">{t('managed.skills.fileTypeJSON')}</SelectItem>
                     <SelectItem value="yaml">{t('managed.skills.fileTypeYAML')}</SelectItem>
                     <SelectItem value="python">{t('managed.skills.fileTypePython')}</SelectItem>
-                    <SelectItem value="javascript">{t('managed.skills.fileTypeJavaScript')}</SelectItem>
+                    <SelectItem value="javascript">
+                      {t('managed.skills.fileTypeJavaScript')}
+                    </SelectItem>
                     <SelectItem value="shell">{t('managed.skills.fileTypeShell')}</SelectItem>
                   </SelectContent>
                 </Select>
@@ -3490,10 +3572,7 @@ export default function SkillManagerPage() {
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddFileDialog(false)}
-            >
+            <Button variant="outline" onClick={() => setShowAddFileDialog(false)}>
               {t('managed.skills.cancel')}
             </Button>
             <Button
@@ -3511,7 +3590,9 @@ export default function SkillManagerPage() {
                   })
                 }
               }}
-              disabled={!canEditSelectedSkill || !newFileName.trim() || createFileMutation.isPending}
+              disabled={
+                !canEditSelectedSkill || !newFileName.trim() || createFileMutation.isPending
+              }
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               {newFileMode === 'folder'
@@ -3530,15 +3611,10 @@ export default function SkillManagerPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('managed.skills.deleteFile')}</DialogTitle>
-            <DialogDescription>
-              {t('managed.skills.deleteFileConfirm')}
-            </DialogDescription>
+            <DialogDescription>{t('managed.skills.deleteFileConfirm')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={closeDeleteFileDialog}
-            >
+            <Button variant="outline" onClick={closeDeleteFileDialog}>
               {t('managed.skills.cancel')}
             </Button>
             <Button
@@ -3569,15 +3645,10 @@ export default function SkillManagerPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('managed.skills.deleteFolder')}</DialogTitle>
-            <DialogDescription>
-              {t('managed.skills.deleteFolderConfirm')}
-            </DialogDescription>
+            <DialogDescription>{t('managed.skills.deleteFolderConfirm')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={closeDeleteFolderDialog}
-            >
+            <Button variant="outline" onClick={closeDeleteFolderDialog}>
               {t('managed.skills.cancel')}
             </Button>
             <Button

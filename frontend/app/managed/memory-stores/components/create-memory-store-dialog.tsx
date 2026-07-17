@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { Button } from '@/components/ui/button'
@@ -29,11 +34,10 @@ export function CreateMemoryStoreDialog({
   onCreated,
 }: CreateMemoryStoreDialogProps) {
   const { t } = useTranslation()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
   const createRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef(managedScope)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [loading, setLoading] = useState(false)
@@ -47,7 +51,7 @@ export function CreateMemoryStoreDialog({
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
@@ -60,14 +64,15 @@ export function CreateMemoryStoreDialog({
     currentProjectAllowsWrite()
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
-    managedScopeRef.current = managedScope
+    if (managedScopeRef.current === managedScope.key) return
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
     createRunRef.current += 1
     setLoading(false)
     resetForm()
     onOpenChange(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managedScope])
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -87,13 +92,18 @@ export function CreateMemoryStoreDialog({
       return
     }
     const scopeAtStart = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     if (!currentManagedScopeIsActive(scopeAtStart)) return
     const runId = createRunRef.current + 1
     createRunRef.current = runId
     setLoading(true)
     setError('')
     try {
-      await managedPost('memory_stores', { name: name.trim(), description: description.trim() })
+      await managedPost(
+        'memory_stores',
+        { name: name.trim(), description: description.trim() },
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentCreateRun(runId, scopeAtStart)) return
       resetForm()
       onOpenChange(false)

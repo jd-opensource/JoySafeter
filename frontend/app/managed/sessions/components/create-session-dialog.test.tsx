@@ -113,6 +113,16 @@ import { CreateSessionDialog } from './create-session-dialog'
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function projectInfo(archivedAt: string | null = null) {
   return {
     id: 'project-a',
@@ -152,7 +162,8 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('refetches selectable resources instead of reusing the previous project data', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
+      if (path === '/agents')
+        return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
       if (path === '/vaults') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
@@ -174,7 +185,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/agents')
+      expect(managedGetMock).toHaveBeenCalledWith('/agents', managedOptions())
     })
     const agentCallsBeforeSwitch = managedGetMock.mock.calls.filter(([path]) => path === '/agents')
     expect(agentCallsBeforeSwitch).toHaveLength(1)
@@ -229,7 +240,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
     projectAgent = { id: 'agent_b', name: 'Agent B', engine_kind: 'claude' }
     await act(async () => {
-      clearNonSessionQueryData(queryClient)
+      clearNonSessionQueryData(queryClient, { refetchActive: true })
     })
 
     await waitFor(() => {
@@ -237,9 +248,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(
-        (getByText('managed.sessions.create.submit') as HTMLButtonElement).disabled,
-      ).toBe(true)
+      expect((getByText('managed.sessions.create.submit') as HTMLButtonElement).disabled).toBe(true)
     })
 
     fireEvent.click(getByText('managed.sessions.create.submit'))
@@ -249,7 +258,8 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('does not submit an agent that leaves the current selectable agents in the same turn as submit', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
+      if (path === '/agents')
+        return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
       if (path === '/vaults') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
@@ -284,9 +294,10 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     })
 
     await act(async () => {
-      queryClient.setQueryData(['agents-for-session', 'org-a:project-a'], [
-        { id: 'agent_b', name: 'Agent B', engine_kind: 'claude' },
-      ])
+      queryClient.setQueryData(
+        ['agents-for-session', 'org-a:project-a'],
+        [{ id: 'agent_b', name: 'Agent B', engine_kind: 'claude' }],
+      )
       fireEvent.click(getByText('managed.sessions.create.submit'))
       await Promise.resolve()
     })
@@ -396,7 +407,11 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not submit selected resources from old dialog state after the current project is archived', async () => {
@@ -503,12 +518,17 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/sessions', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/sessions',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('ignores a stale create completion after the managed project changes', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
+      if (path === '/agents')
+        return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
       if (path === '/vaults') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
@@ -549,7 +569,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     fireEvent.click(getByText('managed.sessions.create.submit'))
 
     await waitFor(() => {
-      expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' })
+      expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' }, managedOptions())
     })
 
     await act(async () => {
@@ -564,7 +584,8 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('ignores a stale create completion after the current project is archived', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
+      if (path === '/agents')
+        return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
       if (path === '/vaults') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
@@ -605,7 +626,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     fireEvent.click(getByText('managed.sessions.create.submit'))
 
     await waitFor(() => {
-      expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' })
+      expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' }, managedOptions())
     })
 
     await act(async () => {
@@ -622,7 +643,8 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('ignores a stale create completion after the dialog unmounts', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
+      if (path === '/agents')
+        return { data: [{ id: 'agent_a', name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
       if (path === '/vaults') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
@@ -663,7 +685,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     fireEvent.click(view.getByText('managed.sessions.create.submit'))
 
     await waitFor(() => {
-      expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' })
+      expect(managedPostMock).toHaveBeenCalledWith('/sessions', { agent: 'a' }, managedOptions())
     })
 
     view.unmount()

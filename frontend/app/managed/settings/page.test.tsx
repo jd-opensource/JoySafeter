@@ -218,6 +218,58 @@ describe('OrganizationPage ownership transfer lifecycle', () => {
     localStorage.clear()
   })
 
+  it('uses per-organization roles instead of current organization role for organization actions', async () => {
+    const organizations: OrganizationRecord[] = [
+      {
+        id: 'org-a',
+        name: 'Org A',
+        slug: 'org-a',
+        role: 'viewer',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 'org-b',
+        name: 'Org B',
+        slug: 'org-b',
+        role: 'owner',
+        created_at: '2026-01-02T00:00:00Z',
+      },
+    ]
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === 'auth/me') {
+        return {
+          organization: organizations[0],
+          organizations,
+        }
+      }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getAllByText, getByText, queryByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <OrganizationPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Org B')).toBeTruthy()
+    })
+
+    expect(getAllByText('manage.organization.create').length).toBeGreaterThan(0)
+    expect(queryByText('org-a:common.edit')).toBeNull()
+    expect(getByText('org-b:common.edit')).toBeTruthy()
+    expect(getByText('org-b:manage.organization.switch')).toBeTruthy()
+    expect(getByText('org-b:manage.organization.transferOwnership')).toBeTruthy()
+    expect(getByText('org-b:common.delete')).toBeTruthy()
+  })
+
   it('does not submit a transfer owner candidate that is no longer in the current member list', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {

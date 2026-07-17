@@ -30,7 +30,14 @@ import { useTranslation } from '@/lib/i18n'
 
 import { detectBrowserTimezone, isValidCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { apiResourceId } from '@/lib/managed/api-paths'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import {
   useCreateSchedule,
   useUpdateSchedule,
@@ -71,10 +78,9 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
   const createMut = useCreateSchedule()
   const updateMut = useUpdateSchedule()
   const locale = (t('_locale') === 'zh' ? 'zh' : 'en') as 'en' | 'zh'
-  const currentOrgId = useProjectStore((s) => s.currentOrgId)
-  const currentProjectId = useProjectStore((s) => s.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const managedScopeRef = useRef(managedScope)
+  const managedScope = useManagedRequestScope()
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const submitRunRef = useRef(0)
 
   const [name, setName] = useState('')
@@ -91,9 +97,13 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
   const [enabled, setEnabled] = useState(true)
 
   const agentsQuery = useQuery({
-    queryKey: ['agents', managedScope, 'for-schedule'],
-    queryFn: () => managedGet<AgentOption[] | { data: AgentOption[] }>('/agents?limit=200'),
-    enabled: open,
+    queryKey: ['agents', managedScope.key, 'for-schedule'],
+    queryFn: () =>
+      managedGet<AgentOption[] | { data: AgentOption[] }>(
+        '/agents?limit=200',
+        managedRequestOptions(managedScope),
+      ),
+    enabled: open && hasManagedRequestScope(managedScope),
   })
   const agents: AgentOption[] = useMemo(() => {
     const raw = agentsQuery.data
@@ -102,10 +112,13 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
   }, [agentsQuery.data])
 
   const environmentsQuery = useQuery({
-    queryKey: ['environments', managedScope, 'for-schedule'],
+    queryKey: ['environments', managedScope.key, 'for-schedule'],
     queryFn: () =>
-      managedGet<EnvironmentOption[] | { data: EnvironmentOption[] }>('/environments?limit=200'),
-    enabled: open,
+      managedGet<EnvironmentOption[] | { data: EnvironmentOption[] }>(
+        '/environments?limit=200',
+        managedRequestOptions(managedScope),
+      ),
+    enabled: open && hasManagedRequestScope(managedScope),
   })
   const environments: EnvironmentOption[] = useMemo(() => {
     const raw = environmentsQuery.data
@@ -115,21 +128,24 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
     scope === managedScopeRef.current && scope === getCurrentManagedScope()
 
   const isCurrentSubmitRun = (runId: number, scope: string) =>
-    runId === submitRunRef.current && currentManagedScopeIsActive(scope) && currentProjectAllowsWrite()
+    runId === submitRunRef.current &&
+    currentManagedScopeIsActive(scope) &&
+    currentProjectAllowsWrite()
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
-    managedScopeRef.current = managedScope
+    if (managedScopeRef.current === managedScope.key) return
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
     submitRunRef.current += 1
     onOpenChange(false)
-  }, [managedScope, onOpenChange])
+  }, [managedScope.key, onOpenChange])
 
   useEffect(
     () => () => {
@@ -144,7 +160,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     if (schedule) {
       setName(schedule.name)
       setDescription(schedule.description ?? '')
-      setAgentId(stripIdPrefix(schedule.agent_id))
+      setAgentId(apiResourceId(schedule.agent_id))
       setEnvironmentRef(schedule.environment_ref ?? '')
       setPrompt(schedule.prompt)
       setSystemPrompt(schedule.system_prompt ?? '')
@@ -189,14 +205,16 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
       onOpenChange(false)
       return
     }
-    const scopeAtStart = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    const scopeAtStart = requestScope.key
     if (!currentManagedScopeIsActive(scopeAtStart)) return
     const runId = submitRunRef.current + 1
     submitRunRef.current = runId
     try {
       if (isEdit && schedule) {
         await updateMut.mutateAsync({
-          id: stripIdPrefix(schedule.id),
+          id: schedule.id,
+          requestScope,
           body: {
             name: name.trim(),
             description: description.trim() || null,
@@ -213,6 +231,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
         })
       } else {
         await createMut.mutateAsync({
+          requestScope,
           name: name.trim(),
           description: description.trim() || null,
           agent_id: agentId,
@@ -237,6 +256,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen && !currentProjectAllowsWrite()) return
+    if (nextOpen && !currentManagedScopeIsActive()) return
     if (!nextOpen) {
       submitRunRef.current += 1
     }
@@ -272,7 +292,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                 </SelectTrigger>
                 <SelectContent>
                   {agents.map((a) => (
-                    <SelectItem key={a.id} value={stripIdPrefix(a.id)}>
+                    <SelectItem key={a.id} value={apiResourceId(a.id)}>
                       {a.name}
                     </SelectItem>
                   ))}
@@ -333,7 +353,9 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{t('managed.schedules.environmentHint')}</p>
+            <p className="text-xs text-muted-foreground">
+              {t('managed.schedules.environmentHint')}
+            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -350,7 +372,10 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.concurrency')}</Label>
-              <Select value={policy} onValueChange={(v) => setPolicy(v as ScheduleConcurrencyPolicy)}>
+              <Select
+                value={policy}
+                onValueChange={(v) => setPolicy(v as ScheduleConcurrencyPolicy)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

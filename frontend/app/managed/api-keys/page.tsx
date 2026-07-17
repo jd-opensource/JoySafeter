@@ -199,6 +199,11 @@ export default function ApiKeysPage() {
     return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   }
 
+  const apiKeysQueryKey = (scope = managedScopeRef.current) => {
+    const [orgId = '', projectId = ''] = scope.split(':', 2)
+    return ['api-keys', orgId || null, projectId || null] as const
+  }
+
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
     managedScopeRef.current === scope && getCurrentManagedScope() === scope
 
@@ -218,7 +223,7 @@ export default function ApiKeysPage() {
     onSuccess: ({ res, runId, scope }) => {
       if (!currentManagedScopeAllowsWrite(scope)) return
       if (runId !== createKeyRunRef.current) return
-      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
+      queryClient.invalidateQueries({ queryKey: apiKeysQueryKey(scope) })
       setNewRawKey(res.raw_key)
       setShowCreate(false)
       setKeyName('')
@@ -269,7 +274,7 @@ export default function ApiKeysPage() {
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) return
-      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
+      queryClient.invalidateQueries({ queryKey: apiKeysQueryKey(scope) })
     },
     onError: (error, { runId, scope }) => {
       if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) return
@@ -321,7 +326,7 @@ export default function ApiKeysPage() {
       <ResourceErrorState
         error={error}
         resource="apiKey"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['api-keys'] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: apiKeysQueryKey() })}
       />
     )
   }
@@ -427,10 +432,7 @@ export default function ApiKeysPage() {
               <Button variant="outline" onClick={() => handleCreateOpenChange(false)}>
                 {t('common.cancel')}
               </Button>
-              <Button
-                onClick={submitCreateKey}
-                disabled={!keyName.trim()}
-              >
+              <Button onClick={submitCreateKey} disabled={!keyName.trim()}>
                 {t('manage.apiKeys.create')}
               </Button>
             </DialogFooter>
@@ -473,10 +475,7 @@ export default function ApiKeysPage() {
             <Button variant="outline" onClick={closeRevokeDialog}>
               {t('common.cancel')}
             </Button>
-            <Button
-              variant="destructive"
-              onClick={submitRevokeKey}
-            >
+            <Button variant="destructive" onClick={submitRevokeKey}>
               {t('manage.apiKeys.revoke')}
             </Button>
           </DialogFooter>

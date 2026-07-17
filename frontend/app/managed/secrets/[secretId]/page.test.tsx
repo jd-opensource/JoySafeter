@@ -41,11 +41,7 @@ vi.mock('@/components/managed/shared', () => ({
     onChange: (value: string) => void
     value: string
   }) => (
-    <input
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-    />
+    <input value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
   ),
   SecretModelInput: ({
     disabled,
@@ -56,11 +52,7 @@ vi.mock('@/components/managed/shared', () => ({
     onChange: (value: string) => void
     value: string
   }) => (
-    <input
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-    />
+    <input value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
   ),
 }))
 
@@ -149,6 +141,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function renderSecretPage(queryClient: QueryClient, secretId: string) {
   const params = {
     status: 'fulfilled',
@@ -206,9 +208,11 @@ describe('SecretDetailPage managed scope lifecycle', () => {
 
     await waitFor(() => {
       expect(getByText('Secret A')).toBeTruthy()
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets/secret-a')
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets/secret-a', managedOptions())
     })
-    expect(managedGetMock.mock.calls.filter(([path]) => path === '/secrets/secret-a')).toHaveLength(1)
+    expect(managedGetMock.mock.calls.filter(([path]) => path === '/secrets/secret-a')).toHaveLength(
+      1,
+    )
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -216,7 +220,10 @@ describe('SecretDetailPage managed scope lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/secrets/secret-a')).toHaveLength(2)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path === '/secrets/secret-a'),
+      ).toHaveLength(2)
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets/secret-a', managedOptions('project-b'))
     })
   })
 
@@ -304,7 +311,7 @@ describe('SecretDetailPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPutMock).not.toHaveBeenCalledWith('/secrets/secret-a', expect.anything())
+    expect(managedPutMock).not.toHaveBeenCalled()
   })
 
   it('does not save after the current secret detail no longer matches the route secret', async () => {
@@ -335,7 +342,7 @@ describe('SecretDetailPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPutMock).not.toHaveBeenCalledWith('/secrets/secret-a', expect.anything())
+    expect(managedPutMock).not.toHaveBeenCalled()
   })
 
   it('does not invalidate from a save completion after the page unmounts', async () => {
@@ -366,6 +373,11 @@ describe('SecretDetailPage managed scope lifecycle', () => {
     })
 
     expect(managedPutMock).toHaveBeenCalledTimes(1)
+    expect(managedPutMock).toHaveBeenCalledWith(
+      '/secrets/secret-a',
+      expect.anything(),
+      managedOptions(),
+    )
 
     view.unmount()
 
@@ -445,6 +457,6 @@ describe('SecretDetailPage managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPutMock).not.toHaveBeenCalledWith('/secrets/secret-a', expect.anything())
+    expect(managedPutMock).not.toHaveBeenCalled()
   })
 })

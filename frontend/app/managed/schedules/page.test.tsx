@@ -168,7 +168,11 @@ const SCHEDULE_UUID = '11111111-1111-4111-8111-111111111111'
 const SCHEDULE_ID = `sched_${SCHEDULE_UUID}`
 const AGENT_ID = 'agent_22222222-2222-4222-8222-222222222222'
 
-function schedule(id: string, name: string, overrides: Partial<ScheduleRecord> = {}): ScheduleRecord {
+function schedule(
+  id: string,
+  name: string,
+  overrides: Partial<ScheduleRecord> = {},
+): ScheduleRecord {
   return {
     id,
     name,
@@ -199,6 +203,14 @@ function activeProject() {
     organizations: [],
     projects: [],
   })
+}
+
+function requestScope(projectId = 'project-a') {
+  return {
+    orgId: 'org-a',
+    projectId,
+    key: `org-a:${projectId}`,
+  }
 }
 
 function renderPage() {
@@ -251,7 +263,10 @@ describe('ScheduleListPage', () => {
     await act(async () => {
       fireEvent.click(getByText(`${SCHEDULE_ID}:managed.schedules.runNow`))
     })
-    expect(hoisted.triggerMutate).toHaveBeenCalledWith(SCHEDULE_UUID)
+    expect(hoisted.triggerMutate).toHaveBeenCalledWith({
+      id: SCHEDULE_ID,
+      requestScope: requestScope(),
+    })
   })
 
   it('deletes a schedule after confirming', async () => {
@@ -263,7 +278,10 @@ describe('ScheduleListPage', () => {
     await act(async () => {
       fireEvent.click(getByText('common.delete'))
     })
-    expect(hoisted.deleteMutate).toHaveBeenCalledWith(SCHEDULE_UUID)
+    expect(hoisted.deleteMutate).toHaveBeenCalledWith({
+      id: SCHEDULE_ID,
+      requestScope: requestScope(),
+    })
   })
 
   it('toggles a schedule via the enabled switch', async () => {
@@ -272,7 +290,11 @@ describe('ScheduleListPage', () => {
     await act(async () => {
       fireEvent.click(getByRole('switch'))
     })
-    expect(hoisted.toggleMutate).toHaveBeenCalledWith({ id: SCHEDULE_UUID, enabled: false })
+    expect(hoisted.toggleMutate).toHaveBeenCalledWith({
+      id: SCHEDULE_ID,
+      enabled: false,
+      requestScope: requestScope(),
+    })
   })
 
   it('hides write actions when the current project is archived', () => {

@@ -8,8 +8,14 @@ import { useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import type { Environment } from '@/types/managed'
 import { managedPost } from '@/lib/api-client'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+  type ManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -49,10 +55,8 @@ export default function EnvironmentListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
 
   const [showArchived, setShowArchived] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -71,7 +75,8 @@ export default function EnvironmentListPage() {
   const createRunRef = useRef(0)
   const actionRunRef = useRef(0)
   const previousScopeRef = useRef<string | null>(null)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
 
   const {
     data,
@@ -145,7 +150,7 @@ export default function EnvironmentListPage() {
   }
 
   const resetDialog = (open: boolean) => {
-    if (open && !currentProjectAllowsWrite()) return
+    if (open && (!currentManagedScopeIsActive() || !currentProjectAllowsWrite())) return
     createRunRef.current += 1
     if (open) {
       resetForm()
@@ -158,18 +163,19 @@ export default function EnvironmentListPage() {
 
   useEffect(() => {
     if (previousScopeRef.current === null) {
-      previousScopeRef.current = managedScope
+      previousScopeRef.current = managedScope.key
       return
     }
-    if (previousScopeRef.current === managedScope) return
-    previousScopeRef.current = managedScope
-    managedScopeRef.current = managedScope
+    if (previousScopeRef.current === managedScope.key) return
+    previousScopeRef.current = managedScope.key
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
     createRunRef.current += 1
     actionRunRef.current += 1
     setCreating(false)
     setShowCreate(false)
     resetForm()
-  }, [managedScope])
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -190,7 +196,7 @@ export default function EnvironmentListPage() {
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
@@ -228,6 +234,7 @@ export default function EnvironmentListPage() {
     const runId = createRunRef.current + 1
     createRunRef.current = runId
     const createScope = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
     setCreating(true)
     try {
       const config: Record<string, unknown> = {
@@ -252,15 +259,19 @@ export default function EnvironmentListPage() {
       const refs = splitLines(secretRefs)
       if (refs.length > 0) config.secret_refs = refs
 
-      await managedPost('/environments', {
-        name: name.trim(),
-        description: description.trim(),
-        config,
-      })
+      await managedPost(
+        '/environments',
+        {
+          name: name.trim(),
+          description: description.trim(),
+          config,
+        },
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentCreateRun(runId, createScope)) return
       resetForm()
       setShowCreate(false)
-      queryClient.invalidateQueries({ queryKey: ['environments'] })
+      queryClient.invalidateQueries({ queryKey: ['environments', createScope] })
     } catch (e) {
       if (!isCurrentCreateRun(runId, createScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -291,10 +302,15 @@ export default function EnvironmentListPage() {
 
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
+    const requestScope = managedRequestScopeRef.current
     try {
-      await managedPost(`/environments/${stripIdPrefix(env.id)}/archive`, {})
+      await managedPost(
+        apiResourcePath('environments', env.id, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['environments'] })
+      queryClient.invalidateQueries({ queryKey: ['environments', actionScope] })
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -340,7 +356,9 @@ export default function EnvironmentListPage() {
       <ResourceErrorState
         error={error}
         resource="environment"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['environments'] })}
+        onRetry={() =>
+          queryClient.invalidateQueries({ queryKey: ['environments', managedScope.key] })
+        }
       />
     )
   }

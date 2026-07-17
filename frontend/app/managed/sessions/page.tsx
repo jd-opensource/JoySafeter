@@ -7,7 +7,13 @@ import { Plus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedPost } from '@/lib/api-client'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { apiResourcePath } from '@/lib/managed/api-paths'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import type { Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/managed/shared'
@@ -30,12 +36,11 @@ export default function SessionListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
   const actionRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [showArchived, setShowArchived] = useState(false)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -148,11 +153,12 @@ export default function SessionListPage() {
   ]
 
   useEffect(() => {
-    if (managedScopeRef.current !== managedScope) {
+    if (managedScopeRef.current !== managedScope.key) {
       actionRunRef.current += 1
     }
-    managedScopeRef.current = managedScope
-  }, [managedScope])
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -169,7 +175,7 @@ export default function SessionListPage() {
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
@@ -183,7 +189,8 @@ export default function SessionListPage() {
 
   const handleArchive = async (session: Session) => {
     if (!currentProjectAllowsWrite()) return
-    const actionScope = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    const actionScope = requestScope.key
     if (!currentManagedScopeIsActive(actionScope)) return
     const sessionStillCurrent = queryClient
       .getQueriesData<{ data?: Session[] }>({ queryKey: ['sessions', actionScope, '/sessions'] })
@@ -193,9 +200,13 @@ export default function SessionListPage() {
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     try {
-      await managedPost(`/sessions/${stripIdPrefix(session.id)}/archive`, {})
+      await managedPost(
+        apiResourcePath('sessions', session.id, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      queryClient.invalidateQueries({ queryKey: ['sessions', actionScope] })
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -207,7 +218,7 @@ export default function SessionListPage() {
       <ResourceErrorState
         error={error}
         resource="session"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['sessions'] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['sessions', managedScope.key] })}
       />
     )
   }
@@ -223,6 +234,7 @@ export default function SessionListPage() {
               size="sm"
               onClick={() => {
                 if (!currentProjectAllowsWrite()) return
+                if (!currentManagedScopeIsActive()) return
                 setShowCreateDialog(true)
               }}
             >
@@ -277,10 +289,13 @@ export default function SessionListPage() {
         open={!projectReadOnly && showCreateDialog}
         onOpenChange={(open) => {
           if (open && !currentProjectAllowsWrite()) return
+          if (open && !currentManagedScopeIsActive()) return
           setShowCreateDialog(open)
         }}
         onCreated={(id) => {
-          queryClient.invalidateQueries({ queryKey: ['sessions'] })
+          const scope = managedScopeRef.current
+          if (!currentManagedScopeIsActive(scope)) return
+          queryClient.invalidateQueries({ queryKey: ['sessions', scope] })
           router.push(`/managed/sessions/${id}`)
         }}
       />

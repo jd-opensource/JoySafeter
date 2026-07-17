@@ -122,6 +122,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -241,6 +251,7 @@ describe('FileListPage upload lifecycle', () => {
     })
 
     expect(uploadProjects).toEqual(['project-a'])
+    expect(managedUploadMock).toHaveBeenCalledWith('/files', expect.any(FormData), managedOptions())
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -340,7 +351,11 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedUploadMock).not.toHaveBeenCalledWith('/files', expect.any(FormData))
+    expect(managedUploadMock).not.toHaveBeenCalledWith(
+      '/files',
+      expect.any(FormData),
+      managedOptions(),
+    )
   })
 
   it('does not start an upload from an old file input after the current project is archived in the same tick', async () => {
@@ -379,7 +394,11 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedUploadMock).not.toHaveBeenCalledWith('/files', expect.any(FormData))
+    expect(managedUploadMock).not.toHaveBeenCalledWith(
+      '/files',
+      expect.any(FormData),
+      managedOptions(),
+    )
   })
 
   it('does not invalidate files from an upload completion after the page unmounts', async () => {
@@ -423,7 +442,7 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files', 'org-a:project-a'] })
   })
 
   it('does not invalidate files from an upload completion after the current project is archived', async () => {
@@ -468,7 +487,7 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files', 'org-a:project-a'] })
   })
 
   it('does not delete a file target that is no longer in the current files list', async () => {
@@ -503,7 +522,7 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/files/file-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/files/file-a', managedOptions())
   })
 
   it('does not delete an old project file row after the managed project changes in the same tick', async () => {
@@ -537,7 +556,7 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/files/file-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/files/file-a', managedOptions())
   })
 
   it('does not delete a file from an old row action after the current project is archived', async () => {
@@ -573,7 +592,7 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/files/file-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/files/file-a', managedOptions())
   })
 
   it('does not invalidate files from a delete completion after the page unmounts', async () => {
@@ -614,7 +633,7 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files', 'org-a:project-a'] })
   })
 
   it('does not invalidate files from a delete completion after the current project is archived', async () => {
@@ -656,6 +675,6 @@ describe('FileListPage upload lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['files', 'org-a:project-a'] })
   })
 })

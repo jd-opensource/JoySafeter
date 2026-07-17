@@ -6,7 +6,14 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, CheckCircle2, Loader2, Plus, Star, Trash2, Wifi, XCircle } from 'lucide-react'
 import { managedPost, managedDelete } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { parseApiError, toastOperationError } from '@/lib/managed/errors'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+  type ManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import type { Secret } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,24 +81,24 @@ interface SecretTestResult {
 interface ScopedRun {
   runId: number
   scope: string
+  requestScope: ManagedRequestScope
 }
 
 export default function SecretListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef(managedScope)
   const createRunRef = useRef(0)
   const testRunRef = useRef(0)
   const deleteRunRef = useRef(0)
   const defaultRunRef = useRef(0)
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
   const isCurrentManagedScope = (scope: string) =>
     managedScopeRef.current === scope && getCurrentManagedScope() === scope
@@ -101,12 +108,10 @@ export default function SecretListPage() {
     return {
       runId,
       scope: managedScopeRef.current,
+      requestScope: managedRequestScopeRef.current,
     }
   }
-  const isCurrentScopedRun = (
-    runRef: MutableRefObject<number>,
-    action: ScopedRun,
-  ) =>
+  const isCurrentScopedRun = (runRef: MutableRefObject<number>, action: ScopedRun) =>
     runRef.current === action.runId &&
     isCurrentManagedScope(action.scope) &&
     currentProjectAllowsWrite()
@@ -139,8 +144,9 @@ export default function SecretListPage() {
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
-    managedScopeRef.current = managedScope
+    if (managedScopeRef.current === managedScope.key) return
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
     createRunRef.current += 1
     testRunRef.current += 1
     deleteRunRef.current += 1
@@ -154,7 +160,7 @@ export default function SecretListPage() {
     setTestingSecret(false)
     setTestResult(null)
     setDeleteTarget(null)
-  }, [managedScope])
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -285,17 +291,21 @@ export default function SecretListPage() {
     const isDefault = secrets.length === 0
     setCreating(true)
     try {
-      await managedPost('/secrets', {
-        name,
-        provider,
-        protocol,
-        data,
-        is_default: isDefault,
-      })
+      await managedPost(
+        '/secrets',
+        {
+          name,
+          provider,
+          protocol,
+          data,
+          is_default: isDefault,
+        },
+        managedRequestOptions(action.requestScope),
+      )
       if (!isCurrentScopedRun(createRunRef, action)) return
       resetCreateDraft()
       setShowCreate(false)
-      queryClient.invalidateQueries({ queryKey: ['secrets'] })
+      queryClient.invalidateQueries({ queryKey: ['secrets', action.scope] })
     } catch (e) {
       if (!isCurrentScopedRun(createRunRef, action)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -317,11 +327,15 @@ export default function SecretListPage() {
     setTestingSecret(true)
     setTestResult(null)
     try {
-      const result = await managedPost<SecretTestResult>('/secrets/test', {
-        provider,
-        protocol,
-        data,
-      })
+      const result = await managedPost<SecretTestResult>(
+        '/secrets/test',
+        {
+          provider,
+          protocol,
+          data,
+        },
+        managedRequestOptions(action.requestScope),
+      )
       if (!isCurrentScopedRun(testRunRef, action)) return
       setTestResult(result)
     } catch (e) {
@@ -350,9 +364,12 @@ export default function SecretListPage() {
     }
     const action = nextScopedRun(deleteRunRef)
     try {
-      await managedDelete(`/secrets/${target.id}`)
+      await managedDelete(
+        apiResourcePath('secrets', target.id),
+        managedRequestOptions(action.requestScope),
+      )
       if (!isCurrentScopedRun(deleteRunRef, action)) return
-      queryClient.invalidateQueries({ queryKey: ['secrets'] })
+      queryClient.invalidateQueries({ queryKey: ['secrets', action.scope] })
     } catch (e) {
       if (!isCurrentScopedRun(deleteRunRef, action)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -369,9 +386,13 @@ export default function SecretListPage() {
 
     const action = nextScopedRun(defaultRunRef)
     try {
-      await managedPost(`/secrets/${target.id}/default`, {})
+      await managedPost(
+        apiResourcePath('secrets', target.id, 'default'),
+        {},
+        managedRequestOptions(action.requestScope),
+      )
       if (!isCurrentScopedRun(defaultRunRef, action)) return
-      queryClient.invalidateQueries({ queryKey: ['secrets'] })
+      queryClient.invalidateQueries({ queryKey: ['secrets', action.scope] })
     } catch (e) {
       if (!isCurrentScopedRun(defaultRunRef, action)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -429,7 +450,7 @@ export default function SecretListPage() {
       <ResourceErrorState
         error={secretsError}
         resource="secret"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['secrets'] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['secrets', managedScope.key] })}
       />
     )
   }

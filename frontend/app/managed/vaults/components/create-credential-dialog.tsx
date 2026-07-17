@@ -4,7 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { managedPost } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
@@ -40,6 +47,7 @@ interface CreateCredentialVariables {
   }
   runId: number
   scope: string
+  requestScope: ManagedRequestScope
 }
 
 export function CreateCredentialDialog({
@@ -50,31 +58,43 @@ export function CreateCredentialDialog({
   canSubmit,
 }: CreateCredentialDialogProps) {
   const { t } = useTranslation()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const operationScope = `${managedScope}:${vaultId}`
+  const managedScope = useManagedRequestScope()
+  const operationScope = `${managedScope.key}:${vaultId}`
   const createRunRef = useRef(0)
   const operationScopeRef = useRef(operationScope)
+  const requestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [name, setName] = useState('')
   const [credentialType, setCredentialType] = useState<CredType>('mcp_oauth')
   const [mcpServerUrl, setMcpServerUrl] = useState('')
   const [tokenValue, setTokenValue] = useState('')
   const queryClient = useQueryClient()
 
+  const getCurrentOperationScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return `${managedScopeKey(orgId, projectId)}:${vaultId}`
+  }
+
+  const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
+    operationScopeRef.current === scope && getCurrentOperationScope() === scope
+
   const mutation = useMutation({
-    mutationFn: ({ vaultId, payload, scope }: CreateCredentialVariables) => {
-      if (operationScopeRef.current !== scope || !currentProjectAllowsWrite()) {
+    mutationFn: ({ vaultId, payload, scope, requestScope }: CreateCredentialVariables) => {
+      if (!currentOperationScopeIsActive(scope) || !currentProjectAllowsWrite()) {
         throw new Error('Stale vault credential create ignored')
       }
-      return managedPost<VaultCredential>(`/vaults/${vaultId}/credentials`, payload)
+      return managedPost<VaultCredential>(
+        apiResourcePath('vaults', vaultId, 'credentials'),
+        payload,
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_data, { queryKey, runId, scope }) => {
       if (
         createRunRef.current !== runId ||
-        operationScopeRef.current !== scope ||
+        !currentOperationScopeIsActive(scope) ||
         !currentProjectAllowsWrite()
-      ) return
+      )
+        return
       queryClient.invalidateQueries({ queryKey })
       resetForm()
       onOpenChange(false)
@@ -82,9 +102,10 @@ export function CreateCredentialDialog({
     onError: (error, { runId, scope }) => {
       if (
         createRunRef.current !== runId ||
-        operationScopeRef.current !== scope ||
+        !currentOperationScopeIsActive(scope) ||
         !currentProjectAllowsWrite()
-      ) return
+      )
+        return
       toastOperationError(t, error, 'managed.vaults.cred.createFailed')
     },
   })
@@ -101,6 +122,7 @@ export function CreateCredentialDialog({
     if (operationScopeRef.current !== operationScope) {
       createRunRef.current += 1
       operationScopeRef.current = operationScope
+      requestScopeRef.current = managedScope
     }
     if (open) resetForm()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,7 +144,11 @@ export function CreateCredentialDialog({
       return
     }
     if (credentialType === 'static_bearer' && !tokenValue.trim()) return
-    if (!currentProjectAllowsWrite() || (canSubmit && !canSubmit())) {
+    if (
+      !currentOperationScopeIsActive() ||
+      !currentProjectAllowsWrite() ||
+      (canSubmit && !canSubmit())
+    ) {
       resetForm()
       onOpenChange(false)
       return
@@ -140,6 +166,7 @@ export function CreateCredentialDialog({
       },
       runId,
       scope: operationScopeRef.current,
+      requestScope: requestScopeRef.current,
     })
   }
 

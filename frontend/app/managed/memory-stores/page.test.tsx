@@ -168,6 +168,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -232,7 +242,11 @@ describe('MemoryStoreListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('memory_stores/a/archive')
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('hides project write actions when the current project is archived', async () => {
@@ -286,7 +300,11 @@ describe('MemoryStoreListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('memory_stores/a/archive')
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not invalidate memory stores from an archive completion after the managed project changes', async () => {
@@ -340,7 +358,9 @@ describe('MemoryStoreListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['memory-stores'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['memory-stores', 'org-a:project-a'],
+    })
   })
 
   it('does not invalidate memory stores from an archive completion after the page unmounts', async () => {
@@ -387,7 +407,9 @@ describe('MemoryStoreListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['memory-stores'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['memory-stores', 'org-a:project-a'],
+    })
   })
 
   it('does not archive a memory store target that is no longer in the current store list', async () => {
@@ -421,6 +443,10 @@ describe('MemoryStoreListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('memory_stores/a/archive')
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/a/archive',
+      {},
+      managedOptions(),
+    )
   })
 })

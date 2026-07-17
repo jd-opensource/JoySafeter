@@ -143,6 +143,16 @@ const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 const managedDeleteMock = managedDelete as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 interface Memory {
   id: string
   path: string
@@ -261,12 +271,15 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
 
     await waitFor(() => {
       expect(getByText('Store A')).toBeTruthy()
-      expect(managedGetMock).toHaveBeenCalledWith('/memory_stores/store-a')
+      expect(managedGetMock).toHaveBeenCalledWith('/memory_stores/store-a', managedOptions())
       expect(managedGetMock).toHaveBeenCalledWith(
         '/memory_stores/store-a/memories?limit=100&view=full',
+        managedOptions(),
       )
     })
-    expect(managedGetMock.mock.calls.filter(([path]) => path === '/memory_stores/store-a')).toHaveLength(1)
+    expect(
+      managedGetMock.mock.calls.filter(([path]) => path === '/memory_stores/store-a'),
+    ).toHaveLength(1)
     expect(
       managedGetMock.mock.calls.filter(
         ([path]) => path === '/memory_stores/store-a/memories?limit=100&view=full',
@@ -279,13 +292,23 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/memory_stores/store-a')).toHaveLength(2)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path === '/memory_stores/store-a'),
+      ).toHaveLength(2)
       expect(
         managedGetMock.mock.calls.filter(
           ([path]) => path === '/memory_stores/store-a/memories?limit=100&view=full',
         ),
       ).toHaveLength(2)
     })
+    expect(managedGetMock).toHaveBeenCalledWith(
+      '/memory_stores/store-a',
+      managedOptions('project-b'),
+    )
+    expect(managedGetMock).toHaveBeenCalledWith(
+      '/memory_stores/store-a/memories?limit=100&view=full',
+      managedOptions('project-b'),
+    )
   })
 
   it('does not keep a selected memory from the previous store when the route store changes', async () => {
@@ -400,9 +423,11 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories/mem-a', {
-      content: 'old content',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/store-a/memories/mem-a',
+      { content: 'old content' },
+      managedOptions(),
+    )
     await waitFor(() => {
       expect(getByText('managed.memoryStores.selectMemory')).toBeTruthy()
     })
@@ -454,9 +479,11 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories/mem-a', {
-      content: 'old content',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/store-a/memories/mem-a',
+      { content: 'old content' },
+      managedOptions(),
+    )
   })
 
   it('does not delete a memory after it leaves the current memory list before confirmation', async () => {
@@ -511,6 +538,7 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
 
     expect(managedDeleteMock).not.toHaveBeenCalledWith(
       '/memory_stores/store-a/memories/mem-a',
+      managedOptions(),
     )
   })
 
@@ -569,6 +597,7 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
 
     expect(managedDeleteMock).not.toHaveBeenCalledWith(
       '/memory_stores/store-a/memories/mem-a',
+      managedOptions(),
     )
   })
 
@@ -738,10 +767,14 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories', {
-      path: 'notes/race.md',
-      content: 'content written before archive',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/store-a/memories',
+      {
+        path: 'notes/race.md',
+        content: 'content written before archive',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not leave a reopened memory edit when an older save finishes', async () => {
@@ -906,7 +939,11 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/store-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not delete the memory store after the current store detail is no longer active', async () => {
@@ -946,7 +983,7 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/memory_stores/store-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/memory_stores/store-a', managedOptions())
   })
 
   it('does not invalidate memory stores from a delete completion after the page unmounts', async () => {
@@ -992,7 +1029,9 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['memory-stores'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['memory-stores', 'org-a:project-a'],
+    })
   })
 
   it('hides project write actions when the current project is archived', async () => {
@@ -1098,9 +1137,11 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories/mem-a', {
-      content: 'content written before project archive',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/store-a/memories/mem-a',
+      { content: 'content written before project archive' },
+      managedOptions(),
+    )
   })
 
   it('does not create a memory from an old create dialog after the current project is archived', async () => {
@@ -1149,10 +1190,14 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories', {
-      path: 'notes/project-archived.md',
-      content: 'content written before project archive',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/store-a/memories',
+      {
+        path: 'notes/project-archived.md',
+        content: 'content written before project archive',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not archive the memory store from an old confirmation after the current project is archived', async () => {
@@ -1193,7 +1238,11 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/memory_stores/store-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/memory_stores/store-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not delete the memory store from an old confirmation after the current project is archived', async () => {
@@ -1234,7 +1283,7 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/memory_stores/store-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/memory_stores/store-a', managedOptions())
   })
 
   it('does not delete a memory from an old confirmation after the current project is archived', async () => {
@@ -1291,6 +1340,9 @@ describe('MemoryStoreDetailPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/memory_stores/store-a/memories/mem-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith(
+      '/memory_stores/store-a/memories/mem-a',
+      managedOptions(),
+    )
   })
 })

@@ -24,6 +24,13 @@ import {
 import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -75,11 +82,10 @@ interface CreateAgentDialogProps {
 export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgentDialogProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = useManagedRequestScope()
   const createRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -101,30 +107,37 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [submitting, setSubmitting] = useState(false)
 
   const { data: secretsRes } = useQuery({
-    queryKey: ['secrets', managedScope],
-    queryFn: () => managedGet<{ data: { name: string }[] }>('/secrets'),
-    enabled: open,
+    queryKey: ['secrets', managedScope.key],
+    queryFn: () =>
+      managedGet<{ data: { name: string }[] }>('/secrets', managedRequestOptions(managedScope)),
+    enabled: open && hasManagedRequestScope(managedScope),
   })
   const secrets = secretsRes?.data
 
   const { data: skills } = useQuery({
-    queryKey: ['skills', managedScope],
+    queryKey: ['skills', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<SkillListItem>>('/skills')
+      const res = await managedGet<ManagedListResponse<SkillListItem>>(
+        '/skills',
+        managedRequestOptions(managedScope),
+      )
       // Agents can only reference *published* skills — hide draft-only
       // skills (no published version yet) from the picker entirely.
       return (res.data || []).filter((s) => !!s.latest_version)
     },
-    enabled: open,
+    enabled: open && hasManagedRequestScope(managedScope),
   })
 
   const { data: environments } = useQuery({
-    queryKey: ['environments', managedScope],
+    queryKey: ['environments', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<EnvironmentListItem>>('/environments')
+      const res = await managedGet<ManagedListResponse<EnvironmentListItem>>(
+        '/environments',
+        managedRequestOptions(managedScope),
+      )
       return res.data || []
     },
-    enabled: open,
+    enabled: open && hasManagedRequestScope(managedScope),
   })
 
   const effectiveSecretRef = useMemo(() => {
@@ -176,13 +189,14 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   }
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
-    managedScopeRef.current = managedScope
+    if (managedScopeRef.current === managedScope.key) return
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
     createRunRef.current += 1
     reset()
     onOpenChange(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managedScope])
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -226,7 +240,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const isCurrentCreateRun = (runId: number, scope: string) =>
@@ -245,7 +259,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       onOpenChange(false)
       return
     }
-    const scopeAtStart = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    const scopeAtStart = requestScope.key
     if (!currentManagedScopeIsActive(scopeAtStart)) return
     const runId = createRunRef.current + 1
     createRunRef.current = runId
@@ -282,17 +297,16 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         }
       }
 
-      const scopeAtSubmit = managedScopeRef.current
       const currentSecrets =
-        queryClient.getQueryData<{ data?: { name: string }[] }>(['secrets', scopeAtSubmit])?.data ??
+        queryClient.getQueryData<{ data?: { name: string }[] }>(['secrets', scopeAtStart])?.data ??
         secrets
       const currentEnvironments =
         queryClient.getQueryData<ManagedListResponse<EnvironmentListItem>>([
           'environments',
-          scopeAtSubmit,
+          scopeAtStart,
         ])?.data ?? environments
       const currentSkills =
-        queryClient.getQueryData<SkillListItem[]>(['skills', scopeAtSubmit]) ?? skills
+        queryClient.getQueryData<SkillListItem[]>(['skills', scopeAtStart]) ?? skills
 
       const currentSecretRef = (() => {
         if (!currentSecrets) return effectiveSecretRef
@@ -315,23 +329,27 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         Object.entries(skillVersions).filter(([id]) => currentSelectedSkillIds.includes(id)),
       )
 
-      const res = await managedPost<{ id: string }>('/agents', {
-        name: name.trim(),
-        description: description.trim() || null,
-        engine_kind: engineKind,
-        system_prompt: systemPrompt || null,
-        ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
-        ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
-        tools,
-        mcp_servers: mcpServers.map((m) => ({ type: 'url', name: m.name, url: m.url })),
-        skill_ids: currentSelectedSkillIds,
-        skills: currentSelectedSkillIds.map((id) => ({
-          type: 'custom' as const,
-          skill_id: id,
-          version: currentSkillVersions[id] || 'latest',
-        })),
-        env: Object.keys(envPayload).length > 0 ? envPayload : undefined,
-      })
+      const res = await managedPost<{ id: string }>(
+        '/agents',
+        {
+          name: name.trim(),
+          description: description.trim() || null,
+          engine_kind: engineKind,
+          system_prompt: systemPrompt || null,
+          ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
+          ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
+          tools,
+          mcp_servers: mcpServers.map((m) => ({ type: 'url', name: m.name, url: m.url })),
+          skill_ids: currentSelectedSkillIds,
+          skills: currentSelectedSkillIds.map((id) => ({
+            type: 'custom' as const,
+            skill_id: id,
+            version: currentSkillVersions[id] || 'latest',
+          })),
+          env: Object.keys(envPayload).length > 0 ? envPayload : undefined,
+        },
+        managedRequestOptions(requestScope),
+      )
       if (!isCurrentCreateRun(runId, scopeAtStart)) return
       reset()
       onOpenChange(false)
@@ -351,6 +369,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       open={open}
       onOpenChange={(v) => {
         if (v && !currentProjectAllowsWrite()) return
+        if (v && !currentManagedScopeIsActive()) return
         if (!v) {
           createRunRef.current += 1
           reset()

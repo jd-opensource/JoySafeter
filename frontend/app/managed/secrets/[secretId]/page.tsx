@@ -6,8 +6,15 @@ import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, Trash2, Eye, EyeOff, Save } from 'lucide-react'
 import { managedGet, managedPut } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -64,6 +71,7 @@ interface SaveSecretVariables {
     protocol: string
     data: Record<string, string>
   }
+  requestScope: ManagedRequestScope
   runId: number
   scope: string
 }
@@ -73,13 +81,12 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const operationScope = `${managedScope}:${secretId ?? ''}`
+  const managedScope = useManagedRequestScope()
+  const operationScope = `${managedScope.key}:${secretId ?? ''}`
   const saveRunRef = useRef(0)
   const operationScopeRef = useRef(operationScope)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const hydratedSecretScopeRef = useRef<string | null>(null)
 
   const [pairs, setPairs] = useState<KVPair[]>([])
@@ -94,15 +101,20 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
     isError,
     error,
   } = useQuery({
-    queryKey: ['secret', managedScope, secretId],
-    queryFn: () => managedGet<SecretDetail>(`/secrets/${stripIdPrefix(secretId)}`),
-    enabled: !!secretId,
+    queryKey: ['secret', managedScope.key, secretId],
+    queryFn: () =>
+      managedGet<SecretDetail>(
+        apiResourcePath('secrets', secretId),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!secretId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
 
   useEffect(() => {
     if (operationScopeRef.current !== operationScope) {
       operationScopeRef.current = operationScope
+      managedRequestScopeRef.current = managedScope
       saveRunRef.current += 1
     }
   }, [operationScope])
@@ -176,12 +188,12 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
 
   const getCurrentOperationScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}:${secretId ?? ''}`
+    return `${managedScopeKey(orgId, projectId)}:${secretId ?? ''}`
   }
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
@@ -205,14 +217,18 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
     currentProjectAllowsWrite()
 
   const saveMutation = useMutation({
-    mutationFn: async ({ secretId, payload, runId, scope }: SaveSecretVariables) => {
+    mutationFn: async ({ secretId, payload, requestScope, runId, scope }: SaveSecretVariables) => {
       if (!isCurrentSaveRun(runId, scope)) return undefined
-      return managedPut(`/secrets/${stripIdPrefix(secretId)}`, payload)
+      return managedPut(
+        apiResourcePath('secrets', secretId),
+        payload,
+        managedRequestOptions(requestScope),
+      )
     },
-    onSuccess: (_data, { secretId, runId, scope }) => {
+    onSuccess: (_data, { secretId, requestScope, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
       setDirty(false)
-      queryClient.invalidateQueries({ queryKey: ['secret', managedScope, secretId] })
+      queryClient.invalidateQueries({ queryKey: ['secret', requestScope.key, secretId] })
     },
     onError: (error, { runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
@@ -254,13 +270,17 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
               onClick={() => {
                 const current = currentSecretDetail()
                 if (!current) return
+                const requestScope = managedRequestScopeRef.current
+                const scope = operationScopeRef.current
+                if (!currentOperationScopeIsActive(scope)) return
                 const runId = saveRunRef.current + 1
                 saveRunRef.current = runId
                 saveMutation.mutate({
                   secretId: current.id,
                   payload: { ...buildSavePayload(), name: current.name },
+                  requestScope,
                   runId,
-                  scope: operationScopeRef.current,
+                  scope,
                 })
               }}
               disabled={!dirty || projectReadOnly || saveMutation.isPending}

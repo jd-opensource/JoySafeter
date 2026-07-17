@@ -139,6 +139,16 @@ import EnvironmentListPage from './page'
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 interface EnvironmentRecord {
   id: string
   name: string
@@ -255,9 +265,9 @@ describe('EnvironmentListPage create lifecycle', () => {
 
     const { getAllByRole, getAllByText, getByPlaceholderText, queryByPlaceholderText, rerender } =
       render(
-      <QueryClientProvider client={queryClient}>
-        <EnvironmentListPage />
-      </QueryClientProvider>,
+        <QueryClientProvider client={queryClient}>
+          <EnvironmentListPage />
+        </QueryClientProvider>,
       )
 
     await waitFor(() => {
@@ -351,7 +361,11 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/environments', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/environments',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not create an environment from old dialog state after the current project is archived', async () => {
@@ -409,7 +423,11 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/environments', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/environments',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not close a new create dialog when an older create finishes', async () => {
@@ -448,16 +466,20 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith('/environments', {
-      name: 'First Environment',
-      description: '',
-      config: {
-        type: 'cloud',
-        networking: {
-          type: 'limited',
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/environments',
+      {
+        name: 'First Environment',
+        description: '',
+        config: {
+          type: 'cloud',
+          networking: {
+            type: 'limited',
+          },
         },
       },
-    })
+      managedOptions(),
+    )
 
     await act(async () => {
       fireEvent.click(getAllByText('dialog-close')[0])
@@ -530,7 +552,9 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['environments'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['environments', 'org-a:project-a'],
+    })
   })
 
   it('does not invalidate environments from a create completion after the current project is archived', async () => {
@@ -578,7 +602,9 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['environments'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['environments', 'org-a:project-a'],
+    })
   })
 
   it('does not invalidate environments from an archive completion after the page unmounts', async () => {
@@ -619,7 +645,9 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['environments'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['environments', 'org-a:project-a'],
+    })
   })
 
   it('does not archive an environment from an old row action after the current project is archived', async () => {
@@ -655,7 +683,11 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/environments/env-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not invalidate environments from an archive completion after the current project is archived', async () => {
@@ -697,7 +729,9 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['environments'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['environments', 'org-a:project-a'],
+    })
   })
 
   it('does not archive an environment target that leaves the current environments list', async () => {
@@ -735,6 +769,10 @@ describe('EnvironmentListPage create lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/environments/env-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 })

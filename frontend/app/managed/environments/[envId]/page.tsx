@@ -6,8 +6,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Save } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
 import { managedGet, managedPost } from '@/lib/api-client'
+import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import type { Environment } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,6 +46,7 @@ interface SaveEnvironmentVariables {
     description: string
     config: Record<string, unknown>
   }
+  requestScope: ManagedRequestScope
   runId: number
   scope: string
 }
@@ -48,14 +56,13 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const envId = stripIdPrefix(rawId || '')
-  const operationScope = `${managedScope}:${rawId ?? ''}`
+  const managedScope = useManagedRequestScope()
+  const envId = apiResourceId(rawId || '')
+  const operationScope = `${managedScope.key}:${rawId ?? ''}`
   const saveRunRef = useRef(0)
   const operationScopeRef = useRef(operationScope)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const hydratedEnvironmentScopeRef = useRef<string | null>(null)
 
   const {
@@ -64,9 +71,13 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     isError,
     error,
   } = useQuery({
-    queryKey: ['environment', managedScope, rawId],
-    queryFn: () => managedGet<Environment>(`/environments/${envId}`),
-    enabled: !!rawId,
+    queryKey: ['environment', managedScope.key, rawId],
+    queryFn: () =>
+      managedGet<Environment>(
+        apiResourcePath('environments', envId),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!rawId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
 
@@ -84,6 +95,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
   useEffect(() => {
     if (operationScopeRef.current !== operationScope) {
       operationScopeRef.current = operationScope
+      managedRequestScopeRef.current = managedScope
       saveRunRef.current += 1
     }
   }, [operationScope])
@@ -166,12 +178,12 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
 
   const getCurrentOperationScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}:${rawId ?? ''}`
+    return `${managedScopeKey(orgId, projectId)}:${rawId ?? ''}`
   }
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
@@ -194,19 +206,29 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     getCurrentOperationScope() === scope
 
   const saveMutation = useMutation({
-    mutationFn: async ({ envId, payload, runId, scope }: SaveEnvironmentVariables) => {
+    mutationFn: async ({
+      envId,
+      payload,
+      requestScope,
+      runId,
+      scope,
+    }: SaveEnvironmentVariables) => {
       if (!isCurrentSaveRun(runId, scope)) {
         return undefined as unknown as Environment
       }
       if (!currentProjectAllowsWrite()) {
         return undefined as unknown as Environment
       }
-      return managedPost<Environment>(`/environments/${envId}`, payload)
+      return managedPost<Environment>(
+        apiResourcePath('environments', envId),
+        payload,
+        managedRequestOptions(requestScope),
+      )
     },
-    onSuccess: (_data, { rawId, runId, scope }) => {
+    onSuccess: (_data, { rawId, requestScope, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['environment', managedScope, rawId] })
-      queryClient.invalidateQueries({ queryKey: ['environments'] })
+      queryClient.invalidateQueries({ queryKey: ['environment', requestScope.key, rawId] })
+      queryClient.invalidateQueries({ queryKey: ['environments', requestScope.key] })
       router.push('/managed/environments')
     },
     onError: (error, { runId, scope }) => {
@@ -388,14 +410,18 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
             <Button
               onClick={() => {
                 if (!currentEditableEnvironment()) return
+                const requestScope = managedRequestScopeRef.current
+                const scope = operationScopeRef.current
+                if (!currentOperationScopeIsActive(scope)) return
                 const runId = saveRunRef.current + 1
                 saveRunRef.current = runId
                 saveMutation.mutate({
                   envId,
                   rawId,
                   payload: buildSavePayload(),
+                  requestScope,
                   runId,
-                  scope: operationScopeRef.current,
+                  scope,
                 })
               }}
               disabled={!name.trim() || saveMutation.isPending}

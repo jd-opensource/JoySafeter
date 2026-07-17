@@ -27,7 +27,6 @@ import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { canAdmin, canOwn, roleLabel } from '@/lib/managed/roles'
 import { clearNonSessionQueryData } from '@/lib/query-client-lifecycle'
-import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ProjectInfo } from '@/stores/managed/project-store'
 
@@ -95,7 +94,6 @@ export default function OrganizationPage() {
   const editOrgRunRef = useRef(0)
   const deleteOrgRunRef = useRef(0)
   const transferOwnershipRunRef = useRef(0)
-  const { canAdmin: canManageOrganizations } = useUserPermissionsContext()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
@@ -122,10 +120,8 @@ export default function OrganizationPage() {
       scope: managedScopeRef.current,
     }
   }
-  const isCurrentScopedRun = (
-    runRef: MutableRefObject<number>,
-    action: ScopedRun,
-  ) => runRef.current === action.runId && isCurrentManagedScope(action.scope)
+  const isCurrentScopedRun = (runRef: MutableRefObject<number>, action: ScopedRun) =>
+    runRef.current === action.runId && isCurrentManagedScope(action.scope)
 
   const { data: me } = useQuery({
     queryKey: ['auth-me', currentOrgId, currentProjectId],
@@ -399,7 +395,7 @@ export default function OrganizationPage() {
     onSuccess: (_result, action) => {
       if (!isCurrentScopedRun(transferOwnershipRunRef, action)) return
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
-      queryClient.invalidateQueries({ queryKey: ['organization-members'] })
+      queryClient.invalidateQueries({ queryKey: ['organization-members', action.orgId] })
       setTransferTarget(null)
       setSelectedNewOwnerId('')
     },
@@ -498,12 +494,10 @@ export default function OrganizationPage() {
         title={t('manage.organization.title')}
         subtitle={t('manage.organization.subtitle')}
         action={
-          canManageOrganizations ? (
-            <Button size="sm" onClick={() => setShowCreateOrg(true)}>
-              <Plus className="mr-1 h-4 w-4" />
-              {t('manage.organization.create')}
-            </Button>
-          ) : null
+          <Button size="sm" onClick={() => setShowCreateOrg(true)}>
+            <Plus className="mr-1 h-4 w-4" />
+            {t('manage.organization.create')}
+          </Button>
         }
       />
 
@@ -511,69 +505,65 @@ export default function OrganizationPage() {
         columns={columns}
         data={organizations}
         emptyMessage={t('manage.organization.empty')}
-        actionMenu={
-          canManageOrganizations
-            ? (org) => {
-                const isCurrent = org.id === currentOrg?.id
-                const items: MenuItem[] = []
+        actionMenu={(org) => {
+          const isCurrent = org.id === currentOrg?.id
+          const items: MenuItem[] = []
 
-                if (canAdmin(org.role)) {
-                  items.push({
-                    label: t('common.edit'),
-                    icon: <Pencil className="h-3.5 w-3.5" />,
-                    onClick: () => {
-                      const current = currentEditableOrganization(org)
-                      if (!current) return
-                      editOrgRunRef.current += 1
-                      setEditTarget(current)
-                      setEditName(current.name)
-                    },
-                  })
-                }
+          if (canAdmin(org.role)) {
+            items.push({
+              label: t('common.edit'),
+              icon: <Pencil className="h-3.5 w-3.5" />,
+              onClick: () => {
+                const current = currentEditableOrganization(org)
+                if (!current) return
+                editOrgRunRef.current += 1
+                setEditTarget(current)
+                setEditName(current.name)
+              },
+            })
+          }
 
-                if (!isCurrent) {
-                  items.push({
-                    label: t('manage.organization.switch'),
-                    onClick: () =>
-                      switchOrgMutation.mutate({
-                        orgId: org.id,
-                        requestSeq: (switchOrgRequestSeqRef.current += 1),
-                      }),
-                  })
-                }
+          if (!isCurrent) {
+            items.push({
+              label: t('manage.organization.switch'),
+              onClick: () =>
+                switchOrgMutation.mutate({
+                  orgId: org.id,
+                  requestSeq: (switchOrgRequestSeqRef.current += 1),
+                }),
+            })
+          }
 
-                if (canOwn(org.role)) {
-                  items.push({
-                    label: t('manage.organization.transferOwnership'),
-                    icon: <Crown className="h-3.5 w-3.5" />,
-                    onClick: () => {
-                      const current = currentTransferableOrganization(org)
-                      if (!current) return
-                      transferOwnershipRunRef.current += 1
-                      setTransferTarget(current)
-                      setSelectedNewOwnerId('')
-                    },
-                  })
-                }
+          if (canOwn(org.role)) {
+            items.push({
+              label: t('manage.organization.transferOwnership'),
+              icon: <Crown className="h-3.5 w-3.5" />,
+              onClick: () => {
+                const current = currentTransferableOrganization(org)
+                if (!current) return
+                transferOwnershipRunRef.current += 1
+                setTransferTarget(current)
+                setSelectedNewOwnerId('')
+              },
+            })
+          }
 
-                if (canOwn(org.role) && !isCurrent) {
-                  items.push({
-                    label: t('common.delete'),
-                    icon: <Trash2 className="h-3.5 w-3.5" />,
-                    destructive: true,
-                    onClick: () => {
-                      const current = currentDeletableOrganization(org)
-                      if (!current) return
-                      deleteOrgRunRef.current += 1
-                      setDeleteTarget(current)
-                    },
-                  })
-                }
+          if (canOwn(org.role) && !isCurrent) {
+            items.push({
+              label: t('common.delete'),
+              icon: <Trash2 className="h-3.5 w-3.5" />,
+              destructive: true,
+              onClick: () => {
+                const current = currentDeletableOrganization(org)
+                if (!current) return
+                deleteOrgRunRef.current += 1
+                setDeleteTarget(current)
+              },
+            })
+          }
 
-                return items
-              }
-            : undefined
-        }
+          return items
+        }}
       />
 
       {/* Create Organization Dialog */}
@@ -720,10 +710,7 @@ export default function OrganizationPage() {
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={closeTransferOwnershipDialog}
-            >
+            <Button variant="outline" onClick={closeTransferOwnershipDialog}>
               {t('common.cancel')}
             </Button>
             <Button

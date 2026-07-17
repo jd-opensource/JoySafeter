@@ -102,6 +102,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions() {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': 'project-a',
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -183,7 +193,11 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('memory_stores', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      'memory_stores',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not create a memory store from old dialog state after the current project is archived', async () => {
@@ -206,7 +220,11 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('memory_stores', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      'memory_stores',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('ignores a create completion after the managed project changes', async () => {
@@ -227,6 +245,11 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock).toHaveBeenCalledWith(
+      'memory_stores',
+      { name: 'Project A memory store', description: '' },
+      managedOptions(),
+    )
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -255,6 +278,11 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock).toHaveBeenCalledWith(
+      'memory_stores',
+      { name: 'Project A memory store', description: '' },
+      managedOptions(),
+    )
 
     await act(async () => {
       useProjectStore.setState({
@@ -288,6 +316,11 @@ describe('CreateMemoryStoreDialog managed scope lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock).toHaveBeenCalledWith(
+      'memory_stores',
+      { name: 'Unmounted memory store', description: '' },
+      managedOptions(),
+    )
 
     view.unmount()
 

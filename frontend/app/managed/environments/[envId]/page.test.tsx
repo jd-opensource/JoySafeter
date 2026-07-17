@@ -124,6 +124,16 @@ function projectInfo(archivedAt: string | null = null) {
   }
 }
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function renderEnvironmentPage(queryClient: QueryClient, envId: string) {
   const params = {
     status: 'fulfilled',
@@ -184,9 +194,11 @@ describe('EnvironmentDetailPage save lifecycle', () => {
 
     await waitFor(() => {
       expect(getByText('Env A')).toBeTruthy()
-      expect(managedGetMock).toHaveBeenCalledWith('/environments/env-a')
+      expect(managedGetMock).toHaveBeenCalledWith('/environments/env-a', managedOptions())
     })
-    expect(managedGetMock.mock.calls.filter(([path]) => path === '/environments/env-a')).toHaveLength(1)
+    expect(
+      managedGetMock.mock.calls.filter(([path]) => path === '/environments/env-a'),
+    ).toHaveLength(1)
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -194,7 +206,13 @@ describe('EnvironmentDetailPage save lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/environments/env-a')).toHaveLength(2)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path === '/environments/env-a'),
+      ).toHaveLength(2)
+      expect(managedGetMock).toHaveBeenCalledWith(
+        '/environments/env-a',
+        managedOptions('project-b'),
+      )
     })
   })
 
@@ -219,6 +237,12 @@ describe('EnvironmentDetailPage save lifecycle', () => {
       fireEvent.click(getByText('managed.environments.save'))
       await Promise.resolve()
     })
+
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/environments/env-a',
+      expect.anything(),
+      managedOptions(),
+    )
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -264,7 +288,7 @@ describe('EnvironmentDetailPage save lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 
   it('does not overwrite an unsaved environment draft when refreshed environment data arrives', async () => {
@@ -330,7 +354,7 @@ describe('EnvironmentDetailPage save lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 
   it('does not save after the current project is archived', async () => {
@@ -356,7 +380,7 @@ describe('EnvironmentDetailPage save lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/environments/env-a', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalled()
     expect(view.queryByText('managed.environments.save')).toBeNull()
     expect(view.getByText('managed.errors.projectArchived')).toBeTruthy()
   })
@@ -382,6 +406,12 @@ describe('EnvironmentDetailPage save lifecycle', () => {
       fireEvent.click(view.getByText('managed.environments.save'))
       await Promise.resolve()
     })
+
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/environments/env-a',
+      expect.anything(),
+      managedOptions(),
+    )
 
     view.unmount()
 

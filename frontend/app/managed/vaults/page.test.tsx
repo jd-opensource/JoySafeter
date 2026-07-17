@@ -148,6 +148,16 @@ const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedDeleteMock = managedDelete as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function vault(id: string, name: string): VaultRecord {
   return {
     id,
@@ -248,7 +258,11 @@ describe('VaultListPage object lifecycle', () => {
       })
     }
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not close a new archive confirmation when an older archive finishes', async () => {
@@ -340,7 +354,7 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
   })
 
   it('does not archive an old project vault after the managed project changes in the same tick', async () => {
@@ -374,7 +388,11 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('exposes the delete action for an active vault row', async () => {
@@ -431,7 +449,7 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a', managedOptions())
   })
 
   it('does not delete an old project vault after the managed project changes in the same tick', async () => {
@@ -465,7 +483,7 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a', managedOptions())
   })
 
   it('does not archive a vault target that leaves the current vault list during confirmation', async () => {
@@ -500,7 +518,11 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('hides project write actions when the current project is archived', async () => {
@@ -567,9 +589,13 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults', {
-      name: 'Archived project vault',
-    })
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults',
+      {
+        name: 'Archived project vault',
+      },
+      managedOptions(),
+    )
   })
 
   it('does not archive a vault from an old confirmation after the current project is archived', async () => {
@@ -605,7 +631,11 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults/vault-a/archive', {})
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/vaults/vault-a/archive',
+      {},
+      managedOptions(),
+    )
   })
 
   it('does not delete a vault from an old confirmation after the current project is archived', async () => {
@@ -641,7 +671,7 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a')
+    expect(managedDeleteMock).not.toHaveBeenCalledWith('/vaults/vault-a', managedOptions())
   })
 
   it('does not invalidate vaults from an archive completion after the current project is archived', async () => {
@@ -683,6 +713,6 @@ describe('VaultListPage object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
   })
 })

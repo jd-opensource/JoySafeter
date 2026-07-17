@@ -43,7 +43,11 @@ vi.mock('@/components/ui/button', () => ({
 
 vi.mock('@/components/ui/input', () => ({
   Input: ({ onChange, ...props }: React.InputHTMLAttributes<HTMLInputElement>) => (
-    <input {...props} onChange={onChange} onInput={onChange as React.FormEventHandler<HTMLInputElement>} />
+    <input
+      {...props}
+      onChange={onChange}
+      onInput={onChange as React.FormEventHandler<HTMLInputElement>}
+    />
   ),
 }))
 
@@ -69,10 +73,13 @@ vi.mock('@/components/ui/select', () => ({
     const wireItems = (nodes: ReactNode): ReactNode =>
       Children.map(nodes, (child) => {
         if (!isValidElement(child)) return child
-        return cloneElement(child as ReactElement<{ children?: ReactNode; onSelectValue?: (value: string) => void }>, {
-          onSelectValue: onValueChange,
-          children: wireItems((child.props as { children?: ReactNode }).children),
-        })
+        return cloneElement(
+          child as ReactElement<{ children?: ReactNode; onSelectValue?: (value: string) => void }>,
+          {
+            onSelectValue: onValueChange,
+            children: wireItems((child.props as { children?: ReactNode }).children),
+          },
+        )
       })
     return <div data-testid={value ? `select-${value}` : undefined}>{wireItems(children)}</div>
   },
@@ -126,6 +133,16 @@ import { CreateAgentDialog } from './create-agent-dialog'
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function projectInfo(archivedAt: string | null = null) {
   return {
     id: 'project-a',
@@ -174,7 +191,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('refetches selectable dependencies instead of reusing previous project data', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/secrets') return { data: [{ name: 'secret-a' }] }
-      if (path === '/skills') return { data: [{ id: 'skill-a', name: 'Skill A', latest_version: '1.0.0' }] }
+      if (path === '/skills')
+        return { data: [{ id: 'skill-a', name: 'Skill A', latest_version: '1.0.0' }] }
       if (path === '/environments') return { data: [{ id: 'env-a', name: 'Env A' }] }
       return { data: [] }
     })
@@ -193,9 +211,9 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
-      expect(managedGetMock).toHaveBeenCalledWith('/skills')
-      expect(managedGetMock).toHaveBeenCalledWith('/environments')
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith('/skills', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith('/environments', managedOptions())
     })
     expect(managedGetMock.mock.calls.filter(([path]) => path === '/secrets')).toHaveLength(1)
     expect(managedGetMock.mock.calls.filter(([path]) => path === '/skills')).toHaveLength(1)
@@ -243,7 +261,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions())
       expect(getByText('secret-a')).toBeTruthy()
     })
 
@@ -253,7 +271,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
 
     secretName = 'secret-b'
     await act(async () => {
-      clearNonSessionQueryData(queryClient)
+      clearNonSessionQueryData(queryClient, { refetchActive: true })
     })
 
     await waitFor(() => {
@@ -273,9 +291,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(
-        (getByText('managed.agents.create.submit') as HTMLButtonElement).disabled,
-      ).toBe(false)
+      expect((getByText('managed.agents.create.submit') as HTMLButtonElement).disabled).toBe(false)
     })
 
     await act(async () => {
@@ -284,6 +300,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
     expect(managedPostMock.mock.calls[0][1]).toMatchObject({
       name: 'Created Agent',
       secret_ref: 'secret-b',
@@ -329,6 +346,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
     expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('secret_ref')
   })
 
@@ -369,9 +387,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(
-        (getByText('managed.agents.create.submit') as HTMLButtonElement).disabled,
-      ).toBe(false)
+      expect((getByText('managed.agents.create.submit') as HTMLButtonElement).disabled).toBe(false)
     })
 
     await act(async () => {
@@ -381,6 +397,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
     expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('secret_ref')
   })
 
@@ -435,7 +452,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith('/agents', expect.anything(), managedOptions())
   })
 
   it('does not submit a fully selected agent draft after the current project is archived', async () => {
@@ -491,7 +508,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/agents', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith('/agents', expect.anything(), managedOptions())
   })
 
   it('ignores a create completion after the managed project changes', async () => {
@@ -519,7 +536,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions())
     })
 
     await act(async () => {
@@ -534,6 +551,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -569,7 +587,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions())
     })
 
     await act(async () => {
@@ -584,6 +602,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
 
     await act(async () => {
       useProjectStore.setState({
@@ -622,7 +641,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/secrets')
+      expect(managedGetMock).toHaveBeenCalledWith('/secrets', managedOptions())
     })
 
     await act(async () => {
@@ -637,6 +656,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
 
     view.unmount()
 

@@ -27,8 +27,16 @@ import {
 } from '@/components/ui/select'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { apiResourceId } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
@@ -63,17 +71,16 @@ interface CreateSessionDialogProps {
 interface CreateSessionMutationInput {
   body: Record<string, unknown>
   runId: number
-  scope: string
+  scope: ManagedRequestScope
 }
 
 export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSessionDialogProps) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
-  const managedScopeRef = useRef(managedScope)
+  const managedScope = useManagedRequestScope()
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const createRunRef = useRef(0)
 
   const [title, setTitle] = useState('')
@@ -89,34 +96,41 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const [showMemoryStoreDropdown, setShowMemoryStoreDropdown] = useState(false)
 
   const { data: agents = [] } = useQuery({
-    queryKey: ['agents-for-session', managedScope],
+    queryKey: ['agents-for-session', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Agent>>('/agents')
+      const res = await managedGet<PaginatedResponse<Agent>>(
+        '/agents',
+        managedRequestOptions(managedScope),
+      )
       return res.data || []
     },
-    enabled: open,
+    enabled: open && hasManagedRequestScope(managedScope),
   })
 
   const { data: environments = [] } = useQuery({
-    queryKey: ['envs-for-session', managedScope],
+    queryKey: ['envs-for-session', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Environment>>('/environments')
+      const res = await managedGet<PaginatedResponse<Environment>>(
+        '/environments',
+        managedRequestOptions(managedScope),
+      )
       return res.data || []
     },
-    enabled: open,
+    enabled: open && hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultsRes } = useQuery({
-    queryKey: ['vaults-for-session', managedScope],
-    queryFn: () => managedGet<{ data: Vault[] }>('/vaults'),
-    enabled: open,
+    queryKey: ['vaults-for-session', managedScope.key],
+    queryFn: () => managedGet<{ data: Vault[] }>('/vaults', managedRequestOptions(managedScope)),
+    enabled: open && hasManagedRequestScope(managedScope),
   })
   const vaults = useMemo(() => vaultsRes?.data || [], [vaultsRes])
 
   const { data: filesResp } = useQuery({
-    queryKey: ['files-for-session', managedScope],
-    queryFn: () => managedGet<{ data: FileRecord[] }>('/files?limit=100'),
-    enabled: open,
+    queryKey: ['files-for-session', managedScope.key],
+    queryFn: () =>
+      managedGet<{ data: FileRecord[] }>('/files?limit=100', managedRequestOptions(managedScope)),
+    enabled: open && hasManagedRequestScope(managedScope),
   })
   const files = useMemo(() => {
     if (!filesResp) return []
@@ -124,9 +138,13 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }, [filesResp])
 
   const { data: memoryStoresResp } = useQuery({
-    queryKey: ['memory-stores-for-session', managedScope],
-    queryFn: () => managedGet<{ data: MemoryStoreOption[] }>('/memory_stores?limit=100'),
-    enabled: open,
+    queryKey: ['memory-stores-for-session', managedScope.key],
+    queryFn: () =>
+      managedGet<{ data: MemoryStoreOption[] }>(
+        '/memory_stores?limit=100',
+        managedRequestOptions(managedScope),
+      ),
+    enabled: open && hasManagedRequestScope(managedScope),
   })
   const memoryStores = useMemo(() => {
     const stores = memoryStoresResp?.data || []
@@ -224,7 +242,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${orgId ?? ''}:${projectId ?? ''}`
+    return managedScopeKey(orgId, projectId)
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
@@ -238,16 +256,16 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
   const createMutation = useMutation({
     mutationFn: async ({ body, scope }: CreateSessionMutationInput) => {
-      if (!currentManagedScopeIsActive(scope)) {
+      if (!currentManagedScopeIsActive(scope.key)) {
         throw new Error('stale managed scope')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project session create ignored')
       }
-      return managedPost<{ id: string }>('/sessions', body)
+      return managedPost<{ id: string }>('/sessions', body, managedRequestOptions(scope))
     },
     onSuccess: (res, input) => {
-      if (!isCurrentCreateRun(input.runId, input.scope)) return
+      if (!isCurrentCreateRun(input.runId, input.scope.key)) return
       onOpenChange(false)
       resetForm()
       if (onCreated) {
@@ -257,19 +275,20 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
       }
     },
     onError: (error, input) => {
-      if (!isCurrentCreateRun(input.runId, input.scope)) return
+      if (!isCurrentCreateRun(input.runId, input.scope.key)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
 
   useEffect(() => {
-    if (managedScopeRef.current === managedScope) return
-    managedScopeRef.current = managedScope
+    if (managedScopeRef.current === managedScope.key) return
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
     createRunRef.current += 1
     createMutation.reset()
     resetForm()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managedScope])
+  }, [managedScope.key])
 
   useEffect(
     () => () => {
@@ -278,12 +297,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     [],
   )
 
-  const buildCreatePayload = () => {
-    const scope = managedScopeRef.current
+  const buildCreatePayload = (scope = managedScopeRef.current) => {
     if (!currentManagedScopeIsActive(scope)) return null
     if (!currentProjectAllowsWrite()) return null
-    const currentAgents =
-      queryClient.getQueryData<Agent[]>(['agents-for-session', scope]) ?? agents
+    const currentAgents = queryClient.getQueryData<Agent[]>(['agents-for-session', scope]) ?? agents
     const currentEnvironments =
       queryClient.getQueryData<Environment[]>(['envs-for-session', scope]) ?? environments
     const currentVaults =
@@ -291,10 +308,8 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const currentFiles =
       queryClient.getQueryData<{ data?: FileRecord[] }>(['files-for-session', scope])?.data ?? files
     const currentMemoryStores =
-      queryClient.getQueryData<{ data?: MemoryStoreOption[] }>([
-        'memory-stores-for-session',
-        scope,
-      ])?.data ?? memoryStores
+      queryClient.getQueryData<{ data?: MemoryStoreOption[] }>(['memory-stores-for-session', scope])
+        ?.data ?? memoryStores
     const currentActiveAgents = currentAgents.filter((agent) => !agent.archived_at)
     const currentActiveEnvs = currentEnvironments.filter((environment) => !environment.archived_at)
     const currentActiveVaults = currentVaults.filter((vault) => !vault.archived_at)
@@ -313,12 +328,12 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
       currentMemoryStoreIds.has(id),
     )
     const body: Record<string, unknown> = {
-      agent: stripIdPrefix(currentAgentId),
+      agent: apiResourceId(currentAgentId),
     }
     if (title.trim()) body.title = title.trim()
-    if (currentEnvId) body.environment_id = stripIdPrefix(currentEnvId)
+    if (currentEnvId) body.environment_id = apiResourceId(currentEnvId)
     if (currentSelectedVaultIds.length > 0) {
-      body.vault_ids = currentSelectedVaultIds.map(stripIdPrefix)
+      body.vault_ids = currentSelectedVaultIds.map(apiResourceId)
     }
     if (currentSelectedFiles.length > 0) {
       body.file_resources = currentSelectedFiles.map((f) => ({
@@ -329,7 +344,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     }
     if (currentSelectedMemoryStores.length > 0) {
       body.resources = currentSelectedMemoryStores.map((id) => ({
-        memory_store_id: stripIdPrefix(id),
+        memory_store_id: apiResourceId(id),
         access: 'read_write',
       }))
     }
@@ -357,19 +372,23 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
       onOpenChange(false)
       return
     }
-    const body = buildCreatePayload()
+    const requestScope = managedRequestScopeRef.current
+    const scope = requestScope.key
+    if (!currentManagedScopeIsActive(scope)) return
+    const body = buildCreatePayload(scope)
     if (!body) return
     const runId = createRunRef.current + 1
     createRunRef.current = runId
     createMutation.mutate({
       body,
       runId,
-      scope: managedScopeRef.current,
+      scope: requestScope,
     })
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen && !currentProjectAllowsWrite()) return
+    if (nextOpen && !currentManagedScopeIsActive()) return
     onOpenChange(nextOpen)
     if (!nextOpen) {
       createRunRef.current += 1
@@ -428,10 +447,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     .map((v) => v.name)
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={handleOpenChange}
-    >
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">

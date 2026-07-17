@@ -75,6 +75,16 @@ import { CreateVaultDialog } from './create-vault-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function managedOptions(projectId = 'project-a') {
+  return {
+    headers: {
+      'X-Org-Id': 'org-a',
+      'X-Project-Id': projectId,
+    },
+    skipManagedContext: true,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => {
@@ -143,7 +153,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults', expect.anything())
+    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults', expect.anything(), managedOptions())
   })
 
   it('does not invalidate from a create completion after the managed project changes', async () => {
@@ -182,7 +192,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
   })
 
   it('does not invalidate from a create completion after the dialog unmounts', async () => {
@@ -222,7 +232,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 })
