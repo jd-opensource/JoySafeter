@@ -136,7 +136,7 @@ contracts instead of recreating older in-process shortcuts.
 | Session created but task never starts | Orchestrator | pending task row, `global_queue` wakeup, orchestrator logs, DB lease/fencing settings |
 | Sandbox never becomes ready | Orchestrator + Docker host | Docker socket mount, sandbox image, workspace volume, runner `RunnerReady` timeout |
 | Agent runs but browser misses live events | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`, Redis Pub/Sub, browser `?after_seq` replay |
-| Events appear live but disappear after refresh | Worker | Redis Stream pending entries, worker logs, Postgres insert errors, advisory-lock contention |
+| Events appear live but disappear after refresh | Orchestrator event persister + Worker fallback | Orchestrator DB persist logs, Redis Stream pending entries, worker logs, Postgres insert errors, advisory-lock contention |
 | Skill cannot be used at runtime | Skill domain + SkillSpector | scan status, approval state, content drift, `SKILL_SECURITY_*` config |
 | Sandbox cannot reach model/MCP/target | Envoy + orchestrator sandbox config | allowlist, Envoy config files, `JOYSAFETER_GRPC_PUBLIC_URL`, target DNS/network policy |
 
@@ -157,7 +157,9 @@ sequenceDiagram
     participant WK as Worker
     participant PG as PostgreSQL
 
-    FE->>API: POST /sessions/{id}/events (user.message)
+    FE->>API: POST /sessions/{id}/events (user.message + Idempotency-Key)
+    API->>PG: persist user.message event
+    API->>API: TaskSubmissionService admission/idempotency boundary
     API->>PG: create JoySafeterTask (status=pending)
     API->>PG: session → running (+ status event)
     API->>Q: rpush joysafeter:global_queue <task_id>
@@ -172,7 +174,8 @@ sequenceDiagram
     loop harness execution
         RUN->>ORCH: RunnerHarnessEvent (text / thinking / tool_use / tool_result / model_request_* / task_notification)
         ORCH->>ORCH: map_harness_event → JoySafeterEventEnvelope
-        ORCH->>Q: XADD joysafeter:orchestrator:events (persist phase)
+        ORCH->>PG: direct event persist (primary durable path)
+        ORCH->>Q: XADD joysafeter:orchestrator:events (worker fallback/fan-out)
         ORCH->>Q: PUBLISH joysafeter:session_events:{id} (broadcast phase)
         Q-->>API: pub/sub → SessionBroadcaster
         API-->>FE: SSE event (assigned seq)
@@ -181,24 +184,56 @@ sequenceDiagram
     RUN->>ORCH: RunnerHarnessResult (status, usage) + RunnerIdle
     ORCH->>PG: task → terminal, session → idle
 
-    Note over WK: independently, durably
+    Note over WK: fallback/backfill path
     Q-->>WK: XREADGROUP joysafeter:orchestrator:events
-    WK->>PG: batch insert JoySafeterSessionEvent (assign seq, dedup)
+    WK->>PG: batch insert JoySafeterSessionEvent (dedup by event id)
     WK->>Q: publish_session_event_realtime → SSE fan-out
 ```
 
-Two things to internalize:
+Core ownership rules:
 
 1. **The DB is the source of truth for scheduling.** The Redis list
    (`joysafeter:global_queue`) is only a *wakeup signal*; the orchestrator claims work by
    querying `joysafeter_tasks` with `FOR UPDATE SKIP LOCKED`. If Redis loses a signal, the
    scheduler still finds the pending row.
 
-2. **Persistence and live delivery are decoupled.** The orchestrator's event bus has a
-   *persist* phase (→ Redis Stream, consumed durably by the Worker) and a *broadcast*
-   phase (→ Redis Pub/Sub, consumed ephemerally by the SSE layer). The browser gets events
-   fast; the Worker guarantees they land in Postgres with monotonic `seq` numbers, so a
-   reconnecting client can replay from `?after_seq`.
+2. **Task submission has one owner.** API routes, follow-up chat messages, manual
+   schedule triggers, and worker-fired schedules submit through
+   `TaskSubmissionService`. That service owns idempotency replay, admission control,
+   task creation, session running/idle transitions, enqueue, and enqueue-failure
+   compensation. Routes may validate request-specific inputs, but they should not
+   hand-roll task dispatch.
+
+3. **Session resources have one owner.** File and git-repository resources mounted
+   into sessions are validated, normalized, encrypted, listed, added, deleted, and
+   rotated through `SessionResourceService`. Routes may discriminate the request
+   body shape, but they should not write `SessionFile` / `SessionRepo` rows or
+   encrypt clone tokens inline.
+
+4. **Task cancellation has one owner.** API cancel requests and scheduler
+   replacement policy cancel through `TaskCancellationService`. That service owns
+   runtime cancel relay, task state transition, linked session idle transition,
+   and the `session.status_idle` event. Routes and schedulers should not mark a
+   task cancelled or write session-idle compensation inline.
+
+5. **Project lifecycle has one owner.** Project create/list/default/restore/archive
+   state transitions go through `ProjectService`. Project archive owns the full
+   closed loop: default-project guard, active-task gate, session sandbox destroy
+   relay, sandbox state sync, session archival, schedule pause, and the final
+   project archive timestamp. Routes should not recreate that chain inline.
+
+6. **Organization membership has one owner.** Organization creation/deletion and
+   member role lifecycle go through `OrganizationService` and
+   `OrganizationMemberService`. Those services own owner membership bootstrap,
+   default project bootstrap, owner/admin gates, role normalization, owner
+   transfer, duplicate member checks, member removal, and route-specific error
+   contracts. Routes may shape responses and audit events, but should not write
+   `Member` rows or duplicate role policy inline.
+
+7. **Persistence and live delivery are decoupled.** The orchestrator writes events
+   directly to Postgres as the primary durable path and also publishes to Redis Stream
+   for worker fallback/backfill and to Redis Pub/Sub for live SSE fan-out. The browser
+   gets events fast; durable rows let a reconnecting client replay from `?after_seq`.
 
 ---
 
@@ -216,7 +251,7 @@ channels. This table is the definitive reference.
 | Task enqueue | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator scheduler pops | `joysafeter_api/services.py`, `joysafeter_orchestrator_rs/src/kernel/queue.rs` |
 | **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`, `joysafeter_worker/events/stream_consumer.py` |
 | **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`, `joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
-| Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input/shutdown to the instance owning the sandbox | `joysafeter_api/runtime_commands.py`, `joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
+| Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input/shutdown to the instance owning the sandbox | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`, `joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
 | Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `joysafeter_orchestrator_rs/src/grpc/server.rs` |
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | Skill scan | HTTP → skillspector `:8010` | Security scan on skill writes; runtime blocks failed/scanning/unscanned/blocked skills | `joysafeter_skill_security.py` |
