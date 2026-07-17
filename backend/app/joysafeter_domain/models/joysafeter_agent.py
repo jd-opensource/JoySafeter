@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid_utils import uuid7
@@ -28,7 +28,21 @@ from .base import JoySafeterBaseModel, TimestampMixin
 class JoySafeterAgent(JoySafeterBaseModel):
     __tablename__ = "joysafeter_agents"
     __table_args__ = (
-        UniqueConstraint("name", name="idx_ca_name_unique"),
+        Index(
+            "uq_joysafeter_agents_project_name",
+            "project_id",
+            "name",
+            unique=True,
+            postgresql_where=text("project_id IS NOT NULL AND deleted_at IS NULL"),
+            sqlite_where=text("project_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_joysafeter_agents_global_name",
+            "name",
+            unique=True,
+            postgresql_where=text("project_id IS NULL AND deleted_at IS NULL"),
+            sqlite_where=text("project_id IS NULL AND deleted_at IS NULL"),
+        ),
         Index("idx_ca_created_at", "created_at"),
         Index("idx_ca_project", "project_id"),
     )

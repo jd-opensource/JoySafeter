@@ -101,6 +101,8 @@ class VaultCredentialResponse(BaseModel):
     def redact_token(self, v: str) -> str:
         if not v:
             return v
+        if v.startswith("enc:"):
+            return "********"
         return v[:6] + "***" if len(v) > 6 else v + "***"
 
     @field_serializer("oauth_config")
@@ -111,5 +113,8 @@ class VaultCredentialResponse(BaseModel):
         for key in ("client_secret", "refresh_token"):
             if key in redacted and redacted[key]:
                 val = str(redacted[key])
-                redacted[key] = val[:6] + "***" if len(val) > 6 else val + "***"
+                if val.startswith("enc:"):
+                    redacted[key] = "********"
+                else:
+                    redacted[key] = val[:6] + "***" if len(val) > 6 else val + "***"
         return redacted

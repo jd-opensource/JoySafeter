@@ -190,7 +190,7 @@ class SessionRepoResourceRequest(BaseModel):
 
     type: str = "github_repository"
     url: str
-    branch: str = ""
+    branch: Optional[str] = None
     mount_path: Optional[str] = None
     mount_name: Optional[str] = None
     authorization_token: Optional[str] = None
@@ -275,6 +275,31 @@ class SessionRepoResourceResponse(BaseModel):
     @field_serializer("id")
     def serialize_id(self, v: uuid.UUID) -> str:
         return f"sesrsc_{v}"
+
+
+class SessionFileResourceResponse(BaseModel):
+    id: uuid.UUID
+    type: str = "file"
+    file_id: uuid.UUID
+    mount_path: str
+    access: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return f"sesrsc_{v}"
+
+    @field_serializer("file_id")
+    def serialize_file_id(self, v: uuid.UUID) -> str:
+        return f"file_{v}"
+
+
+class UpdateRepoResourceRequest(BaseModel):
+    """Rotate the clone credential on a github_repository resource."""
+
+    authorization_token: str
 
 
 class SessionResponse(BaseModel):
