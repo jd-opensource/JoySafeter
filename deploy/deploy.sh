@@ -1522,14 +1522,18 @@ main() {
             *)
                 # 生命周期命令（down/logs/restart/status）后面可跟服务名或原生
                 # compose 选项（如 --tail=100），原样透传给 docker compose。
-                if [ -n "$COMMAND" ] && { [ "$COMMAND" = down ] || [ "$COMMAND" = logs ] || [ "$COMMAND" = restart ] || [ "$COMMAND" = status ]; }; then
-                    SERVICE_ARGS+=("$1")
-                    shift
-                else
-                    log_error "未知选项: $1"
-                    show_usage
-                    exit 1
-                fi
+                # COMMAND 为空（尚未识别命令）时落入下方 *)，保持未知选项报错。
+                case "$COMMAND" in
+                    down|logs|restart|status)
+                        SERVICE_ARGS+=("$1")
+                        shift
+                        ;;
+                    *)
+                        log_error "未知选项: $1"
+                        show_usage
+                        exit 1
+                        ;;
+                esac
                 ;;
         esac
     done
