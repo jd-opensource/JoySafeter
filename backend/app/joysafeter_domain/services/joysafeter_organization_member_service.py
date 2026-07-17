@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
@@ -254,12 +255,26 @@ class OrganizationMemberService:
             role=normalized_role,
         )
         self.db.add(member)
-        await ProjectService(self.db).grant_default_project_membership(
-            org_id=organization_id,
-            user_id=user_id,
-            role=normalized_role,
-        )
-        await self.db.commit()
+        try:
+            # grant_default_project_membership flushes, so the unique-constraint
+            # violation can surface here or at commit — guard both.
+            await ProjectService(self.db).grant_default_project_membership(
+                org_id=organization_id,
+                user_id=user_id,
+                role=normalized_role,
+            )
+            await self.db.commit()
+        except IntegrityError:
+            # Lost a race with a concurrent add for the same (org, user): the
+            # unique constraint fired. Surface the same conflict as the up-front
+            # check rather than a 500.
+            await self.db.rollback()
+            raise ResourceConflictError(
+                code="ORGANIZATION_MEMBER_ALREADY_EXISTS",
+                message=duplicate_message,
+                data={"organization_id": organization_id, "user_id": user_id},
+                user_action="refresh",
+            ) from None
         await self.db.refresh(member)
         return member
 
@@ -301,12 +316,21 @@ class OrganizationMemberService:
 
         member = Member(user_id=user.id, organization_id=organization_id, role=normalized_role.value)
         self.db.add(member)
-        await ProjectService(self.db).grant_default_project_membership(
-            org_id=organization_id,
-            user_id=user.id,
-            role=normalized_role.value,
-        )
-        await self.db.commit()
+        try:
+            await ProjectService(self.db).grant_default_project_membership(
+                org_id=organization_id,
+                user_id=user.id,
+                role=normalized_role.value,
+            )
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
+            raise ResourceConflictError(
+                code="ORGANIZATION_MEMBER_ALREADY_EXISTS",
+                message="User is already a member of this organization",
+                data={"organization_id": organization_id, "user_id": user.id},
+                user_action="refresh",
+            ) from None
         await self.db.refresh(member)
         return member, user
 

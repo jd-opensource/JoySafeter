@@ -5,7 +5,7 @@ Organization and member models
 import uuid
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Numeric, String
+from sqlalchemy import BigInteger, ForeignKey, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -100,4 +100,9 @@ class Member(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_joysafeter_organization_members_user_id", "user_id"),
         Index("ix_joysafeter_organization_members_organization_id", "organization_id"),
+        UniqueConstraint(
+            "organization_id",
+            "user_id",
+            name="uq_joysafeter_organization_members_org_user",
+        ),
     )
