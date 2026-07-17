@@ -4,7 +4,6 @@ import pytest
 
 from app.joysafeter_api.api.v1.health import collect_cluster_membership_health
 
-
 pytestmark = pytest.mark.no_db
 
 

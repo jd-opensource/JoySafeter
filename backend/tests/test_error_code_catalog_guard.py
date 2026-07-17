@@ -30,6 +30,7 @@ def test_conflict_codes_resolved_to_canonical_class():
     )
 
     assert CATALOG["PROJECT_ACCESS_DENIED"].error_class is AccessDeniedError
+    assert CATALOG["PROJECT_ARCHIVED"].error_class is ResourceConflictError
     assert CATALOG["SKILL_NAME_ALREADY_EXISTS"].error_class is ResourceConflictError
     assert CATALOG["USER_INVALID"].error_class is AuthenticationError
     assert CATALOG["USER_NOT_FOUND"].error_class is AuthenticationError

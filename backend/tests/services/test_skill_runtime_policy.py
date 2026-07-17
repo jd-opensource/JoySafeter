@@ -24,9 +24,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
 from app.joysafeter_domain.services.joysafeter_skill_security import (
     build_scan_files,
+    is_skill_usable,
     target_hash,
 )
 

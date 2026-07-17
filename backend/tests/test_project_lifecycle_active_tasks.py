@@ -6,15 +6,18 @@ from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.auth import (
+    CreateProjectRequest,
     UpdateProjectRequest,
     archive_project,
+    create_project,
     restore_project,
     set_default_project,
     update_project,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Organization
-from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
@@ -184,6 +187,165 @@ async def test_update_project_rejects_archived_project_without_mutating(db_sessi
     project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()
     assert project_row.name == "Archived"
     assert project_row.slug == original_slug
+
+
+@pytest.mark.asyncio
+async def test_create_project_rejects_blank_name_with_structured_error(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Project Validation Org", slug=f"project-validation-{uuid.uuid4()}")
+    current_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Current",
+        slug=f"current-{uuid.uuid4()}",
+        is_default=True,
+    )
+    db_session.add_all([org, current_project])
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await create_project(
+            CreateProjectRequest(name="   ", slug="valid-project"),
+            db_session,
+            _admin_ctx(current_project.id, org_id),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "PROJECT_NAME_REQUIRED",
+        "message": "Project name is required",
+        "data": {"field": "name"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_project_rejects_duplicate_slug_without_db_integrity_leak(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Project Slug Org", slug=f"project-slug-{uuid.uuid4()}")
+    current_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Current",
+        slug="current-project",
+        is_default=True,
+    )
+    existing_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Existing",
+        slug="shared-slug",
+    )
+    db_session.add_all([org, current_project, existing_project])
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await create_project(
+            CreateProjectRequest(name="Duplicate", slug="shared-slug"),
+            db_session,
+            _admin_ctx(current_project.id, org_id),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "PROJECT_SLUG_CONFLICT",
+        "message": "Project slug already exists in this organization",
+        "data": {"organization_id": org_id, "slug": "shared-slug"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+    rows = (
+        await db_session.execute(select(Project).where(Project.org_id == org_id, Project.slug == "shared-slug"))
+    ).scalars().all()
+    assert [row.id for row in rows] == [existing_project.id]
+
+
+@pytest.mark.asyncio
+async def test_update_project_rejects_duplicate_slug_without_mutating(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Project Update Slug Org", slug=f"project-update-slug-{uuid.uuid4()}")
+    current_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Current",
+        slug="current-update-project",
+        is_default=True,
+    )
+    target_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Target",
+        slug="target-project",
+    )
+    db_session.add_all([org, current_project, target_project])
+    await db_session.commit()
+    target_project_id = target_project.id
+
+    with pytest.raises(AppError) as exc_info:
+        await update_project(
+            target_project_id,
+            UpdateProjectRequest(slug="current-update-project"),
+            db_session,
+            _admin_ctx(current_project.id, org_id),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "PROJECT_SLUG_CONFLICT",
+        "message": "Project slug already exists in this organization",
+        "data": {"organization_id": org_id, "slug": "current-update-project"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+    db_session.expire_all()
+    project_row = (await db_session.execute(select(Project).where(Project.id == target_project_id))).scalar_one()
+    assert project_row.name == "Target"
+    assert project_row.slug == "target-project"
+
+
+@pytest.mark.asyncio
+async def test_project_create_and_update_normalize_slug_at_service_boundary(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(id="admin-user", name="Admin User", email=f"admin-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Project Normalize Org", slug=f"project-normalize-{uuid.uuid4()}")
+    current_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Current",
+        slug="current-normalize-project",
+        is_default=True,
+    )
+    db_session.add_all([user, org, current_project])
+    await db_session.commit()
+
+    created = await create_project(
+        CreateProjectRequest(name="  Normalized  ", slug=" Normalized_Project! "),
+        db_session,
+        _admin_ctx(current_project.id, org_id),
+    )
+
+    assert created.name == "Normalized"
+    assert created.slug == "normalized-project"
+    project_member = (
+        await db_session.execute(
+            select(ProjectMember).where(ProjectMember.project_id == created.id, ProjectMember.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    assert project_member is not None
+    assert project_member.role == "member"
+
+    updated = await update_project(
+        created.id,
+        UpdateProjectRequest(name=" Renamed ", slug=" Renamed Project "),
+        db_session,
+        _admin_ctx(current_project.id, org_id),
+    )
+
+    assert updated.name == "Renamed"
+    assert updated.slug == "renamed-project"
 
 
 @pytest.mark.asyncio

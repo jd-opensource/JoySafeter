@@ -118,6 +118,28 @@ async def test_owner_denied_when_in_different_active_org(monkeypatch):
         )
 
 
+async def test_delete_skill_owner_denied_when_in_different_active_org(monkeypatch):
+    """Delete uses the same active-org boundary as read/update.
+
+    The owner-only rule is not enough in a multi-org UI: the same user
+    can own skills in org A and org B, but a request pinned to org B must
+    not delete an org A skill by direct id.
+    """
+    s = _skill(owner_id="alice", visibility="private")
+    _patch_skill_org_id(monkeypatch, org_id="org-A")
+    _patch_no_collaborator(monkeypatch)
+    svc = _make_skill_service(s, current_user_id="alice", active_org_id="org-B")
+    svc.repo.delete = AsyncMock()
+    svc.file_repo.delete_by_skill = AsyncMock()
+
+    with pytest.raises(AccessDeniedError):
+        await svc.delete_skill(s.id, current_user_id="alice")
+
+    svc.file_repo.delete_by_skill.assert_not_called()
+    svc.repo.delete.assert_not_called()
+    svc.db.commit.assert_not_called()
+
+
 async def test_owner_pass_when_active_org_not_supplied(monkeypatch):
     """Backwards-compatibility: when ``active_org_id`` is ``None``
     (legacy caller), the owner short-circuit works the way it always

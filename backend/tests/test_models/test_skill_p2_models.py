@@ -17,7 +17,6 @@ from __future__ import annotations
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog as SkillUsageLog
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillVersion as SkillVersion
 
-
 # ── SkillUsageLog ─────────────────────────────────────────────
 
 

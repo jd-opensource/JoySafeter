@@ -12,6 +12,7 @@ from app.joysafeter_api.api.v1.memory_stores import (
     create_memory,
     delete_memory,
     delete_memory_store,
+    get_memory,
     get_memory_store,
     list_memories,
     redact_memory_version,
@@ -21,10 +22,14 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_memory import (
     JoySafeterMemory,
     JoySafeterMemoryStore,
+    JoySafeterMemoryVersion,
     JoySafeterSessionMemoryStore,
 )
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.schemas.joysafeter_memory import CreateMemoryRequest, UpdateMemoryRequest
+from app.joysafeter_domain.services.joysafeter_memory_service import MemoryService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -37,6 +42,43 @@ def _auth_ctx() -> JoySafeterAuthContext:
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.DEVELOPER,
     )
+
+
+def _project_auth_ctx(project_id: str) -> JoySafeterAuthContext:
+    return JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=project_id,
+        role=JoySafeterRole.DEVELOPER,
+    )
+
+
+async def _ensure_project(db_session, project_id: str) -> None:
+    if await db_session.get(Project, project_id):
+        return
+    org = await db_session.get(Organization, "test-org")
+    if not org:
+        org = Organization(id="test-org", name="Test Org", slug="test-org")
+        db_session.add(org)
+    db_session.add(
+        Project(
+            id=project_id,
+            org_id="test-org",
+            name=project_id,
+            slug=project_id,
+            is_default=False,
+        )
+    )
+    await db_session.commit()
+
+
+async def _project_store(db_session, project_id: str) -> JoySafeterMemoryStore:
+    await _ensure_project(db_session, project_id)
+    store = JoySafeterMemoryStore(name=f"project-store-{uuid.uuid4()}", description="", project_id=project_id)
+    db_session.add(store)
+    await db_session.commit()
+    await db_session.refresh(store)
+    return store
 
 
 class _FakeRedis:
@@ -246,6 +288,53 @@ async def test_create_memory_rejects_archived_store_without_creating_row(db_sess
 
 
 @pytest.mark.asyncio
+async def test_create_memory_rejects_cross_project_at_service_boundary(db_session):
+    store = await _project_store(db_session, "project-b")
+
+    created = await MemoryService(db_session).create_memory(
+        store.id,
+        "/cross-project.md",
+        "blocked",
+        project_id="project-a",
+    )
+
+    assert created is None
+    count = (
+        await db_session.execute(
+            select(JoySafeterMemory).where(
+                JoySafeterMemory.store_id == store.id,
+                JoySafeterMemory.path == "/cross-project.md",
+            )
+        )
+    ).scalar_one_or_none()
+    assert count is None
+
+
+@pytest.mark.asyncio
+async def test_get_memory_route_rejects_cross_project_store(db_session):
+    store = await _project_store(db_session, "project-b")
+    memory = await MemoryService(db_session).create_memory(
+        store.id,
+        "/private.md",
+        "project-b",
+        project_id="project-b",
+    )
+    assert memory is not None
+
+    with pytest.raises(AppError) as exc_info:
+        await get_memory(store.id, memory.id, view=None, db=db_session, auth_ctx=_project_auth_ctx("project-a"))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "MEMORY_STORE_NOT_FOUND",
+        "message": "Memory store not found",
+        "data": {"memory_store_id": str(store.id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+
+@pytest.mark.asyncio
 async def test_update_memory_rejects_archived_store_without_mutating_content(db_session):
     store_id = await _memory_store(db_session)
     memory = await create_memory(
@@ -283,6 +372,64 @@ async def test_update_memory_rejects_archived_store_without_mutating_content(db_
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterMemory).where(JoySafeterMemory.id == memory.id))).scalar_one()
     assert row.content == "original"
+
+
+@pytest.mark.asyncio
+async def test_update_and_delete_memory_reject_cross_project_at_service_boundary(db_session):
+    store = await _project_store(db_session, "project-b")
+    memory = await MemoryService(db_session).create_memory(
+        store.id,
+        "/notes.txt",
+        "original",
+        project_id="project-b",
+    )
+    assert memory is not None
+    memory_id = memory.id
+
+    updated = await MemoryService(db_session).update_memory(
+        store.id,
+        memory_id,
+        "changed",
+        project_id="project-a",
+    )
+    deleted = await MemoryService(db_session).delete_memory(store.id, memory_id, project_id="project-a")
+
+    assert updated is None
+    assert deleted is False
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterMemory).where(JoySafeterMemory.id == memory_id))).scalar_one()
+    assert row.content == "original"
+
+
+@pytest.mark.asyncio
+async def test_memory_versions_reject_cross_project_at_service_boundary(db_session):
+    store = await _project_store(db_session, "project-b")
+    memory = await MemoryService(db_session).create_memory(
+        store.id,
+        "/history.txt",
+        "first",
+        project_id="project-b",
+    )
+    assert memory is not None
+    assert memory.current_version_id is not None
+    version_id = memory.current_version_id
+
+    versions, has_more = await MemoryService(db_session).list_versions(store.id, project_id="project-a")
+    version = await MemoryService(db_session).get_version(store.id, version_id, project_id="project-a")
+    is_live = await MemoryService(db_session).is_live_version(store.id, version_id, project_id="project-a")
+    redacted = await MemoryService(db_session).redact_version(store.id, version_id, project_id="project-a")
+
+    assert versions == []
+    assert has_more is False
+    assert version is None
+    assert is_live is False
+    assert redacted is False
+    db_session.expire_all()
+    row = (
+        await db_session.execute(select(JoySafeterMemoryVersion).where(JoySafeterMemoryVersion.id == version_id))
+    ).scalar_one()
+    assert row.redacted_at is None
+    assert row.content == "first"
 
 
 @pytest.mark.asyncio

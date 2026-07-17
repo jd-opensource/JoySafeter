@@ -3,13 +3,15 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from error_contract_helpers import handled_app_error_payload
 from starlette.requests import Request
 
 from app.joysafeter_api.api.v1.auth import get_me
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError
+from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError, ResourceConflictError
+from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth import dependencies as auth_deps
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -138,7 +140,30 @@ async def test_cookie_auth_keeps_explicit_archived_project_for_read_context_inst
     assert me["project"]["archived_at"] is not None
     assert archived_project.id not in {project["id"] for project in me["projects"]}
 
-    with pytest.raises(AccessDeniedError) as exc_info:
+    with pytest.raises(ResourceConflictError) as exc_info:
         await auth_deps.require_joysafeter_write(request, db_session, ctx)
 
-    assert exc_info.value.code == "PROJECT_ARCHIVED"
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "PROJECT_ARCHIVED",
+        "message": "项目已归档，仅支持只读操作 / Project is archived and read-only",
+        "data": None,
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+
+@pytest.mark.asyncio
+async def test_user_context_dependency_rejects_project_scoped_api_keys():
+    ctx = JoySafeterAuthContext(
+        user_id="user-api-key-owner",
+        org_id="org-a",
+        project_id="project-a",
+        role=JoySafeterRole.ADMIN,
+        principal_type="api_key",
+    )
+
+    with pytest.raises(AccessDeniedError) as exc_info:
+        await auth_deps.require_joysafeter_user_context(ctx)
+
+    assert exc_info.value.code == "JOYSAFETER_USER_SESSION_REQUIRED"

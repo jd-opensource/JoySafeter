@@ -27,9 +27,9 @@ from types import SimpleNamespace
 import pytest
 
 from app.joysafeter_domain.services.joysafeter_skill_service import (
+    _ALLOWED_EDGES,
     LifecycleTransition,
     SkillLifecycleService,
-    _ALLOWED_EDGES,
 )
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,

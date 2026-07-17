@@ -7,7 +7,13 @@ from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.auth import archive_project, restore_project
-from app.joysafeter_api.api.v1.schedules import create_schedule, enable_schedule, trigger_schedule, update_schedule
+from app.joysafeter_api.api.v1.schedules import (
+    create_schedule,
+    enable_schedule,
+    list_schedule_runs,
+    trigger_schedule,
+    update_schedule,
+)
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -422,6 +428,49 @@ async def test_manual_schedule_trigger_rejects_archived_agent_without_creating_t
 
 
 @pytest.mark.asyncio
+async def test_schedule_run_children_reject_cross_project_parent_at_service_boundary(db_session):
+    org_a, project_a, _agent_a = await _create_project_with_agent(db_session, name="ScheduleRunsA")
+    _org_b, project_b, agent_b = await _create_project_with_agent(db_session, name="ScheduleRunsB")
+    schedule_b = await _create_due_schedule(db_session, project=project_b, agent=agent_b, name="run-history")
+    task_b = JoySafeterTask(
+        agent_id=agent_b.id,
+        schedule_id=schedule_b.id,
+        project_id=project_b.id,
+        prompt="scheduled run",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task_b)
+    await db_session.commit()
+    schedule_b_id = schedule_b.id
+    task_b_id = task_b.id
+
+    svc = JoySafeterScheduleService(db_session)
+    cross_runs = await svc.list_runs(schedule_b_id, project_id=project_a.id)
+    cross_active = await svc.get_active_tasks(schedule_b_id, project_id=project_a.id)
+
+    assert cross_runs is None
+    assert list(cross_active) == []
+
+    project_b_runs = await svc.list_runs(schedule_b_id, project_id=project_b.id)
+    project_b_active = await svc.get_active_tasks(schedule_b_id, project_id=project_b.id)
+    assert project_b_runs is not None
+    assert [str(run.id) for run in project_b_runs] == [str(task_b_id)]
+    assert [str(task.id) for task in project_b_active] == [str(task_b_id)]
+
+    with pytest.raises(AppError) as exc_info:
+        await list_schedule_runs(schedule_b_id, 50, 0, db_session, _admin_ctx(project_a.id, org_a.id))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "SCHEDULE_NOT_FOUND",
+        "message": "Schedule not found",
+        "data": {"schedule_id": str(schedule_b_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+
+@pytest.mark.asyncio
 async def test_create_schedule_rejects_missing_environment_without_creating_schedule(db_session):
     org, project, agent = await _create_project_with_agent(db_session, name="MissingScheduleEnv")
     missing_ref = f"env_{uuid.uuid4()}"
@@ -444,6 +493,75 @@ async def test_create_schedule_rejects_missing_environment_without_creating_sche
         "code": "SCHEDULE_ENVIRONMENT_NOT_FOUND",
         "message": f"Environment not found: {missing_ref}",
         "data": {"environment_ref": missing_ref},
+        "source": "validation",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    schedules = (
+        await db_session.execute(
+            select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)
+        )
+    ).scalars().all()
+    assert schedules == []
+
+
+@pytest.mark.asyncio
+async def test_schedule_service_rejects_cross_project_agent_without_creating_schedule(db_session):
+    _, project, _ = await _create_project_with_agent(db_session, name="ScheduleSvcProjectA")
+    _, other_project, other_agent = await _create_project_with_agent(db_session, name="ScheduleSvcProjectB")
+
+    with pytest.raises(AppError) as exc_info:
+        await JoySafeterScheduleService(db_session).create(
+            name=f"cross-agent-{uuid.uuid4()}",
+            agent_id=other_agent.id,
+            prompt="must not bind to another project's agent",
+            cron_expr="*/5 * * * *",
+            timezone="UTC",
+            project_id=project.id,
+            org_id=project.org_id,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "SCHEDULE_AGENT_NOT_FOUND",
+        "message": "Agent not found",
+        "data": {"agent_id": str(other_agent.id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    schedules = (
+        await db_session.execute(
+            select(JoySafeterSchedule).where(
+                JoySafeterSchedule.project_id.in_([project.id, other_project.id])
+            )
+        )
+    ).scalars().all()
+    assert schedules == []
+
+
+@pytest.mark.asyncio
+async def test_schedule_service_rejects_cross_project_environment_without_creating_schedule(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="ScheduleSvcEnvProjectA")
+    _, other_project, _ = await _create_project_with_agent(db_session, name="ScheduleSvcEnvProjectB")
+    other_env = await _create_environment(db_session, project=other_project)
+    other_env_ref = f"env_{other_env.id}"
+
+    with pytest.raises(AppError) as exc_info:
+        await JoySafeterScheduleService(db_session).create(
+            name=f"cross-env-{uuid.uuid4()}",
+            agent_id=agent.id,
+            prompt="must not bind to another project's environment",
+            cron_expr="*/5 * * * *",
+            timezone="UTC",
+            environment_ref=other_env_ref,
+            project_id=project.id,
+            org_id=project.org_id,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=422) == {
+        "code": "SCHEDULE_ENVIRONMENT_NOT_FOUND",
+        "message": f"Environment not found: {other_env_ref}",
+        "data": {"environment_ref": other_env_ref},
         "source": "validation",
         "retryable": False,
         "user_action": "fix_input",
@@ -552,6 +670,37 @@ async def test_update_schedule_rejects_missing_environment_without_persisting_re
 
 
 @pytest.mark.asyncio
+async def test_schedule_service_update_rejects_cross_project_environment_without_persisting_ref(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="ScheduleSvcUpdateProjectA")
+    _, other_project, _ = await _create_project_with_agent(db_session, name="ScheduleSvcUpdateProjectB")
+    other_env = await _create_environment(db_session, project=other_project)
+    schedule = await _create_due_schedule(db_session, project=project, agent=agent, name="svc-update-cross-env")
+    schedule_id = schedule.id
+    other_env_ref = f"env_{other_env.id}"
+
+    with pytest.raises(AppError) as exc_info:
+        await JoySafeterScheduleService(db_session).update(
+            schedule_id,
+            project.id,
+            environment_ref=other_env_ref,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=422) == {
+        "code": "SCHEDULE_ENVIRONMENT_NOT_FOUND",
+        "message": f"Environment not found: {other_env_ref}",
+        "data": {"environment_ref": other_env_ref},
+        "source": "validation",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    db_session.expire_all()
+    row = (
+        await db_session.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.id == schedule_id))
+    ).scalar_one()
+    assert row.environment_ref is None
+
+
+@pytest.mark.asyncio
 async def test_update_schedule_rejects_duplicate_name_without_persisting_change(db_session):
     org, project, agent = await _create_project_with_agent(db_session, name="UpdateDuplicateName")
     existing = await _create_due_schedule(db_session, project=project, agent=agent, name="existing-name")
@@ -595,6 +744,36 @@ async def test_enable_schedule_rejects_archived_agent_without_rearming_schedule(
 
     with pytest.raises(AppError) as exc_info:
         await enable_schedule(schedule_id, db_session, _admin_ctx(project.id, org.id))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "AGENT_ARCHIVED",
+        "message": "Agent is archived and cannot create new scheduled runs.",
+        "data": {"agent_id": str(agent_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    db_session.expire_all()
+    row = (
+        await db_session.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.id == schedule_id))
+    ).scalar_one()
+    assert row.enabled is False
+    assert row.next_run_at is None
+
+
+@pytest.mark.asyncio
+async def test_schedule_service_enable_rejects_archived_agent_without_rearming_schedule(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="ScheduleSvcEnableArchivedAgent")
+    schedule = await _create_due_schedule(db_session, project=project, agent=agent, name="svc-enable-archived")
+    schedule_id = schedule.id
+    agent_id = agent.id
+    schedule.enabled = False
+    schedule.next_run_at = None
+    agent.archived_at = utc_now()
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await JoySafeterScheduleService(db_session).update(schedule_id, project.id, enabled=True)
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "AGENT_ARCHIVED",

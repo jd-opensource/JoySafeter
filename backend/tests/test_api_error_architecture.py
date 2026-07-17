@@ -70,6 +70,9 @@ PRODUCTION_PY_ROOTS = (
     Path("backend/app/joysafeter_shared"),
     Path("backend/app/joysafeter_worker"),
 )
+DOMAIN_REPOSITORY_ROOT = Path("backend/app/joysafeter_domain/repositories")
+DOMAIN_PAGINATION_FILE = Path("backend/app/joysafeter_domain/pagination.py")
+SECRET_SERVICE_FILE = Path("backend/app/joysafeter_domain/services/joysafeter_secret_service.py")
 REQUIRED_BRIDGE_EXPORTS = {
     "ensure_session_broadcaster",
     "get_session_broadcaster",
@@ -318,6 +321,51 @@ def test_orchestrator_bridge_exports_runtime_boundary_contract():
     assert missing == []
 
 
+def test_non_api_layers_do_not_import_api_layer():
+    offenders: list[str] = []
+    roots = (
+        Path("backend/app/joysafeter_domain"),
+        Path("backend/app/joysafeter_shared"),
+        Path("backend/app/joysafeter_worker"),
+    )
+
+    for file_path in sorted(path for root in roots for path in root.rglob("*.py")):
+        tree = ast.parse(file_path.read_text())
+        for node in ast.walk(tree):
+            imported_modules: list[str] = []
+            if isinstance(node, ast.Import):
+                imported_modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_modules = [node.module]
+
+            for module in imported_modules:
+                if module == "app.joysafeter_api" or module.startswith("app.joysafeter_api."):
+                    offenders.append(f"{file_path}:{node.lineno}: {module}")
+
+    assert offenders == []
+
+
+def test_domain_services_do_not_import_auth_dependency_package():
+    offenders: list[str] = []
+
+    for file_path in sorted(Path("backend/app/joysafeter_domain/services").rglob("*.py")):
+        tree = ast.parse(file_path.read_text(), filename=str(file_path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if node.module == "app.joysafeter_shared.common.joysafeter_auth":
+                offenders.append(f"{file_path}:{node.lineno}: import auth context from .joysafeter_auth.context")
+
+    assert offenders == []
+
+
+def test_auth_context_import_does_not_eagerly_load_dependency_layer():
+    text = Path("backend/app/joysafeter_shared/common/joysafeter_auth/__init__.py").read_text()
+
+    assert "from .dependencies import" not in text
+    assert "def __getattr__" in text
+
+
 def test_orchestrator_bridge_does_not_expose_removed_runtime_singletons():
     from app.joysafeter_shared import orchestrator_bridge
 
@@ -348,6 +396,71 @@ def test_environment_api_does_not_use_python_image_builder_boundary():
 
     assert "get_image_builder" not in text
     assert "ImageBuilder" not in text
+
+
+def test_auth_project_archive_lifecycle_stays_in_project_service():
+    auth_text = Path("backend/app/joysafeter_api/api/v1/auth.py").read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_project_service.py").read_text()
+
+    assert "_cleanup_project_sessions_for_archive" not in auth_text
+    assert "PROJECT_ARCHIVE_REDIS_DESTROY_FAILED" not in auth_text
+    assert "PROJECT_SLUG_CONFLICT" not in auth_text
+    assert "count_active_tasks_for_project" not in auth_text
+    assert "pause_for_project_archive" not in auth_text
+    assert "project.name =" not in auth_text
+    assert "project.slug =" not in auth_text
+    assert "async def archive_project" in service_text
+    assert "async def update_project" in service_text
+    assert "normalize_slug" in service_text
+    assert "PROJECT_SLUG_CONFLICT" in service_text
+    assert "PROJECT_ARCHIVE_REDIS_DESTROY_FAILED" in service_text
+    assert "count_active_tasks_for_project" in service_text
+    assert "pause_for_project_archive" in service_text
+
+
+def test_organization_member_lifecycle_stays_in_domain_services():
+    route_text = "\n".join(
+        Path(path).read_text()
+        for path in (
+            "backend/app/joysafeter_api/api/v1/auth.py",
+            "backend/app/joysafeter_api/api/v1/organizations.py",
+        )
+    )
+    member_service_text = Path(
+        "backend/app/joysafeter_domain/services/joysafeter_organization_member_service.py"
+    ).read_text()
+    org_service_text = Path("backend/app/joysafeter_domain/services/joysafeter_organization_service.py").read_text()
+    project_service_text = Path("backend/app/joysafeter_domain/services/joysafeter_project_service.py").read_text()
+
+    for forbidden in (
+        "ORGANIZATION_MEMBER_ROLE_INVALID",
+        "ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN",
+        "ORGANIZATION_ROLE_MODIFY_FORBIDDEN",
+        "db.add(member)",
+        "Member(",
+        "delete(Member)",
+        "delete(Project)",
+        "ProjectMember(",
+        "member.role =",
+        "lower().replace",
+        "re.sub",
+    ):
+        assert forbidden not in route_text
+
+    assert "normalize_slug" in org_service_text
+    assert "PROJECT_RESOURCE_BLOCKERS" in org_service_text
+    assert "ORGANIZATION_PROJECT_RESOURCES_EXIST" in org_service_text
+    assert "grant_project_membership" in project_service_text
+    assert "grant_default_project_membership" in project_service_text
+    assert "revoke_org_project_memberships" in project_service_text
+    assert "list_accessible_projects" in project_service_text
+    assert "ORGANIZATION_MEMBER_ROLE_INVALID" in member_service_text
+    assert "ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN" in member_service_text
+    assert "ORGANIZATION_ROLE_MODIFY_FORBIDDEN" in member_service_text
+    assert "async def add_member" in member_service_text
+    assert "async def transfer_ownership" in member_service_text
+    assert "async def create_with_owner_and_default_project" in org_service_text
+    assert "async def delete_organization" in org_service_text
 
 
 def test_memory_store_api_does_not_expose_removed_python_subscriber_stream():
@@ -498,3 +611,265 @@ def test_state_boundary_logs_include_structured_error_payload():
                 offenders.append(f"{file_path}:{node.lineno}: {method} {_literal_log_message(node)!r}")
 
     assert offenders == []
+
+
+def test_domain_repositories_do_not_import_services_layer():
+    offenders: list[str] = []
+
+    for file_path in sorted(DOMAIN_REPOSITORY_ROOT.rglob("*.py")):
+        text = file_path.read_text()
+        if "app.joysafeter_domain.services" in text:
+            offenders.append(f"{file_path}: repository imports services layer")
+
+    assert offenders == []
+
+
+def test_after_id_keyset_pagination_uses_shared_domain_helpers():
+    offenders: list[str] = []
+    raw_after_id_pattern = re.compile(r"\b(?:\w+\.)?id\s*<\s*after_id")
+    partial_cursor_pattern = re.compile(r"created_at\s*<\s*cursor_created_at")
+    allowed_files = {DOMAIN_PAGINATION_FILE, SECRET_SERVICE_FILE}
+
+    for root in (Path("backend/app/joysafeter_domain/services"), DOMAIN_REPOSITORY_ROOT):
+        for file_path in sorted(root.rglob("*.py")):
+            if file_path in allowed_files:
+                continue
+            text = file_path.read_text()
+            if raw_after_id_pattern.search(text) or partial_cursor_pattern.search(text):
+                offenders.append(f"{file_path}: hand-rolled after_id pagination")
+
+    assert offenders == []
+
+
+def test_sensitive_resource_routes_keep_project_and_parent_boundaries_in_services():
+    secret_route_text = Path("backend/app/joysafeter_api/api/v1/secrets.py").read_text()
+    vault_route_text = Path("backend/app/joysafeter_api/api/v1/vaults.py").read_text()
+    session_route_text = Path("backend/app/joysafeter_api/api/v1/sessions.py").read_text()
+    secret_service_text = Path(
+        "backend/app/joysafeter_domain/services/joysafeter_secret_service.py"
+    ).read_text()
+    vault_service_text = Path("backend/app/joysafeter_domain/services/joysafeter_vault_service.py").read_text()
+    secret_model_text = Path("backend/app/joysafeter_domain/models/joysafeter_secret.py").read_text()
+    vault_model_text = Path("backend/app/joysafeter_domain/models/joysafeter_vault.py").read_text()
+
+    assert "svc.get_secret(secret_id, project_id=auth_ctx.project_id)" in secret_route_text
+    assert "svc.update_secret(secret_id, req, project_id=auth_ctx.project_id)" in secret_route_text
+    assert "svc.delete_secret(secret_id, project_id=auth_ctx.project_id)" in secret_route_text
+    assert "svc.hard_delete_secret(secret_id, project_id=auth_ctx.project_id)" in secret_route_text
+    assert "svc.set_default_secret(secret_id, project_id=auth_ctx.project_id)" in secret_route_text
+
+    assert "svc.get_vault(vault_id, project_id=project_id)" in vault_route_text
+    assert "svc.update_vault(" in vault_route_text
+    assert "project_id=auth_ctx.project_id" in vault_route_text
+    assert "svc.delete_vault(vault_id, project_id=auth_ctx.project_id)" in vault_route_text
+    assert "svc.archive_vault(vault_id, project_id=auth_ctx.project_id)" in vault_route_text
+    assert "svc.get_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)" in vault_route_text
+    assert "svc.list_credentials(" in vault_route_text
+    assert "project_id=auth_ctx.project_id" in vault_route_text
+    assert "svc.update_credential(" in vault_route_text
+    assert "vault_id=vault_id" in vault_route_text
+    assert "svc.archive_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)" in vault_route_text
+    assert "svc.delete_credential(cred_id, vault_id=vault_id, project_id=auth_ctx.project_id)" in vault_route_text
+
+    assert "vault_svc.get_vault(vid_uuid, project_id=auth_ctx.project_id)" in session_route_text
+    assert "vault_svc.get_vault(vid_uuid)" not in session_route_text
+
+    assert "secret = await self.get_secret(secret_id, project_id=project_id)" in secret_service_text
+    assert "await self.clear_default_secret(project_id=project_id)" in secret_service_text
+    assert "JoySafeterSecret.project_id == project_id" in secret_service_text
+    assert "JoySafeterSecret.project_id.is_(None)" in secret_service_text
+    assert 'UniqueConstraint("name"' not in secret_model_text
+    assert "uq_joysafeter_secrets_project_name" in secret_model_text
+
+    assert "vault = await self.get_vault(vault_id, project_id=project_id)" in vault_service_text
+    assert "cred = await self.get_credential(cred_id, vault_id=vault_id, project_id=project_id)" in vault_service_text
+    assert "vault = await self.get_vault(vid, project_id=project_id)" in vault_service_text
+    assert "await self.list_credentials(vid, limit=500, include_archived=False, project_id=project_id)" in vault_service_text
+    assert "JoySafeterVault.project_id == project_id" in vault_service_text
+    assert "JoySafeterVault.project_id.is_(None)" in vault_service_text
+    assert 'UniqueConstraint("name"' not in vault_model_text
+    assert "uq_joysafeter_vaults_project_name" in vault_model_text
+
+
+def test_project_scoped_named_runtime_resources_use_project_scoped_name_constraints():
+    agent_model_text = Path("backend/app/joysafeter_domain/models/joysafeter_agent.py").read_text()
+    environment_model_text = Path("backend/app/joysafeter_domain/models/joysafeter_environment.py").read_text()
+    agent_service_text = Path("backend/app/joysafeter_domain/services/joysafeter_agent_service.py").read_text()
+    environment_service_text = Path(
+        "backend/app/joysafeter_domain/services/joysafeter_environment_service.py"
+    ).read_text()
+    agent_route_text = Path("backend/app/joysafeter_api/api/v1/agents.py").read_text()
+
+    assert 'UniqueConstraint("name"' not in agent_model_text
+    assert "mapped_column(Text, unique=True" not in environment_model_text
+    assert "uq_joysafeter_agents_project_name" in agent_model_text
+    assert "uq_joysafeter_environments_project_name" in environment_model_text
+    assert "deleted_at IS NULL" in agent_model_text
+    assert "deleted_at IS NULL" in environment_model_text
+
+    assert "async def hard_delete_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None)" in agent_service_text
+    assert "agent = await self.get_agent(agent_id, project_id=project_id)" in agent_service_text
+    assert "svc.hard_delete_agent(agent_id, project_id=auth_ctx.project_id)" in agent_route_text
+    assert "svc.hard_delete_agent(agent_id)" not in agent_route_text
+    assert "agent.project_id != auth_ctx.project_id" not in agent_route_text
+
+    assert "JoySafeterEnvironment.project_id == project_id" in environment_service_text
+    assert "JoySafeterEnvironment.project_id.is_(None)" in environment_service_text
+
+
+def test_agent_child_resources_keep_parent_project_boundary_in_service_calls():
+    agent_route_text = Path("backend/app/joysafeter_api/api/v1/agents.py").read_text()
+    session_route_text = Path("backend/app/joysafeter_api/api/v1/sessions.py").read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_agent_service.py").read_text()
+    sandbox_service_text = Path("backend/app/joysafeter_domain/services/joysafeter_sandbox_service.py").read_text()
+
+    for signature in (
+        "async def list_versions(",
+        "async def get_agent_version_snapshot(",
+        "async def list_active_tasks_for_agent(",
+        "async def archive_sessions_for_agent(",
+    ):
+        assert signature in service_text
+    assert "not await self.get_agent(agent_id, project_id=project_id)" in service_text
+    assert "project_id: Optional[str] = None" in service_text
+
+    for call in (
+        "svc.list_active_tasks_for_agent(agent_id, project_id=auth_ctx.project_id)",
+        "svc.list_versions(agent_id, limit, before_version, project_id=auth_ctx.project_id)",
+        "svc.archive_sessions_for_agent(agent_id, project_id=project_id)",
+    ):
+        assert call in agent_route_text
+    assert "get_agent_version_snapshot(\n            agent.id, pinned_version, project_id=auth_ctx.project_id" in session_route_text
+    assert "sandbox_svc.find_by_session(task.chat_session_id, project_id=project_id)" in agent_route_text
+    assert "sandbox_svc.list_active_for_agent(agent_id, project_id=project_id)" in agent_route_text
+    assert "JoySafeterSandbox" not in agent_route_text
+    assert "select(" not in agent_route_text
+    assert "async def list_active_for_agent(" in sandbox_service_text
+    assert "JoySafeterSession.agent_id == agent_id" in sandbox_service_text
+    assert "JoySafeterSession.project_id == project_id" in sandbox_service_text
+
+
+def test_memory_child_resources_keep_parent_project_boundary_in_service_calls():
+    route_text = Path("backend/app/joysafeter_api/api/v1/memory_stores.py").read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_memory_service.py").read_text()
+
+    for call in (
+        "svc.get_memory_by_path(store_id, normalized_path, project_id=auth_ctx.project_id)",
+        "svc.create_memory(store_id, normalized_path, req.content, project_id=auth_ctx.project_id)",
+        "svc.get_memory(store_id, memory_id, project_id=auth_ctx.project_id)",
+        "svc.delete_memory(store_id, memory_id, project_id=auth_ctx.project_id)",
+        "svc.get_version(store_id, version_id, project_id=auth_ctx.project_id)",
+        "svc.is_live_version(store_id, version_id, project_id=auth_ctx.project_id)",
+        "svc.redact_version(store_id, version_id, project_id=auth_ctx.project_id)",
+    ):
+        assert call in route_text
+    assert "project_id=auth_ctx.project_id" in route_text
+
+    for signature in (
+        "async def create_memory(",
+        "async def get_memory(",
+        "async def get_memory_by_path(",
+        "async def update_memory(",
+        "async def delete_memory(",
+        "async def list_versions(",
+        "async def get_version(",
+        "async def redact_version(",
+    ):
+        assert signature in service_text
+    assert "store = await self.get_store(store_id, project_id=project_id" in service_text
+
+
+def test_schedule_target_project_boundary_lives_in_domain_service():
+    route_text = Path("backend/app/joysafeter_api/api/v1/schedules.py").read_text()
+    service_text = Path(
+        "backend/app/joysafeter_domain/services/joysafeter_schedule_service.py"
+    ).read_text()
+
+    assert "async def resolve_runnable_target(" in service_text
+    assert "JoySafeterAgent.project_id == project_id" in service_text
+    assert "get_environment_by_ref(" in service_text
+    assert "project_id=project_id" in service_text
+    assert "await self.resolve_runnable_target(" in service_text
+    assert "updated = await JoySafeterScheduleService(db).update(" in route_text
+    assert "resolve_runnable_target(" in route_text
+    assert "JoySafeterAgentService" not in route_text
+    assert "EnvironmentService" not in route_text
+    assert "async def list_runs(" in service_text
+    assert "not await self.get(schedule_id, project_id=project_id)" in service_text
+    assert "JoySafeterTask.schedule_id == schedule_id" in service_text
+    assert "JoySafeterTask" not in route_text
+    assert "list_runs(" in route_text
+
+
+def test_sandbox_routes_keep_project_boundary_in_domain_service_calls():
+    route_text = Path("backend/app/joysafeter_api/api/v1/sandboxes.py").read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_sandbox_service.py").read_text()
+
+    assert "async def get_sandbox(" in service_text
+    assert "project_id: Optional[str] = None" in service_text
+    assert "JoySafeterSandbox.project_id == project_id" in service_text
+    assert "await svc.get_sandbox(sandbox_id, project_id=auth_ctx.project_id)" in route_text
+    assert "await svc.stop_sandbox(sandbox_id, project_id=auth_ctx.project_id)" in route_text
+    assert "sandbox.project_id != auth_ctx.project_id" not in route_text
+
+
+def test_file_session_scope_keeps_parent_project_boundary_in_service():
+    route_text = Path("backend/app/joysafeter_api/api/v1/files.py").read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_file_service.py").read_text()
+
+    assert 'code="SESSION_ID_INVALID"' in route_text
+    assert "JoySafeterSession.id == session_id" in service_text
+    assert "JoySafeterSession.project_id == project_id" in service_text
+    assert "JoySafeterFile.session_id == session_id" in service_text
+
+
+def test_session_routes_keep_project_boundary_in_domain_service_calls():
+    route_text = Path("backend/app/joysafeter_api/api/v1/sessions.py").read_text()
+    task_route_text = Path("backend/app/joysafeter_api/api/v1/tasks.py").read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_session_service.py").read_text()
+
+    assert "async def get_session(" in service_text
+    assert "async def delete_session(self, session_id: uuid.UUID, project_id: Optional[str] = None)" in service_text
+    assert "async def archive_session(self, session_id: uuid.UUID, project_id: Optional[str] = None)" in service_text
+    assert "project_id: Optional[str] = None" in service_text
+    assert "JoySafeterSession.project_id == project_id" in service_text
+    assert "await svc.get_session(session_id, project_id=auth_ctx.project_id)" in route_text
+    assert "await svc.delete_session(session_id, project_id=auth_ctx.project_id)" in route_text
+    assert "await svc.archive_session(session_id, project_id=auth_ctx.project_id)" in route_text
+    assert "project_id=auth_ctx.project_id" in task_route_text
+    assert "sandbox_svc.find_by_session(session_id, project_id=auth_ctx.project_id)" in route_text
+    assert "sandbox_svc.find_by_session(session_id)" not in route_text
+    assert "session.project_id != auth_ctx.project_id" not in route_text
+    assert "existing_session.project_id != auth_ctx.project_id" not in task_route_text
+    assert "async def find_user_message_event_by_idempotency_key(" in service_text
+    assert "async def find_status_running_event_for_task(" in service_text
+    assert "find_user_message_event_by_idempotency_key(" in route_text
+    assert "find_status_running_event_for_task(" in route_text
+    assert "JoySafeterSessionEvent" not in route_text
+    assert "payload->>" not in route_text
+
+
+def test_session_resource_children_keep_parent_project_boundary_in_service():
+    route_text = Path("backend/app/joysafeter_api/api/v1/sessions.py").read_text()
+    service_text = Path(
+        "backend/app/joysafeter_domain/services/joysafeter_session_resource_service.py"
+    ).read_text()
+
+    assert "self._session_svc.get_session(session_id, project_id=project_id)" in service_text
+    assert "JoySafeterSession.project_id == project_id" in service_text
+    assert "async def list_resource_payloads(self, session_id: uuid.UUID, project_id: Optional[str] = None)" in service_text
+    assert "async def delete_resource(" in service_text
+    assert "project_id: Optional[str] = None" in service_text
+    assert "async def rotate_repo_token(" in service_text
+    assert "project_id=auth_ctx.project_id" in route_text
+    assert "list_resource_payloads(session_id, project_id=auth_ctx.project_id)" in route_text
+    assert "delete_resource(session_id, resource_id, project_id=auth_ctx.project_id)" in route_text
+
+
+def test_task_agent_helpers_accept_project_scope_for_domain_boundaries():
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_task_service.py").read_text()
+
+    assert "async def list_tasks_by_agent(" in service_text
+    assert "async def agent_has_active_tasks(" in service_text
+    assert "project_id: Optional[str] = None" in service_text
+    assert "JoySafeterTask.project_id == project_id" in service_text

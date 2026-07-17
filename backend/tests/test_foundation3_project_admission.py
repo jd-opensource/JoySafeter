@@ -100,6 +100,26 @@ async def test_other_project_tasks_not_counted(db_session, agent_id, project_a, 
 
 
 @pytest.mark.asyncio
+async def test_agent_task_helpers_are_project_scoped_when_requested(db_session, agent_id, project_a, project_b):
+    svc = JoySafeterTaskService(db_session)
+    task_a = await svc.create_task(agent_id=agent_id, prompt="scan a", project_id=project_a)
+    task_b = await svc.create_task(agent_id=agent_id, prompt="scan b", project_id=project_b)
+    task_b_row = await db_session.get(JoySafeterTask, task_b.id)
+    task_b_row.status = JoySafeterTaskStatus.COMPLETED.value
+    await db_session.commit()
+
+    tasks_a, has_more_a = await svc.list_tasks_by_agent(agent_id, project_id=project_a)
+    tasks_b, has_more_b = await svc.list_tasks_by_agent(agent_id, project_id=project_b)
+
+    assert [str(task.id) for task in tasks_a] == [str(task_a.id)]
+    assert [str(task.id) for task in tasks_b] == [str(task_b.id)]
+    assert has_more_a is False
+    assert has_more_b is False
+    assert await svc.agent_has_active_tasks(agent_id, project_id=project_a) is True
+    assert await svc.agent_has_active_tasks(agent_id, project_id=project_b) is False
+
+
+@pytest.mark.asyncio
 async def test_limit_falls_back_to_default_when_unset(db_session, project_a):
     svc = JoySafeterTaskService(db_session)
     # No per-project override set -> the caller's global default applies.

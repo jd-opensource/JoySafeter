@@ -1,9 +1,11 @@
+import re
 import uuid
 from types import SimpleNamespace
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
 from fastapi import Request
+from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.auth import (
     CreateOrganizationRequest,
@@ -11,8 +13,10 @@ from app.joysafeter_api.api.v1.auth import (
     SwitchContextRequest,
     archive_project,
     create_organization,
+    get_me,
     get_project,
     invite_member,
+    list_projects,
     revoke_api_key,
     switch_context,
 )
@@ -21,15 +25,23 @@ from app.joysafeter_api.api.v1.organizations import (
     TransferOwnershipRequest,
     UpdateMemberRequest,
     add_member,
+    delete_organization,
     transfer_ownership,
     update_member_role,
 )
 from app.joysafeter_api.api.v1.organizations import (
+    CreateOrganizationRequest as OrganizationCreateRequest,
+)
+from app.joysafeter_api.api.v1.organizations import (
+    create_organization as create_scoped_organization,
+)
+from app.joysafeter_api.api.v1.organizations import (
     remove_member as remove_organization_member,
 )
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
-from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth import dependencies as auth_dependencies
@@ -51,6 +63,137 @@ async def _org(db_session) -> Organization:
     await db_session.commit()
     await db_session.refresh(org)
     return org
+
+
+@pytest.mark.asyncio
+async def test_auth_create_organization_uses_domain_creation_contract(db_session):
+    user = AuthUser(id="admin-user", name="Admin User", email=f"admin-{uuid.uuid4()}@example.com")
+    db_session.add(user)
+    await db_session.commit()
+
+    response = await create_organization(
+        CreateOrganizationRequest(name="My Org!!"),
+        db_session,
+        _auth_ctx("existing-org"),
+    )
+
+    assert response.name == "My Org!!"
+    assert re.fullmatch(r"my-org-[0-9a-f]{6}", response.slug)
+    assert response.project_id
+
+    member_result = await db_session.execute(
+        select(Member).where(Member.organization_id == response.id, Member.user_id == user.id)
+    )
+    owner = member_result.scalar_one_or_none()
+    assert owner is not None
+    assert owner.role == "owner"
+
+    project_result = await db_session.execute(select(Project).where(Project.id == response.project_id))
+    project = project_result.scalar_one()
+    assert project.org_id == response.id
+    assert project.name == "Default"
+    assert project.slug == "default"
+    assert project.is_default is True
+
+    project_member_result = await db_session.execute(
+        select(ProjectMember).where(ProjectMember.project_id == project.id, ProjectMember.user_id == user.id)
+    )
+    project_member = project_member_result.scalar_one_or_none()
+    assert project_member is not None
+    assert project_member.role == "owner"
+
+
+@pytest.mark.asyncio
+async def test_scoped_create_organization_uses_same_slug_and_default_project_contract(db_session):
+    user = AuthUser(id=f"user-{uuid.uuid4()}", name="Scoped User", email=f"scoped-{uuid.uuid4()}@example.com")
+    db_session.add(user)
+    await db_session.commit()
+
+    response = await create_scoped_organization(
+        OrganizationCreateRequest(name="Ignored Name", slug="Explicit Slug!!"),
+        SimpleNamespace(id=user.id),
+        db_session,
+    )
+
+    assert response["name"] == "Ignored Name"
+    assert re.fullmatch(r"explicit-slug-[0-9a-f]{6}", response["slug"])
+    assert response["project_id"]
+    assert response["created_at"]
+
+    member_result = await db_session.execute(
+        select(Member).where(Member.organization_id == response["id"], Member.user_id == user.id)
+    )
+    owner = member_result.scalar_one_or_none()
+    assert owner is not None
+    assert owner.role == "owner"
+
+    project_result = await db_session.execute(select(Project).where(Project.id == response["project_id"]))
+    project = project_result.scalar_one()
+    assert project.org_id == response["id"]
+    assert project.name == "Default"
+    assert project.slug == "default"
+    assert project.is_default is True
+
+    project_member_result = await db_session.execute(
+        select(ProjectMember).where(ProjectMember.project_id == project.id, ProjectMember.user_id == user.id)
+    )
+    project_member = project_member_result.scalar_one_or_none()
+    assert project_member is not None
+    assert project_member.role == "owner"
+
+
+@pytest.mark.asyncio
+async def test_delete_organization_rejects_project_resources_before_db_delete(db_session):
+    owner = AuthUser(id=f"user-{uuid.uuid4()}", name="Owner User", email=f"owner-{uuid.uuid4()}@example.com")
+    org = Organization(id=f"org-{uuid.uuid4()}", name="Delete Org", slug=f"delete-org-{uuid.uuid4()}")
+    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
+    db_session.add_all([owner, org, project])
+    await db_session.flush()
+    db_session.add(Member(user_id=owner.id, organization_id=org.id, role="owner"))
+    db_session.add(JoySafeterAgent(name=f"org-delete-agent-{uuid.uuid4()}", project_id=project.id))
+    await db_session.commit()
+    org_id = org.id
+    project_id = project.id
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_organization(org_id, SimpleNamespace(id=owner.id), db_session)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "ORGANIZATION_PROJECT_RESOURCES_EXIST",
+        "message": "Organization has project resources. Delete or archive project resources before deleting the organization.",
+        "data": {"organization_id": org_id, "resources": ["agents"]},
+        "source": "api",
+        "retryable": False,
+        "user_action": "delete_resources",
+    }
+
+    db_session.expire_all()
+    assert (await db_session.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
+    assert (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+
+
+@pytest.mark.asyncio
+async def test_delete_empty_organization_deletes_default_project_and_membership(db_session):
+    owner = AuthUser(id=f"user-{uuid.uuid4()}", name="Owner User", email=f"owner-{uuid.uuid4()}@example.com")
+    org = Organization(id=f"org-{uuid.uuid4()}", name="Empty Delete Org", slug=f"empty-delete-org-{uuid.uuid4()}")
+    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
+    db_session.add_all([owner, org, project])
+    await db_session.flush()
+    db_session.add(Member(user_id=owner.id, organization_id=org.id, role="owner"))
+    await db_session.commit()
+    org_id = org.id
+    project_id = project.id
+    owner_id = owner.id
+
+    await delete_organization(org_id, SimpleNamespace(id=owner_id), db_session)
+
+    assert (await db_session.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none() is None
+    assert (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none() is None
+    assert (
+        await db_session.execute(
+            select(Member).where(Member.organization_id == org_id, Member.user_id == owner_id)
+        )
+    ).scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio
@@ -120,6 +263,60 @@ async def test_invite_member_missing_user_returns_structured_error(db_session):
         "retryable": False,
         "user_action": "fix_input",
     }
+
+
+@pytest.mark.asyncio
+async def test_invite_member_grants_default_project_membership(db_session):
+    org = await _org(db_session)
+    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
+    user = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
+    db_session.add_all([project, user])
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    response = await invite_member(
+        InviteMemberRequest(email=user.email, role="developer"),
+        None,  # type: ignore[arg-type]
+        db_session,
+        _auth_ctx(org.id),
+    )
+
+    assert response.user_id == user.id
+    project_member = (
+        await db_session.execute(
+            select(ProjectMember).where(ProjectMember.project_id == project.id, ProjectMember.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    assert project_member is not None
+    assert project_member.role == "developer"
+
+
+@pytest.mark.asyncio
+async def test_remove_member_cleans_project_memberships(db_session):
+    org = await _org(db_session)
+    actor = AuthUser(name="Actor User", email=f"actor-{uuid.uuid4()}@example.com")
+    target = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
+    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
+    db_session.add_all([actor, target, project])
+    await db_session.flush()
+    member = Member(user_id=target.id, organization_id=org.id, role="developer")
+    db_session.add_all(
+        [
+            Member(user_id=actor.id, organization_id=org.id, role="admin"),
+            member,
+            ProjectMember(project_id=project.id, user_id=target.id, role="developer"),
+        ]
+    )
+    await db_session.commit()
+    await db_session.refresh(member)
+
+    await remove_organization_member(org.id, member.id, SimpleNamespace(id=actor.id), db_session)
+
+    assert (
+        await db_session.execute(
+            select(ProjectMember).where(ProjectMember.project_id == project.id, ProjectMember.user_id == target.id)
+        )
+    ).scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio
@@ -448,3 +645,184 @@ async def test_switch_context_uses_active_project_when_default_is_archived(db_se
             "archived_at": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_switch_context_rejects_inaccessible_project_for_non_admin_member(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(id="admin-user", name="Developer User", email=f"developer-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Project ACL Org", slug=f"project-acl-org-{uuid.uuid4()}")
+    allowed_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Allowed",
+        slug=f"allowed-{uuid.uuid4()}",
+        is_default=True,
+    )
+    blocked_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Blocked",
+        slug=f"blocked-{uuid.uuid4()}",
+    )
+    db_session.add_all([user, org, allowed_project, blocked_project])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Member(user_id=user.id, organization_id=org_id, role="developer"),
+            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="developer"),
+        ]
+    )
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await switch_context(
+            SwitchContextRequest(org_id=org_id, project_id=blocked_project.id),
+            db_session,
+            _auth_ctx("current-org"),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "PROJECT_NOT_FOUND",
+        "message": "Project not found in the target organization",
+        "data": {"project_id": blocked_project.id, "organization_id": org_id},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_me_lists_only_accessible_projects_for_non_admin_member(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(id="admin-user", name="Developer User", email=f"developer-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Project List ACL Org", slug=f"project-list-acl-org-{uuid.uuid4()}")
+    allowed_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Allowed",
+        slug=f"allowed-{uuid.uuid4()}",
+        is_default=True,
+    )
+    blocked_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Blocked",
+        slug=f"blocked-{uuid.uuid4()}",
+    )
+    db_session.add_all([user, org, allowed_project, blocked_project])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Member(user_id=user.id, organization_id=org_id, role="developer"),
+            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="developer"),
+        ]
+    )
+    await db_session.commit()
+
+    response = await get_me(
+        db_session,
+        JoySafeterAuthContext(
+            user_id=user.id,
+            org_id=org_id,
+            project_id=allowed_project.id,
+            role=JoySafeterRole.DEVELOPER,
+        ),
+    )
+
+    assert response["project"]["id"] == allowed_project.id
+    assert {project["id"] for project in response["projects"]} == {allowed_project.id}
+    assert blocked_project.id not in {project["id"] for project in response["projects"]}
+
+
+@pytest.mark.asyncio
+async def test_list_projects_filters_to_accessible_projects_for_non_admin_member(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(id="admin-user", name="Developer User", email=f"developer-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Project List Route ACL Org", slug=f"project-list-route-{uuid.uuid4()}")
+    allowed_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Allowed",
+        slug=f"allowed-{uuid.uuid4()}",
+        is_default=True,
+    )
+    blocked_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Blocked",
+        slug=f"blocked-{uuid.uuid4()}",
+    )
+    db_session.add_all([user, org, allowed_project, blocked_project])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Member(user_id=user.id, organization_id=org_id, role="developer"),
+            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="developer"),
+        ]
+    )
+    await db_session.commit()
+
+    response = await list_projects(
+        False,
+        db_session,
+        JoySafeterAuthContext(
+            user_id=user.id,
+            org_id=org_id,
+            project_id=allowed_project.id,
+            role=JoySafeterRole.DEVELOPER,
+        ),
+    )
+
+    assert [project.id for project in response] == [allowed_project.id]
+    assert blocked_project.id not in {project.id for project in response}
+
+
+@pytest.mark.asyncio
+async def test_get_project_rejects_inaccessible_project_for_non_admin_member(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(id="admin-user", name="Developer User", email=f"developer-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Project Detail ACL Org", slug=f"project-detail-acl-{uuid.uuid4()}")
+    allowed_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Allowed",
+        slug=f"allowed-{uuid.uuid4()}",
+        is_default=True,
+    )
+    blocked_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Blocked",
+        slug=f"blocked-{uuid.uuid4()}",
+    )
+    db_session.add_all([user, org, allowed_project, blocked_project])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Member(user_id=user.id, organization_id=org_id, role="developer"),
+            ProjectMember(project_id=allowed_project.id, user_id=user.id, role="developer"),
+        ]
+    )
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await get_project(
+            blocked_project.id,
+            db_session,
+            JoySafeterAuthContext(
+                user_id=user.id,
+                org_id=org_id,
+                project_id=allowed_project.id,
+                role=JoySafeterRole.DEVELOPER,
+            ),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "PROJECT_NOT_FOUND",
+        "message": "Project not found",
+        "data": {"project_id": blocked_project.id, "organization_id": org_id},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }

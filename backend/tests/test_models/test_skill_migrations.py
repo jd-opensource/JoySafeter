@@ -22,10 +22,10 @@ import io
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from alembic import command
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = BACKEND_ROOT / "alembic.ini"

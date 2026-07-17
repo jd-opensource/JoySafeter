@@ -24,10 +24,13 @@ from app.joysafeter_api.api.v1.sessions import (
     delete_session as delete_session_endpoint,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.schemas.joysafeter_session import SendEventRequest, SingleEventRequest
+from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -110,6 +113,84 @@ class _FakeAckRedis:
 class _AckWaitFailingRedis(_FakeAckRedis):
     async def blpop(self, key: str, timeout: int = 0):
         raise RuntimeError("ack wait failed")
+
+
+async def _ensure_project(db_session, project_id: str) -> None:
+    if await db_session.get(Project, project_id):
+        return
+    org = await db_session.get(Organization, "test-org")
+    if not org:
+        org = Organization(id="test-org", name="Test Org", slug="test-org")
+        db_session.add(org)
+    db_session.add(
+        Project(
+            id=project_id,
+            org_id="test-org",
+            name=project_id,
+            slug=project_id,
+            is_default=False,
+        )
+    )
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_session_event_child_queries_reject_cross_project_parent_at_service_boundary(db_session):
+    await _ensure_project(db_session, "project-a")
+    await _ensure_project(db_session, "project-b")
+    agent = JoySafeterAgent(name=f"event-boundary-agent-{uuid.uuid4()}", project_id="project-b")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    session = JoySafeterSession(agent_id=agent.id, project_id="project-b", status="running")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+
+    svc = SessionService(db_session)
+    user_event = await svc.send_event(
+        session.id,
+        "user.message",
+        {"content": [{"type": "text", "text": "scan"}], "_idempotency_key": "idem-key"},
+    )
+    running_event = await svc.send_event(
+        session.id,
+        "session.status_running",
+        {"task_id": str(uuid.uuid4())},
+    )
+    running_task_id = uuid.UUID(running_event.payload["task_id"])
+
+    assert (
+        await svc.find_user_message_event_by_idempotency_key(
+            session.id,
+            "idem-key",
+            project_id="project-a",
+        )
+        is None
+    )
+    assert (
+        await svc.find_status_running_event_for_task(
+            session.id,
+            running_task_id,
+            project_id="project-a",
+        )
+        is None
+    )
+
+    project_b_user_event = await svc.find_user_message_event_by_idempotency_key(
+        session.id,
+        "idem-key",
+        project_id="project-b",
+    )
+    project_b_running_event = await svc.find_status_running_event_for_task(
+        session.id,
+        running_task_id,
+        project_id="project-b",
+    )
+    assert project_b_user_event is not None
+    assert project_b_running_event is not None
+    assert str(project_b_user_event.id) == str(user_event.id)
+    assert str(project_b_running_event.id) == str(running_event.id)
 
 
 @pytest.mark.asyncio
@@ -245,7 +326,7 @@ async def test_command_ack_wait_requires_matching_success_payload():
 
 @pytest.mark.asyncio
 async def test_command_ack_wait_failure_logs_structured_boundary_error(caplog):
-    with caplog.at_level("DEBUG", logger="app.joysafeter_api.runtime_commands"):
+    with caplog.at_level("DEBUG", logger="app.joysafeter_shared.orchestrator_bridge.runtime_commands"):
         result = await _publish_command_and_wait_for_ack(
             _AckWaitFailingRedis({"command_id": "cmd-1", "ok": True}),
             "joysafeter:cmd:owner-1",
@@ -659,7 +740,7 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
 
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
     assert task.status == JoySafeterTaskStatus.FAILED.value
-    assert "Failed to enqueue fallback task for tool_confirmation" in (task.error or "")
+    assert "Failed to enqueue task" in (task.error or "")
 
 
 @pytest.mark.asyncio

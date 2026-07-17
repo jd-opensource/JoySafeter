@@ -9,10 +9,13 @@ from app.joysafeter_api.api.v1.sessions import (
     add_session_resource,
     create_session,
     delete_session_resource,
+    list_session_resources,
     update_repo_resource_token,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault
@@ -22,6 +25,8 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionRepoResourceRequest,
     SessionResourceRequest,
 )
+from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
+from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -51,6 +56,31 @@ async def _create_session(db_session) -> JoySafeterSession:
     await db_session.commit()
     await db_session.refresh(session)
     return session
+
+
+async def _create_project_session(db_session, name: str) -> tuple[Project, JoySafeterSession]:
+    org = Organization(
+        id=f"org-{uuid.uuid4()}",
+        name=f"{name} Org",
+        slug=f"{name.lower()}-org-{uuid.uuid4()}",
+    )
+    project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name=name,
+        slug=f"{name.lower()}-{uuid.uuid4()}",
+    )
+    db_session.add_all([org, project])
+    await db_session.commit()
+    agent = JoySafeterAgent(name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(project)
+    await db_session.refresh(session)
+    return project, session
 
 
 async def _session_count(db_session) -> int:
@@ -123,6 +153,122 @@ async def test_create_session_invalid_repo_resource_returns_structured_error_wit
         "user_action": "fix_input",
     }
     assert await _session_count(db_session) == 0
+
+
+@pytest.mark.asyncio
+async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_session, monkeypatch):
+    cipher = VaultCipher(VaultCipher.generate_key())
+    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_secret_service._cipher", cipher)
+
+    agent = await _create_agent(db_session)
+    response = await create_session(
+        CreateSessionRequest(
+            agent_id=agent.id,
+            repo_resources=[
+                SessionRepoResourceRequest(
+                    url="https://github.com/example/private-repo.git",
+                    branch="main",
+                    mount_path="/workspace/private-repo",
+                    authorization_token="initial-token",
+                )
+            ],
+        ),
+        db_session,
+        _auth_ctx(),
+    )
+
+    stored = (
+        await db_session.execute(
+            select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.session_id == response.id)
+        )
+    ).scalar_one()
+    repo_id = stored.id
+    assert stored.encrypted_token.startswith("enc:")
+    assert stored.encrypted_token != "initial-token"
+    initial_encrypted_token = stored.encrypted_token
+    assert "initial-token" not in response.model_dump_json()
+
+    listed = await list_session_resources(response.id, _auth_ctx(), db_session)
+    assert "initial-token" not in str(listed)
+    assert "encrypted_token" not in str(listed)
+
+    await update_repo_resource_token(
+        response.id,
+        f"sesrsc_{repo_id}",
+        UpdateRepoResourceRequest(authorization_token="rotated-token"),
+        _auth_ctx(),
+        db_session,
+    )
+
+    db_session.expire_all()
+    rotated = (
+        await db_session.execute(select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.id == repo_id))
+    ).scalar_one()
+    assert rotated.encrypted_token.startswith("enc:")
+    assert rotated.encrypted_token != "rotated-token"
+    assert rotated.encrypted_token != initial_encrypted_token
+
+
+@pytest.mark.asyncio
+async def test_session_resource_service_keeps_parent_project_boundary_for_repo_children(db_session, monkeypatch):
+    cipher = VaultCipher(VaultCipher.generate_key())
+    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_secret_service._cipher", cipher)
+    project, session = await _create_project_session(db_session, "SessionResourceSvcProject")
+    other_project, _ = await _create_project_session(db_session, "SessionResourceSvcOtherProject")
+    project_id = project.id
+    other_project_id = other_project.id
+    row = JoySafeterSessionRepo(
+        session_id=session.id,
+        url="https://github.com/acme/private",
+        branch="main",
+        mount_name="private",
+        mount_path="/workspace/private",
+        encrypted_token=cipher.encrypt("old-token"),
+    )
+    db_session.add(row)
+    await db_session.commit()
+    await db_session.refresh(row)
+    session_id = session.id
+    resource_id = f"sesrsc_{row.id}"
+    raw_row_id = row.id
+    svc = SessionResourceService(db_session)
+
+    assert await svc.list_resource_payloads(session_id, project_id=other_project_id) == []
+
+    with pytest.raises(AppError) as exc_info:
+        await svc.rotate_repo_token(
+            session_id,
+            resource_id,
+            "new-token",
+            project_id=other_project_id,
+        )
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "SESSION_REPO_RESOURCE_NOT_FOUND",
+        "message": "Repo resource not found",
+        "data": {"session_id": str(session_id), "resource_id": resource_id},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+    with pytest.raises(AppError) as exc_info:
+        await svc.delete_resource(session_id, resource_id, project_id=other_project_id)
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "SESSION_RESOURCE_NOT_FOUND",
+        "message": "Resource not found",
+        "data": {"session_id": str(session_id), "resource_id": resource_id},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+
+    db_session.expire_all()
+    kept = (
+        await db_session.execute(select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.id == raw_row_id))
+    ).scalar_one()
+    assert kept.session_id == session_id
+    assert kept.url == "https://github.com/acme/private"
+    assert other_project_id != project_id
 
 
 @pytest.mark.asyncio

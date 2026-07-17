@@ -13,6 +13,8 @@ from app.joysafeter_api.api.v1.environments import (
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
@@ -22,6 +24,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     Packages,
     UpdateEnvironmentRequest,
 )
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -34,6 +37,25 @@ def _auth_ctx() -> JoySafeterAuthContext:
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.DEVELOPER,
     )
+
+
+async def _ensure_project(db_session, project_id: str) -> None:
+    if await db_session.get(Project, project_id):
+        return
+    org = await db_session.get(Organization, "test-org")
+    if not org:
+        org = Organization(id="test-org", name="Test Org", slug="test-org")
+        db_session.add(org)
+    db_session.add(
+        Project(
+            id=project_id,
+            org_id="test-org",
+            name=project_id,
+            slug=project_id,
+            is_default=False,
+        )
+    )
+    await db_session.commit()
 
 
 class _FakeRuntimeRedis:
@@ -84,6 +106,88 @@ class _FakeRuntimeRedis:
         if payload is None:
             return None
         return key, payload
+
+
+@pytest.mark.asyncio
+async def test_create_environment_allows_same_active_name_in_different_projects(db_session):
+    await _ensure_project(db_session, "project-a")
+    await _ensure_project(db_session, "project-b")
+    name = f"scoped-env-{uuid.uuid4()}"
+    svc = EnvironmentService(db_session)
+
+    env_a = await svc.create_environment(CreateEnvironmentRequest(name=name), project_id="project-a")
+    env_b = await svc.create_environment(CreateEnvironmentRequest(name=name), project_id="project-b")
+
+    assert env_a.id != env_b.id
+    assert env_a.project_id == "project-a"
+    assert env_b.project_id == "project-b"
+
+
+@pytest.mark.asyncio
+async def test_create_environment_purges_only_same_project_soft_deleted_name(db_session):
+    await _ensure_project(db_session, "project-a")
+    await _ensure_project(db_session, "project-b")
+    name = f"reused-env-{uuid.uuid4()}"
+    stale_other_project = JoySafeterEnvironment(name=name, description="", project_id="project-b", deleted_at=utc_now())
+    stale_same_project = JoySafeterEnvironment(name=name, description="", project_id="project-a", deleted_at=utc_now())
+    db_session.add(stale_other_project)
+    await db_session.commit()
+    await db_session.refresh(stale_other_project)
+    db_session.add(stale_same_project)
+    await db_session.commit()
+    await db_session.refresh(stale_same_project)
+    stale_other_project_id = stale_other_project.id
+    stale_same_project_id = stale_same_project.id
+
+    created = await EnvironmentService(db_session).create_environment(
+        CreateEnvironmentRequest(name=name),
+        project_id="project-a",
+    )
+
+    assert created.project_id == "project-a"
+    db_session.expire_all()
+    other_project_row = (
+        await db_session.execute(
+            select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == stale_other_project_id)
+        )
+    ).scalar_one()
+    same_project_row = (
+        await db_session.execute(
+            select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == stale_same_project_id)
+        )
+    ).scalar_one_or_none()
+    assert other_project_row.deleted_at is not None
+    assert same_project_row is None
+
+
+@pytest.mark.asyncio
+async def test_update_environment_rejects_cross_project_at_service_boundary(db_session):
+    await _ensure_project(db_session, "project-a")
+    await _ensure_project(db_session, "project-b")
+    env = JoySafeterEnvironment(name=f"cross-project-env-{uuid.uuid4()}", description="", project_id="project-b")
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+    env_id = env.id
+
+    updated = await EnvironmentService(db_session).update_environment(
+        env_id,
+        UpdateEnvironmentRequest(description="changed"),
+        project_id="project-a",
+    )
+    deleted = await EnvironmentService(db_session).delete_environment(env_id, project_id="project-a")
+    archived = await EnvironmentService(db_session).archive_environment(env_id, project_id="project-a")
+
+    assert updated is None
+    assert deleted is False
+    assert archived is False
+    db_session.expire_all()
+    row = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == env_id))
+    ).scalar_one()
+    assert row.description == ""
+    assert row.deleted_at is None
+    assert row.archived_at is None
 
 
 @pytest.mark.asyncio

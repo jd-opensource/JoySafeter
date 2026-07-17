@@ -6,6 +6,13 @@ from error_contract_helpers import handled_app_error_payload
 from fastapi import UploadFile
 
 from app.joysafeter_api.api.v1.files import delete_file, download_file, get_file, upload_file
+from app.joysafeter_api.api.v1.files import list_files as list_files_route
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.services.joysafeter_file_service import FileService as DomainFileService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 
@@ -21,6 +28,31 @@ def _auth_ctx() -> JoySafeterAuthContext:
 
 def _upload(filename: str, data: bytes) -> UploadFile:
     return UploadFile(file=io.BytesIO(data), filename=filename)
+
+
+async def _create_project_agent_session(db_session, name: str) -> tuple[Project, JoySafeterSession]:
+    org = Organization(
+        id=f"org-{uuid.uuid4()}",
+        name=f"{name} Org",
+        slug=f"{name.lower()}-org-{uuid.uuid4()}",
+    )
+    project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name=name,
+        slug=f"{name.lower()}-{uuid.uuid4()}",
+    )
+    agent = JoySafeterAgent(name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
+    db_session.add_all([org, project])
+    await db_session.commit()
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(agent_id=agent.id, project_id=project.id)
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(project)
+    await db_session.refresh(session)
+    return project, session
 
 
 @pytest.mark.asyncio
@@ -87,6 +119,66 @@ async def test_get_file_invalid_id_returns_structured_validation_error(db_sessio
         "retryable": False,
         "user_action": "fix_input",
     }
+
+
+@pytest.mark.asyncio
+async def test_list_files_invalid_session_scope_returns_structured_validation_error(db_session):
+    with pytest.raises(AppError) as exc_info:
+        await list_files_route(_auth_ctx(), db_session, 20, None, "sess_not-a-uuid")
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "SESSION_ID_INVALID",
+        "message": "Invalid session_id",
+        "data": {"session_id": "sess_not-a-uuid"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+async def test_file_service_session_filter_keeps_parent_project_boundary(db_session):
+    project, session = await _create_project_agent_session(db_session, "FileScopeProject")
+    other_project, other_session = await _create_project_agent_session(db_session, "FileScopeOtherProject")
+    valid_file = JoySafeterFile(
+        project_id=project.id,
+        filename="valid.txt",
+        purpose="user_upload",
+        content_type="text/plain",
+        size_bytes=5,
+        sha256="a" * 64,
+        storage_key="files/valid.txt",
+        session_id=session.id,
+    )
+    inconsistent_file = JoySafeterFile(
+        project_id=project.id,
+        filename="cross-session.txt",
+        purpose="user_upload",
+        content_type="text/plain",
+        size_bytes=5,
+        sha256="b" * 64,
+        storage_key="files/cross-session.txt",
+        session_id=other_session.id,
+    )
+    db_session.add_all([valid_file, inconsistent_file])
+    await db_session.commit()
+
+    files, has_more = await DomainFileService(object()).list_files(
+        db_session,
+        project_id=project.id,
+        session_id=other_session.id,
+    )
+    assert files == []
+    assert has_more is False
+
+    files, has_more = await DomainFileService(object()).list_files(
+        db_session,
+        project_id=project.id,
+        session_id=session.id,
+    )
+    assert [row.filename for row in files] == ["valid.txt"]
+    assert has_more is False
+    assert other_project.id != project.id
 
 
 @pytest.mark.asyncio

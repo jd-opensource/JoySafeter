@@ -7,12 +7,17 @@ from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_domain.schemas.joysafeter_agent import JoySafeterCreateAgentRequest
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
+from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.utils.datetime import utc_now
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
@@ -22,6 +27,25 @@ def _auth_ctx() -> JoySafeterAuthContext:
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.DEVELOPER,
     )
+
+
+async def _ensure_project(db_session, project_id: str) -> None:
+    if await db_session.get(Project, project_id):
+        return
+    org = await db_session.get(Organization, "test-org")
+    if not org:
+        org = Organization(id="test-org", name="Test Org", slug="test-org")
+        db_session.add(org)
+    db_session.add(
+        Project(
+            id=project_id,
+            org_id="test-org",
+            name=project_id,
+            slug=project_id,
+            is_default=False,
+        )
+    )
+    await db_session.commit()
 
 
 class _StopFailingSandboxProvider:
@@ -90,6 +114,154 @@ async def _agent_session_and_task(db_session, *, task_status: str = JoySafeterTa
     await db_session.commit()
     await db_session.refresh(task)
     return agent, session, task
+
+
+@pytest.mark.asyncio
+async def test_create_agent_allows_same_active_name_in_different_projects(db_session):
+    await _ensure_project(db_session, "project-a")
+    await _ensure_project(db_session, "project-b")
+    name = f"scoped-agent-{uuid.uuid4()}"
+    svc = JoySafeterAgentService(db_session)
+
+    agent_a = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
+    agent_b = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-b")
+
+    assert agent_a.id != agent_b.id
+    assert agent_a.project_id == "project-a"
+    assert agent_b.project_id == "project-b"
+
+
+@pytest.mark.asyncio
+async def test_create_agent_reuses_soft_deleted_name_without_purging_history(db_session):
+    await _ensure_project(db_session, "project-a")
+    name = f"reused-agent-{uuid.uuid4()}"
+    svc = JoySafeterAgentService(db_session)
+    old_agent = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
+    old_agent_id = old_agent.id
+    old_agent.deleted_at = utc_now()
+    await db_session.commit()
+
+    new_agent = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
+
+    assert new_agent.id != old_agent_id
+    db_session.expire_all()
+    old_row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == old_agent_id))).scalar_one()
+    assert old_row.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_agent_rejects_cross_project_at_service_boundary(db_session):
+    await _ensure_project(db_session, "project-a")
+    await _ensure_project(db_session, "project-b")
+    agent = JoySafeterAgent(name=f"cross-project-agent-{uuid.uuid4()}", project_id="project-b")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    agent_id = agent.id
+
+    deleted = await JoySafeterAgentService(db_session).hard_delete_agent(agent_id, project_id="project-a")
+
+    assert deleted is False
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    assert row.project_id == "project-b"
+
+
+@pytest.mark.asyncio
+async def test_agent_child_resources_reject_cross_project_at_service_boundary(db_session):
+    await _ensure_project(db_session, "project-a")
+    await _ensure_project(db_session, "project-b")
+    svc = JoySafeterAgentService(db_session)
+
+    await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=f"project-a-agent-{uuid.uuid4()}"),
+        project_id="project-a",
+    )
+    agent_b = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=f"project-b-agent-{uuid.uuid4()}"),
+        project_id="project-b",
+    )
+    agent_b_id = agent_b.id
+
+    session_b = JoySafeterSession(agent_id=agent_b_id, project_id="project-b", status="idle")
+    db_session.add(session_b)
+    await db_session.commit()
+    await db_session.refresh(session_b)
+    session_b_id = session_b.id
+    task_b = JoySafeterTask(
+        agent_id=agent_b_id,
+        chat_session_id=session_b_id,
+        project_id="project-b",
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task_b)
+    await db_session.commit()
+    await db_session.refresh(task_b)
+    task_b_id = task_b.id
+
+    versions, has_more = await svc.list_versions(agent_b_id, project_id="project-a")
+    snapshot = await svc.get_agent_version_snapshot(agent_b_id, 1, project_id="project-a")
+    active_tasks = await svc.list_active_tasks_for_agent(agent_b_id, project_id="project-a")
+    archived_session_ids = await svc.archive_sessions_for_agent(agent_b_id, project_id="project-a")
+
+    assert versions == []
+    assert has_more is False
+    assert snapshot is None
+    assert active_tasks == []
+    assert archived_session_ids == []
+
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_b_id))
+    ).scalar_one()
+    assert session_row.project_id == "project-b"
+    assert session_row.archived_at is None
+    assert session_row.status == "idle"
+
+    project_b_tasks = await svc.list_active_tasks_for_agent(agent_b_id, project_id="project-b")
+    project_b_snapshot = await svc.get_agent_version_snapshot(agent_b_id, 1, project_id="project-b")
+    assert [task.id for task in project_b_tasks] == [task_b_id]
+    assert project_b_snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_agent_sandbox_children_use_parent_session_project_boundary(db_session):
+    await _ensure_project(db_session, "project-a")
+    await _ensure_project(db_session, "project-b")
+    agent_b = JoySafeterAgent(name=f"sandbox-boundary-agent-{uuid.uuid4()}", project_id="project-b")
+    db_session.add(agent_b)
+    await db_session.commit()
+    await db_session.refresh(agent_b)
+    agent_b_id = agent_b.id
+
+    session_b = JoySafeterSession(agent_id=agent_b_id, project_id="project-b", status="idle")
+    db_session.add(session_b)
+    await db_session.commit()
+    await db_session.refresh(session_b)
+    session_b_id = session_b.id
+
+    sandbox_b = JoySafeterSandbox(
+        chat_session_id=session_b_id,
+        external_id=f"sandbox-{uuid.uuid4()}",
+        image="test-image",
+        status="idle",
+    )
+    db_session.add(sandbox_b)
+    await db_session.commit()
+    await db_session.refresh(sandbox_b)
+    sandbox_b_id = sandbox_b.id
+
+    sandbox_svc = SandboxService(db_session)
+
+    assert await sandbox_svc.find_by_session(session_b_id, project_id="project-a") is None
+    assert await sandbox_svc.list_active_for_agent(agent_b_id, project_id="project-a") == []
+
+    project_b_sandbox = await sandbox_svc.find_by_session(session_b_id, project_id="project-b")
+    project_b_sandboxes = await sandbox_svc.list_active_for_agent(agent_b_id, project_id="project-b")
+    assert project_b_sandbox is not None
+    assert str(project_b_sandbox.id) == str(sandbox_b_id)
+    assert [str(sandbox.id) for sandbox in project_b_sandboxes] == [str(sandbox_b_id)]
 
 
 @pytest.mark.asyncio
@@ -346,7 +518,7 @@ async def test_delete_agent_race_active_task_becomes_409_not_500(db_session, mon
     session_id = session.id
     task_id = task.id
 
-    async def hide_active_tasks_once(self, agent_id):
+    async def hide_active_tasks_once(self, agent_id, project_id=None):
         return []
 
     monkeypatch.setattr(
