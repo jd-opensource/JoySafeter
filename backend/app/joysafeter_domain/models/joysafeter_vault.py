@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,7 +12,21 @@ from app.joysafeter_domain.models.base import JoySafeterBaseModel
 class JoySafeterVault(JoySafeterBaseModel):
     __tablename__ = "joysafeter_vaults"
     __table_args__ = (
-        UniqueConstraint("name", name="idx_cv_name"),
+        Index(
+            "uq_joysafeter_vaults_project_name",
+            "project_id",
+            "name",
+            unique=True,
+            postgresql_where=text("project_id IS NOT NULL AND deleted_at IS NULL"),
+            sqlite_where=text("project_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_joysafeter_vaults_global_name",
+            "name",
+            unique=True,
+            postgresql_where=text("project_id IS NULL AND deleted_at IS NULL"),
+            sqlite_where=text("project_id IS NULL AND deleted_at IS NULL"),
+        ),
         Index("idx_cv_project", "project_id"),
     )
 

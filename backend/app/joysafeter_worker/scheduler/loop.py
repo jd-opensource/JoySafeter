@@ -29,13 +29,28 @@ from app.joysafeter_domain.services.joysafeter_session_service import SessionSer
 from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 from app.joysafeter_shared.common.app_errors import AppError
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
 
+# Cancellation failure modes that leave a REPLACE-policy fire in a half-done
+# state: the prior run was (or may have been) cancelled but a replacement was
+# never dispatched. Keeping the slot due lets a later tick retry the whole
+# fire — by then the prior task is terminal, so get_active_tasks is empty and
+# the replacement dispatches cleanly. Advancing instead would silently skip
+# the slot after having killed the prior run.
+_CANCEL_RETRYABLE_CODES = frozenset(
+    {
+        "TASK_CANCEL_REDIS_RELAY_FAILED",
+        "TASK_CANCEL_SESSION_SYNC_FAILED",
+    }
+)
+
+
 def _should_retry_same_slot(exc: Exception) -> bool:
-    return isinstance(exc, AppError) and exc.code == "TASK_CANCEL_REDIS_RELAY_FAILED"
+    return isinstance(exc, AppError) and exc.code in _CANCEL_RETRYABLE_CODES
 
 
 class SchedulerLoop:
@@ -62,8 +77,17 @@ class SchedulerLoop:
                 await self._tick()
             except asyncio.CancelledError:
                 break
-            except Exception:
-                logger.exception("Scheduler tick failed")
+            except Exception as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="scheduler_loop",
+                    code="SCHEDULER_TICK_FAILED",
+                    message="Scheduler tick failed",
+                    operation="scheduler_tick",
+                    error=exc,
+                    data={"worker_id": self._worker_id},
+                    source="worker",
+                )
             try:
                 await asyncio.wait_for(self._stopping.wait(), timeout=self._poll_interval)
             except asyncio.TimeoutError:
@@ -91,7 +115,16 @@ class SchedulerLoop:
                 await self._fire(schedule, fired_slot)
             except Exception as exc:
                 retry_same_slot = _should_retry_same_slot(exc)
-                logger.exception("Scheduler failed to fire schedule %s", schedule.id)
+                log_boundary_failure(
+                    logger,
+                    boundary="scheduler_loop",
+                    code="SCHEDULER_FIRE_FAILED",
+                    message="Scheduler failed to fire schedule",
+                    operation="scheduler_fire",
+                    error=exc,
+                    data={"worker_id": self._worker_id, "schedule_id": str(schedule.id)},
+                    source="worker",
+                )
             finally:
                 async with AsyncSessionLocal() as db:
                     schedule_svc = JoySafeterScheduleService(db)
@@ -210,6 +243,8 @@ class SchedulerLoop:
                 idempotency_key=idempotency_key,
                 schedule_id=schedule.id,
                 auto_created_session_id=session.id,
+                enforce_admission=False,
+                enforce_user_quota=False,
             )
             if created:
                 logger.info("Schedule %s fired task %s (slot=%s)", schedule.id, task.id, fired_slot.isoformat())

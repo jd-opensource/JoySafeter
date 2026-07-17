@@ -12,6 +12,7 @@ from app.joysafeter_domain.models.joysafeter_memory import (
     JoySafeterSessionMemoryStore,
 )
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor, apply_ordered_cursor
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -20,6 +21,19 @@ class PreconditionFailed(Exception):
 
 
 class MemoryStoreLimitExceeded(Exception):
+    pass
+
+
+class MemoryStoreArchived(Exception):
+    """Raised when a write is attempted against an archived memory store.
+
+    Reads treat archived stores as visible (include_archived=True), so writes
+    must fail loudly rather than silently no-op — otherwise a caller that does
+    not pre-check mutability (e.g. an agent-runtime upsert) loses data with no
+    signal. The HTTP layer pre-checks and 409s before reaching here; this guard
+    protects every other caller.
+    """
+
     pass
 
 
@@ -69,9 +83,7 @@ class MemoryService:
             q = q.where(JoySafeterMemoryStore.archived_at.is_(None))
         if project_id is not None:
             q = q.where(JoySafeterMemoryStore.project_id == project_id)
-        if after_id:
-            q = q.where(JoySafeterMemoryStore.id < after_id)
-        q = q.order_by(JoySafeterMemoryStore.created_at.desc()).limit(limit + 1)
+        q = apply_created_at_desc_cursor(q, JoySafeterMemoryStore, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         stores = list(result.scalars().all())
         has_more = len(stores) > limit
@@ -138,9 +150,33 @@ class MemoryService:
 
     # --- Memory ---
 
+    async def _get_mutable_store(
+        self, store_id: uuid.UUID, project_id: Optional[str]
+    ) -> Optional[JoySafeterMemoryStore]:
+        """Return the store for a write, distinguishing not-found from archived.
+
+        Returns None when the store does not exist (or is out of project scope);
+        raises MemoryStoreArchived when it exists but is archived. This keeps a
+        write from silently no-op'ing against an archived store.
+        """
+        store = await self.get_store(store_id, project_id=project_id, include_archived=True)
+        if store is None:
+            return None
+        if store.archived_at is not None:
+            raise MemoryStoreArchived(str(store_id))
+        return store
+
     async def create_memory(
-        self, store_id: uuid.UUID, path: str, content: str = "", session_id: Optional[uuid.UUID] = None
-    ) -> JoySafeterMemory:
+        self,
+        store_id: uuid.UUID,
+        path: str,
+        content: str = "",
+        session_id: Optional[uuid.UUID] = None,
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterMemory]:
+        store = await self._get_mutable_store(store_id, project_id=project_id)
+        if not store:
+            return None
         await self.db.execute(
             select(JoySafeterMemoryStore.id).where(JoySafeterMemoryStore.id == store_id).with_for_update()
         )
@@ -171,7 +207,15 @@ class MemoryService:
 
         return mem
 
-    async def get_memory(self, store_id: uuid.UUID, memory_id: uuid.UUID) -> Optional[JoySafeterMemory]:
+    async def get_memory(
+        self,
+        store_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterMemory]:
+        store = await self.get_store(store_id, project_id=project_id, include_archived=True)
+        if not store:
+            return None
         result = await self.db.execute(
             select(JoySafeterMemory).where(
                 and_(JoySafeterMemory.id == memory_id, JoySafeterMemory.store_id == store_id)
@@ -179,7 +223,16 @@ class MemoryService:
         )
         return result.scalar_one_or_none()
 
-    async def get_memory_by_path(self, store_id: uuid.UUID, path: str) -> Optional[JoySafeterMemory]:
+    async def get_memory_by_path(
+        self,
+        store_id: uuid.UUID,
+        path: str,
+        project_id: Optional[str] = None,
+        include_archived_store: bool = True,
+    ) -> Optional[JoySafeterMemory]:
+        store = await self.get_store(store_id, project_id=project_id, include_archived=include_archived_store)
+        if not store:
+            return None
         result = await self.db.execute(
             select(JoySafeterMemory).where(and_(JoySafeterMemory.store_id == store_id, JoySafeterMemory.path == path))
         )
@@ -191,19 +244,20 @@ class MemoryService:
         path: str,
         content: str,
         session_id: Optional[uuid.UUID] = None,
-    ) -> JoySafeterMemory:
-        existing = await self.get_memory_by_path(store_id, path)
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterMemory]:
+        existing = await self.get_memory_by_path(store_id, path, project_id=project_id)
         if existing:
             # Skip update if SHA256 matches (content unchanged)
             new_sha = hashlib.sha256(content.encode()).hexdigest()
             if existing.content_sha256 == new_sha:
                 return existing
-            updated = await self.update_memory(store_id, existing.id, content, session_id)
+            updated = await self.update_memory(store_id, existing.id, content, session_id, project_id=project_id)
             if updated is not None:
                 return updated
             # Row vanished between fetch and update (e.g. concurrent delete);
             # fall through and (re)create to honor upsert semantics.
-        return await self.create_memory(store_id, path, content, session_id)
+        return await self.create_memory(store_id, path, content, session_id, project_id=project_id)
 
     async def list_memories(
         self,
@@ -213,21 +267,20 @@ class MemoryService:
         path_prefix: Optional[str] = None,
         order_by: str = "path",
         order: str = "asc",
+        project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterMemory], bool]:
+        store = await self.get_store(store_id, project_id=project_id, include_archived=True)
+        if not store:
+            return [], False
         q = select(JoySafeterMemory).where(JoySafeterMemory.store_id == store_id)
-        if after_id:
-            q = q.where(JoySafeterMemory.id < after_id)
         if path_prefix:
             q = q.where(JoySafeterMemory.path.like(path_prefix + "%"))
 
         # Apply ordering
         order_col = getattr(JoySafeterMemory, order_by, JoySafeterMemory.path)
-        if order == "desc":
-            q = q.order_by(order_col.desc())
-        else:
-            q = q.order_by(order_col.asc())
-
-        q = q.limit(limit + 1)
+        q = apply_ordered_cursor(q, JoySafeterMemory, after_id, order_col, descending=order == "desc").limit(
+            limit + 1
+        )
         result = await self.db.execute(q)
         memories = list(result.scalars().all())
         has_more = len(memories) > limit
@@ -240,8 +293,12 @@ class MemoryService:
         content: str,
         session_id: Optional[uuid.UUID] = None,
         if_sha256: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> Optional[JoySafeterMemory]:
-        mem = await self.get_memory(store_id, memory_id)
+        store = await self._get_mutable_store(store_id, project_id=project_id)
+        if not store:
+            return None
+        mem = await self.get_memory(store_id, memory_id, project_id=project_id)
         if not mem:
             return None
         if if_sha256 is not None and mem.content_sha256 != if_sha256:
@@ -263,9 +320,16 @@ class MemoryService:
         return mem
 
     async def delete_memory(
-        self, store_id: uuid.UUID, memory_id: uuid.UUID, session_id: Optional[uuid.UUID] = None
+        self,
+        store_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        session_id: Optional[uuid.UUID] = None,
+        project_id: Optional[str] = None,
     ) -> bool:
-        mem = await self.get_memory(store_id, memory_id)
+        store = await self._get_mutable_store(store_id, project_id=project_id)
+        if not store:
+            return False
+        mem = await self.get_memory(store_id, memory_id, project_id=project_id)
         if not mem:
             return False
         path = mem.path
@@ -277,8 +341,16 @@ class MemoryService:
 
     # --- Versions ---
 
-    async def is_live_version(self, store_id: uuid.UUID, version_id: uuid.UUID) -> bool:
+    async def is_live_version(
+        self,
+        store_id: uuid.UUID,
+        version_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> bool:
         """Check if any memory in this store has current_version_id == version_id."""
+        store = await self.get_store(store_id, project_id=project_id, include_archived=True)
+        if not store:
+            return False
         result = await self.db.execute(
             select(JoySafeterMemory).where(
                 and_(
@@ -297,23 +369,33 @@ class MemoryService:
         memory_id: Optional[uuid.UUID] = None,
         session_id: Optional[uuid.UUID] = None,
         operation: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterMemoryVersion], bool]:
+        store = await self.get_store(store_id, project_id=project_id, include_archived=True)
+        if not store:
+            return [], False
         q = select(JoySafeterMemoryVersion).where(JoySafeterMemoryVersion.store_id == store_id)
-        if after_id:
-            q = q.where(JoySafeterMemoryVersion.id < after_id)
         if memory_id is not None:
             q = q.where(JoySafeterMemoryVersion.memory_id == memory_id)
         if session_id is not None:
             q = q.where(JoySafeterMemoryVersion.session_id == session_id)
         if operation is not None:
             q = q.where(JoySafeterMemoryVersion.operation == operation)
-        q = q.order_by(JoySafeterMemoryVersion.created_at.desc()).limit(limit + 1)
+        q = apply_created_at_desc_cursor(q, JoySafeterMemoryVersion, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         versions = list(result.scalars().all())
         has_more = len(versions) > limit
         return versions[:limit], has_more
 
-    async def get_version(self, store_id: uuid.UUID, version_id: uuid.UUID) -> Optional[JoySafeterMemoryVersion]:
+    async def get_version(
+        self,
+        store_id: uuid.UUID,
+        version_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterMemoryVersion]:
+        store = await self.get_store(store_id, project_id=project_id, include_archived=True)
+        if not store:
+            return None
         result = await self.db.execute(
             select(JoySafeterMemoryVersion).where(
                 and_(JoySafeterMemoryVersion.id == version_id, JoySafeterMemoryVersion.store_id == store_id)
@@ -322,9 +404,16 @@ class MemoryService:
         return result.scalar_one_or_none()
 
     async def redact_version(
-        self, store_id: uuid.UUID, version_id: uuid.UUID, redacted_by: Optional[dict] = None
+        self,
+        store_id: uuid.UUID,
+        version_id: uuid.UUID,
+        redacted_by: Optional[dict] = None,
+        project_id: Optional[str] = None,
     ) -> bool:
-        ver = await self.get_version(store_id, version_id)
+        store = await self.get_store(store_id, project_id=project_id)
+        if not store:
+            return False
+        ver = await self.get_version(store_id, version_id, project_id=project_id)
         if not ver:
             return False
         ver.content = None

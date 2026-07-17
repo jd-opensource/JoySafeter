@@ -22,6 +22,7 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_shared.utils.datetime import utc_now
 
 SANDBOX_STATUSES = frozenset(
@@ -231,8 +232,15 @@ class JoySafeterSandboxService:
         await self.db.refresh(sandbox)
         return sandbox
 
-    async def get_sandbox(self, sandbox_id: uuid.UUID) -> Optional[JoySafeterSandbox]:
-        result = await self.db.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
+    async def get_sandbox(
+        self,
+        sandbox_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> Optional[JoySafeterSandbox]:
+        conditions = [JoySafeterSandbox.id == sandbox_id]
+        if project_id is not None:
+            conditions.append(JoySafeterSandbox.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterSandbox).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def get_sandbox_by_external_id(self, external_id: str) -> Optional[JoySafeterSandbox]:
@@ -252,9 +260,7 @@ class JoySafeterSandboxService:
         q = select(JoySafeterSandbox).where(JoySafeterSandbox.destroyed_at.is_(None))
         if project_id is not None:
             q = q.where(JoySafeterSandbox.project_id == project_id)
-        if after_id:
-            q = q.where(JoySafeterSandbox.id < after_id)
-        q = q.order_by(JoySafeterSandbox.created_at.desc()).limit(limit + 1)
+        q = apply_created_at_desc_cursor(q, JoySafeterSandbox, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         sandboxes = list(result.scalars().all())
         has_more = len(sandboxes) > limit
@@ -306,22 +312,50 @@ class JoySafeterSandboxService:
         )
         await self.db.commit()
 
-    async def find_by_session(self, session_id: uuid.UUID) -> Optional[JoySafeterSandbox]:
-        result = await self.db.execute(
-            select(JoySafeterSandbox)
-            .where(
-                and_(
-                    JoySafeterSandbox.chat_session_id == session_id,
-                    JoySafeterSandbox.destroyed_at.is_(None),
-                    JoySafeterSandbox.status.in_(
-                        ["idle", "running", "creating", "provisioning", "stopped", "stopping", "error"]
-                    ),
+    async def find_by_session(
+        self, session_id: uuid.UUID, project_id: Optional[str] = None
+    ) -> Optional[JoySafeterSandbox]:
+        conditions = [
+            JoySafeterSandbox.chat_session_id == session_id,
+            JoySafeterSandbox.destroyed_at.is_(None),
+            JoySafeterSandbox.status.in_(
+                ["idle", "running", "creating", "provisioning", "stopped", "stopping", "error"]
+            ),
+        ]
+        if project_id is not None:
+            from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+
+            conditions.append(
+                select(JoySafeterSession.id)
+                .where(
+                    JoySafeterSession.id == session_id,
+                    JoySafeterSession.project_id == project_id,
                 )
+                .exists()
             )
-            .order_by(JoySafeterSandbox.last_used_at.desc())
-            .limit(1)
+        result = await self.db.execute(
+            select(JoySafeterSandbox).where(and_(*conditions)).order_by(JoySafeterSandbox.last_used_at.desc()).limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def list_active_for_agent(
+        self, agent_id: uuid.UUID, project_id: Optional[str] = None
+    ) -> list[JoySafeterSandbox]:
+        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+
+        conditions = [
+            JoySafeterSession.agent_id == agent_id,
+            JoySafeterSandbox.destroyed_at.is_(None),
+            JoySafeterSandbox.status != "destroyed",
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterSession.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterSandbox)
+            .join(JoySafeterSession, JoySafeterSandbox.chat_session_id == JoySafeterSession.id)
+            .where(and_(*conditions))
+        )
+        return list(result.scalars().all())
 
     async def claim_from_pool(self, image: str, session_id: uuid.UUID) -> Optional[JoySafeterSandbox]:
         result = await self.db.execute(
@@ -341,7 +375,11 @@ class JoySafeterSandboxService:
             return None
         return await self.state_machine.claim_pool_for_session(sandbox, session_id)
 
-    async def stop_sandbox(self, sandbox_id: uuid.UUID) -> bool:
+    async def stop_sandbox(self, sandbox_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+        if project_id is not None:
+            if await self.get_sandbox(sandbox_id, project_id=project_id) is None:
+                return False
+            return await self.update_status_cas(sandbox_id, "idle", "stopping")
         return await self.update_status_cas(sandbox_id, "idle", "stopping")
 
     async def update_status(self, sandbox_id: uuid.UUID, status: str) -> None:
