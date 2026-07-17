@@ -47,6 +47,10 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_user_context,
     require_joysafeter_user_write,
 )
+from app.joysafeter_shared.common.joysafeter_auth.context import (
+    ProjectCapability,
+    effective_project_capability,
+)
 from app.joysafeter_shared.common.response import success_response
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import get_db
@@ -1108,9 +1112,9 @@ class ProjectMemberResponse(BaseModel):
 
 class AddProjectMemberRequest(BaseModel):
     user_id: str
-    # ProjectMember.role is currently informational; the access gate only checks
-    # row presence. Kept for forward-compatibility with per-project roles.
-    role: str = "member"
+    # Project role: admin / editor / viewer. Normalized on grant; drives the
+    # member's effective capability in this project.
+    role: str = "editor"
 
 
 def _project_member_access(org_role: str, *, has_explicit_row: bool) -> ProjectAccess:
@@ -1119,17 +1123,34 @@ def _project_member_access(org_role: str, *, has_explicit_row: bool) -> ProjectA
     return ProjectAccess.EXPLICIT if has_explicit_row else ProjectAccess.NONE
 
 
+async def _require_project_admin_actor(
+    svc: ProjectService, auth_ctx: JoySafeterAuthContext, project_id: str
+) -> None:
+    """Require the caller to be admin OF THIS project (org super-users included).
+
+    Scoped to the path project_id, not the active-context project, so a project
+    admin can manage members of exactly the project they administer.
+    """
+    actor_role = await svc.get_project_member_role(project_id, auth_ctx.user_id)
+    if effective_project_capability(auth_ctx.role, actor_role) < ProjectCapability.ADMIN:
+        raise AccessDeniedError(
+            "Project admin access required",
+            code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
+        )
+
+
 @router.get("/projects/{project_id}/members")
 async def list_project_members(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> list[ProjectMemberResponse]:
     """List organization members with their access status for a project (requires admin role)."""
     svc = ProjectService(db)
     project = await svc.get_project(project_id, auth_ctx.org_id)
     if project is None:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    await _require_project_admin_actor(svc, auth_ctx, project_id)
 
     explicit_role_by_user = {row.user_id: row.role for row in await svc.list_project_members(project_id)}
 
@@ -1152,13 +1173,14 @@ async def add_project_member(
     req: AddProjectMemberRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> ProjectMemberResponse:
     """Grant an organization member access to a project (requires admin role)."""
     svc = ProjectService(db)
     project = await svc.get_project(project_id, auth_ctx.org_id)
     if project is None:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    await _require_project_admin_actor(svc, auth_ctx, project_id)
 
     member = await OrganizationMemberService(db).get_member_by_user_id(auth_ctx.org_id, req.user_id)
     if member is None:
@@ -1197,13 +1219,14 @@ async def remove_project_member(
     user_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> None:
-    """Revoke an org member's explicit access to a project (requires admin role)."""
+    """Revoke an org member's explicit access to a project (requires project admin)."""
     svc = ProjectService(db)
     project = await svc.get_project(project_id, auth_ctx.org_id)
     if project is None:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    await _require_project_admin_actor(svc, auth_ctx, project_id)
     if project.is_default:
         raise InvalidRequestError(
             code="PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN",

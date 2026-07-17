@@ -189,6 +189,11 @@ CATALOG: dict[str, CatalogEntry] = {
     "JOYSAFETER_ADMIN_REQUIRED": CatalogEntry(
         code="JOYSAFETER_ADMIN_REQUIRED", error_class=AccessDeniedError, default_message="Admin access required"
     ),
+    "JOYSAFETER_PROJECT_ADMIN_REQUIRED": CatalogEntry(
+        code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
+        error_class=AccessDeniedError,
+        default_message="Project admin access required",
+    ),
     "JOYSAFETER_UNAUTHORIZED": CatalogEntry(
         code="JOYSAFETER_UNAUTHORIZED",
         error_class=AuthenticationError,

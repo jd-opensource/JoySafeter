@@ -12,6 +12,7 @@ from app.joysafeter_api.api.v1.auth import (
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
+from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 
@@ -222,3 +223,23 @@ async def test_remove_project_member_missing_row_returns_not_found(db_session):
             _admin_ctx(org.id),
         )
     assert exc_info.value.code == "PROJECT_MEMBER_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_get_project_member_role_returns_role_or_none(db_session):
+    org, _default_project = await _org_with_default_project(db_session)
+    non_default = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="Second",
+        slug=f"second-{uuid.uuid4()}",
+    )
+    db_session.add(non_default)
+    dev = await _add_member(db_session, org_id=org.id, role="developer", name="Dev")
+    other = await _add_member(db_session, org_id=org.id, role="developer", name="Other")
+    db_session.add(ProjectMember(project_id=non_default.id, user_id=dev.id, role="editor"))
+    await db_session.commit()
+
+    svc = ProjectService(db_session)
+    assert await svc.get_project_member_role(non_default.id, dev.id) == "editor"
+    assert await svc.get_project_member_role(non_default.id, other.id) is None
