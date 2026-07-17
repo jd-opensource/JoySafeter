@@ -89,10 +89,13 @@ class ProjectMember(Base, TimestampMixin):
     member into the org's default project so legacy data keeps working
     without the user explicitly granting per-project access.
 
-    ``role`` is intentionally free-form here — the gate only cares
-    about presence ("is this user a member of this project?"). Future
-    per-project ACLs (e.g. project-admin) can layer on top without
-    schema changes.
+    ``role`` is the authoritative per-project capability for non-super-users
+    (``admin`` / ``editor`` / ``viewer``; see ``ProjectRole``). The
+    ``effective_project_capability`` function derives read/write/admin
+    solely from this value, so it is no longer free-form or presence-only.
+    Legacy values (``owner`` / ``developer`` / ``member``) are normalized
+    both by a data migration (``20260717_000014_normalize_project_member_roles``)
+    and at runtime by ``ProjectRole.normalize``.
     """
 
     __tablename__ = "joysafeter_project_members"
@@ -112,8 +115,8 @@ class ProjectMember(Base, TimestampMixin):
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # Free-form. The skill access gate ignores it; later features
-    # (project-admin, project-editor) can interpret it.
+    # Per-project capability: admin / editor / viewer (see ProjectRole).
+    # Legacy values are normalized by ProjectRole.normalize at runtime.
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="member")
 
     # relationships

@@ -37,9 +37,6 @@ class JoySafeterRole(str, Enum):
             JoySafeterRole.OWNER: 4,
         }[self]
 
-    def can_write(self) -> bool:
-        return self in (JoySafeterRole.OWNER, JoySafeterRole.ADMIN, JoySafeterRole.DEVELOPER)
-
     def can_manage_members(self) -> bool:
         return self in (JoySafeterRole.OWNER, JoySafeterRole.ADMIN)
 
