@@ -864,6 +864,41 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=AccessDeniedError,
         default_message="Only the skill owner can transfer ownership.",
     ),
+    "SKILL_PROMOTION_ALREADY_PENDING": CatalogEntry(
+        code="SKILL_PROMOTION_ALREADY_PENDING",
+        error_class=ResourceConflictError,
+        default_message="This version is already pending review for a different tier.",
+    ),
+    "SKILL_PROMOTION_FOUR_EYES": CatalogEntry(
+        code="SKILL_PROMOTION_FOUR_EYES",
+        error_class=AccessDeniedError,
+        default_message="The submitter cannot approve their own promotion.",
+    ),
+    "SKILL_PROMOTION_NOT_PENDING": CatalogEntry(
+        code="SKILL_PROMOTION_NOT_PENDING",
+        error_class=ResourceConflictError,
+        default_message="This version is not pending review.",
+    ),
+    "SKILL_PROMOTION_OWNER_ONLY": CatalogEntry(
+        code="SKILL_PROMOTION_OWNER_ONLY",
+        error_class=AccessDeniedError,
+        default_message="Only the organization owner can review skill promotions.",
+    ),
+    "SKILL_PROMOTION_SCAN_NOT_PASSED": CatalogEntry(
+        code="SKILL_PROMOTION_SCAN_NOT_PASSED",
+        error_class=ResourceConflictError,
+        default_message="The skill's security scan has not passed; cannot promote.",
+    ),
+    "SKILL_PROMOTION_TARGET_MISSING": CatalogEntry(
+        code="SKILL_PROMOTION_TARGET_MISSING",
+        error_class=InvalidRequestError,
+        default_message="A promotion target version or skill is required.",
+    ),
+    "SKILL_PROMOTION_TIER_INVALID": CatalogEntry(
+        code="SKILL_PROMOTION_TIER_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid promotion tier.",
+    ),
     "SKILL_SECURITY_BLOCKED": CatalogEntry(
         code="SKILL_SECURITY_BLOCKED",
         error_class=InvalidRequestError,
@@ -910,6 +945,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SKILL_VERSION_PRERELEASE_UNSUPPORTED",
         error_class=InvalidRequestError,
         default_message="Pre-release and build metadata are not supported",
+    ),
+    "SKILL_VERSION_STORED_INVALID": CatalogEntry(
+        code="SKILL_VERSION_STORED_INVALID",
+        error_class=InvalidRequestError,
+        default_message="A stored skill version is not valid semver; cannot compute the next version.",
     ),
     "SKILL_VISIBILITY_OWNER_ONLY": CatalogEntry(
         code="SKILL_VISIBILITY_OWNER_ONLY",
