@@ -11,6 +11,7 @@ from app.joysafeter_api.api.v1.middleware import (
     ApiV1ResponseWrapperMiddleware,
     CsrfProtectionMiddleware,
     RequestBodySizeLimitMiddleware,
+    SecurityHeadersMiddleware,
 )
 from app.joysafeter_api.api.v1.router import joysafeter_router
 from app.joysafeter_api.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
@@ -37,6 +38,10 @@ def register_api_routes(app: FastAPI) -> None:
     # request is rejected (413) before CSRF/wrapper/router ever read the body,
     # bounding the memory a single request can force a worker to buffer.
     app.add_middleware(RequestBodySizeLimitMiddleware, max_body_bytes=settings.max_request_body_bytes)
+    # Security response headers. Added LAST → OUTERMOST, so the hardening headers
+    # are stamped on every response including the 413/403 short-circuits above.
+    # HSTS only in a secure (HTTPS) context so it never pins https on localhost.
+    app.add_middleware(SecurityHeadersMiddleware, hsts=settings.cookie_secure_effective)
     # All API routes live under /api/v1/*.
     app.include_router(joysafeter_router, prefix="/api/v1")
 

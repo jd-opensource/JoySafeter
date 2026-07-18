@@ -8,6 +8,7 @@ Single: {"success": true, "code": 200, "message": "OK", "data": {...}}
 
 import json
 
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -180,6 +181,40 @@ class RequestBodySizeLimitMiddleware:
             error=PayloadTooLargeError(data={"max_bytes": self.max_body_bytes}),
         )
         await response(scope, receive, send)
+
+
+class SecurityHeadersMiddleware:
+    """Attach standard hardening headers to every HTTP response.
+
+    Pure ASGI so the headers apply to all responses (JSON, SSE, errors, docs)
+    uniformly. ``setdefault`` semantics mean a route that intentionally sets one
+    of these keeps its value. HSTS is only emitted in a secure (HTTPS) context so
+    it never forces https on http://localhost during development.
+    """
+
+    def __init__(self, app, *, hsts: bool = False) -> None:
+        self.app = app
+        self.hsts = hsts
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(raw=message.setdefault("headers", []))
+                headers.setdefault("X-Content-Type-Options", "nosniff")
+                headers.setdefault("X-Frame-Options", "DENY")
+                headers.setdefault("Referrer-Policy", "no-referrer")
+                headers.setdefault("X-Permitted-Cross-Domain-Policies", "none")
+                if self.hsts:
+                    headers.setdefault(
+                        "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+                    )
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
 def _is_csrf_exempt_path(path: str) -> bool:
