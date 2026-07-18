@@ -27,10 +27,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.joysafeter_domain.models.joysafeter_skill import JoySafeterCollaboratorRole as CollaboratorRole
 from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityService
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, ResourceConflictError
+from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
+from app.joysafeter_shared.common.joysafeter_auth.context import ProjectCapability
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 
 # ── fixtures ────────────────────────────────────────────────────
@@ -71,63 +72,62 @@ def _patch_skill_org_id(monkeypatch, *, org_id):
     )
 
 
-def _patch_no_collaborator(monkeypatch):
-    async def _none(*_args, **_kw):
-        return None
+def _patch_project_role(monkeypatch, *, role):
+    async def _role(_db, _user_id, _project_id):
+        return role
 
     monkeypatch.setattr(
-        "app.joysafeter_shared.common.skill_permissions._get_collaborator",
-        _none,
+        "app.joysafeter_shared.common.skill_permissions._project_member_role",
+        _role,
     )
 
 
-# ── Risk #1 — owner short-circuit honors active_org_id ──────────
+# ── Risk #1 — capability path honors active_org_id (single-axis) ──
 
 
-async def test_owner_pass_when_in_active_org(monkeypatch):
-    """Owner reading from inside the skill's org goes through — the
-    fix isn't supposed to block legitimate owner reads."""
+async def test_project_admin_pass_when_in_active_org(monkeypatch):
+    """A project admin reading from inside the skill's org goes through."""
     s = _skill(owner_id="alice", visibility="private")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_no_collaborator(monkeypatch)
+    _patch_project_role(monkeypatch, role="admin")
 
     await check_skill_access(
         _NullDB(),
         s,
         user_id="alice",
-        min_role=CollaboratorRole.ADMIN,
+        required=ProjectCapability.ADMIN,
+        caller_org_role=JoySafeterRole.MEMBER,
         active_org_id="org-A",
     )
 
 
-async def test_owner_denied_when_in_different_active_org(monkeypatch):
-    """The fix: an owner pinned to a different org context can NOT
-    short-circuit through visibility. P2.9 closes the cross-org
-    leak that ``list_by_user`` already closes."""
+async def test_project_admin_denied_when_in_different_active_org(monkeypatch):
+    """The fix: a caller pinned to a different org context can NOT reach
+    the skill via project capability. Org isolation gates the capability
+    path — P2.9 closes the cross-org leak that ``list_by_user`` closes."""
     s = _skill(owner_id="alice", visibility="private")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_no_collaborator(monkeypatch)
+    _patch_project_role(monkeypatch, role="admin")
 
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
             _NullDB(),
             s,
             user_id="alice",
-            min_role=CollaboratorRole.ADMIN,
+            required=ProjectCapability.ADMIN,
+            caller_org_role=JoySafeterRole.MEMBER,
             active_org_id="org-B",
         )
 
 
 async def test_delete_skill_owner_denied_when_in_different_active_org(monkeypatch):
-    """Delete uses the same active-org boundary as read/update.
-
-    The owner-only rule is not enough in a multi-org UI: the same user
-    can own skills in org A and org B, but a request pinned to org B must
-    not delete an org A skill by direct id.
-    """
+    """Delete uses the same active-org boundary. The owner-only rule is
+    not enough in a multi-org UI: the same user can own skills in org A
+    and org B, but a request pinned to org B must not delete an org A
+    skill by direct id."""
     s = _skill(owner_id="alice", visibility="private")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_no_collaborator(monkeypatch)
+    _patch_project_role(monkeypatch, role="admin")
     svc = _make_skill_service(s, current_user_id="alice", active_org_id="org-B")
     svc.repo.delete = AsyncMock()
     svc.file_repo.delete_by_skill = AsyncMock()
@@ -140,65 +140,36 @@ async def test_delete_skill_owner_denied_when_in_different_active_org(monkeypatc
     svc.db.commit.assert_not_called()
 
 
-async def test_owner_pass_when_active_org_not_supplied(monkeypatch):
-    """Backwards-compatibility: when ``active_org_id`` is ``None``
-    (legacy caller), the owner short-circuit works the way it always
-    did. This is the fallback that keeps the rest of the codebase
-    from breaking until every caller is migrated."""
+async def test_org_superuser_gets_admin_in_own_org(monkeypatch):
+    """Org owner/admin manage every skill in their own org — capability
+    resolves to ADMIN without a project row."""
     s = _skill(owner_id="alice", visibility="private")
-    _patch_no_collaborator(monkeypatch)
-    # NOTE: ``resolve_skill_org_id`` is intentionally not patched — the
-    # owner branch should NOT call it when ``active_org_id`` is None.
+    _patch_skill_org_id(monkeypatch, org_id="org-A")
+    _patch_project_role(monkeypatch, role=None)
 
     await check_skill_access(
         _NullDB(),
         s,
-        user_id="alice",
-        min_role=CollaboratorRole.ADMIN,
-        active_org_id=None,
+        user_id="boss",
+        required=ProjectCapability.ADMIN,
+        caller_org_role=JoySafeterRole.ADMIN,
+        active_org_id="org-A",
     )
-
-
-async def test_collaborator_denied_when_in_different_active_org(monkeypatch):
-    """Mirror of the owner test for collaborators. An editor
-    collaborator pinned to org B shouldn't be able to drive a skill
-    in org A — same multi-tenant boundary."""
-    s = _skill(owner_id="alice", visibility="private")
-    _patch_skill_org_id(monkeypatch, org_id="org-A")
-
-    async def _grant(_db, _skill_id, user_id):
-        if user_id == "bob":
-            return SimpleNamespace(role=CollaboratorRole.EDITOR)
-        return None
-
-    monkeypatch.setattr(
-        "app.joysafeter_shared.common.skill_permissions._get_collaborator",
-        _grant,
-    )
-
-    with pytest.raises(AccessDeniedError):
-        await check_skill_access(
-            _NullDB(),
-            s,
-            user_id="bob",
-            min_role=CollaboratorRole.EDITOR,
-            active_org_id="org-B",
-        )
 
 
 async def test_public_skill_still_crosses_active_org(monkeypatch):
-    """``public`` is the explicit carve-out: it's supposed to cross
-    every org boundary. Even with an active_org_id mismatch, viewer
-    access through ``public`` must still go through."""
+    """``public`` is the explicit carve-out: readable from any org even
+    with an active_org mismatch."""
     s = _skill(owner_id="alice", visibility="public", is_public=True)
     _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_no_collaborator(monkeypatch)
+    _patch_project_role(monkeypatch, role=None)
 
     await check_skill_access(
         _NullDB(),
         s,
         user_id="stranger",
-        min_role=CollaboratorRole.VIEWER,
+        required=ProjectCapability.READ,
+        caller_org_role=JoySafeterRole.MEMBER,
         active_org_id="org-B",
     )
 

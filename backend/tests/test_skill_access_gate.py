@@ -1,13 +1,22 @@
-"""Unit tests for ``check_skill_access`` — single-axis project-capability gate.
+"""Security tests for the single-axis project-capability skill gate.
 
-Phase 2 of the skills redesign collapses the old owner + collaborator
-ACL into ONE axis: the caller's effective capability on the skill's own
-PROJECT (via ``effective_project_capability``), gated by org isolation.
-READ can additionally come from the visibility tier (public crosses
+Phase 2 of the skills single-axis redesign replaces the per-skill
+collaborator ACL with a SINGLE-AXIS project-capability gate:
+
+  ``check_skill_access(db, skill, user_id, required, *,
+                       caller_org_role, active_org_id=None)``
+
+The gate derives WRITE/ADMIN capability SOLELY from the caller's
+effective capability on the skill's PROJECT (via
+``effective_project_capability(org_role, project_role)``). Org
+owner/admin are super-users (ADMIN everywhere in their org). READ can
+additionally be granted through the visibility tier (public crosses
 orgs; organization only inside the active org).
 
-Membership and org-id resolution are patched at the helper boundary so
-these run without a real database.
+These tests are the security core: a wrong OR-clause or a missing
+org-isolation check re-introduces a cross-tenant leak. Membership and
+org-id resolution are patched at the helper boundary so the tests run
+without a real database.
 """
 
 from __future__ import annotations
@@ -20,15 +29,12 @@ import pytest
 from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth.context import ProjectCapability
-from app.joysafeter_shared.common.skill_permissions import (
-    _effective_visibility,
-    check_skill_access,
-)
+from app.joysafeter_shared.common.skill_permissions import check_skill_access
 
 MODULE = "app.joysafeter_shared.common.skill_permissions"
 
 
-def _skill(*, owner_id="owner", visibility="project", is_public=False, project_id="proj-1"):
+def _skill(*, owner_id="alice", visibility="project", is_public=False, project_id="proj-1"):
     return SimpleNamespace(
         id=uuid.uuid4(),
         owner_id=owner_id,
@@ -40,34 +46,10 @@ def _skill(*, owner_id="owner", visibility="project", is_public=False, project_i
 
 class _NullDB:
     """The gate resolves org id + project role + org membership through
-    helpers we patch, so the raw session must never be touched."""
+    helpers we patch; the raw session must never be touched here."""
 
     async def execute(self, _stmt):  # pragma: no cover — patch a helper
         raise AssertionError("DB not expected to be hit; patch a helper")
-
-
-# ── visibility helper ──────────────────────────────────────────
-
-
-def test_effective_visibility_prefers_column():
-    s = _skill(visibility="public")
-    assert _effective_visibility(s) == "public"
-
-
-def test_effective_visibility_falls_back_to_project_when_null():
-    """Single-axis model no longer reads ``is_public``; a null/empty
-    visibility falls back to ``project`` (least-permissive shareable)."""
-    s = _skill(visibility="", is_public=True)
-    assert _effective_visibility(s) == "project"
-
-
-@pytest.mark.parametrize("v", ["private", "project", "organization", "public"])
-def test_effective_visibility_passes_through(v):
-    s = _skill(visibility=v)
-    assert _effective_visibility(s) == v
-
-
-# ── helpers ────────────────────────────────────────────────────
 
 
 def _patch_skill_org_id(monkeypatch, *, org_id):
@@ -78,6 +60,9 @@ def _patch_skill_org_id(monkeypatch, *, org_id):
 
 
 def _patch_project_role(monkeypatch, *, role):
+    """Stub the new single-row ProjectMember.role lookup the gate uses to
+    compute the caller's capability on the skill's own project."""
+
     async def _role(_db, _user_id, _project_id):
         return role
 
@@ -94,7 +79,7 @@ def _patch_org_member(monkeypatch, *, is_member):
 # ── project role -> capability threshold ────────────────────────
 
 
-async def test_viewer_read_only(monkeypatch):
+async def test_viewer_read_allowed_write_admin_denied(monkeypatch):
     s = _skill()
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role="viewer")
@@ -108,13 +93,22 @@ async def test_viewer_read_only(monkeypatch):
             _NullDB(), s, "bob", ProjectCapability.WRITE,
             caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
         )
+    with pytest.raises(AccessDeniedError):
+        await check_skill_access(
+            _NullDB(), s, "bob", ProjectCapability.ADMIN,
+            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+        )
 
 
-async def test_editor_write(monkeypatch):
+async def test_editor_read_and_write_allowed_admin_denied(monkeypatch):
     s = _skill()
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role="editor")
 
+    await check_skill_access(
+        _NullDB(), s, "bob", ProjectCapability.READ,
+        caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+    )
     await check_skill_access(
         _NullDB(), s, "bob", ProjectCapability.WRITE,
         caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
@@ -126,7 +120,7 @@ async def test_editor_write(monkeypatch):
         )
 
 
-async def test_project_admin(monkeypatch):
+async def test_project_admin_gets_admin(monkeypatch):
     s = _skill()
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role="admin")
@@ -138,7 +132,9 @@ async def test_project_admin(monkeypatch):
 
 
 @pytest.mark.parametrize("org_role", [JoySafeterRole.OWNER, JoySafeterRole.ADMIN])
-async def test_org_superuser_admin(monkeypatch, org_role):
+async def test_org_superuser_gets_admin_without_project_row(monkeypatch, org_role):
+    """Org owner/admin manage every skill in their org regardless of a
+    ProjectMember row (effective_project_capability short-circuits to ADMIN)."""
     s = _skill()
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
@@ -149,13 +145,17 @@ async def test_org_superuser_admin(monkeypatch, org_role):
     )
 
 
-# ── org isolation ───────────────────────────────────────────────
+# ── cross-org isolation ─────────────────────────────────────────
 
 
-async def test_capability_denied_cross_org(monkeypatch):
-    s = _skill(visibility="project")
+async def test_cross_org_org_visibility_read_denied(monkeypatch):
+    """Caller pinned to org B cannot READ an org-A ``organization``
+    skill even though they'd be a project admin — org isolation gates
+    the capability path, and organization visibility never crosses orgs."""
+    s = _skill(visibility="organization")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role="admin")
+    _patch_org_member(monkeypatch, is_member=True)
 
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
@@ -164,8 +164,9 @@ async def test_capability_denied_cross_org(monkeypatch):
         )
 
 
-async def test_public_read_crosses_org(monkeypatch):
-    s = _skill(visibility="public")
+async def test_cross_org_public_read_allowed(monkeypatch):
+    """``public`` is the one carve-out: readable from any org."""
+    s = _skill(visibility="public", is_public=True)
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
 
@@ -175,13 +176,29 @@ async def test_public_read_crosses_org(monkeypatch):
     )
 
 
-# ── visibility read fallback ────────────────────────────────────
+async def test_cross_org_project_capability_write_denied(monkeypatch):
+    """A caller who is a project ADMIN of an org-A skill but pinned to
+    org B must NOT WRITE it — the capability path is org-gated."""
+    s = _skill(visibility="project")
+    _patch_skill_org_id(monkeypatch, org_id="org-A")
+    _patch_project_role(monkeypatch, role="admin")
+
+    with pytest.raises(AccessDeniedError):
+        await check_skill_access(
+            _NullDB(), s, "bob", ProjectCapability.WRITE,
+            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-B",
+        )
+
+
+# ── org-member (non-project-member) read via visibility ─────────
 
 
 async def test_org_member_reads_organization_skill(monkeypatch):
+    """Org member who is NOT a project member gets READ on an
+    ``organization`` skill inside their active org."""
     s = _skill(visibility="organization")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_project_role(monkeypatch, role=None)
+    _patch_project_role(monkeypatch, role=None)  # not a project member
     _patch_org_member(monkeypatch, is_member=True)
 
     await check_skill_access(
@@ -190,7 +207,9 @@ async def test_org_member_reads_organization_skill(monkeypatch):
     )
 
 
-async def test_org_visibility_never_grants_write(monkeypatch):
+async def test_org_member_never_gets_write_via_visibility(monkeypatch):
+    """Visibility grants READ only — never WRITE. An org member with no
+    project row must be denied WRITE on an organization skill."""
     s = _skill(visibility="organization")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
@@ -203,12 +222,13 @@ async def test_org_visibility_never_grants_write(monkeypatch):
         )
 
 
-async def test_project_visibility_needs_project_row(monkeypatch):
-    """A ``project`` skill is not readable by a bare org member — the
-    org-visibility fallback does not apply to the project tier."""
+async def test_org_member_no_read_on_project_visibility(monkeypatch):
+    """A ``project`` skill is NOT readable by a bare org member — they
+    need a project row (capability path). Org visibility fallback does
+    not apply to the ``project`` tier."""
     s = _skill(visibility="project")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_project_role(monkeypatch, role=None)
+    _patch_project_role(monkeypatch, role=None)  # not a project member
     _patch_org_member(monkeypatch, is_member=True)
 
     with pytest.raises(AccessDeniedError):
@@ -218,7 +238,8 @@ async def test_project_visibility_needs_project_row(monkeypatch):
         )
 
 
-async def test_private_skill_denies_stranger(monkeypatch):
+async def test_non_member_non_org_non_public_denied(monkeypatch):
+    """No project row, not an org member, not public → denied at every tier."""
     s = _skill(visibility="private")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
@@ -232,16 +253,17 @@ async def test_private_skill_denies_stranger(monkeypatch):
     assert ei.value.code == "SKILL_ACCESS_DENIED"
 
 
-async def test_org_skill_without_project_id_denies(monkeypatch):
-    """An ``organization`` skill with no ``project_id`` has no org to
-    bind against — deny rather than fall through."""
-    s = _skill(visibility="organization", project_id=None)
-    _patch_skill_org_id(monkeypatch, org_id=None)
+async def test_owner_without_project_row_denied_write(monkeypatch):
+    """Single-axis invariant: being the skill OWNER no longer grants
+    capability. An owner with no project role and only MEMBER org role
+    cannot WRITE."""
+    s = _skill(owner_id="bob", visibility="private")
+    _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
-    _patch_org_member(monkeypatch, is_member=False)
+    _patch_org_member(monkeypatch, is_member=True)
 
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
-            _NullDB(), s, "bob", ProjectCapability.READ,
-            caller_org_role=JoySafeterRole.MEMBER, active_org_id=None,
+            _NullDB(), s, "bob", ProjectCapability.WRITE,
+            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
         )

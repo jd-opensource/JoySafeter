@@ -32,7 +32,6 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkill,
     JoySafeterSkillLifecycleStatus,
     JoySafeterSkillSecurityScan,
@@ -46,6 +45,10 @@ from app.joysafeter_shared.common.app_errors import (
 )
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
+from app.joysafeter_shared.common.joysafeter_auth.context import (
+    JoySafeterRole,
+    ProjectCapability,
+)
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.security.ssrf_guard import validate_url
@@ -289,7 +292,15 @@ class SkillSecurityScannerClient:
 class SkillSecurityService:
     """Coordinates SkillSpector scans, persistence, and write policy."""
 
-    def __init__(self, db: AsyncSession, *, active_org_id: Optional[str] = None):
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
         self.db = db
         self.repo = SkillSecurityScanRepository(db)
         self.skill_repo = SkillRepository(db)
@@ -302,6 +313,9 @@ class SkillSecurityService:
         # scan-history reads / rescan triggers also respect the strict
         # cross-org isolation rule.
         self._active_org_id = active_org_id
+        # Single-axis redesign: caller's org role, threaded into
+        # ``check_skill_access`` so org super-users resolve to ADMIN.
+        self._caller_org_role = caller_org_role
 
     async def scan_for_write(
         self,
@@ -463,7 +477,12 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.EDITOR, active_org_id=self._active_org_id
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
         )
         _ensure_scan_target_mutable(skill)
 
@@ -529,7 +548,12 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.VIEWER, active_org_id=self._active_org_id
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
         )
         return await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
 
@@ -538,7 +562,12 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.VIEWER, active_org_id=self._active_org_id
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
         )
         scan = await self.repo.get_latest_by_skill(skill_id)
         if not scan:
@@ -562,7 +591,12 @@ class SkillSecurityService:
             if not skill:
                 raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(scan.skill_id)})
             await check_skill_access(
-                self.db, skill, current_user_id, JoySafeterCollaboratorRole.VIEWER, active_org_id=self._active_org_id
+                self.db,
+                skill,
+                current_user_id,
+                ProjectCapability.READ,
+                caller_org_role=self._caller_org_role,
+                active_org_id=self._active_org_id,
             )
         elif scan.created_by_id != current_user_id and scan.owner_id != current_user_id:
             raise AccessDeniedError(

@@ -303,7 +303,7 @@ async def authoring_save_draft(
     threads it back on subsequent saves. Files are persisted via the
     existing ``update_skill`` ``files`` path (one shot, replace-all).
     """
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     files = _normalize_draft_files(req.files)
 
     if req.draft_skill_id:

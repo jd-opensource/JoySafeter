@@ -15,7 +15,6 @@ from app.joysafeter_domain.models.joysafeter_organization import Member
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkill,
-    JoySafeterSkillCollaborator,
     JoySafeterSkillFile,
     JoySafeterSkillSecurityScan,
     JoySafeterSkillVisibility,
@@ -68,29 +67,12 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
 
         conditions = []
 
-        # Strict org isolation. We materialize "every project_id that
-        # belongs to the active org" into a subquery and require the
-        # skill to be in that set for every non-public match. Public
-        # skills don't need the gate — they cross every boundary by
-        # definition.
-        active_org_project_ids = (
-            select(Project.id).where(Project.org_id == org_id).scalar_subquery() if org_id is not None else None
-        )
-
         if user_id:
-            collab_subquery = (
-                select(JoySafeterSkillCollaborator.skill_id)
-                .where(JoySafeterSkillCollaborator.user_id == user_id)
-                .scalar_subquery()
-            )
-            # Projects in the user's CURRENT active org — used by the
-            # ``organization`` tier. Anyone in this org gets to see
-            # every ``organization``-scoped skill regardless of which
-            # project the skill is pinned to. The ``Member`` join is
-            # still required: a user with the active org in their
-            # session header but who isn't actually a member of that
-            # org gets nothing (defense-in-depth against forged
-            # X-Org-Id headers).
+            # (b) ``organization`` tier — every project in the caller's
+            # ACTIVE org they belong to. The ``Member`` join is required:
+            # a user with the active org in their session header but who
+            # isn't actually a member of that org gets nothing (defense
+            # against forged X-Org-Id headers).
             org_project_filter = [Project.org_id == org_id] if org_id else []
             org_project_subquery = (
                 select(Project.id)
@@ -101,13 +83,12 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
                 )
                 .scalar_subquery()
             )
-            # Projects the user is a direct member of — used by the
-            # ``project`` tier. Anyone in the same org but NOT in this
-            # specific project misses out, which is the whole point of
-            # P2.8 separating the two tiers. When the caller has an
-            # active org, we further constrain to projects in THAT
-            # org so a multi-org user doesn't see their other-org
-            # project memberships leaking through.
+            # (a) Project-membership tier — every project the caller has a
+            # ProjectMember row in (any role). This is the single axis that
+            # replaces the old owner/collaborator OR-clauses: membership of
+            # the skill's project is what grants a listing. When the caller
+            # has an active org, constrain to projects in THAT org so a
+            # multi-org user doesn't see other-org memberships leak through.
             user_project_subquery_base = select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)
             if org_id is not None:
                 user_project_subquery_base = user_project_subquery_base.join(
@@ -115,43 +96,21 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
                 ).where(Project.org_id == org_id)
             user_project_subquery = user_project_subquery_base.scalar_subquery()
 
-            # Non-public matches need to live in the active org. The
-            # outer ``active_org_clause`` collapses to "always True"
-            # when ``org_id`` is None (legacy path), keeping pre-P2.8
-            # behavior for any caller that hasn't migrated yet.
-            org_scope_clauses: list = []
-            if active_org_project_ids is not None:
-                org_scope_clauses.append(JoySafeterSkill.project_id.in_(active_org_project_ids))
-
             visibility_clauses = [
-                # Owner + same active org
-                and_(JoySafeterSkill.owner_id == user_id, *org_scope_clauses),
-                # Direct collaborator + same active org
-                and_(JoySafeterSkill.id.in_(collab_subquery), *org_scope_clauses),
-                # Legacy rows with NULL owner — treat as "the org owns
-                # them" and let in-org users see them.
-                and_(JoySafeterSkill.owner_id.is_(None), *org_scope_clauses),
-                # organization tier — same-org members only
+                # (a) member of the skill's project (any role), in the
+                # active org. Covers ``private`` and ``project`` tiers for
+                # project members exactly like the capability gate does.
+                JoySafeterSkill.project_id.in_(user_project_subquery),
+                # (b) organization tier — same-org members only.
                 and_(
                     JoySafeterSkill.visibility == JoySafeterSkillVisibility.ORGANIZATION.value,
                     JoySafeterSkill.project_id.in_(org_project_subquery),
                 ),
-                # project tier — same-project members only
-                and_(
-                    JoySafeterSkill.visibility == JoySafeterSkillVisibility.PROJECT.value,
-                    JoySafeterSkill.project_id.in_(user_project_subquery),
-                ),
             ]
             if include_public:
+                # (c) public crosses every org boundary — no org gate.
                 visibility_clauses.append(
-                    or_(
-                        JoySafeterSkill.visibility == JoySafeterSkillVisibility.PUBLIC.value,
-                        # Legacy fallback: rows written before P1 may carry
-                        # ``is_public=true`` without ``visibility='public'``;
-                        # we accept either while the dual-write transition
-                        # is in flight.
-                        JoySafeterSkill.is_public.is_(True),
-                    )
+                    JoySafeterSkill.visibility == JoySafeterSkillVisibility.PUBLIC.value
                 )
             conditions.append(or_(*visibility_clauses))
         else:
@@ -172,10 +131,6 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
                     JoySafeterSkill.project_id == project_id,
                     JoySafeterSkill.visibility == JoySafeterSkillVisibility.ORGANIZATION.value,
                     JoySafeterSkill.visibility == JoySafeterSkillVisibility.PUBLIC.value,
-                    # Legacy ``is_public=true`` rows without explicit
-                    # visibility set should also bypass the project
-                    # narrowing.
-                    JoySafeterSkill.is_public.is_(True),
                 )
             )
 

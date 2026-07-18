@@ -238,23 +238,37 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
     )
 
     try:
-        # No exception: a transient enqueue failure leaves the task PENDING for
-        # the repair sweep instead of destroying it.
-        await send_event(req, session_id, db_session, auth_ctx)
+        with pytest.raises(AppError) as exc_info:
+            await send_event(req, session_id, db_session, auth_ctx)
     finally:
         await engine.dispose()
 
     db_session.expire_all()
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
-    assert task.status == JoySafeterTaskStatus.PENDING.value
-    assert "Failed to enqueue task" not in (task.error or "")
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert task.status == JoySafeterTaskStatus.FAILED.value
+    assert "Failed to enqueue task" in (task.error or "")
 
     session_row = (
         await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
     ).scalar_one()
-    # The session stays running with this task; the repair sweep will dispatch it.
-    assert session_row.status == "running"
-    assert session_row.stop_reason is None
+    assert session_row.status == "idle"
+    assert session_row.stop_reason == {
+        "type": "error",
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
     event_types = list(
         (
@@ -270,6 +284,7 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
     assert event_types == [
         "user.message",
         "session.status_running",
+        "session.status_idle",
     ]
 
 
@@ -443,15 +458,24 @@ async def test_user_message_idempotent_retry_after_enqueue_failure_stays_503(
     key = f"msg-{uuid.uuid4()}"
 
     try:
-        # First attempt: transient enqueue failure leaves the task PENDING.
-        await send_event(req, session_id, db_session, auth_ctx, idempotency_key=key)
-        # Retry with the same key: idempotent replay returns the same task, no error.
-        await send_event(req, session_id, db_session, auth_ctx, idempotency_key=key)
+        with pytest.raises(AppError) as first_exc:
+            await send_event(req, session_id, db_session, auth_ctx, idempotency_key=key)
+        with pytest.raises(AppError) as second_exc:
+            await send_event(req, session_id, db_session, auth_ctx, idempotency_key=key)
     finally:
         await engine.dispose()
 
+    assert (await handled_app_error_payload(first_exc.value, status_code=503))["code"] == "TASK_ENQUEUE_FAILED"
+
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
-    assert task.status == JoySafeterTaskStatus.PENDING.value
+    assert await handled_app_error_payload(second_exc.value, status_code=503) == {
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
     user_message_count = await db_session.scalar(
         select(func.count())
         .select_from(JoySafeterSessionEvent)
@@ -691,9 +715,8 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
     )
 
     try:
-        # A transient enqueue failure no longer fails the tool-confirmation: the
-        # resume task is left PENDING for the repair sweep instead of destroyed.
-        await send_event(req, session_id, db_session, auth_ctx)
+        with pytest.raises(AppError) as exc_info:
+            await send_event(req, session_id, db_session, auth_ctx)
     finally:
         await engine.dispose()
 
@@ -705,11 +728,22 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
             )
         )
     ).scalar_one()
-    assert event.event_type == "user.tool_confirmation"
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "SESSION_TOOL_CONFIRMATION_DELIVERY_FAILED",
+        "message": "Failed to deliver tool confirmation",
+        "data": {
+            "session_id": str(session_id),
+            "event_id": str(event.id),
+            "event_type": "user.tool_confirmation",
+        },
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
-    assert task.status == JoySafeterTaskStatus.PENDING.value
-    assert "Failed to enqueue task" not in (task.error or "")
+    assert task.status == JoySafeterTaskStatus.FAILED.value
+    assert "Failed to enqueue task" in (task.error or "")
 
 
 @pytest.mark.asyncio

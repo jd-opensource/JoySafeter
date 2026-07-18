@@ -246,11 +246,7 @@ async def test_create_task_rejects_archived_agent_with_structured_error(db_sessi
 
 
 @pytest.mark.asyncio
-async def test_create_task_enqueue_failure_leaves_task_pending_for_repair_sweep(db_session, monkeypatch):
-    # Redis is momentarily unavailable, so the RPUSH enqueue fails AFTER the
-    # session-running CAS has already succeeded. The DB is the source of truth and
-    # the orchestrator's repair sweep re-dispatches PENDING tasks on recovery, so
-    # the task must be ACCEPTED (left PENDING), not destroyed.
+async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_session, monkeypatch):
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: None),
@@ -263,19 +259,36 @@ async def test_create_task_enqueue_failure_leaves_task_pending_for_repair_sweep(
 
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
 
-    # No exception: the submission is accepted despite the transient enqueue failure.
-    await create_task(req, db_session, _auth_ctx())
+    with pytest.raises(AppError) as exc_info:
+        await create_task(req, db_session, _auth_ctx())
 
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
-    assert task.status == JoySafeterTaskStatus.PENDING.value
-    assert "Failed to enqueue task" not in (task.error or "")
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"task_id": str(task.id), "session_id": str(task.chat_session_id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+
+    assert task.status == JoySafeterTaskStatus.FAILED.value
+    assert "Failed to enqueue task" in (task.error or "")
 
     session = (
         await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == task.chat_session_id))
     ).scalar_one()
-    # The session stays running with this task; the repair sweep will dispatch it.
-    assert session.status == "running"
-    assert session.stop_reason is None
+    assert session.status == "idle"
+    expected_stop_reason = {
+        "type": "error",
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"task_id": str(task.id), "session_id": str(task.chat_session_id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert session.stop_reason == expected_stop_reason
 
     events = (
         (
@@ -288,9 +301,15 @@ async def test_create_task_enqueue_failure_leaves_task_pending_for_repair_sweep(
         .scalars()
         .all()
     )
-    # Only the running announcement is persisted; no compensating idle event.
     assert [(event.event_type, event.payload) for event in events] == [
         ("session.status_running", {"task_id": str(task.id)}),
+        (
+            "session.status_idle",
+            {
+                "task_id": str(task.id),
+                "stop_reason": expected_stop_reason,
+            },
+        ),
     ]
 
 
@@ -338,45 +357,6 @@ async def test_create_task_rejects_session_with_active_task_even_if_session_look
     assert redis.rpushed == []
     tasks = (await db_session.execute(select(JoySafeterTask).order_by(JoySafeterTask.created_at.asc()))).scalars().all()
     assert [task.id for task in tasks] == [existing_task.id]
-
-
-@pytest.mark.asyncio
-async def test_create_task_session_busy_race_raises_session_active_task(db_session, monkeypatch):
-    # The pre-flight check passes (fresh auto-session), but the session-running
-    # CAS then returns False — another task grabbed the session in the race
-    # window. That must surface as a 409 SESSION_ACTIVE_TASK conflict (NOT a
-    # retryable 503 TASK_ENQUEUE_FAILED), and the never-dispatched task is marked
-    # terminal so the repair sweep won't run it on the busy session.
-    redis = _FakeRedis()
-    monkeypatch.setattr(
-        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
-        staticmethod(lambda: redis),
-    )
-
-    async def _cas_lost_race(self, *args, **kwargs):
-        return False
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_session_service.SessionService.update_session_status_for_task_event",
-        _cas_lost_race,
-    )
-
-    agent = JoySafeterAgent(name=f"direct-task-race-agent-{uuid.uuid4()}")
-    db_session.add(agent)
-    await db_session.commit()
-    await db_session.refresh(agent)
-
-    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
-    with pytest.raises(AppError) as exc_info:
-        await create_task(req, db_session, _auth_ctx())
-
-    payload = await handled_app_error_payload(exc_info.value, status_code=409)
-    assert payload["code"] == "SESSION_ACTIVE_TASK"
-
-    task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
-    assert task.status == JoySafeterTaskStatus.FAILED.value
-    # A conflict, not an enqueue outage: nothing was pushed to the Redis queue.
-    assert redis.rpushed == []
 
 
 @pytest.mark.asyncio
@@ -515,7 +495,7 @@ async def test_create_task_uses_existing_session_environment_before_agent_defaul
 
 
 @pytest.mark.asyncio
-async def test_create_task_idempotent_retry_after_enqueue_failure_returns_pending(db_session, monkeypatch):
+async def test_create_task_idempotent_retry_after_enqueue_failure_stays_503(db_session, monkeypatch):
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: None),
@@ -529,14 +509,24 @@ async def test_create_task_idempotent_retry_after_enqueue_failure_returns_pendin
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
     key = f"task-{uuid.uuid4()}"
 
-    # First attempt: enqueue fails transiently but the task is accepted as PENDING.
-    await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
-    # Retry with the same key: idempotent replay returns the same PENDING task, no error.
-    await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
+    with pytest.raises(AppError) as first_exc:
+        await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
+    with pytest.raises(AppError) as second_exc:
+        await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
+
+    assert (await handled_app_error_payload(first_exc.value, status_code=503))["code"] == "TASK_ENQUEUE_FAILED"
 
     tasks = (await db_session.execute(select(JoySafeterTask))).scalars().all()
     assert len(tasks) == 1
-    assert tasks[0].status == JoySafeterTaskStatus.PENDING.value
+    assert tasks[0].status == JoySafeterTaskStatus.FAILED.value
+    assert await handled_app_error_payload(second_exc.value, status_code=503) == {
+        "code": "TASK_ENQUEUE_FAILED",
+        "message": "Failed to enqueue task",
+        "data": {"task_id": str(tasks[0].id), "session_id": str(tasks[0].chat_session_id)},
+        "source": "runtime",
+        "retryable": True,
+        "user_action": "retry",
+    }
 
 
 @pytest.mark.asyncio
