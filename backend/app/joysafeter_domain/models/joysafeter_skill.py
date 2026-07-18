@@ -2,12 +2,11 @@
 Skill subsystem models.
 
 Consolidated here from the former ``skill_version.py`` /
-``skill_collaborator.py`` / ``skill_usage_log.py`` modules — one file for
+``skill_usage_log.py`` modules — one file for
 the whole managed-agent skill subsystem:
 
   - Skill / SkillFile / SkillSecurityScan        (core skill + content + scans)
   - SkillVersion / SkillVersionFile              (immutable published snapshots)
-  - SkillCollaborator (+ CollaboratorRole)       (per-skill RBAC)
   - SkillUsageLog                                (append-only pack/load audit)
 """
 
@@ -18,7 +17,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,20 +32,20 @@ if TYPE_CHECKING:
 class JoySafeterSkillVisibility(str, enum.Enum):
     """Where a skill is reachable from.
 
-    The states deliberately escalate: ``private`` is the most restrictive
-    and ``public`` is the most permissive. ``check_skill_access`` walks them
-    in that order and short-circuits on the first match.
+    The tiers escalate: ``project`` is the floor (every skill starts here as a
+    project resource) and ``public`` is the most permissive. ``check_skill_access``
+    walks them in that order and short-circuits on the first match. Exposure
+    beyond ``project`` is only ever set through the version-level promotion
+    approval flow, never written directly.
     """
 
-    PRIVATE = "private"
     PROJECT = "project"
     ORGANIZATION = "organization"
     PUBLIC = "public"
 
 
-# Total order over the shareable tiers. ``private`` is
-# a legacy value slated for removal in a later phase; it is intentionally left
-# out of the promotion ordering so the recompute floors at ``project``.
+# Total order over the shareable tiers, used by the promotion flow to compare
+# and raise/lower a skill's exposure. ``project`` is the fail-closed floor.
 VISIBILITY_RANK: dict[str, int] = {
     JoySafeterSkillVisibility.PROJECT.value: 0,
     JoySafeterSkillVisibility.ORGANIZATION.value: 1,
@@ -114,17 +113,15 @@ class JoySafeterSkill(BaseModel):
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # DEPRECATED — replaced by ``visibility``. Kept for one release cycle
-    # so any external code that still reads ``is_public`` keeps working.
-    # The service writer dual-writes both fields; readers prefer
-    # ``visibility``. Slated for removal in P1+1.
-    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # P1: four-tier sharing surface. ``private`` is the conservative
-    # default for new rows; the service derives the right value from the
-    # caller's input (project_id + explicit visibility override).
-    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default=JoySafeterSkillVisibility.PRIVATE.value)
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="SET NULL"), nullable=True
+    # Single source of truth for a skill's sharing surface. Defaults to
+    # ``project`` (a skill is always a project resource first); ``organization``
+    # and ``public`` are only ever set through the version-level promotion
+    # approval flow.
+    visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=JoySafeterSkillVisibility.PROJECT.value
+    )
+    project_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="SET NULL"), nullable=False
     )
     license: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     compatibility: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -194,7 +191,6 @@ class JoySafeterSkill(BaseModel):
         UniqueConstraint("owner_id", "name", name="skills_owner_name_unique"),
         Index("skills_owner_idx", "owner_id"),
         Index("skills_created_by_idx", "created_by_id"),
-        Index("skills_public_idx", "is_public"),
         Index("skills_project_idx", "project_id"),
         Index("skills_tags_idx", "tags", postgresql_using="gin"),
         Index("skills_security_status_idx", "security_status"),
@@ -424,97 +420,6 @@ class JoySafeterSkillVersionFile(BaseModel):
 
     __table_args__ = (Index("skill_version_files_version_idx", "version_id"),)
 
-    # ---------------------------------------------------------------------------
-    # Skill collaborators — per-skill role-based access control
-    # ---------------------------------------------------------------------------
-
-
-class JoySafeterCollaboratorRole(str, enum.Enum):
-    """Per-skill collaborator role, ordered by privilege: viewer < editor < admin.
-
-    Shares the project capability vocabulary (admin / editor / viewer). The
-    legacy ``publisher`` tier folded into ``admin`` (publishing is an admin
-    action). Stored as a plain varchar; use ``normalize`` when reading.
-    """
-
-    VIEWER = "viewer"
-    EDITOR = "editor"
-    ADMIN = "admin"
-
-    @classmethod
-    def normalize(cls, role: "str | JoySafeterCollaboratorRole | None") -> "JoySafeterCollaboratorRole":
-        if isinstance(role, cls):
-            return role
-        if not role:
-            return cls.VIEWER
-        normalized = str(role).strip().lower()
-        if normalized == "publisher":
-            return cls.ADMIN
-        try:
-            return cls(normalized)
-        except ValueError:
-            return cls.VIEWER
-
-    @classmethod
-    def rank(cls, role: "JoySafeterCollaboratorRole") -> int:
-        _order = [cls.VIEWER, cls.EDITOR, cls.ADMIN]
-        return _order.index(role)
-
-    def __ge__(self, other):
-        if not isinstance(other, JoySafeterCollaboratorRole):
-            return NotImplemented
-        return JoySafeterCollaboratorRole.rank(self) >= JoySafeterCollaboratorRole.rank(other)
-
-    def __gt__(self, other):
-        if not isinstance(other, JoySafeterCollaboratorRole):
-            return NotImplemented
-        return JoySafeterCollaboratorRole.rank(self) > JoySafeterCollaboratorRole.rank(other)
-
-    def __le__(self, other):
-        if not isinstance(other, JoySafeterCollaboratorRole):
-            return NotImplemented
-        return JoySafeterCollaboratorRole.rank(self) <= JoySafeterCollaboratorRole.rank(other)
-
-    def __lt__(self, other):
-        if not isinstance(other, JoySafeterCollaboratorRole):
-            return NotImplemented
-        return JoySafeterCollaboratorRole.rank(self) < JoySafeterCollaboratorRole.rank(other)
-
-
-class JoySafeterSkillCollaborator(BaseModel):
-    """Per-skill collaborator with role."""
-
-    __tablename__ = "joysafeter_skill_collaborators"
-
-    skill_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("joysafeter_skills.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(255),
-        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    # Per-skill capability in the project vocabulary (admin / editor / viewer;
-    # see JoySafeterCollaboratorRole). Stored as varchar for consistency with the
-    # other role columns; normalize with JoySafeterCollaboratorRole.normalize.
-    role: Mapped[str] = mapped_column(String(50), nullable=False, default="viewer")
-    invited_by: Mapped[str] = mapped_column(
-        String(255),
-        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-
-    # Relationships
-    skill: Mapped["JoySafeterSkill"] = relationship("JoySafeterSkill", lazy="selectin")
-    user: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")
-    inviter: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[invited_by], lazy="selectin")
-
-    __table_args__ = (
-        UniqueConstraint("skill_id", "user_id", name="skill_collaborators_skill_user_unique"),
-        Index("skill_collaborators_user_skill_idx", "user_id", "skill_id"),
-    )
 
     # ---------------------------------------------------------------------------
     # Skill usage log — append-only pack/load audit trail

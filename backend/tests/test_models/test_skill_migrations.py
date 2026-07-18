@@ -197,20 +197,37 @@ async def test_insert_skill_with_null_version_pointers(db_session: AsyncSession)
         ),
         {"id": user_id, "name": "migration-test-user", "email": f"{user_id}@example.com"},
     )
+    # project_id is NOT NULL (P4), so seed an org + project to satisfy the FK.
+    org_id = f"org-{uuid.uuid4()}"
+    project_id = f"proj-{uuid.uuid4()}"
+    await db_session.execute(
+        text(
+            "INSERT INTO joysafeter_organizations (id, name, slug, storage_used_bytes, departed_member_usage, created_at, updated_at) "
+            "VALUES (:id, 'mig-test-org', :slug, 0, 0, now(), now())"
+        ),
+        {"id": org_id, "slug": f"org-slug-{uuid.uuid4()}"},
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO joysafeter_organization_projects (id, org_id, name, slug, is_default, created_at, updated_at) "
+            "VALUES (:id, :org_id, 'mig-test-project', :slug, false, now(), now())"
+        ),
+        {"id": project_id, "org_id": org_id, "slug": f"proj-slug-{uuid.uuid4()}"},
+    )
     skill_id = uuid.uuid4()
     await db_session.execute(
         text(
             "INSERT INTO joysafeter_skills "
-            "(id, name, description, content, tags, source_type, created_by_id, "
-            " is_public, visibility, metadata, allowed_tools, security_status, "
+            "(id, name, description, content, tags, source_type, created_by_id, project_id, "
+            " visibility, metadata, allowed_tools, security_status, "
             " security_issues_count, security_critical_count, security_high_count, "
             " security_medium_count, security_low_count, lifecycle_status, "
             " org_version_id, public_version_id, created_at, updated_at) "
-            "VALUES (:id, 'n', 'd', 'c', '[]'::jsonb, 'local', :uid, "
-            " false, 'private', '{}'::jsonb, '[]'::jsonb, 'not_scanned', "
+            "VALUES (:id, 'n', 'd', 'c', '[]'::jsonb, 'local', :uid, :project_id, "
+            " 'project', '{}'::jsonb, '[]'::jsonb, 'not_scanned', "
             " 0, 0, 0, 0, 0, 'draft', NULL, NULL, now(), now())"
         ),
-        {"id": skill_id, "uid": user_id},
+        {"id": skill_id, "uid": user_id, "project_id": project_id},
     )
     await db_session.commit()
 

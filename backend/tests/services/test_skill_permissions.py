@@ -28,12 +28,11 @@ from app.joysafeter_shared.common.skill_permissions import (
 MODULE = "app.joysafeter_shared.common.skill_permissions"
 
 
-def _skill(*, owner_id="owner", visibility="project", is_public=False, project_id="proj-1"):
+def _skill(*, owner_id="owner", visibility="project", project_id="proj-1"):
     return SimpleNamespace(
         id=uuid.uuid4(),
         owner_id=owner_id,
         visibility=visibility,
-        is_public=is_public,
         project_id=project_id,
     )
 
@@ -55,13 +54,13 @@ def test_effective_visibility_prefers_column():
 
 
 def test_effective_visibility_falls_back_to_project_when_null():
-    """Single-axis model no longer reads ``is_public``; a null/empty
-    visibility falls back to ``project`` (least-permissive shareable)."""
-    s = _skill(visibility="", is_public=True)
+    """A null/empty visibility falls back to ``project`` (the least-
+    permissive shareable floor) for the single-axis gate."""
+    s = _skill(visibility="")
     assert _effective_visibility(s) == "project"
 
 
-@pytest.mark.parametrize("v", ["private", "project", "organization", "public"])
+@pytest.mark.parametrize("v", ["project", "organization", "public"])
 def test_effective_visibility_passes_through(v):
     s = _skill(visibility=v)
     assert _effective_visibility(s) == v
@@ -218,8 +217,8 @@ async def test_project_visibility_needs_project_row(monkeypatch):
         )
 
 
-async def test_private_skill_denies_stranger(monkeypatch):
-    s = _skill(visibility="private")
+async def test_project_skill_denies_stranger(monkeypatch):
+    s = _skill(visibility="project")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
     _patch_org_member(monkeypatch, is_member=False)

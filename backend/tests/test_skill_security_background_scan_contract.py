@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillSecurityScan
 from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityService, run_scan_in_background
 
@@ -31,6 +33,13 @@ async def test_background_skill_scan_failure_records_structured_failed_scan(
     await db_session.refresh(user)
     user_id = user.id
 
+    org_id = f"org-{uuid.uuid4()}"
+    project_id = f"proj-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Skill Scan Org", slug=f"skill-scan-{uuid.uuid4()}")
+    project = Project(id=project_id, org_id=org_id, name="Skill Scan", slug=f"skill-scan-{uuid.uuid4()}")
+    db_session.add_all([org, project])
+    await db_session.commit()
+
     skill = JoySafeterSkill(
         name=f"async-scan-skill-{uuid.uuid4()}",
         description="test skill",
@@ -38,6 +47,7 @@ async def test_background_skill_scan_failure_records_structured_failed_scan(
         tags=[],
         created_by_id=user_id,
         owner_id=user_id,
+        project_id=project_id,
         security_status="scanning",
     )
     db_session.add(skill)
