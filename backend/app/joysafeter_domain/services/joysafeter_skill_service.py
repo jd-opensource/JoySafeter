@@ -397,28 +397,6 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             )
         return sv  # type: ignore[return-value,no-any-return]
 
-    async def get_latest_version(
-        self,
-        skill_id: uuid.UUID,
-        current_user_id: str,
-        is_superuser: bool = False,
-    ) -> JoySafeterSkillVersion:
-        skill = await self._get_skill_or_404(skill_id)
-        await check_skill_access(
-            self.db,
-            skill,
-            current_user_id,
-            JoySafeterCollaboratorRole.VIEWER,
-            is_superuser=is_superuser,
-            active_org_id=self._active_org_id,
-        )
-        sv = await self.repo.get_latest(skill_id)
-        if not sv:
-            raise NotFoundError(
-                "No published versions found", code="SKILL_VERSION_NOT_FOUND", data={"skill_id": str(skill_id)}
-            )
-        return sv  # type: ignore[return-value,no-any-return]
-
     async def delete_version(
         self,
         skill_id: uuid.UUID,
@@ -593,8 +571,7 @@ Skill Service: Permission Check + CRUD
 """
 
 
-from pathlib import Path
-from typing import Any, Dict, Literal, Union
+from typing import Any, Dict, Literal
 
 from loguru import logger
 
@@ -894,39 +871,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         result = skill
         return result  # type: ignore
 
-    async def get_skill_by_name(
-        self,
-        skill_name: str,
-        current_user_id: Optional[str] = None,
-    ) -> Optional[JoySafeterSkill]:
-        """Get Skill by name (case-insensitive)
-
-        Args:
-            skill_name: Skill name
-            current_user_id: Current user ID for permission check
-
-        Returns:
-            Skill object, returns None if not found or unauthorized
-        """
-        # Get all accessible skills. Pass ``org_id`` so the lookup
-        # respects the caller's active org context — a user who's a
-        # member of two orgs and shares a skill name between them
-        # shouldn't get the wrong org's skill back here.
-        all_skills, _ = await self.list_skills(
-            current_user_id=current_user_id,
-            include_public=True,
-            org_id=self._active_org_id,
-        )
-
-        # Search by name (case-insensitive)
-        for skill in all_skills:
-            if skill.name.lower() == skill_name.lower():
-                # Get complete information (including files)
-                result = await self.repo.get_with_files(skill.id)
-                return result if isinstance(result, JoySafeterSkill) else None
-
-        return None
-
     async def create_skill(
         self,
         created_by_id: str,
@@ -936,7 +880,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         tags: Optional[List[str]] = None,
         source_type: str = "local",
         source_url: Optional[str] = None,
-        root_path: Optional[str] = None,
         owner_id: Optional[str] = None,
         is_public: bool = False,
         visibility: Optional[str] = None,
@@ -1097,7 +1040,6 @@ class SkillService(BaseService[JoySafeterSkill]):
             tags=tags or [],
             source_type=source_type,
             source_url=source_url,
-            root_path=root_path,
             owner_id=owner_id,
             created_by_id=created_by_id,
             is_public=is_public,
@@ -1176,7 +1118,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         tags: Optional[List[str]] = None,
         source_type: Optional[str] = None,
         source_url: Optional[str] = None,
-        root_path: Optional[str] = None,
         owner_id: Optional[str] = None,
         is_public: Optional[bool] = None,
         visibility: Optional[str] = None,
@@ -1248,7 +1189,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         proposed_tags = skill.tags if tags is None else tags
         proposed_source_type = skill.source_type if source_type is None else source_type
         proposed_source_url = skill.source_url if source_url is None else source_url
-        proposed_root_path = skill.root_path if root_path is None else root_path
         proposed_owner_id = skill.owner_id if owner_id is None else owner_id
         proposed_is_public = skill.is_public if is_public is None else is_public
         proposed_license = skill.license if license is None else license
@@ -1419,7 +1359,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = proposed_tags or []
         skill.source_type = proposed_source_type
         skill.source_url = proposed_source_url
-        skill.root_path = proposed_root_path
         # The ownership and visibility gates ran at the top of the
         # function (P2.13) so we don't pay any side effects of an
         # unauthorized call. By the time control reaches here, both
@@ -1519,7 +1458,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         )
         _ensure_skill_mutable(skill)
 
-            # Delete associated files
+        # Delete associated files
         await self.file_repo.delete_by_skill(skill_id)
 
         # Delete Skill
@@ -1862,121 +1801,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         # Type assertion: refresh updates the object in place
         return file_obj  # type: ignore
 
-    async def _sync_skill_from_skill_md(
-        self,
-        skill: JoySafeterSkill,
-        content: Optional[str],
-    ) -> None:
-        """Sync skill metadata from SKILL.md frontmatter.
-
-        Args:
-            skill: The skill to update
-            content: The SKILL.md content with YAML frontmatter
-        """
-        if not content:
-            return
-
-        self._apply_skill_md_content(skill, content)
-        await self.db.commit()
-        await self.db.refresh(skill)
-
-    async def import_skill_from_directory(
-        self, skill_dir: str, owner_id: str, is_public: bool = False
-    ) -> JoySafeterSkill:
-        """Import Skill from directory
-
-        Args:
-            skill_dir: Skill directory path (containing SKILL.md)
-            owner_id: Owner ID
-
-        Returns:
-            Created or updated Skill object
-        """
-        from pathlib import Path
-
-        from app.joysafeter_shared.skill.yaml_parser import extract_metadata_from_frontmatter, parse_skill_md
-
-        skill_path = Path(skill_dir)
-        if not skill_path.exists():
-            raise FileNotFoundError(f"Skill directory not found: {skill_dir}")
-
-            # Find SKILL.md
-        skill_md_path = skill_path / "SKILL.md"
-        if not skill_md_path.exists():
-            # Try lowercase
-            skill_md_path = skill_path / "skill.md"
-
-        if not skill_md_path.exists():
-            raise FileNotFoundError(f"SKILL.md not found in {skill_dir}")
-
-            # Read SKILL.md
-        with open(skill_md_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-            # Parse metadata
-        frontmatter, body = parse_skill_md(content)
-        metadata = extract_metadata_from_frontmatter(frontmatter)
-
-        name = metadata.get("name", skill_path.name)
-        description = metadata.get("description", "")
-
-        # Prepare file list
-        files = []
-
-        # Add SKILL.md
-        files.append({"path": "SKILL.md", "file_name": "SKILL.md", "content": content, "file_type": "markdown"})
-
-        # Recursively read other files
-        for file_path in skill_path.rglob("*"):
-            if file_path.is_file() and file_path.name.lower() != "skill.md" and not file_path.name.startswith("."):
-                try:
-                    rel_path = file_path.relative_to(skill_path)
-
-                    # Simple binary file check (try reading as utf-8)
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            file_content = f.read()
-
-                        files.append(
-                            {
-                                "path": str(rel_path),
-                                "file_name": file_path.name,
-                                "content": file_content,
-                                "file_type": self._detect_file_type(file_path),
-                            }
-                        )
-                    except UnicodeDecodeError:
-                        # Skip binary files
-                        continue
-                except Exception:
-                    continue
-
-                    # Check if exists
-        try:
-            existing_skill = await self.get_skill_by_name(name, current_user_id=owner_id)
-        except Exception:
-            existing_skill = None
-
-        if existing_skill:
-            return await self.update_skill(
-                skill_id=existing_skill.id,
-                current_user_id=owner_id,
-                name=name,
-                description=description,
-                files=files,
-                is_public=is_public,
-            )
-        else:
-            return await self.create_skill(
-                created_by_id=owner_id,
-                name=name,
-                description=description,
-                content=body,
-                files=files,
-                owner_id=owner_id,
-                is_public=is_public,
-            )
-
     async def list_security_scans(
         self,
         skill_id: uuid.UUID,
@@ -1994,10 +1818,6 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def get_security_scan(self, scan_id: uuid.UUID, current_user_id: str):
         """Get a security scan by id."""
         return await self.security_service.get_scan(scan_id, current_user_id)
-
-    async def rescan_skill(self, skill_id: uuid.UUID, current_user_id: str):
-        """Run a manual security rescan for persisted skill content."""
-        return await self.security_service.rescan_existing_skill(skill_id, current_user_id)
 
     async def rescan_skill_async(self, skill_id: uuid.UUID, current_user_id: str):
         """Dispatch a manual rescan as a background task and return immediately.
@@ -2084,23 +1904,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         await self.db.commit()
         await self.db.refresh(placeholder)
         return placeholder
-
-    def _detect_file_type(self, file_path: Union[str, Path]) -> str:
-        """Simple file type detection"""
-        if isinstance(file_path, str):
-            file_path = Path(file_path)
-
-        suffix = file_path.suffix.lower()
-        if suffix == ".py":
-            return "python"
-        elif suffix == ".md":
-            return "markdown"
-        elif suffix == ".json":
-            return "json"
-        elif suffix == ".yaml" or suffix == ".yml":
-            return "yaml"
-        else:
-            return "text"
 
     async def _attach_latest_version(self, skill):
         """Attach latest_version string to skill for API response."""

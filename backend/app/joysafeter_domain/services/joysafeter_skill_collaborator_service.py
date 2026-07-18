@@ -36,10 +36,6 @@ class SkillCollaboratorService:
         )
         return result.scalar_one_or_none()
 
-    async def get_collaborator_role(self, skill_id: uuid.UUID, user_id: str) -> str | None:
-        row = await self._load(skill_id, user_id)
-        return row.role if row else None
-
     async def list_collaborators(
         self, skill_id: uuid.UUID
     ) -> list[tuple[JoySafeterSkillCollaborator, AuthUser | None]]:

@@ -133,15 +133,3 @@ async def test_list_collaborators_returns_rows_with_users(db_session):
     row, user = listed[0]
     assert row.user_id == collab.id
     assert user is not None and user.id == collab.id
-
-
-@pytest.mark.asyncio
-async def test_get_collaborator_role(db_session):
-    owner = await _user(db_session, name="Owner")
-    collab = await _user(db_session, name="Collab")
-    skill = await _skill(db_session, owner_id=owner.id)
-
-    svc = SkillCollaboratorService(db_session)
-    assert await svc.get_collaborator_role(skill.id, collab.id) is None
-    await svc.grant_collaborator(skill_id=skill.id, user_id=collab.id, role="admin", invited_by=owner.id, commit=True)
-    assert await svc.get_collaborator_role(skill.id, collab.id) == "admin"
