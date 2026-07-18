@@ -65,13 +65,16 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkillLifecycleStatus,
 )
 from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
     NotFoundError,
+)
+from app.joysafeter_shared.common.joysafeter_auth.context import (
+    JoySafeterRole,
+    ProjectCapability,
 )
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 
@@ -101,7 +104,18 @@ class LifecycleTransition:
 class SkillLifecycleService:
     """State machine + persistence for ``Skill.lifecycle_status``."""
 
-    def __init__(self, db: AsyncSession, *, active_org_id: Optional[str] = None):
+    # Class-level default so bare ``__new__``-constructed test harnesses
+    # (which set only the fields they exercise) still resolve a sane org
+    # role when they stub ``check_skill_access``.
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
         self.db = db
         self.skill_repo = SkillRepository(db)
         # P2.9: active org for strict isolation in ``check_skill_access``.
@@ -110,6 +124,10 @@ class SkillLifecycleService:
         # multi-org admin can't fire transitions from a different org
         # context. ``None`` falls back to pre-P2.9 behavior.
         self._active_org_id = active_org_id
+        # Single-axis redesign: the caller's org role is threaded through
+        # to ``check_skill_access`` so an org super-user resolves to ADMIN
+        # capability. ``MEMBER`` is the safe default for internal callers.
+        self._caller_org_role = caller_org_role
 
     async def submit_for_review(self, skill_id: uuid.UUID, current_user_id: str) -> LifecycleTransition:
         """draft -> pending_review (owner action)."""
@@ -182,7 +200,8 @@ class SkillLifecycleService:
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.ADMIN,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
 
@@ -239,7 +258,15 @@ from .base import BaseService
 
 
 class SkillVersionService(BaseService[JoySafeterSkillVersion]):
-    def __init__(self, db, *, active_org_id: Optional[str] = None):
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
         super().__init__(db)
         self.repo = SkillVersionRepository(db)
         self.file_repo = SkillVersionFileRepository(db)
@@ -252,6 +279,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         # falls back to pre-P2.9 cross-org-friendly behavior; legacy
         # callers stay safe.
         self._active_org_id = active_org_id
+        self._caller_org_role = caller_org_role
 
     async def publish_version(
         self,
@@ -266,8 +294,8 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.ADMIN,
-            is_superuser=is_superuser,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -366,8 +394,8 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.VIEWER,
-            is_superuser=is_superuser,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         return await self.repo.list_by_skill(skill_id)  # type: ignore[return-value,no-any-return]
@@ -384,8 +412,8 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.VIEWER,
-            is_superuser=is_superuser,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
@@ -410,8 +438,8 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.ADMIN,
-            is_superuser=is_superuser,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -506,8 +534,8 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.ADMIN,
-            is_superuser=is_superuser,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -611,20 +639,32 @@ def _ensure_skill_mutable(skill) -> None:
 
 
 class SkillService(BaseService[JoySafeterSkill]):
-    def __init__(self, db, *, active_org_id: Optional[str] = None):
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
         super().__init__(db)
         self.repo = SkillRepository(db)
         self.file_repo = SkillFileRepository(db)
-        self.security_service = SkillSecurityService(db, active_org_id=active_org_id)
+        self.security_service = SkillSecurityService(
+            db, active_org_id=active_org_id, caller_org_role=caller_org_role
+        )
         # P2.9: when the API layer constructs ``SkillService`` it
         # passes ``JoySafeterAuthContext.org_id`` here. The service
-        # then threads it into every ``check_skill_access`` call so
-        # owner / collaborator short-circuits respect strict org
-        # isolation — owners can't read their own skill while pinned
-        # to a different org context. ``None`` falls back to the
-        # pre-P2.9 behavior (cross-org owner reads allowed); kept for
-        # legacy callers we haven't migrated yet.
+        # then threads it into every ``check_skill_access`` call so the
+        # capability gate respects strict org isolation. ``None`` falls
+        # back to the pre-P2.9 behavior; kept for legacy callers we
+        # haven't migrated yet.
         self._active_org_id = active_org_id
+        # Single-axis redesign: the caller's org role, threaded into
+        # every ``check_skill_access`` call so an org super-user resolves
+        # to ADMIN capability on skills in their own org.
+        self._caller_org_role = caller_org_role
         # P2: BG-task descriptors that the API layer should hand to
         # FastAPI's ``BackgroundTasks`` once the request DB session
         # commits. Each entry is a plain dict of the kwargs that
@@ -851,7 +891,8 @@ class SkillService(BaseService[JoySafeterSkill]):
                 self.db,
                 skill,
                 current_user_id,
-                JoySafeterCollaboratorRole.VIEWER,
+                ProjectCapability.READ,
+                caller_org_role=self._caller_org_role,
                 active_org_id=self._active_org_id,
             )
         else:
@@ -1140,7 +1181,8 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.EDITOR,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1453,7 +1495,8 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.ADMIN,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1487,7 +1530,8 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.EDITOR,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1614,7 +1658,8 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.EDITOR,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1700,7 +1745,8 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.EDITOR,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
@@ -1836,10 +1882,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         from app.joysafeter_domain.models.joysafeter_skill import (
             JoySafeterSkillSecurityScan,
         )
-        from app.joysafeter_domain.services.joysafeter_skill_security import (
-            JoySafeterCollaboratorRole,
-        )
-        from app.joysafeter_shared.common.skill_permissions import check_skill_access
         from app.joysafeter_shared.config.settings import settings as _settings
 
         sec = self.security_service
@@ -1850,7 +1892,8 @@ class SkillService(BaseService[JoySafeterSkill]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.EDITOR,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
