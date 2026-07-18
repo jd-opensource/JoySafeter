@@ -36,6 +36,9 @@ from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkillLifecycleStatus,
     JoySafeterSkillSecurityScan,
 )
+from app.joysafeter_domain.models.joysafeter_skill import (
+    recompute_visibility_from_pointers as _recompute_visibility_from_pointers,
+)
 from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository, SkillSecurityScanRepository
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
@@ -287,6 +290,12 @@ class SkillSecurityScannerClient:
         if isinstance(data, dict):
             return {"report": data}
         raise ValueError("Skill security scanner returned an invalid response")
+
+
+# Scan verdicts that trigger the fail-closed rescan auto-demote: a served
+# org/public version whose fresh verdict lands here is no longer trusted, so
+# ``apply_latest_scan`` clears the tier pointers and lowers visibility.
+_AUTO_DEMOTE_SCAN_STATUSES = frozenset({"failed", "blocked"})
 
 
 class SkillSecurityService:
@@ -619,6 +628,30 @@ class SkillSecurityService:
         skill.security_high_count = scan.high_count
         skill.security_medium_count = scan.medium_count
         skill.security_low_count = scan.low_count
+        # Fail-closed rescan auto-demote. When a fresh verdict lands
+        # failed/blocked on a skill that is currently served at the org / public
+        # tier, the exposed snapshot can no longer be trusted — clear those
+        # pointers and lower the visibility to the highest tier still backed by
+        # a pointer (floor ``project``). This
+        # rides the single verdict-writeback path so every scan completion
+        # (sync ``scan_for_write`` and the async BG task) inherits it.
+        self._auto_demote_if_scan_unsafe(skill, scan)
+
+    def _auto_demote_if_scan_unsafe(
+        self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan
+    ) -> None:
+        """Clear tier pointers + lower visibility when ``scan`` is unsafe."""
+        if scan.status not in _AUTO_DEMOTE_SCAN_STATUSES:
+            return
+        changed = False
+        if getattr(skill, "public_version_id", None) is not None:
+            skill.public_version_id = None
+            changed = True
+        if getattr(skill, "org_version_id", None) is not None:
+            skill.org_version_id = None
+            changed = True
+        if changed:
+            skill.visibility = _recompute_visibility_from_pointers(skill)
 
     def files_from_skill(self, skill: JoySafeterSkill) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -1036,16 +1069,37 @@ def is_skill_usable(skill: JoySafeterSkill) -> tuple[bool, Optional[str]]:
     if skill.lifecycle_status != "approved":
         return False, "skill_not_approved"
 
+    return scan_ok(skill)
+
+
+def scan_ok(skill: JoySafeterSkill) -> tuple[bool, Optional[str]]:
+    """Whether a skill's security verdict is clean and non-drifted.
+
+    This is :func:`is_skill_usable` MINUS its ``lifecycle_status == 'approved'``
+    check — i.e. exactly the "has this content passed a fresh security scan?"
+    predicate. Factored out for the single-axis promotion flow, whose
+    ``submit_promotion`` / ``approve_promotion`` gates require a PASSED scan on
+    the version being promoted but must NOT couple that decision to the skill's
+    lifecycle status (a project-level version can be ``approved`` at the project
+    tier yet still need scan re-verification before being exposed org/public).
+
+    Returns ``(True, None)`` when the scan gate passes, else ``(False, reason)``
+    with the same machine codes ``is_skill_usable`` uses:
+
+      * ``security_<status>`` — verdict not in the runtime allowlist
+      * ``no_security_scan_hash`` — no scan hash recorded (treated as drift)
+      * ``content_changed_after_scan`` — current content hashes differently
+    """
     if skill.security_status not in _RUNTIME_ALLOWED_SECURITY_STATUSES:
         return False, f"security_{skill.security_status}"
 
     if not skill.security_scan_hash:
         return False, "no_security_scan_hash"
 
-        # Drift gate: recompute the canonical hash from the skill's current
-        # content and compare to whatever the last scan locked in. ``build_scan_files``
-        # and ``target_hash`` are the canonical implementations used by
-        # ``scan_for_write`` — calling them here keeps the two paths byte-identical.
+    # Drift gate: recompute the canonical hash from the skill's current
+    # content and compare to whatever the last scan locked in. ``build_scan_files``
+    # and ``target_hash`` are the canonical implementations used by
+    # ``scan_for_write`` — calling them here keeps the two paths byte-identical.
     files_payload = _files_payload(skill)
     scan_files = build_scan_files(
         name=skill.name,

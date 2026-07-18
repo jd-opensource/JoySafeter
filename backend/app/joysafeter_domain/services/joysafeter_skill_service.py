@@ -336,7 +336,14 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             # Check > highest existing
         highest_str = await self.repo.get_highest_version_str(skill_id)
         if highest_str:
-            highest = semver.Version.parse(highest_str)
+            try:
+                highest = semver.Version.parse(highest_str)
+            except ValueError as exc:
+                raise InvalidRequestError(
+                    "A stored skill version is not valid semver; cannot validate the new version.",
+                    code="SKILL_VERSION_STORED_INVALID",
+                    data={"skill_id": str(skill_id), "stored_version": highest_str},
+                ) from exc
             if new_ver <= highest:
                 raise InvalidRequestError(
                     f"Version {version_str} must be greater than current highest {highest_str}",
@@ -388,7 +395,17 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         skill_id: uuid.UUID,
         current_user_id: str,
         is_superuser: bool = False,
-    ) -> List[JoySafeterSkillVersion]:
+        *,
+        limit: Optional[int] = None,
+        after_id: Optional[uuid.UUID] = None,
+    ) -> tuple[List[JoySafeterSkillVersion], bool]:
+        """Return ``(versions, has_more)`` for a skill, newest first.
+
+        Fix #3: the route declared ``limit`` / ``after_id`` and hardcoded
+        ``has_more=False`` while the service ignored both. This wires real
+        cursor pagination through the repo. The repo over-fetches one row when
+        ``limit`` is set; we trim it here and report whether more remain.
+        """
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
             self.db,
@@ -398,7 +415,10 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
-        return await self.repo.list_by_skill(skill_id)  # type: ignore[return-value,no-any-return]
+        rows = await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
+        if limit is not None and len(rows) > limit:
+            return rows[:limit], True
+        return rows, False
 
     async def get_version(
         self,
@@ -575,6 +595,13 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
 
         await self.db.commit()
         await self.db.refresh(skill)
+        # Populate the request-scoped ``latest_version`` annotation so the
+        # route response matches ``get_skill`` (which attaches it). Without
+        # this, a restore returns a skill whose ``latest_version`` is the
+        # ClassVar default ``None`` — inconsistent with every other skill
+        # read. ``capability`` is set by the route, so we only fix this one.
+        latest = await self.repo.get_latest(skill_id)
+        skill.latest_version = latest.version if latest else None
         return skill
 
     async def _get_skill_or_404(self, skill_id: uuid.UUID) -> JoySafeterSkill:
@@ -1953,4 +1980,309 @@ class SkillService(BaseService[JoySafeterSkill]):
         ver_repo = SkillVersionRepository(self.db)
         latest = await ver_repo.get_latest(skill.id)
         skill.latest_version = latest.version if latest else None
+        return skill
+
+
+# ============================================================================
+# skill_promotion_service.py — version-level tiered promotion approval
+# ============================================================================
+
+"""Version-level tiered promotion approval.
+
+A skill is a project resource. Editors publish project-tier versions freely;
+exposing a version to the ``organization`` or ``public`` tier goes through a
+tiered, four-eyes approval:
+
+  submit_promotion  — caller has ADMIN capability on the skill AND the target
+                      version's security scan PASSED. Marks the version
+                      ``pending_review`` + records ``review_target_visibility``.
+  approve_promotion — caller is the org OWNER (for both org and public tiers),
+                      approver != the version's submitter (four-eyes), scan
+                      still passed. Sets the skill's tier pointer, raises
+                      visibility, stamps the version ``approved``.
+  reject_promotion  — org OWNER; version -> ``rejected``, pointer untouched.
+  takedown          — org OWNER; clears a tier pointer + recomputes visibility.
+
+The rescan auto-demote (a served version whose fresh verdict flips to
+failed/blocked) lives in ``SkillSecurityService.apply_latest_scan`` so it rides
+every scan-completion path.
+"""
+
+
+from app.joysafeter_domain.models.joysafeter_skill import (
+    VISIBILITY_RANK,
+    JoySafeterSkillVisibility,
+    recompute_visibility_from_pointers,
+)
+from app.joysafeter_domain.services.joysafeter_skill_security import scan_ok
+
+# Tiers a version may be promoted to. ``project`` is the no-review default
+# tier and is never a promotion target; ``private`` is legacy and unreachable
+# here.
+_PROMOTABLE_TIERS = frozenset(
+    {
+        JoySafeterSkillVisibility.ORGANIZATION.value,
+        JoySafeterSkillVisibility.PUBLIC.value,
+    }
+)
+
+
+class SkillPromotionService(BaseService[JoySafeterSkill]):
+    """Version-level tiered promotion approval for the single-axis model."""
+
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
+        super().__init__(db)
+        self.skill_repo = SkillRepository(db)
+        self.version_repo = SkillVersionRepository(db)
+        self._active_org_id = active_org_id
+        self._caller_org_role = caller_org_role
+
+    # ── loading helpers ─────────────────────────────────────────
+
+    async def _get_skill_or_404(self, skill_id: uuid.UUID) -> JoySafeterSkill:
+        skill = await self.skill_repo.get(skill_id)
+        if not skill:
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
+        return skill  # type: ignore[return-value,no-any-return]
+
+    async def _get_version_or_404(self, version_id: uuid.UUID) -> JoySafeterSkillVersion:
+        version = await self.version_repo.get(version_id)
+        if not version:
+            raise NotFoundError(
+                "Skill version not found",
+                code="SKILL_VERSION_NOT_FOUND",
+                data={"version_id": str(version_id)},
+            )
+        return version  # type: ignore[return-value,no-any-return]
+
+    def _require_org_owner(self) -> None:
+        if self._caller_org_role != JoySafeterRole.OWNER:
+            raise AccessDeniedError(
+                "Only the organization owner can review skill promotions.",
+                code="SKILL_PROMOTION_OWNER_ONLY",
+                data={"required_org_role": JoySafeterRole.OWNER.value},
+            )
+
+    # ── submit ──────────────────────────────────────────────────
+
+    async def submit_promotion(
+        self,
+        *,
+        target_tier: str,
+        current_user_id: str,
+        version_id: Optional[uuid.UUID] = None,
+        skill_id: Optional[uuid.UUID] = None,
+    ) -> JoySafeterSkillVersion:
+        """Submit a version for promotion to ``organization`` or ``public``.
+
+        GUARD: caller holds ADMIN capability on the skill.
+        PRECONDITION: the target version's security scan PASSED (``scan_ok``).
+        Effect: version -> ``pending_review`` + ``review_target_visibility``.
+        """
+        if target_tier not in _PROMOTABLE_TIERS:
+            raise InvalidRequestError(
+                f"Cannot promote to tier {target_tier!r}; must be one of {sorted(_PROMOTABLE_TIERS)}.",
+                code="SKILL_PROMOTION_TIER_INVALID",
+                data={"target_tier": target_tier},
+            )
+
+        version = await self._resolve_target_version(version_id=version_id, skill_id=skill_id)
+        skill = await self._get_skill_or_404(version.skill_id)
+
+        await check_skill_access(
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
+        )
+
+        ok, reason = scan_ok(skill)
+        if not ok:
+            raise ResourceConflictError(
+                "The skill's security scan has not passed; cannot submit for promotion.",
+                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
+                data={"skill_id": str(skill.id), "version_id": str(version.id), "reason": reason},
+            )
+
+        # Idempotent when already pending for the SAME tier; conflict when
+        # pending for a different tier (the caller must resolve the existing
+        # review first).
+        if version.lifecycle_status == "pending_review":
+            if version.review_target_visibility == target_tier:
+                return version
+            raise ResourceConflictError(
+                "This version is already pending review for a different tier.",
+                code="SKILL_PROMOTION_ALREADY_PENDING",
+                data={
+                    "version_id": str(version.id),
+                    "pending_tier": version.review_target_visibility,
+                    "requested_tier": target_tier,
+                },
+            )
+
+        version.lifecycle_status = "pending_review"
+        version.review_target_visibility = target_tier
+        await self.db.commit()
+        # NOTE: do NOT ``db.refresh(version)`` here. With
+        # ``expire_on_commit=False`` the mapped COLUMN values just set survive
+        # the commit and stay readable. ``refresh()`` would instead expire the
+        # ``lazy="selectin"`` relationships (``.skill`` / ``.published_by`` /
+        # ``.approved_by``) and a later attribute access on the returned object
+        # would fire a *sync* lazy load outside the async greenlet →
+        # ``MissingGreenlet``. Callers that need a relationship must re-select.
+        return version
+
+    async def _resolve_target_version(
+        self,
+        *,
+        version_id: Optional[uuid.UUID],
+        skill_id: Optional[uuid.UUID],
+    ) -> JoySafeterSkillVersion:
+        if version_id is not None:
+            return await self._get_version_or_404(version_id)
+        if skill_id is not None:
+            latest = await self.version_repo.get_latest(skill_id)
+            if not latest:
+                raise NotFoundError(
+                    "Skill has no published version to promote",
+                    code="SKILL_VERSION_NOT_FOUND",
+                    data={"skill_id": str(skill_id)},
+                )
+            return latest  # type: ignore[return-value,no-any-return]
+        raise InvalidRequestError(
+            "submit_promotion requires either version_id or skill_id",
+            code="SKILL_PROMOTION_TARGET_MISSING",
+        )
+
+    # ── approve ─────────────────────────────────────────────────
+
+    async def approve_promotion(
+        self,
+        version_id: uuid.UUID,
+        current_user_id: str,
+    ) -> JoySafeterSkillVersion:
+        """Approve a pending promotion. Org OWNER only, four-eyes enforced."""
+        self._require_org_owner()
+        version = await self._get_version_or_404(version_id)
+
+        if version.lifecycle_status != "pending_review" or not version.review_target_visibility:
+            raise ResourceConflictError(
+                "This version is not pending review.",
+                code="SKILL_PROMOTION_NOT_PENDING",
+                data={"version_id": str(version.id), "lifecycle_status": version.lifecycle_status},
+            )
+
+        # Four-eyes: the approver must differ from the version's submitter.
+        if current_user_id == version.published_by_id:
+            raise AccessDeniedError(
+                "The submitter cannot approve their own promotion (four-eyes).",
+                code="SKILL_PROMOTION_FOUR_EYES",
+                data={"version_id": str(version.id)},
+            )
+
+        skill = await self._get_skill_or_404(version.skill_id)
+
+        # Re-check the scan still passes before exposing the content.
+        ok, reason = scan_ok(skill)
+        if not ok:
+            raise ResourceConflictError(
+                "The skill's security scan no longer passes; cannot approve promotion.",
+                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
+                data={"skill_id": str(skill.id), "version_id": str(version.id), "reason": reason},
+            )
+
+        target_tier = version.review_target_visibility
+        if target_tier == JoySafeterSkillVisibility.PUBLIC.value:
+            skill.public_version_id = version.id
+        elif target_tier == JoySafeterSkillVisibility.ORGANIZATION.value:
+            skill.org_version_id = version.id
+        else:  # pragma: no cover — submit already gates the tier vocabulary
+            raise InvalidRequestError(
+                f"Unsupported promotion tier {target_tier!r}",
+                code="SKILL_PROMOTION_TIER_INVALID",
+                data={"version_id": str(version.id), "target_tier": target_tier},
+            )
+
+        # Raise visibility to at least the approved tier (project<org<public).
+        if VISIBILITY_RANK.get(skill.visibility, 0) < VISIBILITY_RANK[target_tier]:
+            skill.visibility = target_tier
+
+        version.lifecycle_status = "approved"
+        version.approved_by_id = current_user_id
+        version.approved_at = datetime.now(timezone.utc)
+        version.review_target_visibility = None
+
+        await self.db.commit()
+        # See ``submit_promotion``: skip ``refresh`` to avoid expiring the
+        # selectin relationships (columns survive under expire_on_commit=False).
+        return version
+
+    # ── reject ──────────────────────────────────────────────────
+
+    async def reject_promotion(
+        self,
+        version_id: uuid.UUID,
+        current_user_id: str,
+        reason: Optional[str] = None,
+    ) -> JoySafeterSkillVersion:
+        """Reject a pending promotion. Org OWNER only. Pointer untouched."""
+        self._require_org_owner()
+        version = await self._get_version_or_404(version_id)
+
+        if version.lifecycle_status != "pending_review":
+            raise ResourceConflictError(
+                "This version is not pending review.",
+                code="SKILL_PROMOTION_NOT_PENDING",
+                data={"version_id": str(version.id), "lifecycle_status": version.lifecycle_status},
+            )
+
+        version.lifecycle_status = "rejected"
+        version.review_target_visibility = None
+        await self.db.commit()
+        # See ``submit_promotion``: skip ``refresh`` (selectin-relationship trap).
+        return version
+
+    # ── takedown ────────────────────────────────────────────────
+
+    async def takedown(
+        self,
+        skill_id: uuid.UUID,
+        tier: str,
+        current_user_id: str,
+    ) -> JoySafeterSkill:
+        """Pull a skill down from a tier. Org OWNER only.
+
+        Clears the tier pointer and recomputes visibility to the highest tier
+        still backed by a non-null pointer (floor ``project``, fail-closed).
+        """
+        self._require_org_owner()
+        if tier not in _PROMOTABLE_TIERS:
+            raise InvalidRequestError(
+                f"Cannot take down tier {tier!r}; must be one of {sorted(_PROMOTABLE_TIERS)}.",
+                code="SKILL_PROMOTION_TIER_INVALID",
+                data={"tier": tier},
+            )
+        skill = await self._get_skill_or_404(skill_id)
+
+        if tier == JoySafeterSkillVisibility.PUBLIC.value:
+            skill.public_version_id = None
+        else:
+            skill.org_version_id = None
+        skill.visibility = recompute_visibility_from_pointers(skill)
+
+        await self.db.commit()
+        # See ``submit_promotion``: skip ``refresh``. ``skill`` has
+        # ``lazy="selectin"`` relationships (``owner`` / ``created_by`` /
+        # ``files``); refreshing would expire them and a later access would
+        # trip ``MissingGreenlet``. The mutated columns survive the commit.
         return skill

@@ -44,6 +44,32 @@ class JoySafeterSkillVisibility(str, enum.Enum):
     PUBLIC = "public"
 
 
+# Total order over the shareable tiers. ``private`` is
+# a legacy value slated for removal in a later phase; it is intentionally left
+# out of the promotion ordering so the recompute floors at ``project``.
+VISIBILITY_RANK: dict[str, int] = {
+    JoySafeterSkillVisibility.PROJECT.value: 0,
+    JoySafeterSkillVisibility.ORGANIZATION.value: 1,
+    JoySafeterSkillVisibility.PUBLIC.value: 2,
+}
+
+
+def recompute_visibility_from_pointers(skill: "JoySafeterSkill") -> str:
+    """Derive a skill's visibility from its tier pointers (fail-closed).
+
+    Returns the highest tier still backed by a non-null version pointer:
+    ``public`` when ``public_version_id`` is set, else ``organization`` when
+    ``org_version_id`` is set, else ``project`` (the floor). Used by the
+    promotion takedown path and the rescan auto-demote so a cleared pointer
+    always drops the exposed visibility rather than leaving it stale.
+    """
+    if getattr(skill, "public_version_id", None) is not None:
+        return JoySafeterSkillVisibility.PUBLIC.value
+    if getattr(skill, "org_version_id", None) is not None:
+        return JoySafeterSkillVisibility.ORGANIZATION.value
+    return JoySafeterSkillVisibility.PROJECT.value
+
+
 class JoySafeterSkillLifecycleStatus(str, enum.Enum):
     """Where a skill is in its review/publish workflow.
 

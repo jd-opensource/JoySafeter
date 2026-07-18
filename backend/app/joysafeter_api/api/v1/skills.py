@@ -901,9 +901,11 @@ async def list_skill_versions(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    versions = await svc.list_versions(skill_id, current_user_id=auth_ctx.user_id)
+    versions, has_more = await svc.list_versions(
+        skill_id, current_user_id=auth_ctx.user_id, limit=limit, after_id=after_id
+    )
     data = [SkillVersionResponse.model_validate(v) for v in versions]
-    return {"data": data, "has_more": False}
+    return {"data": data, "has_more": has_more}
 
 
 @router.get("/{skill_id}/versions/{version}")
