@@ -818,6 +818,7 @@ function SkillEditor({
   versions,
   onCreateVersion,
   onDeleteVersion,
+  onRestoreVersion,
   onDeleteVersionDialogActivity,
   isCreatingVersion,
   editorTab,
@@ -843,6 +844,7 @@ function SkillEditor({
   ) => Promise<
     { ok: true } | { ok: false; referrers: Array<Record<string, unknown>>; hint?: string }
   >
+  onRestoreVersion: (version: string) => Promise<boolean>
   onDeleteVersionDialogActivity: () => void
   isCreatingVersion: boolean
   editorTab: 'editor' | 'metadata' | 'versions' | 'collaborators'
@@ -863,6 +865,9 @@ function SkillEditor({
     hint?: string
     pending?: boolean
   } | null>(null)
+  /** Per-row restore confirm: the version string pending a restore-to-draft. */
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null)
+  const [restorePending, setRestorePending] = useState(false)
   const versionDeleteRunRef = useRef(0)
   /** Version-diff state — compares a version against its predecessor.
    * Rendered inline within the versions tab (not a dialog). */
@@ -1317,6 +1322,16 @@ function SkillEditor({
                             )}
                             <button
                               type="button"
+                              aria-label={t('managed.skills.restoreVersion')}
+                              title={t('managed.skills.restoreVersion')}
+                              onClick={() => setRestoreTarget(v.version)}
+                              disabled={!canEdit}
+                              className="rounded-md p-1.5 text-muted-foreground/50 opacity-0 transition-all hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 group-hover:opacity-100"
+                            >
+                              <History className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
                               aria-label={t('managed.skills.deleteVersion', 'Delete version')}
                               title={t('managed.skills.deleteVersion', 'Delete version')}
                               onClick={() => openDeleteVersionDialog(v.version)}
@@ -1350,6 +1365,48 @@ function SkillEditor({
           queryScopeKey={queryScope}
         />
       )}
+
+      {/* Restore-version confirm: restoring replaces the current draft with the
+          selected version's contents, so gate it behind an explicit confirm. */}
+      <Dialog
+        open={!!restoreTarget}
+        onOpenChange={(open) => !open && !restorePending && setRestoreTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t('managed.skills.restoreVersionTitle', 'Restore version v{{v}}', {
+                v: restoreTarget ? formatVersion(restoreTarget) : '',
+              })}
+            </DialogTitle>
+            <DialogDescription>{t('managed.skills.restoreVersionConfirm')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRestoreTarget(null)}
+              disabled={restorePending}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!restoreTarget) return
+                setRestorePending(true)
+                try {
+                  const ok = await onRestoreVersion(restoreTarget)
+                  if (ok) setRestoreTarget(null)
+                } finally {
+                  setRestorePending(false)
+                }
+              }}
+              disabled={restorePending}
+            >
+              {t('managed.skills.restore')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Publish version dialog — mounted at SkillEditor top level so it works
           from any tab (the entry button lives in the global action bar). */}
@@ -1618,6 +1675,14 @@ export default function SkillManagerPage() {
     setSelectedSkillId(null)
     setSelectedFileId(null)
   }, [clearSavedFlash])
+
+  // Reset the detail tab whenever the open skill changes. Without this the
+  // tab persists across skills, so a capability-gated tab (Collaborators)
+  // could stay selected when switching to a skill the caller can't manage —
+  // the trigger hides but the stale content would otherwise still render.
+  useEffect(() => {
+    setEditorTab('editor')
+  }, [selectedSkillId])
 
   useEffect(
     () => () => {
@@ -2460,6 +2525,39 @@ export default function SkillManagerPage() {
     [currentSkillVersion, isCurrentSkillAction, nextCurrentMutableSkillAction, queryClient, t],
   )
 
+  const restoreVersion = useCallback(
+    async (version: string): Promise<boolean> => {
+      const action = nextCurrentMutableSkillAction()
+      if (!action) return false
+      if (!currentSkillVersion(version, action.skillId)) return false
+      if (!isCurrentSkillAction(action)) return false
+      try {
+        await managedPost(
+          apiResourcePath('skills', action.skillId, 'versions', 'restore', version),
+          {},
+          managedRequestOptions(action.scope),
+        )
+        if (isCurrentSkillAction(action)) {
+          // Restore rewrites the draft (content + files) from the version,
+          // so refresh the skill detail, files, and version list together.
+          invalidateSkillResources(action.skillId, action.scope.key)
+        }
+        return true
+      } catch (e) {
+        if (!isCurrentSkillAction(action)) return false
+        toastOperationError(t, e, 'common.operationFailed')
+        throw e
+      }
+    },
+    [
+      currentSkillVersion,
+      invalidateSkillResources,
+      isCurrentSkillAction,
+      nextCurrentMutableSkillAction,
+      t,
+    ],
+  )
+
   const rescanSecurityMutation = useMutation({
     mutationFn: (variables: SkillActionScope) => {
       if (!isCurrentSkillAction(variables)) {
@@ -3210,6 +3308,7 @@ export default function SkillManagerPage() {
             }
           }}
           onDeleteVersion={deleteVersion}
+          onRestoreVersion={restoreVersion}
           onDeleteVersionDialogActivity={() => {
             mutationRunRef.current += 1
           }}

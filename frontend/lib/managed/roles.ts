@@ -71,9 +71,10 @@ export function projectRoleOptions(t: Translator) {
 
 // ── Skill capability (owner/admin/editor/viewer/none) — the caller's effective ──
 // tier on a skill, returned by the skill detail route. Managing collaborators is
-// an admin-governance action, so only owner and admin qualify.
+// an admin-governance action, so only owner and admin qualify. The type is owned
+// by types/managed.ts (single source); re-exported here for co-located ergonomics.
 
-export type SkillCapability = 'owner' | 'admin' | 'editor' | 'viewer' | 'none'
+export type { SkillCapability } from '@/types/managed'
 
 export function canManageSkillCollaborators(capability?: string | null): boolean {
   return capability === 'owner' || capability === 'admin'

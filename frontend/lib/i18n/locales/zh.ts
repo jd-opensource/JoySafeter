@@ -1403,6 +1403,10 @@ const zh = {
         delete: '删除',
         deleteVersion: '删除该版本',
         deleteVersionTitle: '删除版本 v{{v}}',
+        restore: '恢复',
+        restoreVersion: '恢复到该版本',
+        restoreVersionTitle: '恢复版本 v{{v}}',
+        restoreVersionConfirm: '这会用该版本的内容替换当前草稿，任何未保存的草稿改动都将被覆盖。',
         deleteVersionConfirm: '此操作将永久删除已发布的快照。任何固定到该版本的智能体将无法加载。',
         deleteVersionInUse:
           '该版本被 {{n}} 个智能体或已保存的智能体版本引用。删除后它们将指向一个不存在的版本。',

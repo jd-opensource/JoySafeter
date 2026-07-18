@@ -1382,6 +1382,11 @@ const en = {
         delete: 'Delete',
         deleteVersion: 'Delete version',
         deleteVersionTitle: 'Delete version v{{v}}',
+        restore: 'Restore',
+        restoreVersion: 'Restore this version',
+        restoreVersionTitle: 'Restore version v{{v}}',
+        restoreVersionConfirm:
+          'This replaces the current draft with the contents of this version. Any unsaved draft changes will be overwritten.',
         deleteVersionConfirm:
           'This permanently removes the published snapshot. Agents pinned to this version will fail to load it.',
         deleteVersionInUse:
