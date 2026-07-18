@@ -352,7 +352,9 @@ class JoySafeterSkillVersion(BaseModel):
     review_target_visibility: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, default=None)
 
     # Relationships
-    skill: Mapped["JoySafeterSkill"] = relationship("JoySafeterSkill", lazy="selectin")
+    skill: Mapped["JoySafeterSkill"] = relationship(
+        "JoySafeterSkill", foreign_keys=[skill_id], lazy="selectin"
+    )
     published_by: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[published_by_id], lazy="selectin")
     approved_by: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[approved_by_id], lazy="selectin")
     files: Mapped[List["JoySafeterSkillVersionFile"]] = relationship(
