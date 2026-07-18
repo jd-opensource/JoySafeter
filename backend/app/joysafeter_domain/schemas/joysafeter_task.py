@@ -10,12 +10,18 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+# Coarse per-field safety bound for free-text prompt content. Sits far below the
+# request body-size cap (64 MiB) so a single field cannot bloat a DB row or the
+# Redis SSE fan-out, yet generous enough (~250k tokens) never to hit a
+# legitimate prompt. Tunable if real workloads need more.
+MAX_PROMPT_CHARS = 1_000_000
+
 
 class JoySafeterCreateTaskRequest(BaseModel):
     agent_id: Optional[uuid.UUID] = None
     agent_name: Optional[str] = None
-    prompt: str
-    system_prompt: Optional[str] = None
+    prompt: str = Field(max_length=MAX_PROMPT_CHARS)
+    system_prompt: Optional[str] = Field(default=None, max_length=MAX_PROMPT_CHARS)
     chat_session_id: Optional[uuid.UUID] = None
     environment_ref: Optional[str] = None
     timeout_sec: int = Field(default=7200, ge=1)
