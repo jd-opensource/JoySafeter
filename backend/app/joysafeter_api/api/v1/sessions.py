@@ -34,6 +34,7 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SingleEventRequest,
     UpdateRepoResourceRequest,
 )
+from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS
 from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
@@ -912,6 +913,23 @@ def _build_resume_prompt(event: SingleEventRequest, event_id: str) -> Optional[s
     return None
 
 
+def _ensure_message_within_limit(text: str) -> str:
+    """Bound user.message text like the task-prompt schema cap.
+
+    The concatenated message becomes an agent prompt via the internal service
+    path, bypassing JoySafeterCreateTaskRequest's schema cap — so it needs its
+    own bound to keep one message from bloating a DB row / the Redis SSE fan-out.
+    """
+    if len(text) > MAX_PROMPT_CHARS:
+        raise RequestValidationAppError(
+            code="SESSION_CONTENT_TOO_LARGE",
+            message="Message content is too large",
+            data={"field": "content", "max_chars": MAX_PROMPT_CHARS, "actual_chars": len(text)},
+            user_action="fix_input",
+        )
+    return text
+
+
 def _validate_message_content(content: Any) -> str:
     """Validate user.message content.
 
@@ -920,7 +938,7 @@ def _validate_message_content(content: Any) -> str:
     text for task creation.
     """
     if isinstance(content, str):
-        return content
+        return _ensure_message_within_limit(content)
     if isinstance(content, list):
         parts: list[str] = []
         for index, block in enumerate(content):
@@ -950,7 +968,7 @@ def _validate_message_content(content: Any) -> str:
                 data={"field": "content"},
                 user_action="fix_input",
             )
-        return "\n".join(parts)
+        return _ensure_message_within_limit("\n".join(parts))
     raise RequestValidationAppError(
         code="SESSION_CONTENT_INVALID",
         message="content must be a string or array of content blocks",

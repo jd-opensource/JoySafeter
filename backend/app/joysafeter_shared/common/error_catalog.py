@@ -579,6 +579,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=RequestValidationAppError,
         default_message="content must be a string or array of content blocks",
     ),
+    "SESSION_CONTENT_TOO_LARGE": CatalogEntry(
+        code="SESSION_CONTENT_TOO_LARGE",
+        error_class=RequestValidationAppError,
+        default_message="Message content is too large",
+    ),
     "SESSION_CUSTOM_TOOL_RESULT_DELIVERY_FAILED": CatalogEntry(
         code="SESSION_CUSTOM_TOOL_RESULT_DELIVERY_FAILED",
         error_class=ServiceUnavailableError,
