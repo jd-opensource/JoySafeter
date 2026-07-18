@@ -21,6 +21,7 @@ from app.joysafeter_api.api.v1 import (
 from app.joysafeter_shared.common.joysafeter_auth import (
     get_joysafeter_auth_context,
     require_joysafeter_admin,
+    require_joysafeter_project_admin,
     require_joysafeter_user_admin,
     require_joysafeter_user_context,
     require_joysafeter_user_write,
@@ -112,6 +113,7 @@ def test_auth_management_context_routes_require_user_principal():
         require_joysafeter_user_context,
         require_joysafeter_user_write,
         require_joysafeter_user_admin,
+        require_joysafeter_project_admin,
     }
 
     offenders = []
@@ -145,6 +147,11 @@ def test_auth_management_route_dependency_contract():
     assert _dependency_for(auth.set_default_project) is require_joysafeter_user_admin
     assert _dependency_for(auth.restore_project) is require_joysafeter_user_admin
     assert _dependency_for(auth.search_users) is require_joysafeter_user_admin
+
+    # Project-member management is gated by the path-scoped project-admin dependency.
+    assert _dependency_for(auth.list_project_members) is require_joysafeter_project_admin
+    assert _dependency_for(auth.add_project_member) is require_joysafeter_project_admin
+    assert _dependency_for(auth.remove_project_member) is require_joysafeter_project_admin
     assert _dependency_for(auth.invite_member) is require_joysafeter_user_admin
     assert _dependency_for(auth.remove_member) is require_joysafeter_user_admin
     assert _dependency_for(auth.update_member_role) is require_joysafeter_user_admin

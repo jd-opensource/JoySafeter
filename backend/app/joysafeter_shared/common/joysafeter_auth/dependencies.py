@@ -577,3 +577,27 @@ async def require_joysafeter_user_admin(
     """Require a user principal with organization admin privileges."""
     ctx = _require_user_principal(ctx)
     return await _require_admin_context(db, ctx)
+
+
+async def require_joysafeter_project_admin(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> JoySafeterAuthContext:
+    """Require the caller to be admin OF THE PATH ``project_id`` (org super-users
+    included).
+
+    Declarative counterpart of the inline project-admin check that guards project
+    -member management. Scoped to the path project (not the caller's active-context
+    project), so a project admin manages members of exactly the project they
+    administer. Being a dependency, a new member-management route cannot silently
+    ship with only a read-level guard.
+    """
+    ctx = _require_user_principal(ctx)
+    actor_role = await ProjectService(db).get_project_member_role(project_id, ctx.user_id)
+    if effective_project_capability(ctx.role, actor_role) < ProjectCapability.ADMIN:
+        raise AccessDeniedError(
+            "Project admin access required",
+            code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
+        )
+    return ctx

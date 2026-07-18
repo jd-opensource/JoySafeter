@@ -7,6 +7,7 @@ from .context import JoySafeterAuthContext, JoySafeterRole
 _DEPENDENCY_EXPORTS = {
     "get_joysafeter_auth_context",
     "require_joysafeter_admin",
+    "require_joysafeter_project_admin",
     "require_joysafeter_read",
     "require_joysafeter_user_admin",
     "require_joysafeter_user_context",
@@ -19,6 +20,7 @@ __all__ = [
     "JoySafeterRole",
     "get_joysafeter_auth_context",
     "require_joysafeter_admin",
+    "require_joysafeter_project_admin",
     "require_joysafeter_read",
     "require_joysafeter_user_admin",
     "require_joysafeter_user_context",
