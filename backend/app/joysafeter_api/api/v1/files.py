@@ -3,6 +3,7 @@
 import logging
 import uuid
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import RedirectResponse, Response
@@ -90,6 +91,23 @@ def _file_upload_validation_error(*, exc: ValueError, filename: str) -> AppError
         data=data,
         user_action="fix_input",
     )
+
+
+def _safe_content_disposition(filename: str) -> str:
+    """Build a header-injection-safe Content-Disposition for a user filename.
+
+    Emits a sanitized ASCII ``filename="..."`` fallback (control chars, quotes
+    and backslashes removed) plus an RFC 5987 ``filename*=UTF-8''`` with the real
+    name percent-encoded. The result is always well-formed and latin-1 encodable,
+    so a filename containing a quote/CRLF cannot break out of the header and a
+    non-ASCII name cannot trigger a header-encoding 500.
+    """
+    ascii_fallback = filename.encode("ascii", "ignore").decode("ascii")
+    for ch in ('"', "\\", "\r", "\n"):
+        ascii_fallback = ascii_fallback.replace(ch, "")
+    ascii_fallback = ascii_fallback.strip() or "download"
+    utf8_encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
 
 
 @router.post("", status_code=201)
@@ -197,7 +215,7 @@ async def download_file(
         content=data,
         media_type=record.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{record.filename}"',
+            "Content-Disposition": _safe_content_disposition(record.filename),
         },
     )
 
