@@ -71,7 +71,7 @@ async def test_delete_session_cancels_redis_subscriber_tasks(db_session, monkeyp
     # A live SSE consumer subscribes, spawning a tracked Redis subscriber task.
     q = broadcaster.subscribe(session_id)
     await asyncio.sleep(0)  # let the subscriber task start
-    task = broadcaster._redis_tasks[id(q)]
+    task = broadcaster._redis_tasks[session_id]
     assert not task.done()
 
     result = await delete_session(session_id, db_session, _auth_ctx())
@@ -80,7 +80,7 @@ async def test_delete_session_cancels_redis_subscriber_tasks(db_session, monkeyp
     await asyncio.sleep(0)  # let cancellation propagate
 
     # The subscriber task and its bookkeeping must be cleaned up, not leaked.
-    assert id(q) not in broadcaster._redis_tasks
+    assert session_id not in broadcaster._redis_tasks
     assert task.cancelled() or task.done()
     assert session_id not in broadcaster._channels
 

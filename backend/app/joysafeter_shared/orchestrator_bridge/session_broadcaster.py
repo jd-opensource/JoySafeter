@@ -26,26 +26,30 @@ class SessionBroadcaster:
         self._channels: dict[uuid.UUID, list[asyncio.Queue]] = {}
         self._redis = redis_client
         self._instance_id = instance_id
-        self._redis_tasks: dict[int, asyncio.Task] = {}
+        # One shared Redis subscriber task per session (NOT per queue), so N local
+        # viewers of a session share a single Redis pubsub subscription instead of
+        # opening N redundant ones (connection amplification).
+        self._redis_tasks: dict[uuid.UUID, asyncio.Task] = {}
 
     def subscribe(self, session_id: uuid.UUID) -> asyncio.Queue:
         """Subscribe to events for a session. Returns an asyncio.Queue.
 
         Matches Rust's subscribe() which returns broadcast::Receiver<SessionEvent>.
-        Also spawns a Redis subscriber to inject remote events into the local queue.
+        The first subscriber for a session starts ONE shared Redis subscriber that
+        fans remote events out to every local queue; later subscribers reuse it.
         """
         if session_id not in self._channels:
             self._channels[session_id] = []
         q: asyncio.Queue = asyncio.Queue(maxsize=256)
         self._channels[session_id].append(q)
 
-        # Start Redis subscriber to inject remote events into local channel
-        if self._redis:
+        # Start the shared Redis subscriber once per session.
+        if self._redis and session_id not in self._redis_tasks:
             task = asyncio.create_task(
-                self._redis_subscriber(session_id, q),
-                name=f"redis-sub-{session_id}-{id(q)}",
+                self._redis_subscriber(session_id),
+                name=f"redis-sub-{session_id}",
             )
-            self._redis_tasks[id(q)] = task
+            self._redis_tasks[session_id] = task
 
         return q
 
@@ -96,23 +100,25 @@ class SessionBroadcaster:
 
         Matches Rust's remove() method which drops the channel entry.
         """
-        queues = self._channels.pop(session_id, [])
-        # Cancel any Redis subscriber tasks associated with removed queues
-        for q in queues:
-            task = self._redis_tasks.pop(id(q), None)
-            if task and not task.done():
-                task.cancel()
-
-    def unsubscribe(self, session_id: uuid.UUID, q: asyncio.Queue) -> None:
-        """Remove a single subscriber queue. (Extra Python convenience method.)"""
-        if session_id in self._channels:
-            self._channels[session_id] = [x for x in self._channels[session_id] if x is not q]
-            if not self._channels[session_id]:
-                del self._channels[session_id]
-
-        task = self._redis_tasks.pop(id(q), None)
+        self._channels.pop(session_id, None)
+        task = self._redis_tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
+
+    def unsubscribe(self, session_id: uuid.UUID, q: asyncio.Queue) -> None:
+        """Remove a single subscriber queue. (Extra Python convenience method.)
+
+        The shared Redis subscriber is torn down only when the LAST queue for the
+        session is removed, so remaining viewers keep receiving remote events.
+        """
+        remaining = self._channels.get(session_id)
+        if remaining is not None:
+            self._channels[session_id] = [x for x in remaining if x is not q]
+            if not self._channels[session_id]:
+                del self._channels[session_id]
+                task = self._redis_tasks.pop(session_id, None)
+                if task and not task.done():
+                    task.cancel()
 
     async def _publish_to_redis(self, channel: str, wrapper: str) -> None:
         try:
@@ -134,7 +140,7 @@ class SessionBroadcaster:
                 exc_info=True,
             )
 
-    async def _redis_subscriber(self, session_id: uuid.UUID, q: asyncio.Queue) -> None:
+    async def _redis_subscriber(self, session_id: uuid.UUID) -> None:
         backoff = 1
         max_backoff = 30
         while True:
@@ -150,32 +156,35 @@ class SessionBroadcaster:
                     payload = json.loads(message["data"])
                     if payload.get("source_instance") == self._instance_id:
                         continue
-                    try:
-                        event = payload["event"]
-                        if isinstance(event, dict):
-                            event = {**event, "_sse_source": "redis_pubsub"}
-                        q.put_nowait(event)
-                    except asyncio.QueueFull:
-                        # Drain queue and signal lag so client reconnects
+                    event = payload["event"]
+                    if isinstance(event, dict):
+                        event = {**event, "_sse_source": "redis_pubsub"}
+                    # Fan the remote event out to every local subscriber of this
+                    # session (snapshot the list — unsubscribe may mutate it).
+                    for q in list(self._channels.get(session_id, [])):
                         try:
-                            while not q.empty():
-                                q.get_nowait()
-                            q.put_nowait({"lagged": True})
-                        except Exception as exc:
-                            logger.warning(
-                                "Failed to signal lagged Redis session subscriber",
-                                extra={
-                                    "error": async_boundary_error_payload(
-                                        code="SESSION_BROADCAST_LAG_SIGNAL_FAILED",
-                                        message="Failed to signal lagged Redis session subscriber",
-                                        boundary="session_broadcaster",
-                                        operation="redis_lag_signal",
-                                        data={"session_id": str(session_id)},
-                                        detail=exc.__class__.__name__,
-                                    )
-                                },
-                                exc_info=True,
-                            )
+                            q.put_nowait(event)
+                        except asyncio.QueueFull:
+                            # Drain queue and signal lag so this client reconnects
+                            try:
+                                while not q.empty():
+                                    q.get_nowait()
+                                q.put_nowait({"lagged": True})
+                            except Exception as exc:
+                                logger.warning(
+                                    "Failed to signal lagged Redis session subscriber",
+                                    extra={
+                                        "error": async_boundary_error_payload(
+                                            code="SESSION_BROADCAST_LAG_SIGNAL_FAILED",
+                                            message="Failed to signal lagged Redis session subscriber",
+                                            boundary="session_broadcaster",
+                                            operation="redis_lag_signal",
+                                            data={"session_id": str(session_id)},
+                                            detail=exc.__class__.__name__,
+                                        )
+                                    },
+                                    exc_info=True,
+                                )
             except asyncio.CancelledError:
                 break
             except Exception as e:
