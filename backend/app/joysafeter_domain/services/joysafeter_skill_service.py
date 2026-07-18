@@ -66,6 +66,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkillLifecycleStatus,
+    JoySafeterSkillVisibility,
 )
 from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository
 from app.joysafeter_shared.common.app_errors import (
@@ -925,9 +926,8 @@ class SkillService(BaseService[JoySafeterSkill]):
         else:
             # Anonymous read: only the ``public`` visibility tier opens
             # the row to a missing caller. Use the same fallback as
-            # ``check_skill_access`` so a row written by a legacy
-            # ``is_public=true`` writer still passes.
-            effective = skill.visibility or ("public" if skill.is_public else "private")
+            # ``check_skill_access``.
+            effective = skill.visibility or JoySafeterSkillVisibility.PROJECT.value
             if effective != "public":
                 raise AccessDeniedError(
                     "You don't have permission to access this skill",
@@ -949,8 +949,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         source_type: str = "local",
         source_url: Optional[str] = None,
         owner_id: Optional[str] = None,
-        is_public: bool = False,
-        visibility: Optional[str] = None,
         license: Optional[str] = None,
         files: Optional[List[Dict[str, Any]]] = None,
         project_id: Optional[str] = None,
@@ -1082,24 +1080,10 @@ class SkillService(BaseService[JoySafeterSkill]):
             files=files,
         )
 
-        # Dual-write: ``visibility`` is now the canonical column.
-        # Precedence rule:
-        #   1. Explicit ``visibility`` from the caller (P2.8) wins.
-        #   2. Legacy callers passing only ``is_public`` derive
-        #      ``visibility`` from ``is_public + project_id`` — mirrors
-        #      the 20260625_000003 backfill so a client that hasn't
-        #      adopted ``visibility`` yet gets the obvious mapping.
-        # We also keep ``is_public`` in sync so any reader still on
-        # the old column sees a consistent value.
-        if visibility is not None:
-            visibility_value = visibility
-            is_public = visibility == "public"
-        elif is_public:
-            visibility_value = "public"
-        elif project_id is not None:
-            visibility_value = "project"
-        else:
-            visibility_value = "private"
+        # A skill is always created as a ``project`` resource. Exposure to the
+        # ``organization`` / ``public`` tiers only ever happens through the
+        # version-level promotion approval flow, never directly at create time.
+        visibility_value = JoySafeterSkillVisibility.PROJECT.value
 
         skill = JoySafeterSkill(
             name=name,
@@ -1110,7 +1094,6 @@ class SkillService(BaseService[JoySafeterSkill]):
             source_url=source_url,
             owner_id=owner_id,
             created_by_id=created_by_id,
-            is_public=is_public,
             visibility=visibility_value,
             license=license,
             compatibility=compatibility,
@@ -1187,8 +1170,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         source_type: Optional[str] = None,
         source_url: Optional[str] = None,
         owner_id: Optional[str] = None,
-        is_public: Optional[bool] = None,
-        visibility: Optional[str] = None,
         license: Optional[str] = None,
         compatibility: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -1259,7 +1240,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         proposed_source_type = skill.source_type if source_type is None else source_type
         proposed_source_url = skill.source_url if source_url is None else source_url
         proposed_owner_id = skill.owner_id if owner_id is None else owner_id
-        proposed_is_public = skill.is_public if is_public is None else is_public
         proposed_license = skill.license if license is None else license
         proposed_compatibility = skill.compatibility if compatibility is None else compatibility
         proposed_metadata = skill.meta_data
@@ -1288,42 +1268,6 @@ class SkillService(BaseService[JoySafeterSkill]):
                         "proposed_owner_id": proposed_owner_id,
                     },
                 )
-
-        current_visibility = skill.visibility or ("public" if skill.is_public else "private")
-        # P2.15: ``is_public`` is the legacy boolean that the dual-write
-        # block below (see ~line 778-783) still translates back into a
-        # ``visibility`` tier. So a non-owner admin collaborator who sends
-        # only ``{"is_public": true}`` would have skipped the owner-only
-        # gate (because ``visibility`` stayed None and ``target_visibility``
-        # stayed equal to ``current_visibility``) yet still escalate the
-        # skill to ``public`` once line 778 ran. Compute the effective
-        # target the same way the dual-write block will to keep the gate
-        # in lockstep with the actual mutation.
-        if visibility is not None:
-            target_visibility = visibility
-        elif is_public is not None:
-            if is_public:
-                target_visibility = "public"
-            elif skill.project_id is not None:
-                target_visibility = "project"
-            else:
-                target_visibility = "private"
-        else:
-            target_visibility = current_visibility
-        visibility_changes = current_visibility != target_visibility
-        if visibility_changes and owner_before_change != current_user_id:
-            raise AccessDeniedError(
-                "Only the skill owner can change the visibility tier. "
-                "Admin collaborators may edit content but cannot retier "
-                "who the skill is shared with.",
-                code="SKILL_VISIBILITY_OWNER_ONLY",
-                data={
-                    "skill_id": str(skill.id),
-                    "user_id": current_user_id,
-                    "from_visibility": current_visibility,
-                    "to_visibility": target_visibility,
-                },
-            )
 
             # Validate name if provided
         if name and name != skill.name:
@@ -1428,30 +1372,12 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = proposed_tags or []
         skill.source_type = proposed_source_type
         skill.source_url = proposed_source_url
-        # The ownership and visibility gates ran at the top of the
-        # function (P2.13) so we don't pay any side effects of an
-        # unauthorized call. By the time control reaches here, both
-        # mutations are pre-approved.
+        # The ownership gate ran at the top of the function (P2.13) so we
+        # don't pay any side effects of an unauthorized call. By the time
+        # control reaches here, the mutation is pre-approved. Visibility is
+        # NOT written here — a skill's tier is only ever changed through the
+        # version-level promotion approval flow (or a takedown).
         skill.owner_id = proposed_owner_id
-        skill.is_public = proposed_is_public
-        # Dual-write visibility (see ``create_skill`` for the mapping
-        # rationale). Precedence: explicit ``visibility`` from the caller
-        # wins; otherwise derive from is_public + project_id, but only
-        # when the caller actually moved the boolean — an update that
-        # only renames a skill must not accidentally retier its share
-        # surface.
-        if visibility is not None:
-            skill.visibility = visibility
-            # Keep the legacy boolean in sync for any reader still on
-            # the old column.
-            skill.is_public = visibility == "public"
-        elif is_public is not None:
-            if proposed_is_public:
-                skill.visibility = "public"
-            elif skill.project_id is not None:
-                skill.visibility = "project"
-            else:
-                skill.visibility = "private"
         skill.license = proposed_license
         skill.compatibility = proposed_compatibility
         skill.meta_data = proposed_metadata or {}
@@ -2011,7 +1937,6 @@ every scan-completion path.
 
 from app.joysafeter_domain.models.joysafeter_skill import (
     VISIBILITY_RANK,
-    JoySafeterSkillVisibility,
     recompute_visibility_from_pointers,
 )
 from app.joysafeter_domain.services.joysafeter_skill_security import scan_ok

@@ -137,7 +137,6 @@ preview by calling the ``update_draft`` function.
    - ``name``: short, slug-friendly, ≤ 64 chars, lowercase letters / digits / hyphens
    - ``description``: 1-2 sentences, ≤ 1024 chars, no marketing tone
    - ``tags``: 2-5 short kebab-case tags
-   - ``visibility``: one of "private" (default) | "project" | "organization" | "public"
    - ``content``: the SKILL.md body (UTF-8 markdown), MUST start with YAML
      frontmatter containing ``name`` and ``description`` matching the fields
      above, then markdown headings, ending with ``## References``.
@@ -153,8 +152,9 @@ preview by calling the ``update_draft`` function.
      - ``## Tool Categories`` or domain-specific overview table (optional)
      - ``## References`` — list of sub-files
 7. Only patch fields that change between turns. Don't resend identical content.
-8. Default ``visibility`` to ``"private"`` for new skills unless the user
-   explicitly asks otherwise.
+8. New skills are created as project resources; exposing them to the wider
+   organization or the public is a separate, reviewed promotion step and is
+   NOT something you set here.
 9. Talk to the user in the language they used (Chinese ⇄ English mirror).
 
 ## Quality bar (what separates an expert skill from token waste)
@@ -214,10 +214,6 @@ UPDATE_DRAFT_TOOL: dict[str, Any] = {
                 "name": {"type": "string", "maxLength": 64},
                 "description": {"type": "string", "maxLength": 1024},
                 "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 10},
-                "visibility": {
-                    "type": "string",
-                    "enum": ["private", "project", "organization", "public"],
-                },
                 "content": {
                     "type": "string",
                     "description": ("Full SKILL.md body including YAML frontmatter and markdown sections."),

@@ -12,15 +12,6 @@ class CreateSkillRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     source_type: str = "manual"
     source_url: str = ""
-    # ``is_public`` is the legacy create knob. Kept for one release
-    # cycle so existing clients keep working; new clients should pass
-    # ``visibility`` instead. When both are present, ``visibility``
-    # wins (see ``SkillService.create_skill`` for the merge rule).
-    is_public: bool = False
-    # P2.8 — explicit four-tier visibility on create.
-    # ``None`` means "derive from is_public + project_id" (the legacy
-    # rule). Any explicit value short-circuits that derivation.
-    visibility: Optional[str] = None
     license: str = ""
     files: Optional[list[dict[str, Any]]] = None
 
@@ -28,16 +19,6 @@ class CreateSkillRequest(BaseModel):
     @classmethod
     def trim_source_url(cls, v: str) -> str:
         return v.strip()
-
-    @field_validator("visibility")
-    @classmethod
-    def validate_visibility(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return None
-        allowed = {"private", "project", "organization", "public"}
-        if v not in allowed:
-            raise ValueError(f"visibility must be one of {sorted(allowed)!r}; got {v!r}")
-        return v
 
     @field_validator("files")
     @classmethod
@@ -52,9 +33,9 @@ class CreateSkillRequest(BaseModel):
                 # Normalize Windows-style separators BEFORE the parts
                 # check. Without this, ``..\\etc\\passwd`` would slip
                 # through (PurePosixPath wouldn't split on backslash),
-                # then be expanded by ``SkillPacker._safe_archive_path``
-                # later — defense-in-depth at the boundary saves the
-                # row from ever landing with a traversal-shaped path.
+                # then be expanded later — defense-in-depth at the
+                # boundary saves the row from ever landing with a
+                # traversal-shaped path.
                 normalized = path.replace("\\", "/")
                 p = PurePosixPath(normalized)
                 if p.is_absolute():
@@ -71,24 +52,12 @@ class UpdateSkillRequest(BaseModel):
     tags: Optional[list[str]] = None
     source_type: Optional[str] = None
     source_url: Optional[str] = None
-    is_public: Optional[bool] = None
-    visibility: Optional[str] = None
     license: Optional[str] = None
 
     @field_validator("source_url")
     @classmethod
     def trim_source_url(cls, v: Optional[str]) -> Optional[str]:
         return v.strip() if v is not None else v
-
-    @field_validator("visibility")
-    @classmethod
-    def validate_visibility(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return None
-        allowed = {"private", "project", "organization", "public"}
-        if v not in allowed:
-            raise ValueError(f"visibility must be one of {sorted(allowed)!r}; got {v!r}")
-        return v
 
 
 class SkillSecurityScanSummary(BaseModel):
@@ -156,21 +125,22 @@ class SkillResponse(BaseModel):
     tags: list = Field(default_factory=list)
     source_type: str = "manual"
     source_url: Optional[str] = None
-    is_public: bool = False
-    visibility: str = "private"
+    visibility: str = "project"
     lifecycle_status: str = "draft"
     # Most recently published version string, or ``None`` if the skill has
     # never been published. The agent-builder skill picker hides rows where
     # this is null (can't reference an unpublished skill).
     latest_version: Optional[str] = None
+    # Tier pointers: the version currently served at the organization / public
+    # tier (set only through the promotion approval flow). ``None`` when the
+    # skill is not exposed at that tier.
+    org_version_id: Optional[uuid.UUID] = None
+    public_version_id: Optional[uuid.UUID] = None
     license: Optional[str] = None
     compatibility: Optional[str] = None
     metadata: dict = Field(default_factory=dict, alias="meta_data")
     allowed_tools: list = Field(default_factory=list)
     security_scan: SkillSecurityScanSummary = Field(default_factory=SkillSecurityScanSummary)
-    # Caller's effective capability on this skill: owner/admin/editor/viewer/none.
-    # Populated by the detail route; ``None`` on list rows that don't resolve it.
-    capability: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -179,6 +149,10 @@ class SkillResponse(BaseModel):
     @field_serializer("id")
     def serialize_id(self, v: uuid.UUID) -> str:
         return f"skill_{v}"
+
+    @field_serializer("org_version_id", "public_version_id")
+    def serialize_version_pointer(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"sklver_{v}" if v else None
 
 
 class CreateSkillFileRequest(BaseModel):

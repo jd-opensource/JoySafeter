@@ -34,12 +34,11 @@ from app.joysafeter_shared.common.skill_permissions import check_skill_access
 MODULE = "app.joysafeter_shared.common.skill_permissions"
 
 
-def _skill(*, owner_id="alice", visibility="project", is_public=False, project_id="proj-1"):
+def _skill(*, owner_id="alice", visibility="project", project_id="proj-1"):
     return SimpleNamespace(
         id=uuid.uuid4(),
         owner_id=owner_id,
         visibility=visibility,
-        is_public=is_public,
         project_id=project_id,
     )
 
@@ -166,7 +165,7 @@ async def test_cross_org_org_visibility_read_denied(monkeypatch):
 
 async def test_cross_org_public_read_allowed(monkeypatch):
     """``public`` is the one carve-out: readable from any org."""
-    s = _skill(visibility="public", is_public=True)
+    s = _skill(visibility="public")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
 
@@ -240,7 +239,7 @@ async def test_org_member_no_read_on_project_visibility(monkeypatch):
 
 async def test_non_member_non_org_non_public_denied(monkeypatch):
     """No project row, not an org member, not public → denied at every tier."""
-    s = _skill(visibility="private")
+    s = _skill(visibility="project")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
     _patch_org_member(monkeypatch, is_member=False)
@@ -257,7 +256,7 @@ async def test_owner_without_project_row_denied_write(monkeypatch):
     """Single-axis invariant: being the skill OWNER no longer grants
     capability. An owner with no project role and only MEMBER org role
     cannot WRITE."""
-    s = _skill(owner_id="bob", visibility="private")
+    s = _skill(owner_id="bob", visibility="project")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
     _patch_org_member(monkeypatch, is_member=True)

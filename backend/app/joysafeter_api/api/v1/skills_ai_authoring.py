@@ -318,7 +318,6 @@ async def authoring_save_draft(
                 description=req.description,
                 content=req.content,
                 tags=req.tags,
-                visibility=req.visibility,
                 files=files or None,
             )
         except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
@@ -343,8 +342,6 @@ async def authoring_save_draft(
             content=req.content,
             tags=req.tags or None,
             source_type="ai_authoring",
-            is_public=False,
-            visibility=req.visibility,
             files=files or None,
             project_id=auth_ctx.project_id,
         )

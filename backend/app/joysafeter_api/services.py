@@ -31,6 +31,7 @@ from app.joysafeter_domain.services.joysafeter_secret_service import SecretServi
 from app.joysafeter_domain.services.joysafeter_session_service import JoySafeterSessionLifecycleService, SessionService
 from app.joysafeter_domain.services.joysafeter_skill_service import (
     SkillLifecycleService,
+    SkillPromotionService,
     SkillService,
     SkillVersionService,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "SkillLifecycleService",
     "SkillService",
     "SkillVersionService",
+    "SkillPromotionService",
     "VaultService",
     "_split_packed_items",
     "enqueue_joysafeter_task",

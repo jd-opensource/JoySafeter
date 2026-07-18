@@ -10,9 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.models.joysafeter_organization import Member
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkill,
-    JoySafeterSkillCollaborator,
     JoySafeterSkillVisibility,
 )
 from app.joysafeter_shared.common.app_errors import AccessDeniedError
@@ -21,22 +19,6 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
     ProjectCapability,
     effective_project_capability,
 )
-
-
-async def _get_collaborator(
-    db: AsyncSession,
-    skill_id,
-    user_id: str,
-) -> Optional[JoySafeterSkillCollaborator]:
-    result = await db.execute(
-        select(JoySafeterSkillCollaborator).where(
-            and_(
-                JoySafeterSkillCollaborator.skill_id == skill_id,
-                JoySafeterSkillCollaborator.user_id == user_id,
-            )
-        )
-    )
-    return result.scalar_one_or_none()
 
 
 async def resolve_skill_org_id(db: AsyncSession, skill: JoySafeterSkill) -> Optional[str]:
@@ -59,27 +41,6 @@ async def _is_org_member(db: AsyncSession, user_id: str, org_id: str) -> bool:
             and_(
                 Member.organization_id == org_id,
                 Member.user_id == user_id,
-            )
-        )
-        .limit(1)
-    )
-    return result.scalar_one_or_none() is not None
-
-
-async def _is_project_member(db: AsyncSession, user_id: str, project_id: str) -> bool:
-    """Single-row lookup against the project_members table. Covers the
-    ``project`` visibility tier — "only members of THIS project can see it".
-
-    Introduced in P2.8 to actually distinguish ``project`` from
-    ``organization``. Before this, both tiers fell back to "is the user
-    in the same org", which made the ``project`` value cosmetic.
-    """
-    result = await db.execute(
-        select(ProjectMember.id)
-        .where(
-            and_(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == user_id,
             )
         )
         .limit(1)
@@ -198,58 +159,3 @@ async def check_skill_access(
             "required": int(required),
         },
     )
-
-
-async def compute_skill_capability(
-    db: AsyncSession,
-    skill: JoySafeterSkill,
-    user_id: Optional[str],
-    *,
-    is_superuser: bool = False,
-    active_org_id: Optional[str] = None,
-) -> str:
-    """Resolve the caller's effective capability on ``skill``.
-
-    Returns one of ``owner`` / ``admin`` / ``editor`` / ``viewer`` / ``none``.
-    This is the read-side mirror of :func:`check_skill_access`: it never
-    raises, it just reports the highest tier the caller holds so the client
-    can gate its UI (show the collaborator-manage panel only for
-    ``owner``/``admin``, the edit affordances for ``editor`` and up, etc.).
-
-    The precedence matches the gate: super-user (of the skill's own org) and
-    owner both resolve to full control, then the per-skill collaborator ACL,
-    then the visibility tier as a bare ``viewer`` grant. Org isolation applies
-    to every non-public tier exactly as the gate enforces it.
-    """
-    skill_org_id = await resolve_skill_org_id(db, skill) if active_org_id is not None else None
-    in_active_org = active_org_id is None or skill_org_id == active_org_id
-
-    # Super-user of the skill's own org manages it like an admin. (The caller
-    # is responsible for scoping ``is_superuser`` to the skill's org; we keep
-    # the same contract as the gate rather than re-deriving it here.)
-    if is_superuser:
-        return "admin"
-
-    if user_id is None:
-        # Anonymous: only a public skill is reachable, and only to view.
-        return "viewer" if _effective_visibility(skill) == JoySafeterSkillVisibility.PUBLIC.value else "none"
-
-    if skill.owner_id and skill.owner_id == user_id and in_active_org:
-        return "owner"
-
-    collab = await _get_collaborator(db, skill.id, user_id)
-    if collab and in_active_org:
-        return JoySafeterCollaboratorRole.normalize(collab.role).value
-
-    visibility = _effective_visibility(skill)
-    if visibility == JoySafeterSkillVisibility.PUBLIC.value:
-        return "viewer"
-    if in_active_org:
-        if visibility == JoySafeterSkillVisibility.PROJECT.value:
-            if skill.project_id and await _is_project_member(db, user_id, skill.project_id):
-                return "viewer"
-        if visibility == JoySafeterSkillVisibility.ORGANIZATION.value:
-            resolved_org = skill_org_id if skill_org_id is not None else await resolve_skill_org_id(db, skill)
-            if resolved_org and await _is_org_member(db, user_id, resolved_org):
-                return "viewer"
-    return "none"

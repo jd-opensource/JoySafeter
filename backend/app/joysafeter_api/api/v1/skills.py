@@ -5,15 +5,19 @@ from io import BytesIO
 from pathlib import PurePosixPath
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
 from app.joysafeter_api.api.v1.id_helpers import parse_skill_file_id, parse_skill_id, parse_skill_security_scan_id
-from app.joysafeter_api.services import AuthService, SkillLifecycleService, SkillService, SkillVersionService
+from app.joysafeter_api.services import (
+    SkillLifecycleService,
+    SkillPromotionService,
+    SkillService,
+    SkillVersionService,
+)
 from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_domain.models.joysafeter_skill import JoySafeterCollaboratorRole, JoySafeterSkill
+from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.schemas.joysafeter_skill import (
     CreateSkillFileRequest,
     CreateSkillRequest,
@@ -27,8 +31,6 @@ from app.joysafeter_domain.schemas.joysafeter_skill import (
     UpdateSkillFileRequest,
     UpdateSkillRequest,
 )
-from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
-from app.joysafeter_domain.services.joysafeter_skill_collaborator_service import SkillCollaboratorService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     InvalidRequestError,
@@ -351,8 +353,6 @@ async def create_skill(
         tags=req.tags or None,
         source_type=req.source_type,
         source_url=req.source_url or None,
-        is_public=req.is_public,
-        visibility=req.visibility,
         license=req.license or None,
         files=files_data,
         project_id=auth_ctx.project_id,
@@ -390,7 +390,6 @@ async def import_skill_zip(
         tags=payload.get("tags") or None,
         source_type="zip",
         source_url=filename or None,
-        is_public=False,
         license=payload.get("license") or None,
         files=files_data,
         project_id=auth_ctx.project_id,
@@ -445,7 +444,6 @@ async def get_skill(
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
     resp = SkillResponse.model_validate(skill)
-    resp.capability = await _skill_capability_for(db, skill, auth_ctx)
     return resp
 
 
@@ -518,8 +516,6 @@ async def update_skill(
         tags=req.tags,
         source_type=req.source_type,
         source_url=req.source_url,
-        is_public=req.is_public,
-        visibility=req.visibility,
         license=req.license,
     )
     skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
@@ -668,7 +664,6 @@ async def admin_rescan_all_skills(
     from sqlalchemy import select as _select
 
     from app.joysafeter_domain.models.joysafeter_skill import (
-        JoySafeterSkill,
         JoySafeterSkillLifecycleStatus,
         JoySafeterSkillSecurityScan,
     )
@@ -965,231 +960,96 @@ async def restore_skill_from_version(
 
 
 # ---------------------------------------------------------------------------
-# Skill collaborator management
+# Version-level tiered promotion
 #
-# A per-skill ACL surface mirroring project-member management: only a skill
-# admin (owner, a collaborator with the admin role, or an org super-user)
-# may list/grant/revoke collaborators. Roles use the project capability
-# vocabulary (admin / editor / viewer); check_skill_access is the single
-# authority for both the read gate and this admin gate.
+# A skill is a project resource; project editors publish project-tier versions
+# freely. Exposing a version to the ``organization`` or ``public`` tier goes
+# through a version-level, four-eyes approval: a skill ADMIN submits, the org
+# OWNER approves (approver != submitter) after the version's security scan is
+# re-checked. The service (``SkillPromotionService``) owns every gate; the
+# routes are thin HTTP shells.
 # ---------------------------------------------------------------------------
 
 
-class SkillCollaboratorResponse(BaseModel):
-    user_id: str
-    email: str
-    display_name: str
-    role: str
+class SubmitPromotionRequest(BaseModel):
+    # ``organization`` or ``public`` — the tier this version is being submitted
+    # for. Validated in the service against the promotable-tier vocabulary.
+    target_tier: str
 
 
-class AddSkillCollaboratorRequest(BaseModel):
-    user_id: str
-    # Project-capability vocabulary (admin / editor / viewer). Defaults to the
-    # least-privilege viewer; the UI always sends an explicit role.
-    role: str = "viewer"
+class RejectPromotionRequest(BaseModel):
+    reason: Optional[str] = None
 
 
-def _normalize_skill_collaborator_role(role: str) -> str:
-    """Validate a collaborator role against the project vocabulary.
-
-    Folds the legacy ``publisher`` tier into ``admin`` and rejects any
-    unrecognized value (unlike the fail-closed runtime normalize).
-    """
-    normalized = (role or "").strip().lower()
-    if normalized == "publisher":
-        normalized = "admin"
-    try:
-        return JoySafeterCollaboratorRole(normalized).value
-    except ValueError:
-        raise InvalidRequestError(
-            code="SKILL_COLLABORATOR_ROLE_INVALID",
-            message="Invalid role. Must be one of: admin, editor, viewer",
-            data={"role": role, "allowed": [r.value for r in JoySafeterCollaboratorRole]},
-            user_action="fix_input",
-        )
+class TakedownRequest(BaseModel):
+    # ``organization`` or ``public`` — the tier pointer to clear.
+    tier: str
 
 
-async def _skill_superuser_scope(db: AsyncSession, skill: JoySafeterSkill, auth_ctx: JoySafeterAuthContext) -> bool:
-    """Is the caller an org super-user *of the skill's own org*?
-
-    Org isolation applies before the super-user bypass: an org admin only
-    outranks skills that live in their active org, never ones referenced
-    across an org boundary.
-    """
-    from app.joysafeter_shared.common.skill_permissions import resolve_skill_org_id
-
-    if not auth_ctx.role.is_org_superuser():
-        return False
-    skill_org_id = await resolve_skill_org_id(db, skill)
-    return skill_org_id is not None and skill_org_id == auth_ctx.org_id
-
-
-async def _skill_capability_for(db: AsyncSession, skill: JoySafeterSkill, auth_ctx: JoySafeterAuthContext) -> str:
-    """Caller's effective capability on ``skill`` for the detail response."""
-    from app.joysafeter_shared.common.skill_permissions import compute_skill_capability
-
-    is_superuser = await _skill_superuser_scope(db, skill, auth_ctx)
-    return await compute_skill_capability(
-        db,
-        skill,
-        auth_ctx.user_id,
-        is_superuser=is_superuser,
-        active_org_id=auth_ctx.org_id,
-    )
-
-
-async def _load_manageable_skill(db: AsyncSession, skill_id: uuid.UUID, auth_ctx: JoySafeterAuthContext):
-    """Load a skill for collaborator management.
-
-    404s if the skill is missing OR belongs to another organization (org
-    isolation is enforced BEFORE the super-user bypass, so an org admin cannot
-    reach a skill outside their own org by referencing its id). Then requires
-    the caller to have admin capability on the skill (owner, a collaborator
-    with the admin role, or an org super-user of the skill's own org).
-    """
-    from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository
-    from app.joysafeter_shared.common.skill_permissions import (
-        resolve_skill_org_id,
-    )
-
-    # 404-only load: go straight to the repository so we do NOT inherit
-    # ``get_skill``'s visibility gate, which would reject a private skill for
-    # the anonymous (current_user_id=None) path before we ever reach the
-    # ADMIN gate below. Org-isolation + capability are the real gates here.
-    skill = await SkillRepository(db).get_with_files(skill_id)
-    if skill is None or not isinstance(skill, JoySafeterSkill):
-        raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
-
-    skill_org_id = await resolve_skill_org_id(db, skill)
-    if skill_org_id is not None and skill_org_id != auth_ctx.org_id:
-        raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
-
-    # Collaborator management is inherently tied to the per-skill ACL that
-    # this phase keeps (owner / admin collaborator / org super-user). Use
-    # ``compute_skill_capability`` — which still honors that ACL — rather
-    # than the single-axis ``check_skill_access`` gate, so the collaborator
-    # routes keep their existing contract until the ACL is removed in a
-    # later phase.
-    capability = await _skill_capability_for(db, skill, auth_ctx)
-    if capability not in ("owner", "admin"):
-        raise AccessDeniedError(
-            "You don't have permission to manage this skill's collaborators",
-            code="SKILL_ACCESS_DENIED",
-            data={"skill_id": str(skill_id), "user_id": auth_ctx.user_id},
-        )
-    return skill
-
-
-@router.get("/{skill_id}/collaborators")
-async def list_skill_collaborators(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
-    db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> list[SkillCollaboratorResponse]:
-    """List a skill's collaborators (requires skill admin)."""
-    await _load_manageable_skill(db, skill_id, auth_ctx)
-    rows = await SkillCollaboratorService(db).list_collaborators(skill_id)
-    return [
-        SkillCollaboratorResponse(
-            user_id=collab.user_id,
-            email=user.email if user else "",
-            display_name=user.name if user else "",
-            role=collab.role,
-        )
-        for collab, user in rows
-    ]
-
-
-@router.post("/{skill_id}/collaborators", status_code=201)
-async def add_skill_collaborator(
-    req: AddSkillCollaboratorRequest,
-    request: Request,
+@router.post("/{skill_id}/versions/{version}/submit-promotion")
+async def submit_skill_promotion(
+    req: SubmitPromotionRequest,
+    version: str,
     skill_id: uuid.UUID = Depends(parse_skill_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> SkillCollaboratorResponse:
-    """Grant/update a collaborator on a skill (requires skill admin)."""
-    skill = await _load_manageable_skill(db, skill_id, auth_ctx)
-
-    role = _normalize_skill_collaborator_role(req.role)
-
-    # The owner already has full control; never model them as a collaborator.
-    if skill.owner_id and skill.owner_id == req.user_id:
-        raise InvalidRequestError(
-            code="SKILL_COLLABORATOR_OWNER_FORBIDDEN",
-            message="The skill owner cannot be added as a collaborator",
-            data={"skill_id": str(skill_id), "user_id": req.user_id},
-            user_action="fix_input",
-        )
-
-    # The target must be a member of the acting organization.
-    member = await OrganizationMemberService(db).get_member_by_user_id(auth_ctx.org_id, req.user_id)
-    if member is None:
-        raise NotFoundError(
-            code="ORGANIZATION_MEMBER_NOT_FOUND",
-            message="User is not a member of this organization",
-            data={"organization_id": auth_ctx.org_id, "user_id": req.user_id},
-            user_action="fix_input",
-        )
-    user = await AuthService(db).get_user_by_id(req.user_id)
-
-    await SkillCollaboratorService(db).grant_collaborator(
-        skill_id=skill_id,
-        user_id=req.user_id,
-        role=role,
-        invited_by=auth_ctx.user_id,
-        commit=True,
+) -> SkillVersionResponse:
+    """Submit a version for promotion to organization/public (requires skill ADMIN)."""
+    version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    promoted = await svc.submit_promotion(
+        target_tier=req.target_tier,
+        current_user_id=auth_ctx.user_id,
+        version_id=target.id,
     )
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="skill_collaborator.added",
-        target_type="skill_collaborator",
-        target_id=req.user_id,
-        details={"skill_id": str(skill_id), "assigned_role": role},
-    )
-    return SkillCollaboratorResponse(
-        user_id=req.user_id,
-        email=user.email if user else "",
-        display_name=user.name if user else "",
-        role=role,
-    )
+    return SkillVersionResponse.model_validate(promoted)
 
 
-@router.delete("/{skill_id}/collaborators/{user_id}", status_code=204)
-async def remove_skill_collaborator(
-    user_id: str,
-    request: Request,
+@router.post("/{skill_id}/versions/{version}/approve-promotion")
+async def approve_skill_promotion(
+    version: str,
     skill_id: uuid.UUID = Depends(parse_skill_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> None:
-    """Revoke a collaborator from a skill (requires skill admin)."""
-    skill = await _load_manageable_skill(db, skill_id, auth_ctx)
+) -> SkillVersionResponse:
+    """Approve a pending promotion (org OWNER only, four-eyes enforced in the service)."""
+    version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    approved = await svc.approve_promotion(version_id=target.id, current_user_id=auth_ctx.user_id)
+    return SkillVersionResponse.model_validate(approved)
 
-    if skill.owner_id and skill.owner_id == user_id:
-        raise InvalidRequestError(
-            code="SKILL_COLLABORATOR_OWNER_FORBIDDEN",
-            message="The skill owner cannot be removed as a collaborator",
-            data={"skill_id": str(skill_id), "user_id": user_id},
-            user_action="fix_input",
-        )
 
-    revoked = await SkillCollaboratorService(db).revoke_collaborator(skill_id=skill_id, user_id=user_id, commit=True)
-    if not revoked:
-        raise NotFoundError(
-            code="SKILL_COLLABORATOR_NOT_FOUND",
-            message="User is not a collaborator on this skill",
-            data={"skill_id": str(skill_id), "user_id": user_id},
-            user_action="refresh",
-        )
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="skill_collaborator.removed",
-        target_type="skill_collaborator",
-        target_id=user_id,
-        details={"skill_id": str(skill_id)},
+@router.post("/{skill_id}/versions/{version}/reject-promotion")
+async def reject_skill_promotion(
+    req: RejectPromotionRequest,
+    version: str,
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SkillVersionResponse:
+    """Reject a pending promotion (org OWNER only)."""
+    version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    rejected = await svc.reject_promotion(
+        version_id=target.id, current_user_id=auth_ctx.user_id, reason=req.reason
     )
+    return SkillVersionResponse.model_validate(rejected)
+
+
+@router.post("/{skill_id}/takedown")
+async def takedown_skill(
+    req: TakedownRequest,
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SkillResponse:
+    """Pull a skill down from a tier (org OWNER only); clears the pointer and
+    recomputes visibility fail-closed to the highest remaining tier."""
+    svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    await svc.takedown(skill_id=skill_id, tier=req.tier, current_user_id=auth_ctx.user_id)
+    read_svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    skill = await read_svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+    return SkillResponse.model_validate(skill)

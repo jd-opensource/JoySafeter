@@ -29,9 +29,7 @@ from .joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from .joysafeter_session_file import JoySafeterSessionFile  # noqa: F401 — alembic discovery
 from .joysafeter_session_repo import JoySafeterSessionRepo  # noqa: F401 — alembic discovery
 from .joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkill,
-    JoySafeterSkillCollaborator,
     JoySafeterSkillFile,
     JoySafeterSkillSecurityScan,
     JoySafeterSkillUsageLog,
@@ -61,8 +59,6 @@ __all__ = [
     "JoySafeterSkillSecurityScan",
     "JoySafeterSkillUsageLog",
     "SecurityAuditLog",
-    "JoySafeterCollaboratorRole",
-    "JoySafeterSkillCollaborator",
     "JoySafeterSkillVersion",
     "JoySafeterSkillVersionFile",
     "JoySafeterTask",

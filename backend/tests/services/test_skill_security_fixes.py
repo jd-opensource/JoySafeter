@@ -7,7 +7,7 @@ Four targeted fixes:
         a different org context.
   - #2: only the skill OWNER can flip a skill into the ``public``
         visibility tier; admin collaborators can't single-handedly
-        expose a private skill to every other organization.
+        expose a project skill to every other organization.
   - #3: same gate applies in reverse — un-publishing a public skill
         is also owner-only.
   - #5: admin batch rescan stays scoped to the caller's active org;
@@ -41,15 +41,13 @@ def _skill(
     *,
     skill_id=None,
     owner_id="alice",
-    visibility="private",
+    visibility="project",
     project_id="proj-1",
-    is_public=False,
 ):
     return SimpleNamespace(
         id=skill_id or uuid.uuid4(),
         owner_id=owner_id,
         visibility=visibility,
-        is_public=is_public,
         project_id=project_id,
     )
 
@@ -87,7 +85,7 @@ def _patch_project_role(monkeypatch, *, role):
 
 async def test_project_admin_pass_when_in_active_org(monkeypatch):
     """A project admin reading from inside the skill's org goes through."""
-    s = _skill(owner_id="alice", visibility="private")
+    s = _skill(owner_id="alice", visibility="project")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role="admin")
 
@@ -105,7 +103,7 @@ async def test_project_admin_denied_when_in_different_active_org(monkeypatch):
     """The fix: a caller pinned to a different org context can NOT reach
     the skill via project capability. Org isolation gates the capability
     path — P2.9 closes the cross-org leak that ``list_by_user`` closes."""
-    s = _skill(owner_id="alice", visibility="private")
+    s = _skill(owner_id="alice", visibility="project")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role="admin")
 
@@ -125,7 +123,7 @@ async def test_delete_skill_owner_denied_when_in_different_active_org(monkeypatc
     not enough in a multi-org UI: the same user can own skills in org A
     and org B, but a request pinned to org B must not delete an org A
     skill by direct id."""
-    s = _skill(owner_id="alice", visibility="private")
+    s = _skill(owner_id="alice", visibility="project")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role="admin")
     svc = _make_skill_service(s, current_user_id="alice", active_org_id="org-B")
@@ -143,7 +141,7 @@ async def test_delete_skill_owner_denied_when_in_different_active_org(monkeypatc
 async def test_org_superuser_gets_admin_in_own_org(monkeypatch):
     """Org owner/admin manage every skill in their own org — capability
     resolves to ADMIN without a project row."""
-    s = _skill(owner_id="alice", visibility="private")
+    s = _skill(owner_id="alice", visibility="project")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
 
@@ -160,7 +158,7 @@ async def test_org_superuser_gets_admin_in_own_org(monkeypatch):
 async def test_public_skill_still_crosses_active_org(monkeypatch):
     """``public`` is the explicit carve-out: readable from any org even
     with an active_org mismatch."""
-    s = _skill(owner_id="alice", visibility="public", is_public=True)
+    s = _skill(owner_id="alice", visibility="public")
     _patch_skill_org_id(monkeypatch, org_id="org-A")
     _patch_project_role(monkeypatch, role=None)
 
@@ -199,66 +197,11 @@ def _make_skill_service(skill, *, current_user_id, active_org_id=None):
     return svc
 
 
-async def test_admin_collaborator_cannot_publish(monkeypatch):
-    """An admin collaborator who tries to set ``visibility=public``
-    on a skill they don't own hits ``SKILL_VISIBILITY_OWNER_ONLY``
-    BEFORE any write happens. The owner-only check sits inside
-    ``update_skill`` so the route layer's auth gate (which lets
-    admin collaborators through) doesn't decide this on its own."""
-    skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="alice",
-        is_public=False,
-        visibility="private",
-        project_id="proj-1",
-        name="x",
-        description="x",
-        content="x",
-        tags=[],
-        source_type="manual",
-        source_url=None,
-        root_path=None,
-        license=None,
-        compatibility=None,
-        meta_data={},
-        allowed_tools=[],
-        files=[],
-    )
-
-    svc = _make_skill_service(skill, current_user_id="bob")
-
-    # Stub ``check_skill_access`` — the route already gated, the
-    # collaborator role passes the per-skill ACL. The owner-only
-    # check we're testing is separate from that gate.
-    async def _allow(*_args, **_kw):
-        return None
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
-        _allow,
-    )
-    # Also stub the security_service that the update path calls
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_service._serialize_skill_files",
-        lambda *_a, **_kw: [],
-        raising=False,
-    )
-
-    with pytest.raises(AccessDeniedError) as ei:
-        await svc.update_skill(
-            skill_id=skill.id,
-            current_user_id="bob",  # admin collaborator, NOT owner
-            visibility="public",
-        )
-    assert ei.value.code == "SKILL_VISIBILITY_OWNER_ONLY"
-
-
 async def test_archived_skill_rejects_metadata_update_before_scan_or_commit(monkeypatch):
     skill = SimpleNamespace(
         id=uuid.uuid4(),
         owner_id="alice",
-        is_public=False,
-        visibility="private",
+        visibility="project",
         project_id="proj-1",
         name="x",
         description="x",
@@ -301,8 +244,7 @@ async def test_archived_skill_rejects_manual_rescan_before_scanning_or_backgroun
     skill = SimpleNamespace(
         id=uuid.uuid4(),
         owner_id="alice",
-        is_public=False,
-        visibility="private",
+        visibility="project",
         project_id="proj-1",
         name="x",
         description="x",
@@ -343,8 +285,7 @@ async def test_archived_skill_rejects_sync_rescan_before_scan_or_commit(monkeypa
     skill = SimpleNamespace(
         id=uuid.uuid4(),
         owner_id="alice",
-        is_public=False,
-        visibility="private",
+        visibility="project",
         project_id="proj-1",
         name="x",
         description="x",
@@ -380,187 +321,6 @@ async def test_archived_skill_rejects_sync_rescan_before_scan_or_commit(monkeypa
     svc.db.commit.assert_not_awaited()
 
 
-async def test_admin_collaborator_cannot_unpublish(monkeypatch):
-    """Mirror of the publish test: pulling a skill OUT of public is
-    just as sensitive (the audience loses access in one click) and
-    is therefore also owner-only."""
-    skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="alice",
-        is_public=True,
-        visibility="public",
-        project_id="proj-1",
-        name="x",
-        description="x",
-        content="x",
-        tags=[],
-        source_type="manual",
-        source_url=None,
-        root_path=None,
-        license=None,
-        compatibility=None,
-        meta_data={},
-        allowed_tools=[],
-        files=[],
-    )
-
-    svc = _make_skill_service(skill, current_user_id="bob")
-
-    async def _allow(*_args, **_kw):
-        return None
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
-        _allow,
-    )
-
-    with pytest.raises(AccessDeniedError) as ei:
-        await svc.update_skill(
-            skill_id=skill.id,
-            current_user_id="bob",
-            visibility="private",
-        )
-    assert ei.value.code == "SKILL_VISIBILITY_OWNER_ONLY"
-
-
-async def test_owner_can_publish(monkeypatch):
-    """Sanity: the owner of a skill can flip it to ``public`` —
-    we're not blocking the legitimate path, only the
-    collaborator-driven one."""
-    skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="alice",
-        is_public=False,
-        visibility="private",
-        project_id="proj-1",
-        name="x",
-        description="x",
-        content="x",
-        tags=[],
-        source_type="manual",
-        source_url=None,
-        root_path=None,
-        license=None,
-        compatibility=None,
-        meta_data={},
-        allowed_tools=[],
-        files=[],
-    )
-
-    svc = _make_skill_service(skill, current_user_id="alice")
-
-    async def _allow(*_args, **_kw):
-        return None
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
-        _allow,
-    )
-
-    # No exception — owner is allowed to publish their own skill.
-    await svc.update_skill(
-        skill_id=skill.id,
-        current_user_id="alice",  # the owner
-        visibility="public",
-    )
-    assert skill.visibility == "public"
-    assert skill.is_public is True
-
-
-async def test_non_owner_cannot_change_visibility_at_all(monkeypatch):
-    """P2.11 — ANY visibility change is owner-only. P2.9 originally
-    only gated the public boundary; P2.11 closed the side gate that
-    let admin collaborators retier a skill between private / project
-    / organization without consulting the owner.
-
-    Rationale: deciding "who can see this skill" is the owner's
-    call, the same way "who's a collaborator" is the owner's call.
-    Content edits (rename / file CRUD) stay open to admins; the
-    audience boundary doesn't."""
-    skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="alice",
-        is_public=False,
-        visibility="private",
-        project_id="proj-1",
-        name="x",
-        description="x",
-        content="x",
-        tags=[],
-        source_type="manual",
-        source_url=None,
-        root_path=None,
-        license=None,
-        compatibility=None,
-        meta_data={},
-        allowed_tools=[],
-        files=[],
-    )
-
-    svc = _make_skill_service(skill, current_user_id="bob")
-
-    async def _allow(*_args, **_kw):
-        return None
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
-        _allow,
-    )
-
-    # ``bob`` is a non-owner admin collaborator. private -> organization
-    # crosses no public boundary but DOES change the audience. Reject.
-    with pytest.raises(AccessDeniedError) as ei:
-        await svc.update_skill(
-            skill_id=skill.id,
-            current_user_id="bob",
-            visibility="organization",
-        )
-    assert ei.value.code == "SKILL_VISIBILITY_OWNER_ONLY"
-    # State must NOT have moved.
-    assert skill.visibility == "private"
-
-
-async def test_owner_can_change_visibility_within_non_public_tiers(monkeypatch):
-    """Sanity: the OWNER can retier freely between the non-public
-    tiers (it's their call). Only non-owner writes get blocked."""
-    skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="alice",
-        is_public=False,
-        visibility="private",
-        project_id="proj-1",
-        name="x",
-        description="x",
-        content="x",
-        tags=[],
-        source_type="manual",
-        source_url=None,
-        root_path=None,
-        license=None,
-        compatibility=None,
-        meta_data={},
-        allowed_tools=[],
-        files=[],
-    )
-
-    svc = _make_skill_service(skill, current_user_id="alice")
-
-    async def _allow(*_args, **_kw):
-        return None
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
-        _allow,
-    )
-
-    await svc.update_skill(
-        skill_id=skill.id,
-        current_user_id="alice",
-        visibility="organization",
-    )
-    assert skill.visibility == "organization"
-
-
 async def test_non_owner_content_edits_still_allowed(monkeypatch):
     """The fix is scoped to visibility changes. A content / metadata
     edit by an admin collaborator that does NOT touch visibility
@@ -569,7 +329,6 @@ async def test_non_owner_content_edits_still_allowed(monkeypatch):
     skill = SimpleNamespace(
         id=uuid.uuid4(),
         owner_id="alice",
-        is_public=False,
         visibility="organization",
         project_id="proj-1",
         name="x",
@@ -625,8 +384,7 @@ async def test_non_owner_cannot_transfer_ownership(monkeypatch):
     skill = SimpleNamespace(
         id=uuid.uuid4(),
         owner_id="alice",
-        is_public=False,
-        visibility="private",
+        visibility="project",
         project_id="proj-1",
         name="x",
         description="x",
@@ -669,8 +427,7 @@ async def test_owner_can_transfer_ownership(monkeypatch):
     skill = SimpleNamespace(
         id=uuid.uuid4(),
         owner_id="alice",
-        is_public=False,
-        visibility="private",
+        visibility="project",
         project_id="proj-1",
         name="x",
         description="x",
@@ -719,8 +476,7 @@ async def test_rejected_put_does_not_leak_via_scan_dispatch(monkeypatch):
     skill = SimpleNamespace(
         id=uuid.uuid4(),
         owner_id="alice",
-        is_public=False,
-        visibility="private",
+        visibility="project",
         project_id="proj-1",
         name="x",
         description="x",
@@ -757,106 +513,3 @@ async def test_rejected_put_does_not_leak_via_scan_dispatch(monkeypatch):
     svc.security_service.scan_for_write.assert_not_called()
 
 
-async def test_non_owner_combined_owner_and_visibility_attack(monkeypatch):
-    """The combined attack the ownership gate was designed to block:
-    set owner_id=self + visibility=public in the same PUT. The
-    visibility gate checks ``owner_before_change``, so even though
-    ``skill.owner_id`` after the owner_id mutation would equal the
-    caller, the gate still recognizes the caller as a non-owner.
-
-    In practice the ownership gate above raises first, but this
-    test exists to make sure NEITHER gate alone is enough — both
-    have to use the pre-change owner identity."""
-    skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="alice",
-        is_public=False,
-        visibility="private",
-        project_id="proj-1",
-        name="x",
-        description="x",
-        content="x",
-        tags=[],
-        source_type="manual",
-        source_url=None,
-        root_path=None,
-        license=None,
-        compatibility=None,
-        meta_data={},
-        allowed_tools=[],
-        files=[],
-    )
-
-    svc = _make_skill_service(skill, current_user_id="bob")
-
-    async def _allow(*_args, **_kw):
-        return None
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
-        _allow,
-    )
-
-    with pytest.raises(AccessDeniedError):
-        await svc.update_skill(
-            skill_id=skill.id,
-            current_user_id="bob",
-            owner_id="bob",
-            visibility="public",
-        )
-    # Both fields must remain untouched.
-    assert skill.owner_id == "alice"
-    assert skill.visibility == "private"
-
-
-@pytest.mark.asyncio
-async def test_non_owner_cannot_escalate_via_is_public_boolean(monkeypatch):
-    """P2.15: ``is_public`` is the legacy boolean that the dual-write
-    block translates back into ``visibility``. A non-owner admin
-    collaborator who sends only ``{"is_public": true}`` would have
-    skipped the ``visibility`` owner-only gate (because the explicit
-    ``visibility`` arg stayed None) yet still escalate the skill to
-    ``public`` once the dual-write ran. The fix recomputes the
-    effective target visibility from BOTH the explicit field and
-    the legacy boolean, so the gate sees the real change."""
-    skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="alice",
-        is_public=False,
-        visibility="private",
-        project_id="proj-1",
-        name="x",
-        description="x",
-        content="x",
-        tags=[],
-        source_type="manual",
-        source_url=None,
-        root_path=None,
-        license=None,
-        compatibility=None,
-        meta_data={},
-        allowed_tools=[],
-        files=[],
-    )
-
-    svc = _make_skill_service(skill, current_user_id="bob")
-
-    async def _allow(*_args, **_kw):
-        return None
-
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
-        _allow,
-    )
-
-    with pytest.raises(AccessDeniedError) as ei:
-        await svc.update_skill(
-            skill_id=skill.id,
-            current_user_id="bob",   # admin collaborator, NOT owner
-            is_public=True,          # the bypass vector
-            # NOTE: visibility intentionally NOT passed
-        )
-    assert ei.value.code == "SKILL_VISIBILITY_OWNER_ONLY"
-    # The dual-write must not have run.
-    assert skill.is_public is False
-    assert skill.visibility == "private"
