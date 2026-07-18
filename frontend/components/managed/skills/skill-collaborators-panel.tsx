@@ -53,6 +53,32 @@ interface UserSearchResult {
 
 const DEFAULT_ROLE = 'viewer'
 
+function RoleSelect({
+  value,
+  onValueChange,
+  triggerClassName,
+}: {
+  value: string
+  onValueChange: (value: string) => void
+  triggerClassName: string
+}) {
+  const { t } = useTranslation()
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger className={triggerClassName}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {projectRoleOptions(t).map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 export function SkillCollaboratorsPanel({
   skillId,
   capability,
@@ -202,18 +228,11 @@ export function SkillCollaboratorsPanel({
       key: 'role',
       header: t('managed.skills.collaborators.role'),
       render: (m) => (
-        <Select value={m.role} onValueChange={(v) => handleRoleChange(m, v)}>
-          <SelectTrigger className="h-8 w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {projectRoleOptions(t).map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <RoleSelect
+          value={m.role}
+          onValueChange={(v) => handleRoleChange(m, v)}
+          triggerClassName="h-8 w-36"
+        />
       ),
     },
     {
@@ -290,18 +309,7 @@ export function SkillCollaboratorsPanel({
             </div>
           )}
         </div>
-        <Select value={addRole} onValueChange={setAddRole}>
-          <SelectTrigger className="h-9 w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {projectRoleOptions(t).map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <RoleSelect value={addRole} onValueChange={setAddRole} triggerClassName="h-9 w-32" />
         <Button
           onClick={handleAdd}
           disabled={!selectedUserId || grantMut.isPending || existingIds.has(selectedUserId)}

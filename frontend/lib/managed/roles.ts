@@ -74,8 +74,10 @@ export function projectRoleOptions(t: Translator) {
 // an admin-governance action, so only owner and admin qualify. The type is owned
 // by types/managed.ts (single source); re-exported here for co-located ergonomics.
 
-export type { SkillCapability } from '@/types/managed'
+import type { SkillCapability } from '@/types/managed'
 
-export function canManageSkillCollaborators(capability?: string | null): boolean {
+export type { SkillCapability }
+
+export function canManageSkillCollaborators(capability?: SkillCapability | null): boolean {
   return capability === 'owner' || capability === 'admin'
 }
