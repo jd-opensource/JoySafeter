@@ -78,7 +78,6 @@ class JoySafeterSkill(BaseModel):
     tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="local")
     source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
-    root_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     owner_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
@@ -124,6 +123,20 @@ class JoySafeterSkill(BaseModel):
     # 20260625_000004_promote_legacy_skills_approved.
     lifecycle_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=JoySafeterSkillLifecycleStatus.DRAFT.value
+    )
+    # Single-axis redesign (P1): pointers to the last version approved for the
+    # org / public tiers. Nullable FKs onto joysafeter_skill_versions with
+    # ondelete SET NULL so deleting a version clears the pointer rather than
+    # cascading into the skill. Populated by later phases; NULL for now.
+    org_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    public_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     # relationships
@@ -333,6 +346,10 @@ class JoySafeterSkillVersion(BaseModel):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Single-axis redesign (P1): which visibility tier a pending review
+    # targets (e.g. "organization" / "public"). NULL when no review is
+    # pending or for versions predating the redesign.
+    review_target_visibility: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, default=None)
 
     # Relationships
     skill: Mapped["JoySafeterSkill"] = relationship("JoySafeterSkill", lazy="selectin")
