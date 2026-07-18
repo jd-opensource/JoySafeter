@@ -26,44 +26,13 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafe
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_shared.common.app_errors import (
-    AppError,
     RateLimitExceededError,
     ResourceConflictError,
-    ServiceUnavailableError,
 )
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
-from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.orchestrator_bridge.enqueue import enqueue_joysafeter_task
 
 logger = logging.getLogger(__name__)
-
-
-def _enqueue_failed_error(*, task_id: uuid.UUID, session_id: Optional[uuid.UUID]) -> AppError:
-    data: dict[str, object] = {"task_id": str(task_id)}
-    if session_id is not None:
-        data["session_id"] = str(session_id)
-    return ServiceUnavailableError(
-        code="TASK_ENQUEUE_FAILED",
-        message="Failed to enqueue task",
-        data=data,
-        source="runtime",
-        retryable=True,
-        user_action="retry",
-    )
-
-
-def _enqueue_failed_stop_reason(*, task_id: uuid.UUID, session_id: Optional[uuid.UUID]) -> dict[str, object]:
-    data: dict[str, object] = {"task_id": str(task_id)}
-    if session_id is not None:
-        data["session_id"] = str(session_id)
-    return async_error_payload(
-        code="TASK_ENQUEUE_FAILED",
-        message="Failed to enqueue task",
-        data=data,
-        source="runtime",
-        retryable=True,
-        user_action="retry",
-    )
 
 
 class TaskSubmissionService:
@@ -196,12 +165,34 @@ class TaskSubmissionService:
                 session_svc=session_svc,
             )
 
-        try:
-            running_accepted = await session_svc.update_session_status_for_task_event(
-                chat_session_id, "running", task.id
+        # Session-running CAS. A False result means another task grabbed this
+        # session between the pre-flight check and now — a session conflict, NOT
+        # an enqueue failure. Mark this never-dispatched task terminal (so the
+        # repair sweep won't run it on the now-busy session) and surface a 409.
+        running_accepted = await session_svc.update_session_status_for_task_event(
+            chat_session_id, "running", task.id
+        )
+        if not running_accepted:
+            await self.tasks.update_task_error(
+                task.id,
+                "Session already has another active task",
+                JoySafeterTaskStatus.FAILED,
             )
-            if not running_accepted:
-                raise RuntimeError("Session already has another active task")
+            raise ResourceConflictError(
+                code="SESSION_ACTIVE_TASK",
+                message="Session has an active task; wait for completion before creating a new task",
+                data={"session_id": str(chat_session_id), "task_id": str(task.id)},
+                retryable=True,
+                user_action="retry",
+            )
+
+        # The session now owns this task. Announcing it and pushing to the Redis
+        # queue are best-effort fast-path steps: the DB is the source of truth and
+        # the orchestrator's repair sweep re-dispatches any PENDING task whose
+        # queue entry was lost. So a transient failure here must NOT destroy the
+        # task — leave it PENDING (session stays running) for the sweep to pick up
+        # on Redis recovery, rather than marking it FAILED.
+        try:
             await session_svc.send_event(
                 chat_session_id,
                 "session.status_running",
@@ -209,32 +200,17 @@ class TaskSubmissionService:
             )
             await enqueue_joysafeter_task(task.id)
         except Exception as exc:
-            await self.tasks.update_task_error(
-                task.id,
-                f"Failed to enqueue task: {exc}",
-                JoySafeterTaskStatus.FAILED,
+            log_boundary_failure(
+                logger,
+                boundary="task_submission",
+                code="TASK_ENQUEUE_DEFERRED",
+                message="Task enqueue deferred to the repair sweep after a transient dispatch failure",
+                operation="enqueue_task",
+                error=exc,
+                data={"task_id": str(task.id), "session_id": str(chat_session_id)},
+                retryable=True,
+                user_action="retry",
             )
-            stop_reason = _enqueue_failed_stop_reason(task_id=task.id, session_id=chat_session_id)
-            try:
-                idle_accepted = await session_svc.update_session_status_for_task_event(
-                    chat_session_id,
-                    "idle",
-                    task.id,
-                    stop_reason=stop_reason,
-                )
-                if idle_accepted:
-                    await session_svc.send_event(
-                        chat_session_id,
-                        "session.status_idle",
-                        {"task_id": str(task.id), "stop_reason": stop_reason},
-                    )
-            except Exception:
-                logger.debug(
-                    "Could not compensate session %s to idle after dispatch failure",
-                    chat_session_id,
-                    exc_info=True,
-                )
-            raise _enqueue_failed_error(task_id=task.id, session_id=chat_session_id)
 
         return task, True
 
@@ -274,6 +250,4 @@ class TaskSubmissionService:
                 },
                 user_action="fix_input",
             )
-        if task.status == "failed" and "Failed to enqueue task" in (task.error or ""):
-            raise _enqueue_failed_error(task_id=task.id, session_id=task.chat_session_id)
         return task, False
