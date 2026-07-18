@@ -1579,6 +1579,30 @@ async def list_events(
 
 
 @router.get("/{session_id}/events/stream")
+async def _iter_events_after(svc, session_id, start_seq, project_id, page_size: int = 1000):
+    """Yield every event with seq > start_seq, in order, paginating past the
+    per-call page limit.
+
+    ``list_events`` caps each call at ``page_size`` and reports ``has_more``. The
+    SSE replay/poll paths previously issued a single call and discarded
+    ``has_more``, so a session with more than one page of events after the cursor
+    (a reconnect to a long session, or a fast producer) had its tail silently
+    dropped — a permanent gap for an active session whose live traffic keeps the
+    30s catch-up timeout from firing. Draining until ``has_more`` is False closes
+    that gap; the caller's seq<=last_seq dedup makes over-fetching harmless.
+    """
+    cursor = start_seq
+    while True:
+        events, has_more = await svc.list_events(session_id, page_size, cursor, project_id=project_id)
+        if not events:
+            return
+        for ev in events:
+            yield ev
+            cursor = ev.seq
+        if not has_more:
+            return
+
+
 async def session_event_stream(
     request: Request,
     session_id: uuid.UUID = Depends(_parse_session_id),
@@ -1632,14 +1656,12 @@ async def session_event_stream(
 
                 async with AsyncSessionLocal() as replay_db:
                     replay_svc = SessionService(replay_db)
-                    events, _ = await replay_svc.list_events(
-                        session_id,
-                        1000,
-                        after_seq,
-                        project_id=auth_ctx.project_id,
-                    )
-                    for ev in events:
+                    replayed = 0
+                    async for ev in _iter_events_after(
+                        replay_svc, session_id, after_seq, auth_ctx.project_id
+                    ):
                         last_seq = max(last_seq, ev.seq)
+                        replayed += 1
                         data_dict = {
                             "id": f"evt_{ev.id}",
                             "type": ev.event_type,
@@ -1650,11 +1672,11 @@ async def session_event_stream(
                         data_dict["_sse_source"] = "db_replay"
                         data = json.dumps(data_dict)
                         yield f"id: evt_{ev.id}\ndata: {data}\n\n"
-                    if events:
+                    if replayed:
                         logger.info(
                             "SSE db_replay session=%s count=%s from_seq=%s to_seq=%s",
                             session_id,
-                            len(events),
+                            replayed,
                             after_seq,
                             last_seq,
                         )
@@ -1668,14 +1690,12 @@ async def session_event_stream(
 
                     async with AsyncSessionLocal() as poll_db:
                         poll_svc = SessionService(poll_db)
-                        events, _ = await poll_svc.list_events(
-                            session_id,
-                            1000,
-                            last_seq,
-                            project_id=auth_ctx.project_id,
-                        )
-                        for ev in events:
+                        polled = 0
+                        async for ev in _iter_events_after(
+                            poll_svc, session_id, last_seq, auth_ctx.project_id
+                        ):
                             last_seq = max(last_seq, ev.seq)
+                            polled += 1
                             data_dict = {
                                 "id": f"evt_{ev.id}",
                                 "type": ev.event_type,
@@ -1685,11 +1705,11 @@ async def session_event_stream(
                                 data_dict.update(ev.payload)
                             data_dict["_sse_source"] = "db_fallback_no_broadcaster"
                             yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
-                        if events:
+                        if polled:
                             logger.warning(
                                 "SSE db_fallback_no_broadcaster session=%s count=%s to_seq=%s",
                                 session_id,
-                                len(events),
+                                polled,
                                 last_seq,
                             )
 
@@ -1728,14 +1748,12 @@ async def session_event_stream(
 
                     async with AsyncSessionLocal() as poll_db:
                         poll_svc = SessionService(poll_db)
-                        events, _ = await poll_svc.list_events(
-                            session_id,
-                            1000,
-                            last_seq,
-                            project_id=auth_ctx.project_id,
-                        )
-                        for ev in events:
+                        polled = 0
+                        async for ev in _iter_events_after(
+                            poll_svc, session_id, last_seq, auth_ctx.project_id
+                        ):
                             last_seq = max(last_seq, ev.seq)
+                            polled += 1
                             data_dict = {
                                 "id": f"evt_{ev.id}",
                                 "type": ev.event_type,
@@ -1745,14 +1763,14 @@ async def session_event_stream(
                                 data_dict.update(ev.payload)
                             data_dict["_sse_source"] = "db_fallback_timeout"
                             yield f"id: evt_{ev.id}\ndata: {json.dumps(data_dict)}\n\n"
-                        if events:
+                        if polled:
                             log_boundary_failure(
                                 logger,
                                 boundary="session_stream",
                                 code="SESSION_STREAM_DB_FALLBACK_TIMEOUT",
                                 message="SSE DB fallback timeout",
                                 operation="stream_session_events_db_fallback",
-                                data={"session_id": str(session_id), "count": len(events), "to_seq": last_seq},
+                                data={"session_id": str(session_id), "count": polled, "to_seq": last_seq},
                                 retryable=True,
                                 user_action="retry",
                             )
