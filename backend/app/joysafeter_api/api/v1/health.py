@@ -90,7 +90,6 @@ async def health_ready():
                 cluster_membership = {
                     "status": "degraded",
                     "reason": "cluster_membership_unavailable",
-                    "error": str(e),
                 }
     except Exception as e:
         log_boundary_failure(
@@ -144,7 +143,10 @@ async def health_ready():
             "checks": {
                 "postgres": "up" if postgres_ok else "down",
                 "redis": "up" if redis_ok else "down",
-                "cluster_membership": cluster_membership,
+                # Expose only the cluster readiness status, never the fleet
+                # topology (live/stale counts, heartbeat/expiry) or raw probe
+                # error text — this endpoint is unauthenticated.
+                "cluster_membership": cluster_membership.get("status", "unknown"),
             },
         },
     )

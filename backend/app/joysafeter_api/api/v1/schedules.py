@@ -182,7 +182,10 @@ async def trigger_schedule(
     await submission.enforce_admission(
         project_id=schedule.project_id,
         user_id=schedule.user_id,
-        enforce_user_quota=False,
+        # A manual trigger runs as the schedule's owner, so it must count against
+        # that owner's per-user concurrency quota — otherwise it is an unbounded,
+        # quota-exempt task-spawn primitive any project writer could abuse.
+        enforce_user_quota=True,
     )
 
     session_svc = SessionService(db)
