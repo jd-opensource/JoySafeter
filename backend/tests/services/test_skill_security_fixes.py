@@ -59,14 +59,14 @@ class _NullDB:
 
 
 def _patch_skill_org_id(monkeypatch, *, org_id):
-    """Stub the ``_skill_org_id`` resolver. Returns the org id the
+    """Stub the ``resolve_skill_org_id`` resolver. Returns the org id the
     skill is "really" in — distinct from the caller's active org."""
 
     async def _resolve(_db, _skill):
         return org_id
 
     monkeypatch.setattr(
-        "app.joysafeter_shared.common.skill_permissions._skill_org_id",
+        "app.joysafeter_shared.common.skill_permissions.resolve_skill_org_id",
         _resolve,
     )
 
@@ -147,7 +147,7 @@ async def test_owner_pass_when_active_org_not_supplied(monkeypatch):
     from breaking until every caller is migrated."""
     s = _skill(owner_id="alice", visibility="private")
     _patch_no_collaborator(monkeypatch)
-    # NOTE: ``_skill_org_id`` is intentionally not patched — the
+    # NOTE: ``resolve_skill_org_id`` is intentionally not patched — the
     # owner branch should NOT call it when ``active_org_id`` is None.
 
     await check_skill_access(

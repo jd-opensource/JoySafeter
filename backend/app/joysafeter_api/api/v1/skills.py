@@ -7,7 +7,6 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
@@ -668,7 +667,6 @@ async def admin_rescan_all_skills(
     from sqlalchemy import or_ as _or
     from sqlalchemy import select as _select
 
-    from app.joysafeter_domain.models.joysafeter_project import Project
     from app.joysafeter_domain.models.joysafeter_skill import (
         JoySafeterSkill,
         JoySafeterSkillLifecycleStatus,
@@ -1016,11 +1014,11 @@ async def _skill_superuser_scope(db: AsyncSession, skill: JoySafeterSkill, auth_
     outranks skills that live in their active org, never ones referenced
     across an org boundary.
     """
+    from app.joysafeter_shared.common.skill_permissions import resolve_skill_org_id
+
     if not auth_ctx.role.is_org_superuser():
         return False
-    if not skill.project_id:
-        return False
-    skill_org_id = (await db.execute(select(Project.org_id).where(Project.id == skill.project_id))).scalar_one_or_none()
+    skill_org_id = await resolve_skill_org_id(db, skill)
     return skill_org_id is not None and skill_org_id == auth_ctx.org_id
 
 
@@ -1048,7 +1046,10 @@ async def _load_manageable_skill(db: AsyncSession, skill_id: uuid.UUID, auth_ctx
     with the admin role, or an org super-user of the skill's own org).
     """
     from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository
-    from app.joysafeter_shared.common.skill_permissions import check_skill_access
+    from app.joysafeter_shared.common.skill_permissions import (
+        check_skill_access,
+        resolve_skill_org_id,
+    )
 
     # 404-only load: go straight to the repository so we do NOT inherit
     # ``get_skill``'s visibility gate, which would reject a private skill for
@@ -1059,11 +1060,7 @@ async def _load_manageable_skill(db: AsyncSession, skill_id: uuid.UUID, auth_ctx
     if skill is None or not isinstance(skill, JoySafeterSkill):
         raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-    skill_org_id: str | None = None
-    if skill.project_id:
-        skill_org_id = (
-            await db.execute(select(Project.org_id).where(Project.id == skill.project_id))
-        ).scalar_one_or_none()
+    skill_org_id = await resolve_skill_org_id(db, skill)
     if skill_org_id is not None and skill_org_id != auth_ctx.org_id:
         raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 

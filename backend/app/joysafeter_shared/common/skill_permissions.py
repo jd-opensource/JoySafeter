@@ -34,7 +34,7 @@ async def _get_collaborator(
     return result.scalar_one_or_none()
 
 
-async def _skill_org_id(db: AsyncSession, skill: JoySafeterSkill) -> Optional[str]:
+async def resolve_skill_org_id(db: AsyncSession, skill: JoySafeterSkill) -> Optional[str]:
     """Return the org id that owns the skill, via its project. ``None``
     when the skill has no project binding — falls back to "not org-scoped"
     which the org-tier check then treats as a miss.
@@ -134,7 +134,7 @@ async def check_skill_access(
 
         # Resolve the skill's org once; reused by both the owner short-
         # circuit and the visibility-tier branches below.
-    skill_org_id = await _skill_org_id(db, skill) if active_org_id is not None else None
+    skill_org_id = await resolve_skill_org_id(db, skill) if active_org_id is not None else None
     in_active_org = active_org_id is None or skill_org_id == active_org_id
 
     # 2. Owner short-circuit — still subject to active-org isolation
@@ -179,7 +179,7 @@ async def check_skill_access(
 
     if visibility == JoySafeterSkillVisibility.ORGANIZATION.value and in_active_org:
         if skill_org_id is None:
-            skill_org_id = await _skill_org_id(db, skill)
+            skill_org_id = await resolve_skill_org_id(db, skill)
         if skill_org_id and await _is_org_member(db, user_id, skill_org_id):
             return
 
@@ -211,7 +211,7 @@ async def compute_skill_capability(
     then the visibility tier as a bare ``viewer`` grant. Org isolation applies
     to every non-public tier exactly as the gate enforces it.
     """
-    skill_org_id = await _skill_org_id(db, skill) if active_org_id is not None else None
+    skill_org_id = await resolve_skill_org_id(db, skill) if active_org_id is not None else None
     in_active_org = active_org_id is None or skill_org_id == active_org_id
 
     # Super-user of the skill's own org manages it like an admin. (The caller
@@ -239,7 +239,7 @@ async def compute_skill_capability(
             if skill.project_id and await _is_project_member(db, user_id, skill.project_id):
                 return "viewer"
         if visibility == JoySafeterSkillVisibility.ORGANIZATION.value:
-            resolved_org = skill_org_id if skill_org_id is not None else await _skill_org_id(db, skill)
+            resolved_org = skill_org_id if skill_org_id is not None else await resolve_skill_org_id(db, skill)
             if resolved_org and await _is_org_member(db, user_id, resolved_org):
                 return "viewer"
     return "none"

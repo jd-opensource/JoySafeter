@@ -233,7 +233,7 @@ def _patch_org_member(monkeypatch, *, org_id, is_member):
         return is_member
 
     monkeypatch.setattr(
-        "app.joysafeter_shared.common.skill_permissions._skill_org_id",
+        "app.joysafeter_shared.common.skill_permissions.resolve_skill_org_id",
         _resolve,
     )
     monkeypatch.setattr(
