@@ -19,6 +19,7 @@ from app.joysafeter_shared.common.app_errors import (
     InternalServiceError,
     InvalidRequestError,
     NotFoundError,
+    PayloadTooLargeError,
     PermissionDeniedError,
     RateLimitError,
     RequestValidationAppError,
@@ -59,6 +60,8 @@ def _status_code_for_error(error: AppError) -> int:
         return status.HTTP_403_FORBIDDEN
     if isinstance(error, RequestValidationAppError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT
+    if isinstance(error, PayloadTooLargeError):
+        return 413  # Payload Too Large (constant name differs across starlette versions)
     if isinstance(error, ValidationError):
         return status.HTTP_400_BAD_REQUEST
     if isinstance(error, ConflictError):

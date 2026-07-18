@@ -136,7 +136,7 @@ async def test_oauth_api_state_validate_failure_logs_structured_boundary_error(m
         SimpleNamespace(settings=SimpleNamespace(default_redirect_url="/managed/quickstart")),
     )
 
-    assert state_data == {}
+    assert state_data is None
     assert callback_url == "/managed/quickstart"
     assert fake_logger.messages == [("warning", "[OAuthAPI] Failed to validate state")]
     assert fake_logger.bound == {

@@ -562,6 +562,19 @@ class Settings(BaseSettings):
         ),
         description="Max size accepted by the user file upload APIs (bytes).",
     )
+    max_request_body_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        validation_alias=AliasChoices(
+            "JOYSAFETER_MAX_REQUEST_BODY_BYTES",
+            "MAX_REQUEST_BODY_BYTES",
+        ),
+        description=(
+            "Hard cap on any single HTTP request body (bytes). Coarse per-worker "
+            "OOM guard applied before the body is buffered; must stay above "
+            "max_upload_file_bytes so legitimate uploads are not rejected. "
+            "Per-field content limits (prompt/message) are enforced separately."
+        ),
+    )
 
     # OAuth Configuration
     oauth_config_path: Optional[str] = Field(

@@ -538,8 +538,13 @@ async def _validate_state(state: str, oauth_config) -> tuple[Optional[Dict], str
     """Validate state and return state_data and callback_url."""
     callback_url = oauth_config.settings.default_redirect_url
 
+    # `state` is the login-CSRF nonce; Redis is its authoritative store. If the
+    # store is unavailable we cannot confirm the nonce, so fail CLOSED (reject
+    # the login) rather than open. Availability of login during a Redis outage
+    # is deliberately traded away — a CSRF control must never be silently
+    # disabled by an infrastructure failure.
     if not RedisClient.is_available():
-        return {}, callback_url
+        return None, callback_url
 
     try:
         state_key = f"oauth_state:{state}"
@@ -571,7 +576,9 @@ async def _validate_state(state: str, oauth_config) -> tuple[Optional[Dict], str
                 detail=e.__class__.__name__,
             )
         ).warning(f"{LOG_PREFIX} Failed to validate state")
-        return {}, callback_url
+        # Same fail-closed rationale as the Redis-unavailable branch: a lookup
+        # error means the nonce is unverifiable, so reject rather than proceed.
+        return None, callback_url
 
 
 def _create_auth_response(

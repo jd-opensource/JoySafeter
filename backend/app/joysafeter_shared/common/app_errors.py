@@ -259,6 +259,24 @@ class RequestValidationAppError(ValidationError):
         )
 
 
+class PayloadTooLargeError(ValidationError):
+    def __init__(
+        self,
+        message: str = "请求体过大 / Request body too large",
+        *,
+        code: str = "REQUEST_BODY_TOO_LARGE",
+        data: Mapping[str, Any] | None = None,
+        retryable: bool = False,
+        user_action: str | None = "fix_input",
+        detail: str | None = None,
+        **kw: Any,
+    ):
+        kw.setdefault("source", self._default_source)
+        super().__init__(
+            code=code, message=message, data=data, retryable=retryable, user_action=user_action, detail=detail, **kw
+        )
+
+
 class ModelConfigError(DomainError):
     MODEL_NOT_FOUND = "MODEL_NOT_FOUND"
     MODEL_NO_CREDENTIALS = "MODEL_NO_CREDENTIALS"

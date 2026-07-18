@@ -7,11 +7,16 @@ import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from app.joysafeter_api.api.v1.middleware import ApiV1ResponseWrapperMiddleware, CsrfProtectionMiddleware
+from app.joysafeter_api.api.v1.middleware import (
+    ApiV1ResponseWrapperMiddleware,
+    CsrfProtectionMiddleware,
+    RequestBodySizeLimitMiddleware,
+)
 from app.joysafeter_api.api.v1.router import joysafeter_router
 from app.joysafeter_api.websocket.auth import WebSocketCloseCode, authenticate_websocket, reject_websocket
 from app.joysafeter_api.websocket.notification_manager import NotificationType, notification_manager
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
+from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.runtime.app_factory import create_app
 
 
@@ -28,6 +33,10 @@ def register_api_routes(app: FastAPI) -> None:
     # -circuits with a structured 403 that the wrapper passes through untouched.
     app.add_middleware(CsrfProtectionMiddleware)
     app.add_middleware(ApiV1ResponseWrapperMiddleware)
+    # Body-size cap. Added LAST so it is the OUTERMOST middleware: an oversized
+    # request is rejected (413) before CSRF/wrapper/router ever read the body,
+    # bounding the memory a single request can force a worker to buffer.
+    app.add_middleware(RequestBodySizeLimitMiddleware, max_body_bytes=settings.max_request_body_bytes)
     # All API routes live under /api/v1/*.
     app.include_router(joysafeter_router, prefix="/api/v1")
 

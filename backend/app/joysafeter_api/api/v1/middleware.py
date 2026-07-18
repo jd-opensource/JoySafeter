@@ -119,6 +119,69 @@ class ApiV1ResponseWrapperMiddleware(BaseHTTPMiddleware):
         )
 
 
+class RequestBodySizeLimitMiddleware:
+    """Reject over-large request bodies before the application buffers them.
+
+    An external, multi-tenant API that exposes file-upload endpoints must bound
+    the memory a single request can force a worker to allocate. This is a pure
+    ASGI middleware (not ``BaseHTTPMiddleware``) so it can reject on a declared
+    ``Content-Length`` *before* the body is read, and enforce the same cap
+    against the bytes actually streamed when the length is missing or understated
+    (e.g. chunked transfer-encoding). It is the coarse outer guard; per-field
+    content limits (prompt/message) are enforced separately at the schema layer.
+    """
+
+    def __init__(self, app, *, max_body_bytes: int) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Fast path: a declared Content-Length lets us reject without reading
+        # (and therefore without allocating) the body at all.
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    break
+                if declared > self.max_body_bytes:
+                    await self._reject(scope, receive, send)
+                    return
+                break
+
+        # Slow path: enforce against the bytes actually streamed, covering a
+        # missing or understated Content-Length (e.g. chunked transfer-encoding).
+        received = 0
+        max_body_bytes = self.max_body_bytes
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b""))
+                if received > max_body_bytes:
+                    from app.joysafeter_shared.common.app_errors import PayloadTooLargeError
+
+                    raise PayloadTooLargeError(data={"max_bytes": max_body_bytes})
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+    async def _reject(self, scope, receive, send) -> None:
+        from app.joysafeter_shared.common.app_errors import PayloadTooLargeError
+        from app.joysafeter_shared.common.exceptions import create_error_response
+
+        response = create_error_response(
+            status_code=413,
+            error=PayloadTooLargeError(data={"max_bytes": self.max_body_bytes}),
+        )
+        await response(scope, receive, send)
+
+
 def _is_csrf_exempt_path(path: str) -> bool:
     return any(path.endswith(suffix) for suffix in _CSRF_EXEMPT_PATH_SUFFIXES)
 

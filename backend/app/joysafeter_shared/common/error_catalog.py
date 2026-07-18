@@ -11,6 +11,7 @@ from app.joysafeter_shared.common.app_errors import (
     InternalServiceError,
     InvalidRequestError,
     NotFoundError,
+    PayloadTooLargeError,
     RateLimitExceededError,
     RequestValidationAppError,
     ResourceConflictError,
@@ -482,6 +483,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="REFRESH_TOKEN_INVALID",
         error_class=AuthenticationError,
         default_message="Invalid or expired refresh token",
+    ),
+    "REQUEST_BODY_TOO_LARGE": CatalogEntry(
+        code="REQUEST_BODY_TOO_LARGE",
+        error_class=PayloadTooLargeError,
+        default_message="请求体过大 / Request body too large",
     ),
     "REQUEST_VALIDATION_ERROR": CatalogEntry(
         code="REQUEST_VALIDATION_ERROR", error_class=RequestValidationAppError, default_message="请求参数校验失败"
