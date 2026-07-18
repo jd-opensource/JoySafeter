@@ -19,11 +19,15 @@ the Python API keeps the test self-contained and CI-friendly.
 from __future__ import annotations
 
 import io
+import uuid
 from contextlib import redirect_stdout
 from pathlib import Path
 
+import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from alembic import command
 
@@ -136,3 +140,86 @@ def test_downgrade_sql_unwinds_back_to_p0_baseline():
     assert "DROP COLUMN approved_by_id" in sql
     assert "DROP COLUMN approved_at" in sql
     assert "DROP TABLE joysafeter_project_members" in sql
+
+
+# ---------------------------------------------------------------------------
+# P1 (single-axis redesign): version pointers on skills + review target on
+# versions, and removal of the always-NULL root_path column.
+#
+# These run against the real migrated Postgres (the ``db_session`` fixture
+# spins up a testcontainer and applies ``alembic upgrade head``), so they
+# validate the 20260718_000001 migration end-to-end rather than in offline
+# SQL.
+# ---------------------------------------------------------------------------
+
+
+async def _columns(session: AsyncSession, table: str) -> set[str]:
+    rows = await session.execute(
+        text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = :t"
+        ),
+        {"t": table},
+    )
+    return {r[0] for r in rows}
+
+
+@pytest.mark.asyncio
+async def test_migration_adds_version_pointer_columns(db_session: AsyncSession):
+    """org_version_id / public_version_id land on joysafeter_skills and
+    review_target_visibility lands on joysafeter_skill_versions after
+    upgrade head."""
+    skill_cols = await _columns(db_session, "joysafeter_skills")
+    assert "org_version_id" in skill_cols
+    assert "public_version_id" in skill_cols
+
+    version_cols = await _columns(db_session, "joysafeter_skill_versions")
+    assert "review_target_visibility" in version_cols
+
+
+@pytest.mark.asyncio
+async def test_migration_drops_root_path(db_session: AsyncSession):
+    """root_path was always NULL with no readers/writers; the migration
+    removes it entirely."""
+    skill_cols = await _columns(db_session, "joysafeter_skills")
+    assert "root_path" not in skill_cols
+
+
+@pytest.mark.asyncio
+async def test_insert_skill_with_null_version_pointers(db_session: AsyncSession):
+    """A skill row inserts fine with both version pointers left NULL — the
+    columns are nullable FKs, not required."""
+    user_id = f"u-{uuid.uuid4()}"
+    await db_session.execute(
+        text(
+            "INSERT INTO joysafeter_users (id, name, email, hashed_password, is_active, email_verified, is_super_user, failed_login_attempts, created_at, updated_at) "
+            "VALUES (:id, :name, :email, 'x', true, false, false, 0, now(), now())"
+        ),
+        {"id": user_id, "name": "migration-test-user", "email": f"{user_id}@example.com"},
+    )
+    skill_id = uuid.uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO joysafeter_skills "
+            "(id, name, description, content, tags, source_type, created_by_id, "
+            " is_public, visibility, metadata, allowed_tools, security_status, "
+            " security_issues_count, security_critical_count, security_high_count, "
+            " security_medium_count, security_low_count, lifecycle_status, "
+            " org_version_id, public_version_id, created_at, updated_at) "
+            "VALUES (:id, 'n', 'd', 'c', '[]'::jsonb, 'local', :uid, "
+            " false, 'private', '{}'::jsonb, '[]'::jsonb, 'not_scanned', "
+            " 0, 0, 0, 0, 0, 'draft', NULL, NULL, now(), now())"
+        ),
+        {"id": skill_id, "uid": user_id},
+    )
+    await db_session.commit()
+
+    got = await db_session.execute(
+        text(
+            "SELECT org_version_id, public_version_id FROM joysafeter_skills WHERE id = :id"
+        ),
+        {"id": skill_id},
+    )
+    row = got.one()
+    assert row[0] is None
+    assert row[1] is None
