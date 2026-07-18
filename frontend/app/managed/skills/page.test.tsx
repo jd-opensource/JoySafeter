@@ -1622,4 +1622,54 @@ describe('SkillManagerPage managed scope lifecycle', () => {
       managedOptions(),
     )
   })
+
+  it('restores a version through the confirm dialog', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    let view!: ReturnType<typeof renderSkillsPage>
+    await act(async () => {
+      view = renderSkillsPage(queryClient)
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      fireEvent.click(await view.findByRole('button', { name: 'Skill A' }))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(view.getByRole('heading', { name: 'Skill A' })).toBeTruthy()
+    })
+
+    // Open the version-history tab, then trigger restore on the latest version.
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: 'managed.skills.versionHistory' }))
+      await Promise.resolve()
+    })
+    const restoreButtons = await view.findAllByRole('button', {
+      name: 'managed.skills.restoreVersion',
+    })
+    await act(async () => {
+      fireEvent.click(restoreButtons[0])
+      await Promise.resolve()
+    })
+
+    // Confirm dialog → POST to the restore endpoint.
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: 'managed.skills.restore' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(managedPostMock).toHaveBeenCalledWith(
+        '/skills/a/versions/restore/1.1.0',
+        {},
+        managedOptions(),
+      )
+    })
+  })
 })
