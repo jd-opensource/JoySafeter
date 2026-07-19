@@ -31,7 +31,6 @@ vi.mock('@/hooks/managed/use-skill-authoring', () => ({
       name: 'Draft skill',
       description: '',
       tags: [],
-      visibility: 'private',
       content: '# Draft',
       files: [],
     }

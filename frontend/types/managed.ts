@@ -295,11 +295,9 @@ export interface SkillSecurityScanRecord extends SkillSecurityScanSummary {
   updated_at: string
 }
 
-export type SkillVisibility = 'private' | 'project' | 'organization' | 'public'
+export type SkillVisibility = 'project' | 'organization' | 'public'
 
 export type SkillLifecycleStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'archived'
-
-export type SkillCapability = 'owner' | 'admin' | 'editor' | 'viewer' | 'none'
 
 export interface SkillRecord {
   id: string
@@ -314,19 +312,17 @@ export interface SkillRecord {
   metadata: Record<string, unknown>
   license: string
   compatibility: Record<string, unknown>
-  // DEPRECATED — kept for one release cycle while the dual-write
-  // transition is in flight. Read ``visibility`` instead.
-  is_public: boolean
   visibility?: SkillVisibility
   lifecycle_status?: SkillLifecycleStatus
+  // Version currently served at each tier, set only through the promotion
+  // approval flow. ``null`` when the skill is not exposed at that tier.
+  org_version_id?: string | null
+  public_version_id?: string | null
   source_type: string
   source_url: string
   created_at: string
   updated_at: string
   security_scan?: SkillSecurityScanSummary
-  // Caller's effective capability on this skill, resolved by the detail route.
-  // Absent on list rows (only the GET /skills/{id} detail populates it).
-  capability?: SkillCapability
 }
 
 export interface SkillVersionRecord {
@@ -339,6 +335,11 @@ export interface SkillVersionRecord {
   content: string
   frontmatter: Record<string, unknown>
   release_notes?: string
+  // Promotion state: ``lifecycle_status`` is the version's review state
+  // (approved / pending_review / rejected); when pending,
+  // ``review_target_visibility`` is the tier the submission targets.
+  lifecycle_status?: SkillLifecycleStatus
+  review_target_visibility?: SkillVisibility | null
   created_at: string
 }
 

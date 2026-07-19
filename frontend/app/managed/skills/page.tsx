@@ -24,6 +24,8 @@ import {
   RefreshCw,
   Sparkles,
   GitCompare,
+  X,
+  ArrowUpCircle,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
@@ -43,7 +45,6 @@ import {
   ConfirmDialog,
   ResourceErrorState,
 } from '@/components/managed/shared'
-import { SkillCollaboratorsPanel } from '@/components/managed/skills/skill-collaborators-panel'
 import {
   SkillLifecycleBadge,
   SkillRiskScoreBadge,
@@ -93,7 +94,7 @@ import {
   useManagedRequestScope,
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { canManageSkillCollaborators } from '@/lib/managed/roles'
+import { canOwn } from '@/lib/managed/roles'
 import {
   getManagedSkillImportApiErrorMessage,
   buildManagedSkillImportFromDirectory,
@@ -741,7 +742,6 @@ interface SkillFormState {
   content: string
   license: string
   tags: string
-  is_public: boolean
   visibility?: string
   source_type: string
   source_url: string
@@ -820,6 +820,12 @@ function SkillEditor({
   onDeleteVersion,
   onRestoreVersion,
   onDeleteVersionDialogActivity,
+  isProjectSkillAdmin,
+  isOrgOwner,
+  onPromoteVersion,
+  onApproveVersion,
+  onRejectVersion,
+  onTakedown,
   isCreatingVersion,
   editorTab,
   setEditorTab,
@@ -846,9 +852,15 @@ function SkillEditor({
   >
   onRestoreVersion: (version: string) => Promise<boolean>
   onDeleteVersionDialogActivity: () => void
+  isProjectSkillAdmin: boolean
+  isOrgOwner: boolean
+  onPromoteVersion: (version: string) => void
+  onApproveVersion: (version: string) => void
+  onRejectVersion: (version: string) => void
+  onTakedown: (tier: 'organization' | 'public') => void
   isCreatingVersion: boolean
-  editorTab: 'editor' | 'metadata' | 'versions' | 'collaborators'
-  setEditorTab: (tab: 'editor' | 'metadata' | 'versions' | 'collaborators') => void
+  editorTab: 'editor' | 'metadata' | 'versions'
+  setEditorTab: (tab: 'editor' | 'metadata' | 'versions') => void
   showVersionForm: boolean
   setShowVersionForm: (v: boolean) => void
   queryScope: string
@@ -937,7 +949,7 @@ function SkillEditor({
       <Tabs
         value={editorTab}
         onValueChange={(v) =>
-          setEditorTab(v as 'editor' | 'metadata' | 'versions' | 'collaborators')
+          setEditorTab(v as 'editor' | 'metadata' | 'versions')
         }
       >
         <div className="flex items-center justify-between border-b border-border pr-3">
@@ -945,11 +957,6 @@ function SkillEditor({
             <TabsTrigger value="editor">{t('managed.skills.editor')}</TabsTrigger>
             <TabsTrigger value="metadata">{t('managed.skills.metadata')}</TabsTrigger>
             <TabsTrigger value="versions">{t('managed.skills.versionHistory')}</TabsTrigger>
-            {canManageSkillCollaborators(skill.capability) && (
-              <TabsTrigger value="collaborators">
-                {t('managed.skills.collaborators.title')}
-              </TabsTrigger>
-            )}
           </TabsList>
         </div>
       </Tabs>
@@ -1080,48 +1087,38 @@ function SkillEditor({
                   className="h-8 text-sm"
                 />
               </div>
-              {/* Visibility selector (P2.8) — drives the four-tier
-                  sharing surface; legacy ``is_public`` derives from
-                  this on submit. */}
+              {/* Visibility is read-only here: a skill starts as a project
+                  resource and is only exposed to the organization / public
+                  tiers through the version-level promotion approval flow
+                  (see the Versions tab). */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
                   {t('managed.skills.visibility.label')}
                 </label>
-                <Select
-                  value={form.visibility || 'private'}
-                  disabled={!canEdit}
-                  onValueChange={(v) =>
-                    setForm({
-                      ...form,
-                      visibility: v,
-                      // Keep legacy is_public in sync so any cached
-                      // read still landing on the old column matches
-                      // the new column.
-                      is_public: v === 'public',
-                    })
-                  }
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="private" title={t('managed.skills.visibility.privateHint')}>
-                      {t('managed.skills.visibility.private')}
-                    </SelectItem>
-                    <SelectItem value="project" title={t('managed.skills.visibility.projectHint')}>
-                      {t('managed.skills.visibility.project')}
-                    </SelectItem>
-                    <SelectItem
-                      value="organization"
-                      title={t('managed.skills.visibility.organizationHint')}
+                <div className="flex h-8 items-center gap-2">
+                  <SkillVisibilityBadge visibility={form.visibility || 'project'} />
+                  <span className="text-xs text-muted-foreground">
+                    {t('managed.skills.visibility.managedByPromotion')}
+                  </span>
+                  {isOrgOwner && skill.visibility === 'public' && (
+                    <button
+                      type="button"
+                      onClick={() => onTakedown('public')}
+                      className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                     >
-                      {t('managed.skills.visibility.organization')}
-                    </SelectItem>
-                    <SelectItem value="public" title={t('managed.skills.visibility.publicHint')}>
-                      {t('managed.skills.visibility.public')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                      {t('managed.skills.promotion.takedownPublic')}
+                    </button>
+                  )}
+                  {isOrgOwner && skill.visibility === 'organization' && (
+                    <button
+                      type="button"
+                      onClick={() => onTakedown('organization')}
+                      className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      {t('managed.skills.promotion.takedownOrg')}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1301,8 +1298,52 @@ function SkillEditor({
                                 latest
                               </span>
                             )}
+                            {v.lifecycle_status === 'pending_review' && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                {t('managed.skills.promotion.pendingFor', {
+                                  tier: t(
+                                    `managed.skills.visibility.${v.review_target_visibility || 'organization'}`,
+                                  ),
+                                })}
+                              </span>
+                            )}
+                            {v.lifecycle_status === 'rejected' && (
+                              <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive">
+                                {t('managed.skills.promotion.rejected')}
+                              </span>
+                            )}
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
+                            {v.lifecycle_status === 'pending_review' && isOrgOwner && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => onApproveVersion(v.version)}
+                                  className="flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                  {t('managed.skills.promotion.approve')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onRejectVersion(v.version)}
+                                  className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                  {t('managed.skills.promotion.reject')}
+                                </button>
+                              </>
+                            )}
+                            {v.lifecycle_status !== 'pending_review' && isProjectSkillAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => onPromoteVersion(v.version)}
+                                className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                              >
+                                <ArrowUpCircle className="h-3.5 w-3.5" />
+                                {t('managed.skills.promotion.submit')}
+                              </button>
+                            )}
                             {idx < versions.length - 1 && (
                               <button
                                 type="button"
@@ -1355,15 +1396,6 @@ function SkillEditor({
             </div>
           )}
         </div>
-      )}
-
-      {editorTab === 'collaborators' && (
-        <SkillCollaboratorsPanel
-          skillId={apiResourceId(skill.id)}
-          capability={skill.capability}
-          requestScope={requestScope}
-          queryScopeKey={queryScope}
-        />
       )}
 
       {/* Restore-version confirm: restoring replaces the current draft with the
@@ -1610,6 +1642,13 @@ export default function SkillManagerPage() {
   const router = useRouter()
   const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = useManagedRequestScope()
+  // Promotion gating: submitting a version for promotion needs project ADMIN
+  // capability; approving / rejecting / taking down needs the org OWNER role
+  // (the backend enforces both — these just drive which controls render).
+  const isProjectSkillAdmin = useProjectStore((s) => s.currentProject?.capability) === 'admin'
+  const isOrgOwner = canOwn(
+    useProjectStore((s) => s.organizations.find((o) => o.id === s.currentOrgId)?.role),
+  )
 
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
@@ -1617,12 +1656,17 @@ export default function SkillManagerPage() {
   // header's Save button can decide what to persist: on the Metadata tab
   // we always save the skill-level form, regardless of which file happens
   // to be selected in the tree.
-  const [editorTab, setEditorTab] = useState<'editor' | 'metadata' | 'versions' | 'collaborators'>(
+  const [editorTab, setEditorTab] = useState<'editor' | 'metadata' | 'versions'>(
     'editor',
   )
   // Lifted so the "publish version" button can live in the top-right action
   // group while the form itself renders inside SkillEditor's versions tab.
   const [showVersionForm, setShowVersionForm] = useState(false)
+  // Promotion dialogs: which version is being promoted (tier picker) / rejected
+  // (reason input).
+  const [promoteTarget, setPromoteTarget] = useState<string | null>(null)
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
   const [showAddFileDialog, setShowAddFileDialog] = useState(false)
   const [newFileMode, setNewFileMode] = useState<'file' | 'folder'>('file')
   const [newFileDir, setNewFileDir] = useState('')
@@ -1646,8 +1690,7 @@ export default function SkillManagerPage() {
     content: '',
     license: '',
     tags: '',
-    is_public: false,
-    visibility: 'private',
+    visibility: 'project',
     source_type: '',
     source_url: '',
   })
@@ -1676,10 +1719,8 @@ export default function SkillManagerPage() {
     setSelectedFileId(null)
   }, [clearSavedFlash])
 
-  // Reset the detail tab whenever the open skill changes. Without this the
-  // tab persists across skills, so a capability-gated tab (Collaborators)
-  // could stay selected when switching to a skill the caller can't manage —
-  // the trigger hides but the stale content would otherwise still render.
+  // Reset the detail tab whenever the open skill changes, so the previously
+  // selected tab doesn't persist onto an unrelated skill.
   useEffect(() => {
     setEditorTab('editor')
   }, [selectedSkillId])
@@ -1992,8 +2033,7 @@ export default function SkillManagerPage() {
       content: skill.content || '',
       license: skill.license || '',
       tags: tagsStr,
-      is_public: skill.is_public || false,
-      visibility: skill.visibility || (skill.is_public ? 'public' : 'private'),
+      visibility: skill.visibility || 'project',
       source_type: skill.source_type || '',
       source_url: skill.source_url || '',
     }
@@ -2175,8 +2215,6 @@ export default function SkillManagerPage() {
           content: form.content,
           license: form.license,
           tags,
-          is_public: form.is_public,
-          visibility: form.visibility,
           source_type: form.source_type,
           source_url: form.source_url,
         },
@@ -2475,6 +2513,88 @@ export default function SkillManagerPage() {
       if (!isCurrentSkillAction(variables)) return
       toastOperationError(t, error, 'common.operationFailed')
     },
+  })
+
+  // ── Version-level promotion (single-axis model) ──
+  // A skill is a project resource; exposing a version to the organization /
+  // public tiers goes through this approval flow. The routes/service enforce
+  // the ADMIN (submit) and org-OWNER + four-eyes + scan (approve) gates.
+  const invalidatePromotion = useCallback(
+    (skillId: string, scope: ManagedRequestScope) => {
+      invalidateSkillResources(skillId, scope.key)
+      queryClient.invalidateQueries({ queryKey: ['skill-versions', scope.key, skillId] })
+    },
+    [invalidateSkillResources, queryClient],
+  )
+
+  const submitPromotionMutation = useMutation({
+    mutationFn: (v: {
+      skillId: string
+      scope: ManagedRequestScope
+      version: string
+      targetTier: 'organization' | 'public'
+    }) =>
+      managedPost<SkillVersionRecord>(
+        apiResourcePath('skills', v.skillId, 'versions', v.version, 'submit-promotion'),
+        { target_tier: v.targetTier },
+        managedRequestOptions(v.scope),
+      ),
+    onSuccess: (_r, v) => {
+      invalidatePromotion(v.skillId, v.scope)
+      toast({ title: t('managed.skills.promotion.submitted') })
+    },
+    onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
+  })
+
+  const approvePromotionMutation = useMutation({
+    mutationFn: (v: { skillId: string; scope: ManagedRequestScope; version: string }) =>
+      managedPost<SkillVersionRecord>(
+        apiResourcePath('skills', v.skillId, 'versions', v.version, 'approve-promotion'),
+        {},
+        managedRequestOptions(v.scope),
+      ),
+    onSuccess: (_r, v) => {
+      invalidatePromotion(v.skillId, v.scope)
+      toast({ title: t('managed.skills.promotion.approved') })
+    },
+    onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
+  })
+
+  const rejectPromotionMutation = useMutation({
+    mutationFn: (v: {
+      skillId: string
+      scope: ManagedRequestScope
+      version: string
+      reason: string
+    }) =>
+      managedPost<SkillVersionRecord>(
+        apiResourcePath('skills', v.skillId, 'versions', v.version, 'reject-promotion'),
+        { reason: v.reason || null },
+        managedRequestOptions(v.scope),
+      ),
+    onSuccess: (_r, v) => {
+      invalidatePromotion(v.skillId, v.scope)
+      toast({ title: t('managed.skills.promotion.rejectedDone') })
+    },
+    onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
+  })
+
+  const takedownMutation = useMutation({
+    mutationFn: (v: {
+      skillId: string
+      scope: ManagedRequestScope
+      tier: 'organization' | 'public'
+    }) =>
+      managedPost<SkillRecord>(
+        apiResourcePath('skills', v.skillId, 'takedown'),
+        { tier: v.tier },
+        managedRequestOptions(v.scope),
+      ),
+    onSuccess: (_r, v) => {
+      invalidatePromotion(v.skillId, v.scope)
+      toast({ title: t('managed.skills.promotion.takenDown') })
+    },
+    onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
   })
 
   /** Delete a published skill version. Returns 409-payload referrers on conflict
@@ -2798,7 +2918,7 @@ export default function SkillManagerPage() {
           s.name,
           s.description,
           s.license,
-          s.is_public ? 'public' : 'private',
+          s.visibility || 'project',
           ...skillSecuritySearchTerms(s),
         ]),
     )
@@ -2839,7 +2959,7 @@ export default function SkillManagerPage() {
         render: (s) => (
           <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
             <SkillLifecycleBadge status={s.lifecycle_status} />
-            <SkillVisibilityBadge visibility={s.visibility} isPublic={s.is_public} />
+            <SkillVisibilityBadge visibility={s.visibility} />
             {s.latest_version ? (
               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
                 {t('managed.skills.published')} v{s.latest_version}
@@ -3312,6 +3432,23 @@ export default function SkillManagerPage() {
           onDeleteVersionDialogActivity={() => {
             mutationRunRef.current += 1
           }}
+          isProjectSkillAdmin={isProjectSkillAdmin}
+          isOrgOwner={isOrgOwner}
+          onPromoteVersion={(version) => setPromoteTarget(version)}
+          onApproveVersion={(version) => {
+            if (selectedSkillId) {
+              approvePromotionMutation.mutate({ skillId: selectedSkillId, scope: managedScope, version })
+            }
+          }}
+          onRejectVersion={(version) => {
+            setRejectReason('')
+            setRejectTarget(version)
+          }}
+          onTakedown={(tier) => {
+            if (selectedSkillId) {
+              takedownMutation.mutate({ skillId: selectedSkillId, scope: managedScope, tier })
+            }
+          }}
           isCreatingVersion={createVersionMutation.isPending}
           editorTab={editorTab}
           setEditorTab={setEditorTab}
@@ -3321,6 +3458,87 @@ export default function SkillManagerPage() {
           requestScope={managedScope}
         />
       </div>
+
+      {/* Promote a version to a wider tier (project ADMIN submits; an org
+          OWNER then reviews). */}
+      <Dialog open={promoteTarget !== null} onOpenChange={(open) => !open && setPromoteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('managed.skills.promotion.submit')}</DialogTitle>
+            <DialogDescription>{t('managed.skills.promotion.submitToOrg')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button
+              className="w-full"
+              variant="outline"
+              onClick={() => {
+                if (selectedSkillId && promoteTarget) {
+                  submitPromotionMutation.mutate({
+                    skillId: selectedSkillId,
+                    scope: managedScope,
+                    version: promoteTarget,
+                    targetTier: 'organization',
+                  })
+                }
+                setPromoteTarget(null)
+              }}
+            >
+              {t('managed.skills.promotion.submitToOrg')}
+            </Button>
+            <Button
+              className="w-full"
+              onClick={() => {
+                if (selectedSkillId && promoteTarget) {
+                  submitPromotionMutation.mutate({
+                    skillId: selectedSkillId,
+                    scope: managedScope,
+                    version: promoteTarget,
+                    targetTier: 'public',
+                  })
+                }
+                setPromoteTarget(null)
+              }}
+            >
+              {t('managed.skills.promotion.submitToPublic')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject a pending promotion with an optional reason (org OWNER). */}
+      <Dialog open={rejectTarget !== null} onOpenChange={(open) => !open && setRejectTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('managed.skills.promotion.reject')}</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder={t('managed.skills.promotion.rejectReasonPlaceholder')}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRejectTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (selectedSkillId && rejectTarget) {
+                  rejectPromotionMutation.mutate({
+                    skillId: selectedSkillId,
+                    scope: managedScope,
+                    version: rejectTarget,
+                    reason: rejectReason,
+                  })
+                }
+                setRejectTarget(null)
+              }}
+            >
+              {t('managed.skills.promotion.reject')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showSecurityHistoryDialog} onOpenChange={setShowSecurityHistoryDialog}>
         <DialogContent className="max-w-3xl">

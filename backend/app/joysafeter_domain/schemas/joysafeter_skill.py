@@ -258,6 +258,12 @@ class SkillVersionResponse(BaseModel):
     license: Optional[str] = None
     release_notes: Optional[str] = None
     published_at: Optional[datetime] = None
+    # Promotion state (single-axis model): ``lifecycle_status`` is the version's
+    # review state (approved / pending_review / rejected); when pending,
+    # ``review_target_visibility`` is the tier the submission targets. The UI
+    # uses these to render promotion status and gate approve/reject.
+    lifecycle_status: str = "approved"
+    review_target_visibility: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
