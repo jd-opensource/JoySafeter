@@ -618,3 +618,70 @@ async def test_four_eyes_still_blocks_admin_who_published(db_session):
     with pytest.raises(AccessDeniedError) as ei:
         await svc.approve_promotion(version_id=sv_id, current_user_id=admin.id)
     assert ei.value.code == "SKILL_PROMOTION_FOUR_EYES"
+
+
+# ── scan gate must bind to the PROMOTED VERSION's content, not the skill head ──
+
+
+async def test_approve_promotion_version_content_not_scanned_denied(db_session):
+    """The scan precondition must bind to the exact bytes being exposed — the
+    frozen VERSION content — not the skill's mutable current head.
+
+    Exploit: publish a version whose content X was never scanned clean (publish
+    only blocks HIGH/CRITICAL). Then edit the skill to clean content Y and let a
+    scan pass on Y (skill.security_scan_hash = hash(Y), status=passed). Approving
+    the version gates on ``scan_ok(skill)`` — which validates Y — while it sets
+    the tier pointer + raises visibility for the version holding X. That exposes
+    un-scanned bytes org/public under a scan verdict for a different payload.
+    ``approve`` must refuse when the version content diverges from what passed."""
+    org = await _org(db_session)
+    proj = await _project(db_session, org_id=org.id)
+    author = await _user(db_session, name="Author")
+    approver = await _user(db_session, name="Approver")
+    # skill head = clean content Y (helper seeds a passing, non-drifted scan over it)
+    skill = await _skill(db_session, owner_id=author.id, project_id=proj.id, visibility="project")
+    sv = await _version(
+        db_session, skill=skill, version="1.0.0", published_by_id=author.id,
+        lifecycle_status="pending_review",
+    )
+    # version freezes DIFFERENT content X — never itself scanned clean
+    sv.content = "# Skill\nDIFFERENT UNSCANNED PAYLOAD"
+    sv.review_target_visibility = "organization"
+    sv_id = sv.id
+    await db_session.commit()
+
+    svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.OWNER)
+    with pytest.raises(ResourceConflictError) as ei:
+        await svc.approve_promotion(version_id=sv_id, current_user_id=approver.id)
+    assert ei.value.code == "SKILL_PROMOTION_SCAN_NOT_PASSED"
+
+    # And the exposure must NOT have happened: pointer unset, visibility unraised.
+    skill_id = skill.id
+    db_session.expire_all()
+    reloaded = (
+        await db_session.execute(select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id))
+    ).scalar_one()
+    assert reloaded.org_version_id is None
+    assert reloaded.visibility == "project"
+
+
+async def test_submit_promotion_version_content_not_scanned_denied(db_session):
+    """Same binding on the submit side: an admin cannot submit for promotion a
+    version whose frozen content differs from the skill's latest passed scan."""
+    org = await _org(db_session)
+    proj = await _project(db_session, org_id=org.id)
+    admin = await _user(db_session, name="Admin")
+    await _org_member(db_session, org_id=org.id, user_id=admin.id, role="member")
+    await _project_member(db_session, project_id=proj.id, user_id=admin.id, role="admin")
+    skill = await _skill(db_session, owner_id=admin.id, project_id=proj.id)
+    sv = await _version(db_session, skill=skill, version="1.0.0", published_by_id=admin.id)
+    sv.content = "# Skill\nDIFFERENT UNSCANNED PAYLOAD"
+    sv_id = sv.id
+    await db_session.commit()
+
+    svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.MEMBER)
+    with pytest.raises(ResourceConflictError) as ei:
+        await svc.submit_promotion(
+            version_id=sv_id, target_tier="organization", current_user_id=admin.id
+        )
+    assert ei.value.code == "SKILL_PROMOTION_SCAN_NOT_PASSED"
