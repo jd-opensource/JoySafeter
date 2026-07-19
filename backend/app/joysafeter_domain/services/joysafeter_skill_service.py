@@ -1949,7 +1949,11 @@ from app.joysafeter_domain.models.joysafeter_skill import (
     VISIBILITY_RANK,
     recompute_visibility_from_pointers,
 )
-from app.joysafeter_domain.services.joysafeter_skill_security import scan_ok
+from app.joysafeter_domain.services.joysafeter_skill_security import (
+    build_scan_files,
+    scan_ok,
+    target_hash,
+)
 
 # Tiers a version may be promoted to. ``project`` is the no-review default
 # tier and is never a promotion target; ``private`` is legacy and unreachable
@@ -1977,6 +1981,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         super().__init__(db)
         self.skill_repo = SkillRepository(db)
         self.version_repo = SkillVersionRepository(db)
+        self.version_file_repo = SkillVersionFileRepository(db)
         self._active_org_id = active_org_id
         self._caller_org_role = caller_org_role
 
@@ -2033,6 +2038,66 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 data={"skill_id": str(skill.id), "active_org_id": self._active_org_id},
             )
 
+    async def _require_promoted_content_scanned(
+        self, skill: JoySafeterSkill, version: JoySafeterSkillVersion
+    ) -> None:
+        """Bind the scan verdict to the exact bytes being promoted.
+
+        ``scan_ok(skill)`` only proves the skill's CURRENT head content passed a
+        clean, non-drifted scan. But a promotion exposes the frozen VERSION
+        snapshot, whose content can diverge from the head (a stale version, or
+        content that was published — publish only blocks HIGH/CRITICAL — but was
+        never itself scanned clean). Approving/submitting such a version would
+        raise the skill's cross-tier visibility (and, once the packer consumes
+        the tier pointer, serve those bytes) under a scan verdict for a DIFFERENT
+        payload. Require the promoted version's canonical hash to equal the hash
+        the latest passed scan locked in — i.e. the exposed bytes are exactly the
+        scanned bytes. Recomputed through the same ``build_scan_files`` /
+        ``target_hash`` the scanner and drift gate use, over the version's frozen
+        fields + its file snapshot.
+        """
+        version_files = await self.version_file_repo.list_by_version(version.id)
+        files_payload = [
+            {
+                "path": vf.path,
+                "file_name": vf.file_name,
+                "file_type": vf.file_type,
+                "content": vf.content or "",
+                "storage_type": vf.storage_type,
+                "storage_key": vf.storage_key,
+                "size": vf.size,
+            }
+            for vf in version_files
+        ]
+        scan_files = build_scan_files(
+            name=version.skill_name,
+            description=version.skill_description,
+            content=version.content,
+            tags=list(version.tags or []),
+            license=version.license,
+            files=files_payload,
+        )
+        version_hash = target_hash(
+            name=version.skill_name,
+            description=version.skill_description,
+            content=version.content,
+            tags=list(version.tags or []),
+            license=version.license,
+            files=scan_files,
+        )
+        if version_hash != skill.security_scan_hash:
+            raise ResourceConflictError(
+                "This version's content does not match the skill's latest passed "
+                "security scan; rescan the current content and publish it as the "
+                "version you promote.",
+                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
+                data={
+                    "skill_id": str(skill.id),
+                    "version_id": str(version.id),
+                    "reason": "version_content_not_scanned",
+                },
+            )
+
     # ── submit ──────────────────────────────────────────────────
 
     async def submit_promotion(
@@ -2075,6 +2140,8 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 code="SKILL_PROMOTION_SCAN_NOT_PASSED",
                 data={"skill_id": str(skill.id), "version_id": str(version.id), "reason": reason},
             )
+        # Bind the passed scan to the exact bytes being promoted (this version).
+        await self._require_promoted_content_scanned(skill, version)
 
         # Idempotent when already pending for the SAME tier; conflict when
         # pending for a different tier (the caller must resolve the existing
@@ -2162,6 +2229,8 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 code="SKILL_PROMOTION_SCAN_NOT_PASSED",
                 data={"skill_id": str(skill.id), "version_id": str(version.id), "reason": reason},
             )
+        # Bind the passed scan to the exact bytes being exposed (this version).
+        await self._require_promoted_content_scanned(skill, version)
 
         target_tier = version.review_target_visibility
         if target_tier == JoySafeterSkillVisibility.PUBLIC.value:
