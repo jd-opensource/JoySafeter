@@ -76,7 +76,7 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
     JoySafeterRole,
     ProjectCapability,
 )
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+from app.joysafeter_shared.common.skill_permissions import check_skill_access, resolve_skill_org_id
 
 # Edges that ``transition()`` accepts. Anything not in this set is a
 # rejected transition; the empty target set on a state means "this is a
@@ -2012,6 +2012,27 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 data={"required_org_role": [JoySafeterRole.OWNER.value, JoySafeterRole.ADMIN.value]},
             )
 
+    async def _require_same_org(self, skill: JoySafeterSkill) -> None:
+        """Reject cross-tenant promotion actions.
+
+        ``_require_org_approver`` only proves the caller is a super-user in
+        their OWN active org; it says nothing about which org the target skill
+        belongs to. Without this an org-A owner/admin could approve/reject/
+        takedown an org-B skill by id — a cross-tenant privilege escalation
+        (exposing or pulling another tenant's content). Mirrors the org
+        isolation ``check_skill_access`` applies on the ``submit`` side. A
+        ``None`` active org disables the gate (legacy callers), same as there.
+        """
+        if self._active_org_id is None:
+            return
+        skill_org_id = await resolve_skill_org_id(self.db, skill)
+        if skill_org_id != self._active_org_id:
+            raise AccessDeniedError(
+                "You don't have permission to review this skill's promotion.",
+                code="SKILL_ACCESS_DENIED",
+                data={"skill_id": str(skill.id), "active_org_id": self._active_org_id},
+            )
+
     # ── submit ──────────────────────────────────────────────────
 
     async def submit_promotion(
@@ -2115,6 +2136,8 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         """Approve a pending promotion. Org owner or admin, four-eyes enforced."""
         self._require_org_approver()
         version = await self._get_version_or_404(version_id)
+        skill = await self._get_skill_or_404(version.skill_id)
+        await self._require_same_org(skill)
 
         if version.lifecycle_status != "pending_review" or not version.review_target_visibility:
             raise ResourceConflictError(
@@ -2130,8 +2153,6 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 code="SKILL_PROMOTION_FOUR_EYES",
                 data={"version_id": str(version.id)},
             )
-
-        skill = await self._get_skill_or_404(version.skill_id)
 
         # Re-check the scan still passes before exposing the content.
         ok, reason = scan_ok(skill)
@@ -2179,6 +2200,8 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         """Reject a pending promotion. Org owner or admin. Pointer untouched."""
         self._require_org_approver()
         version = await self._get_version_or_404(version_id)
+        skill = await self._get_skill_or_404(version.skill_id)
+        await self._require_same_org(skill)
 
         if version.lifecycle_status != "pending_review":
             raise ResourceConflictError(
@@ -2214,6 +2237,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 data={"tier": tier},
             )
         skill = await self._get_skill_or_404(skill_id)
+        await self._require_same_org(skill)
 
         if tier == JoySafeterSkillVisibility.PUBLIC.value:
             skill.public_version_id = None
