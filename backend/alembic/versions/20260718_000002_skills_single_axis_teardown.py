@@ -49,8 +49,38 @@ def upgrade() -> None:
     op.execute("DELETE FROM joysafeter_skills WHERE project_id IS NULL")
     op.alter_column("joysafeter_skills", "project_id", existing_type=sa.String(length=255), nullable=False)
 
+    # The FK was ondelete SET NULL, which is incompatible with the column now
+    # being NOT NULL (deleting a project would try to NULL a NOT NULL column).
+    # Skills are owned project resources, so cascade the delete instead.
+    op.drop_constraint(
+        op.f("fk_joysafeter_skills_project_id_joysafeter_organization_projects"),
+        "joysafeter_skills",
+        type_="foreignkey",
+    )
+    op.create_foreign_key(
+        op.f("fk_joysafeter_skills_project_id_joysafeter_organization_projects"),
+        "joysafeter_skills",
+        "joysafeter_organization_projects",
+        ["project_id"],
+        ["id"],
+        ondelete="CASCADE",
+    )
+
 
 def downgrade() -> None:
+    op.drop_constraint(
+        op.f("fk_joysafeter_skills_project_id_joysafeter_organization_projects"),
+        "joysafeter_skills",
+        type_="foreignkey",
+    )
+    op.create_foreign_key(
+        op.f("fk_joysafeter_skills_project_id_joysafeter_organization_projects"),
+        "joysafeter_skills",
+        "joysafeter_organization_projects",
+        ["project_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
     op.alter_column("joysafeter_skills", "project_id", existing_type=sa.String(length=255), nullable=True)
 
     op.add_column(

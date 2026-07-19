@@ -1245,15 +1245,14 @@ class SkillService(BaseService[JoySafeterSkill]):
         proposed_metadata = skill.meta_data
         proposed_allowed_tools = skill.allowed_tools
 
-        # ── Privilege gates run BEFORE any write or scan ──
-        # P2.13: the ownership and visibility gates were originally
-        # placed after the security scan dispatch. That meant a
-        # rejected PUT still left an audit row in
+        # ── Ownership gate runs BEFORE any write or scan ──
+        # The gate was originally placed after the security scan dispatch. That
+        # meant a rejected PUT still left an audit row in
         # ``joysafeter_skill_security_scans`` claiming the spoofed
         # ``owner_id`` / ``created_by_id`` had legitimately scanned
         # the skill — useful telemetry for an attacker probing what
-        # private content trips which scanner rule, and noise in the
-        # audit log. Running the gates first means no side effects
+        # content trips which scanner rule, and noise in the
+        # audit log. Running the gate first means no side effects
         # of any kind escape the request when the caller is unauthorized.
         owner_before_change = skill.owner_id
         if owner_id is not None and proposed_owner_id != owner_before_change:
@@ -1269,7 +1268,7 @@ class SkillService(BaseService[JoySafeterSkill]):
                     },
                 )
 
-            # Validate name if provided
+        # Validate name if provided
         if name and name != skill.name:
             is_valid, error = validate_skill_name(name)
             if not is_valid:
