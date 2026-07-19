@@ -529,6 +529,74 @@ async def test_delete_public_served_version_drops_to_org_not_project(db_session)
     assert reloaded.visibility == "organization"
 
 
+async def test_approve_promotion_cross_tenant_denied(db_session):
+    """An org-A superuser must NOT be able to approve a promotion for a skill
+    that belongs to org B. ``_require_org_approver`` only proves the caller is a
+    superuser in their OWN active org; without an org-isolation check on the
+    target skill this is a cross-tenant privilege escalation (an org-A admin
+    approving/exposing org-B content by version id). ``submit_promotion`` gets
+    this right via ``check_skill_access(active_org_id=...)``; approve did not."""
+    org_a = await _org(db_session)
+    org_b = await _org(db_session)
+    proj_b = await _project(db_session, org_id=org_b.id)
+    author = await _user(db_session, name="AuthorB")
+    approver_a = await _user(db_session, name="ApproverA")
+    skill = await _skill(db_session, owner_id=author.id, project_id=proj_b.id, visibility="project")
+    sv = await _version(
+        db_session, skill=skill, version="1.0.0", published_by_id=author.id,
+        lifecycle_status="pending_review",
+    )
+    sv.review_target_visibility = "organization"
+    sv_id = sv.id
+    await db_session.commit()
+
+    # Caller is a superuser in org A, but the skill lives in org B.
+    svc = _svc(db_session, org_id=org_a.id, caller_org_role=JoySafeterRole.OWNER)
+    with pytest.raises(AccessDeniedError):
+        await svc.approve_promotion(version_id=sv_id, current_user_id=approver_a.id)
+
+
+async def test_reject_promotion_cross_tenant_denied(db_session):
+    """Same cross-tenant escalation guard for reject: an org-A superuser cannot
+    reject a promotion belonging to org B."""
+    org_a = await _org(db_session)
+    org_b = await _org(db_session)
+    proj_b = await _project(db_session, org_id=org_b.id)
+    author = await _user(db_session, name="AuthorB")
+    approver_a = await _user(db_session, name="ApproverA")
+    skill = await _skill(db_session, owner_id=author.id, project_id=proj_b.id, visibility="project")
+    sv = await _version(
+        db_session, skill=skill, version="1.0.0", published_by_id=author.id,
+        lifecycle_status="pending_review",
+    )
+    sv.review_target_visibility = "organization"
+    sv_id = sv.id
+    await db_session.commit()
+
+    svc = _svc(db_session, org_id=org_a.id, caller_org_role=JoySafeterRole.OWNER)
+    with pytest.raises(AccessDeniedError):
+        await svc.reject_promotion(version_id=sv_id, current_user_id=approver_a.id, reason="x")
+
+
+async def test_takedown_cross_tenant_denied(db_session):
+    """Same cross-tenant escalation guard for takedown: an org-A superuser cannot
+    pull down a tier of a skill belonging to org B."""
+    org_a = await _org(db_session)
+    org_b = await _org(db_session)
+    proj_b = await _project(db_session, org_id=org_b.id)
+    author = await _user(db_session, name="AuthorB")
+    approver_a = await _user(db_session, name="ApproverA")
+    skill = await _skill(db_session, owner_id=author.id, project_id=proj_b.id, visibility="organization")
+    org_ver = await _version(db_session, skill=skill, version="1.0.0", published_by_id=author.id)
+    skill.org_version_id = org_ver.id
+    skill_id = skill.id
+    await db_session.commit()
+
+    svc = _svc(db_session, org_id=org_a.id, caller_org_role=JoySafeterRole.OWNER)
+    with pytest.raises(AccessDeniedError):
+        await svc.takedown(skill_id=skill_id, tier="organization", current_user_id=approver_a.id)
+
+
 async def test_four_eyes_still_blocks_admin_who_published(db_session):
     """Widening the approver to org admin must NOT defeat four-eyes: an admin who
     is themselves the version's publisher still cannot self-approve. Guards
