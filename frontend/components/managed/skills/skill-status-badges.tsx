@@ -27,7 +27,6 @@ const LIFECYCLE_TONE: Record<SkillLifecycleStatus, string> = {
 }
 
 const VISIBILITY_TONE: Record<SkillVisibility, string> = {
-  private: 'bg-slate-100 text-slate-700 border-slate-200',
   project: 'bg-sky-50 text-sky-700 border-sky-200',
   organization: 'bg-violet-50 text-violet-700 border-violet-200',
   public: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -82,19 +81,12 @@ export function SkillLifecycleBadge({
 
 export function SkillVisibilityBadge({
   visibility,
-  isPublic,
 }: {
   visibility: SkillVisibility | string | undefined
-  isPublic?: boolean
 }) {
   const { t } = useTranslation()
-  // Read visibility first; fall back to is_public for legacy rows.
-  let value: SkillVisibility = 'private'
-  if (visibility && visibility in VISIBILITY_TONE) {
-    value = visibility as SkillVisibility
-  } else if (isPublic) {
-    value = 'public'
-  }
+  const value: SkillVisibility =
+    visibility && visibility in VISIBILITY_TONE ? (visibility as SkillVisibility) : 'project'
   const labelKey = `managed.skills.visibility.${value}` as const
   return <Pill tone={VISIBILITY_TONE[value]}>{t(labelKey)}</Pill>
 }
@@ -161,7 +153,7 @@ export function SkillStatusBadges({
     <div className="inline-flex flex-wrap items-center gap-1.5">
       <SkillLifecycleBadge status={skill.lifecycle_status} />
       {showVisibility && (
-        <SkillVisibilityBadge visibility={skill.visibility} isPublic={skill.is_public} />
+        <SkillVisibilityBadge visibility={skill.visibility} />
       )}
       <SkillSecurityBadge status={skill.security_scan?.status} />
     </div>

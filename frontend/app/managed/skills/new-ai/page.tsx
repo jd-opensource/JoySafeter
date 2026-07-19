@@ -75,16 +75,6 @@ import {
 type SecretRecord = { id: string; name: string; is_default?: boolean }
 type SecretsResponse = { data?: SecretRecord[] } | SecretRecord[]
 
-const VISIBILITY_OPTIONS: Array<{
-  value: NonNullable<SkillDraft['visibility']>
-  labelKey: string
-}> = [
-  { value: 'private', labelKey: 'managed.skills.aiAuthor.vis.private' },
-  { value: 'project', labelKey: 'managed.skills.aiAuthor.vis.project' },
-  { value: 'organization', labelKey: 'managed.skills.aiAuthor.vis.organization' },
-  { value: 'public', labelKey: 'managed.skills.aiAuthor.vis.public' },
-]
-
 // Sentinel ids used by the tab bar. Preview / Editor / Metadata are pinned
 // pseudo-files; everything else is keyed by its draft path.
 const TAB_PREVIEW = '__preview__'
@@ -1050,30 +1040,6 @@ function MetadataPane({
             placeholder={t('managed.skills.aiAuthor.fields.tagsPlaceholder')}
             disabled={readOnly}
           />
-        </div>
-        <div className="w-[180px]">
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            {t('managed.skills.aiAuthor.fields.visibility')}
-          </label>
-          <Select
-            value={draft.visibility || 'private'}
-            onValueChange={(v) => {
-              if (readOnly) return
-              onChange((p) => ({ ...p, visibility: v as SkillDraft['visibility'] }))
-            }}
-            disabled={readOnly}
-          >
-            <SelectTrigger disabled={readOnly}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {VISIBILITY_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {t(o.labelKey)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
     </div>

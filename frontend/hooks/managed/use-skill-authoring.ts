@@ -56,7 +56,6 @@ export type SkillDraft = {
   name: string
   description: string
   tags: string[]
-  visibility: 'private' | 'project' | 'organization' | 'public' | null
   content: string
   files: SkillDraftFile[]
 }
@@ -65,7 +64,6 @@ const EMPTY_DRAFT: SkillDraft = {
   name: '',
   description: '',
   tags: [],
-  visibility: null,
   content: '',
   files: [],
 }
@@ -466,7 +464,6 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
           description: current.description,
           content: current.content,
           tags: current.tags,
-          visibility: current.visibility,
           files: current.files,
         },
         managedRequestOptions(requestScope),
