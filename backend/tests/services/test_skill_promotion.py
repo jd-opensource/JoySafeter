@@ -34,7 +34,10 @@ from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkill,
     JoySafeterSkillVersion,
 )
-from app.joysafeter_domain.services.joysafeter_skill_service import SkillPromotionService
+from app.joysafeter_domain.services.joysafeter_skill_service import (
+    SkillPromotionService,
+    SkillVersionService,
+)
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 
@@ -467,3 +470,83 @@ async def test_rescan_failed_verdict_auto_demotes(db_session):
     ).scalar_one()
     assert reloaded.org_version_id is None
     assert reloaded.visibility == "project"
+
+
+# ── adversarial: prove the P7a fixes are REAL, not just "looks fixed" ──
+
+
+async def test_delete_org_served_version_actually_drops_visibility(db_session):
+    """Deleting the version an org tier POINTS AT must not leave visibility
+    stuck at 'organization' with a null pointer. This would have FAILED before
+    P7a (delete_version cleared the FK but never recomputed visibility)."""
+    org = await _org(db_session)
+    proj = await _project(db_session, org_id=org.id)
+    admin = await _user(db_session, name="Admin")
+    await _project_member(db_session, project_id=proj.id, user_id=admin.id, role="admin")
+    skill = await _skill(db_session, owner_id=admin.id, project_id=proj.id, visibility="organization")
+    ver = await _version(db_session, skill=skill, version="1.0.0", published_by_id=admin.id)
+    skill.org_version_id = ver.id
+    skill_id = skill.id
+    await db_session.commit()
+
+    svc = SkillVersionService(db_session, active_org_id=org.id, caller_org_role=JoySafeterRole.MEMBER)
+    await svc.delete_version(skill_id, "1.0.0", current_user_id=admin.id, force=True)
+
+    db_session.expire_all()
+    reloaded = (
+        await db_session.execute(select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id))
+    ).scalar_one()
+    assert reloaded.org_version_id is None
+    assert reloaded.visibility == "project"  # not stuck at 'organization'
+
+
+async def test_delete_public_served_version_drops_to_org_not_project(db_session):
+    """Deleting the PUBLIC-served version drops visibility exactly one tier — to
+    'organization' — because the org pointer is still live. Proves the recompute
+    is tier-accurate, not a blunt reset to project."""
+    org = await _org(db_session)
+    proj = await _project(db_session, org_id=org.id)
+    admin = await _user(db_session, name="Admin")
+    await _project_member(db_session, project_id=proj.id, user_id=admin.id, role="admin")
+    skill = await _skill(db_session, owner_id=admin.id, project_id=proj.id, visibility="public")
+    org_ver = await _version(db_session, skill=skill, version="1.0.0", published_by_id=admin.id)
+    pub_ver = await _version(db_session, skill=skill, version="2.0.0", published_by_id=admin.id)
+    skill.org_version_id = org_ver.id
+    skill.public_version_id = pub_ver.id
+    skill_id = skill.id
+    org_ver_id = org_ver.id
+    await db_session.commit()
+
+    svc = SkillVersionService(db_session, active_org_id=org.id, caller_org_role=JoySafeterRole.MEMBER)
+    await svc.delete_version(skill_id, "2.0.0", current_user_id=admin.id, force=True)
+
+    db_session.expire_all()
+    reloaded = (
+        await db_session.execute(select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id))
+    ).scalar_one()
+    assert reloaded.public_version_id is None
+    assert reloaded.org_version_id == org_ver_id
+    assert reloaded.visibility == "organization"
+
+
+async def test_four_eyes_still_blocks_admin_who_published(db_session):
+    """Widening the approver to org admin must NOT defeat four-eyes: an admin who
+    is themselves the version's publisher still cannot self-approve. Guards
+    against the P7a widening accidentally opening a self-approval hole."""
+    org = await _org(db_session)
+    proj = await _project(db_session, org_id=org.id)
+    admin = await _user(db_session, name="AdminAuthor")
+    skill = await _skill(db_session, owner_id=admin.id, project_id=proj.id, visibility="project")
+    sv = await _version(
+        db_session, skill=skill, version="1.0.0", published_by_id=admin.id,
+        lifecycle_status="pending_review",
+    )
+    sv.review_target_visibility = "organization"
+    sv_id = sv.id
+    await db_session.commit()
+
+    # Caller is an org ADMIN (can approve in general) but IS the publisher.
+    svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.ADMIN)
+    with pytest.raises(AccessDeniedError) as ei:
+        await svc.approve_promotion(version_id=sv_id, current_user_id=admin.id)
+    assert ei.value.code == "SKILL_PROMOTION_FOUR_EYES"
