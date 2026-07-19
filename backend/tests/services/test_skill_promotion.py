@@ -218,7 +218,7 @@ async def test_submit_promotion_happy_marks_pending(db_session):
 # ── approve_promotion ───────────────────────────────────────────
 
 
-async def test_approve_promotion_non_owner_denied(db_session):
+async def test_approve_promotion_non_superuser_denied(db_session):
     org = await _org(db_session)
     proj = await _project(db_session, org_id=org.id)
     admin = await _user(db_session, name="Admin")
@@ -231,10 +231,38 @@ async def test_approve_promotion_non_owner_denied(db_session):
     sv.review_target_visibility = "organization"
     await db_session.commit()
 
-    # caller is an org ADMIN, not OWNER — approval requires OWNER.
-    svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.ADMIN)
+    # caller is a plain org MEMBER (not owner/admin) — approval needs an org
+    # superuser (owner OR admin).
+    svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.MEMBER)
     with pytest.raises(AccessDeniedError):
-        await svc.approve_promotion(version_id=sv.id, current_user_id="some-admin")
+        await svc.approve_promotion(version_id=sv.id, current_user_id="some-member")
+
+
+async def test_approve_promotion_admin_allowed(db_session):
+    # An org ADMIN who is NOT the submitter can approve (four-eyes satisfied) —
+    # this is what unblocks orgs whose owner authored the version.
+    org = await _org(db_session)
+    proj = await _project(db_session, org_id=org.id)
+    author = await _user(db_session, name="Author")
+    approver = await _user(db_session, name="Approver")
+    skill = await _skill(db_session, owner_id=author.id, project_id=proj.id, visibility="project")
+    sv = await _version(
+        db_session, skill=skill, version="1.0.0", published_by_id=author.id,
+        lifecycle_status="pending_review",
+    )
+    sv.review_target_visibility = "organization"
+    sv_id = sv.id
+    await db_session.commit()
+
+    svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.ADMIN)
+    await svc.approve_promotion(version_id=sv_id, current_user_id=approver.id)
+    skill_id = skill.id
+    db_session.expire_all()
+    reloaded = (
+        await db_session.execute(select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id))
+    ).scalar_one()
+    assert reloaded.org_version_id == sv_id
+    assert reloaded.visibility == "organization"
 
 
 async def test_approve_promotion_four_eyes_denied(db_session):
