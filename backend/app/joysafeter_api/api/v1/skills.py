@@ -3,7 +3,7 @@ import uuid
 import zipfile
 from io import BytesIO
 from pathlib import PurePosixPath
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from pydantic import BaseModel
@@ -972,9 +972,9 @@ async def restore_skill_from_version(
 
 
 class SubmitPromotionRequest(BaseModel):
-    # ``organization`` or ``public`` — the tier this version is being submitted
-    # for. Validated in the service against the promotable-tier vocabulary.
-    target_tier: str
+    # The tier this version is being submitted for; only the promotable tiers
+    # are accepted (a 422 at the boundary beats a service-layer conflict).
+    target_tier: Literal["organization", "public"]
 
 
 class RejectPromotionRequest(BaseModel):
@@ -982,8 +982,8 @@ class RejectPromotionRequest(BaseModel):
 
 
 class TakedownRequest(BaseModel):
-    # ``organization`` or ``public`` — the tier pointer to clear.
-    tier: str
+    # The tier pointer to clear.
+    tier: Literal["organization", "public"]
 
 
 @router.post("/{skill_id}/versions/{version}/submit-promotion")

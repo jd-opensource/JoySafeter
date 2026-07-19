@@ -121,7 +121,7 @@ class JoySafeterSkill(BaseModel):
         String(16), nullable=False, default=JoySafeterSkillVisibility.PROJECT.value
     )
     project_id: Mapped[str] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="SET NULL"), nullable=False
+        String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"), nullable=False
     )
     license: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     compatibility: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
