@@ -297,6 +297,10 @@ export interface SkillSecurityScanRecord extends SkillSecurityScanSummary {
 
 export type SkillVisibility = 'project' | 'organization' | 'public'
 
+// The tiers a skill version can be promoted to (everything above the project
+// floor). Exposure to these happens only through the promotion approval flow.
+export type PromotableTier = Exclude<SkillVisibility, 'project'>
+
 export type SkillLifecycleStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'archived'
 
 export interface SkillRecord {
