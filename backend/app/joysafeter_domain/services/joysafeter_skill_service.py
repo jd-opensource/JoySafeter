@@ -486,6 +486,19 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
                     },
                 )
 
+        # If this version was serving a tier (org/public), clear that pointer
+        # and recompute visibility in the SAME transaction. The FK is SET NULL,
+        # but that only nulls the DB column — the in-memory skill row would keep
+        # its stale pointer + stale visibility (e.g. visibility='organization'
+        # with org_version_id gone). Fail-closed: drop to the highest tier still
+        # backed by a live pointer (floor = project).
+        if skill.org_version_id == sv.id or skill.public_version_id == sv.id:
+            if skill.org_version_id == sv.id:
+                skill.org_version_id = None
+            if skill.public_version_id == sv.id:
+                skill.public_version_id = None
+            skill.visibility = recompute_visibility_from_pointers(skill)
+
         await self.db.delete(sv)
         await self.db.commit()
 
@@ -1985,12 +1998,18 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
             )
         return version  # type: ignore[return-value,no-any-return]
 
-    def _require_org_owner(self) -> None:
-        if self._caller_org_role != JoySafeterRole.OWNER:
+    def _require_org_approver(self) -> None:
+        # Promotion approval / takedown is an org-superuser act (OWNER or ADMIN).
+        # It was OWNER-only, but combined with four-eyes (approver != submitter)
+        # that deadlocked any org whose sole owner also authored the version.
+        # Widening to superuser keeps four-eyes meaningful (still needs a second
+        # distinct principal) while unblocking normal 2+-admin orgs. A genuine
+        # single-person org still cannot four-eyes — correct for a review gate.
+        if not self._caller_org_role.is_org_superuser():
             raise AccessDeniedError(
-                "Only the organization owner can review skill promotions.",
+                "Only an organization owner or admin can review skill promotions.",
                 code="SKILL_PROMOTION_OWNER_ONLY",
-                data={"required_org_role": JoySafeterRole.OWNER.value},
+                data={"required_org_role": [JoySafeterRole.OWNER.value, JoySafeterRole.ADMIN.value]},
             )
 
     # ── submit ──────────────────────────────────────────────────
@@ -2093,8 +2112,8 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         version_id: uuid.UUID,
         current_user_id: str,
     ) -> JoySafeterSkillVersion:
-        """Approve a pending promotion. Org OWNER only, four-eyes enforced."""
-        self._require_org_owner()
+        """Approve a pending promotion. Org owner or admin, four-eyes enforced."""
+        self._require_org_approver()
         version = await self._get_version_or_404(version_id)
 
         if version.lifecycle_status != "pending_review" or not version.review_target_visibility:
@@ -2157,8 +2176,8 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         current_user_id: str,
         reason: Optional[str] = None,
     ) -> JoySafeterSkillVersion:
-        """Reject a pending promotion. Org OWNER only. Pointer untouched."""
-        self._require_org_owner()
+        """Reject a pending promotion. Org owner or admin. Pointer untouched."""
+        self._require_org_approver()
         version = await self._get_version_or_404(version_id)
 
         if version.lifecycle_status != "pending_review":
@@ -2182,12 +2201,12 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         tier: str,
         current_user_id: str,
     ) -> JoySafeterSkill:
-        """Pull a skill down from a tier. Org OWNER only.
+        """Pull a skill down from a tier. Org owner or admin.
 
         Clears the tier pointer and recomputes visibility to the highest tier
         still backed by a non-null pointer (floor ``project``, fail-closed).
         """
-        self._require_org_owner()
+        self._require_org_approver()
         if tier not in _PROMOTABLE_TIERS:
             raise InvalidRequestError(
                 f"Cannot take down tier {tier!r}; must be one of {sorted(_PROMOTABLE_TIERS)}.",
