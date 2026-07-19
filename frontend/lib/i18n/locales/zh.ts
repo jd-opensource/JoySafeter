@@ -1441,10 +1441,8 @@ const zh = {
           submitToPublic: '晋级到公开',
           approve: '批准',
           reject: '驳回',
-          takedown: '下架',
           takedownOrg: '从组织级下架',
           takedownPublic: '从公开下架',
-          pending: '待审核',
           pendingFor: '待审核 → {{tier}}',
           rejected: '晋级已驳回',
           rejectReasonPlaceholder: '驳回理由(可选)…',
@@ -1452,8 +1450,6 @@ const zh = {
           approved: '晋级已批准。',
           rejectedDone: '晋级已驳回。',
           takenDown: '技能已下架。',
-          ownerOnly: '仅组织所有者可审核晋级。',
-          confirmTakedown: '确定将此技能从{{tier}}下架吗？',
         },
         // 安全扫描状态(P2)
         security: {

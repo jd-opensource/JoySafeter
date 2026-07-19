@@ -106,6 +106,7 @@ import type {
   SkillFileRecord,
   SkillVersionRecord,
   SkillSecurityScanRecord,
+  PromotableTier,
 } from '@/types/managed'
 
 function formatBytes(bytes: number): string {
@@ -857,7 +858,7 @@ function SkillEditor({
   onPromoteVersion: (version: string) => void
   onApproveVersion: (version: string) => void
   onRejectVersion: (version: string) => void
-  onTakedown: (tier: 'organization' | 'public') => void
+  onTakedown: (tier: PromotableTier) => void
   isCreatingVersion: boolean
   editorTab: 'editor' | 'metadata' | 'versions'
   setEditorTab: (tab: 'editor' | 'metadata' | 'versions') => void
@@ -1720,9 +1721,12 @@ export default function SkillManagerPage() {
   }, [clearSavedFlash])
 
   // Reset the detail tab whenever the open skill changes, so the previously
-  // selected tab doesn't persist onto an unrelated skill.
+  // selected tab doesn't persist onto an unrelated skill. Also close any open
+  // promotion dialog — its target version belongs to the old skill.
   useEffect(() => {
     setEditorTab('editor')
+    setPromoteTarget(null)
+    setRejectTarget(null)
   }, [selectedSkillId])
 
   useEffect(
@@ -2515,16 +2519,20 @@ export default function SkillManagerPage() {
     },
   })
 
-  // ── Version-level promotion (single-axis model) ──
-  // A skill is a project resource; exposing a version to the organization /
-  // public tiers goes through this approval flow. The routes/service enforce
-  // the ADMIN (submit) and org-OWNER + four-eyes + scan (approve) gates.
+  // Exposing a version to the organization / public tiers goes through this
+  // approval flow. The routes/service enforce the ADMIN (submit) and org-OWNER
+  // + four-eyes + scan (approve) gates.
+  // Promotion changes the skill's visibility/tier pointers (list + detail) and
+  // the version's lifecycle_status, and can surface a fresh scan verdict — but
+  // never the file tree, so it deliberately does NOT invalidate skill-files.
   const invalidatePromotion = useCallback(
     (skillId: string, scope: ManagedRequestScope) => {
-      invalidateSkillResources(skillId, scope.key)
+      queryClient.invalidateQueries({ queryKey: ['skills', scope.key] })
+      queryClient.invalidateQueries({ queryKey: ['skill', scope.key, skillId] })
+      queryClient.invalidateQueries({ queryKey: ['skill-security-scans', scope.key, skillId] })
       queryClient.invalidateQueries({ queryKey: ['skill-versions', scope.key, skillId] })
     },
-    [invalidateSkillResources, queryClient],
+    [queryClient],
   )
 
   const submitPromotionMutation = useMutation({
@@ -2532,7 +2540,7 @@ export default function SkillManagerPage() {
       skillId: string
       scope: ManagedRequestScope
       version: string
-      targetTier: 'organization' | 'public'
+      targetTier: PromotableTier
     }) =>
       managedPost<SkillVersionRecord>(
         apiResourcePath('skills', v.skillId, 'versions', v.version, 'submit-promotion'),
@@ -2583,7 +2591,7 @@ export default function SkillManagerPage() {
     mutationFn: (v: {
       skillId: string
       scope: ManagedRequestScope
-      tier: 'organization' | 'public'
+      tier: PromotableTier
     }) =>
       managedPost<SkillRecord>(
         apiResourcePath('skills', v.skillId, 'takedown'),

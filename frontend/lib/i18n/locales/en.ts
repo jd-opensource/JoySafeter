@@ -1425,10 +1425,8 @@ const en = {
           submitToPublic: 'Promote to public',
           approve: 'Approve',
           reject: 'Reject',
-          takedown: 'Take down',
           takedownOrg: 'Take down from organization',
           takedownPublic: 'Take down from public',
-          pending: 'Pending review',
           pendingFor: 'Pending review → {{tier}}',
           rejected: 'Promotion rejected',
           rejectReasonPlaceholder: 'Reason for rejection (optional)…',
@@ -1436,8 +1434,6 @@ const en = {
           approved: 'Promotion approved.',
           rejectedDone: 'Promotion rejected.',
           takenDown: 'Skill taken down.',
-          ownerOnly: 'Only the organization owner can review promotions.',
-          confirmTakedown: 'Take this skill down from the {{tier}} tier?',
         },
         // Security scanning state (P2)
         security: {
