@@ -42,10 +42,9 @@ Every other edge raises ``InvalidRequestError`` with code
 Authorization
 -------------
 
-P1 lets the **owner** drive every transition (self-review). Once we have
-admin reviewers the API layer can pass ``is_admin=True`` and the rules
-unlock for cross-user approve/reject; until then, only the skill's owner
-(or a collaborator with admin role) can call any transition.
+Every transition is gated by the caller's project capability on the skill
+(via ``check_skill_access``): there is no owner special-case and no per-skill
+collaborator role — write/admin comes solely from the project role.
 
 Runtime gate interaction
 ------------------------
@@ -193,10 +192,9 @@ class SkillLifecycleService:
                 data={"skill_id": str(skill_id)},
             )
 
-            # P1 authorization: only the owner (or a skill admin) can drive
-            # the state machine. ``check_skill_access`` already understands
-            # ownership + admin role on the collaborator table; reusing it
-            # keeps the auth model consistent with the rest of skill writes.
+            # Authorization: gate the state machine on the caller's project
+            # capability via ``check_skill_access`` — same gate as the rest of
+            # skill writes, so the auth model stays consistent.
         await check_skill_access(
             self.db,
             skill,
@@ -913,7 +911,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill or not isinstance(skill, JoySafeterSkill):
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: collaborator-aware
+            # Permission check: requires READ project capability
         if current_user_id:
             await check_skill_access(
                 self.db,
@@ -1184,7 +1182,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: collaborator-aware (editor role)
+            # Permission check: requires WRITE (editor) project capability
         await check_skill_access(
             self.db,
             skill,
@@ -1477,7 +1475,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: collaborator-aware (editor role)
+            # Permission check: requires WRITE (editor) project capability
         await check_skill_access(
             self.db,
             skill,
@@ -1605,7 +1603,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(file_obj.skill_id)})
 
-            # Permission check: collaborator-aware (editor role)
+            # Permission check: requires WRITE (editor) project capability
         await check_skill_access(
             self.db,
             skill,
@@ -1692,7 +1690,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(file_obj.skill_id)})
 
-            # Permission check: collaborator-aware (editor role)
+            # Permission check: requires WRITE (editor) project capability
         await check_skill_access(
             self.db,
             skill,

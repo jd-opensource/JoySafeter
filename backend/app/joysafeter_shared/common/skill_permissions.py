@@ -76,11 +76,9 @@ async def _project_member_role(
 def _effective_visibility(skill: JoySafeterSkill) -> str:
     """Resolve the visibility tier the gate should honor.
 
-    Single-axis model reads the ``visibility`` column only, falling back
-    to ``project`` (the least-permissive shareable tier) when it is
-    null/empty. The legacy ``is_public`` boolean is no longer consulted
-    by the gate — capability, not a boolean flag, decides write/admin,
-    and the public tier is expressed solely through ``visibility``.
+    Reads the ``visibility`` column only, falling back to ``project`` (the
+    least-permissive shareable tier) when it is null/empty. Capability — not
+    the tier — decides write/admin; the tier only ever widens READ.
     """
     return skill.visibility or JoySafeterSkillVisibility.PROJECT.value
 
