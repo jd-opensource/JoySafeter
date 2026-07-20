@@ -901,6 +901,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             tags=tags,
             project_id=project_id,
             org_id=org_id,
+            caller_org_role=self._caller_org_role,
             limit=limit,
             after_id=after_id,
         )
