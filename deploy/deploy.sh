@@ -93,7 +93,7 @@ RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-public.ecr.aws/docker/library/rust:1-b
 LOCAL_OFFICIAL_IMAGE_REGISTRY="${LOCAL_OFFICIAL_IMAGE_REGISTRY:-$DEFAULT_OFFICIAL_IMAGE_REGISTRY}"
 LOCAL_RUST_IMAGE="${LOCAL_RUST_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}"
 LOCAL_RUNTIME_IMAGE="${LOCAL_RUNTIME_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}"
-SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-https://github.com/NVIDIA/skillspector.git}"
+SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-https://github.com/NVIDIA/SkillSpector.git}"
 DEFAULT_SKILLSPECTOR_SOURCE_PATH="$PROJECT_ROOT/.deps/SkillSpector"
 
 # 规范化镜像仓库地址
@@ -493,21 +493,42 @@ detect_docker_socket_path() {
     # 未检测到本地 socket（例如远程 DOCKER_HOST）。不输出，由调用方给出告警。
 }
 
+skillspector_source_valid() {
+    local path="$1"
+    [ -d "$path" ] && [ -f "$path/pyproject.toml" ] && [ -d "$path/src" ]
+}
+
+clone_skillspector() {
+    local dest="$1"
+    check_command git || exit 1
+    if [ -d "$dest" ]; then
+        rm -rf "$dest"
+    fi
+    mkdir -p "$(dirname "$dest")"
+    log_info "克隆 SkillSpector: $SKILLSPECTOR_REPO_URL -> $dest"
+    git clone --depth 1 "$SKILLSPECTOR_REPO_URL" "$dest"
+}
+
 ensure_skillspector_source() {
     local deploy_env="$1"
     local configured_path="${SKILLSPECTOR_SOURCE_PATH:-$(read_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH")}"
 
-    if [ -n "$configured_path" ] && compose_path_exists "$configured_path"; then
-        set_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH" "$configured_path"
-        log_success "SkillSpector 源码: $configured_path"
-        return
+    if [ -n "$configured_path" ]; then
+        local resolved_path
+        case "$configured_path" in
+            /*) resolved_path="$configured_path" ;;
+            *)  resolved_path="$SCRIPT_DIR/$configured_path" ;;
+        esac
+        if skillspector_source_valid "$resolved_path"; then
+            set_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH" "$configured_path"
+            log_success "SkillSpector 源码: $configured_path"
+            return
+        fi
+        log_warning "配置的 SkillSpector 路径无效（缺少 pyproject.toml 或 src/）: $resolved_path"
     fi
 
-    if [ ! -d "$DEFAULT_SKILLSPECTOR_SOURCE_PATH" ]; then
-        check_command git || exit 1
-        mkdir -p "$PROJECT_ROOT/.deps"
-        log_info "未找到 SkillSpector 源码，开始克隆: $SKILLSPECTOR_REPO_URL"
-        git clone "$SKILLSPECTOR_REPO_URL" "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
+    if ! skillspector_source_valid "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"; then
+        clone_skillspector "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
     fi
 
     set_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH" "../.deps/SkillSpector"
@@ -1040,19 +1061,17 @@ ensure_skillspector_source_for_build() {
     local source_path
     source_path="$(resolve_skillspector_source_path)"
 
-    if [ -d "$source_path" ]; then
+    if skillspector_source_valid "$source_path"; then
         echo "$source_path"
         return
     fi
 
     if [ -n "${SKILLSPECTOR_SOURCE_PATH:-}" ]; then
-        log_error "SkillSpector 源码路径不存在: $source_path"
+        log_error "SkillSpector 源码路径无效（缺少 pyproject.toml 或 src/）: $source_path"
         exit 1
     fi
 
-    log_info "未找到 SkillSpector 源码，开始克隆: $SKILLSPECTOR_REPO_URL"
-    mkdir -p "$(dirname "$DEFAULT_SKILLSPECTOR_SOURCE_PATH")"
-    git clone "$SKILLSPECTOR_REPO_URL" "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
+    clone_skillspector "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
     echo "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
 }
 
