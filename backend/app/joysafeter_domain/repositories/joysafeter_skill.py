@@ -20,6 +20,7 @@ from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkillVisibility,
 )
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
+from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 
 from .base import BaseRepository
 
@@ -35,6 +36,7 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
         tags: Optional[List[str]] = None,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        caller_org_role: Optional[JoySafeterRole] = None,
         limit: int = 20,
         after_id: Optional[uuid.UUID] = None,
     ) -> tuple[List[JoySafeterSkill], bool]:
@@ -50,6 +52,11 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
             org (``org_id``)
           - ``visibility=project`` skills the user is a member of the
             specific project (via the ``project_members`` table)
+          - EVERY skill in the active org when the caller is an org
+            super-user (owner/admin) — they are ADMIN on every skill in
+            their org per ``effective_project_capability``, so listing must
+            surface them even for projects the super-user has no
+            ``ProjectMember`` row in (otherwise list != get).
 
         Strict org isolation: every skill returned must belong to a
         project in the caller's ACTIVE org (``org_id``) — even ones the
@@ -111,6 +118,19 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
                 # (c) public crosses every org boundary — no org gate.
                 visibility_clauses.append(
                     JoySafeterSkill.visibility == JoySafeterSkillVisibility.PUBLIC.value
+                )
+            # (d) org super-user (owner/admin) — ADMIN on every skill in the
+            # ACTIVE org per ``effective_project_capability``, regardless of
+            # project membership. Without this, an org owner who isn't a
+            # ProjectMember of a project can GET/edit its project-tier skills
+            # but never sees them listed (list != get). Gated on an active org
+            # so it never crosses tenants; ``org_id is None`` (legacy) skips it.
+            if org_id is not None and caller_org_role is not None and caller_org_role.is_org_superuser():
+                all_active_org_projects = (
+                    select(Project.id).where(Project.org_id == org_id).scalar_subquery()
+                )
+                visibility_clauses.append(
+                    JoySafeterSkill.project_id.in_(all_active_org_projects)
                 )
             conditions.append(or_(*visibility_clauses))
         else:
