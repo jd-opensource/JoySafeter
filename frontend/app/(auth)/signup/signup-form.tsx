@@ -133,19 +133,16 @@ function SignupFormContent() {
   const submitRunRef = useRef(0)
   const isMountedRef = useRef(false)
 
-  useEffect(
-    () => {
-      isMountedRef.current = true
-      return () => {
-        isMountedRef.current = false
-        submitRunRef.current += 1
-        if (redirectTimerRef.current) {
-          clearTimeout(redirectTimerRef.current)
-        }
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      submitRunRef.current += 1
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
       }
-    },
-    [],
-  )
+    }
+  }, [])
 
   const [name, setName] = useState('')
   const [nameErrors, setNameErrors] = useState<string[]>([])

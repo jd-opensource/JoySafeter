@@ -50,7 +50,13 @@ const range = (n: number) => Array.from({ length: n }, (_, i) => i)
  * one cron string. Live human-readable description, next-N timezone-aware
  * preview, and inline validation on every mode.
  */
-export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale = 'en' }: CronEditorProps) {
+export function CronEditor({
+  value,
+  timezone,
+  onChange,
+  onTimezoneChange,
+  locale = 'en',
+}: CronEditorProps) {
   const { t } = useTranslation()
 
   // Builder state (used to synthesize a cron string in Builder mode).
@@ -76,7 +82,8 @@ export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale
     if (f === 'minutely') expr = `*/${Math.max(1, n)} * * * *`
     else if (f === 'hourly') expr = `${mm} * * * *`
     else if (f === 'daily') expr = `${mm} ${hh} * * *`
-    else if (f === 'weekly') expr = `${mm} ${hh} * * ${(wd.length ? [...wd].sort((a, b) => a - b) : [1]).join(',')}`
+    else if (f === 'weekly')
+      expr = `${mm} ${hh} * * ${(wd.length ? [...wd].sort((a, b) => a - b) : [1]).join(',')}`
     else if (f === 'monthly') expr = `${mm} ${hh} ${d} * *`
     onChange(expr)
   }
@@ -135,7 +142,9 @@ export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="minutely">{t('managed.schedules.cron.freq.minutely')}</SelectItem>
+                <SelectItem value="minutely">
+                  {t('managed.schedules.cron.freq.minutely')}
+                </SelectItem>
                 <SelectItem value="hourly">{t('managed.schedules.cron.freq.hourly')}</SelectItem>
                 <SelectItem value="daily">{t('managed.schedules.cron.freq.daily')}</SelectItem>
                 <SelectItem value="weekly">{t('managed.schedules.cron.freq.weekly')}</SelectItem>
@@ -171,7 +180,13 @@ export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale
           {frequency === 'hourly' && (
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.cron.atMinute')}</Label>
-              <MinuteSelect value={minute} onChange={(m) => { setMinute(m); applyBuilder({ minute: m }) }} />
+              <MinuteSelect
+                value={minute}
+                onChange={(m) => {
+                  setMinute(m)
+                  applyBuilder({ minute: m })
+                }}
+              />
             </div>
           )}
 
@@ -179,18 +194,34 @@ export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
                 <Label>{t('managed.schedules.cron.hour')}</Label>
-                <Select value={String(hour)} onValueChange={(v) => { setHour(Number(v)); applyBuilder({ hour: Number(v) }) }}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select
+                  value={String(hour)}
+                  onValueChange={(v) => {
+                    setHour(Number(v))
+                    applyBuilder({ hour: Number(v) })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {range(24).map((h) => (
-                      <SelectItem key={h} value={String(h)}>{pad(h)}</SelectItem>
+                      <SelectItem key={h} value={String(h)}>
+                        {pad(h)}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>{t('managed.schedules.cron.minute')}</Label>
-                <MinuteSelect value={minute} onChange={(m) => { setMinute(m); applyBuilder({ minute: m }) }} />
+                <MinuteSelect
+                  value={minute}
+                  onChange={(m) => {
+                    setMinute(m)
+                    applyBuilder({ minute: m })
+                  }}
+                />
               </div>
             </div>
           )}
@@ -207,7 +238,9 @@ export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale
                       type="button"
                       onClick={() => toggleWeekday(d.value)}
                       className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-                        active ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:bg-muted/50'
+                        active
+                          ? 'border-primary bg-primary/10 text-foreground'
+                          : 'border-border hover:bg-muted/50'
                       }`}
                     >
                       {t(d.labelKey)}
@@ -221,11 +254,21 @@ export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale
           {frequency === 'monthly' && (
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.cron.dayOfMonth')}</Label>
-              <Select value={String(dom)} onValueChange={(v) => { setDom(Number(v)); applyBuilder({ dom: Number(v) }) }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={String(dom)}
+                onValueChange={(v) => {
+                  setDom(Number(v))
+                  applyBuilder({ dom: Number(v) })
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {range(31).map((d) => (
-                    <SelectItem key={d + 1} value={String(d + 1)}>{d + 1}</SelectItem>
+                    <SelectItem key={d + 1} value={String(d + 1)}>
+                      {d + 1}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -244,7 +287,9 @@ export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale
             className="font-mono"
             aria-invalid={!valid}
           />
-          <p className="text-xs text-muted-foreground">{t('managed.schedules.cron.advancedHint')}</p>
+          <p className="text-xs text-muted-foreground">
+            {t('managed.schedules.cron.advancedHint')}
+          </p>
         </TabsContent>
       </Tabs>
 
@@ -252,10 +297,14 @@ export function CronEditor({ value, timezone, onChange, onTimezoneChange, locale
       <div className="space-y-1.5">
         <Label>{t('managed.schedules.cron.timezone')}</Label>
         <Select value={timezone} onValueChange={onTimezoneChange}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             {COMMON_TIMEZONES.map((tz) => (
-              <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+              <SelectItem key={tz} value={tz}>
+                {tz}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>

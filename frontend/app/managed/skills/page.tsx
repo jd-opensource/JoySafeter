@@ -949,9 +949,7 @@ function SkillEditor({
       {/* Tab bar */}
       <Tabs
         value={editorTab}
-        onValueChange={(v) =>
-          setEditorTab(v as 'editor' | 'metadata' | 'versions')
-        }
+        onValueChange={(v) => setEditorTab(v as 'editor' | 'metadata' | 'versions')}
       >
         <div className="flex items-center justify-between border-b border-border pr-3">
           <TabsList>
@@ -1657,9 +1655,7 @@ export default function SkillManagerPage() {
   // header's Save button can decide what to persist: on the Metadata tab
   // we always save the skill-level form, regardless of which file happens
   // to be selected in the tree.
-  const [editorTab, setEditorTab] = useState<'editor' | 'metadata' | 'versions'>(
-    'editor',
-  )
+  const [editorTab, setEditorTab] = useState<'editor' | 'metadata' | 'versions'>('editor')
   // Lifted so the "publish version" button can live in the top-right action
   // group while the form itself renders inside SkillEditor's versions tab.
   const [showVersionForm, setShowVersionForm] = useState(false)
@@ -2588,11 +2584,7 @@ export default function SkillManagerPage() {
   })
 
   const takedownMutation = useMutation({
-    mutationFn: (v: {
-      skillId: string
-      scope: ManagedRequestScope
-      tier: PromotableTier
-    }) =>
+    mutationFn: (v: { skillId: string; scope: ManagedRequestScope; tier: PromotableTier }) =>
       managedPost<SkillRecord>(
         apiResourcePath('skills', v.skillId, 'takedown'),
         { tier: v.tier },
@@ -3445,7 +3437,11 @@ export default function SkillManagerPage() {
           onPromoteVersion={(version) => setPromoteTarget(version)}
           onApproveVersion={(version) => {
             if (selectedSkillId) {
-              approvePromotionMutation.mutate({ skillId: selectedSkillId, scope: managedScope, version })
+              approvePromotionMutation.mutate({
+                skillId: selectedSkillId,
+                scope: managedScope,
+                version,
+              })
             }
           }}
           onRejectVersion={(version) => {
@@ -3469,7 +3465,10 @@ export default function SkillManagerPage() {
 
       {/* Promote a version to a wider tier (project ADMIN submits; an org
           OWNER then reviews). */}
-      <Dialog open={promoteTarget !== null} onOpenChange={(open) => !open && setPromoteTarget(null)}>
+      <Dialog
+        open={promoteTarget !== null}
+        onOpenChange={(open) => !open && setPromoteTarget(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('managed.skills.promotion.submit')}</DialogTitle>

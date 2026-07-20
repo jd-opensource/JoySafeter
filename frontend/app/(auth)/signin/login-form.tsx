@@ -204,18 +204,15 @@ export default function LoginPage() {
     [clearResetDialogCloseTimer],
   )
 
-  useEffect(
-    () => {
-      isMountedRef.current = true
-      return () => {
-        isMountedRef.current = false
-        resetRequestRunRef.current += 1
-        clearResetDialogCloseTimer()
-        clearLoginRedirectTimer()
-      }
-    },
-    [clearLoginRedirectTimer, clearResetDialogCloseTimer],
-  )
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      resetRequestRunRef.current += 1
+      clearResetDialogCloseTimer()
+      clearLoginRedirectTimer()
+    }
+  }, [clearLoginRedirectTimer, clearResetDialogCloseTimer])
 
   useEffect(() => {
     setMounted(true)
@@ -330,8 +327,7 @@ export default function LoginPage() {
 
     const runId = resetRequestRunRef.current + 1
     resetRequestRunRef.current = runId
-    const isCurrentResetRequest = () =>
-      isMountedRef.current && resetRequestRunRef.current === runId
+    const isCurrentResetRequest = () => isMountedRef.current && resetRequestRunRef.current === runId
 
     try {
       setIsSubmittingReset(true)

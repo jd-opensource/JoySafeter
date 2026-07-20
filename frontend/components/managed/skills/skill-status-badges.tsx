@@ -152,9 +152,7 @@ export function SkillStatusBadges({
   return (
     <div className="inline-flex flex-wrap items-center gap-1.5">
       <SkillLifecycleBadge status={skill.lifecycle_status} />
-      {showVisibility && (
-        <SkillVisibilityBadge visibility={skill.visibility} />
-      )}
+      {showVisibility && <SkillVisibilityBadge visibility={skill.visibility} />}
       <SkillSecurityBadge status={skill.security_scan?.status} />
     </div>
   )

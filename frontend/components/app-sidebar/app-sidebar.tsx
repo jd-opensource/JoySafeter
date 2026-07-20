@@ -50,7 +50,6 @@ import { useSession, client } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ProjectInfo } from '@/stores/managed/project-store'
 import { useSidebarStore } from '@/stores/sidebar/store'

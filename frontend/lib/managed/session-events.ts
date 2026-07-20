@@ -56,10 +56,7 @@ function preferSessionEvent(existing: SessionEvent, incoming: SessionEvent) {
   return existing
 }
 
-export function mergeSessionEvents(
-  persistedEvents: SessionEvent[],
-  streamEvents: SessionEvent[],
-) {
+export function mergeSessionEvents(persistedEvents: SessionEvent[], streamEvents: SessionEvent[]) {
   if (streamEvents.length === 0) return sortSessionEvents(persistedEvents)
 
   const byIdentity = new Map<string, SessionEvent>()

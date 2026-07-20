@@ -252,7 +252,9 @@ describe('useVerification redirect lifecycle', () => {
   it('does not let an older resend failure overwrite a newer resend success', async () => {
     const olderResend = deferred<void>()
     const newerResend = deferred<void>()
-    sendVerificationOtpMock.mockReturnValueOnce(olderResend.promise).mockReturnValueOnce(newerResend.promise)
+    sendVerificationOtpMock
+      .mockReturnValueOnce(olderResend.promise)
+      .mockReturnValueOnce(newerResend.promise)
 
     const view = render(<VerificationHarness />)
 

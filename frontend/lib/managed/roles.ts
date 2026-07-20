@@ -68,4 +68,3 @@ export function projectRoleOptions(t: Translator) {
     label: projectRoleLabel(t, role),
   }))
 }
-

@@ -87,8 +87,7 @@ export function DataTable<T>({
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange')
 
   const allSelected =
-    data.length > 0 &&
-    data.every((row, index) => selected.has(dataTableSelectionKey(row, index)))
+    data.length > 0 && data.every((row, index) => selected.has(dataTableSelectionKey(row, index)))
 
   const toggleAll = () => {
     if (allSelected) setSelected(new Set())
@@ -188,9 +187,7 @@ export function DataTable<T>({
   if (loading) {
     return (
       <div className="rounded-lg border border-border">
-        <div className="p-8 text-center text-muted-foreground">
-          {t('common.loading')}
-        </div>
+        <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>
       </div>
     )
   }
@@ -211,15 +208,10 @@ export function DataTable<T>({
         )}
 
         <div className="overflow-x-auto">
-          <table
-            className="w-full table-fixed"
-          >
+          <table className="w-full table-fixed">
             <thead>
               {table.getHeaderGroups().map((headerGroup) => (
-                <tr
-                  key={headerGroup.id}
-                  className="border-b border-border bg-muted/30"
-                >
+                <tr key={headerGroup.id} className="border-b border-border bg-muted/30">
                   {headerGroup.headers.map((header) => {
                     const meta = header.column.columnDef.meta as
                       | { className?: string; cssWidth?: string }
@@ -234,17 +226,14 @@ export function DataTable<T>({
                       >
                         {header.isPlaceholder
                           ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
-                            )}
+                          : flexRender(header.column.columnDef.header, header.getContext())}
                         {/* Resize handle — wide hit area, visible only on hover/drag */}
                         {header.column.getCanResize() && (
                           <div
                             onMouseDown={header.getResizeHandler()}
                             onTouchStart={header.getResizeHandler()}
                             onDoubleClick={() => header.column.resetSize()}
-                            className="absolute -right-px top-0 z-10 flex h-full w-4 cursor-col-resize select-none touch-none items-center justify-center opacity-0 hover:opacity-100 group-hover/th:opacity-100"
+                            className="absolute -right-px top-0 z-10 flex h-full w-4 cursor-col-resize touch-none select-none items-center justify-center opacity-0 hover:opacity-100 group-hover/th:opacity-100"
                           >
                             <div
                               className={`h-3/5 transition-colors ${
@@ -281,19 +270,14 @@ export function DataTable<T>({
                     }`}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const meta = cell.column.columnDef.meta as
-                        | { className?: string }
-                        | undefined
+                      const meta = cell.column.columnDef.meta as { className?: string } | undefined
                       return (
                         <td
                           key={cell.id}
                           className={`overflow-hidden truncate px-4 py-3 text-sm ${meta?.className || ''}`}
                           style={{ width: cell.column.getSize() }}
                         >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       )
                     })}

@@ -38,19 +38,16 @@ function ResetPasswordContent() {
     }
   }, [token])
 
-  useEffect(
-    () => {
-      isMountedRef.current = true
-      return () => {
-        isMountedRef.current = false
-        resetRunRef.current += 1
-        if (redirectTimerRef.current) {
-          clearTimeout(redirectTimerRef.current)
-        }
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      resetRunRef.current += 1
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
       }
-    },
-    [],
-  )
+    }
+  }, [])
 
   const handleResetPassword = async (password: string) => {
     if (!token) {

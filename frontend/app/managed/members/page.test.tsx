@@ -584,12 +584,15 @@ describe('MembersPage invite search lifecycle', () => {
     })
 
     await act(async () => {
-      queryClient.setQueryData(['org-members', 'org-a'], [
-        {
-          ...member('user-candidate', 'Candidate'),
-          email: 'candidate@example.com',
-        },
-      ])
+      queryClient.setQueryData(
+        ['org-members', 'org-a'],
+        [
+          {
+            ...member('user-candidate', 'Candidate'),
+            email: 'candidate@example.com',
+          },
+        ],
+      )
       fireEvent.click(getAllByRole('button', { name: 'manage.members.invite' })[1])
       await Promise.resolve()
     })
@@ -671,16 +674,15 @@ describe('MembersPage invite search lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedGetMock).not.toHaveBeenCalledWith(
-      '/auth/search-users?q=stale-search&limit=5',
-    )
+    expect(managedGetMock).not.toHaveBeenCalledWith('/auth/search-users?q=stale-search&limit=5')
   })
 
   it('does not close a new remove confirmation when an older remove finishes', async () => {
     vi.useRealTimers()
     const remove = deferred<Record<string, never>>()
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === 'auth/members') return [member('user-a', 'Member A'), member('user-b', 'Member B')]
+      if (path === 'auth/members')
+        return [member('user-a', 'Member A'), member('user-b', 'Member B')]
       return []
     })
     managedDeleteMock.mockReturnValueOnce(remove.promise)

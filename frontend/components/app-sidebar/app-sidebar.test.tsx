@@ -296,7 +296,11 @@ describe('AppSidebar project switcher lifecycle', () => {
   })
 
   it('does not let an older project switch completion close a reopened switcher', async () => {
-    const olderSwitch = deferred<{ org_id: string; project: ProjectInfo; projects: ProjectInfo[] }>()
+    const olderSwitch = deferred<{
+      org_id: string
+      project: ProjectInfo
+      projects: ProjectInfo[]
+    }>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
       if (path === '/auth/me') return Promise.resolve(authContext('org-a', projectA))
       if (path === '/auth/projects?include_archived=false') {
