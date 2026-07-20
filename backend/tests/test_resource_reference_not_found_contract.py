@@ -186,9 +186,7 @@ async def test_session_service_keeps_project_boundary_for_core_read_write_paths(
     assert await svc.delete_session(session_id, project_id=other_project.id) is False
 
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))).scalar_one()
     assert row.project_id == project_id
     assert row.status == "idle"
     assert row.archived_at is None
@@ -268,9 +266,7 @@ async def test_sandbox_service_stop_keeps_project_boundary_and_does_not_mutate_c
 
     assert stopped is False
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))).scalar_one()
     assert row.status == "idle"
 
 
@@ -297,9 +293,7 @@ async def test_stop_sandbox_cross_project_returns_structured_not_found(db_sessio
         "user_action": "refresh",
     }
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))).scalar_one()
     assert row.status == "idle"
 
 

@@ -257,8 +257,10 @@ async def test_create_project_rejects_duplicate_slug_without_db_integrity_leak(d
     }
 
     rows = (
-        await db_session.execute(select(Project).where(Project.org_id == org_id, Project.slug == "shared-slug"))
-    ).scalars().all()
+        (await db_session.execute(select(Project).where(Project.org_id == org_id, Project.slug == "shared-slug")))
+        .scalars()
+        .all()
+    )
     assert [row.id for row in rows] == [existing_project.id]
 
 

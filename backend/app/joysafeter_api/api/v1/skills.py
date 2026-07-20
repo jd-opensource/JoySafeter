@@ -1033,9 +1033,7 @@ async def reject_skill_promotion(
     version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
     svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    rejected = await svc.reject_promotion(
-        version_id=target.id, current_user_id=auth_ctx.user_id, reason=req.reason
-    )
+    rejected = await svc.reject_promotion(version_id=target.id, current_user_id=auth_ctx.user_id, reason=req.reason)
     return SkillVersionResponse.model_validate(rejected)
 
 

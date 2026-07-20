@@ -511,5 +511,3 @@ async def test_rejected_put_does_not_leak_via_scan_dispatch(monkeypatch):
         )
     # Scan dispatch must NOT have run — its mock would record a call.
     svc.security_service.scan_for_write.assert_not_called()
-
-

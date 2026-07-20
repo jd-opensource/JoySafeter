@@ -31,4 +31,3 @@ def test_python_settings_and_env_example_expose_provider_isolation_minimum():
     assert 'sandbox_min_isolation_class: str = "shared_container"' in settings
     assert "JOYSAFETER_SANDBOX_MIN_ISOLATION_CLASS=shared_container" in env_example
     assert "shared_container | remote_workspace | isolated_vm" in env_example
-

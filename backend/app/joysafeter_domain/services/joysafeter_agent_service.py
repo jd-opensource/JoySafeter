@@ -58,9 +58,7 @@ class JoySafeterAgentService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _count_active_tasks_for_agent(
-        self, agent_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> int:
+    async def _count_active_tasks_for_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> int:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return 0
         result = await self.db.execute(
@@ -412,9 +410,7 @@ class JoySafeterAgentService:
             return None
         return ver.snapshot
 
-    async def list_active_tasks_for_agent(
-        self, agent_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> list:
+    async def list_active_tasks_for_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> list:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return []
         result = await self.db.execute(

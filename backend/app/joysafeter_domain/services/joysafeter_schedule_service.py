@@ -240,9 +240,7 @@ class JoySafeterScheduleService:
         The caller owns the transaction. Enabled schedules resume from the next
         future cron instant; disabled schedules remain disabled with no due slot.
         """
-        result = await self.db.execute(
-            select(JoySafeterSchedule).where(JoySafeterSchedule.project_id == project_id)
-        )
+        result = await self.db.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.project_id == project_id))
         for schedule in result.scalars().all():
             schedule.locked_by = None
             schedule.locked_at = None
@@ -324,9 +322,7 @@ class JoySafeterScheduleService:
         if fired_slot is not None:
             schedule.last_fired_slot = fired_slot
         if schedule.project_id is not None:
-            project_result = await self.db.execute(
-                select(Project.archived_at).where(Project.id == schedule.project_id)
-            )
+            project_result = await self.db.execute(select(Project.archived_at).where(Project.id == schedule.project_id))
             if project_result.scalar_one_or_none() is not None:
                 schedule.next_run_at = None
                 await self.db.commit()

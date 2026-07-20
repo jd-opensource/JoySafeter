@@ -178,9 +178,7 @@ async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_s
     )
 
     stored = (
-        await db_session.execute(
-            select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.session_id == response.id)
-        )
+        await db_session.execute(select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.session_id == response.id))
     ).scalar_one()
     repo_id = stored.id
     assert stored.encrypted_token.startswith("enc:")

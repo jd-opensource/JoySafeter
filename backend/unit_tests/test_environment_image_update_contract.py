@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
@@ -101,9 +100,7 @@ async def test_update_environment_rolls_back_when_image_build_fails(monkeypatch)
     monkeypatch.setattr(env_api, "EnvironmentService", lambda _db: svc)
     monkeypatch.setattr(env_api, "_build_image_update", failing_build)
 
-    req = UpdateEnvironmentRequest(
-        config=EnvironmentConfig(type="cloud", packages=Packages(pip=["numpy"]))
-    )
+    req = UpdateEnvironmentRequest(config=EnvironmentConfig(type="cloud", packages=Packages(pip=["numpy"])))
 
     with pytest.raises(AppError) as exc_info:
         await env_api.update_environment(req, env.id, db, SimpleNamespace(project_id=None))
@@ -151,9 +148,7 @@ async def test_update_environment_raises_when_builder_unavailable(monkeypatch) -
     monkeypatch.setattr(env_api, "EnvironmentService", lambda _db: svc)
     monkeypatch.setattr(bridge_mod, "get_image_builder", lambda: None)
 
-    req = UpdateEnvironmentRequest(
-        config=EnvironmentConfig(type="cloud", packages=Packages(pip=["numpy"]))
-    )
+    req = UpdateEnvironmentRequest(config=EnvironmentConfig(type="cloud", packages=Packages(pip=["numpy"])))
 
     with pytest.raises(AppError) as exc_info:
         await env_api.update_environment(req, env.id, db, SimpleNamespace(project_id=None))

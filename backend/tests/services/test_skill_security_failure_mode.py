@@ -40,9 +40,7 @@ def _make_service(*, scanner_raises=True):
     svc.repo = None
     svc.skill_repo = None
     svc.client = MagicMock()
-    svc.client.scan = AsyncMock(
-        side_effect=Exception("scanner unreachable") if scanner_raises else None
-    )
+    svc.client.scan = AsyncMock(side_effect=Exception("scanner unreachable") if scanner_raises else None)
     return svc
 
 
@@ -64,9 +62,7 @@ _COMMON = dict(
 @pytest.fixture
 def settings_mock():
     """Patch the settings singleton the service reads inside the call."""
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as ms:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as ms:
         ms.skill_security_scan_enabled = True
         ms.skill_security_no_llm = True
         ms.skill_security_fail_closed = True  # default; tests override

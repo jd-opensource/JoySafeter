@@ -96,12 +96,8 @@ class ProjectService:
     @staticmethod
     def _is_project_slug_integrity_error(exc: IntegrityError) -> bool:
         message = str(exc.orig or exc).lower()
-        return (
-            "uq_joysafeter_organization_projects_org_slug" in message
-            or (
-                "joysafeter_organization_projects.org_id" in message
-                and "joysafeter_organization_projects.slug" in message
-            )
+        return "uq_joysafeter_organization_projects_org_slug" in message or (
+            "joysafeter_organization_projects.org_id" in message and "joysafeter_organization_projects.slug" in message
         )
 
     async def _project_slug_exists(self, org_id: str, slug: str, *, exclude_project_id: str | None = None) -> bool:
@@ -201,9 +197,7 @@ class ProjectService:
         )
 
     async def list_project_members(self, project_id: str) -> list[ProjectMember]:
-        result = await self.db.execute(
-            select(ProjectMember).where(ProjectMember.project_id == project_id)
-        )
+        result = await self.db.execute(select(ProjectMember).where(ProjectMember.project_id == project_id))
         return list(result.scalars().all())
 
     async def get_project_member_role(self, project_id: str, user_id: str) -> str | None:
@@ -575,7 +569,9 @@ class ProjectService:
             return await self.set_default_project(active_project.id, org_id)
 
         slug = "default"
-        slug_result = await self.db.execute(select(Project.id).where(and_(Project.org_id == org_id, Project.slug == slug)))
+        slug_result = await self.db.execute(
+            select(Project.id).where(and_(Project.org_id == org_id, Project.slug == slug))
+        )
         if slug_result.scalar_one_or_none() is not None:
             slug = f"default-{uuid.uuid4().hex[:8]}"
         return await self.create_project(org_id, "Default", slug, is_default=True)

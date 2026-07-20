@@ -34,9 +34,7 @@ async def _key_setup(
     if creator_org_role is not None:
         db_session.add(Member(user_id=creator.id, organization_id=org_id, role=creator_org_role))
     if creator_project_role is not None:
-        db_session.add(
-            ProjectMember(project_id=project.id, user_id=creator.id, role=creator_project_role)
-        )
+        db_session.add(ProjectMember(project_id=project.id, user_id=creator.id, role=creator_project_role))
     raw_key = f"sk-{uuid.uuid4()}"
     db_session.add(
         JoySafeterApiKey(
@@ -67,9 +65,7 @@ async def test_key_rejected_when_creator_removed_from_org(db_session):
 async def test_key_rejected_when_creator_lost_project_access(db_session):
     # Creator is still an org member (developer) but has no ProjectMember row on
     # the key's project (grant revoked) → non-super-user has no access → rejected.
-    raw_key = await _key_setup(
-        db_session, creator_org_role="member", creator_project_role=None
-    )
+    raw_key = await _key_setup(db_session, creator_org_role="member", creator_project_role=None)
     with pytest.raises(AccessDeniedError) as exc_info:
         await _auth_via_api_key(raw_key, db_session)
     assert exc_info.value.code == "AUTH_API_KEY_ACCESS_REVOKED"
@@ -79,9 +75,7 @@ async def test_key_rejected_when_creator_lost_project_access(db_session):
 async def test_key_valid_when_creator_has_project_row(db_session):
     # Happy path: creator retains an explicit ProjectMember row. The key
     # authenticates and keeps its own capped identity (not rebuilt from creator).
-    raw_key = await _key_setup(
-        db_session, creator_org_role="member", creator_project_role="editor", key_role="viewer"
-    )
+    raw_key = await _key_setup(db_session, creator_org_role="member", creator_project_role="editor", key_role="viewer")
     ctx = await _auth_via_api_key(raw_key, db_session)
     assert ctx is not None
     assert ctx.principal_type == "api_key"
@@ -93,9 +87,7 @@ async def test_key_valid_when_creator_has_project_row(db_session):
 async def test_key_valid_when_creator_is_org_superuser_without_row(db_session):
     # An org admin/owner reaches every project org-wide, so their key stays valid
     # without a ProjectMember row.
-    raw_key = await _key_setup(
-        db_session, creator_org_role="admin", creator_project_role=None
-    )
+    raw_key = await _key_setup(db_session, creator_org_role="admin", creator_project_role=None)
     ctx = await _auth_via_api_key(raw_key, db_session)
     assert ctx is not None
     assert ctx.principal_type == "api_key"

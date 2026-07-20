@@ -127,9 +127,7 @@ async def check_skill_access(
     #    (or org super-user) resolves to a ProjectCapability; org
     #    isolation gates it so the capability only counts inside the
     #    skill's own org.
-    role_in_project = (
-        await _project_member_role(db, user_id, skill.project_id) if skill.project_id else None
-    )
+    role_in_project = await _project_member_role(db, user_id, skill.project_id) if skill.project_id else None
     cap = effective_project_capability(caller_org_role, role_in_project)
     if in_active_org and cap >= required:
         return

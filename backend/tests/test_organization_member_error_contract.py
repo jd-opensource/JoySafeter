@@ -187,12 +187,12 @@ async def test_delete_empty_organization_deletes_default_project_and_membership(
 
     await delete_organization(org_id, SimpleNamespace(id=owner_id), db_session)
 
-    assert (await db_session.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none() is None
+    assert (
+        await db_session.execute(select(Organization).where(Organization.id == org_id))
+    ).scalar_one_or_none() is None
     assert (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none() is None
     assert (
-        await db_session.execute(
-            select(Member).where(Member.organization_id == org_id, Member.user_id == owner_id)
-        )
+        await db_session.execute(select(Member).where(Member.organization_id == org_id, Member.user_id == owner_id))
     ).scalar_one_or_none() is None
 
 

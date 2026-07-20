@@ -325,7 +325,7 @@ class SecretService:
             conditions.append(JoySafeterSecret.project_id == project_id)
         result = await self.db.execute(delete(JoySafeterSecret).where(and_(*conditions)))
         await self.db.commit()
-        return bool(result.rowcount)
+        return bool(getattr(result, "rowcount", 0))
 
     async def secret_is_referenced(self, name: str, project_id: Optional[str] = None) -> bool:
         """Check if any live agent or environment references this secret name."""

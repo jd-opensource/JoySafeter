@@ -278,9 +278,7 @@ class MemoryService:
 
         # Apply ordering
         order_col = getattr(JoySafeterMemory, order_by, JoySafeterMemory.path)
-        q = apply_ordered_cursor(q, JoySafeterMemory, after_id, order_col, descending=order == "desc").limit(
-            limit + 1
-        )
+        q = apply_ordered_cursor(q, JoySafeterMemory, after_id, order_col, descending=order == "desc").limit(limit + 1)
         result = await self.db.execute(q)
         memories = list(result.scalars().all())
         has_more = len(memories) > limit

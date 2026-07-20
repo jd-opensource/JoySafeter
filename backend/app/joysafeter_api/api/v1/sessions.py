@@ -250,9 +250,7 @@ async def create_session(
         "model": agent.model,
     }
     if pinned_version is not None:
-        snapshot = await agent_svc.get_agent_version_snapshot(
-            agent.id, pinned_version, project_id=auth_ctx.project_id
-        )
+        snapshot = await agent_svc.get_agent_version_snapshot(agent.id, pinned_version, project_id=auth_ctx.project_id)
         if snapshot is None:
             raise NotFoundError(
                 code="SESSION_AGENT_VERSION_NOT_FOUND",
@@ -1657,9 +1655,7 @@ async def session_event_stream(
                 async with AsyncSessionLocal() as replay_db:
                     replay_svc = SessionService(replay_db)
                     replayed = 0
-                    async for ev in _iter_events_after(
-                        replay_svc, session_id, after_seq, auth_ctx.project_id
-                    ):
+                    async for ev in _iter_events_after(replay_svc, session_id, after_seq, auth_ctx.project_id):
                         last_seq = max(last_seq, ev.seq)
                         replayed += 1
                         data_dict = {
@@ -1691,9 +1687,7 @@ async def session_event_stream(
                     async with AsyncSessionLocal() as poll_db:
                         poll_svc = SessionService(poll_db)
                         polled = 0
-                        async for ev in _iter_events_after(
-                            poll_svc, session_id, last_seq, auth_ctx.project_id
-                        ):
+                        async for ev in _iter_events_after(poll_svc, session_id, last_seq, auth_ctx.project_id):
                             last_seq = max(last_seq, ev.seq)
                             polled += 1
                             data_dict = {
@@ -1749,9 +1743,7 @@ async def session_event_stream(
                     async with AsyncSessionLocal() as poll_db:
                         poll_svc = SessionService(poll_db)
                         polled = 0
-                        async for ev in _iter_events_after(
-                            poll_svc, session_id, last_seq, auth_ctx.project_id
-                        ):
+                        async for ev in _iter_events_after(poll_svc, session_id, last_seq, auth_ctx.project_id):
                             last_seq = max(last_seq, ev.seq)
                             polled += 1
                             data_dict = {

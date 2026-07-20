@@ -27,4 +27,3 @@ def test_orphan_cleanup_has_db_insert_grace_for_recent_provider_sandboxes():
     assert '"joysafeter.created_at_unix"' in controller
     assert "Skipping recent provider sandbox with no DB row" in controller
     assert "now_unix - created_at < ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS" in controller
-

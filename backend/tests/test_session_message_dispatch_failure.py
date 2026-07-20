@@ -954,7 +954,9 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     assert session_row.status == "idle"
     assert session_row.stop_reason == {"type": "cancelled"}
     assert idle_event.payload == {"task_id": str(task_id), "stop_reason": {"type": "cancelled"}}
-    command_publishes = [(channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
+    command_publishes = [
+        (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
+    ]
     assert len(command_publishes) == 1
     channel, payload = command_publishes[0]
     assert channel == "joysafeter:cmd:owner-1"

@@ -99,13 +99,15 @@ async def _broadcast_memory_update(
         if not owner_instances:
             return
 
-        payload = json.dumps({
-            "type": "memory_update",
-            "store_id": str(store_id),
-            "relative_path": path,
-            "content": content,
-            "operation": operation,
-        })
+        payload = json.dumps(
+            {
+                "type": "memory_update",
+                "store_id": str(store_id),
+                "relative_path": path,
+                "content": content,
+                "operation": operation,
+            }
+        )
 
         # Publish to each orchestrator instance
         for instance_id in owner_instances:

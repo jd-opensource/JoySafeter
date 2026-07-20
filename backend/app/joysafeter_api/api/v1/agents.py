@@ -128,9 +128,7 @@ def _secret_matches_engine(secret, engine_kind: str) -> bool:
     protocol = (getattr(secret, "protocol", "") or "").lower()
     keys = set((getattr(secret, "data", None) or {}).keys())
     is_openai_secret = (
-        provider == "codex"
-        or protocol in {"openai_responses", "chat_completions"}
-        or "OPENAI_API_KEY" in keys
+        provider == "codex" or protocol in {"openai_responses", "chat_completions"} or "OPENAI_API_KEY" in keys
     )
     is_anthropic_secret = (
         provider in {"anthropic", "claude"}

@@ -218,7 +218,9 @@ async def test_create_credential_rejects_archived_vault_without_creating_row(db_
     }
     count = (
         await db_session.execute(
-            select(func.count()).select_from(JoySafeterVaultCredential).where(JoySafeterVaultCredential.vault_id == vault_id)
+            select(func.count())
+            .select_from(JoySafeterVaultCredential)
+            .where(JoySafeterVaultCredential.vault_id == vault_id)
         )
     ).scalar_one()
     assert count == 0

@@ -22,9 +22,7 @@ async def test_auto_org_bootstrap_grants_owner_project_member(db_session):
     await AuthService(db_session)._issue_jwt_tokens(user.id)
     await db_session.commit()
 
-    membership = (
-        await db_session.execute(select(Member).where(Member.user_id == user.id))
-    ).scalar_one_or_none()
+    membership = (await db_session.execute(select(Member).where(Member.user_id == user.id))).scalar_one_or_none()
     assert membership is not None and membership.role == "owner"
 
     default_project = (

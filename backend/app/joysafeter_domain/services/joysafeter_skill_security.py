@@ -637,9 +637,7 @@ class SkillSecurityService:
         # (sync ``scan_for_write`` and the async BG task) inherits it.
         self._auto_demote_if_scan_unsafe(skill, scan)
 
-    def _auto_demote_if_scan_unsafe(
-        self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan
-    ) -> None:
+    def _auto_demote_if_scan_unsafe(self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan) -> None:
         """Clear tier pointers + lower visibility when ``scan`` is unsafe."""
         if scan.status not in _AUTO_DEMOTE_SCAN_STATUSES:
             return

@@ -91,9 +91,7 @@ class TaskSubmissionService:
         from app.joysafeter_shared.config.settings import settings
 
         if project_id is not None:
-            project_result = await self.db.execute(
-                select(Project.archived_at).where(Project.id == project_id)
-            )
+            project_result = await self.db.execute(select(Project.archived_at).where(Project.id == project_id))
             archived_at = project_result.scalar_one_or_none()
             if archived_at is not None:
                 raise ResourceConflictError(

@@ -613,7 +613,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         # ClassVar default ``None`` — inconsistent with every other skill
         # read. ``capability`` is set by the route, so we only fix this one.
         latest = await self.repo.get_latest(skill_id)
-        skill.latest_version = latest.version if latest else None
+        setattr(skill, "latest_version", latest.version if latest else None)
         return skill
 
     async def _get_skill_or_404(self, skill_id: uuid.UUID) -> JoySafeterSkill:
@@ -690,9 +690,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         super().__init__(db)
         self.repo = SkillRepository(db)
         self.file_repo = SkillFileRepository(db)
-        self.security_service = SkillSecurityService(
-            db, active_org_id=active_org_id, caller_org_role=caller_org_role
-        )
+        self.security_service = SkillSecurityService(db, active_org_id=active_org_id, caller_org_role=caller_org_role)
         # P2.9: when the API layer constructs ``SkillService`` it
         # passes ``JoySafeterAuthContext.org_id`` here. The service
         # then threads it into every ``check_skill_access`` call so the
@@ -2039,9 +2037,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 data={"skill_id": str(skill.id), "active_org_id": self._active_org_id},
             )
 
-    async def _require_promoted_content_scanned(
-        self, skill: JoySafeterSkill, version: JoySafeterSkillVersion
-    ) -> None:
+    async def _require_promoted_content_scanned(self, skill: JoySafeterSkill, version: JoySafeterSkillVersion) -> None:
         """Bind the scan verdict to the exact bytes being promoted.
 
         ``scan_ok(skill)`` only proves the skill's CURRENT head content passed a

@@ -17,9 +17,7 @@ async def _org_project(db_session) -> tuple[Organization, Project]:
 
 
 async def _user(db_session, *, is_active: bool = True) -> AuthUser:
-    user = AuthUser(
-        id=f"user-{uuid.uuid4()}", name="U", email=f"{uuid.uuid4()}@example.com", is_active=is_active
-    )
+    user = AuthUser(id=f"user-{uuid.uuid4()}", name="U", email=f"{uuid.uuid4()}@example.com", is_active=is_active)
     db_session.add(user)
     await db_session.flush()
     return user
@@ -35,9 +33,7 @@ async def test_org_member_without_project_row_is_denied(db_session):
     db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
     await db_session.commit()
 
-    rejection = await _authorize_task_stream(
-        db_session, user_id=user.id, org_id=org.id, project_id=project.id
-    )
+    rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
     assert rejection == (4003, "TASK_STREAM_PROJECT_ACCESS_DENIED")
 
 
@@ -49,9 +45,7 @@ async def test_project_member_is_authorized(db_session):
     db_session.add(ProjectMember(project_id=project.id, user_id=user.id, role="viewer"))
     await db_session.commit()
 
-    rejection = await _authorize_task_stream(
-        db_session, user_id=user.id, org_id=org.id, project_id=project.id
-    )
+    rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
     assert rejection is None
 
 
@@ -64,9 +58,7 @@ async def test_org_superuser_without_row_is_authorized(db_session):
     db_session.add(Member(user_id=user.id, organization_id=org.id, role="admin"))
     await db_session.commit()
 
-    rejection = await _authorize_task_stream(
-        db_session, user_id=user.id, org_id=org.id, project_id=project.id
-    )
+    rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
     assert rejection is None
 
 
@@ -76,9 +68,7 @@ async def test_non_member_is_denied(db_session):
     user = await _user(db_session)  # no Member row at all
     await db_session.commit()
 
-    rejection = await _authorize_task_stream(
-        db_session, user_id=user.id, org_id=org.id, project_id=project.id
-    )
+    rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
     assert rejection == (4003, "TASK_STREAM_PROJECT_ACCESS_DENIED")
 
 
@@ -90,9 +80,7 @@ async def test_inactive_user_is_denied(db_session):
     db_session.add(ProjectMember(project_id=project.id, user_id=user.id, role="admin"))
     await db_session.commit()
 
-    rejection = await _authorize_task_stream(
-        db_session, user_id=user.id, org_id=org.id, project_id=project.id
-    )
+    rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
     assert rejection == (4001, "TASK_STREAM_AUTH_REQUIRED")
 
 
@@ -106,9 +94,7 @@ async def test_project_in_other_org_is_denied(db_session):
     db_session.add(Member(user_id=user.id, organization_id=org.id, role="admin"))
     await db_session.commit()
 
-    rejection = await _authorize_task_stream(
-        db_session, user_id=user.id, org_id=org.id, project_id=other_project.id
-    )
+    rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=other_project.id)
     assert rejection == (4003, "TASK_STREAM_PROJECT_ACCESS_DENIED")
 
 
@@ -125,7 +111,5 @@ async def test_project_member_on_different_project_is_denied(db_session):
     db_session.add(ProjectMember(project_id=other.id, user_id=user.id, role="editor"))
     await db_session.commit()
 
-    rejection = await _authorize_task_stream(
-        db_session, user_id=user.id, org_id=org.id, project_id=target.id
-    )
+    rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=target.id)
     assert rejection == (4003, "TASK_STREAM_PROJECT_ACCESS_DENIED")

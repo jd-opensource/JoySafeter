@@ -71,6 +71,9 @@ async def publish_command_and_wait_for_ack_payload(
     except Exception:
         logger.debug("Redis command ACK payload is invalid for %s: %r", command_id, raw_payload)
         return None
+    if not isinstance(payload, dict):
+        logger.debug("Redis command ACK payload is not an object for %s: %r", command_id, raw_payload)
+        return None
     if str(payload.get("command_id") or "") != command_id:
         logger.debug("Redis command ACK command_id mismatch for %s: %s", command_id, payload)
         return None

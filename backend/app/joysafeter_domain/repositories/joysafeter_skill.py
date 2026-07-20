@@ -116,9 +116,7 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
             ]
             if include_public:
                 # (c) public crosses every org boundary — no org gate.
-                visibility_clauses.append(
-                    JoySafeterSkill.visibility == JoySafeterSkillVisibility.PUBLIC.value
-                )
+                visibility_clauses.append(JoySafeterSkill.visibility == JoySafeterSkillVisibility.PUBLIC.value)
             # (d) org super-user (owner/admin) — ADMIN on every skill in the
             # ACTIVE org per ``effective_project_capability``, regardless of
             # project membership. Without this, an org owner who isn't a
@@ -126,12 +124,8 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
             # but never sees them listed (list != get). Gated on an active org
             # so it never crosses tenants; ``org_id is None`` (legacy) skips it.
             if org_id is not None and caller_org_role is not None and caller_org_role.is_org_superuser():
-                all_active_org_projects = (
-                    select(Project.id).where(Project.org_id == org_id).scalar_subquery()
-                )
-                visibility_clauses.append(
-                    JoySafeterSkill.project_id.in_(all_active_org_projects)
-                )
+                all_active_org_projects = select(Project.id).where(Project.org_id == org_id).scalar_subquery()
+                visibility_clauses.append(JoySafeterSkill.project_id.in_(all_active_org_projects))
             conditions.append(or_(*visibility_clauses))
         else:
             conditions.append(JoySafeterSkill.id.is_(None))

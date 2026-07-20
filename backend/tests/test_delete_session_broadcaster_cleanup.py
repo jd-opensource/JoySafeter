@@ -69,7 +69,7 @@ async def test_delete_session_cancels_redis_subscriber_tasks(db_session, monkeyp
     )
 
     # A live SSE consumer subscribes, spawning a tracked Redis subscriber task.
-    q = broadcaster.subscribe(session_id)
+    broadcaster.subscribe(session_id)
     await asyncio.sleep(0)  # let the subscriber task start
     task = broadcaster._redis_tasks[session_id]
     assert not task.done()
@@ -118,9 +118,7 @@ async def test_sse_stream_delivers_event_published_during_replay(db_session, mon
             )
         return [], False
 
-    monkeypatch.setattr(
-        sessions_module.SessionService, "list_events", replay_injects_live_event
-    )
+    monkeypatch.setattr(sessions_module.SessionService, "list_events", replay_injects_live_event)
 
     response = await sessions_module.session_event_stream(
         _FakeRequest(),
@@ -138,4 +136,3 @@ async def test_sse_stream_delivers_event_published_during_replay(db_session, mon
 
     assert "evt_live" in chunk
     assert '"seq": 5' in chunk
-

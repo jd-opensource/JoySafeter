@@ -504,7 +504,6 @@ async def test_create_secret_purges_only_same_project_soft_deleted_name(db_sessi
 
 @pytest.mark.asyncio
 async def test_get_secret_route_rejects_cross_project_secret(db_session):
-
     secret = await _project_secret(db_session, project_id="project-b")
 
     with pytest.raises(AppError) as exc_info:

@@ -28,9 +28,9 @@ def test_input_command_ack_depends_on_bridge_queue_send_result():
 def test_cancelled_task_result_stays_cancelled_even_if_runner_returns_error():
     grpc_server = _read("backend/app/joysafeter_orchestrator_rs/src/grpc/server.rs")
 
-    idle_fallback = grpc_server.split("if task_done && !got_idle", 1)[1].split(
-        "async fn recv_bridge_control_input", 1
-    )[0]
+    idle_fallback = grpc_server.split("if task_done && !got_idle", 1)[1].split("async fn recv_bridge_control_input", 1)[
+        0
+    ]
     assert "if cancel_sent" in idle_fallback
     assert 'json!({"type": "cancelled"})' in idle_fallback
     assert "if cancel_sent {\n        TaskResult::Cancelled" in idle_fallback
@@ -39,12 +39,10 @@ def test_cancelled_task_result_stays_cancelled_even_if_runner_returns_error():
 def test_reconnected_surviving_runner_task_keeps_input_control_channel():
     runner_main = _read("sandbox-runner/crates/joysafeter-runner/src/main.rs")
 
-    surviving_task = runner_main.split("struct SurvivingTask", 1)[1].split(
-        "#[tokio::main]", 1
+    surviving_task = runner_main.split("struct SurvivingTask", 1)[1].split("#[tokio::main]", 1)[0]
+    reconnect_loop = runner_main.split('"Resuming surviving task on new connection"', 1)[1].split(
+        "// Normal message loop", 1
     )[0]
-    reconnect_loop = runner_main.split(
-        '"Resuming surviving task on new connection"', 1
-    )[1].split("// Normal message loop", 1)[0]
 
     assert "control_tx: mpsc::Sender<runner::RunnerControl>" in surviving_task
     assert "Payload::Input(input)" in reconnect_loop

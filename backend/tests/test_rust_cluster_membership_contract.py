@@ -34,4 +34,3 @@ def test_rust_orchestrator_registers_and_heartbeats_pg_cluster_member():
     assert "heartbeat_cluster_member(" in main
     assert '"orchestrator"' in main
     assert "Postgres cluster member heartbeat registered" in main
-

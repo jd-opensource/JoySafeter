@@ -32,12 +32,8 @@ def test_rust_runner_idle_paths_use_atomic_session_status_event_helper():
 def test_rust_cancel_and_timeout_paths_write_replayable_idle_status():
     server = _read("backend/app/joysafeter_orchestrator_rs/src/grpc/server.rs")
 
-    cancel_branch = server.split("_ = task_cancel.cancelled()", 1)[1].split(
-        "// HITL confirmation", 1
-    )[0]
-    timeout_branch = server.split("// Task deadline", 1)[1].split(
-        "// #18: Heartbeat timeout", 1
-    )[0]
+    cancel_branch = server.split("_ = task_cancel.cancelled()", 1)[1].split("// HITL confirmation", 1)[0]
+    timeout_branch = server.split("// Task deadline", 1)[1].split("// #18: Heartbeat timeout", 1)[0]
 
     for branch, reason in ((cancel_branch, "cancelled"), (timeout_branch, "timeout")):
         assert f'let stop_reason = json!({{"type": "{reason}"}})' in branch
@@ -49,15 +45,11 @@ def test_rust_cancel_and_timeout_paths_write_replayable_idle_status():
 def test_rust_idle_status_publish_requires_inserted_status_event():
     server = _read("backend/app/joysafeter_orchestrator_rs/src/grpc/server.rs")
 
-    fallback = server.split("if task_done && !got_idle", 1)[1].split(
-        "\n    if cancel_sent", 1
-    )[0]
+    fallback = server.split("if task_done && !got_idle", 1)[1].split("\n    if cancel_sent", 1)[0]
     result = server.split("runner_message::Payload::Result", 1)[1].split(
         'info!(task_id = %task_id, status = status, "Task result received");', 1
     )[0]
-    idle = server.split("runner_message::Payload::Idle", 1)[1].split(
-        "runner_message::Payload::Heartbeat", 1
-    )[0]
+    idle = server.split("runner_message::Payload::Idle", 1)[1].split("runner_message::Payload::Heartbeat", 1)[0]
 
     for body in (fallback, result, idle):
         assert "let inserted = queries::update_session_status_and_insert_event" in body

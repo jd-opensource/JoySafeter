@@ -36,7 +36,10 @@ def _enable_scanner(monkeypatch):
     from app.joysafeter_shared.config.settings import settings as _settings
 
     monkeypatch.setattr(
-        _settings, "skill_security_scan_enabled", True, raising=False,
+        _settings,
+        "skill_security_scan_enabled",
+        True,
+        raising=False,
     )
 
 
@@ -54,9 +57,7 @@ def _bare_service():
     svc.db = MagicMock()
     svc.security_service = MagicMock()
     svc.security_service.mark_scanning = AsyncMock()
-    svc.security_service.scan_for_write = AsyncMock(
-        return_value=MagicMock(status="passed")
-    )
+    svc.security_service.scan_for_write = AsyncMock(return_value=MagicMock(status="passed"))
     svc._pending_async_scans = []
     return svc
 
@@ -78,9 +79,7 @@ _KW = dict(
 async def test_small_payload_runs_sync():
     """Small skill goes through the sync path — scan_for_write is
     awaited, mark_scanning is NOT called, nothing queued."""
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 100_000  # 100KB
         svc = _bare_service()
         skill_id = uuid.uuid4()
@@ -97,9 +96,7 @@ async def test_large_payload_with_skill_id_defers_async():
     """When payload exceeds threshold AND the skill row exists, the
     helper marks scanning + queues + returns None — the API layer
     then forwards the descriptor to a BackgroundTask."""
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 10  # tiny — even "ttdc" exceeds
         svc = _bare_service()
         skill_id = uuid.uuid4()
@@ -126,9 +123,7 @@ async def test_large_payload_no_skill_id_falls_back_to_sync():
     """Create-time call has no skill_id yet. Even with a huge payload,
     the dispatcher must run sync because there's no row to flip into
     ``scanning`` state. This is the P2.7 explicit carve-out."""
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 10
         svc = _bare_service()
 
@@ -174,9 +169,7 @@ async def test_dispatch_threads_trigger_through(trigger):
     """Each call site passes its own trigger name; the descriptor must
     preserve it so BG-run scans land with the right ``trigger`` field
     in ``joysafeter_skill_security_scans``."""
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 10
         svc = _bare_service()
         skill_id = uuid.uuid4()
@@ -203,13 +196,14 @@ async def test_scanner_disabled_short_circuits_with_no_side_effects(monkeypatch)
     from app.joysafeter_shared.config.settings import settings as _settings
 
     monkeypatch.setattr(
-        _settings, "skill_security_scan_enabled", False, raising=False,
+        _settings,
+        "skill_security_scan_enabled",
+        False,
+        raising=False,
     )
     # Even with a tiny threshold (so async would otherwise fire) and a
     # large content payload, the disabled gate has to win first.
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 10
         svc = _bare_service()
         skill_id = uuid.uuid4()

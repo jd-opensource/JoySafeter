@@ -376,7 +376,9 @@ async def test_delete_agent_destroys_idle_session_sandbox_before_hard_delete(db_
     assert redis.blpop_timeouts == [30]
 
     db_session.expire_all()
-    agent_row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one_or_none()
+    agent_row = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
+    ).scalar_one_or_none()
     sandbox_row = (
         await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
     ).scalar_one()
@@ -503,7 +505,9 @@ async def test_force_delete_agent_cancels_and_destroys_sandbox_via_rust(db_sessi
     assert redis.blpop_timeouts == [2, 30]
 
     db_session.expire_all()
-    agent_row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one_or_none()
+    agent_row = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
+    ).scalar_one_or_none()
     sandbox_row = (
         await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
     ).scalar_one()

@@ -320,9 +320,7 @@ async def test_create_native_agent_accepts_openai_secret_and_resolves_model(db_s
     assert response.model is not None
     assert response.model.id == "gpt-5-native"
 
-    row = (
-        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))).scalar_one()
     assert row.engine_kind == "native"
     assert row.secret_ref == secret.name
 

@@ -13,9 +13,7 @@ async def _ensure_project(db_session, project_id: str) -> None:
     if not org:
         db_session.add(Organization(id="org-idx", name="Org Idx", slug="org-idx"))
     if not await db_session.get(Project, project_id):
-        db_session.add(
-            Project(id=project_id, org_id="org-idx", name=project_id, slug=project_id, is_default=False)
-        )
+        db_session.add(Project(id=project_id, org_id="org-idx", name=project_id, slug=project_id, is_default=False))
     await db_session.commit()
 
 
@@ -27,9 +25,7 @@ async def test_secret_name_reusable_after_soft_delete_within_project(db_session)
     # raises IntegrityError.
     await _ensure_project(db_session, "proj-idx")
 
-    db_session.add(
-        JoySafeterSecret(name="shared", project_id="proj-idx", deleted_at=utc_now())
-    )
+    db_session.add(JoySafeterSecret(name="shared", project_id="proj-idx", deleted_at=utc_now()))
     await db_session.commit()
 
     db_session.add(JoySafeterSecret(name="shared", project_id="proj-idx", deleted_at=None))

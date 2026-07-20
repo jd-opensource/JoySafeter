@@ -704,7 +704,7 @@ class SessionService:
         idempotency_key: str,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterSessionEvent]:
-        conditions = [
+        conditions: list[Any] = [
             JoySafeterSessionEvent.session_id == session_id,
             JoySafeterSessionEvent.event_type == "user.message",
             text("payload->>'_idempotency_key' = :idempotency_key"),
@@ -733,7 +733,7 @@ class SessionService:
         task_id: uuid.UUID,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterSessionEvent]:
-        conditions = [
+        conditions: list[Any] = [
             JoySafeterSessionEvent.session_id == session_id,
             JoySafeterSessionEvent.event_type == "session.status_running",
             text("payload->>'task_id' = :task_id"),

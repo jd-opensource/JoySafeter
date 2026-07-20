@@ -63,4 +63,3 @@ async def test_add_member_race_converts_integrity_error_to_conflict(db_session, 
             role="member",
         )
     assert exc_info.value.code == "ORGANIZATION_MEMBER_ALREADY_EXISTS"
-

@@ -46,11 +46,7 @@ def _dependencies_for(handler):
 
 def _write_routes(router):
     mutating_methods = {"POST", "PUT", "PATCH", "DELETE"}
-    return [
-        route
-        for route in router.routes
-        if getattr(route, "methods", set()) & mutating_methods
-    ]
+    return [route for route in router.routes if getattr(route, "methods", set()) & mutating_methods]
 
 
 def test_archived_project_read_routes_use_read_auth_context():

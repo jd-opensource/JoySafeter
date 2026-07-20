@@ -179,7 +179,7 @@ class SessionResourceService:
         for resource in resources:
             url = (resource.url or "").strip()
             if not url:
-                data: dict[str, object] = {"resource_type": "github_repository"}
+                data = {"resource_type": "github_repository"}
                 if session_id is not None:
                     data["session_id"] = str(session_id)
                 raise InvalidRequestError(
@@ -194,9 +194,9 @@ class SessionResourceService:
             )
             encrypted_token = ""
             if resource.authorization_token:
-                encrypted_token = self._secret_svc.encrypt_data_for_storage(
-                    {"token": resource.authorization_token}
-                )["token"]
+                encrypted_token = self._secret_svc.encrypt_data_for_storage({"token": resource.authorization_token})[
+                    "token"
+                ]
             prepared.append(
                 PreparedSessionRepoResource(
                     url=url,
@@ -224,15 +224,15 @@ class SessionResourceService:
                     access="read_only",
                 )
             )
-        for resource in repos:
+        for repo in repos:
             self.db.add(
                 JoySafeterSessionRepo(
                     session_id=session_id,
-                    url=resource.url,
-                    branch=resource.branch,
-                    mount_path=resource.mount_path,
-                    mount_name=resource.mount_name,
-                    encrypted_token=resource.encrypted_token,
+                    url=repo.url,
+                    branch=repo.branch,
+                    mount_path=repo.mount_path,
+                    mount_name=repo.mount_name,
+                    encrypted_token=repo.encrypted_token,
                 )
             )
         if files or repos:
@@ -260,9 +260,7 @@ class SessionResourceService:
         if project_condition is not None:
             conditions.append(project_condition)
         result = await self.db.execute(
-            select(JoySafeterSessionFile)
-            .where(*conditions)
-            .order_by(JoySafeterSessionFile.created_at)
+            select(JoySafeterSessionFile).where(*conditions).order_by(JoySafeterSessionFile.created_at)
         )
         return list(result.scalars().all())
 
@@ -276,9 +274,7 @@ class SessionResourceService:
         if project_condition is not None:
             conditions.append(project_condition)
         result = await self.db.execute(
-            select(JoySafeterSessionRepo)
-            .where(*conditions)
-            .order_by(JoySafeterSessionRepo.created_at)
+            select(JoySafeterSessionRepo).where(*conditions).order_by(JoySafeterSessionRepo.created_at)
         )
         return list(result.scalars().all())
 
@@ -373,9 +369,7 @@ class SessionResourceService:
         project_condition = self._session_project_exists_condition(session_id, project_id)
         if project_condition is not None:
             conditions.append(project_condition)
-        result = await self.db.execute(
-            select(JoySafeterSessionRepo).where(*conditions)
-        )
+        result = await self.db.execute(select(JoySafeterSessionRepo).where(*conditions))
         row = result.scalar_one_or_none()
         if not row:
             raise NotFoundError(
@@ -411,15 +405,11 @@ class SessionResourceService:
         if project_condition is not None:
             file_conditions.append(project_condition)
             repo_conditions.append(project_condition)
-        file_result = await self.db.execute(
-            select(JoySafeterSessionFile).where(*file_conditions)
-        )
+        file_result = await self.db.execute(select(JoySafeterSessionFile).where(*file_conditions))
         file_row = file_result.scalar_one_or_none()
         if file_row:
             return file_row
-        repo_result = await self.db.execute(
-            select(JoySafeterSessionRepo).where(*repo_conditions)
-        )
+        repo_result = await self.db.execute(select(JoySafeterSessionRepo).where(*repo_conditions))
         return repo_result.scalar_one_or_none()
 
     @staticmethod

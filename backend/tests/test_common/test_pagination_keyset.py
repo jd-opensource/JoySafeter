@@ -39,14 +39,14 @@ def test_created_at_cursor_uses_id_tie_breaker_for_same_timestamp() -> None:
     )
     session.commit()
 
-    first_page = session.execute(
-        apply_created_at_desc_cursor(select(PageRow), PageRow, None).limit(2)
-    ).scalars().all()
+    first_page = session.execute(apply_created_at_desc_cursor(select(PageRow), PageRow, None).limit(2)).scalars().all()
     assert [row.id for row in first_page] == ["c", "b"]
 
-    second_page = session.execute(
-        apply_created_at_desc_cursor(select(PageRow), PageRow, first_page[-1].id).limit(2)
-    ).scalars().all()
+    second_page = (
+        session.execute(apply_created_at_desc_cursor(select(PageRow), PageRow, first_page[-1].id).limit(2))
+        .scalars()
+        .all()
+    )
     assert [row.id for row in second_page] == ["a", "old"]
 
 
@@ -62,18 +62,24 @@ def test_ordered_cursor_tracks_non_time_sort_field() -> None:
     )
     session.commit()
 
-    first_page = session.execute(
-        apply_ordered_cursor(select(PageRow), PageRow, None, PageRow.path, descending=False).limit(2)
-    ).scalars().all()
+    first_page = (
+        session.execute(apply_ordered_cursor(select(PageRow), PageRow, None, PageRow.path, descending=False).limit(2))
+        .scalars()
+        .all()
+    )
     assert [row.path for row in first_page] == ["/a", "/b"]
 
-    second_page = session.execute(
-        apply_ordered_cursor(
-            select(PageRow),
-            PageRow,
-            first_page[-1].id,
-            PageRow.path,
-            descending=False,
-        ).limit(2)
-    ).scalars().all()
+    second_page = (
+        session.execute(
+            apply_ordered_cursor(
+                select(PageRow),
+                PageRow,
+                first_page[-1].id,
+                PageRow.path,
+                descending=False,
+            ).limit(2)
+        )
+        .scalars()
+        .all()
+    )
     assert [row.path for row in second_page] == ["/c"]

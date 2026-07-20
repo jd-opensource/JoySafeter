@@ -57,9 +57,7 @@ class _FakeCommandRedis:
         payload = json.loads(command)
         self.published.append((channel, payload))
         if self.cancel_receivers > 0 and payload.get("ack_key"):
-            self.acks[payload["ack_key"]] = json.dumps(
-                {"command_id": payload.get("command_id"), "ok": True}
-            )
+            self.acks[payload["ack_key"]] = json.dumps({"command_id": payload.get("command_id"), "ok": True})
         return self.cancel_receivers
 
     async def blpop(self, key: str, timeout: int = 0):
@@ -392,10 +390,10 @@ async def test_create_schedule_rejects_archived_agent_without_creating_schedule(
         "user_action": "refresh",
     }
     count = (
-        await db_session.execute(
-            select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)))
+        .scalars()
+        .all()
+    )
     assert count == []
 
 
@@ -420,10 +418,10 @@ async def test_manual_schedule_trigger_rejects_archived_agent_without_creating_t
         "user_action": "refresh",
     }
     tasks = (
-        await db_session.execute(
-            select(JoySafeterTask).where(JoySafeterTask.schedule_id == schedule_id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.schedule_id == schedule_id)))
+        .scalars()
+        .all()
+    )
     assert tasks == []
 
 
@@ -498,10 +496,10 @@ async def test_create_schedule_rejects_missing_environment_without_creating_sche
         "user_action": "fix_input",
     }
     schedules = (
-        await db_session.execute(
-            select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)))
+        .scalars()
+        .all()
+    )
     assert schedules == []
 
 
@@ -530,12 +528,14 @@ async def test_schedule_service_rejects_cross_project_agent_without_creating_sch
         "user_action": "refresh",
     }
     schedules = (
-        await db_session.execute(
-            select(JoySafeterSchedule).where(
-                JoySafeterSchedule.project_id.in_([project.id, other_project.id])
+        (
+            await db_session.execute(
+                select(JoySafeterSchedule).where(JoySafeterSchedule.project_id.in_([project.id, other_project.id]))
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert schedules == []
 
 
@@ -567,10 +567,10 @@ async def test_schedule_service_rejects_cross_project_environment_without_creati
         "user_action": "fix_input",
     }
     schedules = (
-        await db_session.execute(
-            select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)))
+        .scalars()
+        .all()
+    )
     assert schedules == []
 
 
@@ -603,10 +603,10 @@ async def test_create_schedule_rejects_archived_effective_environment_without_cr
         "user_action": "refresh",
     }
     schedules = (
-        await db_session.execute(
-            select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.agent_id == agent.id)))
+        .scalars()
+        .all()
+    )
     assert schedules == []
 
 
@@ -632,10 +632,10 @@ async def test_manual_schedule_trigger_rejects_archived_environment_without_crea
         "user_action": "refresh",
     }
     tasks = (
-        await db_session.execute(
-            select(JoySafeterTask).where(JoySafeterTask.schedule_id == schedule_id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.schedule_id == schedule_id)))
+        .scalars()
+        .all()
+    )
     assert tasks == []
 
 
@@ -725,9 +725,7 @@ async def test_update_schedule_rejects_duplicate_name_without_persisting_change(
         "user_action": "fix_input",
     }
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.id == target_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterSchedule).where(JoySafeterSchedule.id == target_id))).scalar_one()
     assert row.name == original_name
 
 
@@ -918,7 +916,9 @@ async def test_scheduled_task_cancel_does_not_mark_cancelled_when_runtime_relay_
 
     db_session.expire_all()
     tasks = (
-        await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.schedule_id == schedule_id))
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.schedule_id == schedule_id)))
+        .scalars()
+        .all()
+    )
     assert [str(row.id) for row in tasks] == [str(task_id)]
     assert tasks[0].status == JoySafeterTaskStatus.RUNNING.value

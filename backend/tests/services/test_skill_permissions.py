@@ -99,13 +99,21 @@ async def test_viewer_read_only(monkeypatch):
     _patch_project_role(monkeypatch, role="viewer")
 
     await check_skill_access(
-        _NullDB(), s, "bob", ProjectCapability.READ,
-        caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+        _NullDB(),
+        s,
+        "bob",
+        ProjectCapability.READ,
+        caller_org_role=JoySafeterRole.MEMBER,
+        active_org_id="org-A",
     )
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
-            _NullDB(), s, "bob", ProjectCapability.WRITE,
-            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+            _NullDB(),
+            s,
+            "bob",
+            ProjectCapability.WRITE,
+            caller_org_role=JoySafeterRole.MEMBER,
+            active_org_id="org-A",
         )
 
 
@@ -115,13 +123,21 @@ async def test_editor_write(monkeypatch):
     _patch_project_role(monkeypatch, role="editor")
 
     await check_skill_access(
-        _NullDB(), s, "bob", ProjectCapability.WRITE,
-        caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+        _NullDB(),
+        s,
+        "bob",
+        ProjectCapability.WRITE,
+        caller_org_role=JoySafeterRole.MEMBER,
+        active_org_id="org-A",
     )
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
-            _NullDB(), s, "bob", ProjectCapability.ADMIN,
-            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+            _NullDB(),
+            s,
+            "bob",
+            ProjectCapability.ADMIN,
+            caller_org_role=JoySafeterRole.MEMBER,
+            active_org_id="org-A",
         )
 
 
@@ -131,8 +147,12 @@ async def test_project_admin(monkeypatch):
     _patch_project_role(monkeypatch, role="admin")
 
     await check_skill_access(
-        _NullDB(), s, "bob", ProjectCapability.ADMIN,
-        caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+        _NullDB(),
+        s,
+        "bob",
+        ProjectCapability.ADMIN,
+        caller_org_role=JoySafeterRole.MEMBER,
+        active_org_id="org-A",
     )
 
 
@@ -143,8 +163,12 @@ async def test_org_superuser_admin(monkeypatch, org_role):
     _patch_project_role(monkeypatch, role=None)
 
     await check_skill_access(
-        _NullDB(), s, "boss", ProjectCapability.ADMIN,
-        caller_org_role=org_role, active_org_id="org-A",
+        _NullDB(),
+        s,
+        "boss",
+        ProjectCapability.ADMIN,
+        caller_org_role=org_role,
+        active_org_id="org-A",
     )
 
 
@@ -158,8 +182,12 @@ async def test_capability_denied_cross_org(monkeypatch):
 
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
-            _NullDB(), s, "bob", ProjectCapability.READ,
-            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-B",
+            _NullDB(),
+            s,
+            "bob",
+            ProjectCapability.READ,
+            caller_org_role=JoySafeterRole.MEMBER,
+            active_org_id="org-B",
         )
 
 
@@ -169,8 +197,12 @@ async def test_public_read_crosses_org(monkeypatch):
     _patch_project_role(monkeypatch, role=None)
 
     await check_skill_access(
-        _NullDB(), s, "stranger", ProjectCapability.READ,
-        caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-B",
+        _NullDB(),
+        s,
+        "stranger",
+        ProjectCapability.READ,
+        caller_org_role=JoySafeterRole.MEMBER,
+        active_org_id="org-B",
     )
 
 
@@ -184,8 +216,12 @@ async def test_org_member_reads_organization_skill(monkeypatch):
     _patch_org_member(monkeypatch, is_member=True)
 
     await check_skill_access(
-        _NullDB(), s, "bob", ProjectCapability.READ,
-        caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+        _NullDB(),
+        s,
+        "bob",
+        ProjectCapability.READ,
+        caller_org_role=JoySafeterRole.MEMBER,
+        active_org_id="org-A",
     )
 
 
@@ -197,8 +233,12 @@ async def test_org_visibility_never_grants_write(monkeypatch):
 
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
-            _NullDB(), s, "bob", ProjectCapability.WRITE,
-            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+            _NullDB(),
+            s,
+            "bob",
+            ProjectCapability.WRITE,
+            caller_org_role=JoySafeterRole.MEMBER,
+            active_org_id="org-A",
         )
 
 
@@ -212,8 +252,12 @@ async def test_project_visibility_needs_project_row(monkeypatch):
 
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
-            _NullDB(), s, "bob", ProjectCapability.READ,
-            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+            _NullDB(),
+            s,
+            "bob",
+            ProjectCapability.READ,
+            caller_org_role=JoySafeterRole.MEMBER,
+            active_org_id="org-A",
         )
 
 
@@ -225,8 +269,12 @@ async def test_project_skill_denies_stranger(monkeypatch):
 
     with pytest.raises(AccessDeniedError) as ei:
         await check_skill_access(
-            _NullDB(), s, "stranger", ProjectCapability.READ,
-            caller_org_role=JoySafeterRole.MEMBER, active_org_id="org-A",
+            _NullDB(),
+            s,
+            "stranger",
+            ProjectCapability.READ,
+            caller_org_role=JoySafeterRole.MEMBER,
+            active_org_id="org-A",
         )
     assert ei.value.code == "SKILL_ACCESS_DENIED"
 
@@ -241,6 +289,10 @@ async def test_org_skill_without_project_id_denies(monkeypatch):
 
     with pytest.raises(AccessDeniedError):
         await check_skill_access(
-            _NullDB(), s, "bob", ProjectCapability.READ,
-            caller_org_role=JoySafeterRole.MEMBER, active_org_id=None,
+            _NullDB(),
+            s,
+            "bob",
+            ProjectCapability.READ,
+            caller_org_role=JoySafeterRole.MEMBER,
+            active_org_id=None,
         )

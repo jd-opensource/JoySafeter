@@ -275,9 +275,7 @@ def test_parallel_error_helper_modules_are_not_reintroduced():
 
 def test_python_orchestrator_source_is_not_reintroduced():
     source_files = [
-        path
-        for path in Path("backend/app/joysafeter_orchestrator").rglob("*.py")
-        if "__pycache__" not in path.parts
+        path for path in Path("backend/app/joysafeter_orchestrator").rglob("*.py") if "__pycache__" not in path.parts
     ]
     assert source_files == []
 
@@ -294,7 +292,9 @@ def test_python_services_do_not_import_removed_orchestrator_package():
                         offenders.append(f"{file_path}:{node.lineno}: from {node.module} import ...")
                 elif isinstance(node, ast.Import):
                     for alias in node.names:
-                        if alias.name == OLD_ORCHESTRATOR_MODULE or alias.name.startswith(f"{OLD_ORCHESTRATOR_MODULE}."):
+                        if alias.name == OLD_ORCHESTRATOR_MODULE or alias.name.startswith(
+                            f"{OLD_ORCHESTRATOR_MODULE}."
+                        ):
                             offenders.append(f"{file_path}:{node.lineno}: import {alias.name}")
 
     assert offenders == []
@@ -466,7 +466,7 @@ def test_organization_member_lifecycle_stays_in_domain_services():
 def test_memory_store_api_does_not_expose_removed_python_subscriber_stream():
     text = Path("backend/app/joysafeter_api/api/v1/memory_stores.py").read_text()
 
-    assert 'events/stream' not in text
+    assert "events/stream" not in text
     assert "memory_store_event_stream" not in text
     assert "StreamingResponse" not in text
 
@@ -645,9 +645,7 @@ def test_sensitive_resource_routes_keep_project_and_parent_boundaries_in_service
     secret_route_text = Path("backend/app/joysafeter_api/api/v1/secrets.py").read_text()
     vault_route_text = Path("backend/app/joysafeter_api/api/v1/vaults.py").read_text()
     session_route_text = Path("backend/app/joysafeter_api/api/v1/sessions.py").read_text()
-    secret_service_text = Path(
-        "backend/app/joysafeter_domain/services/joysafeter_secret_service.py"
-    ).read_text()
+    secret_service_text = Path("backend/app/joysafeter_domain/services/joysafeter_secret_service.py").read_text()
     vault_service_text = Path("backend/app/joysafeter_domain/services/joysafeter_vault_service.py").read_text()
     secret_model_text = Path("backend/app/joysafeter_domain/models/joysafeter_secret.py").read_text()
     vault_model_text = Path("backend/app/joysafeter_domain/models/joysafeter_vault.py").read_text()
@@ -684,7 +682,10 @@ def test_sensitive_resource_routes_keep_project_and_parent_boundaries_in_service
     assert "vault = await self.get_vault(vault_id, project_id=project_id)" in vault_service_text
     assert "cred = await self.get_credential(cred_id, vault_id=vault_id, project_id=project_id)" in vault_service_text
     assert "vault = await self.get_vault(vid, project_id=project_id)" in vault_service_text
-    assert "await self.list_credentials(vid, limit=500, include_archived=False, project_id=project_id)" in vault_service_text
+    assert (
+        "await self.list_credentials(vid, limit=500, include_archived=False, project_id=project_id)"
+        in vault_service_text
+    )
     assert "JoySafeterVault.project_id == project_id" in vault_service_text
     assert "JoySafeterVault.project_id.is_(None)" in vault_service_text
     assert 'UniqueConstraint("name"' not in vault_model_text
@@ -707,7 +708,9 @@ def test_project_scoped_named_runtime_resources_use_project_scoped_name_constrai
     assert "deleted_at IS NULL" in agent_model_text
     assert "deleted_at IS NULL" in environment_model_text
 
-    assert "async def hard_delete_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None)" in agent_service_text
+    assert (
+        "async def hard_delete_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None)" in agent_service_text
+    )
     assert "agent = await self.get_agent(agent_id, project_id=project_id)" in agent_service_text
     assert "svc.hard_delete_agent(agent_id, project_id=auth_ctx.project_id)" in agent_route_text
     assert "svc.hard_delete_agent(agent_id)" not in agent_route_text
@@ -784,9 +787,7 @@ def test_memory_child_resources_keep_parent_project_boundary_in_service_calls():
 
 def test_schedule_target_project_boundary_lives_in_domain_service():
     route_text = Path("backend/app/joysafeter_api/api/v1/schedules.py").read_text()
-    service_text = Path(
-        "backend/app/joysafeter_domain/services/joysafeter_schedule_service.py"
-    ).read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_schedule_service.py").read_text()
 
     assert "async def resolve_runnable_target(" in service_text
     assert "JoySafeterAgent.project_id == project_id" in service_text
@@ -854,13 +855,14 @@ def test_session_routes_keep_project_boundary_in_domain_service_calls():
 
 def test_session_resource_children_keep_parent_project_boundary_in_service():
     route_text = Path("backend/app/joysafeter_api/api/v1/sessions.py").read_text()
-    service_text = Path(
-        "backend/app/joysafeter_domain/services/joysafeter_session_resource_service.py"
-    ).read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_session_resource_service.py").read_text()
 
     assert "self._session_svc.get_session(session_id, project_id=project_id)" in service_text
     assert "JoySafeterSession.project_id == project_id" in service_text
-    assert "async def list_resource_payloads(self, session_id: uuid.UUID, project_id: Optional[str] = None)" in service_text
+    assert (
+        "async def list_resource_payloads(self, session_id: uuid.UUID, project_id: Optional[str] = None)"
+        in service_text
+    )
     assert "async def delete_resource(" in service_text
     assert "project_id: Optional[str] = None" in service_text
     assert "async def rotate_repo_token(" in service_text

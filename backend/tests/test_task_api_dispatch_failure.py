@@ -829,7 +829,9 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
     response = await cancel_task(task_id, db_session, _auth_ctx())
 
     assert response == {"id": str(task_id), "status": "cancelled"}
-    command_publishes = [(channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
+    command_publishes = [
+        (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
+    ]
     assert len(command_publishes) == 1
     channel, payload = command_publishes[0]
     assert channel == "joysafeter:cmd:owner-1"
@@ -891,7 +893,9 @@ async def test_cancel_task_does_not_mark_cancelled_when_runtime_cancel_relay_fai
         "retryable": True,
         "user_action": "retry",
     }
-    command_publishes = [(channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
+    command_publishes = [
+        (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
+    ]
     assert len(command_publishes) == 1
 
     db_session.expire_all()

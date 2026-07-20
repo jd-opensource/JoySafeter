@@ -117,9 +117,7 @@ class JoySafeterSkill(BaseModel):
     # ``project`` (a skill is always a project resource first); ``organization``
     # and ``public`` are only ever set through the version-level promotion
     # approval flow.
-    visibility: Mapped[str] = mapped_column(
-        String(16), nullable=False, default=JoySafeterSkillVisibility.PROJECT.value
-    )
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default=JoySafeterSkillVisibility.PROJECT.value)
     project_id: Mapped[str] = mapped_column(
         String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"), nullable=False
     )
@@ -374,9 +372,7 @@ class JoySafeterSkillVersion(BaseModel):
     review_target_visibility: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, default=None)
 
     # Relationships
-    skill: Mapped["JoySafeterSkill"] = relationship(
-        "JoySafeterSkill", foreign_keys=[skill_id], lazy="selectin"
-    )
+    skill: Mapped["JoySafeterSkill"] = relationship("JoySafeterSkill", foreign_keys=[skill_id], lazy="selectin")
     published_by: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[published_by_id], lazy="selectin")
     approved_by: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[approved_by_id], lazy="selectin")
     files: Mapped[List["JoySafeterSkillVersionFile"]] = relationship(
@@ -419,7 +415,6 @@ class JoySafeterSkillVersionFile(BaseModel):
     )
 
     __table_args__ = (Index("skill_version_files_version_idx", "version_id"),)
-
 
     # ---------------------------------------------------------------------------
     # Skill usage log — append-only pack/load audit trail

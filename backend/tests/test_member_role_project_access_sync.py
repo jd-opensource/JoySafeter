@@ -129,4 +129,3 @@ async def test_promotion_to_admin_grants_org_wide_access_without_row(db_session)
         org_role=JoySafeterRole.ADMIN,
     )
     assert accessible is not None
-

@@ -67,8 +67,12 @@ def _skill(
 ):
     if sec_hash is None:
         sec_hash = _hash_for(
-            name=name, description=description, content=content,
-            tags=tags, license=license, files=files,
+            name=name,
+            description=description,
+            content=content,
+            tags=tags,
+            license=license,
+            files=files,
         )
     return SimpleNamespace(
         name=name,
@@ -171,9 +175,9 @@ def test_drift_detected_when_a_skill_file_changes():
     ``build_scan_files`` carries it into the hash."""
     file_a = _file_obj(path="foo.py", file_name="foo.py", content="print('a')")
     file_b = _file_obj(path="bar.py", file_name="bar.py", content="print('b')")
-    base_hash = _hash_for(files=[
-        {"path": "foo.py", "file_name": "foo.py", "file_type": "text", "content": "print('a')"}
-    ])
+    base_hash = _hash_for(
+        files=[{"path": "foo.py", "file_name": "foo.py", "file_type": "text", "content": "print('a')"}]
+    )
     skill = _skill(files=[file_a, file_b], sec_hash=base_hash)
     ok, reason = is_skill_usable(skill)
     assert ok is False

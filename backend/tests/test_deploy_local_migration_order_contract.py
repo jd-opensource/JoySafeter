@@ -60,7 +60,10 @@ def test_local_deploy_avoids_compose_bake_up_build_path():
     assert "compose_local_env" in run_local_migrations
     assert "compose_local_env --profile local-redis --profile rust-orchestrator build" not in run_local_migrations
     assert "compose_local_env --profile local-redis --profile rust-orchestrator build" not in run_local_compose
-    assert "compose_local_env --profile local-redis --profile rust-orchestrator --profile init build" not in run_local_migrations
+    assert (
+        "compose_local_env --profile local-redis --profile rust-orchestrator --profile init build"
+        not in run_local_migrations
+    )
     assert "up -d --no-build" in run_local_compose
 
 
@@ -111,9 +114,7 @@ def test_rust_orchestrator_compose_service_has_liveness_healthcheck():
 def test_agent_runtime_images_use_node_22_for_latest_cli_compatibility():
     runtime_dockerfiles = sorted((ROOT / "deploy/docker").glob("*.Dockerfile"))
     runtime_dockerfiles = [
-        path
-        for path in runtime_dockerfiles
-        if path.name.startswith(("claudecode-", "codex-", "native-"))
+        path for path in runtime_dockerfiles if path.name.startswith(("claudecode-", "codex-", "native-"))
     ]
 
     assert runtime_dockerfiles

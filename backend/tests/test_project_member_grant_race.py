@@ -40,9 +40,7 @@ async def test_concurrent_grant_converges_instead_of_erroring(db_session, monkey
 
     monkeypatch.setattr(svc, "_load_project_member", _miss_first)
 
-    membership = await svc.grant_project_membership(
-        project_id=project.id, user_id=user.id, role="editor", commit=True
-    )
+    membership = await svc.grant_project_membership(project_id=project.id, user_id=user.id, role="editor", commit=True)
     assert membership.role == "editor"  # converged on the winner + applied role
     assert calls["n"] >= 2  # recovery re-fetched the winning row
 

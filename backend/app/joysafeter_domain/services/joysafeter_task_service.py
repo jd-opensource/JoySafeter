@@ -312,11 +312,7 @@ class JoySafeterTaskService:
         ]
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
-        result = await self.db.execute(
-            select(func.count())
-            .select_from(JoySafeterTask)
-            .where(and_(*conditions))
-        )
+        result = await self.db.execute(select(func.count()).select_from(JoySafeterTask).where(and_(*conditions)))
         return cast(int, result.scalar()) > 0
 
     async def count_active_tasks_for_project(self, project_id: str) -> int:

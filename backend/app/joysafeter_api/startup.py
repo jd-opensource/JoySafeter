@@ -22,8 +22,8 @@ async def run_api_startup() -> None:
 
 async def _initialize_session_broadcaster() -> None:
     try:
-        from app.joysafeter_shared.orchestrator_bridge import ensure_session_broadcaster
         from app.joysafeter_shared.config.settings import joysafeter_config
+        from app.joysafeter_shared.orchestrator_bridge import ensure_session_broadcaster
 
         ensure_session_broadcaster(
             redis_client=RedisClient.get_client(),

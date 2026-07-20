@@ -155,10 +155,7 @@ def test_downgrade_sql_unwinds_back_to_p0_baseline():
 
 async def _columns(session: AsyncSession, table: str) -> set[str]:
     rows = await session.execute(
-        text(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = :t"
-        ),
+        text("SELECT column_name FROM information_schema.columns WHERE table_name = :t"),
         {"t": table},
     )
     return {r[0] for r in rows}
@@ -232,9 +229,7 @@ async def test_insert_skill_with_null_version_pointers(db_session: AsyncSession)
     await db_session.commit()
 
     got = await db_session.execute(
-        text(
-            "SELECT org_version_id, public_version_id FROM joysafeter_skills WHERE id = :id"
-        ),
+        text("SELECT org_version_id, public_version_id FROM joysafeter_skills WHERE id = :id"),
         {"id": skill_id},
     )
     row = got.one()

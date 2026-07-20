@@ -1,11 +1,11 @@
 """Unit tests for the Phase-3 correctness fixes on the version stack.
 
-  1. ``get_highest_version_str`` / the version auto-bump must not raise an
-     unhandled 500 when a stored version string is not valid semver — it
-     raises ``InvalidRequestError`` (400) with a clear code instead.
-  2. ``SkillVersionService.restore_draft`` must populate the request-scoped
-     ``latest_version`` annotation on the returned skill so the route
-     response matches ``get_skill`` (which attaches it).
+1. ``get_highest_version_str`` / the version auto-bump must not raise an
+   unhandled 500 when a stored version string is not valid semver — it
+   raises ``InvalidRequestError`` (400) with a clear code instead.
+2. ``SkillVersionService.restore_draft`` must populate the request-scoped
+   ``latest_version`` annotation on the returned skill so the route
+   response matches ``get_skill`` (which attaches it).
 """
 
 from __future__ import annotations
@@ -63,9 +63,7 @@ async def test_publish_version_nonsemver_stored_highest_raises_400(monkeypatch):
     )
 
     with pytest.raises(InvalidRequestError) as ei:
-        await svc.publish_version(
-            skill_id=skill.id, current_user_id="user-1", version_str="1.2.3"
-        )
+        await svc.publish_version(skill_id=skill.id, current_user_id="user-1", version_str="1.2.3")
     assert ei.value.code == "SKILL_VERSION_STORED_INVALID"
 
 
@@ -118,7 +116,5 @@ async def test_restore_draft_populates_latest_version(monkeypatch):
         _allow,
     )
 
-    result = await svc.restore_draft(
-        skill_id=skill.id, version_str="1.0.0", current_user_id="user-1"
-    )
+    result = await svc.restore_draft(skill_id=skill.id, version_str="1.0.0", current_user_id="user-1")
     assert result.latest_version == "3.1.4"

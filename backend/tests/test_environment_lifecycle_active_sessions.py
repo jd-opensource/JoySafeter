@@ -152,9 +152,7 @@ async def test_create_environment_purges_only_same_project_soft_deleted_name(db_
         )
     ).scalar_one()
     same_project_row = (
-        await db_session.execute(
-            select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == stale_same_project_id)
-        )
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == stale_same_project_id))
     ).scalar_one_or_none()
     assert other_project_row.deleted_at is not None
     assert same_project_row is None

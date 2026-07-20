@@ -70,8 +70,10 @@ async def test_database_allows_archived_legacy_default_next_to_active_default(db
 
     db_session.expire_all()
     rows = (
-        await db_session.execute(select(Project).where(Project.org_id == org_id, Project.is_default.is_(True)))
-    ).scalars().all()
+        (await db_session.execute(select(Project).where(Project.org_id == org_id, Project.is_default.is_(True))))
+        .scalars()
+        .all()
+    )
     assert {row.id for row in rows} == {active_default_id, archived_default_id}
 
 

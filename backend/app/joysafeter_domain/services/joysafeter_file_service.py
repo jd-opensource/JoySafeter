@@ -154,7 +154,7 @@ class FileService:
         await db.refresh(record)
         return record
 
-    async def get_metadata(self, db: AsyncSession, file_id: uuid.UUID, project_id: str) -> JoySafeterFile | None:
+    async def get_metadata(self, db: AsyncSession, file_id: uuid.UUID, project_id: str | None) -> JoySafeterFile | None:
         result = await db.execute(
             select(JoySafeterFile).where(
                 JoySafeterFile.id == file_id,
@@ -172,12 +172,9 @@ class FileService:
         after_id: uuid.UUID | None = None,
         session_id: uuid.UUID | None = None,
     ) -> tuple[list[JoySafeterFile], bool]:
-        q = (
-            select(JoySafeterFile)
-            .where(
-                JoySafeterFile.project_id == project_id,
-                JoySafeterFile.deleted_at.is_(None),
-            )
+        q = select(JoySafeterFile).where(
+            JoySafeterFile.project_id == project_id,
+            JoySafeterFile.deleted_at.is_(None),
         )
         if session_id:
             q = q.where(

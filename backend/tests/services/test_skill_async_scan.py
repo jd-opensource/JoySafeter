@@ -72,46 +72,32 @@ def test_scan_input_bytes_handles_missing_content():
 
 def test_should_scan_async_under_threshold_returns_false():
     """A small skill should run inline — no async overhead worth taking."""
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 1024
         # 'a' * 100 is well under 1024
-        decision = SkillSecurityService.should_scan_async(
-            name="x", description="", content="a" * 100, files=None
-        )
+        decision = SkillSecurityService.should_scan_async(name="x", description="", content="a" * 100, files=None)
         assert decision is False
 
 
 def test_should_scan_async_over_threshold_returns_true():
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 1024
-        decision = SkillSecurityService.should_scan_async(
-            name="x", description="", content="a" * 2000, files=None
-        )
+        decision = SkillSecurityService.should_scan_async(name="x", description="", content="a" * 2000, files=None)
         assert decision is True
 
 
 def test_should_scan_async_zero_threshold_forces_async():
     """Setting the threshold to 0 (or negative) makes everything async —
     operators can opt the entire deployment into the async pipeline."""
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 0
-        decision = SkillSecurityService.should_scan_async(
-            name="", description="", content="", files=None
-        )
+        decision = SkillSecurityService.should_scan_async(name="", description="", content="", files=None)
         assert decision is True
 
 
 def test_should_scan_async_huge_threshold_keeps_everything_sync():
     """The opposite knob: a huge threshold keeps the pre-P2 behavior."""
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_skill_security.settings"
-    ) as s:
+    with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 10 * 1024 * 1024
         # 1MB content is under a 10MB threshold
         decision = SkillSecurityService.should_scan_async(
@@ -127,12 +113,20 @@ def _hash_for(*, name="t", description="d", content="c", tags=None, license=None
     tags = tags or []
     files = files or []
     canon_files = build_scan_files(
-        name=name, description=description, content=content,
-        tags=tags, license=license, files=files,
+        name=name,
+        description=description,
+        content=content,
+        tags=tags,
+        license=license,
+        files=files,
     )
     return target_hash(
-        name=name, description=description, content=content,
-        tags=tags, license=license, files=canon_files,
+        name=name,
+        description=description,
+        content=content,
+        tags=tags,
+        license=license,
+        files=canon_files,
     )
 
 
@@ -165,9 +159,7 @@ def test_scanning_state_takes_precedence_over_valid_hash():
     still block — the agent might race a verdict that's about to land
     as ``blocked``."""
     matching_hash = _hash_for()
-    ok, reason = is_skill_usable(
-        _skill(security="scanning", sec_hash=matching_hash)
-    )
+    ok, reason = is_skill_usable(_skill(security="scanning", sec_hash=matching_hash))
     assert ok is False
     assert reason == "security_scanning"
 
@@ -178,9 +170,7 @@ def test_lifecycle_check_runs_before_security():
     gate is the cheaper check and it pins the reason most useful to
     the UI (the owner knows scanning is in-flight; they need to know
     they haven't approved the skill yet)."""
-    ok, reason = is_skill_usable(
-        _skill(lifecycle="draft", security="scanning")
-    )
+    ok, reason = is_skill_usable(_skill(lifecycle="draft", security="scanning"))
     assert ok is False
     assert reason == "skill_not_approved"
 

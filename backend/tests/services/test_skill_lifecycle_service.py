@@ -69,11 +69,13 @@ def _make_service(skill, *, monkeypatch):
     # tests that don't exercise that gate (those live in
     # ``test_skill_permissions``).
     svc._active_org_id = None
+
     # Bypass the per-skill auth check: every transition test calls it,
     # and we cover access denial separately in
     # ``test_skill_permissions``.
     async def _allow(*_args, **_kw):
         return None
+
     monkeypatch.setattr(
         "app.joysafeter_domain.services.joysafeter_skill_service.check_skill_access",
         _allow,
