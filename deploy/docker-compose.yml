@@ -64,7 +64,7 @@ x-backend-common-env: &backend-common-env
   JOYSAFETER_IMAGE_NATIVE: ${JOYSAFETER_IMAGE_NATIVE:-joysafeter-native:latest}
   JOYSAFETER_SANDBOX_WORKSPACE_ROOT: ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
   JOYSAFETER_ENVOY_ENABLED: ${JOYSAFETER_ENVOY_ENABLED:-true}
-  JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
+  JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
   JOYSAFETER_ENVOY_SOCKET_VOLUME: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
   JOYSAFETER_ENVOY_CONFIG_DIR: ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
   JOYSAFETER_ENVOY_NETWORK: ${JOYSAFETER_ENVOY_NETWORK:-joysafeter-network}
@@ -100,7 +100,7 @@ x-backend-health-common: &backend-health-common
 
 services:
   joysafeter-envoy:
-    image: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
+    image: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
     container_name: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
     restart: unless-stopped
     environment:

@@ -81,18 +81,22 @@ get_docker_platform() {
 DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
 PLATFORMS="" # 初始为空，稍后根据命令和系统动态设置
 USE_BUILDX="${USE_BUILDX:-true}"
-DEFAULT_OFFICIAL_IMAGE_REGISTRY="${DEFAULT_OFFICIAL_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}"
-BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-$DEFAULT_OFFICIAL_IMAGE_REGISTRY}"
+# 镜像源配置（两个变量控制所有拉取）：
+#   BASE_IMAGE_REGISTRY — 官方库镜像前缀（python/node/rust/debian/postgres/redis）
+#                         默认 public.ecr.aws/docker/library/ （国内直连可达）
+#   DOCKER_MIRROR       — 第三方镜像代理前缀（envoy 等非官方库镜像）
+#                         默认 docker.m.daocloud.io （DaoCloud 国内 CDN）
+BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}"
+DOCKER_MIRROR="${DOCKER_MIRROR:-docker.m.daocloud.io}"
 FRONTEND_API_URL="${NEXT_PUBLIC_API_URL:-${BACKEND_URL:-http://localhost:8000}}"
 # 是否禁用 Docker 构建缓存（默认使用缓存）
 NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
-RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}"
-LOCAL_OFFICIAL_IMAGE_REGISTRY="${LOCAL_OFFICIAL_IMAGE_REGISTRY:-$DEFAULT_OFFICIAL_IMAGE_REGISTRY}"
-LOCAL_RUST_IMAGE="${LOCAL_RUST_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}"
-LOCAL_RUNTIME_IMAGE="${LOCAL_RUNTIME_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}"
+# Rust 镜像从 BASE_IMAGE_REGISTRY 派生
+RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1-bookworm}"
+RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
 SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-https://github.com/NVIDIA/SkillSpector.git}"
 DEFAULT_SKILLSPECTOR_SOURCE_PATH="$PROJECT_ROOT/.deps/SkillSpector"
 
@@ -159,7 +163,8 @@ show_usage() {
   --native-only          只处理 Native 运行镜像
   --all                  构建所有镜像（核心部署镜像 + agent runtime 镜像）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
-  --mirror MIRROR        使用国内镜像源加速基础镜像（aliyun, tencent, huawei, docker-cn）
+  --mirror MIRROR        使用国内镜像源加速（aliyun, tencent, huawei, daocloud）
+                         同时设置 BASE_IMAGE_REGISTRY 和 DOCKER_MIRROR
   --pip-mirror MIRROR    使用国内 pip 镜像源（aliyun, tencent, huawei, jd）
 
 环境变量:
@@ -176,11 +181,9 @@ show_usage() {
   NEXT_PUBLIC_API_URL    前端API地址（默认优先使用 BACKEND_URL 或 http://localhost:8000）
   PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
-  RUST_BUILDER_IMAGE     runner 编译镜像（默认: public.ecr.aws/docker/library/rust:1-bookworm）
-  BASE_IMAGE_REGISTRY    基础镜像仓库前缀（默认: public.ecr.aws/docker/library/）
-  LOCAL_OFFICIAL_IMAGE_REGISTRY 本地 compose 基础镜像源（默认: public.ecr.aws/docker/library/）
-  LOCAL_RUST_IMAGE       本地 compose Rust builder 镜像（默认: public.ecr.aws/docker/library/rust:1-bookworm）
-  LOCAL_RUNTIME_IMAGE    本地 compose Rust runtime 镜像（默认: public.ecr.aws/docker/library/debian:bookworm-slim）
+  RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
+  BASE_IMAGE_REGISTRY    官方库镜像前缀（默认: public.ecr.aws/docker/library/）
+  DOCKER_MIRROR          第三方镜像代理前缀（默认: docker.m.daocloud.io）
   SKILLSPECTOR_SOURCE_PATH SkillSpector 源码路径（local 默认: ../.deps/SkillSpector）
   SKILLSPECTOR_REPO_URL    SkillSpector 缺失时克隆的仓库地址
   NO_CACHE               是否禁用构建缓存（默认: false，使用缓存）
@@ -576,9 +579,9 @@ validate_local_compose_config() {
     (
         cd "$SCRIPT_DIR"
         DOCKER_DEFAULT_PLATFORM="$PLATFORMS" \
-        BASE_IMAGE_REGISTRY="$LOCAL_OFFICIAL_IMAGE_REGISTRY" \
-        RUST_IMAGE="$LOCAL_RUST_IMAGE" \
-        RUNTIME_IMAGE="$LOCAL_RUNTIME_IMAGE" \
+        BASE_IMAGE_REGISTRY="$BASE_IMAGE_REGISTRY" \
+        RUST_IMAGE="$RUST_IMAGE" \
+        RUNTIME_IMAGE="$RUNTIME_IMAGE" \
         compose --profile local-redis --profile rust-orchestrator config >/dev/null
     )
     log_success "Compose 配置预检通过"
@@ -586,9 +589,9 @@ validate_local_compose_config() {
 
 compose_local_env() {
     DOCKER_DEFAULT_PLATFORM="$PLATFORMS" \
-    BASE_IMAGE_REGISTRY="$LOCAL_OFFICIAL_IMAGE_REGISTRY" \
-    RUST_IMAGE="$LOCAL_RUST_IMAGE" \
-    RUNTIME_IMAGE="$LOCAL_RUNTIME_IMAGE" \
+    BASE_IMAGE_REGISTRY="$BASE_IMAGE_REGISTRY" \
+    RUST_IMAGE="$RUST_IMAGE" \
+    RUNTIME_IMAGE="$RUNTIME_IMAGE" \
     COMPOSE_BAKE="${COMPOSE_BAKE:-false}" \
     compose "$@"
 }
@@ -616,7 +619,6 @@ build_local_compose_images() {
 
     log_info "构建本地 Compose 核心服务镜像..."
     (
-        BASE_IMAGE_REGISTRY="$LOCAL_OFFICIAL_IMAGE_REGISTRY"
         PUSH=false
         BACKEND_ONLY=false
         FRONTEND_ONLY=false
@@ -686,11 +688,12 @@ configure_local_compose_env() {
     ensure_env_file "$PROJECT_ROOT/backend/.env" "$PROJECT_ROOT/backend/env.example"
     ensure_env_file "$PROJECT_ROOT/frontend/.env" "$PROJECT_ROOT/frontend/env.example"
 
-    set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$LOCAL_OFFICIAL_IMAGE_REGISTRY"
-    set_env_value "$deploy_env" "RUST_IMAGE" "$LOCAL_RUST_IMAGE"
-    set_env_value "$deploy_env" "RUNTIME_IMAGE" "$LOCAL_RUNTIME_IMAGE"
-    set_env_value "$deploy_env" "DB_IMAGE" "${DB_IMAGE:-public.ecr.aws/docker/library/postgres:15}"
-    set_env_value "$deploy_env" "REDIS_IMAGE" "${REDIS_IMAGE:-public.ecr.aws/docker/library/redis:alpine3.22}"
+    set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$BASE_IMAGE_REGISTRY"
+    set_env_value "$deploy_env" "RUST_IMAGE" "$RUST_IMAGE"
+    set_env_value "$deploy_env" "RUNTIME_IMAGE" "$RUNTIME_IMAGE"
+    set_env_value "$deploy_env" "DB_IMAGE" "${DB_IMAGE:-${BASE_IMAGE_REGISTRY}postgres:15}"
+    set_env_value "$deploy_env" "REDIS_IMAGE" "${REDIS_IMAGE:-${BASE_IMAGE_REGISTRY}redis:alpine3.22}"
+    set_env_value "$deploy_env" "JOYSAFETER_ENVOY_IMAGE" "${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR}/envoyproxy/envoy:v1.37.1}"
     set_env_value "$deploy_env" "DOCKER_DEFAULT_PLATFORM" "$PLATFORMS"
 
     ensure_skillspector_source "$deploy_env"
@@ -715,9 +718,8 @@ run_local_compose() {
     validate_local_compose_config
 
     log_info "Docker daemon 平台: $PLATFORMS"
-    log_info "本地部署基础镜像源: $LOCAL_OFFICIAL_IMAGE_REGISTRY"
-    log_info "Rust builder 镜像: $LOCAL_RUST_IMAGE"
-    log_info "Rust runtime 镜像: $LOCAL_RUNTIME_IMAGE"
+    log_info "基础镜像源: $BASE_IMAGE_REGISTRY"
+    log_info "第三方镜像代理: $DOCKER_MIRROR"
 
     build_local_compose_images
     run_local_migrations
@@ -916,10 +918,10 @@ build_image() {
     fi
 
     if [ "$service" = "Rust Orchestrator" ]; then
-        build_args+=("--build-arg" "RUST_IMAGE=${LOCAL_RUST_IMAGE}")
-        build_args+=("--build-arg" "RUNTIME_IMAGE=${LOCAL_RUNTIME_IMAGE}")
-        log_info "Rust builder 镜像: ${LOCAL_RUST_IMAGE}"
-        log_info "Rust runtime 镜像: ${LOCAL_RUNTIME_IMAGE}"
+        build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
+        build_args+=("--build-arg" "RUNTIME_IMAGE=${RUNTIME_IMAGE}")
+        log_info "Rust builder 镜像: ${RUST_IMAGE}"
+        log_info "Rust runtime 镜像: ${RUNTIME_IMAGE}"
     fi
 
     # 推送前再次检查 BuildKit 容器 DNS 连通性
@@ -1134,7 +1136,7 @@ ensure_runtime_runner_binary() {
         --platform "$platform" \
         -v "$PROJECT_ROOT:/workspace" \
         -w /workspace/sandbox-runner \
-        "$RUST_BUILDER_IMAGE" \
+        "$RUST_IMAGE" \
         bash -lc "export PATH=/usr/local/cargo/bin:\$PATH && apt-get update && apt-get install -y --no-install-recommends protobuf-compiler pkg-config && if command -v rustup >/dev/null 2>&1; then rustup target add $target; fi && cargo build --release --target $target -p joysafeter-runner && mkdir -p /workspace/target/$target/release && cp target/$target/release/joysafeter-runner /workspace/target/$target/release/joysafeter-runner"
     chmod +x "$output"
     log_success "runner 二进制编译完成: $output"
@@ -1554,20 +1556,27 @@ main() {
                 case "$2" in
                     aliyun)
                         BASE_IMAGE_REGISTRY="registry.cn-hangzhou.aliyuncs.com/library/"
+                        DOCKER_MIRROR="registry.cn-hangzhou.aliyuncs.com"
                         ;;
                     tencent)
                         BASE_IMAGE_REGISTRY="ccr.ccs.tencentyun.com/library/"
+                        DOCKER_MIRROR="ccr.ccs.tencentyun.com"
                         ;;
                     huawei)
                         BASE_IMAGE_REGISTRY="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
+                        DOCKER_MIRROR="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io"
                         ;;
-                    docker-cn)
-                        BASE_IMAGE_REGISTRY="docker.mirrors.ustc.edu.cn/library/"
+                    daocloud)
+                        BASE_IMAGE_REGISTRY="docker.m.daocloud.io/library/"
+                        DOCKER_MIRROR="docker.m.daocloud.io"
                         ;;
                     *)
                         BASE_IMAGE_REGISTRY="$2"
+                        DOCKER_MIRROR="${2%/}"
                         ;;
                 esac
+                RUST_IMAGE="${BASE_IMAGE_REGISTRY}rust:1-bookworm"
+                RUNTIME_IMAGE="${BASE_IMAGE_REGISTRY}debian:bookworm-slim"
                 shift 2
                 ;;
             --pip-mirror)
