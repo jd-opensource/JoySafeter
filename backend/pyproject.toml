@@ -115,6 +115,15 @@ src = [".", "src"]
 select = ["E", "F", "I", "W"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+# The repo contains a local `backend/alembic/` migrations dir, so ruff's
+# automatic first-party detection classifies `alembic` differently depending
+# on the working directory (first-party from backend/, third-party from repo
+# root). That made the repo-root `ruff` pre-commit hook and the `cd backend`
+# strict hook / CI ruff demand conflicting import orders for the same file.
+# Pin it first-party so classification is cwd-independent and matches CI.
+known-first-party = ["alembic"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

@@ -24,12 +24,12 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
-from alembic.config import Config
-from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from alembic import command
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = BACKEND_ROOT / "alembic.ini"
