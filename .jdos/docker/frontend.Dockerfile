@@ -75,7 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ssh-keygen -A && \
     ln -sf /bin/bash /bin/sh && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*   
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Don't run production as root
 RUN groupadd -r -g 900 admin && \

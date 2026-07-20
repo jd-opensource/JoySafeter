@@ -15,4 +15,3 @@ resources:
   limits:
     cpu: 4
     mem: 32768
-

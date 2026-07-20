@@ -60,9 +60,9 @@ async def test_terminal_tasks_do_not_count_for_user(db_session, agent_id):
     done_row.status = JoySafeterTaskStatus.COMPLETED.value
     await db_session.commit()
 
-    assert await svc.count_active_tasks_for_user("user-1") == 1, (
-        "only the non-terminal task counts against the user budget"
-    )
+    assert (
+        await svc.count_active_tasks_for_user("user-1") == 1
+    ), "only the non-terminal task counts against the user budget"
     assert live.id != done.id
 
 
@@ -74,6 +74,6 @@ async def test_other_user_tasks_not_counted(db_session, agent_id):
     await svc.create_task(agent_id=agent_id, prompt="scan", user_id="user-2")
 
     assert await svc.count_active_tasks_for_user("user-1") == 1
-    assert await svc.count_active_tasks_for_user("user-2") == 2, (
-        "the count must be scoped to one user; another user's tasks are invisible"
-    )
+    assert (
+        await svc.count_active_tasks_for_user("user-2") == 2
+    ), "the count must be scoped to one user; another user's tasks are invisible"
