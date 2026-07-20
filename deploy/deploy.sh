@@ -662,7 +662,7 @@ run_local_migrations() {
     (
         cd "$SCRIPT_DIR"
         log_info "启动数据库、Redis、SkillSpector 基础服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build db redis skillspector
+        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build postgres redis skillspector
 
         wait_for_local_redis
 

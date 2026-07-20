@@ -42,7 +42,7 @@ x-backend-common-env: &backend-common-env
   POSTGRES_USER: ${POSTGRES_USER:-postgres}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
   POSTGRES_DB: ${POSTGRES_DB:-joysafeter}
-  POSTGRES_HOST: ${POSTGRES_HOST:-db}
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
   POSTGRES_PORT: ${POSTGRES_PORT:-5432}
   POSTGRES_MIN_POOL_SIZE: ${POSTGRES_MIN_POOL_SIZE:-10}
   POSTGRES_MAX_POOL_SIZE: ${POSTGRES_MAX_POOL_SIZE:-500}
@@ -87,7 +87,7 @@ x-backend-volumes: &backend-volumes
   - ../skills:/app/skills:ro
 
 x-backend-depends: &backend-depends
-  db:
+  postgres:
     condition: service_healthy
   skillspector:
     condition: service_healthy
@@ -160,7 +160,7 @@ services:
     networks:
       - joysafeter-network
 
-  db:
+  postgres:
     image: ${DB_IMAGE:-public.ecr.aws/docker/library/postgres:15}
     container_name: joysafeter-db
     restart: unless-stopped
