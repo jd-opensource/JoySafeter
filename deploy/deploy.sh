@@ -118,11 +118,11 @@ log_success() {
 }
 
 log_warning() {
-    printf "${YELLOW}⚠️  %s${NC}\n" "$1"
+    printf "${YELLOW}⚠️  %s${NC}\n" "$1" >&2
 }
 
 log_error() {
-    printf "${RED}❌ %s${NC}\n" "$1"
+    printf "${RED}❌ %s${NC}\n" "$1" >&2
 }
 
 # 显示使用说明
@@ -272,8 +272,107 @@ compose() {
         docker-compose "$@"
     else
         log_error "docker compose / docker-compose 均不可用"
+        suggest_compose_install
         exit 1
     fi
+}
+
+suggest_compose_install() {
+    local host_os
+    host_os="$(uname -s 2>/dev/null || echo unknown)"
+
+    case "$host_os" in
+        Darwin)
+            log_error "macOS 安装方法:"
+            if command -v brew >/dev/null 2>&1; then
+                log_error "  brew install docker-compose"
+                local brew_prefix
+                brew_prefix="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+                log_error "  安装后需在 ~/.docker/config.json 中添加:"
+                log_error "    \"cliPluginsExtraDirs\": [\"${brew_prefix}/lib/docker/cli-plugins\"]"
+            else
+                log_error "  方式 1: 安装 Docker Desktop for Mac（自带 compose 插件）"
+                log_error "  方式 2: 手动安装插件:"
+                log_error "    mkdir -p ~/.docker/cli-plugins"
+                local arch_suffix
+                arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/arm64/aarch64/')"
+                log_error "    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-darwin-${arch_suffix} -o ~/.docker/cli-plugins/docker-compose"
+                log_error "    chmod +x ~/.docker/cli-plugins/docker-compose"
+            fi
+            ;;
+        Linux)
+            log_error "Linux 安装方法:"
+            if command -v apt-get >/dev/null 2>&1; then
+                log_error "  sudo apt-get update && sudo apt-get install -y docker-compose-plugin"
+            elif command -v dnf >/dev/null 2>&1; then
+                log_error "  sudo dnf install -y docker-compose-plugin"
+            elif command -v yum >/dev/null 2>&1; then
+                log_error "  sudo yum install -y docker-compose-plugin"
+            elif command -v pacman >/dev/null 2>&1; then
+                log_error "  sudo pacman -S docker-compose"
+            else
+                log_error "  通过包管理器安装 docker-compose-plugin，或手动安装:"
+            fi
+            log_error "  或手动安装插件:"
+            log_error "    mkdir -p ~/.docker/cli-plugins"
+            local arch_suffix
+            arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/aarch64/aarch64/; s/armv7l/armv7/')"
+            log_error "    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${arch_suffix} -o ~/.docker/cli-plugins/docker-compose"
+            log_error "    chmod +x ~/.docker/cli-plugins/docker-compose"
+            ;;
+        *)
+            log_error "请参考 https://docs.docker.com/compose/install/ 安装 Docker Compose"
+            ;;
+    esac
+}
+
+suggest_buildx_install() {
+    local host_os
+    host_os="$(uname -s 2>/dev/null || echo unknown)"
+
+    case "$host_os" in
+        Darwin)
+            log_error "macOS 安装方法:"
+            if command -v brew >/dev/null 2>&1; then
+                log_error "  brew install docker-buildx"
+                local brew_prefix
+                brew_prefix="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+                log_error "  安装后需在 ~/.docker/config.json 中添加:"
+                log_error "    \"cliPluginsExtraDirs\": [\"${brew_prefix}/lib/docker/cli-plugins\"]"
+            else
+                log_error "  方式 1: 安装 Docker Desktop for Mac（自带 buildx 插件）"
+                log_error "  方式 2: 手动安装插件:"
+                log_error "    mkdir -p ~/.docker/cli-plugins"
+                local arch_suffix
+                arch_suffix="$(uname -m | sed 's/x86_64/amd64/; s/arm64/arm64/')"
+                log_error "    curl -SL https://github.com/docker/buildx/releases/latest/download/buildx-v\$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep tag_name | cut -d'\"' -f4 | tr -d v).darwin-${arch_suffix} -o ~/.docker/cli-plugins/docker-buildx"
+                log_error "    chmod +x ~/.docker/cli-plugins/docker-buildx"
+            fi
+            ;;
+        Linux)
+            log_error "Linux 安装方法:"
+            if command -v apt-get >/dev/null 2>&1; then
+                log_error "  sudo apt-get update && sudo apt-get install -y docker-buildx-plugin"
+            elif command -v dnf >/dev/null 2>&1; then
+                log_error "  sudo dnf install -y docker-buildx-plugin"
+            elif command -v yum >/dev/null 2>&1; then
+                log_error "  sudo yum install -y docker-buildx-plugin"
+            elif command -v pacman >/dev/null 2>&1; then
+                log_error "  sudo pacman -S docker-buildx"
+            else
+                log_error "  通过包管理器安装 docker-buildx-plugin，或手动安装:"
+            fi
+            log_error "  或手动安装插件:"
+            log_error "    mkdir -p ~/.docker/cli-plugins"
+            local arch_suffix
+            arch_suffix="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/; s/armv7l/arm-v7/')"
+            log_error "    curl -SL https://github.com/docker/buildx/releases/latest/download/buildx-v\$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep tag_name | cut -d'\"' -f4 | tr -d v).linux-${arch_suffix} -o ~/.docker/cli-plugins/docker-buildx"
+            log_error "    chmod +x ~/.docker/cli-plugins/docker-buildx"
+            ;;
+        *)
+            log_error "请参考 https://docs.docker.com/build/install-buildx/ 安装 Docker Buildx"
+            ;;
+    esac
 }
 
 ensure_env_file() {
@@ -669,7 +768,8 @@ init_buildx() {
         log_info "检查 Docker Buildx..."
 
         if ! docker buildx version &> /dev/null; then
-            log_warning "Docker Buildx 不可用，回退到传统构建方式"
+            log_warning "Docker Buildx 不可用，回退到传统构建方式（SkillSpector 等需要 Buildx 的镜像将无法构建）"
+            suggest_buildx_install
             USE_BUILDX=false
             return
         fi
@@ -1203,6 +1303,7 @@ build_all_images() {
     if [ "$BUILD_SKILLSPECTOR" = true ]; then
         if [ "$USE_BUILDX" != true ]; then
             log_error "SkillSpector 镜像构建需要 Docker Buildx，以传入 skillspector named build context"
+            suggest_buildx_install
             exit 1
         fi
         local skillspector_source_path
