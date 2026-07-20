@@ -27,6 +27,9 @@ pub trait ImageBuilderBackend: Send + Sync {
     ) -> anyhow::Result<Option<String>>;
 }
 
+/// Type alias used by CommandListener and other framework code.
+pub type ImageBuilder = dyn ImageBuilderBackend;
+
 // ---------------------------------------------------------------------------
 // Docker implementation
 // ---------------------------------------------------------------------------

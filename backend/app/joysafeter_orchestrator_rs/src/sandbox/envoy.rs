@@ -29,6 +29,10 @@ pub struct EnvoyManager {
 
 #[derive(Debug, Clone)]
 pub struct EnvoyConfig {
+    pub envoy_image: String,
+    pub socket_volume: String,
+    pub config_dir: String,
+    pub envoy_network: String,
     pub grpc_target_host: String,
     pub grpc_target_port: u16,
     pub container_name: String,

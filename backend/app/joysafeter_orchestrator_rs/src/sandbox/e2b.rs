@@ -48,6 +48,10 @@ impl E2bProvider {
 
 #[async_trait]
 impl SandboxProvider for E2bProvider {
+    fn provider_name(&self) -> &'static str {
+        "e2b"
+    }
+
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
         let body = serde_json::json!({
             "templateID": self.template_id,

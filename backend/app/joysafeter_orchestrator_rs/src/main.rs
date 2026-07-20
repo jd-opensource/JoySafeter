@@ -5,11 +5,9 @@
 
 mod config;
 mod db;
-mod error;
 mod events;
 mod grpc;
 mod kernel;
-mod runtime;
 mod runtime_config;
 mod sandbox;
 
@@ -94,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         &config,
         runtime_config.clone(),
-        redis_client.clone(),
+        redis_client.clone().expect("Redis is required for event bus"),
     );
     // Start periodic flush timer so buffered events don't sit in memory
     // indefinitely when event rate is below the batch threshold.
@@ -103,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize session broadcaster
     let session_broadcaster = kernel::session_broadcaster::SessionBroadcaster::new(
-        redis_client.clone(),
+        redis_client.clone().expect("Redis is required for session broadcaster"),
         &config.instance_id,
     );
     info!("Session broadcaster initialized");
@@ -165,12 +163,10 @@ async fn main() -> anyhow::Result<()> {
     // Initialize sandbox bridge registry
     let bridge_registry = kernel::sandbox_bridge::BridgeRegistry::new();
 
-    // Initialize task queue (in-memory wakeups + optional Redis HA wakeups)
-    let queue = if let Some(ref client) = redis_client {
-        kernel::queue::TaskQueue::new().with_redis(client.clone())
-    } else {
-        kernel::queue::TaskQueue::new()
-    };
+    // Initialize task queue (Redis-backed scheduler wakeups)
+    let queue = kernel::queue::TaskQueue::new(
+        redis_client.clone().expect("Redis is required for task queue"),
+    );
 
     // Initialize memory store subscribers
     let memory_subscribers = Arc::new(kernel::memory_sync::MemoryStoreSubscribers::new());
@@ -255,7 +251,7 @@ async fn main() -> anyhow::Result<()> {
     // SessionStateSubscriber (PERSIST phase)
     let session_state_sub = events::session_state::SessionStateSubscriber::new(
         db_pool.clone(),
-        redis_client.clone(),
+        redis_client.clone().expect("Redis is required for session state subscriber"),
         config.instance_id.clone(),
     );
     subscriber_handles.push(session_state_sub.spawn(event_bus.subscribe()));
@@ -296,7 +292,12 @@ async fn main() -> anyhow::Result<()> {
         let listener = kernel::command_listener::CommandListener::new(
             client.clone(),
             &config.instance_id,
+            db_pool.clone(),
             bridge_registry.clone(),
+            sandbox_provider.clone(),
+            None, // envoy_manager
+            None, // image_builder
+            redis_coordinator.clone(),
             memory_subscribers.clone(),
         );
         Some(listener.spawn())

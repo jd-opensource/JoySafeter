@@ -218,7 +218,7 @@ impl AgentBridge for AgentBridgeService {
             }
 
             // Create and register bridge
-            let bridge = Arc::new(SandboxBridge::new(sandbox_db_id, sandbox_db_id, tx.clone()));
+            let bridge = Arc::new(SandboxBridge::new(sandbox_db_id, tx.clone()));
             // Store capabilities
             {
                 let mut caps = bridge.runner_capabilities.lock().await;
@@ -1736,7 +1736,7 @@ async fn send_setup(
         status: "setup".to_string(),
         prompt: String::new(),
         system_prompt: None,
-        output: None,
+        output: String::new(),
         error: None,
         usage: None,
         timeout_sec: None,
@@ -1747,6 +1747,7 @@ async fn send_setup(
         duration_ms: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
+        owner_epoch: None,
     };
 
     let builder = HarnessInputBuilder::new(pool.clone());

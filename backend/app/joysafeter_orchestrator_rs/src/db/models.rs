@@ -53,9 +53,17 @@ pub struct JoySafeterTask {
     pub status: String,
     pub prompt: String,
     pub system_prompt: Option<String>,
+    pub output: String,
+    pub error: Option<String>,
+    pub usage: Option<serde_json::Value>,
     pub timeout_sec: Option<i32>,
     pub retry_count: i32,
     pub max_retries: i32,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_ms: Option<i64>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
     pub owner_epoch: Option<i64>,
 }
 
@@ -83,6 +91,7 @@ pub struct JoySafeterSandbox {
     pub config: Option<serde_json::Value>,
     pub chat_session_id: Option<Uuid>,
     pub image: Option<String>,
+    pub disconnected_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 // ---------------------------------------------------------------------------

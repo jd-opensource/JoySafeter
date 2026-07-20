@@ -7,6 +7,24 @@ use super::models::{JoySafeterAgent, JoySafeterSandbox, JoySafeterSession, JoySa
 // Task queries
 // ---------------------------------------------------------------------------
 
+/// Claim a single pending task by ID for scheduling (PENDING → SCHEDULING).
+pub async fn claim_pending_task_by_id(
+    pool: &PgPool,
+    task_id: Uuid,
+) -> Result<Option<JoySafeterTask>, sqlx::Error> {
+    sqlx::query_as::<_, JoySafeterTask>(
+        r#"
+        UPDATE joysafeter_tasks
+        SET status = 'scheduling', started_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND status = 'pending'
+        RETURNING *
+        "#,
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+}
+
 /// Claim a batch of pending tasks for scheduling (PENDING → SCHEDULING).
 /// Uses `FOR UPDATE SKIP LOCKED` to avoid contention across instances.
 pub async fn claim_pending_tasks(

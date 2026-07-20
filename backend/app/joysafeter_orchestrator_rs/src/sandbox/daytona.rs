@@ -51,6 +51,10 @@ impl DaytonaProvider {
 
 #[async_trait]
 impl SandboxProvider for DaytonaProvider {
+    fn provider_name(&self) -> &'static str {
+        "daytona"
+    }
+
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
         let mut body = serde_json::json!({
             "labels": {
