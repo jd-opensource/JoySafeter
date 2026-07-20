@@ -141,11 +141,6 @@ def main():
     project_path = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
     project_dir = get_project_dir(project_path)
 
-    # Check if planning files exist (indicates active task)
-    has_planning_files = any(
-        Path(project_path, f).exists() for f in PLANNING_FILES
-    )
-
     if not project_dir.exists():
         # No previous sessions, nothing to catch up on
         return
