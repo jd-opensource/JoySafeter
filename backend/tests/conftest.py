@@ -21,6 +21,7 @@ import pytest
 import pytest_asyncio
 from pytest import FixtureRequest
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -49,10 +50,30 @@ if not os.environ.get("DOCKER_HOST"):
 def postgres_url() -> Iterator[str]:
     """Start one ephemeral Postgres for the whole test session, migrate it, and
     yield the async SQLAlchemy URL bound to it."""
+    external_url = os.environ.get("JOYSAFETER_TEST_DATABASE_URL")
+    if external_url:
+        url = make_url(external_url)
+        os.environ["POSTGRES_HOST"] = url.host or "localhost"
+        os.environ["POSTGRES_PORT"] = str(url.port or 5432)
+        os.environ["POSTGRES_PORT_HOST"] = str(url.port or 5432)
+        os.environ["POSTGRES_USER"] = url.username or "postgres"
+        os.environ["POSTGRES_PASSWORD"] = url.password or "postgres"
+        os.environ["POSTGRES_DB"] = (url.database or "joysafeter").lstrip("/")
+        subprocess.run(
+            ["uv", "run", "alembic", "upgrade", "head"],
+            cwd=BACKEND_ROOT,
+            check=True,
+            env=os.environ.copy(),
+        )
+        from app.joysafeter_shared.config.settings import settings
+
+        yield settings.database_url
+        return
+
     from testcontainers.postgres import PostgresContainer
 
     with PostgresContainer(
-        "postgres:16-alpine",
+        "postgres:15-alpine",
         username="postgres",
         password="postgres",
         dbname="joysafeter",
