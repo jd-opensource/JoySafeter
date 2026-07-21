@@ -184,7 +184,7 @@ class SkillLifecycleService:
         current_user_id: str,
         to_status: str,
     ) -> LifecycleTransition:
-        skill = await self.skill_repo.get(skill_id)
+        skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundError(
                 "Skill not found",
@@ -217,6 +217,17 @@ class SkillLifecycleService:
                     "allowed": sorted(allowed),
                 },
             )
+
+        if to_status == JoySafeterSkillLifecycleStatus.APPROVED.value:
+            from app.joysafeter_domain.services.joysafeter_skill_security import scan_ok
+
+            scan_ready, reason = scan_ok(skill)
+            if not scan_ready:
+                raise InvalidRequestError(
+                    "Skill must pass security scan before entering approved state.",
+                    code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",
+                    data={"skill_id": str(skill_id), "from_status": from_status, "reason": reason},
+                )
 
         skill.lifecycle_status = to_status
         await self.db.commit()
@@ -299,13 +310,11 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         )
         _ensure_skill_mutable(skill)
 
-        # Security gate — refuse to publish a high-risk skill. ``blocked`` is
-        # the verdict SkillSpector assigns when a scan finds HIGH/CRITICAL
-        # issues; the runtime already refuses to load such skills
-        # (``is_skill_usable``), so publishing a snapshot that no agent could
-        # ever run is meaningless and dangerous. Only ``blocked`` is gated
-        # here — ``warning``/``passed`` publish normally, and un-scanned /
-        # in-flight states are intentionally not blocked.
+        # Runtime-readiness gate — publishing a snapshot that no agent can
+        # load creates a dead version and breaks the product contract between
+        # Skills, Agent picker, and orchestrator. Keep the historical
+        # ``SKILL_SECURITY_BLOCKED`` code for the high-risk verdict, but fail
+        # every other runtime-ineligible state with a precise reason.
         if skill.security_status == "blocked":
             raise InvalidRequestError(
                 "技能存在高安全风险，已被安全扫描拦截，无法发布版本。请修复后重新扫描。",
@@ -315,6 +324,15 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
                     "security_severity": skill.security_severity,
                     "security_score": skill.security_score,
                 },
+            )
+        from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+
+        usable, reason = is_skill_usable(skill)
+        if not usable:
+            raise InvalidRequestError(
+                "Skill is not runtime-ready and cannot be published.",
+                code="SKILL_VERSION_NOT_RUNTIME_READY",
+                data={"skill_id": str(skill_id), "reason": reason},
             )
 
         # Validate semver format
@@ -677,6 +695,18 @@ def _ensure_skill_mutable(skill) -> None:
         raise _skill_archived_error(skill)
 
 
+_ELIGIBILITY_MESSAGES: dict[str | None, tuple[str, str]] = {
+    None: ("Skill is approved, scanned, unchanged, and ready for runtime packing.", "none"),
+    "skill_not_approved": ("Approve the skill before agents can load it.", "submit_or_approve"),
+    "security_not_scanned": ("Run a security scan before publishing or loading this skill.", "run_security_scan"),
+    "security_scanning": ("Wait for the in-flight security scan to finish.", "wait_for_scan"),
+    "security_failed": ("Fix the scanner error and rescan this skill.", "fix_and_rescan"),
+    "security_blocked": ("Resolve blocking security findings before this skill can run.", "fix_and_rescan"),
+    "no_security_scan_hash": ("Rescan this skill so the runtime can verify the exact content.", "run_security_scan"),
+    "content_changed_after_scan": ("Rescan this skill because its content changed after the last scan.", "run_security_scan"),
+}
+
+
 class SkillService(BaseService[JoySafeterSkill]):
     _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
 
@@ -876,6 +906,140 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = fields["tags"]
         skill.license = fields["license"]
 
+    def _runtime_eligibility_message(self, reason: Optional[str]) -> tuple[str, str]:
+        return _ELIGIBILITY_MESSAGES.get(reason, ("Review and resolve the skill readiness issue.", "review_skill"))
+
+    def _annotate_runtime_eligibility(self, skill: JoySafeterSkill) -> None:
+        from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+
+        usable, reason = is_skill_usable(skill)
+        message, next_action = self._runtime_eligibility_message(reason)
+        setattr(
+            skill,
+            "runtime_eligibility",
+            {
+                "usable": usable,
+                "reason": reason,
+                "user_message": message,
+                "next_action": next_action,
+            },
+        )
+
+    def _agent_skill_item_refs(self, item: Any, skill_id: uuid.UUID) -> bool:
+        if not isinstance(item, dict):
+            return False
+        value = item.get("skill_id")
+        if not value:
+            return False
+        try:
+            return uuid.UUID(str(value).removeprefix("skill_")) == skill_id
+        except ValueError:
+            return False
+
+    def _agent_refs_skill(self, skills: Any, skill_id: uuid.UUID) -> bool:
+        return isinstance(skills, list) and any(self._agent_skill_item_refs(item, skill_id) for item in skills)
+
+    async def _has_skill_references(self, skill: JoySafeterSkill) -> bool:
+        from sqlalchemy import select
+
+        from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+        from app.joysafeter_domain.models.joysafeter_project import Project
+
+        project_filter: Any
+        if self._active_org_id:
+            project_filter = JoySafeterAgent.project_id.in_(select(Project.id).where(Project.org_id == self._active_org_id))
+        else:
+            project_filter = JoySafeterAgent.project_id == skill.project_id
+
+        result = await self.db.execute(
+            select(JoySafeterAgent.id, JoySafeterAgent.skills)
+            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
+        )
+        for row in result.all():
+            if self._agent_refs_skill(row.skills, skill.id):
+                return True
+        return False
+
+    async def _annotate_skill_impact(self, skill: JoySafeterSkill, *, sample_limit: int = 8) -> None:
+        from sqlalchemy import select
+
+        from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
+        from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
+        from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+        from app.joysafeter_domain.models.joysafeter_project import Project
+
+        project_filter: Any
+        if self._active_org_id:
+            project_filter = JoySafeterAgent.project_id.in_(select(Project.id).where(Project.org_id == self._active_org_id))
+        else:
+            project_filter = JoySafeterAgent.project_id == skill.project_id
+
+        agents_result = await self.db.execute(
+            select(JoySafeterAgent.id, JoySafeterAgent.name, JoySafeterAgent.version, JoySafeterAgent.skills)
+            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
+            .limit(1000)
+        )
+        current_agents = [row for row in agents_result.all() if self._agent_refs_skill(row.skills, skill.id)]
+        current_agent_ids = [row.id for row in current_agents]
+
+        version_result = await self.db.execute(
+            select(JoySafeterAgentVersion.id, JoySafeterAgentVersion.version, JoySafeterAgentVersion.snapshot)
+            .join(JoySafeterAgent, JoySafeterAgentVersion.agent_id == JoySafeterAgent.id)
+            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
+            .limit(1000)
+        )
+        version_rows = [row for row in version_result.all() if self._agent_refs_skill(row.snapshot.get("skills"), skill.id)]
+
+        schedule_rows = []
+        task_rows = []
+        if current_agent_ids:
+            schedule_result = await self.db.execute(
+                select(JoySafeterSchedule.id, JoySafeterSchedule.name, JoySafeterSchedule.enabled)
+                .where(JoySafeterSchedule.agent_id.in_(current_agent_ids))
+                .limit(1000)
+            )
+            schedule_rows = list(schedule_result.all())
+
+            task_result = await self.db.execute(
+                select(JoySafeterTask.id, JoySafeterTask.status)
+                .where(
+                    JoySafeterTask.agent_id.in_(current_agent_ids),
+                    JoySafeterTask.status.notin_([status.value for status in JOYSAFETER_TERMINAL_STATUSES]),
+                )
+                .limit(1000)
+            )
+            task_rows = list(task_result.all())
+
+        references = []
+        for row in current_agents[:sample_limit]:
+            references.append({"type": "agent", "id": f"agent_{row.id}", "name": row.name, "version": str(row.version)})
+        remaining = max(0, sample_limit - len(references))
+        for row in schedule_rows[:remaining]:
+            references.append(
+                {
+                    "type": "schedule",
+                    "id": f"schedule_{row.id}",
+                    "name": row.name,
+                    "status": "enabled" if row.enabled else "disabled",
+                }
+            )
+
+        total = len(current_agents) + len(version_rows) + len(schedule_rows) + len(task_rows)
+        setattr(
+            skill,
+            "impact",
+            {
+                "counts": {
+                    "agents": len(current_agents),
+                    "agent_versions": len(version_rows),
+                    "schedules": len(schedule_rows),
+                    "active_tasks": len(task_rows),
+                    "total": total,
+                },
+                "references": references,
+            },
+        )
+
     async def list_skills(
         self,
         current_user_id: Optional[str] = None,
@@ -911,6 +1075,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             # ClassVar on the model; set it per-instance via setattr so mypy
             # doesn't reject assigning to a class variable through an instance.
             setattr(skill, "latest_version", latest_map.get(skill.id))
+            self._annotate_runtime_eligibility(skill)
         return skills, has_more
 
     async def get_skill(
@@ -946,6 +1111,8 @@ class SkillService(BaseService[JoySafeterSkill]):
 
                 # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
         skill = await self._attach_latest_version(skill)
+        self._annotate_runtime_eligibility(skill)
+        await self._annotate_skill_impact(skill)
         result = skill
         return result  # type: ignore
 
@@ -1462,6 +1629,16 @@ class SkillService(BaseService[JoySafeterSkill]):
             active_org_id=self._active_org_id,
         )
         _ensure_skill_mutable(skill)
+        if await self._has_skill_references(skill):
+            await self._annotate_skill_impact(skill)
+            impact = getattr(skill, "impact", None) or {}
+            raise ResourceConflictError(
+                "Skill is still referenced by agents, schedules, or active tasks. Archive it or remove references before deleting.",
+                code="SKILL_DELETE_HAS_REFERENCES",
+                data={"skill_id": str(skill_id), "impact": impact},
+                retryable=False,
+                user_action="remove_references",
+            )
 
         # Delete associated files
         await self.file_repo.delete_by_skill(skill_id)

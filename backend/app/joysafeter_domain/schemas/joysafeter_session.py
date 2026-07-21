@@ -327,6 +327,9 @@ class SessionResponse(BaseModel):
         return f"sess_{v}"
 
 
+from app.joysafeter_domain.schemas.joysafeter_skill import SkillUsageResponse as SessionSkillUsageResponse  # noqa: E402
+
+
 class SingleEventRequest(BaseModel):
     type: str
     content: Optional[Union[str, list[Any]]] = None

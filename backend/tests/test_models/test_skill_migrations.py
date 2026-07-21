@@ -53,10 +53,10 @@ def test_chain_has_single_head():
     assert len(heads) == 1, f"expected single head, got {heads}"
 
 
-def test_chain_includes_expected_p0_p1_revisions():
-    """The chain ending at head must contain every revision we shipped
-    in P0 + P1 + P2 in order. If a future rebase drops one of them,
-    this test catches it."""
+def test_chain_includes_expected_skill_revisions():
+    """The chain ending at head must contain the current squashed schema and
+    every follow-up Skill/managed-resource revision. If a future rebase drops
+    one of them, this test catches it."""
     cfg = _config()
     script = ScriptDirectory.from_config(cfg)
     head = script.get_current_head()
@@ -66,59 +66,66 @@ def test_chain_includes_expected_p0_p1_revisions():
     for rev in script.walk_revisions(base="base", head=head):
         seen.add(rev.revision)
     expected = {
-        "20260625_000001",  # P0: ruleset_version
-        "20260625_000002",  # P0: lifecycle_status
-        "20260625_000003",  # P1: visibility
-        "20260625_000004",  # P1: promote legacy
-        "20260625_000005",  # P2: skill_usage_log
-        "20260625_000006",  # P2: skill_version security fields
-        "20260625_000007",  # P2.8: project_members table
+        "20260627_000001",  # squashed managed-agent schema
+        "20260702_000002",  # task idempotency key
+        "20260702_000003",  # task lease
+        "20260702_000004",  # task owner epoch
+        "20260703_000005",  # project task limit
+        "20260703_000006",  # project resource limits
+        "20260703_000007",  # task submitter identity
+        "20260703_000008",  # session message idempotency index
+        "20260703_000009",  # cluster members
+        "20260703_000010",  # unique active default project
+        "20260710_000011",  # schedules
+        "20260716_000012",  # project-scoped vault names
+        "20260716_000013",  # project-scoped agent/environment names
+        "20260717_000014",  # normalize project member roles
+        "20260717_000015",  # unique org member
+        "20260717_000016",  # unified role vocabulary
+        "20260718_000001",  # Skill version pointers / root_path removal
+        "20260718_000002",  # single-axis Skill teardown
+        "20260720_000001",  # Skill runtime usage audit fields/indexes
     }
     missing = expected - seen
     assert not missing, f"missing revisions: {sorted(missing)}"
 
 
-def test_upgrade_sql_renders_each_p0_p1_step():
+def test_upgrade_sql_renders_current_skill_steps():
     """Offline SQL generation exercises every revision's ``upgrade()``
     function. A typo (or PG-only syntax that alembic can't render in
     offline mode) shows up here before hitting a real database."""
     cfg = _config()
     buf = io.StringIO()
     with redirect_stdout(buf):
-        command.upgrade(cfg, "20260624_000001:head", sql=True)
+        command.upgrade(cfg, "base:head", sql=True)
     sql = buf.getvalue()
 
-    # Each migration's upgrade() should emit a recognizable DDL signature.
-    # The list is the same chain as above; we check the SQL is the right
-    # SQL, not just that the migration ran.
-    assert "ADD COLUMN ruleset_version" in sql
-    assert "skill_security_scans_ruleset_version_idx" in sql
-    assert "ADD COLUMN lifecycle_status" in sql
-    assert "skills_lifecycle_status_idx" in sql
-    assert "ADD COLUMN visibility" in sql
-    assert "skills_visibility_idx" in sql
-    # Backfill statements
-    assert "UPDATE joysafeter_skills SET visibility = 'public'" in sql
-    assert "UPDATE joysafeter_skills SET visibility = 'project'" in sql
-    assert "UPDATE joysafeter_skills SET lifecycle_status = 'approved'" in sql
-
-    # P2 — usage log table + version security fields
+    # Squashed schema still creates the Skill runtime/audit foundations.
     assert "CREATE TABLE joysafeter_skill_usage_log" in sql
     assert "skill_usage_log_session_created_idx" in sql
     assert "skill_usage_log_skill_created_idx" in sql
-    assert "ADD COLUMN security_scan_id" in sql  # on skill_versions
-    assert "ADD COLUMN target_hash" in sql
-    assert "ADD COLUMN lifecycle_status" in sql  # on skill_versions (also matches P0 — both expected)
-    assert "ADD COLUMN approved_by_id" in sql
-    assert "ADD COLUMN approved_at" in sql
 
-    # P2.8 — project_members table + org-member backfill
-    assert "CREATE TABLE joysafeter_project_members" in sql
-    assert "ix_joysafeter_project_members_project_id" in sql
-    assert "INSERT INTO joysafeter_project_members" in sql
+    # Skill version pointer + single-axis teardown revisions.
+    assert "ADD COLUMN org_version_id" in sql
+    assert "ADD COLUMN public_version_id" in sql
+    assert "ADD COLUMN review_target_visibility" in sql
+    assert "DROP COLUMN root_path" in sql
+    assert "DROP TABLE joysafeter_skill_collaborators" in sql
+    assert "DROP COLUMN is_public" in sql
+    assert "ALTER COLUMN project_id SET NOT NULL" in sql
+
+    # Runtime usage audit follow-up fields + security-response indexes.
+    assert "ADD COLUMN skill_version_id" in sql
+    assert "ADD COLUMN skill_name" in sql
+    assert "ADD COLUMN skill_source_type" in sql
+    assert "ADD COLUMN target" in sql
+    assert "ADD COLUMN artifact_hash" in sql
+    assert "skill_usage_log_project_artifact_created_idx" in sql
+    assert "skill_usage_log_project_target_created_idx" in sql
+    assert "skill_usage_log_project_scan_created_idx" in sql
 
 
-def test_downgrade_sql_unwinds_back_to_p0_baseline():
+def test_downgrade_sql_unwinds_current_skill_steps():
     """Round-trip safety net: every upgrade must have a working
     downgrade. Offline mode lets us verify the SQL is generated;
     actual data-level reversibility is a separate concern (the P1.4
@@ -127,19 +134,20 @@ def test_downgrade_sql_unwinds_back_to_p0_baseline():
     cfg = _config()
     buf = io.StringIO()
     with redirect_stdout(buf):
-        command.downgrade(cfg, "20260625_000007:20260624_000001", sql=True)
+        command.downgrade(cfg, "head:base", sql=True)
     sql = buf.getvalue()
 
-    # Each downgrade should be visible in the rendered SQL
-    assert "DROP COLUMN visibility" in sql
-    assert "DROP COLUMN lifecycle_status" in sql
-    assert "DROP COLUMN ruleset_version" in sql
-    assert "DROP TABLE joysafeter_skill_usage_log" in sql
-    assert "DROP COLUMN security_scan_id" in sql
-    assert "DROP COLUMN target_hash" in sql
-    assert "DROP COLUMN approved_by_id" in sql
-    assert "DROP COLUMN approved_at" in sql
-    assert "DROP TABLE joysafeter_project_members" in sql
+    # Each downgrade should be visible in the rendered SQL.
+    assert "DROP INDEX skill_usage_log_project_scan_created_idx" in sql
+    assert "DROP INDEX skill_usage_log_project_target_created_idx" in sql
+    assert "DROP INDEX skill_usage_log_project_artifact_created_idx" in sql
+    assert "DROP COLUMN artifact_hash" in sql
+    assert "DROP COLUMN skill_name" in sql
+    assert "ADD COLUMN root_path" in sql
+    assert "ADD COLUMN is_public" in sql
+    assert "CREATE TABLE joysafeter_skill_collaborators" in sql
+    assert "DROP COLUMN org_version_id" in sql
+    assert "DROP COLUMN public_version_id" in sql
 
 
 # ---------------------------------------------------------------------------

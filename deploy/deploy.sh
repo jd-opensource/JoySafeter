@@ -81,19 +81,22 @@ get_docker_platform() {
 DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
 PLATFORMS="" # 初始为空，稍后根据命令和系统动态设置
 USE_BUILDX="${USE_BUILDX:-true}"
-DEFAULT_OFFICIAL_IMAGE_REGISTRY="${DEFAULT_OFFICIAL_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}"
-BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-$DEFAULT_OFFICIAL_IMAGE_REGISTRY}"
-FRONTEND_API_URL="${NEXT_PUBLIC_API_URL:-${BACKEND_URL:-http://localhost:8000}}"
+# 镜像源配置（两个变量控制所有拉取）：
+#   BASE_IMAGE_REGISTRY — 官方库镜像前缀（python/node/rust/debian/postgres/redis）
+#                         默认 public.ecr.aws/docker/library/ （国内直连可达）
+#   DOCKER_MIRROR       — 第三方镜像代理前缀（envoy 等非官方库镜像）
+#                         默认 docker.m.daocloud.io （DaoCloud 国内 CDN）
+BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}"
+DOCKER_MIRROR="${DOCKER_MIRROR:-docker.m.daocloud.io}"
 # 是否禁用 Docker 构建缓存（默认使用缓存）
 NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
-RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}"
-LOCAL_OFFICIAL_IMAGE_REGISTRY="${LOCAL_OFFICIAL_IMAGE_REGISTRY:-$DEFAULT_OFFICIAL_IMAGE_REGISTRY}"
-LOCAL_RUST_IMAGE="${LOCAL_RUST_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}"
-LOCAL_RUNTIME_IMAGE="${LOCAL_RUNTIME_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}"
-SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-https://github.com/NVIDIA/skillspector.git}"
+# Rust 镜像从 BASE_IMAGE_REGISTRY 派生
+RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1-bookworm}"
+RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
+SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-https://github.com/NVIDIA/SkillSpector.git}"
 DEFAULT_SKILLSPECTOR_SOURCE_PATH="$PROJECT_ROOT/.deps/SkillSpector"
 
 # 规范化镜像仓库地址
@@ -118,11 +121,11 @@ log_success() {
 }
 
 log_warning() {
-    printf "${YELLOW}⚠️  %s${NC}\n" "$1"
+    printf "${YELLOW}⚠️  %s${NC}\n" "$1" >&2
 }
 
 log_error() {
-    printf "${RED}❌ %s${NC}\n" "$1"
+    printf "${RED}❌ %s${NC}\n" "$1" >&2
 }
 
 # 显示使用说明
@@ -148,7 +151,7 @@ show_usage() {
   --platform PLATFORMS   目标平台架构，多个用逗号分隔（默认: linux/amd64,linux/arm64）
   --arch ARCH            简化的架构选项，可多次使用
                          支持: amd64, arm64, armv7
-  --api-url URL          前端连接后端的API地址（构建时注入）
+  --api-url URL          （已废弃）前端 API 地址现在通过容器环境变量运行时注入
   --backend-only         只处理后端镜像
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
@@ -159,7 +162,8 @@ show_usage() {
   --native-only          只处理 Native 运行镜像
   --all                  构建所有镜像（核心部署镜像 + agent runtime 镜像）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
-  --mirror MIRROR        使用国内镜像源加速基础镜像（aliyun, tencent, huawei, docker-cn）
+  --mirror MIRROR        使用国内镜像源加速（aliyun, tencent, huawei, daocloud）
+                         同时设置 BASE_IMAGE_REGISTRY 和 DOCKER_MIRROR
   --pip-mirror MIRROR    使用国内 pip 镜像源（aliyun, tencent, huawei, jd）
 
 环境变量:
@@ -173,14 +177,11 @@ show_usage() {
   NATIVE_IMAGE           Native 运行镜像名称（默认: joysafeter-native）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
-  NEXT_PUBLIC_API_URL    前端API地址（默认优先使用 BACKEND_URL 或 http://localhost:8000）
   PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
-  RUST_BUILDER_IMAGE     runner 编译镜像（默认: public.ecr.aws/docker/library/rust:1-bookworm）
-  BASE_IMAGE_REGISTRY    基础镜像仓库前缀（默认: public.ecr.aws/docker/library/）
-  LOCAL_OFFICIAL_IMAGE_REGISTRY 本地 compose 基础镜像源（默认: public.ecr.aws/docker/library/）
-  LOCAL_RUST_IMAGE       本地 compose Rust builder 镜像（默认: public.ecr.aws/docker/library/rust:1-bookworm）
-  LOCAL_RUNTIME_IMAGE    本地 compose Rust runtime 镜像（默认: public.ecr.aws/docker/library/debian:bookworm-slim）
+  RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
+  BASE_IMAGE_REGISTRY    官方库镜像前缀（默认: public.ecr.aws/docker/library/）
+  DOCKER_MIRROR          第三方镜像代理前缀（默认: docker.m.daocloud.io）
   SKILLSPECTOR_SOURCE_PATH SkillSpector 源码路径（local 默认: ../.deps/SkillSpector）
   SKILLSPECTOR_REPO_URL    SkillSpector 缺失时克隆的仓库地址
   NO_CACHE               是否禁用构建缓存（默认: false，使用缓存）
@@ -217,8 +218,8 @@ show_usage() {
   # 构建指定架构并推送
   $0 push --arch amd64 --arch arm64
 
-  # 构建时指定前端API地址
-  $0 build --api-url http://api.example.com
+  # 构建时指定镜像源
+  $0 build --mirror aliyun
 
   # 使用国内镜像源加速构建
   $0 build --mirror huawei --pip-mirror aliyun
@@ -272,8 +273,107 @@ compose() {
         docker-compose "$@"
     else
         log_error "docker compose / docker-compose 均不可用"
+        suggest_compose_install
         exit 1
     fi
+}
+
+suggest_compose_install() {
+    local host_os
+    host_os="$(uname -s 2>/dev/null || echo unknown)"
+
+    case "$host_os" in
+        Darwin)
+            log_error "macOS 安装方法:"
+            if command -v brew >/dev/null 2>&1; then
+                log_error "  brew install docker-compose"
+                local brew_prefix
+                brew_prefix="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+                log_error "  安装后需在 ~/.docker/config.json 中添加:"
+                log_error "    \"cliPluginsExtraDirs\": [\"${brew_prefix}/lib/docker/cli-plugins\"]"
+            else
+                log_error "  方式 1: 安装 Docker Desktop for Mac（自带 compose 插件）"
+                log_error "  方式 2: 手动安装插件:"
+                log_error "    mkdir -p ~/.docker/cli-plugins"
+                local arch_suffix
+                arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/arm64/aarch64/')"
+                log_error "    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-darwin-${arch_suffix} -o ~/.docker/cli-plugins/docker-compose"
+                log_error "    chmod +x ~/.docker/cli-plugins/docker-compose"
+            fi
+            ;;
+        Linux)
+            log_error "Linux 安装方法:"
+            if command -v apt-get >/dev/null 2>&1; then
+                log_error "  sudo apt-get update && sudo apt-get install -y docker-compose-plugin"
+            elif command -v dnf >/dev/null 2>&1; then
+                log_error "  sudo dnf install -y docker-compose-plugin"
+            elif command -v yum >/dev/null 2>&1; then
+                log_error "  sudo yum install -y docker-compose-plugin"
+            elif command -v pacman >/dev/null 2>&1; then
+                log_error "  sudo pacman -S docker-compose"
+            else
+                log_error "  通过包管理器安装 docker-compose-plugin，或手动安装:"
+            fi
+            log_error "  或手动安装插件:"
+            log_error "    mkdir -p ~/.docker/cli-plugins"
+            local arch_suffix
+            arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/aarch64/aarch64/; s/armv7l/armv7/')"
+            log_error "    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${arch_suffix} -o ~/.docker/cli-plugins/docker-compose"
+            log_error "    chmod +x ~/.docker/cli-plugins/docker-compose"
+            ;;
+        *)
+            log_error "请参考 https://docs.docker.com/compose/install/ 安装 Docker Compose"
+            ;;
+    esac
+}
+
+suggest_buildx_install() {
+    local host_os
+    host_os="$(uname -s 2>/dev/null || echo unknown)"
+
+    case "$host_os" in
+        Darwin)
+            log_error "macOS 安装方法:"
+            if command -v brew >/dev/null 2>&1; then
+                log_error "  brew install docker-buildx"
+                local brew_prefix
+                brew_prefix="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+                log_error "  安装后需在 ~/.docker/config.json 中添加:"
+                log_error "    \"cliPluginsExtraDirs\": [\"${brew_prefix}/lib/docker/cli-plugins\"]"
+            else
+                log_error "  方式 1: 安装 Docker Desktop for Mac（自带 buildx 插件）"
+                log_error "  方式 2: 手动安装插件:"
+                log_error "    mkdir -p ~/.docker/cli-plugins"
+                local arch_suffix
+                arch_suffix="$(uname -m | sed 's/x86_64/amd64/; s/arm64/arm64/')"
+                log_error "    curl -SL https://github.com/docker/buildx/releases/latest/download/buildx-v\$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep tag_name | cut -d'\"' -f4 | tr -d v).darwin-${arch_suffix} -o ~/.docker/cli-plugins/docker-buildx"
+                log_error "    chmod +x ~/.docker/cli-plugins/docker-buildx"
+            fi
+            ;;
+        Linux)
+            log_error "Linux 安装方法:"
+            if command -v apt-get >/dev/null 2>&1; then
+                log_error "  sudo apt-get update && sudo apt-get install -y docker-buildx-plugin"
+            elif command -v dnf >/dev/null 2>&1; then
+                log_error "  sudo dnf install -y docker-buildx-plugin"
+            elif command -v yum >/dev/null 2>&1; then
+                log_error "  sudo yum install -y docker-buildx-plugin"
+            elif command -v pacman >/dev/null 2>&1; then
+                log_error "  sudo pacman -S docker-buildx"
+            else
+                log_error "  通过包管理器安装 docker-buildx-plugin，或手动安装:"
+            fi
+            log_error "  或手动安装插件:"
+            log_error "    mkdir -p ~/.docker/cli-plugins"
+            local arch_suffix
+            arch_suffix="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/; s/armv7l/arm-v7/')"
+            log_error "    curl -SL https://github.com/docker/buildx/releases/latest/download/buildx-v\$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep tag_name | cut -d'\"' -f4 | tr -d v).linux-${arch_suffix} -o ~/.docker/cli-plugins/docker-buildx"
+            log_error "    chmod +x ~/.docker/cli-plugins/docker-buildx"
+            ;;
+        *)
+            log_error "请参考 https://docs.docker.com/build/install-buildx/ 安装 Docker Buildx"
+            ;;
+    esac
 }
 
 ensure_env_file() {
@@ -394,21 +494,42 @@ detect_docker_socket_path() {
     # 未检测到本地 socket（例如远程 DOCKER_HOST）。不输出，由调用方给出告警。
 }
 
+skillspector_source_valid() {
+    local path="$1"
+    [ -d "$path" ] && [ -f "$path/pyproject.toml" ] && [ -d "$path/src" ]
+}
+
+clone_skillspector() {
+    local dest="$1"
+    check_command git || exit 1
+    if [ -d "$dest" ]; then
+        rm -rf "$dest"
+    fi
+    mkdir -p "$(dirname "$dest")"
+    log_info "克隆 SkillSpector: $SKILLSPECTOR_REPO_URL -> $dest"
+    git clone --depth 1 "$SKILLSPECTOR_REPO_URL" "$dest"
+}
+
 ensure_skillspector_source() {
     local deploy_env="$1"
     local configured_path="${SKILLSPECTOR_SOURCE_PATH:-$(read_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH")}"
 
-    if [ -n "$configured_path" ] && compose_path_exists "$configured_path"; then
-        set_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH" "$configured_path"
-        log_success "SkillSpector 源码: $configured_path"
-        return
+    if [ -n "$configured_path" ]; then
+        local resolved_path
+        case "$configured_path" in
+            /*) resolved_path="$configured_path" ;;
+            *)  resolved_path="$SCRIPT_DIR/$configured_path" ;;
+        esac
+        if skillspector_source_valid "$resolved_path"; then
+            set_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH" "$configured_path"
+            log_success "SkillSpector 源码: $configured_path"
+            return
+        fi
+        log_warning "配置的 SkillSpector 路径无效（缺少 pyproject.toml 或 src/）: $resolved_path"
     fi
 
-    if [ ! -d "$DEFAULT_SKILLSPECTOR_SOURCE_PATH" ]; then
-        check_command git || exit 1
-        mkdir -p "$PROJECT_ROOT/.deps"
-        log_info "未找到 SkillSpector 源码，开始克隆: $SKILLSPECTOR_REPO_URL"
-        git clone "$SKILLSPECTOR_REPO_URL" "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
+    if ! skillspector_source_valid "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"; then
+        clone_skillspector "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
     fi
 
     set_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH" "../.deps/SkillSpector"
@@ -456,9 +577,9 @@ validate_local_compose_config() {
     (
         cd "$SCRIPT_DIR"
         DOCKER_DEFAULT_PLATFORM="$PLATFORMS" \
-        BASE_IMAGE_REGISTRY="$LOCAL_OFFICIAL_IMAGE_REGISTRY" \
-        RUST_IMAGE="$LOCAL_RUST_IMAGE" \
-        RUNTIME_IMAGE="$LOCAL_RUNTIME_IMAGE" \
+        BASE_IMAGE_REGISTRY="$BASE_IMAGE_REGISTRY" \
+        RUST_IMAGE="$RUST_IMAGE" \
+        RUNTIME_IMAGE="$RUNTIME_IMAGE" \
         compose --profile local-redis --profile rust-orchestrator config >/dev/null
     )
     log_success "Compose 配置预检通过"
@@ -466,9 +587,9 @@ validate_local_compose_config() {
 
 compose_local_env() {
     DOCKER_DEFAULT_PLATFORM="$PLATFORMS" \
-    BASE_IMAGE_REGISTRY="$LOCAL_OFFICIAL_IMAGE_REGISTRY" \
-    RUST_IMAGE="$LOCAL_RUST_IMAGE" \
-    RUNTIME_IMAGE="$LOCAL_RUNTIME_IMAGE" \
+    BASE_IMAGE_REGISTRY="$BASE_IMAGE_REGISTRY" \
+    RUST_IMAGE="$RUST_IMAGE" \
+    RUNTIME_IMAGE="$RUNTIME_IMAGE" \
     COMPOSE_BAKE="${COMPOSE_BAKE:-false}" \
     compose "$@"
 }
@@ -496,7 +617,6 @@ build_local_compose_images() {
 
     log_info "构建本地 Compose 核心服务镜像..."
     (
-        BASE_IMAGE_REGISTRY="$LOCAL_OFFICIAL_IMAGE_REGISTRY"
         PUSH=false
         BACKEND_ONLY=false
         FRONTEND_ONLY=false
@@ -542,7 +662,7 @@ run_local_migrations() {
     (
         cd "$SCRIPT_DIR"
         log_info "启动数据库、Redis、SkillSpector 基础服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build db redis skillspector
+        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build postgres redis skillspector
 
         wait_for_local_redis
 
@@ -566,11 +686,12 @@ configure_local_compose_env() {
     ensure_env_file "$PROJECT_ROOT/backend/.env" "$PROJECT_ROOT/backend/env.example"
     ensure_env_file "$PROJECT_ROOT/frontend/.env" "$PROJECT_ROOT/frontend/env.example"
 
-    set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$LOCAL_OFFICIAL_IMAGE_REGISTRY"
-    set_env_value "$deploy_env" "RUST_IMAGE" "$LOCAL_RUST_IMAGE"
-    set_env_value "$deploy_env" "RUNTIME_IMAGE" "$LOCAL_RUNTIME_IMAGE"
-    set_env_value "$deploy_env" "DB_IMAGE" "${DB_IMAGE:-public.ecr.aws/docker/library/postgres:15}"
-    set_env_value "$deploy_env" "REDIS_IMAGE" "${REDIS_IMAGE:-public.ecr.aws/docker/library/redis:alpine3.22}"
+    set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$BASE_IMAGE_REGISTRY"
+    set_env_value "$deploy_env" "RUST_IMAGE" "$RUST_IMAGE"
+    set_env_value "$deploy_env" "RUNTIME_IMAGE" "$RUNTIME_IMAGE"
+    set_env_value "$deploy_env" "DB_IMAGE" "${DB_IMAGE:-${BASE_IMAGE_REGISTRY}postgres:15}"
+    set_env_value "$deploy_env" "REDIS_IMAGE" "${REDIS_IMAGE:-${BASE_IMAGE_REGISTRY}redis:alpine3.22}"
+    set_env_value "$deploy_env" "JOYSAFETER_ENVOY_IMAGE" "${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR}/envoyproxy/envoy:v1.37.1}"
     set_env_value "$deploy_env" "DOCKER_DEFAULT_PLATFORM" "$PLATFORMS"
 
     ensure_skillspector_source "$deploy_env"
@@ -595,9 +716,8 @@ run_local_compose() {
     validate_local_compose_config
 
     log_info "Docker daemon 平台: $PLATFORMS"
-    log_info "本地部署基础镜像源: $LOCAL_OFFICIAL_IMAGE_REGISTRY"
-    log_info "Rust builder 镜像: $LOCAL_RUST_IMAGE"
-    log_info "Rust runtime 镜像: $LOCAL_RUNTIME_IMAGE"
+    log_info "基础镜像源: $BASE_IMAGE_REGISTRY"
+    log_info "第三方镜像代理: $DOCKER_MIRROR"
 
     build_local_compose_images
     run_local_migrations
@@ -669,7 +789,8 @@ init_buildx() {
         log_info "检查 Docker Buildx..."
 
         if ! docker buildx version &> /dev/null; then
-            log_warning "Docker Buildx 不可用，回退到传统构建方式"
+            log_warning "Docker Buildx 不可用，回退到传统构建方式（SkillSpector 等需要 Buildx 的镜像将无法构建）"
+            suggest_buildx_install
             USE_BUILDX=false
             return
         fi
@@ -772,13 +893,8 @@ build_image() {
         build_args+=("--build-arg" "UV_INDEX_URL=$UV_INDEX_URL")
     fi
 
-    # 前端镜像需要传递 NEXT_PUBLIC_API_URL
+    # 前端镜像：NEXT_PUBLIC_* 通过 next-runtime-env 在容器启动时注入，无需 build-arg
     if [ "$service" = "前端" ]; then
-        if [ -n "$FRONTEND_API_URL" ]; then
-            build_args+=("--build-arg" "NEXT_PUBLIC_API_URL=$FRONTEND_API_URL")
-            log_info "前端API地址: $FRONTEND_API_URL"
-        fi
-
         # 使用标准多架构 Node 镜像
         local node_version="20-alpine"
         build_args+=("--build-arg" "NODE_VERSION=${node_version}")
@@ -795,10 +911,10 @@ build_image() {
     fi
 
     if [ "$service" = "Rust Orchestrator" ]; then
-        build_args+=("--build-arg" "RUST_IMAGE=${LOCAL_RUST_IMAGE}")
-        build_args+=("--build-arg" "RUNTIME_IMAGE=${LOCAL_RUNTIME_IMAGE}")
-        log_info "Rust builder 镜像: ${LOCAL_RUST_IMAGE}"
-        log_info "Rust runtime 镜像: ${LOCAL_RUNTIME_IMAGE}"
+        build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
+        build_args+=("--build-arg" "RUNTIME_IMAGE=${RUNTIME_IMAGE}")
+        log_info "Rust builder 镜像: ${RUST_IMAGE}"
+        log_info "Rust runtime 镜像: ${RUNTIME_IMAGE}"
     fi
 
     # 推送前再次检查 BuildKit 容器 DNS 连通性
@@ -940,19 +1056,17 @@ ensure_skillspector_source_for_build() {
     local source_path
     source_path="$(resolve_skillspector_source_path)"
 
-    if [ -d "$source_path" ]; then
+    if skillspector_source_valid "$source_path"; then
         echo "$source_path"
         return
     fi
 
     if [ -n "${SKILLSPECTOR_SOURCE_PATH:-}" ]; then
-        log_error "SkillSpector 源码路径不存在: $source_path"
+        log_error "SkillSpector 源码路径无效（缺少 pyproject.toml 或 src/）: $source_path"
         exit 1
     fi
 
-    log_info "未找到 SkillSpector 源码，开始克隆: $SKILLSPECTOR_REPO_URL"
-    mkdir -p "$(dirname "$DEFAULT_SKILLSPECTOR_SOURCE_PATH")"
-    git clone "$SKILLSPECTOR_REPO_URL" "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
+    clone_skillspector "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
     echo "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
 }
 
@@ -1015,7 +1129,7 @@ ensure_runtime_runner_binary() {
         --platform "$platform" \
         -v "$PROJECT_ROOT:/workspace" \
         -w /workspace/sandbox-runner \
-        "$RUST_BUILDER_IMAGE" \
+        "$RUST_IMAGE" \
         bash -lc "export PATH=/usr/local/cargo/bin:\$PATH && apt-get update && apt-get install -y --no-install-recommends protobuf-compiler pkg-config && if command -v rustup >/dev/null 2>&1; then rustup target add $target; fi && cargo build --release --target $target -p joysafeter-runner && mkdir -p /workspace/target/$target/release && cp target/$target/release/joysafeter-runner /workspace/target/$target/release/joysafeter-runner"
     chmod +x "$output"
     log_success "runner 二进制编译完成: $output"
@@ -1203,6 +1317,7 @@ build_all_images() {
     if [ "$BUILD_SKILLSPECTOR" = true ]; then
         if [ "$USE_BUILDX" != true ]; then
             log_error "SkillSpector 镜像构建需要 Docker Buildx，以传入 skillspector named build context"
+            suggest_buildx_install
             exit 1
         fi
         local skillspector_source_path
@@ -1427,27 +1542,35 @@ main() {
                 shift 2
                 ;;
             --api-url)
-                FRONTEND_API_URL="$2"
+                # 已废弃：NEXT_PUBLIC_* 通过 next-runtime-env 运行时注入，不再需要 build-arg
+                log_info "警告: --api-url 已废弃，NEXT_PUBLIC_API_URL 现在通过容器环境变量运行时注入"
                 shift 2
                 ;;
             --mirror)
                 case "$2" in
                     aliyun)
                         BASE_IMAGE_REGISTRY="registry.cn-hangzhou.aliyuncs.com/library/"
+                        DOCKER_MIRROR="registry.cn-hangzhou.aliyuncs.com"
                         ;;
                     tencent)
                         BASE_IMAGE_REGISTRY="ccr.ccs.tencentyun.com/library/"
+                        DOCKER_MIRROR="ccr.ccs.tencentyun.com"
                         ;;
                     huawei)
                         BASE_IMAGE_REGISTRY="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
+                        DOCKER_MIRROR="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io"
                         ;;
-                    docker-cn)
-                        BASE_IMAGE_REGISTRY="docker.mirrors.ustc.edu.cn/library/"
+                    daocloud)
+                        BASE_IMAGE_REGISTRY="docker.m.daocloud.io/library/"
+                        DOCKER_MIRROR="docker.m.daocloud.io"
                         ;;
                     *)
                         BASE_IMAGE_REGISTRY="$2"
+                        DOCKER_MIRROR="${2%/}"
                         ;;
                 esac
+                RUST_IMAGE="${BASE_IMAGE_REGISTRY}rust:1-bookworm"
+                RUNTIME_IMAGE="${BASE_IMAGE_REGISTRY}debian:bookworm-slim"
                 shift 2
                 ;;
             --pip-mirror)

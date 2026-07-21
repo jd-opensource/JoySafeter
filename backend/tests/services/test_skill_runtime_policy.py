@@ -31,6 +31,9 @@ from app.joysafeter_domain.services.joysafeter_skill_security import (
 )
 
 
+pytestmark = pytest.mark.no_db
+
+
 def _hash_for(*, name="t", description="d", content="c", tags=None, license=None, files=None):
     """Compute the canonical scan hash the gate compares against."""
     tags = tags or []

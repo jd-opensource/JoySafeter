@@ -12,14 +12,18 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
+from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterUpdateAgentRequest,
 )
+from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.utils.datetime import utc_now  # noqa: E402
 
 
@@ -58,6 +62,78 @@ class JoySafeterAgentService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    def _skill_ref_id(self, item: Any) -> Optional[uuid.UUID]:
+        value = getattr(item, "skill_id", None)
+        if value is None and isinstance(item, dict):
+            value = item.get("skill_id")
+        if not value:
+            return None
+        try:
+            return uuid.UUID(str(value).removeprefix("skill_"))
+        except ValueError as exc:
+            raise InvalidRequestError(
+                "Invalid skill reference id",
+                code="AGENT_SKILL_REF_INVALID",
+                data={"skill_id": str(value)},
+            ) from exc
+
+    def _skill_ref_version(self, item: Any) -> str:
+        value = getattr(item, "version", None)
+        if value is None and isinstance(item, dict):
+            value = item.get("version")
+        normalized = str(value or "latest").strip()
+        return normalized or "latest"
+
+    async def _validate_skill_refs(self, skills: list[Any], project_id: Optional[str]) -> None:
+        ref_items = [
+            (skill_id, self._skill_ref_version(item))
+            for item in skills
+            for skill_id in [self._skill_ref_id(item)]
+            if skill_id is not None
+        ]
+        refs = [skill_id for skill_id, _version in ref_items]
+        if not refs:
+            return
+        unique_refs = list(dict.fromkeys(refs))
+        query = select(JoySafeterSkill).where(JoySafeterSkill.id.in_(unique_refs))
+        if project_id is not None:
+            query = query.where(JoySafeterSkill.project_id == project_id)
+        result = await self.db.execute(query)
+        skills_by_id = {skill.id: skill for skill in result.scalars().all()}
+        missing = [str(skill_id) for skill_id in unique_refs if skill_id not in skills_by_id]
+        if missing:
+            raise InvalidRequestError(
+                "Agent references skills that do not exist in this project",
+                code="AGENT_SKILL_REF_NOT_FOUND",
+                data={"skill_ids": missing},
+            )
+
+        version_repo = SkillVersionRepository(self.db)
+        latest_ref_ids = list(dict.fromkeys(skill_id for skill_id, version in ref_items if version == "latest"))
+        latest_map = await version_repo.latest_version_map(latest_ref_ids)
+        invalid = []
+        for skill_id, version in ref_items:
+            skill = skills_by_id[skill_id]
+            if version == "draft":
+                invalid.append({"skill_id": str(skill_id), "version": version, "reason": "draft_not_allowed"})
+            elif version == "latest" and not latest_map.get(skill_id):
+                invalid.append({"skill_id": str(skill_id), "reason": "no_published_version"})
+            elif version != "latest" and not await version_repo.get_by_version(skill_id, version):
+                invalid.append({"skill_id": str(skill_id), "version": version, "reason": "version_not_found"})
+            else:
+                # Agents reference published (frozen) versions, so skip the
+                # draft-content drift check that is_skill_usable performs —
+                # only verify lifecycle + security status + scan-hash presence.
+                usable, reason = is_skill_usable(skill, check_drift=False)
+                if not usable:
+                    invalid.append({"skill_id": str(skill_id), "reason": reason})
+        if invalid:
+            raise InvalidRequestError(
+                "Agent can only reference published, runtime-ready skills",
+                code="AGENT_SKILL_REF_NOT_RUNTIME_READY",
+                data={"skills": invalid},
+            )
+
     async def _count_active_tasks_for_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> int:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return 0
@@ -76,6 +152,7 @@ class JoySafeterAgentService:
     async def create_agent(
         self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
     ) -> JoySafeterAgent:
+        await self._validate_skill_refs(list(req.skills or []), project_id)
         model_data = None
         if req.model:
             model_data = req.model if isinstance(req.model, str) else req.model.model_dump()
@@ -192,6 +269,7 @@ class JoySafeterAgentService:
             new_skills = req.skills if req.skills is not None else cur_skills
             new_agents = req.agents if req.agents is not None else cur_agents
             new_commands = req.commands if req.commands is not None else cur_commands
+            await self._validate_skill_refs(list(new_skills or []), project_id)
             merged = _merge_packed_items(new_skills, new_agents, new_commands)
             if merged != (agent.skills or []):
                 agent.skills = merged

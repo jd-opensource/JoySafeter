@@ -15,7 +15,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, List, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -184,6 +184,8 @@ class JoySafeterSkill(BaseModel):
     # off the ORM mapper while making ``getattr(skill, "latest_version")``
     # safe even on rows that were never passed through the attach step.
     latest_version: ClassVar[Optional[str]] = None
+    runtime_eligibility: ClassVar[Optional[dict[str, Any]]] = None
+    impact: ClassVar[Optional[dict[str, Any]]] = None
 
     __table_args__ = (
         UniqueConstraint("owner_id", "name", name="skills_owner_name_unique"),
@@ -454,6 +456,20 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
     # Nullable for legacy ``tar_gz_b64`` direct-packed sessions where
     # there is no DB-side skill version.
     skill_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    skill_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Immutable runtime snapshot fields. The FK above may be SET NULL on
+    # deletion and the Skill row may be renamed later; these fields preserve
+    # what the sandbox actually loaded at the time of execution.
+    skill_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    skill_source_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    target: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    security_scan_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    target_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    artifact_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # Which session loaded this skill. String not UUID because session
     # ids in v2 are JoySafeter-managed strings.
@@ -482,6 +498,27 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
         Index(
             "skill_usage_log_skill_created_idx",
             "skill_id",
+            "created_at",
+        ),
+        Index("skill_usage_log_artifact_hash_idx", "artifact_hash"),
+        Index("skill_usage_log_target_hash_idx", "target_hash"),
+        Index("skill_usage_log_security_scan_idx", "security_scan_id"),
+        Index(
+            "skill_usage_log_project_artifact_created_idx",
+            "project_id",
+            "artifact_hash",
+            "created_at",
+        ),
+        Index(
+            "skill_usage_log_project_target_created_idx",
+            "project_id",
+            "target_hash",
+            "created_at",
+        ),
+        Index(
+            "skill_usage_log_project_scan_created_idx",
+            "project_id",
+            "security_scan_id",
             "created_at",
         ),
         # Less hot: project-level audit roll-ups.

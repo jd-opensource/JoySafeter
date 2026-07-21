@@ -90,8 +90,10 @@ Browser
 - API：`http://localhost:8000`
 - API 文档：`http://localhost:8000/docs`
 
-`deploy/.env` 中的 `BACKEND_URL` 会注入前端为 `NEXT_PUBLIC_API_URL`，`FRONTEND_URL`
+`deploy/.env` 中的 `BACKEND_URL` 会在容器运行时注入前端为 `NEXT_PUBLIC_API_URL`，`FRONTEND_URL`
 会注入为 `NEXT_PUBLIC_APP_URL`；上线时这两个值必须改成浏览器能访问的真实 HTTPS 地址。
+
+环境变量按"唯一真相源"管理：`backend/env.example` 定义后端所有变量，`frontend/env.example` 定义前端所有变量，`deploy/.env.example` 只列出部署差异覆盖项。新增变量只需改对应的 `env.example`。
 
 常用命令：
 
@@ -120,7 +122,7 @@ docker compose down
 | `--platform linux/amd64,linux/arm64` | `build`、`push` | 构建多架构 manifest |
 | `--backend-only` / `--frontend-only` / `--orchestrator-only` / `--skillspector-only` | `build`、`push`、`pull` | 只处理单类核心部署镜像 |
 | `--runtime-only` / `--claudecode-only` / `--codex-only` / `--native-only` | `build`、`push`、`pull` | 只处理 agent runtime 镜像 |
-| `--api-url URL` | `build`、`push` | 构建前端镜像时注入 API 地址 |
+| `--api-url URL` | `build`、`push` | （已废弃）前端 API 地址现在通过容器环境变量运行时注入 |
 | `--no-cache` | `build`、`push` | 禁用 Docker 构建缓存 |
 | `--mirror MIRROR` | `build`、`push` | 只用于手工镜像构建；本地 `local` 默认使用 `public.ecr.aws/docker/library/` 多架构基础镜像 |
 | `--pip-mirror MIRROR` | `build`、`push` | 切换 Python 包下载镜像 |

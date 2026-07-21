@@ -141,6 +141,24 @@ export interface SessionEvent {
   _collapsedCount?: number
 }
 
+export interface SessionSkillUsage {
+  id: string
+  skill_id?: string | null
+  skill_name?: string | null
+  skill_source_type?: string | null
+  skill_version?: string | null
+  skill_version_id?: string | null
+  target?: string | null
+  security_scan_id?: string | null
+  target_hash?: string | null
+  artifact_hash?: string | null
+  session_id?: string | null
+  agent_id?: string | null
+  project_id?: string | null
+  user_id?: string | null
+  created_at: string
+}
+
 export interface EnvironmentNetworking {
   type: string
   allowed_hosts?: string[]
@@ -322,6 +340,30 @@ export type PromotableTier = Exclude<SkillVisibility, 'project'>
 
 export type SkillLifecycleStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'archived'
 
+export interface SkillRuntimeEligibility {
+  usable: boolean
+  reason: string | null
+  user_message: string
+  next_action: string
+}
+
+export interface SkillImpactSummary {
+  counts: {
+    agents: number
+    agent_versions: number
+    schedules: number
+    active_tasks: number
+    total: number
+  }
+  references: Array<{
+    type: string
+    id: string
+    name: string
+    version?: string | null
+    status?: string | null
+  }>
+}
+
 export interface SkillRecord {
   id: string
   display_title?: string
@@ -346,6 +388,8 @@ export interface SkillRecord {
   created_at: string
   updated_at: string
   security_scan?: SkillSecurityScanSummary
+  runtime_eligibility?: SkillRuntimeEligibility | null
+  impact?: SkillImpactSummary | null
 }
 
 export interface SkillVersionRecord {

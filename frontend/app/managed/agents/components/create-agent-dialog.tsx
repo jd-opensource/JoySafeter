@@ -31,6 +31,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import type { SkillRuntimeEligibility } from '@/types/managed'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -66,6 +67,15 @@ interface SkillListItem {
   // Agents can only reference published skills, so the picker hides rows
   // without a published version.
   latest_version?: string | null
+  runtime_eligibility?: SkillRuntimeEligibility | null
+}
+
+function skillUnavailableReason(skill: SkillListItem): string | null {
+  if (!skill.latest_version) return 'no_published_version'
+  if (skill.runtime_eligibility && !skill.runtime_eligibility.usable) {
+    return skill.runtime_eligibility.reason || 'runtime_not_ready'
+  }
+  return null
 }
 
 interface EnvironmentListItem {
@@ -121,9 +131,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         '/skills',
         managedRequestOptions(managedScope),
       )
-      // Agents can only reference *published* skills — hide draft-only
-      // skills (no published version yet) from the picker entirely.
-      return (res.data || []).filter((s) => !!s.latest_version)
+      return res.data || []
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
@@ -658,7 +666,10 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               <div className="space-y-2">
                 {skills.map((skill) => {
                   const isSelected = effectiveSelectedSkillIds.has(skill.id)
+                  const unavailableReason = skillUnavailableReason(skill)
+                  const unavailable = unavailableReason !== null
                   const toggle = () => {
+                    if (unavailable) return
                     setSelectedSkillIds((prev) => {
                       const next = new Set(prev)
                       if (next.has(skill.id)) next.delete(skill.id)
@@ -668,7 +679,19 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   }
                   return (
                     <div key={skill.id} className="flex items-center gap-2">
-                      <label className="flex min-w-0 flex-1 cursor-pointer select-none items-center gap-2">
+                      <label
+                        className={`flex min-w-0 flex-1 select-none items-center gap-2 ${
+                          unavailable ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                        }`}
+                        title={
+                          unavailable
+                            ? t('managed.agents.create.skillUnavailable', {
+                                reason: unavailableReason,
+                                defaultValue: `Skill is not runtime-ready: ${unavailableReason}`,
+                              })
+                            : undefined
+                        }
+                      >
                         <span
                           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
                             isSelected
@@ -696,6 +719,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                         <span className="truncate text-sm text-foreground" onClick={toggle}>
                           {skill.name || skill.id}
                         </span>
+                        {unavailable && (
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
+                            {unavailableReason}
+                          </span>
+                        )}
                       </label>
                       {isSelected && (
                         <SkillVersionSelect

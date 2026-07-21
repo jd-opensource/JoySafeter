@@ -616,6 +616,12 @@ class SkillSecurityService:
 
     def apply_latest_scan(self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan) -> None:
         """Copy the latest scan summary onto the skill row for list/detail APIs."""
+        if (
+            skill.security_scanned_at is not None
+            and isinstance(scan.created_at, datetime)
+            and scan.created_at < skill.security_scanned_at
+        ):
+            return
         skill.security_status = scan.status
         skill.security_score = scan.score
         skill.security_severity = scan.severity
@@ -650,6 +656,8 @@ class SkillSecurityService:
             changed = True
         if changed:
             skill.visibility = _recompute_visibility_from_pointers(skill)
+        if skill.lifecycle_status == JoySafeterSkillLifecycleStatus.APPROVED.value:
+            skill.lifecycle_status = JoySafeterSkillLifecycleStatus.DRAFT.value
 
     def files_from_skill(self, skill: JoySafeterSkill) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -1043,12 +1051,15 @@ treated as "no scan completed" until SkillSpector returns.
 _RUNTIME_ALLOWED_SECURITY_STATUSES = frozenset({"passed", "warning"})
 
 
-def is_skill_usable(skill: JoySafeterSkill) -> tuple[bool, Optional[str]]:
+def is_skill_usable(skill: JoySafeterSkill, *, check_drift: bool = True) -> tuple[bool, Optional[str]]:
     """Return whether a skill row may be packed into a running session.
 
     :param skill: A ``Skill`` row already loaded with its ``files``
         relationship (the drift check needs the file contents to recompute
         ``target_hash``).
+    :param check_drift: When ``False``, skip the content-drift gate. Use
+        this when validating references to frozen published versions whose
+        content cannot drift.
     :returns: ``(True, None)`` when every gate passes, otherwise
         ``(False, reason)`` where ``reason`` is a stable machine code the
         loader can log or surface to the caller. Codes:
@@ -1067,10 +1078,10 @@ def is_skill_usable(skill: JoySafeterSkill) -> tuple[bool, Optional[str]]:
     if skill.lifecycle_status != "approved":
         return False, "skill_not_approved"
 
-    return scan_ok(skill)
+    return scan_ok(skill, check_drift=check_drift)
 
 
-def scan_ok(skill: JoySafeterSkill) -> tuple[bool, Optional[str]]:
+def scan_ok(skill: JoySafeterSkill, *, check_drift: bool = True) -> tuple[bool, Optional[str]]:
     """Whether a skill's security verdict is clean and non-drifted.
 
     This is :func:`is_skill_usable` MINUS its ``lifecycle_status == 'approved'``
@@ -1093,6 +1104,9 @@ def scan_ok(skill: JoySafeterSkill) -> tuple[bool, Optional[str]]:
 
     if not skill.security_scan_hash:
         return False, "no_security_scan_hash"
+
+    if not check_drift:
+        return True, None
 
     # Drift gate: recompute the canonical hash from the skill's current
     # content and compare to whatever the last scan locked in. ``build_scan_files``
@@ -1309,7 +1323,17 @@ class SkillPacker:
             return None
 
         tar_data = self._create_targz(skill.files, root_dir=skill.name)
-        await self._record_usage(skill_id=skill.id, skill_version="draft")
+        await self._record_usage(
+            skill_id=skill.id,
+            skill_name=skill.name,
+            skill_source_type=skill.source_type,
+            skill_version="draft",
+            skill_version_id=None,
+            security_scan_id=skill.security_scan_id,
+            target_hash=skill.security_scan_hash,
+            artifact_hash=hashlib.sha256(tar_data).hexdigest(),
+            target=target,
+        )
         return SkillArchive(name=skill.name, data=tar_data, target=target)
 
     async def _pack_version(self, skill_id: uuid.UUID, version: str, target: str) -> Optional[SkillArchive]:
@@ -1327,7 +1351,7 @@ class SkillPacker:
         owner_query = sa_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id)
         if self._project_id:
             owner_query = owner_query.where(JoySafeterSkill.project_id == self._project_id)
-        owner_check = await self.db.execute(owner_query.options(selectinload(JoySafeterSkill.files)))
+        owner_check = await self.db.execute(owner_query)
         parent_skill = owner_check.scalar_one_or_none()
         if not parent_skill:
             if self._project_id:
@@ -1336,7 +1360,7 @@ class SkillPacker:
                 logger.warning("Skill %s not found", skill_id)
             return None
 
-        usable, reason = is_skill_usable(parent_skill)
+        usable, reason = is_skill_usable(parent_skill, check_drift=False)
         if not usable:
             logger.warning(
                 "Skill %s (%s) version %s refused by runtime gate: %s",
@@ -1362,7 +1386,17 @@ class SkillPacker:
             return None
 
         tar_data = self._create_targz(sv.files, root_dir=parent_skill.name)
-        await self._record_usage(skill_id=skill_id, skill_version=version)
+        await self._record_usage(
+            skill_id=skill_id,
+            skill_name=parent_skill.name,
+            skill_source_type=parent_skill.source_type,
+            skill_version=version,
+            skill_version_id=sv.id,
+            security_scan_id=sv.security_scan_id or parent_skill.security_scan_id,
+            target_hash=sv.target_hash or parent_skill.security_scan_hash,
+            artifact_hash=hashlib.sha256(tar_data).hexdigest(),
+            target=target,
+        )
         return SkillArchive(name=parent_skill.name, data=tar_data, target=target)
 
     async def _record_usage(
@@ -1370,6 +1404,13 @@ class SkillPacker:
         *,
         skill_id: uuid.UUID,
         skill_version: Optional[str],
+        skill_name: Optional[str] = None,
+        skill_source_type: Optional[str] = None,
+        skill_version_id: Optional[uuid.UUID] = None,
+        security_scan_id: Optional[uuid.UUID] = None,
+        target_hash: Optional[str] = None,
+        artifact_hash: Optional[str] = None,
+        target: Optional[str] = None,
     ) -> None:
         """Append a row to ``joysafeter_skill_usage_log``.
 
@@ -1387,7 +1428,14 @@ class SkillPacker:
             self.db.add(
                 JoySafeterSkillUsageLog(
                     skill_id=skill_id,
+                    skill_name=skill_name,
+                    skill_source_type=skill_source_type,
                     skill_version=skill_version,
+                    skill_version_id=skill_version_id,
+                    target=target,
+                    security_scan_id=security_scan_id,
+                    target_hash=target_hash,
+                    artifact_hash=artifact_hash,
                     session_id=self._session_id,
                     agent_id=self._agent_id,
                     project_id=self._project_id,
@@ -1587,7 +1635,12 @@ async def run_scan_in_background(
                     await db.commit()
                 return
                 # Refresh the skill row with the latest verdict.
-            skill = await db.get(JoySafeterSkill, skill_id)
+            from sqlalchemy import select as _bg_select
+
+            _bg_result = await db.execute(
+                _bg_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id).with_for_update()
+            )
+            skill = _bg_result.scalar_one_or_none()
             if skill is None:
                 log_boundary_failure_loguru(
                     logger,
@@ -1670,7 +1723,10 @@ async def run_scan_in_background(
                 )
                 db.add(failed_scan)
                 await db.flush()
-                skill = await db.get(JoySafeterSkill, skill_id)
+                _fail_result = await db.execute(
+                    _bg_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id).with_for_update()
+                )
+                skill = _fail_result.scalar_one_or_none()
                 if skill and skill.security_status == "scanning":
                     svc.apply_latest_scan(skill, failed_scan)
                 await db.commit()
