@@ -616,6 +616,12 @@ class SkillSecurityService:
 
     def apply_latest_scan(self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan) -> None:
         """Copy the latest scan summary onto the skill row for list/detail APIs."""
+        if (
+            skill.security_scanned_at is not None
+            and isinstance(scan.created_at, datetime)
+            and scan.created_at < skill.security_scanned_at
+        ):
+            return
         skill.security_status = scan.status
         skill.security_score = scan.score
         skill.security_severity = scan.severity
@@ -650,6 +656,8 @@ class SkillSecurityService:
             changed = True
         if changed:
             skill.visibility = _recompute_visibility_from_pointers(skill)
+        if skill.lifecycle_status == JoySafeterSkillLifecycleStatus.APPROVED.value:
+            skill.lifecycle_status = JoySafeterSkillLifecycleStatus.DRAFT.value
 
     def files_from_skill(self, skill: JoySafeterSkill) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -1627,7 +1635,12 @@ async def run_scan_in_background(
                     await db.commit()
                 return
                 # Refresh the skill row with the latest verdict.
-            skill = await db.get(JoySafeterSkill, skill_id)
+            from sqlalchemy import select as _bg_select
+
+            _bg_result = await db.execute(
+                _bg_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id).with_for_update()
+            )
+            skill = _bg_result.scalar_one_or_none()
             if skill is None:
                 log_boundary_failure_loguru(
                     logger,
@@ -1710,7 +1723,10 @@ async def run_scan_in_background(
                 )
                 db.add(failed_scan)
                 await db.flush()
-                skill = await db.get(JoySafeterSkill, skill_id)
+                _fail_result = await db.execute(
+                    _bg_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id).with_for_update()
+                )
+                skill = _fail_result.scalar_one_or_none()
                 if skill and skill.security_status == "scanning":
                     svc.apply_latest_scan(skill, failed_scan)
                 await db.commit()

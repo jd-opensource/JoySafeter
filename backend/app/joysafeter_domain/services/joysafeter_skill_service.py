@@ -184,7 +184,7 @@ class SkillLifecycleService:
         current_user_id: str,
         to_status: str,
     ) -> LifecycleTransition:
-        skill = await self.skill_repo.get(skill_id)
+        skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundError(
                 "Skill not found",

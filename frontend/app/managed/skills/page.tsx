@@ -1968,6 +1968,18 @@ export default function SkillManagerPage() {
     },
   })
 
+  // When the detail query's security scan transitions from "scanning" to a
+  // terminal status, sync the list cache so the left-side badge updates.
+  const prevSecurityStatusRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const status = selectedSkill?.security_scan?.status
+    const prev = prevSecurityStatusRef.current
+    prevSecurityStatusRef.current = status
+    if (prev === 'scanning' && status && status !== 'scanning') {
+      queryClient.invalidateQueries({ queryKey: ['skills', managedScope.key] })
+    }
+  }, [selectedSkill?.security_scan?.status, queryClient, managedScope.key])
+
   const { data: skillFiles = [] } = useQuery({
     queryKey: ['skill-files', managedScope.key, selectedSkillId],
     queryFn: async () => {
