@@ -30,6 +30,10 @@ export function getSecretProviderLabel(provider?: string) {
   return 'Custom'
 }
 
+export function isCustomSecretProvider(provider?: string) {
+  return normalizeSecretProvider(provider) === 'custom'
+}
+
 export const SECRET_PROTOCOL_OPTIONS = [
   { value: 'anthropic_messages', label: 'Anthropic Messages API' },
   { value: 'openai_responses', label: 'OpenAI Responses API' },

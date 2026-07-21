@@ -204,11 +204,7 @@ impl SandboxProvider for DaytonaProvider {
         }
     }
 
-    async fn inject_files(
-        &self,
-        external_id: &str,
-        files: &[FileToInject],
-    ) -> anyhow::Result<()> {
+    async fn inject_files(&self, external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {
         let mut injected = 0usize;
         for file in files {
             let Some(ref content) = file.content else {

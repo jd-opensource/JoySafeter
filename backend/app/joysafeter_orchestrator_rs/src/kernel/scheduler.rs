@@ -42,11 +42,7 @@ pub fn spawn_scheduler(
     provider: Arc<dyn SandboxProvider>,
     config: JoySafeterConfig,
 ) -> JoinHandle<()> {
-    let resolver = Arc::new(SandboxResolver::new(
-        pool.clone(),
-        provider,
-        config.clone(),
-    ));
+    let resolver = Arc::new(SandboxResolver::new(pool.clone(), provider, config.clone()));
     let scheduling_semaphore = Arc::new(Semaphore::new(config.max_scheduling_tasks));
 
     tokio::spawn(async move {
@@ -185,7 +181,12 @@ pub fn spawn_scheduler(
                                 if t.retry_count >= t.max_retries {
                                     true
                                 } else {
-                                    let _ = queries::increment_retry(&resolver_pool, task_id, Some(t.retry_count)).await;
+                                    let _ = queries::increment_retry(
+                                        &resolver_pool,
+                                        task_id,
+                                        Some(t.retry_count),
+                                    )
+                                    .await;
                                     false
                                 }
                             }

@@ -6,7 +6,7 @@ import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import type { Environment } from '@/types/managed'
+import type { Environment, Secret } from '@/types/managed'
 import { managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
@@ -18,13 +18,6 @@ import {
 } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   PageHeader,
   FilterBar,
@@ -50,6 +43,21 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  EgressServicesEditor,
+  buildEgressServices,
+  emptyEgressService,
+  type EgressServiceErrorField,
+  type EgressServiceErrors,
+  type EgressServiceForm,
+} from '@/components/managed/environments-egress-editor'
+
+type CreateEnvironmentErrors = {
+  name?: string
+  egressServices: EgressServiceErrors
+}
+
+const emptyCreateErrors = (): CreateEnvironmentErrors => ({ egressServices: {} })
 
 export default function EnvironmentListPage() {
   const { t } = useTranslation()
@@ -64,13 +72,15 @@ export default function EnvironmentListPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [networkType, setNetworkType] = useState('limited')
+  const networkType = 'limited'
   const [allowedHosts, setAllowedHosts] = useState('')
   const [aptPackages, setAptPackages] = useState('')
   const [pipPackages, setPipPackages] = useState('')
   const [npmPackages, setNpmPackages] = useState('')
   const [envVars, setEnvVars] = useState('')
   const [secretRefs, setSecretRefs] = useState('')
+  const [egressServices, setEgressServices] = useState<EgressServiceForm[]>([])
+  const [formErrors, setFormErrors] = useState<CreateEnvironmentErrors>(emptyCreateErrors)
   const [creating, setCreating] = useState(false)
   const createRunRef = useRef(0)
   const actionRunRef = useRef(0)
@@ -97,6 +107,11 @@ export default function EnvironmentListPage() {
     queryKey: 'environments',
     path: '/environments',
     includeArchived: showArchived,
+  })
+  const { data: secrets } = usePaginatedList<Secret>({
+    queryKey: 'secrets',
+    path: '/secrets',
+    limit: 50,
   })
 
   const environments = data.filter(
@@ -140,14 +155,56 @@ export default function EnvironmentListPage() {
   const resetForm = () => {
     setName('')
     setDescription('')
-    setNetworkType('limited')
     setAllowedHosts('')
     setAptPackages('')
     setPipPackages('')
     setNpmPackages('')
     setEnvVars('')
     setSecretRefs('')
+    setEgressServices([])
+    setFormErrors(emptyCreateErrors())
   }
+
+  const clearFieldError = (field: keyof Omit<CreateEnvironmentErrors, 'egressServices'>) => {
+    setFormErrors((current) => ({ ...current, [field]: undefined }))
+  }
+
+  const clearEgressFieldError = (index: number, field: EgressServiceErrorField) => {
+    setFormErrors((current) => {
+      const nextServices = { ...current.egressServices }
+      if (nextServices[index]) {
+        nextServices[index] = { ...nextServices[index], [field]: undefined }
+        if (Object.values(nextServices[index]).every((value) => !value)) {
+          delete nextServices[index]
+        }
+      }
+      return { ...current, egressServices: nextServices }
+    })
+  }
+
+  const validateCreateForm = (): CreateEnvironmentErrors => {
+    const errors = emptyCreateErrors()
+    const requiredMessage = t('managed.environments.validation.required')
+    if (!name.trim()) {
+      errors.name = t('managed.environments.validation.nameRequired')
+    }
+    egressServices.forEach((service, index) => {
+      const serviceErrors: CreateEnvironmentErrors['egressServices'][number] = {}
+      if (!service.name.trim()) serviceErrors.name = requiredMessage
+      if (!service.baseUrl.trim()) serviceErrors.baseUrl = requiredMessage
+      if (!service.credentialRef.trim()) serviceErrors.credentialRef = requiredMessage
+      if (service.authType === 'cookie' && !service.secretKey.trim()) {
+        serviceErrors.secretKey = t('managed.environments.validation.cookieRequired')
+      }
+      if (Object.keys(serviceErrors).length > 0) {
+        errors.egressServices[index] = serviceErrors
+      }
+    })
+    return errors
+  }
+
+  const hasCreateErrors = (errors: CreateEnvironmentErrors) =>
+    Boolean(errors.name) || Object.keys(errors.egressServices).length > 0
 
   const resetDialog = (open: boolean) => {
     if (open && (!currentManagedScopeIsActive() || !currentProjectAllowsWrite())) return
@@ -228,9 +285,11 @@ export default function EnvironmentListPage() {
       )
 
   const handleCreate = useCallback(async () => {
-    if (!name.trim()) return
     if (!currentProjectAllowsWrite()) return
     if (!currentManagedScopeIsActive()) return
+    const validationErrors = validateCreateForm()
+    setFormErrors(validationErrors)
+    if (hasCreateErrors(validationErrors)) return
     const runId = createRunRef.current + 1
     createRunRef.current = runId
     const createScope = managedScopeRef.current
@@ -258,6 +317,9 @@ export default function EnvironmentListPage() {
 
       const refs = splitLines(secretRefs)
       if (refs.length > 0) config.secret_refs = refs
+
+      const services = buildEgressServices(egressServices)
+      if (services.length > 0) config.egress_services = services
 
       await managedPost(
         '/environments',
@@ -291,6 +353,7 @@ export default function EnvironmentListPage() {
     npmPackages,
     envVars,
     secretRefs,
+    egressServices,
     queryClient,
   ])
 
@@ -425,17 +488,32 @@ export default function EnvironmentListPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('managed.environments.name')}</label>
+              <label className="text-sm font-medium" htmlFor="environment-name">
+                {t('managed.environments.name')}
+                <span className="ml-1 text-destructive">*</span>
+              </label>
               <Input
+                id="environment-name"
                 placeholder={t('managed.environments.namePlaceholder')}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                aria-invalid={Boolean(formErrors.name)}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  clearFieldError('name')
+                }}
                 autoFocus
               />
+              {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('managed.environments.description')}</label>
+              <label className="text-sm font-medium" htmlFor="environment-description">
+                {t('managed.environments.description')}
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  {t('managed.environments.optional')}
+                </span>
+              </label>
               <Input
+                id="environment-description"
                 placeholder={t('managed.environments.descPlaceholder')}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -443,25 +521,22 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.networking')}</h4>
+              <h4 className="mb-3 text-sm font-medium">
+                {t('managed.environments.networking')}
+                <span className="ml-1 text-destructive">*</span>
+              </h4>
               <div className="space-y-3">
-                <Select value={networkType} onValueChange={setNetworkType}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="limited">{t('managed.environments.netLimited')}</SelectItem>
-                    <SelectItem value="unrestricted">
-                      {t('managed.environments.netUnrestricted')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <Input value={t('managed.environments.netLimited')} readOnly />
                 {networkType === 'limited' && (
                   <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">
+                    <label className="text-sm font-medium" htmlFor="environment-allowed-hosts">
                       {t('managed.environments.allowedHosts')}
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        {t('managed.environments.optional')}
+                      </span>
                     </label>
                     <Input
+                      id="environment-allowed-hosts"
                       placeholder="api.example.com, github.com"
                       value={allowedHosts}
                       onChange={(e) => setAllowedHosts(e.target.value)}
@@ -472,37 +547,12 @@ export default function EnvironmentListPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.packages')}</h4>
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">apt</label>
-                  <Input
-                    placeholder="curl, git, build-essential"
-                    value={aptPackages}
-                    onChange={(e) => setAptPackages(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">pip</label>
-                  <Input
-                    placeholder="numpy, pandas, requests"
-                    value={pipPackages}
-                    onChange={(e) => setPipPackages(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">npm</label>
-                  <Input
-                    placeholder="typescript, eslint"
-                    value={npmPackages}
-                    onChange={(e) => setNpmPackages(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">{t('managed.environments.envVarsLabel')}</h4>
+              <h4 className="mb-3 text-sm font-medium">
+                {t('managed.environments.envVarsLabel')}
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  {t('managed.environments.optional')}
+                </span>
+              </h4>
               <Input
                 placeholder="KEY=value, NODE_ENV=production"
                 value={envVars}
@@ -513,6 +563,9 @@ export default function EnvironmentListPage() {
             <div className="border-t pt-4">
               <h4 className="mb-3 text-sm font-medium">
                 {t('managed.environments.secretRefsLabel')}
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  {t('managed.environments.optional')}
+                </span>
               </h4>
               <Input
                 placeholder="my-api-secret, db-credentials"
@@ -520,9 +573,54 @@ export default function EnvironmentListPage() {
                 onChange={(e) => setSecretRefs(e.target.value)}
               />
             </div>
+
+            <div className="border-t pt-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-sm font-medium">
+                    {t('managed.environments.egressServices')}
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      {t('managed.environments.optional')}
+                    </span>
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    {t('managed.environments.egressServicesHint')}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEgressServices((items) => [...items, emptyEgressService()])}
+                >
+                  {t('managed.environments.addEgressService')}
+                </Button>
+              </div>
+              <EgressServicesEditor
+                services={egressServices}
+                setServices={setEgressServices}
+                secrets={secrets}
+                errors={formErrors.egressServices}
+                onClearFieldError={clearEgressFieldError}
+                onRemove={(index) => {
+                  setFormErrors((current) => ({
+                    ...current,
+                    egressServices: Object.fromEntries(
+                      Object.entries(current.egressServices)
+                        .filter(([key]) => Number(key) !== index)
+                        .map(([key, value]) => [
+                          Number(key) > index ? String(Number(key) - 1) : key,
+                          value,
+                        ]),
+                    ),
+                  }))
+                  setEgressServices((items) => items.filter((_, i) => i !== index))
+                }}
+              />
+            </div>
           </div>
           <DialogFooter>
-            <Button onClick={handleCreate} disabled={!name.trim() || creating}>
+            <Button onClick={handleCreate} disabled={creating}>
               {creating ? t('managed.environments.creating') : t('managed.environments.add')}
             </Button>
           </DialogFooter>

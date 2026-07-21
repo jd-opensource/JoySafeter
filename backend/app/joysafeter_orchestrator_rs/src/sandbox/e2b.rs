@@ -191,11 +191,7 @@ impl SandboxProvider for E2bProvider {
         }
     }
 
-    async fn inject_files(
-        &self,
-        external_id: &str,
-        files: &[FileToInject],
-    ) -> anyhow::Result<()> {
+    async fn inject_files(&self, external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {
         let mut injected = 0usize;
         for file in files {
             let Some(ref content) = file.content else {
@@ -218,10 +214,7 @@ impl SandboxProvider for E2bProvider {
             });
             let resp = self
                 .client
-                .post(format!(
-                    "{}/sandboxes/{external_id}/files",
-                    self.api_url
-                ))
+                .post(format!("{}/sandboxes/{external_id}/files", self.api_url))
                 .headers(self.headers())
                 .json(&body)
                 .send()

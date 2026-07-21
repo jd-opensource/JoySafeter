@@ -135,6 +135,7 @@ export default function SecretListPage() {
   const [createdFilter, setCreatedFilter] = useState('all')
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
+  const [secretKind, setSecretKind] = useState<'llm' | 'custom'>('llm')
   const [newProvider, setNewProvider] = useState('claude')
   const [newProtocol, setNewProtocol] = useState('anthropic_messages')
   const [pairs, setPairs] = useState<KVPair[]>([{ key: '', value: '' }])
@@ -153,6 +154,7 @@ export default function SecretListPage() {
     defaultRunRef.current += 1
     setShowCreate(false)
     setNewName('')
+    setSecretKind('llm')
     setNewProvider('claude')
     setNewProtocol('anthropic_messages')
     setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
@@ -174,6 +176,7 @@ export default function SecretListPage() {
 
   const resetCreateDraft = () => {
     setNewName('')
+    setSecretKind('llm')
     setNewProvider('claude')
     setNewProtocol('anthropic_messages')
     setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
@@ -217,6 +220,21 @@ export default function SecretListPage() {
     setPairs(getDefaultSecretPairs(newProvider, protocol))
   }
 
+  const updateSecretKind = (kind: 'llm' | 'custom') => {
+    if (kind === secretKind) return
+    invalidatePendingTest()
+    setSecretKind(kind)
+    if (kind === 'custom') {
+      setNewProvider('custom')
+      setNewProtocol('custom')
+      setPairs([{ key: '', value: '' }])
+    } else {
+      setNewProvider('claude')
+      setNewProtocol('anthropic_messages')
+      setPairs(getDefaultSecretPairs('claude', 'anthropic_messages'))
+    }
+  }
+
   const openCreateDialog = () => {
     if (!currentProjectAllowsWrite()) return
     createRunRef.current += 1
@@ -233,7 +251,11 @@ export default function SecretListPage() {
   }
 
   const validPairs = pairs.filter((p) => p.key.trim())
-  const canCreate = Boolean(newName.trim() && validPairs.length > 0 && testResult?.ok)
+  const canCreate = Boolean(
+    newName.trim() &&
+      validPairs.length > 0 &&
+      (secretKind === 'custom' || testResult?.ok),
+  )
   const buildSecretData = () => {
     const data: Record<string, string> = {}
     for (const p of validPairs) {
@@ -545,6 +567,29 @@ export default function SecretListPage() {
                 autoFocus
               />
             </div>
+            <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-1">
+              {(['llm', 'custom'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => updateSecretKind(kind)}
+                  className={[
+                    'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    secretKind === kind
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  ].join(' ')}
+                >
+                  {kind === 'llm'
+                    ? t('managed.secrets.kindLlm')
+                    : t('managed.secrets.kindCustom')}
+                </button>
+              ))}
+            </div>
+            {secretKind === 'custom' && (
+              <p className="text-xs text-muted-foreground">{t('managed.secrets.customHint')}</p>
+            )}
+            {secretKind === 'llm' && (
             <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
               <div className="space-y-1">
                 <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
@@ -604,6 +649,7 @@ export default function SecretListPage() {
               </div>
               <div className="h-10 w-10" />
             </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('managed.secrets.dataLabel')}</label>
               {pairs.map((pair, i) => (
@@ -611,14 +657,23 @@ export default function SecretListPage() {
                   key={i}
                   className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2"
                 >
-                  <SecretKeySelect
-                    value={pair.key}
-                    onChange={(v) => updatePair(i, 'key', v)}
+                  {secretKind === 'custom' ? (
+                    <Input
+                      placeholder={t('managed.secrets.customKeyPlaceholder')}
+                      value={pair.key}
+                      onChange={(e) => updatePair(i, 'key', e.target.value)}
+                      className="min-w-0 font-mono text-sm"
+                    />
+                  ) : (
+                    <SecretKeySelect
+                      value={pair.key}
+                      onChange={(v) => updatePair(i, 'key', v)}
                     placeholder={t('managed.secrets.keyPlaceholder')}
                     className="min-w-0"
                     provider={newProvider}
                     protocol={newProtocol}
                   />
+                  )}
                   {isModelKey(pair.key) ? (
                     <SecretModelInput
                       value={pair.value}
@@ -690,17 +745,19 @@ export default function SecretListPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button
-              onClick={handleTestConnection}
-              disabled={validPairs.length === 0 || testingSecret || creating}
-            >
-              {testingSecret ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Wifi className="h-4 w-4" />
-              )}
-              {testingSecret ? t('managed.secrets.testing') : t('managed.secrets.testConnection')}
-            </Button>
+            {secretKind === 'llm' && (
+              <Button
+                onClick={handleTestConnection}
+                disabled={validPairs.length === 0 || testingSecret || creating}
+              >
+                {testingSecret ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Wifi className="h-4 w-4" />
+                )}
+                {testingSecret ? t('managed.secrets.testing') : t('managed.secrets.testConnection')}
+              </Button>
+            )}
             <Button
               onClick={handleCreate}
               disabled={!canCreate || projectReadOnly || creating || testingSecret}

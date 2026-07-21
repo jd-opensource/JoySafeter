@@ -92,7 +92,8 @@ impl MemoryStoreSubscribers {
             let mut result = Vec::new();
             for (_store_id, entries) in subs.iter() {
                 for sub in entries {
-                    if sub.mount_name == store_mount_name && sub.sandbox_db_id != sender_sandbox_id {
+                    if sub.mount_name == store_mount_name && sub.sandbox_db_id != sender_sandbox_id
+                    {
                         result.push((sub.sandbox_db_id, sub.mount_name.clone()));
                     }
                 }

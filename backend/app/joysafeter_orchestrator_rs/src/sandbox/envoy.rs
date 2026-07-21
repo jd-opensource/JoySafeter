@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::lds_backend::{
     exec_in_envoy, write_file_in_envoy, CdsBackend, LdsBackend, ListenerKind, ListenerSpec,
-    SandboxCredentials,
+    SandboxCredentials, SandboxEgressPolicy,
 };
 
 /// Per-sandbox network isolation via a shared Envoy proxy sidecar container.
@@ -137,7 +137,8 @@ impl EnvoyManager {
                 llm_egress_allowed_hosts,
             )
             .await;
-            clusters.extend(creds.to_clusters(&sb.id));
+            let policy = creds.to_policy(&sb.id, allowed_hosts);
+            clusters.extend(policy.clusters(&sb.id));
 
             specs.push(ListenerSpec {
                 sandbox_id: sb.id,
@@ -148,8 +149,8 @@ impl EnvoyManager {
             specs.push(ListenerSpec {
                 sandbox_id: sb.id,
                 kind: ListenerKind::Http,
-                allowed_hosts,
-                credentials: creds.to_routes(&sb.id),
+                allowed_hosts: policy.allowlist_hosts,
+                credentials: policy.credential_routes,
             });
             recovered += 1;
         }
@@ -167,14 +168,35 @@ impl EnvoyManager {
 
     /// Add a sandbox to Envoy config (creates socket dir, pushes listeners).
     ///
-    /// `credentials` carries the real secrets (LLM key, MCP tokens, git tokens)
-    /// to inject at the egress boundary. They are rendered into the HTTP
-    /// listener's credential-injection routes and never enter the sandbox.
+    /// `policy` carries the non-sensitive allowlist plus real secrets to inject
+    /// at the egress boundary. Credential routes are rendered into the HTTP
+    /// listener and never enter the sandbox.
+    pub async fn add_sandbox_policy(
+        &self,
+        sandbox_id: Uuid,
+        policy: SandboxEgressPolicy,
+    ) -> anyhow::Result<()> {
+        self.add_sandbox_with_policy(sandbox_id, policy).await
+    }
+
+    /// Backward-compatible entry point for legacy credential builders.
     pub async fn add_sandbox(
         &self,
         sandbox_id: Uuid,
         allowed_hosts: Vec<String>,
         credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        self.add_sandbox_with_policy(
+            sandbox_id,
+            credentials.to_policy(&sandbox_id, allowed_hosts),
+        )
+        .await
+    }
+
+    async fn add_sandbox_with_policy(
+        &self,
+        sandbox_id: Uuid,
+        policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()> {
         // Create socket directory inside container
         let socket_dir = format!("/sockets/{sandbox_id}");
@@ -185,14 +207,13 @@ impl EnvoyManager {
         // NOTE: never include secrets here — only the non-sensitive allowlist.
         let entry_json = json!({
             "sandbox_id": sandbox_id.to_string(),
-            "allowed_hosts": allowed_hosts,
+            "allowed_hosts": policy.allowlist_hosts,
         });
         let entry_path = format!("/envoy-config/sandboxes/{sandbox_id}.json");
         self.write_file_in_envoy(&entry_path, &serde_json::to_string(&entry_json)?)
             .await?;
 
-        let cred_routes = credentials.to_routes(&sandbox_id);
-        let cred_clusters = credentials.to_clusters(&sandbox_id);
+        let cred_clusters = policy.clusters(&sandbox_id);
 
         // Push clusters BEFORE listeners (make-before-break): a listener whose
         // routes reference a not-yet-known cluster would fail to warm.
@@ -212,8 +233,8 @@ impl EnvoyManager {
                 ListenerSpec {
                     sandbox_id,
                     kind: ListenerKind::Http,
-                    allowed_hosts: allowed_hosts.clone(),
-                    credentials: cred_routes,
+                    allowed_hosts: policy.allowlist_hosts.clone(),
+                    credentials: policy.credential_routes.clone(),
                 },
             ])
             .await?;

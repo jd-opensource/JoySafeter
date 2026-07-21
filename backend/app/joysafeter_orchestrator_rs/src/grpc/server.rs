@@ -172,7 +172,11 @@ impl AgentBridge for AgentBridgeService {
                     let runner_token = ready.runner_token.as_deref().unwrap_or("");
                     if runner_token.is_empty() {
                         warn!(sandbox_id = %sandbox_db_id, "Runner connected without token, rejecting");
-                        send_shutdown(&tx, "authentication required: missing runner token".to_string()).await;
+                        send_shutdown(
+                            &tx,
+                            "authentication required: missing runner token".to_string(),
+                        )
+                        .await;
                         return;
                     }
                     // Constant-time comparison (#29: Python uses hmac.compare_digest)
@@ -184,7 +188,11 @@ impl AgentBridge for AgentBridgeService {
                         == 0
                     {
                         warn!(sandbox_id = %sandbox_db_id, "Runner token mismatch, rejecting");
-                        send_shutdown(&tx, "authentication failed: invalid runner token".to_string()).await;
+                        send_shutdown(
+                            &tx,
+                            "authentication failed: invalid runner token".to_string(),
+                        )
+                        .await;
                         return;
                     }
                 }
@@ -1590,7 +1598,9 @@ async fn rescue_orphaned_tasks(pool: &PgPool, sandbox_db_id: Uuid, queue: &TaskQ
     match queries::find_running_tasks_for_sandbox(pool, sandbox_db_id).await {
         Ok(tasks) => {
             for task in tasks {
-                if let Ok(true) = queries::increment_retry(pool, task.id, Some(task.retry_count)).await {
+                if let Ok(true) =
+                    queries::increment_retry(pool, task.id, Some(task.retry_count)).await
+                {
                     // Fix 6.2: actually push to global queue (was just logging before)
                     queue.push_to_global(task.id).await;
                     info!(task_id = %task.id, "Orphaned task reset and re-queued");

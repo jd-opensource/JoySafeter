@@ -157,12 +157,31 @@ export interface EnvironmentPackages {
   go?: string[]
 }
 
+export interface EnvironmentEgressServiceInject {
+  type?: 'bearer' | 'api_key' | 'raw_header' | 'cookie' | string
+  secret_key?: string
+  header?: string
+  cookie_name?: string
+  cookies?: Record<string, string>
+}
+
+export interface EnvironmentEgressService {
+  name: string
+  kind?: 'external' | string
+  exposure?: 'placeholder' | 'transparent' | string
+  base_url: string
+  credential_ref: string
+  inject?: EnvironmentEgressServiceInject
+  allowed_paths?: string[]
+}
+
 export interface EnvironmentConfig {
   type?: string
   packages?: EnvironmentPackages
   networking?: EnvironmentNetworking
   env_vars?: Record<string, string>
   secret_refs?: string[]
+  egress_services?: EnvironmentEgressService[]
 }
 
 export interface Environment {

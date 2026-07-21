@@ -36,6 +36,7 @@ import {
 } from '@/components/managed/shared'
 import {
   getDefaultProtocol,
+  isCustomSecretProvider,
   isModelKey,
   isSecretValueMaskedKey,
   normalizeSecretProvider,
@@ -299,6 +300,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
       </div>
 
       <div className="space-y-4 rounded-lg border border-border p-6">
+        {!isCustomSecretProvider(provider) && (
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
           <div className="space-y-1">
             <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
@@ -354,6 +356,7 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
           </div>
           <div className="h-10 w-10" />
         </div>
+        )}
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium">{t('managed.secrets.dataLabel')}</label>
           <Button variant="ghost" size="sm" onClick={() => setShowValues(!showValues)}>
@@ -368,15 +371,25 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
               key={i}
               className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2"
             >
-              <SecretKeySelect
-                value={pair.key}
-                onChange={(v) => updatePair(i, 'key', v)}
-                placeholder={t('managed.secrets.keyPlaceholder')}
-                className="min-w-0"
-                provider={provider}
-                protocol={protocol}
-                disabled={projectReadOnly}
-              />
+              {isCustomSecretProvider(provider) ? (
+                <Input
+                  placeholder={t('managed.secrets.customKeyPlaceholder')}
+                  value={pair.key}
+                  onChange={(e) => updatePair(i, 'key', e.target.value)}
+                  className="min-w-0 font-mono text-sm"
+                  disabled={projectReadOnly}
+                />
+              ) : (
+                <SecretKeySelect
+                  value={pair.key}
+                  onChange={(v) => updatePair(i, 'key', v)}
+                  placeholder={t('managed.secrets.keyPlaceholder')}
+                  className="min-w-0"
+                  provider={provider}
+                  protocol={protocol}
+                  disabled={projectReadOnly}
+                />
+              )}
               {isModelKey(pair.key) ? (
                 <SecretModelInput
                   value={pair.value}

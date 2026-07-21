@@ -15,7 +15,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import type { Environment } from '@/types/managed'
+import type { Environment, Secret } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -37,6 +37,14 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
+import {
+  EgressServicesEditor,
+  buildEgressServices,
+  emptyEgressService,
+  serviceToForm,
+  type EgressServiceForm,
+} from '@/components/managed/environments-egress-editor'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 
 interface SaveEnvironmentVariables {
   envId: string
@@ -80,6 +88,11 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     enabled: !!rawId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
+  const { data: secrets } = usePaginatedList<Secret>({
+    queryKey: 'secrets',
+    path: '/secrets',
+    limit: 50,
+  })
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -90,6 +103,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
   const [npmPackages, setNpmPackages] = useState('')
   const [envVars, setEnvVars] = useState('')
   const [secretRefs, setSecretRefs] = useState('')
+  const [egressServices, setEgressServices] = useState<EgressServiceForm[]>([])
   const [dirty, setDirty] = useState(false)
 
   useEffect(() => {
@@ -125,6 +139,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           .join(', '),
       )
       setSecretRefs(env.config?.secret_refs?.join(', ') || '')
+      setEgressServices((env.config?.egress_services || []).map(serviceToForm))
       hydratedEnvironmentScopeRef.current = operationScope
       setDirty(false)
     }
@@ -168,6 +183,9 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
 
     const refs = splitList(secretRefs)
     if (refs.length > 0) config.secret_refs = refs
+
+    const services = buildEgressServices(egressServices)
+    if (services.length > 0) config.egress_services = services
 
     return {
       name: name.trim(),
@@ -324,7 +342,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
             </Select>
             {networkType === 'limited' && (
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-sm font-medium">
                   {t('managed.environments.allowedHosts')}
                 </label>
                 <Input
@@ -337,45 +355,6 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
                 />
               </div>
             )}
-          </div>
-        </div>
-
-        <div className="border-t pt-4">
-          <h4 className="mb-3 text-sm font-medium">{t('managed.environments.packages')}</h4>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">apt</label>
-              <Input
-                value={aptPackages}
-                onChange={(e) => {
-                  setAptPackages(e.target.value)
-                  setDirty(true)
-                }}
-                placeholder="curl, git"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">pip</label>
-              <Input
-                value={pipPackages}
-                onChange={(e) => {
-                  setPipPackages(e.target.value)
-                  setDirty(true)
-                }}
-                placeholder="numpy, pandas"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">npm</label>
-              <Input
-                value={npmPackages}
-                onChange={(e) => {
-                  setNpmPackages(e.target.value)
-                  setDirty(true)
-                }}
-                placeholder="typescript, eslint"
-              />
-            </div>
           </div>
         </div>
 
@@ -400,6 +379,38 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
               setDirty(true)
             }}
             placeholder="my-api-secret, db-credentials"
+          />
+        </div>
+
+        <div className="border-t pt-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-medium">{t('managed.environments.egressServices')}</h4>
+              <p className="text-xs text-muted-foreground">
+                {t('managed.environments.egressServicesHint')}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEgressServices((items) => [...items, emptyEgressService()])
+                setDirty(true)
+              }}
+            >
+              {t('managed.environments.addEgressService')}
+            </Button>
+          </div>
+          <EgressServicesEditor
+            services={egressServices}
+            setServices={setEgressServices}
+            secrets={secrets}
+            onDirty={() => setDirty(true)}
+            onRemove={(index) => {
+              setEgressServices((items) => items.filter((_, i) => i !== index))
+              setDirty(true)
+            }}
           />
         </div>
 

@@ -92,7 +92,9 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         &config,
         runtime_config.clone(),
-        redis_client.clone().expect("Redis is required for event bus"),
+        redis_client
+            .clone()
+            .expect("Redis is required for event bus"),
     );
     // Start periodic flush timer so buffered events don't sit in memory
     // indefinitely when event rate is below the batch threshold.
@@ -101,7 +103,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize session broadcaster
     let session_broadcaster = kernel::session_broadcaster::SessionBroadcaster::new(
-        redis_client.clone().expect("Redis is required for session broadcaster"),
+        redis_client
+            .clone()
+            .expect("Redis is required for session broadcaster"),
         &config.instance_id,
     );
     info!("Session broadcaster initialized");
@@ -117,12 +121,15 @@ async fn main() -> anyhow::Result<()> {
                     "JOYSAFETER_DAYTONA_API_URL and JOYSAFETER_DAYTONA_API_KEY required"
                 ));
             }
-            (Arc::new(sandbox::daytona::DaytonaProvider::new(
-                &config.daytona_api_url,
-                &config.daytona_api_key,
-                config.daytona_target.as_deref().unwrap_or("us"),
-                &config.daytona_snapshot,
-            )), None)
+            (
+                Arc::new(sandbox::daytona::DaytonaProvider::new(
+                    &config.daytona_api_url,
+                    &config.daytona_api_key,
+                    config.daytona_target.as_deref().unwrap_or("us"),
+                    &config.daytona_snapshot,
+                )),
+                None,
+            )
         }
         "e2b" => {
             if config.e2b_api_key.is_empty() || config.e2b_template_id.is_empty() {
@@ -130,19 +137,25 @@ async fn main() -> anyhow::Result<()> {
                     "JOYSAFETER_E2B_API_KEY and JOYSAFETER_E2B_TEMPLATE_ID required"
                 ));
             }
-            (Arc::new(sandbox::e2b::E2bProvider::new(
-                config
-                    .e2b_api_url
-                    .as_deref()
-                    .unwrap_or("https://api.e2b.app"),
-                &config.e2b_api_key,
-                &config.e2b_template_id,
-            )), None)
+            (
+                Arc::new(sandbox::e2b::E2bProvider::new(
+                    config
+                        .e2b_api_url
+                        .as_deref()
+                        .unwrap_or("https://api.e2b.app"),
+                    &config.e2b_api_key,
+                    &config.e2b_template_id,
+                )),
+                None,
+            )
         }
         "docker" | "" => {
             let docker_provider = sandbox::docker::DockerProvider::new(&config).await?;
             let xds = docker_provider.xds_service();
-            (Arc::new(docker_provider) as Arc<dyn sandbox::provider::SandboxProvider>, xds)
+            (
+                Arc::new(docker_provider) as Arc<dyn sandbox::provider::SandboxProvider>,
+                xds,
+            )
         }
         other => {
             return Err(anyhow::anyhow!(
@@ -165,7 +178,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize task queue (Redis-backed scheduler wakeups)
     let queue = kernel::queue::TaskQueue::new(
-        redis_client.clone().expect("Redis is required for task queue"),
+        redis_client
+            .clone()
+            .expect("Redis is required for task queue"),
     );
 
     // Initialize memory store subscribers
@@ -251,7 +266,9 @@ async fn main() -> anyhow::Result<()> {
     // SessionStateSubscriber (PERSIST phase)
     let session_state_sub = events::session_state::SessionStateSubscriber::new(
         db_pool.clone(),
-        redis_client.clone().expect("Redis is required for session state subscriber"),
+        redis_client
+            .clone()
+            .expect("Redis is required for session state subscriber"),
         config.instance_id.clone(),
     );
     subscriber_handles.push(session_state_sub.spawn(event_bus.subscribe()));
