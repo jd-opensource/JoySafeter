@@ -100,9 +100,9 @@ async def test_skill_usage_api_filters_security_response_surface(monkeypatch):
         auth_ctx=_ctx(),
     )
 
-    assert response["has_more"] is False
-    assert len(response["data"]) == 1
-    item = response["data"][0]
+    assert response.has_more is False
+    assert len(response.data) == 1
+    item = response.data[0]
     assert item.skill_name == "runtime-audit-skill"
     assert item.session_id == "sess-a"
     assert item.security_scan_id == scan_id
@@ -147,9 +147,9 @@ async def test_skill_usage_search_finds_deleted_skill_by_hash():
         auth_ctx=_ctx(),
     )
 
-    assert response["has_more"] is False
-    assert len(response["data"]) == 1
-    item = response["data"][0]
+    assert response.has_more is False
+    assert len(response.data) == 1
+    item = response.data[0]
     assert item.skill_id is None
     assert item.skill_name == "runtime-audit-skill"
     assert item.artifact_hash == "b" * 64
