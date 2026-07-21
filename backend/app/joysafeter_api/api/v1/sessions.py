@@ -17,6 +17,7 @@ from app.joysafeter_api.services import JoySafeterAgentService as AgentService
 from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_api.services import SessionService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
@@ -30,6 +31,7 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionRepoResourceResponse,
     SessionResourceResponse,
     SessionResponse,
+    SessionSkillUsageResponse,
     SessionUsage,
     SingleEventRequest,
     UpdateRepoResourceRequest,
@@ -414,6 +416,47 @@ async def get_session(
         agent_svc = AgentService(db)
         agent = await agent_svc.get_agent(session.agent_id, project_id=auth_ctx.project_id)
     return _session_to_response(session, agent=agent, resources=resources, repo_resources=repo_records)
+
+
+@router.get("/{session_id}/skill-usage")
+async def list_session_skill_usage(
+    session_id: uuid.UUID = Depends(_parse_session_id),
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> PaginatedResponse[SessionSkillUsageResponse]:
+    svc = SessionService(db)
+    session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
+    if not session:
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
+
+    canonical_session_id = f"sess_{session_id}"
+    stmt = (
+        select(JoySafeterSkillUsageLog)
+        .where(
+            JoySafeterSkillUsageLog.session_id.in_([canonical_session_id, str(session_id)]),
+        )
+        .order_by(JoySafeterSkillUsageLog.created_at.desc(), JoySafeterSkillUsageLog.id.desc())
+        .limit(limit + 1)
+    )
+    if auth_ctx.project_id is not None:
+        stmt = stmt.where(JoySafeterSkillUsageLog.project_id == auth_ctx.project_id)
+
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    data = [SessionSkillUsageResponse.model_validate(row) for row in rows[:limit]]
+    return PaginatedResponse(
+        data=data,
+        has_more=has_more,
+        first_id=str(data[0].id) if data else None,
+        last_id=str(data[-1].id) if data else None,
+    )
 
 
 @router.delete("/{session_id}", status_code=200)

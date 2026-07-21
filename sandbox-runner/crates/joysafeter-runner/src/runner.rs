@@ -555,11 +555,7 @@ async fn unpack_skills(
         tokio::fs::create_dir_all(&target_dir)
             .await
             .map_err(|e| format!("mkdir {}: {e}", target_dir.display()))?;
-        let cursor = std::io::Cursor::new(&skill.tar_gz);
-        let gz = flate2::read::GzDecoder::new(cursor);
-        let mut archive = tar::Archive::new(gz);
-        archive
-            .unpack(&target_dir)
+        crate::archive::extract_tar_gz_bytes_to_dir(&skill.tar_gz, &target_dir)
             .map_err(|e| format!("unpack tar to {}: {e}", target_dir.display()))?;
         info!(
             name = %skill.name,

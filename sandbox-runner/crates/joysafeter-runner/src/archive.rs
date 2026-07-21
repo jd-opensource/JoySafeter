@@ -107,6 +107,10 @@ fn extract_zip(path: &Path, target_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn extract_tar_gz_bytes_to_dir(bytes: &[u8], target_dir: &Path) -> anyhow::Result<()> {
+    extract_tar_reader(GzDecoder::new(bytes), target_dir)
+}
+
 fn extract_tar_reader<R: Read>(reader: R, target_dir: &Path) -> anyhow::Result<()> {
     let mut archive = tar::Archive::new(reader);
     let mut count = 0usize;
@@ -171,4 +175,53 @@ fn safe_member_path(path: &Path) -> Option<PathBuf> {
 fn has_windows_drive(path: &str) -> bool {
     let bytes = path.as_bytes();
     bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use std::io::Write;
+    use tar::{Builder, EntryType, Header};
+
+    fn tar_gz(entries: Vec<(&str, EntryType, &[u8])>) -> Vec<u8> {
+        let mut raw = Vec::new();
+        {
+            let mut builder = Builder::new(&mut raw);
+            for (path, entry_type, content) in entries {
+                let mut header = Header::new_gnu();
+                header.set_entry_type(entry_type);
+                header.set_size(content.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                builder.append_data(&mut header, path, content).unwrap();
+            }
+            builder.finish().unwrap();
+        }
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&raw).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn safe_member_path_rejects_traversal_and_windows_paths() {
+        assert_eq!(safe_member_path(Path::new("safe/SKILL.md")).unwrap(), PathBuf::from("safe/SKILL.md"));
+        assert!(safe_member_path(Path::new("../outside.txt")).is_none());
+        assert!(safe_member_path(Path::new("/tmp/outside.txt")).is_none());
+        assert!(safe_member_path(Path::new("C:/Windows/System32/pwn.txt")).is_none());
+        assert!(safe_member_path(Path::new("bad\\slash.txt")).is_none());
+    }
+
+    #[test]
+    fn tar_extraction_skips_symlinks() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("target");
+        let data = tar_gz(vec![("safe/link", EntryType::Symlink, b"../outside")]);
+
+        extract_tar_gz_bytes_to_dir(&data, &target).unwrap();
+
+        assert!(!target.join("safe/link").exists());
+    }
 }

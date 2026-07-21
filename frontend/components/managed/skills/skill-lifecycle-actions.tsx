@@ -22,7 +22,7 @@ import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/r
 import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { Button } from '@/components/ui/button'
-import type { SkillLifecycleStatus } from '@/types/managed'
+import type { SkillImpactSummary, SkillLifecycleStatus } from '@/types/managed'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 
 interface TransitionResponse {
@@ -93,6 +93,7 @@ interface SkillLifecycleActionsProps {
   // Optional invalidation keys — list views can pass their list key
   // to force a refetch after a transition lands.
   invalidateKeys?: Array<readonly unknown[]>
+  impact?: SkillImpactSummary | null
 }
 
 export function SkillLifecycleActions({
@@ -102,6 +103,7 @@ export function SkillLifecycleActions({
   operationScope,
   canSubmitTransition,
   invalidateKeys = [],
+  impact = null,
 }: SkillLifecycleActionsProps) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -203,22 +205,38 @@ export function SkillLifecycleActions({
 
   return (
     <div className="inline-flex flex-wrap items-center gap-2">
-      {available.map((edge) => (
-        <Button
-          key={edge.endpoint}
-          variant={edge.variant}
-          size="sm"
-          disabled={busyEndpoint !== null}
-          onClick={() => {
-            if (!currentProjectAllowsWrite()) return
-            if (canSubmitTransition && !canSubmitTransition(edge.endpoint, currentStatus)) return
-            const next = nextMutation(edge.endpoint)
-            if (next) mutation.mutate(next)
-          }}
-        >
-          {t(edge.labelKey)}
-        </Button>
-      ))}
+      {available.map((edge) => {
+        const canSubmit = canSubmitTransition
+          ? canSubmitTransition(edge.endpoint, currentStatus)
+          : currentProjectAllowsWrite()
+        return (
+          <Button
+            key={edge.endpoint}
+            variant={edge.variant}
+            size="sm"
+            disabled={busyEndpoint !== null || !canSubmit}
+            onClick={() => {
+              if (!canSubmit) return
+              if (edge.endpoint === 'archive' && impact?.counts.total) {
+                const ok = window.confirm(
+                  t('managed.skills.archiveImpactConfirm', {
+                    count: impact.counts.total,
+                    agents: impact.counts.agents,
+                    schedules: impact.counts.schedules,
+                    activeTasks: impact.counts.active_tasks,
+                    defaultValue: `Archive this skill? It is referenced by ${impact.counts.total} item(s): ${impact.counts.agents} agent(s), ${impact.counts.schedules} schedule(s), ${impact.counts.active_tasks} active task(s).`,
+                  }),
+                )
+                if (!ok) return
+              }
+              const next = nextMutation(edge.endpoint)
+              if (next) mutation.mutate(next)
+            }}
+          >
+            {t(edge.labelKey)}
+          </Button>
+        )
+      })}
     </div>
   )
 }

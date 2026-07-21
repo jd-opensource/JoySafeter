@@ -7,6 +7,7 @@ use base64::Engine as _;
 use chrono::Utc;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tar::{Builder, Header};
 use tracing::{debug, warn};
@@ -112,7 +113,7 @@ impl HarnessInputBuilder {
             input
                 .env
                 .extend(json_object_to_string_map(agent.env.as_ref()));
-            self.resolve_skill_archives(agent, &mut input).await;
+            self.resolve_skill_archives(agent, task, &mut input).await?;
         }
 
         if let Some(ref session) = session {
@@ -358,8 +359,9 @@ impl HarnessInputBuilder {
     async fn resolve_skill_archives(
         &self,
         agent: &crate::db::models::JoySafeterAgent,
+        task: &crate::db::models::JoySafeterTask,
         input: &mut HarnessInput,
-    ) {
+    ) -> anyhow::Result<()> {
         for (target, items) in [
             ("skills", agent.skills.as_ref()),
             ("agents", agent.agents.as_ref()),
@@ -369,22 +371,24 @@ impl HarnessInputBuilder {
                 continue;
             };
             for item in arr {
-                if let Some(archive) = self.resolve_skill_item(target, item).await {
-                    input.skills.push(archive);
-                }
+                let archive = self.resolve_skill_item(target, item, agent, task).await?;
+                input.skills.push(archive);
             }
         }
+        Ok(())
     }
 
     async fn resolve_skill_item(
         &self,
         target: &str,
         item: &serde_json::Value,
-    ) -> Option<proto::SkillArchive> {
+        agent: &crate::db::models::JoySafeterAgent,
+        task: &crate::db::models::JoySafeterTask,
+    ) -> anyhow::Result<proto::SkillArchive> {
         if let Some(encoded) = item.get("tar_gz_b64").and_then(|v| v.as_str()) {
             match base64::engine::general_purpose::STANDARD.decode(encoded) {
                 Ok(data) => {
-                    return Some(proto::SkillArchive {
+                    return Ok(proto::SkillArchive {
                         name: item
                             .get("name")
                             .and_then(|v| v.as_str())
@@ -395,19 +399,22 @@ impl HarnessInputBuilder {
                     });
                 }
                 Err(e) => {
-                    warn!(target, "Failed to decode packed skill archive: {e}");
-                    return None;
+                    anyhow::bail!("failed to decode packed skill archive for target {target}: {e}");
                 }
             }
         }
 
-        let skill_id = item.get("skill_id").and_then(|v| v.as_str())?;
+        let Some(skill_id) = item.get("skill_id").and_then(|v| v.as_str()) else {
+            anyhow::bail!("skill item for target {target} has neither tar_gz_b64 nor skill_id");
+        };
         let version = item
             .get("version")
             .and_then(|v| v.as_str())
             .unwrap_or("latest");
-        let skill_uuid = parse_prefixed_uuid(skill_id, "skill_")?;
-        self.pack_skill(skill_uuid, version, target).await
+        let Some(skill_uuid) = parse_prefixed_uuid(skill_id, "skill_") else {
+            anyhow::bail!("invalid skill_id for target {target}: {skill_id}");
+        };
+        self.pack_skill(skill_uuid, version, target, agent, task).await
     }
 
     async fn pack_skill(
@@ -415,59 +422,145 @@ impl HarnessInputBuilder {
         skill_id: Uuid,
         version: &str,
         target: &str,
-    ) -> Option<proto::SkillArchive> {
-        let skill_name = self
-            .skill_name(skill_id)
-            .await
-            .unwrap_or_else(|| "unknown".to_string());
+        agent: &crate::db::models::JoySafeterAgent,
+        task: &crate::db::models::JoySafeterTask,
+    ) -> anyhow::Result<proto::SkillArchive> {
+        let skill = self
+            .load_skill_for_archive(skill_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("skill not found: {skill_id}"))?;
+        ensure_skill_runtime_ready(&skill)?;
         // Version keyword semantics (mirrors the Python skill_packer):
         //  - "draft"            → the mutable working copy (skill_files)
-        //  - "latest"/empty     → the highest published version; falls back to
-        //                         draft only when nothing has been published yet
+        //  - "latest"/empty     → the highest published version; fail closed
+        //                         when nothing has been published yet
         //  - explicit "x.y.z"   → that exact published version
-        let files = if version == "draft" {
-            self.load_skill_files(skill_id).await
+        let (resolved_version, version_meta, files) = if version == "draft" {
+            ("draft".to_string(), None, self.load_skill_files(skill_id).await?)
         } else if version == "latest" || version.is_empty() {
-            match self.highest_published_version(skill_id).await {
-                Some(v) => self.load_skill_version_files(skill_id, &v).await,
-                None => self.load_skill_files(skill_id).await,
-            }
+            let resolved = self
+                .highest_published_version(skill_id)
+                .await
+                .ok_or_else(|| anyhow::anyhow!("skill {skill_id} has no published version"))?;
+            let meta = self
+                .load_skill_version_meta(skill_id, &resolved)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("skill version not found: skill={skill_id} version={resolved}"))?;
+            let files = self.load_skill_version_files(skill_id, &resolved).await?;
+            (resolved, Some(meta), files)
         } else {
-            self.load_skill_version_files(skill_id, version).await
+            let meta = self
+                .load_skill_version_meta(skill_id, version)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("skill version not found: skill={skill_id} version={version}"))?;
+            let files = self.load_skill_version_files(skill_id, version).await?;
+            (version.to_string(), Some(meta), files)
         };
 
-        let files = match files {
-            Ok(files) if !files.is_empty() => files,
-            Ok(_) => {
-                warn!(skill_id = %skill_id, version, "Skill has no files");
-                return None;
-            }
-            Err(e) => {
-                warn!(skill_id = %skill_id, version, "Failed to load skill files: {e}");
-                return None;
-            }
-        };
-
-        match create_targz(&skill_name, &files) {
-            Ok(data) => Some(proto::SkillArchive {
-                name: skill_name,
-                tar_gz: data,
-                target: target.to_string(),
-            }),
-            Err(e) => {
-                warn!(skill_id = %skill_id, "Failed to create skill archive: {e}");
-                None
-            }
+        if files.is_empty() {
+            anyhow::bail!("skill {skill_id} version {resolved_version} has no files");
         }
+
+        let data = create_targz(&skill.name, &files)?;
+        let artifact_hash = hex::encode(Sha256::digest(&data));
+        self.record_skill_usage(
+            skill_id,
+            &resolved_version,
+            version_meta.as_ref(),
+            &skill,
+            &artifact_hash,
+            target,
+            agent,
+            task,
+        )
+        .await;
+
+        Ok(proto::SkillArchive {
+            name: skill.name,
+            tar_gz: data,
+            target: target.to_string(),
+        })
     }
 
-    async fn skill_name(&self, skill_id: Uuid) -> Option<String> {
-        sqlx::query_scalar::<_, String>("SELECT name FROM joysafeter_skills WHERE id = $1")
-            .bind(skill_id)
-            .fetch_optional(&self.pool)
-            .await
-            .ok()
-            .flatten()
+    async fn load_skill_for_archive(&self, skill_id: Uuid) -> anyhow::Result<Option<SkillForArchive>> {
+        sqlx::query_as::<_, SkillForArchive>(
+            r#"
+            SELECT name, source_type, lifecycle_status, security_status, security_scan_hash, security_scan_id
+            FROM joysafeter_skills
+            WHERE id = $1
+            "#,
+        )
+        .bind(skill_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    async fn load_skill_version_meta(
+        &self,
+        skill_id: Uuid,
+        version: &str,
+    ) -> anyhow::Result<Option<SkillVersionForArchive>> {
+        sqlx::query_as::<_, SkillVersionForArchive>(
+            r#"
+            SELECT id, security_scan_id, target_hash
+            FROM joysafeter_skill_versions
+            WHERE skill_id = $1 AND version = $2
+            "#,
+        )
+        .bind(skill_id)
+        .bind(version)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    async fn record_skill_usage(
+        &self,
+        skill_id: Uuid,
+        skill_version: &str,
+        version_meta: Option<&SkillVersionForArchive>,
+        skill: &SkillForArchive,
+        artifact_hash: &str,
+        target: &str,
+        agent: &crate::db::models::JoySafeterAgent,
+        task: &crate::db::models::JoySafeterTask,
+    ) {
+        let (skill_version_id, security_scan_id, target_hash) = match version_meta {
+            Some(meta) => (Some(meta.id), meta.security_scan_id.or(skill.security_scan_id), meta.target_hash.as_deref().or(skill.security_scan_hash.as_deref())),
+            None => (None, skill.security_scan_id, skill.security_scan_hash.as_deref()),
+        };
+        if let Err(e) = sqlx::query(
+            r#"
+            INSERT INTO joysafeter_skill_usage_log
+              (id, skill_id, skill_name, skill_source_type, skill_version, skill_version_id,
+               target, security_scan_id, target_hash, artifact_hash,
+               session_id, agent_id, project_id, user_id, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5,
+                    CASE WHEN $6::uuid IS NULL THEN NULL
+                         WHEN EXISTS (SELECT 1 FROM joysafeter_skill_versions WHERE id = $6) THEN $6
+                         ELSE NULL END,
+                    $7, $8, $9, $10, $11, $12, $13, NULL, NOW(), NOW())
+            "#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(skill_id)
+        .bind(&skill.name)
+        .bind(skill.source_type.as_deref())
+        .bind(skill_version)
+        .bind(skill_version_id)
+        .bind(target)
+        .bind(security_scan_id)
+        .bind(target_hash)
+        .bind(artifact_hash)
+        .bind(task.session_id.map(|id| id.to_string()))
+        .bind(agent.id.to_string())
+        .bind(agent.project_id.as_deref())
+        .execute(&self.pool)
+        .await
+        {
+            warn!(skill_id = %skill_id, "Failed to write skill usage audit row: {e}");
+        }
     }
 
     /// Return the highest published version string for a skill, or None if it
@@ -1060,9 +1153,10 @@ fn extract_content_text(payload: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_content_text, parse_semver, session_container_work_dir,
-        should_inject_conversation_history, trim_history_lines_to_budget,
+        ensure_skill_runtime_ready, extract_content_text, parse_semver, session_container_work_dir,
+        should_inject_conversation_history, trim_history_lines_to_budget, SkillForArchive,
     };
+    use uuid::Uuid;
 
     #[test]
     fn parse_semver_orders_versions() {
@@ -1134,6 +1228,37 @@ mod tests {
             session_container_work_dir(None),
             Some("/workspace".to_string())
         );
+    }
+
+    fn ready_skill() -> SkillForArchive {
+        SkillForArchive {
+            name: "skill-a".to_string(),
+            source_type: Some("manual".to_string()),
+            lifecycle_status: "approved".to_string(),
+            security_status: "passed".to_string(),
+            security_scan_hash: Some("a".repeat(64)),
+            security_scan_id: Some(Uuid::nil()),
+        }
+    }
+
+    #[test]
+    fn skill_runtime_ready_accepts_approved_scanned_skill() {
+        assert!(ensure_skill_runtime_ready(&ready_skill()).is_ok());
+    }
+
+    #[test]
+    fn skill_runtime_ready_rejects_unapproved_or_unscanned_skill() {
+        let mut skill = ready_skill();
+        skill.lifecycle_status = "draft".to_string();
+        assert!(ensure_skill_runtime_ready(&skill).is_err());
+
+        let mut skill = ready_skill();
+        skill.security_status = "blocked".to_string();
+        assert!(ensure_skill_runtime_ready(&skill).is_err());
+
+        let mut skill = ready_skill();
+        skill.security_scan_hash = None;
+        assert!(ensure_skill_runtime_ready(&skill).is_err());
     }
 }
 
@@ -1437,6 +1562,19 @@ fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
     raw.strip_prefix(prefix).unwrap_or(raw).parse().ok()
 }
 
+fn ensure_skill_runtime_ready(skill: &SkillForArchive) -> anyhow::Result<()> {
+    if skill.lifecycle_status != "approved" {
+        anyhow::bail!("skill {} is not approved: {}", skill.name, skill.lifecycle_status);
+    }
+    if !matches!(skill.security_status.as_str(), "passed" | "warning") {
+        anyhow::bail!("skill {} security status is not runtime-ready: {}", skill.name, skill.security_status);
+    }
+    if skill.security_scan_hash.as_deref().unwrap_or_default().is_empty() {
+        anyhow::bail!("skill {} has no security scan hash", skill.name);
+    }
+    Ok(())
+}
+
 fn create_targz(root_dir: &str, files: &[SkillFileForArchive]) -> anyhow::Result<Vec<u8>> {
     let safe_root = safe_archive_component(root_dir).unwrap_or_else(|| "unknown".to_string());
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -1586,6 +1724,23 @@ struct VaultCredentialRow {
     token_value: String,
     credential_type: String,
     oauth_config: Option<serde_json::Value>,
+}
+
+#[derive(Debug, FromRow)]
+struct SkillForArchive {
+    name: String,
+    source_type: Option<String>,
+    lifecycle_status: String,
+    security_status: String,
+    security_scan_hash: Option<String>,
+    security_scan_id: Option<Uuid>,
+}
+
+#[derive(Debug, FromRow)]
+struct SkillVersionForArchive {
+    id: Uuid,
+    security_scan_id: Option<Uuid>,
+    target_hash: Option<String>,
 }
 
 #[derive(Debug, FromRow)]

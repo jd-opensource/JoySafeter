@@ -1,4 +1,5 @@
 import posixpath
+import re
 import uuid
 import zipfile
 from io import BytesIO
@@ -7,9 +8,11 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_skill_file_id, parse_skill_id, parse_skill_security_scan_id
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_api.services import (
     SkillLifecycleService,
     SkillPromotionService,
@@ -17,7 +20,7 @@ from app.joysafeter_api.services import (
     SkillVersionService,
 )
 from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
+from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillUsageLog
 from app.joysafeter_domain.schemas.joysafeter_skill import (
     CreateSkillFileRequest,
     CreateSkillRequest,
@@ -26,6 +29,7 @@ from app.joysafeter_domain.schemas.joysafeter_skill import (
     SkillLifecycleTransitionResponse,
     SkillResponse,
     SkillSecurityScanResponse,
+    SkillUsageResponse,
     SkillVersionFileResponse,
     SkillVersionResponse,
     UpdateSkillFileRequest,
@@ -71,6 +75,21 @@ def _max_import_total_file_bytes() -> int:
 
 
 ZIP_IMPORT_DIAGNOSTIC_SAMPLE_SIZE = 8
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _validate_sha256_hex(value: str | None, field: str) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if not _SHA256_HEX_RE.fullmatch(normalized):
+        raise InvalidRequestError(
+            code="SKILL_USAGE_HASH_INVALID",
+            message=f"{field} must be a SHA-256 hex digest.",
+            data={"field": field},
+            user_action="fix_input",
+        )
+    return normalized
 
 FILE_TYPE_BY_EXT = {
     ".md": "markdown",
@@ -480,6 +499,88 @@ async def list_skill_security_scans(
         "first_id": str(data[0].id) if data else None,
         "last_id": str(data[-1].id) if data else None,
     }
+
+
+@router.get("/usage/search")
+async def search_skill_usage(
+    limit: int = Query(50, ge=1, le=100),
+    artifact_hash: Optional[str] = Query(None, min_length=64, max_length=64),
+    target_hash: Optional[str] = Query(None, min_length=64, max_length=64),
+    security_scan_id: Optional[uuid.UUID] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> PaginatedResponse[SkillUsageResponse]:
+    artifact_hash = _validate_sha256_hex(artifact_hash, "artifact_hash")
+    target_hash = _validate_sha256_hex(target_hash, "target_hash")
+
+    if not any((artifact_hash, target_hash, security_scan_id)):
+        raise InvalidRequestError(
+            code="SKILL_USAGE_FILTER_REQUIRED",
+            message="At least one usage filter is required.",
+            data={"filters": ["artifact_hash", "target_hash", "security_scan_id"]},
+            user_action="fix_input",
+        )
+
+    stmt = select(JoySafeterSkillUsageLog)
+    if auth_ctx.project_id is not None:
+        stmt = stmt.where(JoySafeterSkillUsageLog.project_id == auth_ctx.project_id)
+    if artifact_hash:
+        stmt = stmt.where(JoySafeterSkillUsageLog.artifact_hash == artifact_hash)
+    if target_hash:
+        stmt = stmt.where(JoySafeterSkillUsageLog.target_hash == target_hash)
+    if security_scan_id:
+        stmt = stmt.where(JoySafeterSkillUsageLog.security_scan_id == security_scan_id)
+
+    stmt = stmt.order_by(JoySafeterSkillUsageLog.created_at.desc(), JoySafeterSkillUsageLog.id.desc()).limit(limit + 1)
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    data = [SkillUsageResponse.model_validate(row) for row in rows[:limit]]
+    return PaginatedResponse(
+        data=data,
+        has_more=has_more,
+        first_id=str(data[0].id) if data else None,
+        last_id=str(data[-1].id) if data else None,
+    )
+
+
+@router.get("/{skill_id}/usage")
+async def list_skill_usage(
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    limit: int = Query(50, ge=1, le=100),
+    artifact_hash: Optional[str] = Query(None, min_length=64, max_length=64),
+    target_hash: Optional[str] = Query(None, min_length=64, max_length=64),
+    security_scan_id: Optional[uuid.UUID] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> PaginatedResponse[SkillUsageResponse]:
+    artifact_hash = _validate_sha256_hex(artifact_hash, "artifact_hash")
+    target_hash = _validate_sha256_hex(target_hash, "target_hash")
+
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+
+    stmt = select(JoySafeterSkillUsageLog).where(JoySafeterSkillUsageLog.skill_id == skill_id)
+    if auth_ctx.project_id is not None:
+        stmt = stmt.where(JoySafeterSkillUsageLog.project_id == auth_ctx.project_id)
+    if artifact_hash:
+        stmt = stmt.where(JoySafeterSkillUsageLog.artifact_hash == artifact_hash)
+    if target_hash:
+        stmt = stmt.where(JoySafeterSkillUsageLog.target_hash == target_hash)
+    if security_scan_id:
+        stmt = stmt.where(JoySafeterSkillUsageLog.security_scan_id == security_scan_id)
+
+    stmt = stmt.order_by(JoySafeterSkillUsageLog.created_at.desc(), JoySafeterSkillUsageLog.id.desc()).limit(limit + 1)
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    data = [SkillUsageResponse.model_validate(row) for row in rows[:limit]]
+    return PaginatedResponse(
+        data=data,
+        has_more=has_more,
+        first_id=str(data[0].id) if data else None,
+        last_id=str(data[-1].id) if data else None,
+    )
 
 
 @router.post("/{skill_id}/security-scans/rescan")

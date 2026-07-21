@@ -61,6 +61,7 @@ import type {
   SessionFileResource,
   SessionRepoResource,
   SessionResource,
+  SessionSkillUsage,
   FileRecord,
 } from '@/types/managed'
 import { Button } from '@/components/ui/button'
@@ -253,6 +254,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     queryFn: () =>
       managedGet<{ data: SessionResource[] }>(
         apiResourcePath('sessions', id, 'resources'),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!id && hasManagedRequestScope(managedScope),
+  })
+  const { data: sessionSkillUsage } = useQuery({
+    queryKey: ['session-skill-usage', sessionScope],
+    queryFn: () =>
+      managedGet<{ data: SessionSkillUsage[] }>(
+        apiResourcePath('sessions', id, 'skill-usage'),
         managedRequestOptions(managedScope),
       ),
     enabled: !!id && hasManagedRequestScope(managedScope),
@@ -1294,6 +1304,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         <AgentDrawer
           session={session}
           agent={agentDetail || null}
+          skillUsage={sessionSkillUsage?.data || []}
           queryScope={sessionScope}
           requestScope={managedScope}
           onClose={() => setActiveDrawer(null)}
@@ -1356,6 +1367,7 @@ interface AgentVersionEntry {
 function AgentDrawer({
   session,
   agent,
+  skillUsage,
   queryScope,
   requestScope,
   onClose,
@@ -1363,6 +1375,7 @@ function AgentDrawer({
 }: {
   session: Session
   agent: Agent | null
+  skillUsage: SessionSkillUsage[]
   queryScope: string
   requestScope: ManagedRequestScope
   onClose: () => void
@@ -1416,6 +1429,7 @@ function AgentDrawer({
 
   const activeVersion = selectedVersion ?? currentVersion
   const agentName = displayAgent?.name || session.agent?.name || 'Agent'
+  const configuredSkills = displayAgent?.skills || []
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -1551,14 +1565,72 @@ function AgentDrawer({
 
               {/* Skills */}
               <section>
-                <h3 className="mb-1 text-sm font-semibold text-foreground">
+                <h3 className="mb-2 text-sm font-semibold text-foreground">
                   {t('managed.sessions.skillsLabel')}
                 </h3>
-                <p className="text-sm text-muted-foreground">
-                  {displayAgent.skills && displayAgent.skills.length > 0
-                    ? t('managed.sessions.skillsConfigured', { count: displayAgent.skills.length })
-                    : t('managed.sessions.noSkills')}
-                </p>
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-foreground">Configured</span>
+                      <Badge variant="outline">{configuredSkills.length}</Badge>
+                    </div>
+                    {configuredSkills.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        {configuredSkills.map((skill, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="font-mono text-muted-foreground">
+                              {skill.skill_id || skill.type || 'skill'}
+                            </span>
+                            {skill.version && <Badge variant="secondary">{skill.version}</Badge>}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {t('managed.sessions.noSkills')}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-foreground">Actually loaded</span>
+                      <Badge variant={skillUsage.length > 0 ? 'default' : 'outline'}>
+                        {skillUsage.length}
+                      </Badge>
+                    </div>
+                    {skillUsage.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {skillUsage.map((usage) => (
+                          <div key={usage.id} className="rounded-md bg-muted/50 p-2 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-foreground">
+                                {usage.skill_name || usage.skill_id || 'deleted skill'}
+                              </span>
+                              {usage.skill_version && (
+                                <Badge variant="secondary">{usage.skill_version}</Badge>
+                              )}
+                            </div>
+                            <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted-foreground">
+                              {usage.skill_id && <div>id {usage.skill_id}</div>}
+                              {usage.skill_source_type && <div>source {usage.skill_source_type}</div>}
+                              {usage.target && <div>target {usage.target}</div>}
+                              {usage.artifact_hash && (
+                                <div>artifact {usage.artifact_hash.slice(0, 12)}</div>
+                              )}
+                              {usage.target_hash && <div>target {usage.target_hash.slice(0, 12)}</div>}
+                              {usage.security_scan_id && <div>scan {usage.security_scan_id}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        No runtime skill audit rows recorded for this session.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </section>
             </>
           )}

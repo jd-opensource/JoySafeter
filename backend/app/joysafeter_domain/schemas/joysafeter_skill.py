@@ -81,6 +81,70 @@ class SkillSecurityScanSummary(BaseModel):
         return f"sklscan_{v}" if v else None
 
 
+class SkillRuntimeEligibility(BaseModel):
+    usable: bool = False
+    reason: Optional[str] = None
+    user_message: str = "Skill is not runtime-ready."
+    next_action: str = "review_skill"
+
+
+class SkillReferenceSummary(BaseModel):
+    agents: int = 0
+    agent_versions: int = 0
+    schedules: int = 0
+    active_tasks: int = 0
+    total: int = 0
+
+
+class SkillReferenceItem(BaseModel):
+    type: str
+    id: str
+    name: str
+    version: Optional[str] = None
+    status: Optional[str] = None
+
+
+class SkillImpactSummary(BaseModel):
+    counts: SkillReferenceSummary = Field(default_factory=SkillReferenceSummary)
+    references: list[SkillReferenceItem] = Field(default_factory=list)
+
+
+class SkillUsageResponse(BaseModel):
+    id: uuid.UUID
+    skill_id: Optional[uuid.UUID] = None
+    skill_name: Optional[str] = None
+    skill_source_type: Optional[str] = None
+    skill_version: Optional[str] = None
+    skill_version_id: Optional[uuid.UUID] = None
+    target: Optional[str] = None
+    security_scan_id: Optional[uuid.UUID] = None
+    target_hash: Optional[str] = None
+    artifact_hash: Optional[str] = None
+    session_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    project_id: Optional[str] = None
+    user_id: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return f"skluse_{v}"
+
+    @field_serializer("skill_id")
+    def serialize_skill_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"skill_{v}" if v else None
+
+    @field_serializer("skill_version_id")
+    def serialize_skill_version_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"sklver_{v}" if v else None
+
+    @field_serializer("security_scan_id")
+    def serialize_security_scan_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"sklscan_{v}" if v else None
+
+
 class SkillSecurityScanResponse(BaseModel):
     id: uuid.UUID
     skill_id: Optional[uuid.UUID] = None
@@ -141,6 +205,8 @@ class SkillResponse(BaseModel):
     metadata: dict = Field(default_factory=dict, alias="meta_data")
     allowed_tools: list = Field(default_factory=list)
     security_scan: SkillSecurityScanSummary = Field(default_factory=SkillSecurityScanSummary)
+    runtime_eligibility: Optional[SkillRuntimeEligibility] = None
+    impact: Optional[SkillImpactSummary] = None
     created_at: datetime
     updated_at: datetime
 

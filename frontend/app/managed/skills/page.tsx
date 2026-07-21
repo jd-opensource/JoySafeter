@@ -106,6 +106,7 @@ import type {
   SkillFileRecord,
   SkillVersionRecord,
   SkillSecurityScanRecord,
+  SessionSkillUsage,
   PromotableTier,
 } from '@/types/managed'
 
@@ -2023,6 +2024,33 @@ export default function SkillManagerPage() {
     enabled: !!selectedSkillId && showSecurityHistoryDialog && hasManagedRequestScope(managedScope),
   })
 
+  const { data: recentSkillUsage = [] } = useQuery({
+    queryKey: ['skill-usage', managedScope.key, selectedSkillId],
+    queryFn: async () => {
+      const res = await managedGet<{ data: SessionSkillUsage[] }>(
+        apiResourceSubpath('skills', selectedSkillId!, ['usage'], { limit: 5 }),
+        managedRequestOptions(managedScope),
+      )
+      return res.data || []
+    },
+    enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
+  })
+  const currentTargetHash = selectedSkill?.security_scan?.target_hash || null
+  const { data: targetHashUsage = [] } = useQuery({
+    queryKey: ['skill-usage-search', managedScope.key, currentTargetHash],
+    queryFn: async () => {
+      const res = await managedGet<{ data: SessionSkillUsage[] }>(
+        apiResourceSubpath('skills', 'usage', ['search'], {
+          limit: 5,
+          target_hash: currentTargetHash,
+        }),
+        managedRequestOptions(managedScope),
+      )
+      return res.data || []
+    },
+    enabled: !!currentTargetHash && hasManagedRequestScope(managedScope),
+  })
+
   // -- Load skill into form --
 
   const loadSkillIntoForm = useCallback((skill: SkillRecord) => {
@@ -3197,6 +3225,9 @@ export default function SkillManagerPage() {
     editorTab === 'editor' && selectedFileId !== null && selectedFile !== undefined
   const canSave = canEditSelectedSkill && (isEditingFile ? isFileDirty : isDirty)
   const selectedSecurityScore = skillSecurityScore(selectedSkill)
+  const runtimeEligibility = selectedSkill.runtime_eligibility
+  const impactCounts = selectedSkill.impact?.counts
+  const publishRuntimeBlocked = !!runtimeEligibility && !runtimeEligibility.usable
   const securityTriggerLabels: Record<string, string> = {
     create: t('managed.skills.securityTriggers.create'),
     update: t('managed.skills.securityTriggers.update'),
@@ -3245,15 +3276,20 @@ export default function SkillManagerPage() {
                   currentStatus={selectedSkill.lifecycle_status}
                   requestScope={managedScope}
                   operationScope={`${managedScope.key}:${selectedSkill.id}`}
-                  canSubmitTransition={() => {
+                  canSubmitTransition={(endpoint) => {
                     if (!currentProjectAllowsWrite()) return false
                     const current = currentSkillInList(selectedSkill.id)
-                    return !!current && current.lifecycle_status === selectedSkill.lifecycle_status
+                    if (!current || current.lifecycle_status !== selectedSkill.lifecycle_status) return false
+                    if ((endpoint === 'approve' || endpoint === 'unarchive') && publishRuntimeBlocked) {
+                      return false
+                    }
+                    return true
                   }}
                   invalidateKeys={[
                     ['skill', managedScope.key, selectedSkillId],
                     ['skills', managedScope.key],
                   ]}
+                  impact={selectedSkill.impact}
                 />
               )}
               <Button
@@ -3292,10 +3328,12 @@ export default function SkillManagerPage() {
                     if (!canEditSelectedSkill) return
                     setShowVersionForm(true)
                   }}
-                  disabled={!canEditSelectedSkill || securityBlocked}
+                  disabled={!canEditSelectedSkill || publishRuntimeBlocked}
                   title={
                     securityBlocked
                       ? t('managed.skills.publishBlockedBySecurity')
+                      : publishRuntimeBlocked
+                        ? runtimeEligibility?.user_message
                       : hasUnpublishedChanges
                         ? t('managed.skills.unpublishedChanges')
                         : undefined
@@ -3303,7 +3341,7 @@ export default function SkillManagerPage() {
                 >
                   <Plus className="h-4 w-4" />
                   {t('managed.skills.createVersionBtn')}
-                  {hasUnpublishedChanges && !securityBlocked && (
+                  {hasUnpublishedChanges && !publishRuntimeBlocked && (
                     <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
                       <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
@@ -3362,6 +3400,106 @@ export default function SkillManagerPage() {
           </span>
         </div>
       ) : null}
+
+      {runtimeEligibility && !runtimeEligibility.usable && (
+        <div className="mb-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm dark:border-amber-800/50 dark:bg-amber-950/30">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+            <span className="font-medium text-amber-900 dark:text-amber-100">
+              {t('managed.skills.runtimeNotReady', 'Runtime not ready')}
+            </span>
+            {runtimeEligibility.reason && (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-xs text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
+                {runtimeEligibility.reason}
+              </span>
+            )}
+          </div>
+          <div className="mt-1 pl-4 text-xs text-amber-800 dark:text-amber-200">
+            {runtimeEligibility.user_message}
+          </div>
+        </div>
+      )}
+
+      {impactCounts && impactCounts.total > 0 && (
+        <div className="mb-3 rounded-lg border border-border bg-muted/35 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-foreground">
+              {t('managed.skills.impactTitle', 'References')}
+            </span>
+            <span className="rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
+              {t('managed.skills.impactAgents', 'Agents')}: {impactCounts.agents}
+            </span>
+            <span className="rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
+              {t('managed.skills.impactSchedules', 'Schedules')}: {impactCounts.schedules}
+            </span>
+            <span className="rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
+              {t('managed.skills.impactActiveTasks', 'Active tasks')}: {impactCounts.active_tasks}
+            </span>
+          </div>
+          {selectedSkill.impact?.references?.length ? (
+            <div className="mt-1 flex flex-wrap gap-1 pl-0 text-xs text-muted-foreground">
+              {selectedSkill.impact.references.map((ref) => (
+                <span key={`${ref.type}:${ref.id}`} className="rounded bg-background px-1.5 py-0.5">
+                  {ref.type}: {ref.name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {recentSkillUsage.length > 0 && (
+        <div className="mb-3 rounded-lg border border-border bg-muted/35 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-foreground">
+              {t('managed.skills.recentRuntimeUsage', 'Recent runtime usage')}
+            </span>
+            <span className="rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
+              {recentSkillUsage.length} sessions
+            </span>
+          </div>
+          <div className="mt-2 space-y-1">
+            {recentSkillUsage.map((usage) => (
+              <div
+                key={usage.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded bg-background px-2 py-1 text-xs text-muted-foreground"
+              >
+                <span className="font-mono text-foreground">{usage.session_id || 'session unknown'}</span>
+                {usage.skill_version && <span>v{usage.skill_version}</span>}
+                {usage.artifact_hash && (
+                  <span className="font-mono">artifact {usage.artifact_hash.slice(0, 12)}</span>
+                )}
+                {usage.target_hash && (
+                  <span className="font-mono">target {usage.target_hash.slice(0, 12)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {currentTargetHash && targetHashUsage.length > 0 && (
+        <div className="mb-3 rounded-lg border border-border bg-muted/35 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-foreground">
+              {t('managed.skills.targetHashExposure', 'Target hash exposure')}
+            </span>
+            <span className="rounded bg-background px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+              {currentTargetHash.slice(0, 12)}
+            </span>
+            <span className="rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
+              {targetHashUsage.length} sessions
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {targetHashUsage.map((usage) => (
+              <span key={usage.id} className="rounded bg-background px-1.5 py-0.5 text-xs text-muted-foreground">
+                {usage.skill_name || usage.skill_id || 'deleted skill'} · {usage.session_id || 'session unknown'}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-background">
         {/* Center panel -- file tree */}
