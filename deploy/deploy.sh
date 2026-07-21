@@ -88,7 +88,6 @@ USE_BUILDX="${USE_BUILDX:-true}"
 #                         默认 docker.m.daocloud.io （DaoCloud 国内 CDN）
 BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}"
 DOCKER_MIRROR="${DOCKER_MIRROR:-docker.m.daocloud.io}"
-FRONTEND_API_URL="${NEXT_PUBLIC_API_URL:-${BACKEND_URL:-http://localhost:8000}}"
 # 是否禁用 Docker 构建缓存（默认使用缓存）
 NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
@@ -152,7 +151,7 @@ show_usage() {
   --platform PLATFORMS   目标平台架构，多个用逗号分隔（默认: linux/amd64,linux/arm64）
   --arch ARCH            简化的架构选项，可多次使用
                          支持: amd64, arm64, armv7
-  --api-url URL          前端连接后端的API地址（构建时注入）
+  --api-url URL          （已废弃）前端 API 地址现在通过容器环境变量运行时注入
   --backend-only         只处理后端镜像
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
@@ -178,7 +177,6 @@ show_usage() {
   NATIVE_IMAGE           Native 运行镜像名称（默认: joysafeter-native）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
-  NEXT_PUBLIC_API_URL    前端API地址（默认优先使用 BACKEND_URL 或 http://localhost:8000）
   PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
@@ -220,8 +218,8 @@ show_usage() {
   # 构建指定架构并推送
   $0 push --arch amd64 --arch arm64
 
-  # 构建时指定前端API地址
-  $0 build --api-url http://api.example.com
+  # 构建时指定镜像源
+  $0 build --mirror aliyun
 
   # 使用国内镜像源加速构建
   $0 build --mirror huawei --pip-mirror aliyun
@@ -895,13 +893,8 @@ build_image() {
         build_args+=("--build-arg" "UV_INDEX_URL=$UV_INDEX_URL")
     fi
 
-    # 前端镜像需要传递 NEXT_PUBLIC_API_URL
+    # 前端镜像：NEXT_PUBLIC_* 通过 next-runtime-env 在容器启动时注入，无需 build-arg
     if [ "$service" = "前端" ]; then
-        if [ -n "$FRONTEND_API_URL" ]; then
-            build_args+=("--build-arg" "NEXT_PUBLIC_API_URL=$FRONTEND_API_URL")
-            log_info "前端API地址: $FRONTEND_API_URL"
-        fi
-
         # 使用标准多架构 Node 镜像
         local node_version="20-alpine"
         build_args+=("--build-arg" "NODE_VERSION=${node_version}")
@@ -1549,7 +1542,8 @@ main() {
                 shift 2
                 ;;
             --api-url)
-                FRONTEND_API_URL="$2"
+                # 已废弃：NEXT_PUBLIC_* 通过 next-runtime-env 运行时注入，不再需要 build-arg
+                log_info "警告: --api-url 已废弃，NEXT_PUBLIC_API_URL 现在通过容器环境变量运行时注入"
                 shift 2
                 ;;
             --mirror)

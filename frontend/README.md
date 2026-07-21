@@ -20,7 +20,7 @@ cp env.example .env.local
 # 本地默认连接 http://localhost:8000；需要改后端地址时可设置 NEXT_PUBLIC_API_URL
 ```
 
-`env.example` 覆盖本地开发最常用的公开变量；Docker/生产部署的完整变量清单以 `deploy/.env.example` 为准。
+`env.example` 是前端所有环境变量的唯一完整定义（含默认值与注释）。部署时 `deploy/.env.example` 只覆盖需要修改的差异项。
 
 ### 3) 启动开发服务器
 
@@ -66,13 +66,17 @@ app/
 
 ### 环境变量要点
 
+所有前端环境变量在 `env.example` 中统一定义（唯一真相源）。以下为常用变量速查：
+
 - `NEXT_PUBLIC_API_URL`：可选。覆盖后端 API 根地址；未设置时前端默认使用 `http://localhost:8000`。
 - `NEXT_PUBLIC_APP_URL`：可选。公开前端地址，Docker/生产环境用于链接拼接。
 - `NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES`：可选。浏览器侧上传大小上限，建议与后端 `JOYSAFETER_MAX_UPLOAD_FILE_BYTES` 一致。
 - `NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED`：可选。控制登录页是否显示邮箱/密码注册入口；后端仍以认证配置为准。
-- `NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA` / `NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA`：可选。补充 CSP 允许的第三方域名。
+- `NEXT_PUBLIC_CSP_*`：CSP 安全策略相关（`NECESSARY_DOMAIN`、`CONNECT_SRC_EXTRA`、`FRAME_SRC_EXTRA`、`REPORT_URI`、`WHITELIST`、`ALLOW_EMBED`、`ENABLE_CSP_IN_DEV`、`FORCE_HTTPS`）。
 - `DISABLE_REGISTRATION` / `EMAIL_VERIFICATION_ENABLED`：可选。前端服务端用于注册页与邮箱验证 UI；后端强制策略仍看 `backend/.env`。
-- `RESEND_API_KEY` / `AZURE_ACS_CONNECTION_STRING` / `FROM_EMAIL_ADDRESS` / `EMAIL_DOMAIN`：可选。前端服务端邮件能力探测与发信配置。
+- `SSO_DEFAULT_PROVIDER`：可选。设置后登录页自动跳转到该 SSO。
+
+部署时 `deploy/.env.example` 只覆盖与开发默认值不同的变量（如 `NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED=false`），无需重复声明所有变量。
 
 > 完整架构文档：[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) | [中文版](../docs/ARCHITECTURE_CN.md)
 

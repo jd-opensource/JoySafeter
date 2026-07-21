@@ -299,7 +299,15 @@ JoySafeter/
 
 ## Environment Variables
 
-See `backend/env.example` and `frontend/env.example` for all available configuration options.
+环境变量按"唯一真相源"原则管理：
+
+| 文件 | 角色 | 说明 |
+|------|------|------|
+| `backend/env.example` | 后端唯一真相源 | 所有后端变量的完整定义、默认值与注释 |
+| `frontend/env.example` | 前端唯一真相源 | 所有前端变量的完整定义、默认值与注释 |
+| `deploy/.env.example` | 部署差异覆盖层 | 仅列出与开发默认值不同的覆盖项和部署专属配置 |
+
+新增变量只需改对应的 `env.example`，`deploy/.env.example` 只在部署需要不同默认值时才添加。
 
 ### Key Backend Variables
 
@@ -319,16 +327,17 @@ See `backend/env.example` and `frontend/env.example` for all available configura
 
 ### Key Frontend Variables
 
+完整列表见 `frontend/env.example`。以下为常用变量：
+
 | Variable | Description |
 |----------|-------------|
 | `NEXT_PUBLIC_API_URL` | Optional backend API URL override; defaults to `http://localhost:8000` in `lib/api-client.ts` |
 | `NEXT_PUBLIC_APP_URL` | Public frontend URL used for generated links in Docker/production |
 | `NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES` | Browser-side upload size limit; keep aligned with backend `JOYSAFETER_MAX_UPLOAD_FILE_BYTES` |
 | `NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED` | Shows the email/password signup entry point in the auth UI; backend auth policy still applies |
-| `NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA` / `NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA` | Adds third-party connect/frame domains to the generated CSP |
+| `NEXT_PUBLIC_CSP_*` | CSP security policy: `NECESSARY_DOMAIN`, `CONNECT_SRC_EXTRA`, `FRAME_SRC_EXTRA`, `REPORT_URI`, `WHITELIST`, `ALLOW_EMBED`, `ENABLE_CSP_IN_DEV`, `FORCE_HTTPS` |
+| `SSO_DEFAULT_PROVIDER` | Auto-redirect to this SSO provider on the login page |
 | `DISABLE_REGISTRATION` / `EMAIL_VERIFICATION_ENABLED` | Frontend server auth UI flags; backend enforcement still comes from backend auth config |
-| `RESEND_API_KEY` / `AZURE_ACS_CONNECTION_STRING` / `FROM_EMAIL_ADDRESS` / `EMAIL_DOMAIN` | Frontend server email-service configuration |
-| `FRONTEND_PORT` | Internal port the Next.js server listens on |
 
 ## Troubleshooting
 
