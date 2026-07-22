@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { useTranslation } from '@/lib/i18n'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, CheckCircle2, Loader2, Plus, Star, Trash2, Wifi, XCircle } from 'lucide-react'
 import { managedPost, managedDelete } from '@/lib/api-client'
@@ -15,6 +15,7 @@ import {
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { Secret } from '@/types/managed'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -30,6 +31,7 @@ import {
   getDefaultProtocol,
   getDefaultSecretPairs,
   getSecretProviderLabel,
+  isCustomSecretProvider,
   isModelKey,
   isSecretValueMaskedKey,
   SECRET_PROTOCOL_OPTIONS,
@@ -87,6 +89,7 @@ interface ScopedRun {
 export default function SecretListPage() {
   const { t } = useTranslation()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
@@ -235,11 +238,12 @@ export default function SecretListPage() {
     }
   }
 
-  const openCreateDialog = () => {
+  const openCreateDialog = (kind?: 'llm' | 'custom') => {
     if (!currentProjectAllowsWrite()) return
     createRunRef.current += 1
     testRunRef.current += 1
     resetCreateDraft()
+    if (kind === 'custom') updateSecretKind('custom')
     setShowCreate(true)
   }
 
@@ -249,6 +253,16 @@ export default function SecretListPage() {
     resetCreateDraft()
     setShowCreate(false)
   }
+
+  // Deep-link: /managed/secrets?create=custom opens the create dialog
+  // pre-selected to the third-party (custom) kind, then strips the param.
+  useEffect(() => {
+    if (searchParams.get('create') === 'custom') {
+      openCreateDialog('custom')
+      router.replace('/managed/secrets')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   const validPairs = pairs.filter((p) => p.key.trim())
   const canCreate = Boolean(
@@ -445,9 +459,19 @@ export default function SecretListPage() {
     {
       key: 'provider',
       header: t('managed.secrets.provider'),
-      render: (s) => (
-        <span className="text-xs text-muted-foreground">{getSecretProviderLabel(s.provider)}</span>
-      ),
+      render: (s) =>
+        isCustomSecretProvider(s.provider) ? (
+          <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary">
+            {t('managed.secrets.kindCustom')}
+          </Badge>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <Badge variant="secondary">{t('managed.secrets.kindLlm')}</Badge>
+            <span className="text-xs text-muted-foreground">
+              {getSecretProviderLabel(s.provider)}
+            </span>
+          </div>
+        ),
     },
     {
       key: 'protocol',
@@ -484,7 +508,7 @@ export default function SecretListPage() {
         subtitle={t('managed.secrets.subtitle')}
         action={
           projectReadOnly ? null : (
-            <Button size="sm" onClick={openCreateDialog}>
+            <Button size="sm" onClick={() => openCreateDialog()}>
               <Plus className="h-4 w-4" />
               {t('managed.secrets.new')}
             </Button>

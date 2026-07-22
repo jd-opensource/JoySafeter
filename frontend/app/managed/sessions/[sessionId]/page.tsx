@@ -1047,20 +1047,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button
-                size="sm"
-                onClick={() => {
-                  if (msgInput.trim() && canSendMessage) {
-                    handleSendMessage()
-                  } else {
-                    inputRef.current?.focus()
-                  }
-                }}
-                disabled={!canEditMessage}
-              >
-                <Send className="mr-1 h-3.5 w-3.5" />
-                {t('managed.sessions.sendMessage')}
-              </Button>
             </div>
           }
         />
@@ -1571,7 +1557,9 @@ function AgentDrawer({
                 <div className="space-y-3">
                   <div className="rounded-lg border border-border p-3">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-foreground">Configured</span>
+                      <span className="text-sm text-foreground">
+                        {t('managed.sessions.skillsConfiguredLabel')}
+                      </span>
                       <Badge variant="outline">{configuredSkills.length}</Badge>
                     </div>
                     {configuredSkills.length > 0 ? (
@@ -1594,7 +1582,9 @@ function AgentDrawer({
 
                   <div className="rounded-lg border border-border p-3">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm text-foreground">Actually loaded</span>
+                      <span className="text-sm text-foreground">
+                        {t('managed.sessions.skillsActuallyLoadedLabel')}
+                      </span>
                       <Badge variant={skillUsage.length > 0 ? 'default' : 'outline'}>
                         {skillUsage.length}
                       </Badge>
@@ -1626,7 +1616,7 @@ function AgentDrawer({
                       </div>
                     ) : (
                       <p className="mt-2 text-sm text-muted-foreground">
-                        No runtime skill audit rows recorded for this session.
+                        {t('managed.sessions.noSkillUsage')}
                       </p>
                     )}
                   </div>

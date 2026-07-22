@@ -382,7 +382,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           />
         </div>
 
-        <div className="border-t pt-4">
+        <div className="pt-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
               <h4 className="text-sm font-medium">{t('managed.environments.egressServices')}</h4>
