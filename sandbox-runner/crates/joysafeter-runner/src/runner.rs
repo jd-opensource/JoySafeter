@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone, Default)]
 pub struct SessionConfig {
@@ -559,13 +559,38 @@ async fn unpack_skills(
     skills: &[proto::SkillArchive],
     provider: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use sha2::{Digest, Sha256};
+
     for skill in skills {
         let target_dir = skill_base_dir(work_dir, provider, &skill.target);
+        let marker_path = target_dir.join(&skill.name).join(".skill_hash");
+
+        // Fast path: if the skill is already unpacked with the same content, skip.
+        let content_hash = format!("{:x}", Sha256::digest(&skill.tar_gz));
+        if let Ok(existing_hash) = tokio::fs::read_to_string(&marker_path).await {
+            if existing_hash.trim() == content_hash {
+                debug!(
+                    name = %skill.name,
+                    target = %skill.target,
+                    "Skill already unpacked (hash match), skipping"
+                );
+                continue;
+            }
+        }
+
+        // Unpack (first time or content changed)
         tokio::fs::create_dir_all(&target_dir)
             .await
             .map_err(|e| format!("mkdir {}: {e}", target_dir.display()))?;
         crate::archive::extract_tar_gz_bytes_to_dir(&skill.tar_gz, &target_dir)
             .map_err(|e| format!("unpack tar to {}: {e}", target_dir.display()))?;
+
+        // Write marker for next time
+        if let Some(parent) = marker_path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let _ = tokio::fs::write(&marker_path, &content_hash).await;
+
         info!(
             name = %skill.name,
             target = %skill.target,
