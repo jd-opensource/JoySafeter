@@ -2357,6 +2357,14 @@ fn ensure_skill_runtime_ready(skill: &SkillForArchive) -> anyhow::Result<()> {
             skill.lifecycle_status
         );
     }
+    // When security scanning is disabled, skip scan-related checks.
+    // Mirrors the Python `settings.skill_security_scan_enabled` gate.
+    let scan_enabled = std::env::var("SKILL_SECURITY_SCAN_ENABLED")
+        .map(|v| !matches!(v.to_lowercase().as_str(), "false" | "0" | "no"))
+        .unwrap_or(true);
+    if !scan_enabled {
+        return Ok(());
+    }
     if !matches!(skill.security_status.as_str(), "passed" | "warning") {
         anyhow::bail!(
             "skill {} security status is not runtime-ready: {}",
