@@ -270,7 +270,18 @@ class JoySafeterAgentService:
             project_id=project_id,
         )
         self.db.add(agent)
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except Exception as exc:
+            if "uq_joysafeter_agents_project_name" in str(exc) or "UniqueViolation" in type(exc).__name__:
+                from app.joysafeter_shared.common.app_errors import ConflictError
+
+                raise ConflictError(
+                    f"Agent with name '{req.name}' already exists in this project.",
+                    code="AGENT_NAME_CONFLICT",
+                    data={"name": req.name},
+                ) from exc
+            raise
 
         await self._save_version(agent)
         await self.db.commit()
