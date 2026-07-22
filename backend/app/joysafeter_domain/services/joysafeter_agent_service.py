@@ -179,9 +179,17 @@ class JoySafeterAgentService:
                 # Agents reference published (frozen) versions, so skip the
                 # draft-content drift check that is_skill_usable performs —
                 # only verify lifecycle + security status + scan-hash presence.
-                usable, reason = is_skill_usable(skill, check_drift=False)
-                if not usable:
-                    invalid.append({"skill_id": str(skill_id), "reason": reason})
+                # When scanning is globally disabled, skip the security gates
+                # entirely — only lifecycle_status matters.
+                from app.joysafeter_shared.config import settings as app_settings
+
+                if app_settings.skill_security_scan_enabled:
+                    usable, reason = is_skill_usable(skill, check_drift=False)
+                    if not usable:
+                        invalid.append({"skill_id": str(skill_id), "reason": reason})
+                else:
+                    if skill.lifecycle_status != "approved":
+                        invalid.append({"skill_id": str(skill_id), "reason": "skill_not_approved"})
         if invalid:
             raise InvalidRequestError(
                 "Agent can only reference published, runtime-ready skills",
