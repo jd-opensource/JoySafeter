@@ -1607,6 +1607,8 @@ async def run_scan_in_background(
     from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
     from app.joysafeter_shared.database import AsyncSessionLocal
 
+    from sqlalchemy import select as _bg_select
+
     async with AsyncSessionLocal() as db:
         try:
             svc = SkillSecurityService(db)
@@ -1635,8 +1637,6 @@ async def run_scan_in_background(
                     await db.commit()
                 return
                 # Refresh the skill row with the latest verdict.
-            from sqlalchemy import select as _bg_select
-
             _bg_result = await db.execute(
                 _bg_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id).with_for_update()
             )
