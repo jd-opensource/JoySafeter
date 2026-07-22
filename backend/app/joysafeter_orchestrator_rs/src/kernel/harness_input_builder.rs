@@ -5,8 +5,8 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine as _;
 use chrono::Utc;
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tar::{Builder, Header};
@@ -414,7 +414,8 @@ impl HarnessInputBuilder {
         let Some(skill_uuid) = parse_prefixed_uuid(skill_id, "skill_") else {
             anyhow::bail!("invalid skill_id for target {target}: {skill_id}");
         };
-        self.pack_skill(skill_uuid, version, target, agent, task).await
+        self.pack_skill(skill_uuid, version, target, agent, task)
+            .await
     }
 
     async fn pack_skill(
@@ -436,7 +437,11 @@ impl HarnessInputBuilder {
         //                         when nothing has been published yet
         //  - explicit "x.y.z"   → that exact published version
         let (resolved_version, version_meta, files) = if version == "draft" {
-            ("draft".to_string(), None, self.load_skill_files(skill_id).await?)
+            (
+                "draft".to_string(),
+                None,
+                self.load_skill_files(skill_id).await?,
+            )
         } else if version == "latest" || version.is_empty() {
             let resolved = self
                 .highest_published_version(skill_id)
@@ -445,14 +450,18 @@ impl HarnessInputBuilder {
             let meta = self
                 .load_skill_version_meta(skill_id, &resolved)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("skill version not found: skill={skill_id} version={resolved}"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("skill version not found: skill={skill_id} version={resolved}")
+                })?;
             let files = self.load_skill_version_files(skill_id, &resolved).await?;
             (resolved, Some(meta), files)
         } else {
             let meta = self
                 .load_skill_version_meta(skill_id, version)
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("skill version not found: skill={skill_id} version={version}"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("skill version not found: skill={skill_id} version={version}")
+                })?;
             let files = self.load_skill_version_files(skill_id, version).await?;
             (version.to_string(), Some(meta), files)
         };
@@ -482,7 +491,10 @@ impl HarnessInputBuilder {
         })
     }
 
-    async fn load_skill_for_archive(&self, skill_id: Uuid) -> anyhow::Result<Option<SkillForArchive>> {
+    async fn load_skill_for_archive(
+        &self,
+        skill_id: Uuid,
+    ) -> anyhow::Result<Option<SkillForArchive>> {
         sqlx::query_as::<_, SkillForArchive>(
             r#"
             SELECT name, source_type, lifecycle_status, security_status, security_scan_hash, security_scan_id
@@ -527,8 +539,18 @@ impl HarnessInputBuilder {
         task: &crate::db::models::JoySafeterTask,
     ) {
         let (skill_version_id, security_scan_id, target_hash) = match version_meta {
-            Some(meta) => (Some(meta.id), meta.security_scan_id.or(skill.security_scan_id), meta.target_hash.as_deref().or(skill.security_scan_hash.as_deref())),
-            None => (None, skill.security_scan_id, skill.security_scan_hash.as_deref()),
+            Some(meta) => (
+                Some(meta.id),
+                meta.security_scan_id.or(skill.security_scan_id),
+                meta.target_hash
+                    .as_deref()
+                    .or(skill.security_scan_hash.as_deref()),
+            ),
+            None => (
+                None,
+                skill.security_scan_id,
+                skill.security_scan_hash.as_deref(),
+            ),
         };
         if let Err(e) = sqlx::query(
             r#"
@@ -536,11 +558,20 @@ impl HarnessInputBuilder {
               (id, skill_id, skill_name, skill_source_type, skill_version, skill_version_id,
                target, security_scan_id, target_hash, artifact_hash,
                session_id, agent_id, project_id, user_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5,
-                    CASE WHEN $6::uuid IS NULL THEN NULL
-                         WHEN EXISTS (SELECT 1 FROM joysafeter_skill_versions WHERE id = $6) THEN $6
-                         ELSE NULL END,
-                    $7, $8, $9, $10, $11, $12, $13, NULL, NOW(), NOW())
+            SELECT $1, $2, $3, $4, $5,
+                   CASE WHEN $6::uuid IS NULL THEN NULL
+                        WHEN EXISTS (SELECT 1 FROM joysafeter_skill_versions WHERE id = $6) THEN $6
+                        ELSE NULL END,
+                   $7, $8, $9, $10, $11, $12, $13, NULL, NOW(), NOW()
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM joysafeter_skill_usage_log existing
+                WHERE existing.skill_id = $2
+                  AND existing.skill_version IS NOT DISTINCT FROM $5
+                  AND existing.target IS NOT DISTINCT FROM $7
+                  AND existing.artifact_hash IS NOT DISTINCT FROM $10
+                  AND existing.session_id IS NOT DISTINCT FROM $11
+            )
             "#,
         )
         .bind(Uuid::now_v7())
@@ -1153,8 +1184,9 @@ fn extract_content_text(payload: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_skill_runtime_ready, extract_content_text, parse_semver, session_container_work_dir,
-        should_inject_conversation_history, trim_history_lines_to_budget, SkillForArchive,
+        SkillForArchive, ensure_skill_runtime_ready, extract_content_text, parse_semver,
+        session_container_work_dir, should_inject_conversation_history,
+        trim_history_lines_to_budget,
     };
     use uuid::Uuid;
 
@@ -1564,12 +1596,25 @@ fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
 
 fn ensure_skill_runtime_ready(skill: &SkillForArchive) -> anyhow::Result<()> {
     if skill.lifecycle_status != "approved" {
-        anyhow::bail!("skill {} is not approved: {}", skill.name, skill.lifecycle_status);
+        anyhow::bail!(
+            "skill {} is not approved: {}",
+            skill.name,
+            skill.lifecycle_status
+        );
     }
     if !matches!(skill.security_status.as_str(), "passed" | "warning") {
-        anyhow::bail!("skill {} security status is not runtime-ready: {}", skill.name, skill.security_status);
+        anyhow::bail!(
+            "skill {} security status is not runtime-ready: {}",
+            skill.name,
+            skill.security_status
+        );
     }
-    if skill.security_scan_hash.as_deref().unwrap_or_default().is_empty() {
+    if skill
+        .security_scan_hash
+        .as_deref()
+        .unwrap_or_default()
+        .is_empty()
+    {
         anyhow::bail!("skill {} has no security scan hash", skill.name);
     }
     Ok(())

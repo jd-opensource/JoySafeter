@@ -822,11 +822,22 @@ fn build_virtual_hosts_json(
             })
             .collect();
 
-        let domains = vec![
-            json!(match_host),
+        // Domains include the bare host + standard port variants (:80/:443).
+        // For transparent egress routes targeting non-standard ports, also add
+        // :<port> so Envoy matches the Host header that includes the port.
+        let mut domains = vec![
+            json!(&match_host),
             json!(format!("{match_host}:80")),
             json!(format!("{match_host}:443")),
         ];
+        for r in &routes {
+            if r.upstream_port != 80 && r.upstream_port != 443 {
+                let with_port = format!("{match_host}:{}", r.upstream_port);
+                if !domains.iter().any(|d| d.as_str() == Some(&with_port)) {
+                    domains.push(json!(with_port));
+                }
+            }
+        }
 
         vhosts.push(json!({
             "name": format!("egress_{}", match_host.replace(['.', ':'], "_")),
@@ -1620,11 +1631,19 @@ fn build_virtual_hosts_proto(
             })
             .collect();
 
-        let domains = vec![
+        let mut domains = vec![
             match_host.clone(),
             format!("{match_host}:80"),
             format!("{match_host}:443"),
         ];
+        for r in &routes {
+            if r.upstream_port != 80 && r.upstream_port != 443 {
+                let with_port = format!("{match_host}:{}", r.upstream_port);
+                if !domains.contains(&with_port) {
+                    domains.push(with_port);
+                }
+            }
+        }
 
         vhosts.push(VirtualHost {
             name: format!("egress_{}", match_host.replace(['.', ':'], "_")),

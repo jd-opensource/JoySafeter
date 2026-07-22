@@ -815,7 +815,7 @@ const en = {
         egressName: 'Service name',
         egressBaseUrl: 'Base URL',
         egressBaseUrlHint:
-          "The real third-party endpoint (with https). In your skill use http:// for the same address; the platform injects the credential at the gateway and re-originates to https.",
+          'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform injects the credential at the gateway and re-originates to https.',
         egressAllowedPaths: 'Allowed paths',
         egressAllowedPathsHint:
           'One path per line. A trailing / means prefix match (everything under it); otherwise exact match (that endpoint only). Leave empty = allow every endpoint under this address; for high-privilege secrets, list paths explicitly to prevent unintended access.',
@@ -848,7 +848,8 @@ const en = {
         egressCookieNameTooltip: 'Secret field that stores the full Cookie header string.',
         egressCookies: 'Cookie header field',
         egressSkillExample: 'Skill uses',
-        egressSkillExampleHint: 'Use this address in your skill; the credential is injected automatically.',
+        egressSkillExampleHint:
+          'Use this address in your skill; the credential is injected automatically.',
         egressInjectExample: 'Injected',
         validation: {
           required: 'This field is required',
@@ -1449,6 +1450,27 @@ const en = {
           'Current content differs from the latest published version — you have unpublished changes.',
         publishBlockedBySecurity:
           'This skill is blocked by a high security risk and cannot be published. Fix the issues and re-scan.',
+        runtimeNotReady: 'Runtime not ready',
+        impactTitle: 'References',
+        impactAgents: 'Agents',
+        impactSchedules: 'Schedules',
+        impactActiveTasks: 'Active tasks',
+        recentRuntimeUsage: 'Recent runtime usage',
+        targetHashExposure: 'Target hash exposure',
+        runtimeStatsTitle: 'Runtime stats',
+        runtimeStatsCompactDescription: 'References, sessions, and hash records',
+        runtimeStatsDescription:
+          'Shows where this skill is referenced and the versions, artifacts, and target hashes used in recent sessions.',
+        runtimeStatsSummary: 'Summary',
+        viewRuntimeStats: 'View details',
+        recentSessions: '{{count}} sessions',
+        totalReferences: '{{count}} references',
+        runtimeSession: 'Session',
+        runtimeVersion: 'Version',
+        runtimeArtifact: 'Artifact hash',
+        runtimeTarget: 'Target hash',
+        runtimeUnknownSession: 'Unknown session',
+        runtimeDeletedSkill: 'Deleted skill',
         version: {
           latest: 'Latest published',
           draft: 'Draft (working copy)',
