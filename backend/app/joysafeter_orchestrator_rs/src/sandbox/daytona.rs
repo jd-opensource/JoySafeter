@@ -206,15 +206,17 @@ impl SandboxProvider for DaytonaProvider {
 
     async fn inject_files(&self, external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {
         let mut injected = 0usize;
+        let mut failures = Vec::new();
         for file in files {
             let Some(ref content) = file.content else {
+                failures.push(format!("{}: missing loaded content", file.mount_path));
                 continue;
             };
             // M10 fix: Reject paths with traversal sequences or null bytes
             // to prevent writing outside the intended sandbox directory.
             let path = file.mount_path.trim_start_matches('/');
             if path.contains("..") || path.contains('\0') {
-                warn!(path = %file.mount_path, "Path traversal detected, skipping file injection");
+                failures.push(format!("{}: invalid mount path", file.mount_path));
                 continue;
             }
             let resp = self
@@ -233,12 +235,26 @@ impl SandboxProvider for DaytonaProvider {
                 }
                 Ok(r) => {
                     let text = r.text().await.unwrap_or_default();
-                    warn!(path = %file.mount_path, "Daytona file upload failed: {text}");
+                    failures.push(format!(
+                        "{}: Daytona file upload failed: {text}",
+                        file.mount_path
+                    ));
                 }
                 Err(e) => {
-                    warn!(path = %file.mount_path, "Daytona file upload error: {e}");
+                    failures.push(format!(
+                        "{}: Daytona file upload error: {e}",
+                        file.mount_path
+                    ));
                 }
             }
+        }
+        if !failures.is_empty() {
+            anyhow::bail!(
+                "failed to inject {} of {} files into Daytona sandbox: {}",
+                failures.len(),
+                files.len(),
+                failures.join("; ")
+            );
         }
         info!(external_id, injected, "Injected files into Daytona sandbox");
         Ok(())

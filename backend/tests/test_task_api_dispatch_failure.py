@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.joysafeter_api.api.v1.environments import archive_environment
 from app.joysafeter_api.api.v1.tasks import cancel_task, create_task
@@ -58,6 +58,55 @@ class _FakeCommandRedis:
         if payload is None:
             return None
         return key, payload
+
+
+class _TaskSandboxChangingAckRedis(_FakeCommandRedis):
+    def __init__(
+        self,
+        db_session,
+        task_id: uuid.UUID,
+        *,
+        old_sandbox_id: uuid.UUID,
+        new_sandbox_id: uuid.UUID,
+        session_id: uuid.UUID,
+    ):
+        super().__init__()
+        self.db_session = db_session
+        self.task_id = task_id
+        self.old_sandbox_id = old_sandbox_id
+        self.new_sandbox_id = new_sandbox_id
+        self.session_id = session_id
+        self.changed = False
+
+    async def blpop(self, key: str, timeout: int = 0):
+        if not self.changed:
+            await self.db_session.execute(
+                text(
+                    "UPDATE joysafeter_sandboxes "
+                    "SET status = 'destroyed', destroyed_at = NOW(), updated_at = NOW() "
+                    "WHERE id = :old_sandbox_id"
+                ),
+                {"old_sandbox_id": self.old_sandbox_id},
+            )
+            await self.db_session.execute(
+                text(
+                    "UPDATE joysafeter_sandboxes "
+                    "SET chat_session_id = :session_id, status = 'running', updated_at = NOW() "
+                    "WHERE id = :new_sandbox_id"
+                ),
+                {"new_sandbox_id": self.new_sandbox_id, "session_id": self.session_id},
+            )
+            await self.db_session.execute(
+                text(
+                    "UPDATE joysafeter_tasks "
+                    "SET sandbox_id = :sandbox_id, owner_epoch = COALESCE(owner_epoch, 0) + 1, updated_at = NOW() "
+                    "WHERE id = :task_id"
+                ),
+                {"sandbox_id": self.new_sandbox_id, "task_id": self.task_id},
+            )
+            await self.db_session.commit()
+            self.changed = True
+        return await super().blpop(key, timeout=timeout)
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
@@ -140,6 +189,62 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
     assert [(event.event_type, event.payload) for event in events] == [
         ("session.status_running", {"task_id": str(task.id)})
     ]
+
+
+@pytest.mark.asyncio
+async def test_create_task_auto_session_stores_execution_snapshot(db_session, monkeypatch):
+    redis = _FakeRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    env = JoySafeterEnvironment(
+        name=f"task-snapshot-env-{uuid.uuid4()}",
+        description="",
+        config={"env_vars": {"SUBMITTED_ENV": "1"}},
+        image_tag="submitted-image:1",
+        image_version=1,
+    )
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+
+    env_ref = f"env_{env.id}"
+    agent = JoySafeterAgent(
+        name=f"task-snapshot-agent-{uuid.uuid4()}",
+        version=1,
+        environment_ref=env_ref,
+        env={"SUBMITTED_AGENT": "1"},
+    )
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    response = await create_task(
+        JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target"),
+        db_session,
+        _auth_ctx(),
+    )
+
+    env.config = {"env_vars": {"LIVE_ENV": "2"}}
+    env.image_tag = "live-image:2"
+    env.image_version = 2
+    agent.env = {"LIVE_AGENT": "2"}
+    agent.version = 2
+    await db_session.commit()
+
+    task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == response.id))).scalar_one()
+    session = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == task.chat_session_id))
+    ).scalar_one()
+
+    assert session.environment_ref == env_ref
+    assert session.agent_version == 1
+    assert session.agent_snapshot["environment_ref"] == env_ref
+    assert session.agent_snapshot["env"] == {"SUBMITTED_AGENT": "1"}
+    assert session.agent_snapshot["environment"]["image_tag"] == "submitted-image:1"
+    assert session.agent_snapshot["environment"]["config"]["env_vars"] == {"SUBMITTED_ENV": "1"}
 
 
 @pytest.mark.asyncio
@@ -821,6 +926,7 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
         sandbox_id=sandbox.id,
         prompt="long running",
         status=JoySafeterTaskStatus.RUNNING.value,
+        owner_epoch=7,
     )
     db_session.add(task)
     await db_session.commit()
@@ -839,6 +945,97 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
     assert payload["sandbox_id"] == str(sandbox.id)
     assert payload["reason"] == "Cancelled via API"
     assert payload["ack_key"].startswith("joysafeter:cmd_ack:")
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_rejects_ack_if_task_moved_to_another_sandbox(db_session, monkeypatch):
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
+
+    agent = JoySafeterAgent(name=f"cancel-stale-sandbox-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(agent_id=agent.id, status="running")
+    db_session.add(session)
+    await db_session.flush()
+
+    old_sandbox = JoySafeterSandbox(
+        chat_session_id=session.id,
+        external_id=f"sandbox-old-{uuid.uuid4()}",
+        provider="docker",
+        status="running",
+        image="joysafeter/test:latest",
+    )
+    new_sandbox = JoySafeterSandbox(
+        chat_session_id=None,
+        external_id=f"sandbox-new-{uuid.uuid4()}",
+        provider="docker",
+        status="pooled",
+        image="joysafeter/test:latest",
+    )
+    db_session.add(old_sandbox)
+    await db_session.flush()
+    db_session.add(new_sandbox)
+    await db_session.flush()
+    session.last_sandbox_id = old_sandbox.id
+
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        chat_session_id=session.id,
+        sandbox_id=old_sandbox.id,
+        prompt="long running",
+        status=JoySafeterTaskStatus.RUNNING.value,
+        owner_epoch=7,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    task_id = task.id
+    old_sandbox_id = old_sandbox.id
+    new_sandbox_id = new_sandbox.id
+    session_id = session.id
+
+    redis = _TaskSandboxChangingAckRedis(
+        db_session,
+        task_id,
+        old_sandbox_id=old_sandbox_id,
+        new_sandbox_id=new_sandbox_id,
+        session_id=session_id,
+    )
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await cancel_task(task_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_CANCEL_STATE_SYNC_FAILED",
+        "message": "Task cancel could not be finalized because task ownership changed.",
+        "data": {
+            "task_id": str(task_id),
+            "session_id": str(session_id),
+            "sandbox_id": str(old_sandbox_id),
+        },
+        "source": "api",
+        "retryable": True,
+        "user_action": "refresh",
+    }
+
+    command_publishes = [
+        (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
+    ]
+    assert len(command_publishes) == 1
+    assert command_publishes[0][1]["sandbox_id"] == str(old_sandbox_id)
+
+    db_session.expire_all()
+    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    assert task_row.status == JoySafeterTaskStatus.RUNNING.value
+    assert str(task_row.sandbox_id) == str(new_sandbox_id)
+    assert task_row.owner_epoch == 8
+    assert session_row.status == "running"
 
 
 @pytest.mark.asyncio

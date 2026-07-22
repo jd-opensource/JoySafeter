@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional, cast
 
-from sqlalchemy import CursorResult, and_, select
+from sqlalchemy import CursorResult, and_, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,8 +42,8 @@ SANDBOX_STATUSES = frozenset(
 SANDBOX_TERMINAL_STATUSES = frozenset({"destroyed"})
 
 SANDBOX_TRANSITIONS: dict[str, set[str]] = {
-    "creating": {"provisioning", "idle", "stopped", "error", "destroyed"},
-    "provisioning": {"idle", "stopped", "error", "destroyed"},
+    "creating": {"provisioning", "pooled", "idle", "stopped", "error", "destroyed"},
+    "provisioning": {"idle", "stopping", "stopped", "error", "destroyed"},
     "pooled": {"provisioning", "stopped", "destroyed"},
     "idle": {"idle", "running", "stopping", "stopped", "error", "destroyed"},
     "running": {"idle", "stopped", "error", "destroyed"},
@@ -394,6 +394,57 @@ class JoySafeterSandboxService:
             mark_destroyed=True,
         )
 
+    async def mark_destroyed_after_runtime_ack(
+        self,
+        sandbox_id: uuid.UUID,
+        expected_status: str,
+        expected_external_id: Optional[str],
+    ) -> bool:
+        self.state_machine._validate_status(expected_status)
+        if expected_status != "destroyed":
+            self.state_machine._validate_transition(expected_status, "destroyed")
+
+        external_id_conditions = [JoySafeterSandbox.external_id == expected_external_id]
+        if not expected_external_id:
+            external_id_conditions = [
+                or_(JoySafeterSandbox.external_id.is_(None), JoySafeterSandbox.external_id == "")
+            ]
+
+        result = await self.db.execute(
+            sa_update(JoySafeterSandbox)
+            .where(
+                and_(
+                    JoySafeterSandbox.id == sandbox_id,
+                    JoySafeterSandbox.status == expected_status,
+                    JoySafeterSandbox.destroyed_at.is_(None),
+                    *external_id_conditions,
+                )
+            )
+            .values(
+                status="destroyed",
+                destroyed_at=utc_now(),
+                updated_at=utc_now(),
+                idle_since=None,
+            )
+        )
+        await self.db.commit()
+        if cast(CursorResult[Any], result).rowcount > 0:
+            return True
+
+        current = await self.db.execute(
+            select(
+                JoySafeterSandbox.status,
+                JoySafeterSandbox.external_id,
+                JoySafeterSandbox.destroyed_at,
+            ).where(JoySafeterSandbox.id == sandbox_id)
+        )
+        row = current.one_or_none()
+        if row is None:
+            return False
+        status, external_id, destroyed_at = row
+        expected = expected_external_id or ""
+        return status == "destroyed" and (external_id or "") == expected and destroyed_at is not None
+
     async def update_status_and_config(self, sandbox_id: uuid.UUID, status: str, config: dict) -> None:
         await self.state_machine.transition(sandbox_id, status, config=config, touch=True)
 
@@ -403,7 +454,9 @@ class JoySafeterSandboxService:
             select(JoySafeterSandbox).where(
                 and_(
                     JoySafeterSandbox.status == "idle",
-                    JoySafeterSandbox.last_used_at < cutoff,
+                    JoySafeterSandbox.destroyed_at.is_(None),
+                    JoySafeterSandbox.idle_since.isnot(None),
+                    JoySafeterSandbox.idle_since < cutoff,
                 )
             )
         )

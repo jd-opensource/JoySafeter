@@ -155,6 +155,49 @@ async def test_scheduler_session_sync_cancel_error_releases_claim_without_advanc
 
 
 @pytest.mark.asyncio
+async def test_scheduler_state_sync_cancel_error_releases_claim_without_advancing(monkeypatch):
+    schedule = SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc))
+    calls: list[tuple[str, object]] = []
+
+    async def claim_due_schedules(self, **kwargs):
+        return [schedule]
+
+    async def release_claim(self, schedule_id):
+        calls.append(("release", schedule_id))
+
+    async def advance_after_fire(self, schedule_id, fired_slot):
+        calls.append(("advance", schedule_id))
+
+    async def fail_fire(self, schedule_arg, fired_slot):
+        raise ServiceUnavailableError(
+            code="TASK_CANCEL_STATE_SYNC_FAILED",
+            message="Task cancel could not be finalized because task ownership changed.",
+            source="api",
+            retryable=True,
+            user_action="refresh",
+        )
+
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.claim_due_schedules",
+        claim_due_schedules,
+    )
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.release_claim",
+        release_claim,
+    )
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.advance_after_fire",
+        advance_after_fire,
+    )
+    monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
+
+    await SchedulerLoop()._tick()
+
+    assert calls == [("release", schedule.id)]
+
+
+@pytest.mark.asyncio
 async def test_scheduler_non_retryable_fire_error_advances_slot(monkeypatch):
     schedule = SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc))
     calls: list[tuple[str, object]] = []

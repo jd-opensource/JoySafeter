@@ -44,7 +44,7 @@ impl SessionBroadcastSubscriber {
         // persisted and assigned the canonical DB seq. Raw envelopes can carry
         // runner seq/no-seq values, which makes live ordering differ from the
         // refresh path that reads from DB.
-        if !envelope.is_status_change || envelope.seq.is_none() {
+        if !envelope.is_status_change || !envelope.db_persisted || envelope.session_seq.is_none() {
             return;
         }
 
@@ -57,7 +57,7 @@ impl SessionBroadcastSubscriber {
             if let Some(id) = envelope.event_id {
                 obj.insert("id".to_string(), serde_json::json!(format!("evt_{id}")));
             }
-            if let Some(seq) = envelope.seq {
+            if let Some(seq) = envelope.session_seq {
                 obj.insert("seq".to_string(), serde_json::json!(seq));
             }
             if !obj.contains_key("stop_reason") {

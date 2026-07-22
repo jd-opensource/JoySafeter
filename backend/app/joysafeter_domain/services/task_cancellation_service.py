@@ -87,7 +87,10 @@ class TaskCancellationService:
         """
         task_id = getattr(task, "id")
         session_id = getattr(task, "chat_session_id", None)
+        observed_task_sandbox_id = getattr(task, "sandbox_id", None)
+        observed_owner_epoch = getattr(task, "owner_epoch", None)
         sandbox_id = await self._resolve_sandbox_id(task)
+        task_svc = JoySafeterTaskService(self.db)
         if sandbox_id:
             relayed = await self._relay_cancel_to_sandbox(task, sandbox_id, reason=reason)
             if not relayed:
@@ -103,7 +106,44 @@ class TaskCancellationService:
                     retryable=True,
                     user_action="retry",
                 )
-        await JoySafeterTaskService(self.db).cancel_task(task_id)
+            try:
+                cancelled = await task_svc.cancel_task_if_owner_matches(
+                    task_id,
+                    expected_sandbox_id=observed_task_sandbox_id,
+                    expected_owner_epoch=observed_owner_epoch,
+                )
+            except ValueError:
+                raise
+            except Exception as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="task_cancellation",
+                    code="TASK_CANCEL_STATE_SYNC_FAILED",
+                    message="Failed to finalize task cancel after runtime ACK",
+                    operation="cancel_task_finalize_after_runtime_ack",
+                    error=exc,
+                    data={"task_id": str(task_id), "session_id": str(session_id or ""), "sandbox_id": str(sandbox_id)},
+                )
+                await self.db.rollback()
+                raise ServiceUnavailableError(
+                    code="TASK_CANCEL_STATE_SYNC_FAILED",
+                    message="Task cancel could not be finalized because task ownership changed.",
+                    data={"task_id": str(task_id), "session_id": str(session_id or ""), "sandbox_id": str(sandbox_id)},
+                    source="api",
+                    retryable=True,
+                    user_action="refresh",
+                ) from None
+            if not cancelled:
+                raise ServiceUnavailableError(
+                    code="TASK_CANCEL_STATE_SYNC_FAILED",
+                    message="Task cancel could not be finalized because task ownership changed.",
+                    data={"task_id": str(task_id), "session_id": str(session_id or ""), "sandbox_id": str(sandbox_id)},
+                    source="api",
+                    retryable=True,
+                    user_action="refresh",
+                )
+        else:
+            await task_svc.cancel_task(task_id)
         await self._mark_session_idle_after_cancel(task_id=task_id, session_id=session_id)
         return bool(sandbox_id)
 

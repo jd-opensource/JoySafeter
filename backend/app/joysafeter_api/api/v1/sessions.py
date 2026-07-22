@@ -82,9 +82,9 @@ async def _validate_session_environment_ref(
     db: AsyncSession,
     environment_ref: str,
     project_id: Optional[str],
-) -> None:
+) -> Any | None:
     if not environment_ref:
-        return
+        return None
     env = await EnvironmentService(db).get_environment_by_ref(environment_ref, project_id=project_id)
     if not env:
         raise RequestValidationAppError(
@@ -100,6 +100,7 @@ async def _validate_session_environment_ref(
             data={"environment_ref": environment_ref, "environment_id": str(env.id)},
             user_action="refresh",
         )
+    return env
 
 
 def _extract_host(url: str) -> str | None:
@@ -242,15 +243,9 @@ async def create_session(
             user_action="refresh",
         )
 
-    await _validate_session_environment_ref(db, environment_ref, auth_ctx.project_id)
-
     # --- Build agent_snapshot ---
     agent_version = agent.version
-    agent_snapshot: dict = {
-        "name": agent.name,
-        "engine_kind": agent.engine_kind,
-        "model": agent.model,
-    }
+    agent_snapshot: dict
     if pinned_version is not None:
         snapshot = await agent_svc.get_agent_version_snapshot(agent.id, pinned_version, project_id=auth_ctx.project_id)
         if snapshot is None:
@@ -262,14 +257,44 @@ async def create_session(
             )
         agent_version = pinned_version
         agent_snapshot = snapshot
+        effective_environment_ref = environment_ref or snapshot.get("environment_ref") or agent.environment_ref
+    else:
+        effective_environment_ref = environment_ref or agent.environment_ref
+        agent_snapshot = agent_svc.build_execution_snapshot(agent, version=agent_version)
+
+    environment = await _validate_session_environment_ref(db, effective_environment_ref or "", auth_ctx.project_id)
+    if pinned_version is None:
+        agent_snapshot = agent_svc.build_execution_snapshot(
+            agent,
+            environment=environment,
+            environment_ref=effective_environment_ref,
+            version=agent_version,
+        )
+    else:
+        environment_snapshot = agent_svc.build_environment_execution_snapshot(
+            environment,
+            environment_ref=effective_environment_ref,
+        )
+        agent_snapshot = {**agent_snapshot, "environment_ref": effective_environment_ref}
+        if environment_snapshot is not None:
+            agent_snapshot = {**agent_snapshot, "environment": environment_snapshot}
 
     # --- Compute mount_name for each resource ---
     from app.joysafeter_api.services import JoySafeterMemoryService as MemoryService
 
     mem_svc = MemoryService(db)
     resource_dicts = []
+    seen_memory_store_ids: set[uuid.UUID] = set()
     for r in req.resources:
         dump = r.model_dump()
+        if r.memory_store_id in seen_memory_store_ids:
+            raise ResourceConflictError(
+                code="SESSION_MEMORY_STORE_ALREADY_ATTACHED",
+                message=f"Memory store is already attached to session: {r.memory_store_id}",
+                data={"memory_store_id": str(r.memory_store_id)},
+                user_action="fix_input",
+            )
+        seen_memory_store_ids.add(r.memory_store_id)
         store = await mem_svc.get_store(r.memory_store_id, project_id=auth_ctx.project_id)
         if not store:
             raise NotFoundError(
@@ -319,7 +344,10 @@ async def create_session(
         req.file_resources,
         project_id=auth_ctx.project_id,
     )
-    repo_resource_records = await resource_svc.prepare_repo_resources(req.repo_resources)
+    repo_resource_records = await resource_svc.prepare_repo_resources(
+        req.repo_resources,
+        existing_reserved_mount_paths={resource.mount_path for resource in file_resource_records},
+    )
 
     svc = SessionService(db)
     session = await svc.create_session(
@@ -327,7 +355,7 @@ async def create_session(
         title=req.title,
         metadata=req.metadata,
         vault_ids=req.vault_ids,
-        environment_ref=environment_ref,
+        environment_ref=effective_environment_ref,
         agent_version=agent_version,
         agent_snapshot=agent_snapshot,
         project_id=auth_ctx.project_id,
@@ -335,7 +363,7 @@ async def create_session(
 
     resources = []
     if resource_dicts:
-        resources = await svc.attach_memory_stores(session.id, resource_dicts)
+        resources = await svc.attach_memory_stores(session.id, resource_dicts, project_id=auth_ctx.project_id)
 
     await resource_svc.attach_prepared_resources(
         session.id,
@@ -504,7 +532,12 @@ async def delete_session(
     sandbox_svc = SandboxService(db)
     sandbox = await sandbox_svc.find_by_session(session_id, project_id=auth_ctx.project_id)
     if sandbox:
-        if not await _relay_sandbox_destroy_via_redis(sandbox, session_id=session_id):
+        expected_external_id = str(getattr(sandbox, "external_id", "") or "") or None
+        if not await _relay_sandbox_destroy_via_redis(
+            sandbox,
+            session_id=session_id,
+            expected_external_id=expected_external_id,
+        ):
             raise ServiceUnavailableError(
                 code="SESSION_SANDBOX_DESTROY_FAILED",
                 message="Session could not be deleted because its sandbox cleanup failed.",
@@ -516,7 +549,29 @@ async def delete_session(
         # The Rust owner updates this row before ACK. This CAS is idempotent
         # for unit tests and for API DB sessions that have not observed the
         # Rust-side write yet.
-        await sandbox_svc.update_status_cas(sandbox.id, sandbox.status, "destroyed")
+        destroyed = await sandbox_svc.mark_destroyed_after_runtime_ack(
+            sandbox.id,
+            sandbox.status,
+            expected_external_id,
+        )
+        if not destroyed:
+            log_boundary_failure(
+                logger,
+                boundary="session_api",
+                code="SESSION_SANDBOX_DESTROY_FAILED",
+                message="Failed to mark sandbox destroyed after runtime ACK",
+                operation="delete_session_mark_sandbox_destroyed",
+                data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                source="api",
+            )
+            raise ServiceUnavailableError(
+                code="SESSION_SANDBOX_DESTROY_FAILED",
+                message="Session could not be deleted because sandbox state sync failed.",
+                data={"session_id": str(session_id), "sandbox_id": str(sandbox.id)},
+                source="api",
+                retryable=True,
+                user_action="retry",
+            )
 
     # Hard delete the session
     ok = await svc.delete_session(session_id, project_id=auth_ctx.project_id)
@@ -667,11 +722,59 @@ async def stop_session(
     refreshed = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if refreshed is not None and refreshed.status != "idle":
         try:
-            await svc.update_session_status(session_id, "idle", stop_reason=stop_reason, project_id=auth_ctx.project_id)
-            await svc.send_event(session_id, "session.status_idle", {"stop_reason": stop_reason})
+            idle_updated = await svc.update_session_status(
+                session_id,
+                "idle",
+                stop_reason=stop_reason,
+                project_id=auth_ctx.project_id,
+                require_no_active_tasks=True,
+            )
         except Exception:
             logger.debug(
                 "Could not transition session %s to idle during stop",
+                session_id,
+                exc_info=True,
+            )
+            raise ServiceUnavailableError(
+                code="SESSION_STOP_IDLE_SYNC_FAILED",
+                message="Failed to mark session idle",
+                data={"session_id": str(session_id)},
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+            ) from None
+
+        if not idle_updated:
+            remaining_active = await task_svc.list_active_tasks_by_session(
+                session_id,
+                project_id=auth_ctx.project_id,
+            )
+            if remaining_active:
+                raise ServiceUnavailableError(
+                    code="SESSION_STOP_CANCEL_TASKS_FAILED",
+                    message="Failed to cancel all active tasks",
+                    data={
+                        "session_id": str(session_id),
+                        "active_task_ids": [str(task.id) for task in remaining_active],
+                    },
+                    source="runtime",
+                    retryable=True,
+                    user_action="retry",
+                )
+            raise ServiceUnavailableError(
+                code="SESSION_STOP_IDLE_SYNC_FAILED",
+                message="Failed to mark session idle",
+                data={"session_id": str(session_id)},
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+            )
+
+        try:
+            await svc.send_event(session_id, "session.status_idle", {"stop_reason": stop_reason})
+        except Exception:
+            logger.debug(
+                "Could not persist idle event for stopped session %s",
                 session_id,
                 exc_info=True,
             )
@@ -699,6 +802,7 @@ async def stop_session(
 
 
 CONTROL_EVENT_TYPES = {"user.tool_confirmation", "user.custom_tool_result", "user.interrupt"}
+CONTROL_TOOL_EVENT_TYPES = {"user.tool_confirmation", "user.custom_tool_result"}
 LIVE_INPUT_PREFIX = "__joysafeter_input_v1__:"
 
 
@@ -754,6 +858,31 @@ def _encode_live_input(event: SingleEventRequest, source_event_id: Optional[str]
             payload["source_event_id"] = source_event_id
         return f"{LIVE_INPUT_PREFIX}{json.dumps(payload)}"
     return None
+
+
+async def _normalize_control_event_for_runtime(
+    svc: SessionService,
+    session_id: uuid.UUID,
+    event: SingleEventRequest,
+) -> tuple[SingleEventRequest, Optional[str]]:
+    raw_tool_use_id = event.resolved_tool_use_id()
+    if event.type not in CONTROL_TOOL_EVENT_TYPES or not raw_tool_use_id:
+        return event, None
+
+    call_id = await svc.resolve_control_tool_use_call_id(session_id, raw_tool_use_id)
+    if call_id == raw_tool_use_id:
+        return event, None
+
+    return (
+        event.model_copy(
+            update={
+                "tool_use_id": call_id,
+                "custom_tool_use_id": None,
+                "tool_use_event_id": None,
+            }
+        ),
+        raw_tool_use_id,
+    )
 
 
 async def _relay_control_via_redis(
@@ -917,10 +1046,14 @@ async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID
     return delivered
 
 
-async def _relay_sandbox_destroy_via_redis(sandbox, *, session_id: uuid.UUID) -> bool:
+async def _relay_sandbox_destroy_via_redis(
+    sandbox,
+    *,
+    session_id: uuid.UUID,
+    expected_external_id: str | None = None,
+) -> bool:
     from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_destroy_via_redis
 
-    external_id = str(getattr(sandbox, "external_id", "") or "")
     return await relay_sandbox_destroy_via_redis(
         getattr(sandbox, "id"),
         boundary="session_api",
@@ -928,7 +1061,7 @@ async def _relay_sandbox_destroy_via_redis(sandbox, *, session_id: uuid.UUID) ->
         failure_code="SESSION_REDIS_DESTROY_RELAY_FAILED",
         failure_message="Redis sandbox destroy relay command failed",
         reason="session deleted",
-        external_id=external_id or None,
+        external_id=expected_external_id,
         data={"session_id": str(session_id), "sandbox_id": str(getattr(sandbox, "id"))},
     )
 
@@ -1188,7 +1321,9 @@ async def _replay_pending_control_inputs(
             single = SingleEventRequest(
                 type=evt.event_type,
                 content=evt.payload.get("content"),
-                tool_use_id=evt.payload.get("call_id") or evt.payload.get("tool_use_id"),
+                tool_use_id=evt.payload.get("call_id")
+                or evt.payload.get("tool_use_call_id")
+                or evt.payload.get("tool_use_id"),
                 approved=evt.payload.get("approved"),
                 deny_message=evt.payload.get("deny_message"),
                 payload=evt.payload,
@@ -1324,12 +1459,20 @@ async def send_event(
                     user_action="retry",
                 )
 
+        runtime_single, source_tool_use_event_id = await _normalize_control_event_for_runtime(
+            svc,
+            session_id,
+            single,
+        )
+
         # Build payload for persistence
         payload = dict(single.payload)
         if single.content and "content" not in payload:
             payload["content"] = single.content
-        if single.resolved_tool_use_id() and "call_id" not in payload:
-            payload["call_id"] = single.resolved_tool_use_id()
+        if source_tool_use_event_id and "tool_use_event_id" not in payload:
+            payload["tool_use_event_id"] = source_tool_use_event_id
+        if runtime_single.resolved_tool_use_id() and "call_id" not in payload:
+            payload["call_id"] = runtime_single.resolved_tool_use_id()
         if single.deny_message and "deny_message" not in payload:
             payload["deny_message"] = single.deny_message
         if single.resolved_approved() is not None and "approved" not in payload:
@@ -1419,7 +1562,7 @@ async def send_event(
         elif single.type == "user.custom_tool_result":
             injected = False
             # Cross-process relay: route via Redis to the sandbox owner instance.
-            if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
+            if not injected and await _relay_control_via_redis(runtime_single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)
                 await _mark_session_running_for_active_task(
@@ -1430,7 +1573,7 @@ async def send_event(
                 )
             # Fallback: create a retry task when bridge injection was not possible
             if not injected:
-                resume_prompt = _build_resume_prompt(single, str(event.id))
+                resume_prompt = _build_resume_prompt(runtime_single, str(event.id))
                 if resume_prompt and session.status != "running":
                     try:
                         await _create_and_enqueue_resume_task(
@@ -1473,7 +1616,7 @@ async def send_event(
             injected = False
             # Cross-process relay: route via Redis to the Rust orchestrator
             # instance that owns the sandbox.
-            if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
+            if not injected and await _relay_control_via_redis(runtime_single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)
                 await _mark_session_running_for_active_task(
@@ -1484,7 +1627,7 @@ async def send_event(
                 )
             # Fallback: create a retry task
             if not injected:
-                resume_prompt = _build_resume_prompt(single, str(event.id))
+                resume_prompt = _build_resume_prompt(runtime_single, str(event.id))
                 if resume_prompt and session.status != "running":
                     try:
                         await _create_and_enqueue_resume_task(
@@ -1528,7 +1671,7 @@ async def send_event(
             injected = False
             cancel_requested = False
             # Cross-process relay: route via Redis to the sandbox owner instance.
-            if not injected and await _relay_control_via_redis(single, session=session, event_id=str(event.id)):
+            if not injected and await _relay_control_via_redis(runtime_single, session=session, event_id=str(event.id)):
                 injected = True
                 await svc.mark_event_processed(event.id)
             # interrupt 单独 abort 当前 LLM turn,但 claude headless 不会因此
@@ -1548,7 +1691,7 @@ async def send_event(
                 )
             # Fallback: create a retry task when bridge injection was not possible
             if not injected:
-                resume_prompt = _build_resume_prompt(single, str(event.id))
+                resume_prompt = _build_resume_prompt(runtime_single, str(event.id))
                 if resume_prompt and session.status != "running":
                     try:
                         await _create_and_enqueue_resume_task(

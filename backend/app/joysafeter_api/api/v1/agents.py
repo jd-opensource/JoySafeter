@@ -421,24 +421,8 @@ async def update_agent(
 
     # No-op detection: compare serialized JSON minus version/updated_at
     def _agent_snapshot(agent) -> str:
-        skills, agents_list, commands = _split_packed_items(agent.skills or [])
-        snap = {
-            "name": agent.name,
-            "engine_kind": agent.engine_kind,
-            "model": agent.model,
-            "system_prompt": agent.system_prompt,
-            "description": agent.description,
-            "metadata": agent.metadata_,
-            "env": agent.env,
-            "mcp_configs": agent.mcp_configs,
-            "skills": skills,
-            "agents": agents_list,
-            "commands": commands,
-            "tools": agent.tools,
-            "multiagent": agent.multiagent,
-            "environment_ref": agent.environment_ref,
-            "secret_ref": agent.secret_ref,
-        }
+        snap = svc.build_execution_snapshot(agent)
+        snap.pop("version", None)
         return json.dumps(snap, sort_keys=True, default=str)
 
     before_snapshot = _agent_snapshot(current_agent)
@@ -639,6 +623,7 @@ async def _destroy_sandboxes_for_agent(
         return
 
     for sandbox in sandboxes:
+        expected_external_id = str(sandbox.external_id or "") or None
         relayed = await relay_sandbox_destroy_via_redis(
             sandbox.id,
             boundary="agent_api",
@@ -646,7 +631,7 @@ async def _destroy_sandboxes_for_agent(
             failure_code="AGENT_SANDBOX_DESTROY_FAILED",
             failure_message="Redis sandbox destroy relay failed during agent delete",
             reason=reason,
-            external_id=str(sandbox.external_id or "") or None,
+            external_id=expected_external_id,
             data={"agent_id": str(agent_id), "sandbox_id": str(sandbox.id)},
         )
         if not relayed:
@@ -659,10 +644,11 @@ async def _destroy_sandboxes_for_agent(
                 user_action="retry",
             )
         try:
-            destroyed = await sandbox_svc.mark_destroyed_cas(sandbox.id, sandbox.status)
-            if not destroyed:
-                await sandbox_svc.mark_destroyed(sandbox.id)
-                destroyed = True
+            destroyed = await sandbox_svc.mark_destroyed_after_runtime_ack(
+                sandbox.id,
+                sandbox.status,
+                expected_external_id,
+            )
         except Exception as exc:
             log_boundary_failure(
                 logger,

@@ -50,6 +50,10 @@ impl SessionStateSubscriber {
     }
 
     async fn handle(&self, envelope: &EventEnvelope) {
+        if envelope.db_persisted {
+            return;
+        }
+
         let status = match envelope.event_type.as_str() {
             "session.status_running" => "running",
             "session.status_idle" => "idle",
@@ -127,11 +131,29 @@ impl SessionStateSubscriber {
             // Python SessionService._VALID_TRANSITIONS.
             let allowed_from = match status {
                 "running" => "'idle','running','rescheduling'",
-                "idle" => "'running'",
+                "idle" => "'running','rescheduling'",
                 "terminated" => "'idle','running','rescheduling'",
                 "rescheduling" => "'running','idle'",
                 _ => "'idle','running','rescheduling','terminated'",
             };
+
+            let requires_action_idle = status == "idle"
+                && stop_reason
+                    .and_then(|value| value.get("type"))
+                    .and_then(|value| value.as_str())
+                    == Some("requires_action");
+            let active_task_guard =
+                if matches!(status, "idle" | "terminated") && !requires_action_idle {
+                    r#"
+                  AND NOT EXISTS (
+                      SELECT 1 FROM joysafeter_tasks
+                      WHERE chat_session_id = $1
+                        AND status IN ('pending', 'scheduling', 'running')
+                  )
+                "#
+                } else {
+                    ""
+                };
 
             let sql = format!(
                 r#"
@@ -143,6 +165,7 @@ impl SessionStateSubscriber {
                     END,
                     updated_at = NOW()
                 WHERE id = $1 AND status IN ({allowed_from})
+                  {active_task_guard}
                   AND NOT (status = $2 AND COALESCE(stop_reason, '{{}}'::jsonb) = COALESCE($3::jsonb, '{{}}'::jsonb))
                 "#,
             );

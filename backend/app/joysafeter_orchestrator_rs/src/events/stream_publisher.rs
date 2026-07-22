@@ -45,10 +45,10 @@ impl EventStreamPublisher {
             loop {
                 match rx.recv().await {
                     Ok(envelope) => {
-                        if envelope.is_status_change && envelope.event_id.is_none() {
+                        if envelope.is_status_change {
                             continue;
                         }
-                        self.handle(&envelope).await;
+                        self.publish(&envelope).await;
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         warn!("EventStreamPublisher lagged by {n} messages");
@@ -59,7 +59,7 @@ impl EventStreamPublisher {
         })
     }
 
-    async fn handle(&self, envelope: &EventEnvelope) {
+    pub async fn publish(&self, envelope: &EventEnvelope) {
         let event_id = match envelope.event_id {
             Some(id) => id,
             None => return,
@@ -72,7 +72,9 @@ impl EventStreamPublisher {
             ("session_id", envelope.session_id.to_string()),
             ("event_type", envelope.event_type.clone()),
             ("payload", payload_str),
-            ("seq", envelope.seq.unwrap_or(0).to_string()),
+            ("seq", envelope.session_seq.unwrap_or(0).to_string()),
+            ("session_seq", envelope.session_seq.unwrap_or(0).to_string()),
+            ("runner_seq", envelope.runner_seq.unwrap_or(0).to_string()),
         ];
 
         // Try Redis XADD
@@ -94,6 +96,10 @@ impl EventStreamPublisher {
                     .arg(&fields[3].1)
                     .arg(&fields[4].0)
                     .arg(&fields[4].1)
+                    .arg(&fields[5].0)
+                    .arg(&fields[5].1)
+                    .arg(&fields[6].0)
+                    .arg(&fields[6].1)
                     .query_async(&mut conn)
                     .await;
 
@@ -113,6 +119,9 @@ impl EventStreamPublisher {
         if !self.fallback_enabled {
             return;
         }
+        if envelope.db_persisted {
+            return;
+        }
         if let Some(ref persister) = self.fallback_persister {
             if let Some(event_id) = envelope.event_id {
                 persister
@@ -121,9 +130,12 @@ impl EventStreamPublisher {
                         envelope.session_id,
                         &envelope.event_type,
                         &envelope.payload,
-                        envelope.seq,
+                        envelope.session_seq,
                     )
                     .await;
+                if envelope.flush_immediately {
+                    persister.flush().await;
+                }
             }
         }
     }

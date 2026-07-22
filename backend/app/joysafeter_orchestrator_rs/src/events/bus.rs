@@ -6,6 +6,7 @@ use tracing::debug;
 
 use super::envelope::EventEnvelope;
 use super::persist::EventPersister;
+use super::stream_publisher::EventStreamPublisher;
 use crate::config::JoySafeterConfig;
 use crate::runtime_config::RuntimeConfig;
 
@@ -22,6 +23,8 @@ pub struct EventBus {
     persister: Arc<EventPersister>,
     /// Whether DB persistence is the primary persist phase.
     persist_to_db: bool,
+    /// Redis Stream publisher used as the primary persist phase when enabled.
+    stream_publisher: Option<Arc<EventStreamPublisher>>,
 }
 
 impl EventBus {
@@ -37,18 +40,30 @@ impl EventBus {
             config.event_batch_max_size,
             config.event_batch_max_delay_ms,
             Some(runtime_config),
-            redis_client,
+            redis_client.clone(),
             config.instance_id.clone(),
         ));
+
+        let stream_publisher = if config.event_stream_enabled {
+            Some(Arc::new(EventStreamPublisher::new(
+                redis_client.clone(),
+                &config.event_stream_key,
+                config.event_stream_max_len,
+                Some(persister.clone()),
+                config.event_stream_fallback_to_db,
+            )))
+        } else {
+            None
+        };
 
         Self {
             tx,
             persister,
-            // Rust orchestrator runs without the Python worker in local/dev
-            // setups, so Redis Stream cannot be the only persistence path.
-            // Keep direct DB persistence enabled; stream publishing remains a
-            // fan-out path and duplicate DB writes are ignored by event_id.
-            persist_to_db: true,
+            // Redis Stream + Worker is the primary non-status event persistence
+            // path when enabled. Without it, local/dev deployments keep the
+            // direct DB batch persister as the primary path.
+            persist_to_db: !config.event_stream_enabled,
+            stream_publisher,
         }
     }
 
@@ -60,30 +75,48 @@ impl EventBus {
     pub async fn publish(&self, envelope: EventEnvelope) {
         let shared = Arc::new(envelope);
 
-        // Phase 1: Persist (fire-and-forget — don't block broadcast)
-        // NOTE: status_change events are ALSO persisted here now (E4 fix).
-        // Previously they were excluded (`!shared.is_status_change`), relying
-        // solely on SessionStateSubscriber via broadcast. But if the broadcast
-        // channel lags, the subscriber misses the event and session_events has
-        // no record — causing the frontend to never learn about idle/running
-        // transitions. The persister's ON CONFLICT (id) DO NOTHING + dedup
-        // logic prevents duplicates when SessionStateSubscriber also writes.
-        if self.persist_to_db {
+        // Phase 1: Persist.
+        //
+        // Ordinary events keep the previous fire-and-forget behavior so live
+        // fanout is not coupled to batch DB latency. `flush_immediately`
+        // events are different: callers use that flag for durability-sensitive
+        // boundaries (for example control/HITL requests), so persistence must
+        // complete before `publish` returns.
+        // Session status events are state transitions, not ordinary log events:
+        // they must be persisted by the atomic status helper or by
+        // SessionStateSubscriber so the session row and replay event agree.
+        // The generic batch persister only owns non-status events.
+        if let Some(stream_publisher) = self.stream_publisher.clone() {
+            if !shared.db_persisted && !shared.is_status_change {
+                if shared.flush_immediately {
+                    stream_publisher.publish(&shared).await;
+                } else {
+                    let stream_envelope = shared.clone();
+                    tokio::spawn(async move {
+                        stream_publisher.publish(&stream_envelope).await;
+                    });
+                }
+            }
+        } else if self.persist_to_db && !shared.db_persisted && !shared.is_status_change {
             if let Some(event_id) = shared.event_id {
                 let persister = self.persister.clone();
                 let session_id = shared.session_id;
                 let event_type = shared.event_type.clone();
                 let payload = shared.payload.clone();
-                let seq = shared.seq;
+                let session_seq = shared.session_seq;
                 let flush = shared.flush_immediately;
-                tokio::spawn(async move {
+                if flush {
                     persister
-                        .push(event_id, session_id, &event_type, &payload, seq)
+                        .push(event_id, session_id, &event_type, &payload, session_seq)
                         .await;
-                    if flush {
-                        persister.flush().await;
-                    }
-                });
+                    persister.flush().await;
+                } else {
+                    tokio::spawn(async move {
+                        persister
+                            .push(event_id, session_id, &event_type, &payload, session_seq)
+                            .await;
+                    });
+                }
             }
         }
 

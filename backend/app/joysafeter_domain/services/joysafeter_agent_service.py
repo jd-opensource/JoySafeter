@@ -12,12 +12,12 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
-from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
+from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
-from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
+from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterUpdateAgentRequest,
@@ -25,6 +25,8 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.utils.datetime import utc_now  # noqa: E402
+
+TERMINAL_TASK_STATUSES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
 
 
 def _merge_packed_items(skills: list, agents: list, commands: list) -> list[dict]:
@@ -61,6 +63,59 @@ def _split_packed_items(merged: list[dict]) -> tuple[list[dict], list[dict], lis
 class JoySafeterAgentService:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    @staticmethod
+    def build_environment_execution_snapshot(environment: Any, *, environment_ref: Optional[str]) -> Optional[dict]:
+        if environment is None:
+            return None
+        environment_id = getattr(environment, "id", None)
+        return {
+            "ref": environment_ref,
+            "id": str(environment_id) if environment_id is not None else None,
+            "name": getattr(environment, "name", None),
+            "config": getattr(environment, "config", None) or {},
+            "image_tag": getattr(environment, "image_tag", None),
+            "image_version": getattr(environment, "image_version", None),
+        }
+
+    @staticmethod
+    def build_execution_snapshot(
+        agent: JoySafeterAgent,
+        *,
+        environment: Any = None,
+        environment_ref: Optional[str] = None,
+        version: Optional[int] = None,
+    ) -> dict:
+        skills, agents, commands = _split_packed_items(agent.skills or [])
+        effective_environment_ref = environment_ref if environment_ref is not None else agent.environment_ref
+        snapshot = {
+            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "id": str(agent.id),
+            "version": version if version is not None else agent.version,
+            "name": agent.name,
+            "engine_kind": agent.engine_kind,
+            "model": agent.model,
+            "system_prompt": agent.system_prompt,
+            "description": agent.description,
+            "metadata": agent.metadata_,
+            "env": agent.env,
+            "mcp_configs": agent.mcp_configs,
+            "skills": skills,
+            "agents": agents,
+            "commands": commands,
+            "tools": agent.tools,
+            "permission_mode": agent.permission_mode,
+            "multiagent": agent.multiagent,
+            "environment_ref": effective_environment_ref,
+            "secret_ref": agent.secret_ref,
+        }
+        environment_snapshot = JoySafeterAgentService.build_environment_execution_snapshot(
+            environment,
+            environment_ref=effective_environment_ref,
+        )
+        if environment_snapshot is not None:
+            snapshot["environment"] = environment_snapshot
+        return snapshot
 
     def _skill_ref_id(self, item: Any) -> Optional[uuid.UUID]:
         value = getattr(item, "skill_id", None)
@@ -143,11 +198,43 @@ class JoySafeterAgentService:
             .where(
                 and_(
                     JoySafeterTask.agent_id == agent_id,
-                    JoySafeterTask.status.notin_([s.value for s in JOYSAFETER_TERMINAL_STATUSES]),
+                    JoySafeterTask.status.notin_(TERMINAL_TASK_STATUSES),
                 )
             )
         )
         return cast(int, result.scalar() or 0)
+
+    async def _archive_session_ids_if_no_active_tasks(
+        self,
+        session_ids: list[uuid.UUID],
+        archived_at,
+    ) -> None:
+        if not session_ids:
+            return
+        active_task_exists = (
+            select(JoySafeterTask.id)
+            .where(
+                and_(
+                    JoySafeterTask.chat_session_id == JoySafeterSession.id,
+                    JoySafeterTask.status.notin_(TERMINAL_TASK_STATUSES),
+                )
+            )
+            .exists()
+        )
+        result = await self.db.execute(
+            update(JoySafeterSession)
+            .where(
+                and_(
+                    JoySafeterSession.id.in_(session_ids),
+                    JoySafeterSession.archived_at.is_(None),
+                    ~active_task_exists,
+                )
+            )
+            .values(archived_at=archived_at, status="terminated")
+        )
+        if cast(Any, result).rowcount != len(session_ids):
+            await self.db.rollback()
+            raise ValueError("Agent has active tasks. Stop or cancel them before archiving sessions.")
 
     async def create_agent(
         self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
@@ -349,12 +436,7 @@ class JoySafeterAgentService:
         session_ids = list(result.scalars().all())
 
         now = utc_now()
-        if session_ids:
-            await self.db.execute(
-                update(JoySafeterSession)
-                .where(JoySafeterSession.id.in_(session_ids))
-                .values(archived_at=now, status="terminated")
-            )
+        await self._archive_session_ids_if_no_active_tasks(session_ids, now)
         from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
 
         await JoySafeterScheduleService(self.db).pause_for_agent_archive(agent_id)
@@ -382,21 +464,7 @@ class JoySafeterAgentService:
         return versions[:limit], has_more
 
     async def _save_version(self, agent: JoySafeterAgent) -> None:
-        snapshot = {
-            "name": agent.name,
-            "engine_kind": agent.engine_kind,
-            "model": agent.model,
-            "system_prompt": agent.system_prompt,
-            "description": agent.description,
-            "env": agent.env,
-            "mcp_configs": agent.mcp_configs,
-            "skills": agent.skills,
-            "tools": agent.tools,
-            "multiagent": agent.multiagent,
-            "environment_ref": agent.environment_ref,
-            "secret_ref": agent.secret_ref,
-            "metadata": agent.metadata_,
-        }
+        snapshot = self.build_execution_snapshot(agent)
         version = JoySafeterAgentVersion(
             agent_id=agent.id,
             version=agent.version,
@@ -461,11 +529,7 @@ class JoySafeterAgentService:
         session_ids = list(result.scalars().all())
 
         if session_ids:
-            await self.db.execute(
-                update(JoySafeterSession)
-                .where(JoySafeterSession.id.in_(session_ids))
-                .values(archived_at=utc_now(), status="terminated")
-            )
+            await self._archive_session_ids_if_no_active_tasks(session_ids, utc_now())
             await self.db.commit()
 
         return session_ids

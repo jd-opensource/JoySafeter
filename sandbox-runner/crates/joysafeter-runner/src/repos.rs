@@ -7,20 +7,22 @@
 
 use crate::proto::RepoConfig;
 use std::path::{Component, Path, PathBuf};
-use tracing::{info, warn};
+use tracing::info;
 
-/// Clone every configured repo into `work_dir`. Failures are logged and skipped
-/// (matching the tolerance of setup commands) so one bad repo doesn't abort the run.
-pub async fn clone_repos(work_dir: &Path, repos: &[RepoConfig]) {
+/// Clone every configured repo into `work_dir`.
+///
+/// Repos are declared session resources, so a clone failure must fail setup/task
+/// preparation instead of starting the agent with an incomplete workspace.
+pub async fn clone_repos(work_dir: &Path, repos: &[RepoConfig]) -> Result<(), String> {
     for repo in repos {
         if repo.url.trim().is_empty() {
             continue;
         }
-        if let Err(e) = clone_one(work_dir, repo).await {
-            // `e` is built without the token; safe to log.
-            warn!(url = %repo.url, error = %e, "Failed to clone repo");
-        }
+        clone_one(work_dir, repo)
+            .await
+            .map_err(|e| format!("clone repo {}: {e}", repo.url))?;
     }
+    Ok(())
 }
 
 async fn clone_one(work_dir: &Path, repo: &RepoConfig) -> Result<(), String> {
@@ -220,6 +222,34 @@ mod tests {
             resolve_dest(wd, &repo("https://github.com/org/myrepo.git", "")).unwrap(),
             PathBuf::from("/workspace/myrepo")
         );
+    }
+
+    #[tokio::test]
+    async fn clone_repos_returns_error_for_invalid_mount_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = clone_repos(
+            dir.path(),
+            &[repo("https://github.com/org/repo.git", "../escape")],
+        )
+        .await
+        .expect_err("invalid repo mount path must fail setup");
+
+        assert!(err.contains("mount path must not contain '..'"));
+    }
+
+    #[tokio::test]
+    async fn clone_repos_returns_error_when_git_clone_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing_source = dir.path().join("missing-source.git");
+        let err = clone_repos(
+            dir.path(),
+            &[repo(missing_source.to_string_lossy().as_ref(), "repo")],
+        )
+        .await
+        .expect_err("declared repo clone failure must fail setup");
+
+        assert!(err.contains("clone repo"));
+        assert!(!dir.path().join("repo/.git").exists());
     }
 
     #[tokio::test]

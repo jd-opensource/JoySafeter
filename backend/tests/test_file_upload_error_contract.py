@@ -12,6 +12,7 @@ from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
 from app.joysafeter_domain.services.joysafeter_file_service import FileService as DomainFileService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
@@ -245,3 +246,62 @@ async def test_delete_file_missing_file_returns_structured_not_found_error(db_se
         "retryable": False,
         "user_action": "refresh",
     }
+
+
+@pytest.mark.asyncio
+async def test_delete_file_rejects_file_attached_to_active_session_resource(db_session, monkeypatch):
+    class StorageMustNotDelete:
+        async def delete(self, storage_key: str):
+            raise AssertionError(f"storage delete should not run for {storage_key}")
+
+    project, session = await _create_project_agent_session(db_session, "FileResourceDelete")
+    file = JoySafeterFile(
+        project_id=project.id,
+        filename="input.txt",
+        purpose="user_upload",
+        content_type="text/plain",
+        size_bytes=5,
+        sha256="c" * 64,
+        storage_key="files/input.txt",
+    )
+    db_session.add(file)
+    await db_session.flush()
+    db_session.add(
+        JoySafeterSessionFile(
+            session_id=session.id,
+            file_id=file.id,
+            mount_path="/workspace/input.txt",
+            access="read_only",
+        )
+    )
+    await db_session.commit()
+    await db_session.refresh(file)
+
+    monkeypatch.setattr(
+        "app.joysafeter_api.api.v1.files._get_service",
+        lambda: DomainFileService(StorageMustNotDelete()),
+    )
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id=project.org_id,
+        project_id=project.id,
+        role=JoySafeterRole.MEMBER,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_file(f"file_{file.id}", auth_ctx, db_session)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "FILE_IN_USE_BY_SESSION_RESOURCE",
+        "message": "File is attached to active session resources",
+        "data": {
+            "file_id": f"file_{file.id}",
+            "session_ids": [str(session.id)],
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "remove_resource",
+    }
+
+    await db_session.refresh(file)
+    assert file.deleted_at is None

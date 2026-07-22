@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
@@ -25,6 +26,7 @@ from app.joysafeter_shared.utils.datetime import utc_now
 logger = logging.getLogger(__name__)
 
 PROJECT_SLUG_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,253}[a-z0-9])?$")
+TERMINAL_TASK_STATUSES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
 
 
 class ProjectService:
@@ -381,14 +383,19 @@ class ProjectService:
         await self.db.refresh(project)
         return project
 
-    async def _cleanup_sessions_for_archive(self, project_id: str) -> None:
-        result = await self.db.execute(
-            select(JoySafeterSession.id).where(
-                JoySafeterSession.project_id == project_id,
-                JoySafeterSession.archived_at.is_(None),
+    async def _cleanup_sessions_for_archive(
+        self,
+        project_id: str,
+        session_ids: Optional[list[uuid.UUID]] = None,
+    ) -> None:
+        if session_ids is None:
+            result = await self.db.execute(
+                select(JoySafeterSession.id).where(
+                    JoySafeterSession.project_id == project_id,
+                    JoySafeterSession.archived_at.is_(None),
+                )
             )
-        )
-        session_ids = list(result.scalars().all())
+            session_ids = list(result.scalars().all())
         if not session_ids:
             return
 
@@ -399,6 +406,7 @@ class ProjectService:
             if not sandbox or sandbox.status == "destroyed":
                 continue
 
+            expected_external_id = str(sandbox.external_id or "") or None
             destroy_relayed = await relay_sandbox_destroy_via_redis(
                 sandbox.id,
                 reason="project archived",
@@ -406,7 +414,7 @@ class ProjectService:
                 operation="archive_project_destroy_sandbox",
                 failure_code="PROJECT_ARCHIVE_REDIS_DESTROY_FAILED",
                 failure_message="Redis sandbox destroy relay command failed",
-                external_id=str(sandbox.external_id or "") or None,
+                external_id=expected_external_id,
                 data={"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox.id)},
             )
             if not destroy_relayed:
@@ -420,10 +428,11 @@ class ProjectService:
                 )
 
             try:
-                destroyed = await sandbox_svc.mark_destroyed_cas(sandbox.id, sandbox.status)
-                if not destroyed:
-                    await sandbox_svc.mark_destroyed(sandbox.id)
-                    destroyed = True
+                destroyed = await sandbox_svc.mark_destroyed_after_runtime_ack(
+                    sandbox.id,
+                    sandbox.status,
+                    expected_external_id,
+                )
             except Exception as exc:
                 log_boundary_failure(
                     logger,
@@ -462,6 +471,19 @@ class ProjectService:
                     user_action="retry",
                 )
 
+    async def _count_active_tasks_for_sessions(self, session_ids: list[uuid.UUID]) -> int:
+        if not session_ids:
+            return 0
+        result = await self.db.execute(
+            select(JoySafeterTask.id).where(
+                and_(
+                    JoySafeterTask.chat_session_id.in_(session_ids),
+                    JoySafeterTask.status.notin_(TERMINAL_TASK_STATUSES),
+                )
+            )
+        )
+        return len(result.scalars().all())
+
     async def archive_project(self, project_id: str, org_id: str) -> None:
         result = await self.db.execute(select(Project).where(and_(Project.id == project_id, Project.org_id == org_id)))
         project = result.scalar_one_or_none()
@@ -485,16 +507,56 @@ class ProjectService:
                 user_action="retry",
             )
 
-        await self._cleanup_sessions_for_archive(project_id)
         archived_at = utc_now()
-        await self.db.execute(
-            update(JoySafeterSession)
-            .where(
+        session_ids_result = await self.db.execute(
+            select(JoySafeterSession.id).where(
                 JoySafeterSession.project_id == project_id,
                 JoySafeterSession.archived_at.is_(None),
             )
+        )
+        session_ids = list(session_ids_result.scalars().all())
+        if await self._count_active_tasks_for_sessions(session_ids) > 0:
+            raise ResourceConflictError(
+                code="PROJECT_ACTIVE_TASKS",
+                message="Project has active tasks. Stop or wait for them before archiving.",
+                data={"project_id": project_id, "active": 1},
+                retryable=True,
+                user_action="retry",
+            )
+
+        await self._cleanup_sessions_for_archive(project_id, session_ids)
+
+        active_task_exists = (
+            select(JoySafeterTask.id)
+            .where(
+                and_(
+                    JoySafeterTask.chat_session_id == JoySafeterSession.id,
+                    JoySafeterTask.status.notin_(TERMINAL_TASK_STATUSES),
+                )
+            )
+            .exists()
+        )
+        archive_result = await self.db.execute(
+            update(JoySafeterSession)
+            .where(
+                and_(
+                    JoySafeterSession.id.in_(session_ids),
+                    JoySafeterSession.archived_at.is_(None),
+                    ~active_task_exists,
+                )
+            )
             .values(archived_at=archived_at, status="terminated")
         )
+        if cast(CursorResult[Any], archive_result).rowcount != len(session_ids):
+            await self.db.rollback()
+            raise ResourceConflictError(
+                code="PROJECT_ACTIVE_TASKS",
+                message="Project has active tasks. Stop or wait for them before archiving.",
+                data={"project_id": project_id, "active": 1},
+                retryable=True,
+                user_action="retry",
+            )
+
         await JoySafeterScheduleService(self.db).pause_for_project_archive(project_id)
         project.archived_at = archived_at
         await self.db.commit()

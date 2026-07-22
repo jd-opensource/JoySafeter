@@ -28,6 +28,7 @@ from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import joysafeter_config
+from app.joysafeter_shared.utils.id_utils import parse_event_id
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ from app.joysafeter_domain.models.joysafeter_session import (
     JoySafeterSessionEvent,
     SessionStatus,
 )
-from app.joysafeter_shared.common.app_errors import ConflictError
+from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.utils.datetime import utc_now
 from app.joysafeter_shared.utils.locks import session_advisory_lock_key
 
@@ -127,7 +128,10 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
         SessionStatus.RESCHEDULING.value,
         SessionStatus.RUNNING.value,
     },
-    SessionStatus.IDLE.value: {SessionStatus.RUNNING.value},
+    SessionStatus.IDLE.value: {
+        SessionStatus.RUNNING.value,
+        SessionStatus.RESCHEDULING.value,
+    },
     SessionStatus.TERMINATED.value: {
         SessionStatus.IDLE.value,
         SessionStatus.RUNNING.value,
@@ -427,7 +431,14 @@ class SessionService:
         if session.archived_at:
             return True
         if session.status != SessionStatus.TERMINATED.value:
-            await self.update_session_status(session_id, SessionStatus.TERMINATED.value, project_id=project_id)
+            terminated = await self.update_session_status(
+                session_id,
+                SessionStatus.TERMINATED.value,
+                project_id=project_id,
+                require_no_active_tasks=True,
+            )
+            if not terminated:
+                raise ConflictError(code="CONFLICT", message="Cannot archive session with active tasks")
         session.archived_at = utc_now()
         await self.db.commit()
         return True
@@ -438,6 +449,7 @@ class SessionService:
         status: str,
         stop_reason: Optional[dict] = None,
         project_id: Optional[str] = None,
+        require_no_active_tasks: bool = False,
     ) -> bool:
         # CRITICAL FIX: Acquire advisory lock BEFORE row lock to prevent deadlocks.
         # The batch_writer acquires advisory lock then touches session rows via FK.
@@ -458,6 +470,22 @@ class SessionService:
             stop_reason
         ):
             return False
+
+        if require_no_active_tasks:
+            from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+
+            terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
+            active_conditions = [
+                JoySafeterTask.chat_session_id == session_id,
+                JoySafeterTask.status.notin_(terminal_values),
+            ]
+            if project_id is not None:
+                active_conditions.append(JoySafeterTask.project_id == project_id)
+            active_result = await self.db.execute(
+                select(func.count()).select_from(JoySafeterTask).where(and_(*active_conditions))
+            )
+            if (active_result.scalar() or 0) > 0:
+                return False
 
         # State machine guard
         allowed_from = _VALID_TRANSITIONS.get(status)
@@ -756,6 +784,37 @@ class SessionService:
         )
         return result.scalar_one_or_none()
 
+    async def resolve_control_tool_use_call_id(self, session_id: uuid.UUID, raw_tool_use_id: str) -> str:
+        raw_tool_use_id = str(raw_tool_use_id or "").strip()
+        if not raw_tool_use_id:
+            return raw_tool_use_id
+
+        try:
+            event_id = parse_event_id(raw_tool_use_id)
+        except (TypeError, ValueError):
+            return raw_tool_use_id
+
+        result = await self.db.execute(
+            select(JoySafeterSessionEvent)
+            .where(
+                and_(
+                    JoySafeterSessionEvent.id == event_id,
+                    JoySafeterSessionEvent.session_id == session_id,
+                    JoySafeterSessionEvent.event_type.in_(["agent.tool_use", "agent.custom_tool_use"]),
+                )
+            )
+            .limit(1)
+        )
+        event = result.scalar_one_or_none()
+        if event is None or not isinstance(event.payload, dict):
+            return raw_tool_use_id
+
+        for key in ("_call_id", "call_id", "tool_use_call_id", "tool_use_id"):
+            value = event.payload.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return raw_tool_use_id
+
     async def task_has_agent_output(self, task_id: uuid.UUID, session_id: uuid.UUID) -> bool:
         """Check if a task has emitted agent.message events (produced output)."""
         from sqlalchemy import text as sa_text
@@ -821,11 +880,99 @@ class SessionService:
         self,
         session_id: uuid.UUID,
         resources: list[dict],
+        project_id: Optional[str] = None,
     ) -> list:
-        from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
+        from app.joysafeter_domain.models.joysafeter_memory import JoySafeterMemoryStore, JoySafeterSessionMemoryStore
+
+        session = await self.get_session(session_id, project_id=project_id)
+        if session is None:
+            raise NotFoundError(
+                code="SESSION_NOT_FOUND",
+                message="Session not found",
+                data={"session_id": str(session_id)},
+                user_action="refresh",
+            )
+        if session.archived_at:
+            raise ResourceConflictError(
+                code="SESSION_ARCHIVED",
+                message="Session is archived",
+                data={"session_id": str(session_id)},
+                user_action="refresh",
+            )
+        if session.status == "terminated":
+            raise ResourceConflictError(
+                code="SESSION_TERMINATED",
+                message="Session is terminated",
+                data={"session_id": str(session_id), "session_status": session.status},
+                user_action="refresh",
+            )
+        if session.status == "rescheduling":
+            raise ResourceConflictError(
+                code="SESSION_RESCHEDULING",
+                message="Session is rescheduling, try again later",
+                data={"session_id": str(session_id), "session_status": session.status},
+                retryable=True,
+                user_action="retry",
+            )
+        if session.status != "idle":
+            raise ResourceConflictError(
+                code="SESSION_ALREADY_RUNNING",
+                message="Session resources can only be changed while the session is idle",
+                data={"session_id": str(session_id), "session_status": session.status},
+                retryable=True,
+                user_action="retry",
+            )
+
+        validated_resources = []
+        seen_store_ids = set()
+        for res in resources:
+            store_id = res["memory_store_id"]
+            if store_id in seen_store_ids:
+                raise ResourceConflictError(
+                    code="SESSION_MEMORY_STORE_ALREADY_ATTACHED",
+                    message=f"Memory store is already attached to session: {store_id}",
+                    data={"session_id": str(session_id), "memory_store_id": str(store_id)},
+                    user_action="fix_input",
+                )
+            seen_store_ids.add(store_id)
+            store_conditions = [
+                JoySafeterMemoryStore.id == store_id,
+            ]
+            if project_id is not None:
+                store_conditions.append(JoySafeterMemoryStore.project_id == project_id)
+            store_result = await self.db.execute(select(JoySafeterMemoryStore).where(*store_conditions))
+            store = store_result.scalar_one_or_none()
+            if store is None:
+                raise NotFoundError(
+                    code="SESSION_MEMORY_STORE_NOT_FOUND",
+                    message=f"Memory store not found: {store_id}",
+                    data={"memory_store_id": str(store_id)},
+                    user_action="refresh",
+                )
+            if store.archived_at is not None:
+                raise ResourceConflictError(
+                    code="SESSION_MEMORY_STORE_ARCHIVED",
+                    message=f"Memory store is archived: {store_id}",
+                    data={"memory_store_id": str(store_id)},
+                    user_action="refresh",
+                )
+            existing_result = await self.db.execute(
+                select(JoySafeterSessionMemoryStore).where(
+                    JoySafeterSessionMemoryStore.session_id == session_id,
+                    JoySafeterSessionMemoryStore.store_id == store_id,
+                )
+            )
+            if existing_result.scalar_one_or_none() is not None:
+                raise ResourceConflictError(
+                    code="SESSION_MEMORY_STORE_ALREADY_ATTACHED",
+                    message=f"Memory store is already attached to session: {store_id}",
+                    data={"session_id": str(session_id), "memory_store_id": str(store_id)},
+                    user_action="fix_input",
+                )
+            validated_resources.append(res)
 
         created = []
-        for res in resources:
+        for res in validated_resources:
             row = JoySafeterSessionMemoryStore(
                 session_id=session_id,
                 store_id=res["memory_store_id"],

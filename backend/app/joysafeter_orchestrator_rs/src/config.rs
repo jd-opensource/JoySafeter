@@ -17,6 +17,8 @@ pub struct JoySafeterConfig {
     pub task_default_max_retries: u32,
     pub task_retry_base_ms: u64,
     pub task_retry_max_ms: u64,
+    pub task_lease_ttl_sec: i64,
+    pub task_lease_renew_interval_sec: u64,
 
     // Sandbox - Docker (default)
     pub sandbox_provider: String,
@@ -145,6 +147,8 @@ impl JoySafeterConfig {
             task_default_max_retries: env_u32("JOYSAFETER_TASK_DEFAULT_MAX_RETRIES", 2),
             task_retry_base_ms: env_u64("JOYSAFETER_TASK_RETRY_BASE_MS", 2000),
             task_retry_max_ms: env_u64("JOYSAFETER_TASK_RETRY_MAX_MS", 30000),
+            task_lease_ttl_sec: env_i64("JOYSAFETER_TASK_LEASE_TTL_SEC", 45),
+            task_lease_renew_interval_sec: env_u64("JOYSAFETER_TASK_LEASE_RENEW_INTERVAL_SEC", 10),
 
             sandbox_provider: env_str("JOYSAFETER_SANDBOX_PROVIDER", "docker"),
             sandbox_image: env_str("JOYSAFETER_SANDBOX_IMAGE", "joysafeter-claudecode:latest"),
@@ -293,6 +297,13 @@ fn env_bool(key: &str, default: bool) -> bool {
 }
 
 fn env_u64(key: &str, default: u64) -> u64 {
+    env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_i64(key: &str, default: i64) -> i64 {
     env::var(key)
         .ok()
         .and_then(|v| v.parse().ok())

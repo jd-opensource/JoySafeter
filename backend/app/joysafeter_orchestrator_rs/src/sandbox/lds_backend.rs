@@ -2064,9 +2064,7 @@ mod tests {
         // an allowlist that does NOT contain the transparent host — and assert
         // every exact domain is unique across vhosts (Envoy rejects duplicates).
         let vh = build_virtual_hosts_json(&["other.example.com".to_string()], &routes);
-        assert!(vh
-            .iter()
-            .any(|v| v["name"] == "egress_crm_example_com"));
+        assert!(vh.iter().any(|v| v["name"] == "egress_crm_example_com"));
 
         let mut seen = std::collections::HashSet::new();
         for v in &vh {
@@ -2109,7 +2107,10 @@ mod tests {
             llm: None,
             mcp: vec![],
             git: vec![],
-            external: vec![mk("external-direct:crm-api", "/api/"), mk("external-direct:crm-auth", "/auth/api/")],
+            external: vec![
+                mk("external-direct:crm-api", "/api/"),
+                mk("external-direct:crm-auth", "/auth/api/"),
+            ],
         };
         let routes = creds.to_routes(&sid);
         let vh = build_virtual_hosts_json(&[], &routes);
@@ -2134,7 +2135,10 @@ mod tests {
                 if domain == "*" {
                     continue;
                 }
-                assert!(seen.insert(domain.clone()), "duplicate exact domain: {domain}");
+                assert!(
+                    seen.insert(domain.clone()),
+                    "duplicate exact domain: {domain}"
+                );
             }
         }
     }

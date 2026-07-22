@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.joysafeter_api.api.v1.auth import (
     CreateProjectRequest,
@@ -64,6 +64,29 @@ class _FakeCommandRedis:
         return key, payload
 
 
+class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
+    def __init__(self, db_session, sandbox_id: uuid.UUID, new_external_id: str, *, owner: str | None = "owner-1"):
+        super().__init__(owner=owner)
+        self.db_session = db_session
+        self.sandbox_id = sandbox_id
+        self.new_external_id = new_external_id
+        self.changed = False
+
+    async def blpop(self, key: str, timeout: int = 0):
+        if not self.changed:
+            await self.db_session.execute(
+                text(
+                    "UPDATE joysafeter_sandboxes "
+                    "SET external_id = :external_id, updated_at = NOW() "
+                    "WHERE id = :sandbox_id"
+                ),
+                {"external_id": self.new_external_id, "sandbox_id": self.sandbox_id},
+            )
+            await self.db_session.commit()
+            self.changed = True
+        return await super().blpop(key, timeout=timeout)
+
+
 @pytest.mark.asyncio
 async def test_archive_project_rejects_active_tasks(db_session):
     org_id = f"org-{uuid.uuid4()}"
@@ -106,6 +129,74 @@ async def test_archive_project_rejects_active_tasks(db_session):
     db_session.expire_all()
     project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()
     assert project_row.archived_at is None
+
+
+@pytest.mark.asyncio
+async def test_archive_project_fails_closed_when_task_appears_after_active_check(db_session, monkeypatch):
+    org_id = f"org-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Race Org", slug=f"race-org-{uuid.uuid4()}")
+    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Race", slug=f"race-{uuid.uuid4()}")
+    db_session.add(org)
+    await db_session.commit()
+
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+
+    agent = JoySafeterAgent(name=f"project-race-agent-{uuid.uuid4()}", project_id=project.id)
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    project_id = project.id
+    agent_id = agent.id
+    session_id = session.id
+
+    async def active_task_appears_after_check(self, project_id):
+        task = JoySafeterTask(
+            agent_id=agent_id,
+            project_id=project_id,
+            chat_session_id=session_id,
+            prompt="late project task",
+            status=JoySafeterTaskStatus.PENDING.value,
+        )
+        self.db.add(task)
+        await self.db.commit()
+        return 0
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_task_service.JoySafeterTaskService.count_active_tasks_for_project",
+        active_task_appears_after_check,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await archive_project(project_id, db_session, _admin_ctx(project_id, org_id))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "PROJECT_ACTIVE_TASKS",
+        "message": "Project has active tasks. Stop or wait for them before archiving.",
+        "data": {"project_id": project_id, "active": 1},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+
+    db_session.expire_all()
+    project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    task_rows = (
+        await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id))
+    ).scalars().all()
+    assert project_row.archived_at is None
+    assert session_row.archived_at is None
+    assert session_row.status == "idle"
+    assert len(task_rows) == 1
 
 
 @pytest.mark.asyncio
@@ -438,6 +529,79 @@ async def test_archive_project_destroys_session_sandbox_via_rust_owner(db_sessio
     assert session_row.status == "terminated"
     assert sandbox_row.status == "destroyed"
     assert sandbox_row.destroyed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_archive_project_rejects_destroy_ack_if_sandbox_external_id_changed(db_session, monkeypatch):
+    org_id = f"org-{uuid.uuid4()}"
+    org = Organization(id=org_id, name="Project Stale Destroy Org", slug=f"stale-destroy-org-{uuid.uuid4()}")
+    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Stale Destroy", slug=f"stale-{uuid.uuid4()}")
+    db_session.add(org)
+    await db_session.commit()
+
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+    project_id = project.id
+
+    agent = JoySafeterAgent(name=f"project-stale-destroy-agent-{uuid.uuid4()}", project_id=project_id)
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, project_id=project_id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    old_external_id = f"sandbox-old-{uuid.uuid4()}"
+    new_external_id = f"sandbox-new-{uuid.uuid4()}"
+    sandbox = JoySafeterSandbox(
+        project_id=project_id,
+        chat_session_id=session_id,
+        external_id=old_external_id,
+        image="test-image",
+        status="idle",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    await db_session.refresh(sandbox)
+    sandbox_id = sandbox.id
+
+    redis = _ExternalIdChangingDestroyAckRedis(db_session, sandbox_id, new_external_id, owner=None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await archive_project(project_id, db_session, _admin_ctx(project_id, org_id))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "PROJECT_SANDBOX_STATE_SYNC_FAILED",
+        "message": "Project could not be archived because sandbox state sync failed.",
+        "data": {"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox_id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert redis.published[0][1]["external_id"] == old_external_id
+
+    db_session.expire_all()
+    project_row = (await db_session.execute(select(Project).where(Project.id == project_id))).scalar_one()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    sandbox_row = (
+        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
+    ).scalar_one()
+    assert project_row.archived_at is None
+    assert session_row.archived_at is None
+    assert session_row.status == "idle"
+    assert sandbox_row.status == "idle"
+    assert sandbox_row.external_id == new_external_id
+    assert sandbox_row.destroyed_at is None
 
 
 @pytest.mark.asyncio

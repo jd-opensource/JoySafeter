@@ -73,6 +73,8 @@ pub struct JoySafeterSession {
     pub agent_id: Option<Uuid>,
     pub project_id: Option<String>,
     pub status: String,
+    pub agent_version: Option<i32>,
+    pub agent_snapshot: Option<serde_json::Value>,
     pub last_harness_session_id: Option<String>,
     pub last_work_dir: Option<String>,
     pub vault_ids: Option<serde_json::Value>,

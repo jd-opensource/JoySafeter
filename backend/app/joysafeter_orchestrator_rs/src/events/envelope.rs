@@ -12,9 +12,11 @@ pub struct EventEnvelope {
     pub task_id: Option<Uuid>,
     pub sandbox_id: Option<Uuid>,
     pub event_id: Option<Uuid>,
-    pub seq: Option<i64>,
+    pub session_seq: Option<i64>,
+    pub runner_seq: Option<i64>,
     pub flush_immediately: bool,
     pub is_status_change: bool,
+    pub db_persisted: bool,
     pub stop_reason: Option<Value>,
     /// Pre-built payload for task-level WebSocket broadcast.
     pub task_broadcast_payload: Option<Value>,
@@ -29,9 +31,11 @@ impl EventEnvelope {
             task_id: None,
             sandbox_id: None,
             event_id: Some(Uuid::now_v7()),
-            seq: None,
+            session_seq: None,
+            runner_seq: None,
             flush_immediately: false,
             is_status_change: false,
+            db_persisted: false,
             stop_reason: None,
             task_broadcast_payload: None,
         }
@@ -47,8 +51,8 @@ impl EventEnvelope {
         self
     }
 
-    pub fn with_seq(mut self, seq: i64) -> Self {
-        self.seq = Some(seq);
+    pub fn with_runner_seq(mut self, seq: i64) -> Self {
+        self.runner_seq = Some(seq);
         self
     }
 
@@ -61,6 +65,13 @@ impl EventEnvelope {
         self.is_status_change = true;
         self.flush_immediately = true;
         self.stop_reason = stop_reason;
+        self
+    }
+
+    pub fn with_db_persisted(mut self, event_id: Uuid, seq: i64) -> Self {
+        self.event_id = Some(event_id);
+        self.session_seq = Some(seq);
+        self.db_persisted = true;
         self
     }
 }

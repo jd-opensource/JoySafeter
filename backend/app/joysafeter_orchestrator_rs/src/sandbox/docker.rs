@@ -744,18 +744,28 @@ impl SandboxProvider for DockerProvider {
 
     async fn inject_files(&self, external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {
         let mut injected = 0usize;
+        let mut failures = Vec::new();
         for file in files {
             let Some(content) = file.content.as_ref() else {
+                failures.push(format!("{}: missing loaded content", file.mount_path));
                 continue;
             };
             if let Err(e) = self
                 .upload_file_to_container(external_id, &file.mount_path, content)
                 .await
             {
-                tracing::warn!(path = %file.mount_path, "Failed to inject file into Docker sandbox: {e}");
+                failures.push(format!("{}: {e}", file.mount_path));
                 continue;
             }
             injected += 1;
+        }
+        if !failures.is_empty() {
+            anyhow::bail!(
+                "failed to inject {} of {} files into Docker sandbox: {}",
+                failures.len(),
+                files.len(),
+                failures.join("; ")
+            );
         }
         info!(external_id, injected, "Injected files into Docker sandbox");
         Ok(())
