@@ -220,14 +220,16 @@ class SkillLifecycleService:
 
         if to_status == JoySafeterSkillLifecycleStatus.APPROVED.value:
             from app.joysafeter_domain.services.joysafeter_skill_security import scan_ok
+            from app.joysafeter_shared.config import settings
 
-            scan_ready, reason = scan_ok(skill)
-            if not scan_ready:
-                raise InvalidRequestError(
-                    "Skill must pass security scan before entering approved state.",
-                    code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",
-                    data={"skill_id": str(skill_id), "from_status": from_status, "reason": reason},
-                )
+            if settings.skill_security_scan_enabled:
+                scan_ready, reason = scan_ok(skill)
+                if not scan_ready:
+                    raise InvalidRequestError(
+                        "Skill must pass security scan before entering approved state.",
+                        code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",
+                        data={"skill_id": str(skill_id), "from_status": from_status, "reason": reason},
+                    )
 
         skill.lifecycle_status = to_status
         await self.db.commit()
