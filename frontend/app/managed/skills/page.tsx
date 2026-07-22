@@ -3297,7 +3297,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                     if (!current || current.lifecycle_status !== selectedSkill.lifecycle_status)
                       return false
                     if (
-                      (endpoint === 'approve' || endpoint === 'unarchive') &&
+                      endpoint === 'unarchive' &&
                       publishRuntimeBlocked
                     ) {
                       return false
