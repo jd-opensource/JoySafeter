@@ -59,6 +59,17 @@ fn is_dedup_event_type(event_type: &str) -> bool {
     )
 }
 
+fn is_session_status_event(event_type: &str) -> bool {
+    matches!(
+        event_type,
+        "session.status_idle"
+            | "session.status_rescheduled"
+            | "session.status_rescheduling"
+            | "session.status_running"
+            | "session.status_terminated"
+    )
+}
+
 fn dedup_payload_key(event_type: &str, payload: &serde_json::Value) -> serde_json::Value {
     if event_type.starts_with("session.") {
         serde_json::json!({
@@ -121,6 +132,15 @@ impl EventPersister {
         payload: &serde_json::Value,
         seq: Option<i64>,
     ) {
+        if is_session_status_event(event_type) {
+            tracing::warn!(
+                %session_id,
+                event_type = %event_type,
+                "skipping session status event in generic event persister"
+            );
+            return;
+        }
+
         let should_flush = {
             let mut buf = self.buffer.lock().await;
             buf.events.push(PendingEvent {
@@ -166,7 +186,19 @@ impl EventPersister {
         use std::collections::BTreeMap;
         let mut groups: BTreeMap<Uuid, Vec<&PendingEvent>> = BTreeMap::new();
         for event in &events {
+            if is_session_status_event(&event.event_type) {
+                tracing::warn!(
+                    session_id = %event.session_id,
+                    event_type = %event.event_type,
+                    "skipping session status event in generic event persister flush"
+                );
+                continue;
+            }
             groups.entry(event.session_id).or_default().push(event);
+        }
+        if groups.is_empty() {
+            tracing::debug!(count, "no non-status events to flush");
+            return;
         }
 
         let result: Result<Vec<PendingEvent>, sqlx::Error> = async {
@@ -237,17 +269,19 @@ impl EventPersister {
                     .bind(next_seq)
                     .execute(&mut *tx)
                     .await?;
-                    let persisted_event = PendingEvent {
-                        id: event.id,
-                        session_id: event.session_id,
-                        event_type: event.event_type.clone(),
-                        payload: event.payload.clone(),
-                        seq: Some(next_seq),
-                    };
                     if result.rows_affected() > 0 {
+                        let persisted_event = PendingEvent {
+                            id: event.id,
+                            session_id: event.session_id,
+                            event_type: event.event_type.clone(),
+                            payload: event.payload.clone(),
+                            seq: Some(next_seq),
+                        };
                         inserted.push(persisted_event.clone());
+                        previous_event = Some(persisted_event);
+                    } else {
+                        next_seq -= 1;
                     }
-                    previous_event = Some(persisted_event);
                 }
             }
 

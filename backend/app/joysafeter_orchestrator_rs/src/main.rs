@@ -192,6 +192,7 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         queue.clone(),
         config.clone(),
+        bridge_registry.clone(),
     );
     task_controller.recover_on_startup().await?;
     info!("Startup recovery complete");
@@ -286,22 +287,11 @@ async fn main() -> anyhow::Result<()> {
     subscriber_handles.push(task_broadcast_sub.spawn(event_bus.subscribe()));
     info!("TaskBroadcastSubscriber started");
 
-    // EventStreamPublisher (if Redis stream enabled)
     if config.event_stream_enabled {
-        if let Some(ref client) = redis_client {
-            let stream_pub = events::stream_publisher::EventStreamPublisher::new(
-                client.clone(),
-                &config.event_stream_key,
-                config.event_stream_max_len,
-                Some(event_bus.persister()),
-                config.event_stream_fallback_to_db,
-            );
-            subscriber_handles.push(stream_pub.spawn(event_bus.subscribe()));
-            info!(
-                "EventStreamPublisher started (key={})",
-                config.event_stream_key
-            );
-        }
+        info!(
+            "EventStreamPublisher enabled inside EventBus (key={})",
+            config.event_stream_key
+        );
     }
 
     // Start command listener (cross-instance relay via Redis)

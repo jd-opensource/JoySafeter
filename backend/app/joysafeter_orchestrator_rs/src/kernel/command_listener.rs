@@ -207,20 +207,44 @@ impl CommandListener {
     ) -> anyhow::Result<()> {
         let reason = cmd["reason"].as_str().unwrap_or("remote destroy");
         let sandbox = queries::get_sandbox(&self.pool, sandbox_id).await?;
-        let external_id = cmd["external_id"]
+        let command_external_id = cmd["external_id"]
             .as_str()
             .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                sandbox
-                    .as_ref()
-                    .and_then(|row| row.external_id.clone())
-                    .filter(|value| !value.is_empty())
-            });
+            .map(str::to_string);
 
-        if sandbox.is_none() && external_id.is_none() {
+        if sandbox.is_none() && command_external_id.is_none() {
             anyhow::bail!("destroy command has no DB row or external_id for sandbox {sandbox_id}");
         }
+
+        let (external_id, restore_status) = match sandbox.as_ref() {
+            Some(row) if row.status == "destroyed" => {
+                let command_matches = command_external_id
+                    .as_deref()
+                    .is_none_or(|ext_id| row.external_id.as_deref() == Some(ext_id));
+                if command_matches {
+                    info!(sandbox_id = %sandbox_id, "Destroy command already finalized");
+                    return Ok(());
+                }
+                anyhow::bail!(
+                    "destroy command external_id does not match destroyed sandbox {sandbox_id}"
+                );
+            }
+            Some(_) => {
+                let Some(claim) = queries::claim_sandbox_for_command_destroy(
+                    &self.pool,
+                    sandbox_id,
+                    command_external_id.as_deref(),
+                )
+                .await?
+                else {
+                    anyhow::bail!(
+                        "destroy command could not claim sandbox {sandbox_id}; row changed or external_id mismatched"
+                    );
+                };
+                (claim.external_id, Some(claim.previous_status))
+            }
+            None => (command_external_id.clone(), None),
+        };
 
         if let Some(bridge) = self.bridge_registry.get_by_db_id(sandbox_id) {
             let msg = OrchestratorMessage {
@@ -236,6 +260,15 @@ impl CommandListener {
             if let Err(e) = self.provider.destroy(ext_id).await {
                 let err = format!("{e}");
                 if !(err.contains("No such container") || err.contains("404")) {
+                    if let Some(ref status) = restore_status {
+                        let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                            &self.pool,
+                            sandbox_id,
+                            status,
+                            external_id.as_deref(),
+                        )
+                        .await;
+                    }
                     return Err(e);
                 }
             }
@@ -247,7 +280,22 @@ impl CommandListener {
             }
         }
 
-        queries::destroy_sandbox(&self.pool, sandbox_id).await?;
+        if restore_status.is_some() {
+            let finalized = queries::destroy_sandbox_if_status_and_external_id(
+                &self.pool,
+                sandbox_id,
+                "stopping",
+                external_id.as_deref(),
+            )
+            .await?;
+            if !finalized {
+                anyhow::bail!(
+                    "destroy command provider cleanup completed but DB finalize was fenced out for sandbox {sandbox_id}"
+                );
+            }
+        } else {
+            queries::destroy_sandbox(&self.pool, sandbox_id).await?;
+        }
 
         if let Some(ref coord) = self.redis_coordinator {
             let _ = coord.remove_sandbox(sandbox_id).await;
@@ -416,3 +464,224 @@ impl CommandListener {
 
 // Need to use futures for the pubsub stream
 use futures::StreamExt;
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
+    use tokio::sync::Mutex;
+
+    use super::*;
+    use crate::kernel::memory_sync::MemoryStoreSubscribers;
+    use crate::kernel::sandbox_bridge::BridgeRegistry;
+    use crate::sandbox::provider::{SandboxCreateConfig, SandboxStatus};
+
+    fn database_url() -> Option<String> {
+        env::var("DATABASE_URL")
+            .ok()
+            .or_else(|| env::var("JOYSAFETER_TEST_DATABASE_URL").ok())
+            .map(|url| url.replace("postgresql+asyncpg://", "postgres://"))
+    }
+
+    async fn test_pool() -> Option<PgPool> {
+        let Some(url) = database_url() else {
+            eprintln!("skipping real Postgres command listener test: DATABASE_URL is not set");
+            return None;
+        };
+        Some(
+            PgPoolOptions::new()
+                .max_connections(3)
+                .connect(&url)
+                .await
+                .expect("connect to migrated Postgres test database"),
+        )
+    }
+
+    #[derive(Default)]
+    struct CommandRecordingProvider {
+        destroyed: Mutex<Vec<String>>,
+        destroy_status_probe: Mutex<Option<(PgPool, Uuid)>>,
+        destroy_observed_statuses: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl SandboxProvider for CommandRecordingProvider {
+        async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
+            Ok(format!("unused-{}", config.sandbox_id))
+        }
+
+        async fn start(&self, _external_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn stop(&self, _external_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
+            if let Some((pool, sandbox_id)) = self.destroy_status_probe.lock().await.clone() {
+                if let Some(status) = sqlx::query_scalar::<_, String>(
+                    "SELECT status FROM joysafeter_sandboxes WHERE id = $1",
+                )
+                .bind(sandbox_id)
+                .fetch_optional(&pool)
+                .await?
+                {
+                    self.destroy_observed_statuses.lock().await.push(status);
+                }
+            }
+            self.destroyed.lock().await.push(external_id.to_string());
+            Ok(())
+        }
+
+        async fn status(&self, _external_id: &str) -> anyhow::Result<SandboxStatus> {
+            Ok(SandboxStatus::Running)
+        }
+
+        async fn exec(&self, _external_id: &str, _cmd: &[&str]) -> anyhow::Result<String> {
+            Ok(String::new())
+        }
+
+        fn provider_name(&self) -> &'static str {
+            "command-recording"
+        }
+    }
+
+    fn command_listener(pool: PgPool, provider: Arc<dyn SandboxProvider>) -> CommandListener {
+        CommandListener::new(
+            redis::Client::open("redis://127.0.0.1:1/").expect("redis url"),
+            "test-instance",
+            pool,
+            BridgeRegistry::new(),
+            provider,
+            None,
+            None,
+            None,
+            Arc::new(MemoryStoreSubscribers::new()),
+        )
+    }
+
+    #[tokio::test]
+    async fn destroy_command_rejects_stale_external_id_before_provider_destroy() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let sandbox_id = Uuid::now_v7();
+        let current_external_id = format!("command-current-{sandbox_id}");
+        let stale_external_id = format!("command-stale-{sandbox_id}");
+        queries::create_sandbox(
+            &pool,
+            sandbox_id,
+            &current_external_id,
+            "command-recording",
+            "test-image",
+            None,
+            None,
+            None,
+            Some(&json!({"test": "destroy_command_rejects_stale_external_id"})),
+        )
+        .await
+        .expect("insert command listener sandbox");
+        queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("mark sandbox idle");
+
+        let provider = Arc::new(CommandRecordingProvider::default());
+        let listener = command_listener(pool.clone(), provider.clone());
+        let cmd = json!({
+            "type": "destroy",
+            "sandbox_id": sandbox_id.to_string(),
+            "external_id": stale_external_id,
+            "reason": "stale command test"
+        });
+
+        let result = listener.handle_destroy_sandbox(&cmd, sandbox_id).await;
+        let destroyed = provider.destroyed.lock().await.clone();
+        let row: (String, Option<String>, bool) = sqlx::query_as(
+            "SELECT status, external_id, destroyed_at IS NOT NULL FROM joysafeter_sandboxes WHERE id = $1",
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load command listener sandbox");
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+
+        assert!(
+            result.is_err(),
+            "stale external_id command must fail instead of acking destructive ownership"
+        );
+        assert!(
+            destroyed.is_empty(),
+            "provider.destroy must not run for stale external_id"
+        );
+        assert_eq!(row, ("idle".to_string(), Some(current_external_id), false));
+    }
+
+    #[tokio::test]
+    async fn destroy_command_claims_row_before_provider_destroy() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let sandbox_id = Uuid::now_v7();
+        let external_id = format!("command-owned-{sandbox_id}");
+        queries::create_sandbox(
+            &pool,
+            sandbox_id,
+            &external_id,
+            "command-recording",
+            "test-image",
+            None,
+            None,
+            None,
+            Some(&json!({"test": "destroy_command_claims_row_before_provider_destroy"})),
+        )
+        .await
+        .expect("insert command listener sandbox");
+        queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("mark sandbox idle");
+
+        let provider = Arc::new(CommandRecordingProvider::default());
+        *provider.destroy_status_probe.lock().await = Some((pool.clone(), sandbox_id));
+        let listener = command_listener(pool.clone(), provider.clone());
+        let cmd = json!({
+            "type": "destroy",
+            "sandbox_id": sandbox_id.to_string(),
+            "external_id": external_id.clone(),
+            "reason": "owned command test"
+        });
+
+        listener
+            .handle_destroy_sandbox(&cmd, sandbox_id)
+            .await
+            .expect("destroy matching command");
+        let destroyed = provider.destroyed.lock().await.clone();
+        let observed = provider.destroy_observed_statuses.lock().await.clone();
+        let row: (String, bool) = sqlx::query_as(
+            "SELECT status, destroyed_at IS NOT NULL FROM joysafeter_sandboxes WHERE id = $1",
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load command listener sandbox");
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+
+        assert_eq!(destroyed, vec![external_id]);
+        assert_eq!(observed, vec!["stopping".to_string()]);
+        assert_eq!(row, ("destroyed".to_string(), true));
+    }
+}

@@ -5,8 +5,8 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine as _;
 use chrono::Utc;
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::Compression;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tar::{Builder, Header};
@@ -15,6 +15,9 @@ use uuid::Uuid;
 
 use crate::db::queries;
 use crate::grpc::proto;
+use crate::kernel::run_spec::{
+    agent_for_execution, environment_for_execution, SnapshotEnvironment,
+};
 
 const CONVERSATION_HISTORY_EVENT_LIMIT: i64 = 100;
 const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
@@ -64,7 +67,7 @@ impl HarnessInputBuilder {
         sandbox_external_id: &str,
         _sandbox_db_id: Uuid,
     ) -> anyhow::Result<HarnessInput> {
-        let agent = match task.agent_id {
+        let live_agent = match task.agent_id {
             Some(aid) => queries::get_agent(&self.pool, aid).await?,
             None => None,
         };
@@ -72,6 +75,8 @@ impl HarnessInputBuilder {
             Some(sid) => queries::get_session(&self.pool, sid).await?,
             None => None,
         };
+        let snapshot_environment = environment_for_execution(session.as_ref());
+        let agent = agent_for_execution(live_agent, session.as_ref());
 
         let mut input = HarnessInput {
             provider: agent
@@ -101,12 +106,15 @@ impl HarnessInputBuilder {
                 .permission_mode
                 .clone()
                 .or_else(|| Some(derive_permission_mode_from_tools(agent.tools.as_ref())));
-            input.setup_commands = self.resolve_environment_setup_commands(agent).await;
+            input.setup_commands = self
+                .resolve_environment_setup_commands(agent, snapshot_environment.as_ref())
+                .await;
             input
                 .setup_commands
                 .extend(extract_setup_commands(agent.metadata.as_ref()));
 
-            self.resolve_environment_env(agent, &mut input).await?;
+            self.resolve_environment_env(agent, snapshot_environment.as_ref(), &mut input)
+                .await?;
             self.resolve_agent_secret(agent, &mut input).await?;
             apply_provider_aliases(&mut input.secrets);
             resolve_model_from_secrets(&mut input);
@@ -119,11 +127,11 @@ impl HarnessInputBuilder {
         if let Some(ref session) = session {
             if let Some(ref vault_ids) = session.vault_ids {
                 self.resolve_vault_credentials(vault_ids, &mut input.mcp_servers)
-                    .await;
+                    .await?;
             }
-            self.load_memory_stores(session.id, &mut input).await;
-            self.load_session_files(session.id, &mut input).await;
-            self.load_session_repos(session.id, &mut input).await;
+            self.load_memory_stores(session.id, &mut input).await?;
+            self.load_session_files(session.id, &mut input).await?;
+            self.load_session_repos(session.id, &mut input).await?;
             input.work_dir = session_container_work_dir(session.last_work_dir.as_deref());
         }
 
@@ -207,7 +215,12 @@ impl HarnessInputBuilder {
     async fn resolve_environment_setup_commands(
         &self,
         agent: &crate::db::models::JoySafeterAgent,
+        snapshot_environment: Option<&SnapshotEnvironment>,
     ) -> Vec<String> {
+        if let Some(environment) = snapshot_environment {
+            return extract_package_install_commands(environment.config.get("packages"));
+        }
+
         let Some(env_ref) = agent
             .environment_ref
             .as_deref()
@@ -281,29 +294,34 @@ impl HarnessInputBuilder {
     async fn resolve_environment_env(
         &self,
         agent: &crate::db::models::JoySafeterAgent,
+        snapshot_environment: Option<&SnapshotEnvironment>,
         input: &mut HarnessInput,
     ) -> anyhow::Result<()> {
-        let Some(env_ref) = agent
-            .environment_ref
-            .as_deref()
-            .filter(|v| !v.trim().is_empty())
-        else {
-            return Ok(());
+        let environment_config = if let Some(environment) = snapshot_environment {
+            Some(environment.config.clone())
+        } else {
+            let Some(env_ref) = agent
+                .environment_ref
+                .as_deref()
+                .filter(|v| !v.trim().is_empty())
+            else {
+                return Ok(());
+            };
+
+            self.load_environment(env_ref, agent.project_id.as_deref())
+                .await?
+                .map(|environment| environment.config)
         };
 
-        let Some(environment) = self
-            .load_environment(env_ref, agent.project_id.as_deref())
-            .await?
-        else {
+        let Some(environment_config) = environment_config else {
             return Ok(());
         };
 
         input.env.extend(json_object_to_string_map(
-            environment.config.get("env_vars"),
+            environment_config.get("env_vars"),
         ));
 
-        if let Some(secret_refs) = environment
-            .config
+        if let Some(secret_refs) = environment_config
             .get("secret_refs")
             .and_then(|v| v.as_array())
         {
@@ -558,20 +576,11 @@ impl HarnessInputBuilder {
               (id, skill_id, skill_name, skill_source_type, skill_version, skill_version_id,
                target, security_scan_id, target_hash, artifact_hash,
                session_id, agent_id, project_id, user_id, created_at, updated_at)
-            SELECT $1, $2, $3, $4, $5,
-                   CASE WHEN $6::uuid IS NULL THEN NULL
-                        WHEN EXISTS (SELECT 1 FROM joysafeter_skill_versions WHERE id = $6) THEN $6
-                        ELSE NULL END,
-                   $7, $8, $9, $10, $11, $12, $13, NULL, NOW(), NOW()
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM joysafeter_skill_usage_log existing
-                WHERE existing.skill_id = $2
-                  AND existing.skill_version IS NOT DISTINCT FROM $5
-                  AND existing.target IS NOT DISTINCT FROM $7
-                  AND existing.artifact_hash IS NOT DISTINCT FROM $10
-                  AND existing.session_id IS NOT DISTINCT FROM $11
-            )
+            VALUES ($1, $2, $3, $4, $5,
+                    CASE WHEN $6::uuid IS NULL THEN NULL
+                         WHEN EXISTS (SELECT 1 FROM joysafeter_skill_versions WHERE id = $6) THEN $6
+                         ELSE NULL END,
+                    $7, $8, $9, $10, $11, $12, $13, NULL, NOW(), NOW())
             "#,
         )
         .bind(Uuid::now_v7())
@@ -653,20 +662,20 @@ impl HarnessInputBuilder {
         &self,
         vault_ids: &serde_json::Value,
         mcp_servers: &mut Vec<proto::McpConfig>,
-    ) {
+    ) -> anyhow::Result<()> {
         let ids: Vec<Uuid> = match vault_ids.as_array() {
             Some(arr) => arr
                 .iter()
                 .filter_map(|v| v.as_str())
-                .filter_map(|s| parse_prefixed_uuid(s, "vault_"))
+                .filter_map(parse_vault_ref)
                 .collect(),
-            None => return,
+            None => return Ok(()),
         };
 
         let vault_cipher = VaultCipher::from_env();
         let mut creds_by_url: HashMap<String, VaultCredentialRow> = HashMap::new();
         for vault_id in ids {
-            match sqlx::query_as::<_, VaultCredentialRow>(
+            let creds = sqlx::query_as::<_, VaultCredentialRow>(
                 r#"
                 SELECT c.id, c.mcp_server_url, c.token_value, c.credential_type, c.oauth_config
                 FROM joysafeter_vault_credentials c
@@ -681,19 +690,21 @@ impl HarnessInputBuilder {
             .bind(vault_id)
             .fetch_all(&self.pool)
             .await
-            {
-                Ok(creds) => {
-                    for mut cred in creds {
-                        let url_val = cred.mcp_server_url.clone();
-                        if let Some(url) = url_val {
-                            if let Err(e) = vault_cipher.decrypt_row(&mut cred) {
-                                warn!(credential_id = %cred.id, "Failed to decrypt vault credential: {e}");
-                            }
-                            creds_by_url.insert(url, cred);
-                        }
-                    }
+            .map_err(|e| {
+                anyhow::anyhow!("failed to load vault credentials for vault {vault_id}: {e}")
+            })?;
+            for mut cred in creds {
+                let url_val = cred.mcp_server_url.clone();
+                if let Some(url) = url_val {
+                    vault_cipher.decrypt_row(&mut cred).map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to decrypt vault credential {} for vault {}: {e}",
+                            cred.id,
+                            vault_id
+                        )
+                    })?;
+                    creds_by_url.insert(url, cred);
                 }
-                Err(e) => warn!(vault_id = %vault_id, "Failed to load vault credentials: {e}"),
             }
         }
 
@@ -717,6 +728,7 @@ impl HarnessInputBuilder {
                 mcp.headers.clear();
             }
         }
+        Ok(())
     }
 
     async fn maybe_refresh_oauth(
@@ -820,14 +832,16 @@ impl HarnessInputBuilder {
         Ok(cred.token_value.clone())
     }
 
-    async fn load_memory_stores(&self, session_id: Uuid, input: &mut HarnessInput) {
-        let stores = match queries::list_session_memory_stores(&self.pool, session_id).await {
-            Ok(stores) => stores,
-            Err(e) => {
-                warn!(session_id = %session_id, "Failed to load memory stores: {e}");
-                return;
-            }
-        };
+    async fn load_memory_stores(
+        &self,
+        session_id: Uuid,
+        input: &mut HarnessInput,
+    ) -> anyhow::Result<()> {
+        let stores = queries::list_session_memory_stores(&self.pool, session_id)
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!("failed to load memory stores for session {session_id}: {e}")
+            })?;
 
         let mut prompt_parts = vec![
             "# Memory".to_string(),
@@ -838,13 +852,20 @@ impl HarnessInputBuilder {
         for store in stores {
             let mount_path = format!("/mnt/memory/{}", store.mount_name);
             let mut files = vec![];
-            if let Ok(rows) = queries::load_memory_files(&self.pool, store.store_id, 10000).await {
-                for row in rows {
-                    files.push(proto::MemoryFile {
-                        relative_path: row.path,
-                        content: row.content.unwrap_or_default().into_bytes(),
-                    });
-                }
+            let rows = queries::load_memory_files(&self.pool, store.store_id, 10000)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to load memory files for store {} mounted on session {}: {e}",
+                        store.store_id,
+                        session_id
+                    )
+                })?;
+            for row in rows {
+                files.push(proto::MemoryFile {
+                    relative_path: row.path,
+                    content: row.content.unwrap_or_default().into_bytes(),
+                });
             }
 
             input.memory_mounts.push(proto::MemoryStoreMount {
@@ -862,13 +883,18 @@ impl HarnessInputBuilder {
         }
 
         if input.memory_mounts.is_empty() {
-            return;
+            return Ok(());
         }
         input.memory_system_prompt = Some(prompt_parts.join("\n"));
+        Ok(())
     }
 
-    async fn load_session_files(&self, session_id: Uuid, input: &mut HarnessInput) {
-        let rows: Vec<SessionFileRow> = match sqlx::query_as(
+    async fn load_session_files(
+        &self,
+        session_id: Uuid,
+        input: &mut HarnessInput,
+    ) -> anyhow::Result<()> {
+        let rows: Vec<SessionFileRow> = sqlx::query_as(
             r#"
             SELECT sf.mount_path, f.filename, f.storage_key, f.size_bytes
             FROM joysafeter_session_files sf
@@ -880,34 +906,37 @@ impl HarnessInputBuilder {
         .bind(session_id)
         .fetch_all(&self.pool)
         .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                warn!(session_id = %session_id, "Failed to load session files: {e}");
-                return;
-            }
-        };
+        .map_err(|e| {
+            anyhow::anyhow!("failed to load session file rows for session {session_id}: {e}")
+        })?;
 
         for row in rows {
-            match load_session_file_resource(&row).await {
-                Ok(content) => input.files.push(proto::FileMount {
-                    path: row.mount_path,
-                    content,
-                    filename: row.filename,
-                }),
-                Err(e) => {
-                    warn!(storage_key = %row.storage_key, "Failed to prepare session file: {e}")
-                }
-            }
+            let content = load_session_file_resource(&row).await.map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to prepare session file '{}' from storage key '{}': {e}",
+                    row.filename,
+                    row.storage_key
+                )
+            })?;
+            input.files.push(proto::FileMount {
+                path: row.mount_path,
+                content,
+                filename: row.filename,
+            });
         }
+        Ok(())
     }
 
     /// Load session-scoped GitHub repository resources and decrypt their clone
     /// tokens. Repos live on the session
     /// (``joysafeter_session_repos``), not on ``agent.metadata``; the token is
     /// stored encrypted and decrypted here just before handing it to the runner.
-    async fn load_session_repos(&self, session_id: Uuid, input: &mut HarnessInput) {
-        let rows: Vec<SessionRepoRow> = match sqlx::query_as(
+    async fn load_session_repos(
+        &self,
+        session_id: Uuid,
+        input: &mut HarnessInput,
+    ) -> anyhow::Result<()> {
+        let rows: Vec<SessionRepoRow> = sqlx::query_as(
             r#"
             SELECT url, branch, mount_path, mount_name, encrypted_token
             FROM joysafeter_session_repos
@@ -918,16 +947,12 @@ impl HarnessInputBuilder {
         .bind(session_id)
         .fetch_all(&self.pool)
         .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                warn!(session_id = %session_id, "Failed to load session repos: {e}");
-                return;
-            }
-        };
+        .map_err(|e| {
+            anyhow::anyhow!("failed to load session repos for session {session_id}: {e}")
+        })?;
 
         if rows.is_empty() {
-            return;
+            return Ok(());
         }
 
         let cipher = VaultCipher::from_env();
@@ -938,13 +963,15 @@ impl HarnessInputBuilder {
             // rewritten to the Envoy egress boundary; Envoy injects the real
             // credential. Public repos (no token) keep their original URL.
             if has_token {
-                if let Err(e) = cipher.decrypt_or_passthrough(&row.encrypted_token) {
-                    warn!(
-                        session_id = %session_id,
-                        "Failed to decrypt clone token for repo resource: {e}"
-                    );
-                    continue;
-                }
+                cipher
+                    .decrypt_or_passthrough(&row.encrypted_token)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                        "failed to decrypt clone token for repo resource '{}' on session {}: {e}",
+                        row.mount_name,
+                        session_id
+                    )
+                    })?;
             }
             let url = if has_token {
                 // Repoint the clone URL at the placeholder egress host + a stable
@@ -969,6 +996,7 @@ impl HarnessInputBuilder {
                 mount_name: row.mount_name,
             });
         }
+        Ok(())
     }
 
     async fn build_conversation_history(&self, session_id: Uuid, task_id: Uuid) -> String {
@@ -1183,12 +1211,76 @@ fn extract_content_text(payload: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+
+    use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::PgPool;
+
     use super::{
-        SkillForArchive, ensure_skill_runtime_ready, extract_content_text, parse_semver,
-        session_container_work_dir, should_inject_conversation_history,
-        trim_history_lines_to_budget,
+        ensure_skill_runtime_ready, extract_content_text, parse_semver, session_container_work_dir,
+        should_inject_conversation_history, trim_history_lines_to_budget, HarnessInputBuilder,
+        SkillForArchive,
     };
     use uuid::Uuid;
+
+    fn database_url() -> Option<String> {
+        env::var("DATABASE_URL")
+            .ok()
+            .or_else(|| env::var("JOYSAFETER_TEST_DATABASE_URL").ok())
+            .map(|url| url.replace("postgresql+asyncpg://", "postgres://"))
+    }
+
+    async fn test_pool() -> Option<PgPool> {
+        let Some(url) = database_url() else {
+            eprintln!("skipping real Postgres harness test: DATABASE_URL is not set");
+            return None;
+        };
+        Some(
+            PgPoolOptions::new()
+                .max_connections(3)
+                .connect(&url)
+                .await
+                .expect("connect to migrated Postgres test database"),
+        )
+    }
+
+    async fn cleanup(
+        pool: &PgPool,
+        agent_id: Uuid,
+        session_id: Uuid,
+        environment_id: Uuid,
+        secret_names: &[String],
+    ) {
+        let _ =
+            sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
+                .bind(session_id)
+                .bind(agent_id)
+                .execute(pool)
+                .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
+            .bind(environment_id)
+            .execute(pool)
+            .await;
+        for secret_name in secret_names {
+            let _ = sqlx::query("DELETE FROM joysafeter_secrets WHERE name = $1")
+                .bind(secret_name)
+                .execute(pool)
+                .await;
+        }
+    }
 
     #[test]
     fn parse_semver_orders_versions() {
@@ -1291,6 +1383,661 @@ mod tests {
         let mut skill = ready_skill();
         skill.security_scan_hash = None;
         assert!(ensure_skill_runtime_ready(&skill).is_err());
+    }
+
+    #[tokio::test]
+    async fn harness_input_uses_session_execution_snapshot_after_live_config_changes() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let task_id = Uuid::now_v7();
+        let environment_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let environment_ref = format!("env_{environment_id}");
+        let snapshot_secret = format!("snapshot-secret-{unique}");
+        let live_secret = format!("live-secret-{unique}");
+        let agent_name = format!("snapshot-agent-{unique}");
+        let environment_name = format!("snapshot-env-{unique}");
+        let snapshot = json!({
+            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "id": agent_id.to_string(),
+            "version": 7,
+            "name": agent_name,
+            "engine_kind": "claude",
+            "model": {"id": "snapshot-model"},
+            "system_prompt": "snapshot system",
+            "env": {"AGENT_LEVEL": "snapshot-agent-env"},
+            "mcp_configs": [{
+                "name": "snapshot-mcp",
+                "type": "http",
+                "url": "https://mcp.snapshot.example"
+            }],
+            "tools": [{
+                "type": "custom",
+                "name": "snapshot_tool",
+                "description": "from snapshot"
+            }],
+            "permission_mode": "bypassPermissions",
+            "metadata": {"setup_commands": ["echo snapshot-metadata"], "max_turns": 12},
+            "skills": [],
+            "agents": [],
+            "commands": [],
+            "environment_ref": environment_ref,
+            "secret_ref": snapshot_secret,
+            "environment": {
+                "ref": environment_ref,
+                "id": environment_id.to_string(),
+                "name": environment_name,
+                "image_tag": "snapshot-image:1",
+                "image_version": 1,
+                "config": {
+                    "env_vars": {"ENV_LEVEL": "snapshot-env"},
+                    "secret_refs": [snapshot_secret],
+                    "packages": {"pip": ["snapshot-pkg"]}
+                }
+            }
+        });
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_environments
+                    (id, name, description, config, image_tag, image_version)
+                VALUES ($1, $2, 'snapshot test env', $3, 'live-image:2', 2)
+                "#,
+            )
+            .bind(environment_id)
+            .bind(&environment_name)
+            .bind(json!({
+                "env_vars": {"ENV_LEVEL": "live-env", "LIVE_ONLY": "must-not-appear"},
+                "secret_refs": [live_secret],
+                "packages": {"pip": ["live-pkg"]}
+            }))
+            .execute(&pool)
+            .await
+            .expect("insert live environment");
+
+            for (name, key) in [
+                (&snapshot_secret, "snapshot-key"),
+                (&live_secret, "live-key"),
+            ] {
+                sqlx::query(
+                    r#"
+                    INSERT INTO joysafeter_secrets (id, name, data)
+                    VALUES ($1, $2, $3)
+                    "#,
+                )
+                .bind(Uuid::now_v7())
+                .bind(name)
+                .bind(json!({"OPENAI_API_KEY": key}))
+                .execute(&pool)
+                .await
+                .expect("insert test secret");
+            }
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata,
+                    version, environment_ref, secret_ref
+                )
+                VALUES (
+                    $1, $2, 'codex', $3, 'live system', $4, '[]'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'default', '{}'::jsonb, 8, $5, $6
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(&agent_name)
+            .bind(json!({"id": "live-model"}))
+            .bind(json!({"AGENT_LEVEL": "live-agent-env", "LIVE_AGENT_ONLY": "must-not-appear"}))
+            .bind(&environment_ref)
+            .bind(&live_secret)
+            .execute(&pool)
+            .await
+            .expect("insert live agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (
+                    id, agent_id, status, agent_version, agent_snapshot, environment_ref
+                )
+                VALUES ($1, $2, 'idle', 7, $3, $4)
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .bind(&snapshot)
+            .bind(&environment_ref)
+            .execute(&pool)
+            .await
+            .expect("insert snapshot session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_tasks (
+                    id, agent_id, chat_session_id, status, prompt, output,
+                    timeout_sec, retry_count, max_retries
+                )
+                VALUES ($1, $2, $3, 'running', 'run with snapshot', '', 7200, 0, 2)
+                "#,
+            )
+            .bind(task_id)
+            .bind(agent_id)
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("insert test task");
+
+            let task = crate::db::queries::get_task(&pool, task_id)
+                .await
+                .expect("load task")
+                .expect("task exists");
+            let input = HarnessInputBuilder::new(pool.clone())
+                .build(&task, "sandbox-ext", Uuid::now_v7())
+                .await
+                .expect("build harness input");
+
+            assert_eq!(input.provider, "claude");
+            assert_eq!(input.model.as_deref(), Some("snapshot-model"));
+            assert_eq!(input.system_prompt.as_deref(), Some("snapshot system"));
+            assert_eq!(input.max_turns, 12);
+            assert_eq!(
+                input.env.get("ENV_LEVEL").map(String::as_str),
+                Some("snapshot-env")
+            );
+            assert_eq!(
+                input.env.get("AGENT_LEVEL").map(String::as_str),
+                Some("snapshot-agent-env")
+            );
+            assert!(!input.env.contains_key("LIVE_ONLY"));
+            assert!(!input.env.contains_key("LIVE_AGENT_ONLY"));
+            assert_eq!(
+                input.secrets.get("OPENAI_API_KEY").map(String::as_str),
+                Some("snapshot-key")
+            );
+            assert_eq!(
+                input.setup_commands,
+                vec![
+                    "pip install snapshot-pkg".to_string(),
+                    "echo snapshot-metadata".to_string()
+                ]
+            );
+            assert_eq!(input.mcp_servers.len(), 1);
+            assert_eq!(input.mcp_servers[0].name, "snapshot-mcp");
+            assert_eq!(input.custom_tools.len(), 1);
+            assert_eq!(input.custom_tools[0].name, "snapshot_tool");
+        }
+        .await;
+
+        cleanup(
+            &pool,
+            agent_id,
+            session_id,
+            environment_id,
+            &[snapshot_secret, live_secret],
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_snapshot_session_file_storage_missing_fails_build() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let task_id = Uuid::now_v7();
+        let file_id = Uuid::now_v7();
+        let session_file_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let org_id = format!("org-{unique}");
+        let project_id = format!("proj-{unique}");
+        let missing_storage_key = format!("missing-session-file-{unique}.txt");
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_organizations
+                    (id, name, slug, storage_used_bytes, departed_member_usage)
+                VALUES ($1, $2, $3, 0, 0)
+                "#,
+            )
+            .bind(&org_id)
+            .bind(format!("Harness File Org {unique}"))
+            .bind(format!("harness-file-org-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert organization");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_organization_projects
+                    (id, org_id, name, slug, is_default)
+                VALUES ($1, $2, $3, $4, false)
+                "#,
+            )
+            .bind(&project_id)
+            .bind(&org_id)
+            .bind(format!("Harness File Project {unique}"))
+            .bind(format!("harness-file-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert project");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, project_id, name, engine_kind, model, system_prompt, env,
+                    mcp_configs, skills, tools, agents, commands, permission_mode,
+                    metadata, version
+                )
+                VALUES (
+                    $1, $2, $3, 'claude', $4, '', '{}'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    '[]'::jsonb, 'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(&project_id)
+            .bind(format!("harness-file-agent-{unique}"))
+            .bind(json!({"id": "claude-sonnet"}))
+            .execute(&pool)
+            .await
+            .expect("insert agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, project_id, status)
+                VALUES ($1, $2, $3, 'idle')
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .bind(&project_id)
+            .execute(&pool)
+            .await
+            .expect("insert session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_files (
+                    id, project_id, filename, purpose, content_type, size_bytes,
+                    sha256, storage_key, downloadable
+                )
+                VALUES (
+                    $1, $2, 'missing.txt', 'user_upload', 'text/plain', 12,
+                    'missing-sha', $3, true
+                )
+                "#,
+            )
+            .bind(file_id)
+            .bind(&project_id)
+            .bind(&missing_storage_key)
+            .execute(&pool)
+            .await
+            .expect("insert file metadata");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_session_files
+                    (id, session_id, file_id, mount_path, access)
+                VALUES ($1, $2, $3, '/workspace/missing.txt', 'read_only')
+                "#,
+            )
+            .bind(session_file_id)
+            .bind(session_id)
+            .bind(file_id)
+            .execute(&pool)
+            .await
+            .expect("insert session file mount");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_tasks (
+                    id, agent_id, chat_session_id, project_id, status, prompt, output,
+                    timeout_sec, retry_count, max_retries
+                )
+                VALUES ($1, $2, $3, $4, 'running', 'use declared file', '', 7200, 0, 2)
+                "#,
+            )
+            .bind(task_id)
+            .bind(agent_id)
+            .bind(session_id)
+            .bind(&project_id)
+            .execute(&pool)
+            .await
+            .expect("insert task");
+
+            let task = crate::db::queries::get_task(&pool, task_id)
+                .await
+                .expect("load task")
+                .expect("task exists");
+            let err = HarnessInputBuilder::new(pool.clone())
+                .build(&task, "sandbox-ext", Uuid::now_v7())
+                .await
+                .expect_err("missing session file content must fail harness input build");
+            let message = err.to_string();
+            assert!(
+                message.contains("failed to prepare session file"),
+                "{message}"
+            );
+            assert!(message.contains(&missing_storage_key), "{message}");
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_session_files WHERE id = $1")
+            .bind(session_file_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_files WHERE id = $1")
+            .bind(file_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&org_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_resolves_vlt_prefixed_vault_ids_for_mcp_egress() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let task_id = Uuid::now_v7();
+        let vault_id = Uuid::now_v7();
+        let credential_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let mcp_url = "https://mcp.vault-alias.example/api";
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_vaults (id, name, description)
+                VALUES ($1, $2, '')
+                "#,
+            )
+            .bind(vault_id)
+            .bind(format!("vault-alias-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert vault");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_vault_credentials
+                    (id, vault_id, name, credential_type, mcp_server_url, token_value)
+                VALUES ($1, $2, 'alias credential', 'static_bearer', $3, 'vault-token')
+                "#,
+            )
+            .bind(credential_id)
+            .bind(vault_id)
+            .bind(mcp_url)
+            .execute(&pool)
+            .await
+            .expect("insert vault credential");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata, version
+                )
+                VALUES (
+                    $1, $2, 'claude', $3, '', '{}'::jsonb, $4,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("vault-alias-agent-{unique}"))
+            .bind(json!({"id": "claude-sonnet"}))
+            .bind(json!([{
+                "name": "secure-mcp",
+                "type": "http",
+                "url": mcp_url
+            }]))
+            .execute(&pool)
+            .await
+            .expect("insert agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, status, vault_ids)
+                VALUES ($1, $2, 'idle', $3)
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .bind(json!([format!("vlt_{vault_id}")]))
+            .execute(&pool)
+            .await
+            .expect("insert session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_tasks (
+                    id, agent_id, chat_session_id, status, prompt, output,
+                    timeout_sec, retry_count, max_retries
+                )
+                VALUES ($1, $2, $3, 'running', 'run with vault alias', '', 7200, 0, 2)
+                "#,
+            )
+            .bind(task_id)
+            .bind(agent_id)
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("insert task");
+
+            let task = crate::db::queries::get_task(&pool, task_id)
+                .await
+                .expect("load task")
+                .expect("task exists");
+            let input = HarnessInputBuilder::new(pool.clone())
+                .build(&task, "sandbox-ext", Uuid::now_v7())
+                .await
+                .expect("build harness input");
+
+            assert_eq!(input.mcp_servers.len(), 1);
+            assert_eq!(input.mcp_servers[0].name, "secure-mcp");
+            assert_eq!(
+                input.mcp_servers[0].url,
+                format!(
+                    "http://{}/mcp/secure-mcp/",
+                    crate::sandbox::lds_backend::MCP_EGRESS_HOST
+                )
+            );
+            assert!(input.mcp_servers[0].headers.is_empty());
+        }
+        .await;
+
+        let _ =
+            sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
+                .bind(session_id)
+                .bind(agent_id)
+                .execute(&pool)
+                .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_vault_credentials WHERE id = $1")
+            .bind(credential_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_vaults WHERE id = $1")
+            .bind(vault_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_vlt_prefixed_vault_ids_credential_decrypt_failure_fails_build() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let task_id = Uuid::now_v7();
+        let vault_id = Uuid::now_v7();
+        let credential_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let mcp_url = "https://mcp.vault-decrypt-fail.example/api";
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_vaults (id, name, description)
+                VALUES ($1, $2, '')
+                "#,
+            )
+            .bind(vault_id)
+            .bind(format!("vault-decrypt-fail-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert vault");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_vault_credentials
+                    (id, vault_id, name, credential_type, mcp_server_url, token_value)
+                VALUES ($1, $2, 'bad encrypted credential', 'static_bearer', $3, 'enc:not-valid-base64')
+                "#,
+            )
+            .bind(credential_id)
+            .bind(vault_id)
+            .bind(mcp_url)
+            .execute(&pool)
+            .await
+            .expect("insert vault credential");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata, version
+                )
+                VALUES (
+                    $1, $2, 'claude', $3, '', '{}'::jsonb, $4,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("vault-decrypt-fail-agent-{unique}"))
+            .bind(json!({"id": "claude-sonnet"}))
+            .bind(json!([{
+                "name": "secure-mcp",
+                "type": "http",
+                "url": mcp_url
+            }]))
+            .execute(&pool)
+            .await
+            .expect("insert agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, status, vault_ids)
+                VALUES ($1, $2, 'idle', $3)
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .bind(json!([format!("vlt_{vault_id}")]))
+            .execute(&pool)
+            .await
+            .expect("insert session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_tasks (
+                    id, agent_id, chat_session_id, status, prompt, output,
+                    timeout_sec, retry_count, max_retries
+                )
+                VALUES ($1, $2, $3, 'running', 'run with broken vault credential', '', 7200, 0, 2)
+                "#,
+            )
+            .bind(task_id)
+            .bind(agent_id)
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("insert task");
+
+            let task = crate::db::queries::get_task(&pool, task_id)
+                .await
+                .expect("load task")
+                .expect("task exists");
+            let err = HarnessInputBuilder::new(pool.clone())
+                .build(&task, "sandbox-ext", Uuid::now_v7())
+                .await
+                .expect_err("broken vault credential must fail harness input build");
+            let message = err.to_string();
+            assert!(
+                message.contains("failed to decrypt vault credential"),
+                "{message}"
+            );
+            assert!(message.contains(&credential_id.to_string()), "{message}");
+        }
+        .await;
+
+        let _ =
+            sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
+                .bind(session_id)
+                .bind(agent_id)
+                .execute(&pool)
+                .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_vault_credentials WHERE id = $1")
+            .bind(credential_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_vaults WHERE id = $1")
+            .bind(vault_id)
+            .execute(&pool)
+            .await;
     }
 }
 
@@ -1592,6 +2339,14 @@ fn combine_system_prompt(base: Option<String>, memory: Option<String>) -> Option
 
 fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
     raw.strip_prefix(prefix).unwrap_or(raw).parse().ok()
+}
+
+fn parse_vault_ref(raw: &str) -> Option<Uuid> {
+    raw.strip_prefix("vault_")
+        .or_else(|| raw.strip_prefix("vlt_"))
+        .unwrap_or(raw)
+        .parse()
+        .ok()
 }
 
 fn ensure_skill_runtime_ready(skill: &SkillForArchive) -> anyhow::Result<()> {

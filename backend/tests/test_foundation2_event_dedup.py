@@ -30,6 +30,7 @@ from app.joysafeter_worker.events.batch_writer import (
     EventBatchConfig,
     EventBatchSender,
 )
+from app.joysafeter_worker.events.stream_consumer import EventStreamWorker
 
 
 @pytest_asyncio.fixture
@@ -169,6 +170,70 @@ async def test_batch_writer_skips_session_status_events_without_consuming_seq(
         )
     ).all()
     assert rows == [("agent.message", 1)]
+
+
+class _AckOnlyRedis:
+    def __init__(self):
+        self.acked: list[tuple[str, str, tuple[str, ...]]] = []
+
+    async def xack(self, stream, group, *message_ids):
+        self.acked.append((stream, group, tuple(message_ids)))
+        return len(message_ids)
+
+
+@pytest.mark.asyncio
+async def test_stream_consumer_acks_status_events_without_persisting_them(
+    postgres_url, db_session, session_id, monkeypatch
+):
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
+    monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
+
+    message_id = uuid.uuid4()
+    worker = EventStreamWorker(stream_key="joysafeter:test:events", group="test-group")
+    redis = _AckOnlyRedis()
+    batch = [
+        (
+            "1-0",
+            BufferedEvent(
+                session_id=session_id,
+                event_type="session.status_running",
+                payload={"task_id": str(uuid.uuid4())},
+                seq=0,
+                id=uuid.uuid4(),
+            ),
+        ),
+        (
+            "2-0",
+            BufferedEvent(
+                session_id=session_id,
+                event_type="agent.message",
+                payload={"content": "from stream"},
+                seq=0,
+                id=message_id,
+            ),
+        ),
+    ]
+
+    try:
+        await worker._persist_and_ack(redis, batch)
+    finally:
+        await engine.dispose()
+
+    assert redis.acked == [("joysafeter:test:events", "test-group", ("1-0", "2-0"))]
+    rows = (
+        await db_session.execute(
+            select(JoySafeterSessionEvent.id, JoySafeterSessionEvent.event_type, JoySafeterSessionEvent.seq)
+            .where(JoySafeterSessionEvent.session_id == session_id)
+            .order_by(JoySafeterSessionEvent.seq.asc())
+        )
+    ).all()
+    assert rows == [(message_id, "agent.message", 1)]
+
+    session_status = await db_session.scalar(
+        select(JoySafeterSession.status).where(JoySafeterSession.id == session_id)
+    )
+    assert session_status == "idle", "worker stream fallback must not mutate session.status"
 
 
 @pytest.mark.asyncio

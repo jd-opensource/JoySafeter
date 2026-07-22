@@ -10,13 +10,11 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
-use crate::db::models::JoySafeterAgent;
+use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
 use crate::kernel::harness_input_builder::VaultCipher;
-use crate::sandbox::lds_backend::{
-    EgressCredentialRoute, EgressExposure, EgressKind, GitEgress, LlmEgress, McpEgress,
-    SandboxCredentials, EXTERNAL_EGRESS_HOST,
-};
+use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
+use crate::sandbox::lds_backend::{GitEgress, LlmEgress, McpEgress, SandboxCredentials};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
 const CLAUDE_CODE_PLACEHOLDER_API_KEY: &str = "joysafeter-placeholder-anthropic-api-key";
@@ -122,11 +120,15 @@ impl SandboxResolver {
                         anyhow::bail!("Session has an active sandbox with different configuration");
                     }
                     info!(sandbox_id = %sandbox.id, "Sandbox fingerprint differs, destroying instead of reusing");
-                    if let Some(ref ext_id) = sandbox.external_id {
-                        let _ = self.provider.destroy(ext_id).await;
+                    if !self
+                        .destroy_observed_sandbox(&sandbox, "fingerprint mismatch")
+                        .await?
+                    {
+                        anyhow::bail!(
+                            "session sandbox {} changed state before fingerprint cleanup",
+                            sandbox.id
+                        );
                     }
-                    let _ = self.teardown_networking(sandbox.id).await;
-                    let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
                 } else {
                     match sandbox.status.as_str() {
                         // S10: Do NOT reuse `creating` sandboxes - container may not exist yet.
@@ -164,11 +166,15 @@ impl SandboxResolver {
                             // otherwise the unique constraint
                             // `idx_csb_active_session_unique` blocks creating a
                             // replacement and the scheduler enters a retry loop.
-                            if let Some(ref ext_id) = sandbox.external_id {
-                                let _ = self.provider.destroy(ext_id).await;
+                            if !self
+                                .destroy_observed_sandbox(&sandbox, "stale creating")
+                                .await?
+                            {
+                                anyhow::bail!(
+                                    "creating sandbox {} changed state before stale cleanup",
+                                    sandbox.id
+                                );
                             }
-                            let _ = self.teardown_networking(sandbox.id).await;
-                            let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
                             debug!(
                                 sandbox_id = %sandbox.id,
                                 "Destroyed stale creating sandbox before re-provisioning"
@@ -176,38 +182,31 @@ impl SandboxResolver {
                         }
                         "stopped" => {
                             if let Some(ref ext_id) = sandbox.external_id {
-                                if self.provider.start(ext_id).await.is_ok() {
-                                    queries::transition_sandbox(
-                                        &self.pool,
-                                        sandbox.id,
-                                        "provisioning",
-                                    )
-                                    .await?;
-                                    // Touch last_used_at so provisioning timeout counts from NOW
-                                    // (matching Python _restart_sandbox line 747: svc.touch())
-                                    let _ = queries::touch_sandbox(&self.pool, sandbox.id).await;
+                                if self.restart_stopped_sandbox(sandbox.id, ext_id).await? {
                                     info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox");
                                     return Ok((sandbox.id, ext_id.clone()));
                                 }
                             }
                         }
                         "error" => {
-                            if let Some(ref ext_id) = sandbox.external_id {
-                                let _ = self.provider.destroy(ext_id).await;
+                            if !self.destroy_observed_sandbox(&sandbox, "error").await? {
+                                anyhow::bail!(
+                                    "error sandbox {} changed state before cleanup",
+                                    sandbox.id
+                                );
                             }
-                            let _ = self.teardown_networking(sandbox.id).await;
-                            let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
                         }
                         "stopping" => {
                             // M5 fix: A sandbox stuck in "stopping" blocks new
                             // session sandboxes indefinitely. Clean it up so the
                             // resolver can proceed to create a fresh one.
                             debug!(sandbox_id = %sandbox.id, "Sandbox is stopping, cleaning up and creating new");
-                            if let Some(ref ext_id) = sandbox.external_id {
-                                let _ = self.provider.destroy(ext_id).await;
+                            if !self.destroy_observed_sandbox(&sandbox, "stopping").await? {
+                                anyhow::bail!(
+                                    "stopping sandbox {} changed state before cleanup",
+                                    sandbox.id
+                                );
                             }
-                            let _ = self.teardown_networking(sandbox.id).await;
-                            let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
                         }
                         _ => {}
                     }
@@ -223,17 +222,19 @@ impl SandboxResolver {
                     sandbox.image.as_deref(),
                     &context.expected,
                 ) {
-                    if let Some(ref ext_id) = sandbox.external_id {
-                        let _ = self.provider.destroy(ext_id).await;
+                    if !self
+                        .destroy_observed_sandbox(&sandbox, "stopped fingerprint mismatch")
+                        .await?
+                    {
+                        anyhow::bail!(
+                            "stopped sandbox {} changed state before fingerprint cleanup",
+                            sandbox.id
+                        );
                     }
-                    let _ = self.teardown_networking(sandbox.id).await;
-                    let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
                     return self.create_new_sandbox(task_id, &context).await;
                 }
                 if let Some(ref ext_id) = sandbox.external_id {
-                    if self.provider.start(ext_id).await.is_ok() {
-                        queries::transition_sandbox(&self.pool, sandbox.id, "provisioning").await?;
-                        let _ = queries::touch_sandbox(&self.pool, sandbox.id).await;
+                    if self.restart_stopped_sandbox(sandbox.id, ext_id).await? {
                         info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox for session");
                         return Ok((sandbox.id, ext_id.clone()));
                     }
@@ -255,15 +256,37 @@ impl SandboxResolver {
                     // Liveness check
                     match self.provider.status(ext_id).await {
                         Ok(SandboxStatus::Running) => {
-                            self.mark_pool_claimed(
-                                sandbox.id,
-                                session_id,
-                                &context.expected,
-                                "pool_claimed",
-                                80,
-                                "Claimed from warm pool, waiting for runner readiness",
-                            )
-                            .await?;
+                            if let Err(err) = self
+                                .mark_pool_claimed(
+                                    sandbox.id,
+                                    session_id,
+                                    &context.expected,
+                                    "pool_claimed",
+                                    80,
+                                    "Claimed from warm pool, waiting for runner readiness",
+                                )
+                                .await
+                            {
+                                warn!(
+                                    sandbox_id = %sandbox.id,
+                                    error = %err,
+                                    "Failed to attach claimed warm-pool sandbox metadata, destroying runtime"
+                                );
+                                if let Err(cleanup_err) = self
+                                    .destroy_unattached_pool_claim(
+                                        &sandbox,
+                                        "pool claim session attach failure",
+                                    )
+                                    .await
+                                {
+                                    warn!(
+                                        sandbox_id = %sandbox.id,
+                                        error = %cleanup_err,
+                                        "Failed to cleanup warm-pool claim after session attach failure"
+                                    );
+                                }
+                                return Err(err);
+                            }
                             info!(
                                 sandbox_id = %sandbox.id,
                                 task_id = %task_id,
@@ -280,49 +303,95 @@ impl SandboxResolver {
                                     runner_capabilities: vec![],
                                     is_pool_sandbox: true,
                                 };
-                                let _ = crate::sandbox::file_injection::inject_session_files(
-                                    &self.pool,
-                                    &ctx,
-                                    self.provider.as_ref(),
-                                )
-                                .await;
+                                if let Err(err) =
+                                    crate::sandbox::file_injection::inject_session_files(
+                                        &self.pool,
+                                        &ctx,
+                                        self.provider.as_ref(),
+                                    )
+                                    .await
+                                {
+                                    warn!(
+                                        sandbox_id = %sandbox.id,
+                                        session_id = %sid,
+                                        "Failed to inject session files into pooled sandbox, destroying claimed sandbox: {err}"
+                                    );
+                                    let _ = self
+                                        .destroy_observed_sandbox(
+                                            &sandbox,
+                                            "pooled session file injection failure",
+                                        )
+                                        .await;
+                                    anyhow::bail!(
+                                        "failed to inject session files into pooled sandbox {} for session {}: {err}",
+                                        sandbox.id,
+                                        sid
+                                    );
+                                }
                             }
                             return Ok((sandbox.id, ext_id.clone()));
                         }
                         Ok(SandboxStatus::Stopped) => {
                             // Try to start pooled sandbox
                             if self.provider.start(ext_id).await.is_ok() {
-                                self.mark_pool_claimed(
-                                    sandbox.id,
-                                    session_id,
-                                    &context.expected,
-                                    "pool_restarting",
-                                    75,
-                                    "Claimed stopped pooled sandbox, restarting runtime",
-                                )
-                                .await?;
+                                if let Err(err) = self
+                                    .mark_pool_claimed(
+                                        sandbox.id,
+                                        session_id,
+                                        &context.expected,
+                                        "pool_restarting",
+                                        75,
+                                        "Claimed stopped pooled sandbox, restarting runtime",
+                                    )
+                                    .await
+                                {
+                                    warn!(
+                                        sandbox_id = %sandbox.id,
+                                        error = %err,
+                                        "Failed to attach restarted warm-pool sandbox metadata, destroying runtime"
+                                    );
+                                    if let Err(cleanup_err) = self
+                                        .destroy_unattached_pool_claim(
+                                            &sandbox,
+                                            "restarted pool claim session attach failure",
+                                        )
+                                        .await
+                                    {
+                                        warn!(
+                                            sandbox_id = %sandbox.id,
+                                            error = %cleanup_err,
+                                            "Failed to cleanup restarted warm-pool claim after session attach failure"
+                                        );
+                                    }
+                                    return Err(err);
+                                }
                                 info!(sandbox_id = %sandbox.id, "Started pooled sandbox");
                                 return Ok((sandbox.id, ext_id.clone()));
                             }
                             // Broken pooled sandbox — destroy it
                             warn!(sandbox_id = %sandbox.id, "Destroying broken pooled sandbox");
-                            let _ = self.provider.destroy(ext_id).await;
-                            let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
+                            let _ = self
+                                .destroy_observed_sandbox(&sandbox, "stopped pooled runtime")
+                                .await;
                         }
                         Err(err) => {
                             warn!(sandbox_id = %sandbox.id, external_id = %ext_id, error = %err, "Cannot query pooled sandbox status, destroying");
-                            let _ = self.provider.destroy(ext_id).await;
-                            let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
+                            let _ = self
+                                .destroy_observed_sandbox(&sandbox, "pool status error")
+                                .await;
                         }
                         _ => {
                             warn!(sandbox_id = %sandbox.id, external_id = %ext_id, "Pooled sandbox has unexpected status, destroying");
-                            let _ = self.provider.destroy(ext_id).await;
-                            let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
+                            let _ = self
+                                .destroy_observed_sandbox(&sandbox, "unexpected pool status")
+                                .await;
                         }
                     }
                 } else {
                     warn!(sandbox_id = %sandbox.id, "Pooled sandbox has no external_id, destroying");
-                    let _ = queries::destroy_sandbox(&self.pool, sandbox.id).await;
+                    let _ = self
+                        .destroy_observed_sandbox(&sandbox, "pooled sandbox without external id")
+                        .await;
                 }
             }
         }
@@ -429,12 +498,17 @@ impl SandboxResolver {
                 runner_capabilities: vec![],
                 is_pool_sandbox: false,
             };
-            let _ = crate::sandbox::file_injection::inject_session_files(
+            crate::sandbox::file_injection::inject_session_files(
                 &self.pool,
                 &ctx,
                 self.provider.as_ref(),
             )
-            .await;
+            .await
+            .map_err(|err| {
+                anyhow::anyhow!(
+                    "failed to inject session files into workspace before sandbox create for session {sid}: {err}"
+                )
+            })?;
         }
 
         // Store runner token in sandbox config
@@ -473,7 +547,21 @@ impl SandboxResolver {
             return Err(e.into());
         }
 
-        let _ = queries::transition_sandbox(&self.pool, sandbox_db_id, "provisioning").await;
+        let transitioned =
+            queries::transition_sandbox_cas(&self.pool, sandbox_db_id, "creating", "provisioning")
+                .await?;
+        if !transitioned
+            && self
+                .active_sandbox_status(sandbox_db_id, &external_id)
+                .await?
+                .is_none()
+        {
+            warn!(
+                sandbox_id = %sandbox_db_id,
+                "Skipped new-sandbox provider destroy because DB row changed before provisioning transition"
+            );
+            anyhow::bail!("sandbox {sandbox_db_id} changed state before provisioning transition");
+        }
 
         info!(
             sandbox_id = %sandbox_db_id,
@@ -491,7 +579,7 @@ impl SandboxResolver {
         agent_id: Option<Uuid>,
         project_id: Option<&str>,
     ) -> anyhow::Result<ResolveContext> {
-        let agent = match agent_id {
+        let live_agent = match agent_id {
             Some(aid) => queries::get_agent(&self.pool, aid).await?,
             None => None,
         };
@@ -499,20 +587,27 @@ impl SandboxResolver {
             Some(sid) => queries::get_session(&self.pool, sid).await?,
             None => None,
         };
+        let snapshot_environment = environment_for_execution(session.as_ref());
+        let agent = agent_for_execution(live_agent, session.as_ref());
         let project_id = project_id
             .map(ToOwned::to_owned)
             .or_else(|| session.as_ref().and_then(|s| s.project_id.clone()))
             .or_else(|| agent.as_ref().and_then(|a| a.project_id.clone()));
-        let environment_ref = session
+        let environment_ref = agent
             .as_ref()
-            .and_then(|s| non_empty(s.environment_ref.as_deref()))
+            .and_then(|a| non_empty(a.environment_ref.as_deref()))
             .or_else(|| {
-                agent
+                session
                     .as_ref()
-                    .and_then(|a| non_empty(a.environment_ref.as_deref()))
+                    .and_then(|s| non_empty(s.environment_ref.as_deref()))
             });
 
-        let environment = if let Some(ref env_ref) = environment_ref {
+        let environment = if let Some(snapshot_environment) = snapshot_environment {
+            Some(EnvironmentRow {
+                config: snapshot_environment.config,
+                image_tag: snapshot_environment.image_tag,
+            })
+        } else if let Some(ref env_ref) = environment_ref {
             self.load_environment(env_ref, project_id.as_deref())
                 .await?
         } else {
@@ -536,7 +631,6 @@ impl SandboxResolver {
             configured_networking,
             self.config.envoy_enabled,
             agent.as_ref(),
-            environment.as_ref(),
         )?;
         let network = if networking_type(networking.as_ref()) == Some("limited") {
             Some("none".to_string())
@@ -553,15 +647,9 @@ impl SandboxResolver {
         if network.as_deref() == Some("none") {
             credentials.llm =
                 Self::extract_llm_egress(&mut env, &self.config.llm_egress_allowed_hosts);
-            credentials.mcp = Self::build_mcp_egress(&self.pool, session_id, agent.as_ref()).await;
-            credentials.git = Self::build_git_egress(&self.pool, session_id).await;
-            credentials.external = Self::build_external_egress(
-                &self.pool,
-                environment.as_ref(),
-                agent.as_ref().and_then(|a| a.project_id.as_deref()),
-                &mut env,
-            )
-            .await;
+            credentials.mcp =
+                Self::build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?;
+            credentials.git = Self::build_git_egress(&self.pool, session_id).await?;
         }
 
         Ok(ResolveContext {
@@ -898,12 +986,12 @@ impl SandboxResolver {
         pool: &PgPool,
         session_id: Option<Uuid>,
         agent: Option<&JoySafeterAgent>,
-    ) -> Vec<McpEgress> {
+    ) -> anyhow::Result<Vec<McpEgress>> {
         let Some(agent) = agent else {
-            return vec![];
+            return Ok(vec![]);
         };
         let Some(session_id) = session_id else {
-            return vec![];
+            return Ok(vec![]);
         };
         // Remote MCP servers (url present) declared by the agent.
         let mcp_servers: Vec<(String, String)> = agent
@@ -925,28 +1013,33 @@ impl SandboxResolver {
             })
             .unwrap_or_default();
         if mcp_servers.is_empty() {
-            return vec![];
+            return Ok(vec![]);
         }
 
         // Load the session's vault credentials, keyed by mcp_server_url.
         let session = match queries::get_session(pool, session_id).await {
             Ok(Some(s)) => s,
-            _ => return vec![],
+            Ok(None) => return Ok(vec![]),
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "failed to load session {session_id} while building MCP egress: {e}"
+                ));
+            }
         };
         let Some(vault_ids) = session.vault_ids.as_ref() else {
-            return vec![];
+            return Ok(vec![]);
         };
         let ids: Vec<Uuid> = vault_ids
             .as_array()
             .map(|arr| {
                 arr.iter()
                     .filter_map(|v| v.as_str())
-                    .filter_map(|s| parse_prefixed_uuid(s, "vault_"))
+                    .filter_map(parse_vault_ref)
                     .collect()
             })
             .unwrap_or_default();
         if ids.is_empty() {
-            return vec![];
+            return Ok(vec![]);
         }
 
         let cipher = VaultCipher::from_env();
@@ -967,15 +1060,17 @@ impl SandboxResolver {
             .bind(vault_id)
             .fetch_all(pool)
             .await
-            .unwrap_or_default();
+            .map_err(|e| {
+                anyhow::anyhow!("failed to load vault credentials for vault {vault_id}: {e}")
+            })?;
             for (url, token_value) in rows {
                 if let Some(url) = url {
-                    match cipher.decrypt_or_passthrough(&token_value) {
-                        Ok(tok) => {
-                            token_by_url.insert(url, tok);
-                        }
-                        Err(e) => warn!("Failed to decrypt vault credential: {e}"),
-                    }
+                    let tok = cipher.decrypt_or_passthrough(&token_value).map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to decrypt vault credential for MCP server '{url}' in vault {vault_id}: {e}"
+                        )
+                    })?;
+                    token_by_url.insert(url, tok);
                 }
             }
         }
@@ -985,11 +1080,13 @@ impl SandboxResolver {
             let Some(token) = token_by_url.get(&url) else {
                 continue;
             };
-            let Ok(parsed) = Url::parse(&url) else {
-                continue;
-            };
+            let parsed = Url::parse(&url)
+                .map_err(|e| anyhow::anyhow!("invalid MCP server URL '{url}': {e}"))?;
             let tls = parsed.scheme() == "https";
-            let host = parsed.host_str().unwrap_or_default().to_string();
+            let host = parsed
+                .host_str()
+                .ok_or_else(|| anyhow::anyhow!("MCP server URL '{url}' has no host"))?
+                .to_string();
             let port = parsed.port().unwrap_or(if tls { 443 } else { 80 });
             let prefix = if parsed.path().is_empty() {
                 "/".to_string()
@@ -1005,7 +1102,7 @@ impl SandboxResolver {
                 headers: vec![("authorization".to_string(), format!("Bearer {token}"))],
             });
         }
-        egress
+        Ok(egress)
     }
 
     /// Build git egress credentials: decrypt each session repo's clone token and
@@ -1013,9 +1110,12 @@ impl SandboxResolver {
     /// sandbox clones from `git-egress.internal/git/<slug>/` (no token); Envoy
     /// rewrites to the real host + repo path, injects HTTP Basic auth, and
     /// forwards over the upstream scheme. The real token never enters the sandbox.
-    async fn build_git_egress(pool: &PgPool, session_id: Option<Uuid>) -> Vec<GitEgress> {
+    async fn build_git_egress(
+        pool: &PgPool,
+        session_id: Option<Uuid>,
+    ) -> anyhow::Result<Vec<GitEgress>> {
         let Some(session_id) = session_id else {
-            return vec![];
+            return Ok(vec![]);
         };
         let rows: Vec<(String, String, String)> = sqlx::query_as(
             r#"
@@ -1028,7 +1128,11 @@ impl SandboxResolver {
         .bind(session_id)
         .fetch_all(pool)
         .await
-        .unwrap_or_default();
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "failed to load session repos for Git egress in session {session_id}: {e}"
+            )
+        })?;
 
         let cipher = VaultCipher::from_env();
         let mut egress = Vec::new();
@@ -1036,15 +1140,21 @@ impl SandboxResolver {
             if encrypted_token.is_empty() {
                 continue;
             }
-            let token = match cipher.decrypt_or_passthrough(&encrypted_token) {
-                Ok(t) if !t.is_empty() => t,
-                _ => continue,
-            };
-            let Ok(parsed) = Url::parse(&url) else {
+            let token = cipher.decrypt_or_passthrough(&encrypted_token).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to decrypt Git token for repo '{mount_name}' in session {session_id}: {e}"
+                )
+            })?;
+            if token.is_empty() {
                 continue;
-            };
+            }
+            let parsed = Url::parse(&url)
+                .map_err(|e| anyhow::anyhow!("invalid Git repo URL '{url}': {e}"))?;
             let tls = parsed.scheme() == "https";
-            let host = parsed.host_str().unwrap_or_default().to_string();
+            let host = parsed
+                .host_str()
+                .ok_or_else(|| anyhow::anyhow!("Git repo URL '{url}' has no host"))?
+                .to_string();
             let port = parsed.port().unwrap_or(if tls { 443 } else { 80 });
             // Preserve the repo path so Envoy rewrites /git/<slug>/ back to the
             // real repo path (e.g. /org/repo.git/), keeping git smart-HTTP happy.
@@ -1065,232 +1175,7 @@ impl SandboxResolver {
                 headers: vec![("authorization".to_string(), format!("Basic {basic}"))],
             });
         }
-        egress
-    }
-
-    /// Build external-service egress routes from `environment.config.egress_services`.
-    ///
-    /// First shape supported:
-    /// ```json
-    /// {
-    ///   "egress_services": [{
-    ///     "name": "crm",
-    ///     "base_url": "https://crm.example.com/api/",
-    ///     "credential_ref": "crm-prod",
-    ///     "exposure": "placeholder",
-    ///     "inject": { "type": "bearer", "secret_key": "CRM_ACCESS_TOKEN" }
-    ///   }]
-    /// }
-    /// ```
-    ///
-    /// The sandbox receives only a non-secret `<NAME>_BASE_URL` pointing at
-    /// `http://external-egress.internal/services/<name>/`; the real credential is
-    /// rendered into Envoy's per-sandbox route.
-    async fn build_external_egress(
-        pool: &PgPool,
-        environment: Option<&EnvironmentRow>,
-        project_id: Option<&str>,
-        env: &mut HashMap<String, String>,
-    ) -> Vec<EgressCredentialRoute> {
-        let Some(services) = environment
-            .and_then(|environment| environment.config.get("egress_services"))
-            .and_then(|value| value.as_array())
-        else {
-            return vec![];
-        };
-
-        let mut routes = Vec::new();
-        for service in services {
-            let Some(name) = service.get("name").and_then(|value| value.as_str()) else {
-                continue;
-            };
-            let name = sanitize_external_service_name(name);
-            if name.is_empty() {
-                continue;
-            }
-
-            let Some(base_url) = service.get("base_url").and_then(|value| value.as_str()) else {
-                continue;
-            };
-            let Ok(parsed) = Url::parse(base_url) else {
-                warn!(service = %name, "Invalid external egress service base_url");
-                continue;
-            };
-            if parsed.scheme() != "http" && parsed.scheme() != "https" {
-                warn!(service = %name, scheme = parsed.scheme(), "Unsupported external egress service scheme");
-                continue;
-            }
-            let Some(host) = parsed.host_str().map(ToOwned::to_owned) else {
-                continue;
-            };
-            let tls = parsed.scheme() == "https";
-            let port = parsed.port().unwrap_or(if tls { 443 } else { 80 });
-            let upstream_prefix = normalize_external_upstream_prefix(parsed.path());
-
-            let Some(credential_ref) = service
-                .get("credential_ref")
-                .and_then(|value| value.as_str())
-                .filter(|value| !value.trim().is_empty())
-            else {
-                continue;
-            };
-            let Some(inject) = service.get("inject").and_then(|value| value.as_object()) else {
-                continue;
-            };
-
-            let secret = match Self::load_secret_data(pool, credential_ref, project_id).await {
-                Ok(Some(secret)) => secret,
-                Ok(None) => continue,
-                Err(e) => {
-                    warn!(service = %name, credential_ref, "Failed to load external egress secret: {e}");
-                    continue;
-                }
-            };
-            let headers = match build_external_inject_headers(&secret, inject) {
-                Ok(headers) if !headers.is_empty() => headers,
-                Ok(_) => continue,
-                Err(e) => {
-                    warn!(service = %name, credential_ref, "Failed to build external egress headers: {e}");
-                    continue;
-                }
-            };
-
-            let match_prefix = format!("/services/{name}/");
-            let placeholder_base = format!("http://{EXTERNAL_EGRESS_HOST}{match_prefix}");
-            env.insert(
-                format!("{}_BASE_URL", external_service_env_name(&name)),
-                placeholder_base,
-            );
-
-            let remove_headers = vec![
-                "authorization".to_string(),
-                "cookie".to_string(),
-                "x-api-key".to_string(),
-                "api-key".to_string(),
-                "x-goog-api-key".to_string(),
-            ];
-
-            // Placeholder route: sandbox targets http://external-egress.internal/services/<name>/;
-            // Envoy rewrites host/path to the real upstream and injects the credential.
-            routes.push(EgressCredentialRoute {
-                id: format!("external:{name}"),
-                kind: EgressKind::External,
-                exposure: EgressExposure::Placeholder,
-                match_host: EXTERNAL_EGRESS_HOST.to_string(),
-                match_prefix,
-                exact_path: false,
-                upstream_host: host.clone(),
-                upstream_port: port,
-                upstream_prefix: upstream_prefix.clone(),
-                upstream_tls: tls,
-                cluster_name: String::new(),
-                inject_headers: headers.clone(),
-                remove_headers: remove_headers.clone(),
-            });
-
-            // Transparent route(s): sandbox may instead call the real host over
-            // plaintext http (e.g. http://crm.example.com/api/...). Envoy matches
-            // the real host vhost, injects the credential on the plaintext side,
-            // and TLS-originates to the real upstream when it is https. Only
-            // plaintext http requests hit L7; https goes through an opaque CONNECT
-            // tunnel and is NOT injected.
-            //
-            // Path allowlist: when `allowed_paths` is set, emit one narrow route
-            // per allowed path (exact match, or prefix when the entry ends with
-            // `/`) so only whitelisted endpoints get credential injection —
-            // everything else on the host falls through to deny_all (403). When
-            // empty, keep the wide base-path prefix route (backward compatible).
-            let allowed_paths: Vec<String> = service
-                .get("allowed_paths")
-                .and_then(|value| value.as_array())
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(|value| value.as_str())
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            if allowed_paths.is_empty() {
-                routes.push(EgressCredentialRoute {
-                    id: format!("external-direct:{name}"),
-                    kind: EgressKind::External,
-                    exposure: EgressExposure::Transparent,
-                    match_host: host.clone(),
-                    match_prefix: upstream_prefix.clone(),
-                    exact_path: false,
-                    upstream_host: host.clone(),
-                    upstream_port: port,
-                    upstream_prefix: upstream_prefix.clone(),
-                    upstream_tls: tls,
-                    cluster_name: String::new(),
-                    inject_headers: headers.clone(),
-                    remove_headers: remove_headers.clone(),
-                });
-            } else {
-                for (idx, entry) in allowed_paths.iter().enumerate() {
-                    let is_prefix = entry.ends_with('/');
-                    let full_path = join_service_path(&upstream_prefix, entry);
-                    routes.push(EgressCredentialRoute {
-                        id: format!("external-direct:{name}:{idx}"),
-                        kind: EgressKind::External,
-                        exposure: EgressExposure::Transparent,
-                        match_host: host.clone(),
-                        match_prefix: full_path.clone(),
-                        exact_path: !is_prefix,
-                        upstream_host: host.clone(),
-                        upstream_port: port,
-                        // Transparent route does not rewrite the path; upstream_prefix
-                        // mirrors the match so prefix routes are a no-op rewrite.
-                        upstream_prefix: full_path,
-                        upstream_tls: tls,
-                        cluster_name: String::new(),
-                        inject_headers: headers.clone(),
-                        remove_headers: remove_headers.clone(),
-                    });
-                }
-            }
-        }
-        routes
-    }
-
-    async fn load_secret_data(
-        pool: &PgPool,
-        secret_ref: &str,
-        project_id: Option<&str>,
-    ) -> anyhow::Result<Option<HashMap<String, String>>> {
-        let secret: Option<(serde_json::Value,)> = sqlx::query_as(
-            r#"
-            SELECT data FROM joysafeter_secrets
-            WHERE name = $1 AND deleted_at IS NULL
-              AND ($2::text IS NULL OR project_id = $2)
-            ORDER BY created_at DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(secret_ref)
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
-
-        let Some((data,)) = secret else {
-            return Ok(None);
-        };
-
-        let cipher = VaultCipher::from_env();
-        let mut out = HashMap::new();
-        if let Some(obj) = data.as_object() {
-            for (key, value) in obj {
-                let value = value
-                    .as_str()
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| value.to_string());
-                out.insert(key.clone(), cipher.decrypt_or_passthrough(&value)?);
-            }
-        }
-        Ok(Some(out))
+        Ok(egress)
     }
 
     async fn merge_secret_ref_into_env(
@@ -1338,6 +1223,178 @@ impl SandboxResolver {
         self.provider.teardown_networking(sandbox_id).await
     }
 
+    async fn destroy_observed_sandbox(
+        &self,
+        sandbox: &JoySafeterSandbox,
+        reason: &str,
+    ) -> anyhow::Result<bool> {
+        let external_id = sandbox.external_id.as_deref();
+        let claimed = queries::claim_sandbox_for_passive_destroy(
+            &self.pool,
+            sandbox.id,
+            &sandbox.status,
+            external_id,
+        )
+        .await?;
+
+        if !claimed {
+            warn!(
+                sandbox_id = %sandbox.id,
+                status = %sandbox.status,
+                reason,
+                "Skipped passive sandbox destroy because DB row changed before provider call"
+            );
+            return Ok(false);
+        }
+
+        if let Some(ext_id) = external_id {
+            if let Err(err) = self.provider.destroy(ext_id).await {
+                let message = err.to_string();
+                if !(message.contains("No such container") || message.contains("404")) {
+                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                        &self.pool,
+                        sandbox.id,
+                        &sandbox.status,
+                        external_id,
+                    )
+                    .await;
+                    anyhow::bail!(
+                        "failed to destroy sandbox {} during {reason}: {message}",
+                        sandbox.id
+                    );
+                }
+            }
+        }
+
+        let destroyed = queries::destroy_sandbox_if_status_and_external_id(
+            &self.pool,
+            sandbox.id,
+            "stopping",
+            external_id,
+        )
+        .await?;
+        if destroyed {
+            let _ = self.teardown_networking(sandbox.id).await;
+        } else {
+            warn!(
+                sandbox_id = %sandbox.id,
+                reason,
+                "Provider destroy completed but DB finalize skipped because sandbox row changed"
+            );
+        }
+
+        Ok(destroyed)
+    }
+
+    async fn destroy_unattached_pool_claim(
+        &self,
+        sandbox: &JoySafeterSandbox,
+        reason: &str,
+    ) -> anyhow::Result<bool> {
+        let previous_status = queries::claim_unattached_pool_sandbox_for_passive_destroy(
+            &self.pool,
+            sandbox.id,
+            sandbox.external_id.as_deref(),
+        )
+        .await?;
+
+        let Some(previous_status) = previous_status else {
+            warn!(sandbox_id = %sandbox.id, reason, "Skipped pool-claim provider destroy because DB row changed before cleanup");
+            return Ok(false);
+        };
+
+        if let Some(ext_id) = sandbox.external_id.as_deref() {
+            if let Err(err) = self.provider.destroy(ext_id).await {
+                let err = format!("{err}");
+                if !(err.contains("No such container") || err.contains("404")) {
+                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                        &self.pool,
+                        sandbox.id,
+                        &previous_status,
+                        sandbox.external_id.as_deref(),
+                    )
+                    .await;
+                    anyhow::bail!(
+                        "failed to destroy pool-claim sandbox {} during {}: {}",
+                        sandbox.id,
+                        reason,
+                        err
+                    );
+                }
+            }
+        }
+
+        let destroyed = queries::destroy_sandbox_if_status_and_external_id(
+            &self.pool,
+            sandbox.id,
+            "stopping",
+            sandbox.external_id.as_deref(),
+        )
+        .await?;
+        if destroyed {
+            let _ = self.teardown_networking(sandbox.id).await;
+        }
+        Ok(destroyed)
+    }
+
+    async fn restart_stopped_sandbox(
+        &self,
+        sandbox_id: Uuid,
+        external_id: &str,
+    ) -> anyhow::Result<bool> {
+        let claimed =
+            queries::claim_stopped_sandbox_for_restart(&self.pool, sandbox_id, external_id).await?;
+        if !claimed {
+            if let Some(status) = self.active_sandbox_status(sandbox_id, external_id).await? {
+                debug!(
+                    sandbox_id = %sandbox_id,
+                    status = %status,
+                    "Stopped sandbox became active before restart claim"
+                );
+                return Ok(true);
+            }
+            anyhow::bail!("stopped sandbox {sandbox_id} changed state during restart");
+        }
+
+        if self.provider.start(external_id).await.is_err() {
+            let _ = queries::restore_stopped_sandbox_after_restart_start_failure(
+                &self.pool,
+                sandbox_id,
+                external_id,
+            )
+            .await;
+            return Ok(false);
+        }
+
+        if let Some(status) = self.active_sandbox_status(sandbox_id, external_id).await? {
+            debug!(
+                sandbox_id = %sandbox_id,
+                status = %status,
+                "Restarted stopped sandbox remains active after provider start"
+            );
+            return Ok(true);
+        }
+
+        anyhow::bail!("stopped sandbox {sandbox_id} changed state during restart");
+    }
+
+    async fn active_sandbox_status(
+        &self,
+        sandbox_id: Uuid,
+        external_id: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let Some(sandbox) = queries::get_sandbox(&self.pool, sandbox_id).await? else {
+            return Ok(None);
+        };
+        if sandbox.external_id.as_deref() != Some(external_id) {
+            return Ok(None);
+        }
+        if matches!(sandbox.status.as_str(), "idle" | "running" | "provisioning") {
+            return Ok(Some(sandbox.status));
+        }
+        Ok(None)
+    }
+
     async fn mark_pool_claimed(
         &self,
         sandbox_id: Uuid,
@@ -1348,13 +1405,16 @@ impl SandboxResolver {
         message: &str,
     ) -> anyhow::Result<()> {
         let config = provisioning_config(stage, progress, message, false, expected, None);
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             UPDATE joysafeter_sandboxes
             SET chat_session_id = COALESCE($2, chat_session_id),
                 config = COALESCE(config, '{}'::jsonb) || $3::jsonb,
                 updated_at = NOW()
             WHERE id = $1
+              AND status IN ('provisioning', 'idle')
+              AND destroyed_at IS NULL
+              AND (chat_session_id IS NULL OR chat_session_id = $2)
             "#,
         )
         .bind(sandbox_id)
@@ -1362,6 +1422,9 @@ impl SandboxResolver {
         .bind(&config)
         .execute(&self.pool)
         .await?;
+        if result.rows_affected() == 0 {
+            anyhow::bail!("claimed pool sandbox {sandbox_id} changed state before session attach");
+        }
         Ok(())
     }
 
@@ -1451,12 +1514,43 @@ impl SandboxResolver {
             return Err(e.into());
         }
 
-        let _ = sqlx::query(
-            "UPDATE joysafeter_sandboxes SET status = 'pooled', updated_at = NOW() WHERE id = $1",
-        )
-        .bind(sandbox_db_id)
-        .execute(&self.pool)
-        .await;
+        if !queries::mark_pool_sandbox_ready(&self.pool, sandbox_db_id).await? {
+            warn!(
+                sandbox_id = %sandbox_db_id,
+                "Warm pool sandbox changed state before ready finalization"
+            );
+            match queries::get_sandbox(&self.pool, sandbox_db_id).await? {
+                Some(ref sandbox)
+                    if sandbox.external_id.as_deref() == Some(external_id.as_str()) =>
+                {
+                    if let Err(cleanup_err) = self
+                        .destroy_unattached_pool_claim(sandbox, "pool ready finalization failure")
+                        .await
+                    {
+                        warn!(
+                            sandbox_id = %sandbox_db_id,
+                            error = %cleanup_err,
+                            "Failed to cleanup warm-pool sandbox after ready finalization failure"
+                        );
+                    }
+                }
+                Some(_) => {
+                    warn!(
+                        sandbox_id = %sandbox_db_id,
+                        "Skipped warm-pool provider destroy because external id changed before cleanup"
+                    );
+                }
+                None => {
+                    warn!(
+                        sandbox_id = %sandbox_db_id,
+                        "Skipped warm-pool provider destroy because DB row disappeared before cleanup"
+                    );
+                }
+            }
+            return Err(anyhow::anyhow!(
+                "warm pool sandbox {sandbox_db_id} changed state before ready finalization"
+            ));
+        }
 
         info!(sandbox_id = %sandbox_db_id, image = image, "Provisioned pool sandbox");
         Ok(sandbox_db_id)
@@ -1482,43 +1576,61 @@ pub(crate) async fn rebuild_sandbox_credentials(
         Ok(Some(s)) => s,
         _ => return creds,
     };
-    let agent = match session.agent_id {
+    let live_agent = match session.agent_id {
         Some(aid) => queries::get_agent(pool, aid).await.ok().flatten(),
         None => None,
     };
+    let snapshot_environment = environment_for_execution(Some(&session));
+    let agent = agent_for_execution(live_agent, Some(&session));
 
     // Re-resolve the agent env (with decrypted secrets) exactly as at creation,
     // then extract the LLM egress from it. We discard the env itself — only the
     // extracted egress credential is needed for recovery.
     if let Some(agent_ref) = agent.as_ref() {
-        let environment = match agent_ref
-            .environment_ref
-            .as_deref()
-            .filter(|v| !v.trim().is_empty())
-        {
-            Some(env_ref) => load_environment_row(pool, env_ref, agent_ref.project_id.as_deref())
-                .await
-                .ok()
-                .flatten(),
-            None => None,
+        let environment = if let Some(snapshot_environment) = snapshot_environment {
+            Some(EnvironmentRow {
+                config: snapshot_environment.config,
+                image_tag: snapshot_environment.image_tag,
+            })
+        } else {
+            match agent_ref
+                .environment_ref
+                .as_deref()
+                .filter(|v| !v.trim().is_empty())
+            {
+                Some(env_ref) => {
+                    load_environment_row(pool, env_ref, agent_ref.project_id.as_deref())
+                        .await
+                        .ok()
+                        .flatten()
+                }
+                None => None,
+            }
         };
         if let Ok(mut env) =
             SandboxResolver::resolve_agent_env_from(pool, agent.as_ref(), environment.as_ref())
                 .await
         {
             creds.llm = SandboxResolver::extract_llm_egress(&mut env, llm_egress_allowed_hosts);
-            creds.external = SandboxResolver::build_external_egress(
-                pool,
-                environment.as_ref(),
-                agent_ref.project_id.as_deref(),
-                &mut env,
-            )
-            .await;
         }
     }
 
-    creds.mcp = SandboxResolver::build_mcp_egress(pool, Some(session_id), agent.as_ref()).await;
-    creds.git = SandboxResolver::build_git_egress(pool, Some(session_id)).await;
+    match SandboxResolver::build_mcp_egress(pool, Some(session_id), agent.as_ref()).await {
+        Ok(mcp) => creds.mcp = mcp,
+        Err(e) => warn!(
+            session_id = %session_id,
+            sandbox_id = %sandbox.id,
+            "Failed to rebuild MCP egress credentials during sandbox recovery: {e}"
+        ),
+    }
+    match SandboxResolver::build_git_egress(pool, Some(session_id)).await {
+        Ok(git) => creds.git = git,
+        Err(e) => warn!(
+            session_id = %session_id,
+            sandbox_id = %sandbox.id,
+            "Failed to rebuild Git egress credentials during sandbox recovery: {e}"
+        ),
+    }
     creds
 }
 
@@ -1650,6 +1762,14 @@ fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
     raw.strip_prefix(prefix).unwrap_or(raw).parse().ok()
 }
 
+fn parse_vault_ref(raw: &str) -> Option<Uuid> {
+    raw.strip_prefix("vault_")
+        .or_else(|| raw.strip_prefix("vlt_"))
+        .unwrap_or(raw)
+        .parse()
+        .ok()
+}
+
 fn non_empty(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -1665,123 +1785,14 @@ fn apply_provider_aliases(env: &mut HashMap<String, String>) {
     }
 }
 
-fn sanitize_external_service_name(name: &str) -> String {
-    name.trim()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string()
-}
-
-fn external_service_env_name(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-fn normalize_external_upstream_prefix(path: &str) -> String {
-    let mut prefix = if path.is_empty() {
-        "/".to_string()
-    } else if path.starts_with('/') {
-        path.to_string()
-    } else {
-        format!("/{path}")
-    };
-    if prefix != "/" && !prefix.ends_with('/') {
-        prefix.push('/');
-    }
-    prefix
-}
-
-/// Join a service base prefix with an allowlist entry into a full host path.
-///
-/// - If the entry is an absolute path (starts with `/`) it is used as-is (it is
-///   already the full path under the host).
-/// - Otherwise it is treated as relative to the service base prefix.
-/// Collapses the boundary so no double `//` appears. Trailing `/` on the entry
-/// is preserved (it signals prefix matching upstream).
-fn join_service_path(base_prefix: &str, entry: &str) -> String {
-    if entry.starts_with('/') {
-        return entry.to_string();
-    }
-    let base = base_prefix.strip_suffix('/').unwrap_or(base_prefix);
-    format!("{base}/{entry}")
-}
-
-fn build_external_inject_headers(
-    secret: &HashMap<String, String>,
-    inject: &serde_json::Map<String, serde_json::Value>,
-) -> anyhow::Result<Vec<(String, String)>> {
-    let typ = inject
-        .get("type")
-        .and_then(|value| value.as_str())
-        .unwrap_or("bearer");
-    match typ {
-        "bearer" => {
-            let key = inject
-                .get("secret_key")
-                .and_then(|value| value.as_str())
-                .unwrap_or("ACCESS_TOKEN");
-            let token = secret
-                .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?;
-            let header = inject
-                .get("header")
-                .and_then(|value| value.as_str())
-                .unwrap_or("authorization");
-            Ok(vec![(header.to_string(), format!("Bearer {token}"))])
-        }
-        "api_key" | "raw_header" => {
-            let key = inject
-                .get("secret_key")
-                .and_then(|value| value.as_str())
-                .unwrap_or("API_KEY");
-            let value = secret
-                .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?;
-            let header = inject
-                .get("header")
-                .and_then(|value| value.as_str())
-                .unwrap_or("x-api-key");
-            Ok(vec![(header.to_string(), value.clone())])
-        }
-        "cookie" => {
-            let key = inject
-                .get("secret_key")
-                .and_then(|value| value.as_str())
-                .unwrap_or("COOKIE_HEADER");
-            let cookie_header = secret
-                .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?
-                .clone();
-            Ok(vec![("cookie".to_string(), cookie_header)])
-        }
-        other => anyhow::bail!("unsupported external egress inject type {other}"),
-    }
-}
-
 fn effective_networking_config(
     networking: Option<serde_json::Value>,
     envoy_enabled: bool,
     agent: Option<&JoySafeterAgent>,
-    environment: Option<&EnvironmentRow>,
 ) -> anyhow::Result<Option<serde_json::Value>> {
     match networking_type(networking.as_ref()) {
         Some("limited") => networking
-            .map(|networking| merge_egress_hosts(networking, agent, environment))
+            .map(|networking| merge_mcp_hosts(networking, agent))
             .transpose(),
         Some("unrestricted") => Ok(networking),
         Some(other) => anyhow::bail!("unsupported sandbox networking.type: {other}"),
@@ -1796,7 +1807,7 @@ fn effective_networking_config(
                 "type".to_string(),
                 serde_json::Value::String("limited".to_string()),
             );
-            merge_egress_hosts(effective, agent, environment).map(Some)
+            merge_mcp_hosts(effective, agent).map(Some)
         }
         None => Ok(networking),
     }
@@ -1811,14 +1822,24 @@ fn networking_type(networking: Option<&serde_json::Value>) -> Option<&str> {
     })
 }
 
-fn merge_egress_hosts(
+fn merge_mcp_hosts(
     mut networking: serde_json::Value,
     agent: Option<&JoySafeterAgent>,
-    _environment: Option<&EnvironmentRow>,
 ) -> anyhow::Result<serde_json::Value> {
     if networking_type(Some(&networking)) != Some("limited") {
         return Ok(networking);
     }
+
+    let Some(agent) = agent else {
+        return Ok(networking);
+    };
+    let Some(mcp_configs) = agent
+        .mcp_configs
+        .as_ref()
+        .and_then(|value| value.as_array())
+    else {
+        return Ok(networking);
+    };
 
     let mut allowed_hosts = networking
         .get("allowed_hosts")
@@ -1831,38 +1852,16 @@ fn merge_egress_hosts(
         })
         .unwrap_or_default();
 
-    let mut push_host = |host: String| {
-        if !allowed_hosts.iter().any(|existing| existing == &host) {
-            allowed_hosts.push(host);
-        }
-    };
-
-    // MCP servers declared on the agent. MCP credential injection uses a
-    // placeholder host (mcp-egress.internal), so allowlisting the real MCP host
-    // is a safe fallback and never collides with a credential vhost.
-    if let Some(mcp_configs) = agent
-        .and_then(|agent| agent.mcp_configs.as_ref())
-        .and_then(|value| value.as_array())
-    {
-        for config in mcp_configs {
-            if let Some(host) = config
-                .get("url")
-                .and_then(|value| value.as_str())
-                .and_then(extract_host)
-            {
-                push_host(host);
+    for config in mcp_configs {
+        let Some(url) = config.get("url").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        if let Some(host) = extract_host(url) {
+            if !allowed_hosts.iter().any(|existing| existing == &host) {
+                allowed_hosts.push(host);
             }
         }
     }
-
-    // NOTE: third-party egress-service hosts are deliberately NOT merged into
-    // allowed_hosts. Each external service now emits a *transparent* credential
-    // vhost keyed on the real host (see build_external_egress), which owns that
-    // host's exact domain. Adding the same host to allowed_hosts would make the
-    // `allowed` vhost declare a duplicate exact domain, and Envoy rejects a
-    // RouteConfiguration with duplicate domains ("Only unique values for domains
-    // are permitted"). The transparent vhost already handles injection + egress
-    // for the service's base path.
 
     let Some(object) = networking.as_object_mut() else {
         return Ok(networking);
@@ -2022,6 +2021,12 @@ struct EnvironmentRow {
 #[cfg(test)]
 mod egress_tests {
     use super::*;
+    use async_trait::async_trait;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::PgPool;
+    use std::env;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -2032,6 +2037,135 @@ mod egress_tests {
 
     fn allow(hosts: &[&str]) -> Vec<String> {
         hosts.iter().map(|host| host.to_string()).collect()
+    }
+
+    fn database_url() -> Option<String> {
+        env::var("DATABASE_URL")
+            .ok()
+            .or_else(|| env::var("JOYSAFETER_TEST_DATABASE_URL").ok())
+            .map(|url| url.replace("postgresql+asyncpg://", "postgres://"))
+    }
+
+    async fn test_pool() -> Option<PgPool> {
+        let Some(url) = database_url() else {
+            eprintln!("skipping real Postgres sandbox resolver test: DATABASE_URL is not set");
+            return None;
+        };
+        Some(
+            PgPoolOptions::new()
+                .max_connections(3)
+                .connect(&url)
+                .await
+                .expect("connect to migrated Postgres test database"),
+        )
+    }
+
+    #[derive(Default)]
+    struct RecordingProvider {
+        created: Mutex<Vec<SandboxCreateConfig>>,
+        networking: Mutex<Vec<(Uuid, Option<serde_json::Value>)>>,
+        start_status_probe: Mutex<Option<(PgPool, Uuid)>>,
+        start_observed_statuses: Mutex<Vec<String>>,
+        start_marks_error: Mutex<Option<(PgPool, Uuid)>>,
+        status_marks_idle: Mutex<Option<(PgPool, Uuid)>>,
+        status_marks_error: Mutex<Option<(PgPool, Uuid)>>,
+        status_result: Mutex<Option<SandboxStatus>>,
+        destroy_status_probe: Mutex<Option<(PgPool, Uuid)>>,
+        destroy_observed_statuses: Mutex<Vec<String>>,
+        destroyed: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl SandboxProvider for RecordingProvider {
+        async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
+            self.created.lock().await.push(config.clone());
+            Ok(format!("external-{}", config.sandbox_id))
+        }
+
+        async fn start(&self, _external_id: &str) -> anyhow::Result<()> {
+            if let Some((pool, sandbox_id)) = self.start_status_probe.lock().await.clone() {
+                if let Some(status) = sqlx::query_scalar::<_, String>(
+                    "SELECT status FROM joysafeter_sandboxes WHERE id = $1",
+                )
+                .bind(sandbox_id)
+                .fetch_optional(&pool)
+                .await?
+                {
+                    self.start_observed_statuses.lock().await.push(status);
+                }
+            }
+            if let Some((pool, sandbox_id)) = self.start_marks_error.lock().await.clone() {
+                queries::mark_sandbox_error(&pool, sandbox_id, Some("concurrent restart failure"))
+                    .await?;
+            }
+            Ok(())
+        }
+
+        async fn stop(&self, _external_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
+            if let Some((pool, sandbox_id)) = self.destroy_status_probe.lock().await.clone() {
+                if let Some(status) = sqlx::query_scalar::<_, String>(
+                    "SELECT status FROM joysafeter_sandboxes WHERE id = $1",
+                )
+                .bind(sandbox_id)
+                .fetch_optional(&pool)
+                .await?
+                {
+                    self.destroy_observed_statuses.lock().await.push(status);
+                }
+            }
+            self.destroyed.lock().await.push(external_id.to_string());
+            Ok(())
+        }
+
+        async fn status(&self, _external_id: &str) -> anyhow::Result<SandboxStatus> {
+            if let Some((pool, sandbox_id)) = self.status_marks_idle.lock().await.clone() {
+                queries::transition_sandbox_cas(&pool, sandbox_id, "provisioning", "idle").await?;
+            }
+            if let Some((pool, sandbox_id)) = self.status_marks_error.lock().await.clone() {
+                queries::mark_sandbox_error(&pool, sandbox_id, Some("concurrent pool claim error"))
+                    .await?;
+            }
+            Ok(self
+                .status_result
+                .lock()
+                .await
+                .clone()
+                .unwrap_or(SandboxStatus::Running))
+        }
+
+        async fn exec(&self, _external_id: &str, _cmd: &[&str]) -> anyhow::Result<String> {
+            Ok(String::new())
+        }
+
+        async fn setup_networking(
+            &self,
+            sandbox_id: Uuid,
+            _sandbox_external_id: &str,
+            networking: Option<&serde_json::Value>,
+            _credentials: SandboxCredentials,
+        ) -> anyhow::Result<()> {
+            self.networking
+                .lock()
+                .await
+                .push((sandbox_id, networking.cloned()));
+            Ok(())
+        }
+
+        fn provider_name(&self) -> &'static str {
+            "recording"
+        }
+
+        fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
+            crate::sandbox::provider::ProviderCapabilities {
+                has_host_mount: false,
+                has_egress_management: true,
+                network_isolation: crate::sandbox::provider::NetworkIsolation::Envoy,
+            }
+        }
     }
 
     #[test]
@@ -2297,54 +2431,1507 @@ mod egress_tests {
         assert!(!e.contains_key("OPENAI_API_KEY"));
     }
 
-    #[test]
-    fn external_inject_headers_support_bearer_api_key_and_cookie() {
-        let secret = env(&[
-            ("ACCESS_TOKEN", "tok-123"),
-            ("API_KEY", "key-456"),
-            ("COOKIE_HEADER", "thor=abc; pin=user"),
-        ]);
+    #[tokio::test]
+    async fn sandbox_resolver_provision_pool_sandbox_finalizes_pooled_row() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
 
-        let bearer = serde_json::json!({"type": "bearer", "secret_key": "ACCESS_TOKEN"});
-        assert_eq!(
-            build_external_inject_headers(&secret, bearer.as_object().unwrap()).unwrap(),
-            vec![("authorization".to_string(), "Bearer tok-123".to_string())]
+        let image = format!("resolver-pool-image-{}:latest", Uuid::now_v7().simple());
+        let provider = Arc::new(RecordingProvider::default());
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "recording".to_string();
+        config.sandbox_workspace_root = None;
+        config.envoy_enabled = false;
+
+        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+        let sandbox_id = resolver
+            .provision_pool_sandbox(&image)
+            .await
+            .expect("provision warm pool sandbox");
+
+        let result = async {
+            let sandbox: (String, Option<Uuid>, serde_json::Value) = sqlx::query_as(
+                "SELECT status, chat_session_id, config FROM joysafeter_sandboxes WHERE id = $1",
+            )
+            .bind(sandbox_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load provisioned pool sandbox");
+            assert_eq!(sandbox.0, "pooled");
+            assert_eq!(sandbox.1, None);
+            assert_eq!(
+                sandbox
+                    .2
+                    .get("provisioning")
+                    .and_then(|value| value.get("stage"))
+                    .and_then(|value| value.as_str()),
+                Some("pool_warm")
+            );
+            assert!(sandbox.2.get("runner_token").is_some());
+
+            let created = provider.created.lock().await;
+            assert_eq!(created.len(), 1);
+            assert_eq!(created[0].sandbox_id, sandbox_id);
+            assert_eq!(created[0].image.as_str(), image);
+            assert_eq!(created[0].workspace_path.as_deref(), None);
+            assert_eq!(
+                created[0].env.get("JOYSAFETER_SANDBOX_ID"),
+                Some(&sandbox_id.to_string())
+            );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        result
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_pool_ready_error_race_does_not_destroy_changed_runtime() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let unique = Uuid::now_v7().simple().to_string();
+        let image = format!("resolver-pool-ready-error-{unique}:latest");
+        let trigger_name = format!("trg_pool_ready_error_{unique}");
+        let function_name = format!("fn_pool_ready_error_{unique}");
+        let image_literal = image.replace('\'', "''");
+
+        sqlx::query(&format!(
+            r#"
+            CREATE FUNCTION {function_name}() RETURNS trigger AS $$
+            BEGIN
+                IF NEW.image = '{image_literal}' THEN
+                    NEW.status := 'error';
+                    NEW.config := COALESCE(NEW.config, '{{}}'::jsonb)
+                        || jsonb_build_object('setup_error', 'concurrent pool ready error');
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create pool ready error trigger function");
+        sqlx::query(&format!(
+            r#"
+            CREATE TRIGGER {trigger_name}
+            BEFORE INSERT ON joysafeter_sandboxes
+            FOR EACH ROW EXECUTE FUNCTION {function_name}()
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create pool ready error trigger");
+
+        let provider = Arc::new(RecordingProvider::default());
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "recording".to_string();
+        config.sandbox_workspace_root = None;
+        config.envoy_enabled = false;
+        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+        let result = resolver.provision_pool_sandbox(&image).await;
+        let destroyed = provider.destroyed.lock().await.clone();
+        let sandbox: Option<(Uuid, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT id, status, config FROM joysafeter_sandboxes WHERE image = $1 ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(&image)
+        .fetch_optional(&pool)
+        .await
+        .expect("load pool ready error sandbox");
+
+        let _ = sqlx::query(&format!(
+            "DROP TRIGGER IF EXISTS {trigger_name} ON joysafeter_sandboxes"
+        ))
+        .execute(&pool)
+        .await;
+        let _ = sqlx::query(&format!("DROP FUNCTION IF EXISTS {function_name}()"))
+            .execute(&pool)
+            .await;
+        if let Some((sandbox_id, _, _)) = sandbox.as_ref() {
+            let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .execute(&pool)
+                .await;
+        }
+
+        let err = result.expect_err("concurrent pool-ready error must abort provisioning");
+        let message = err.to_string();
+        assert!(
+            message.contains("changed state before ready finalization"),
+            "{message}"
         );
-
-        let api_key =
-            serde_json::json!({"type": "api_key", "header": "x-crm-key", "secret_key": "API_KEY"});
+        assert!(destroyed.is_empty());
+        let Some((_, status, config)) = sandbox else {
+            panic!("expected pool ready error sandbox row");
+        };
+        assert_eq!(status, "error");
         assert_eq!(
-            build_external_inject_headers(&secret, api_key.as_object().unwrap()).unwrap(),
-            vec![("x-crm-key".to_string(), "key-456".to_string())]
-        );
-
-        let cookies = serde_json::json!({"type": "cookie", "secret_key": "COOKIE_HEADER"});
-        assert_eq!(
-            build_external_inject_headers(&secret, cookies.as_object().unwrap()).unwrap(),
-            vec![("cookie".to_string(), "thor=abc; pin=user".to_string())]
+            config.get("setup_error").and_then(|value| value.as_str()),
+            Some("concurrent pool ready error")
         );
     }
 
-    #[test]
-    fn external_service_names_and_prefixes_are_stable() {
-        assert_eq!(sanitize_external_service_name(" CRM Prod! "), "crm-prod");
-        assert_eq!(external_service_env_name("crm-prod"), "CRM_PROD");
-        assert_eq!(normalize_external_upstream_prefix(""), "/");
-        assert_eq!(normalize_external_upstream_prefix("/api"), "/api/");
-        assert_eq!(normalize_external_upstream_prefix("api/v1/"), "/api/v1/");
+    #[tokio::test]
+    async fn sandbox_resolver_new_sandbox_error_race_does_not_destroy_changed_runtime() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let unique = Uuid::now_v7().simple().to_string();
+        let image = format!("resolver-new-error-{unique}:latest");
+        let trigger_name = format!("trg_new_sandbox_error_{unique}");
+        let function_name = format!("fn_new_sandbox_error_{unique}");
+        let image_literal = image.replace('\'', "''");
+
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
+            VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+            "#,
+        )
+        .bind(agent_id)
+        .bind(format!("resolver-new-error-agent-{unique}"))
+        .execute(&pool)
+        .await
+        .expect("insert new sandbox error agent");
+        sqlx::query(
+            "INSERT INTO joysafeter_sessions (id, agent_id, status) VALUES ($1, $2, 'idle')",
+        )
+        .bind(session_id)
+        .bind(agent_id)
+        .execute(&pool)
+        .await
+        .expect("insert new sandbox error session");
+
+        sqlx::query(&format!(
+            r#"
+            CREATE FUNCTION {function_name}() RETURNS trigger AS $$
+            BEGIN
+                IF NEW.image = '{image_literal}' THEN
+                    NEW.status := 'error';
+                    NEW.config := COALESCE(NEW.config, '{{}}'::jsonb)
+                        || jsonb_build_object('setup_error', 'concurrent new sandbox error');
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create new sandbox error trigger function");
+        sqlx::query(&format!(
+            r#"
+            CREATE TRIGGER {trigger_name}
+            BEFORE INSERT ON joysafeter_sandboxes
+            FOR EACH ROW EXECUTE FUNCTION {function_name}()
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create new sandbox error trigger");
+
+        let provider = Arc::new(RecordingProvider::default());
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "recording".to_string();
+        config.sandbox_pool_enabled = false;
+        config.sandbox_workspace_root = None;
+        config.envoy_enabled = false;
+        config.image_claude = image.clone();
+        config.sandbox_image = image.clone();
+        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+        let result = resolver
+            .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+            .await;
+        let destroyed = provider.destroyed.lock().await.clone();
+        let sandbox: Option<(Uuid, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT id, status, config FROM joysafeter_sandboxes WHERE chat_session_id = $1 ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(session_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("load new sandbox error row");
+
+        let _ = sqlx::query(&format!(
+            "DROP TRIGGER IF EXISTS {trigger_name} ON joysafeter_sandboxes"
+        ))
+        .execute(&pool)
+        .await;
+        let _ = sqlx::query(&format!("DROP FUNCTION IF EXISTS {function_name}()"))
+            .execute(&pool)
+            .await;
+        if let Some((sandbox_id, _, _)) = sandbox.as_ref() {
+            let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .execute(&pool)
+                .await;
+        }
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+
+        let err = result.expect_err("concurrent new-sandbox error must abort resolve");
+        let message = err.to_string();
+        assert!(
+            message.contains("changed state before provisioning transition"),
+            "{message}"
+        );
+        assert!(destroyed.is_empty());
+        let Some((_, status, config)) = sandbox else {
+            panic!("expected new sandbox error row");
+        };
+        assert_eq!(status, "error");
+        assert_eq!(
+            config.get("setup_error").and_then(|value| value.as_str()),
+            Some("concurrent new sandbox error")
+        );
     }
 
-    #[test]
-    fn join_service_path_handles_absolute_and_relative_entries() {
-        // Absolute allowlist entry: used as-is (already full host path).
-        assert_eq!(
-            join_service_path("/api/", "/api/warning/get"),
-            "/api/warning/get"
-        );
-        // Relative entry: joined to the base prefix without double slash.
-        assert_eq!(join_service_path("/api/", "warning/get"), "/api/warning/get");
-        assert_eq!(join_service_path("/api", "warning/get"), "/api/warning/get");
-        // Trailing slash on entry (prefix intent) is preserved.
-        assert_eq!(join_service_path("/api/", "work/"), "/api/work/");
+    #[tokio::test]
+    async fn sandbox_resolver_pool_claim_accepts_runner_ready_idle_race() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let sandbox_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let image = format!("resolver-pool-claim-idle-{unique}:latest");
+        let external_id = format!("resolver-pool-claim-idle-{sandbox_id}");
+
+        let result = async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
+                VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("resolver-pool-claim-idle-agent-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert pool claim idle agent");
+
+            sqlx::query(
+                "INSERT INTO joysafeter_sessions (id, agent_id, status) VALUES ($1, $2, 'idle')",
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert pool claim idle session");
+
+            let expected = ExpectedFingerprint {
+                image: image.clone(),
+                engine_kind: "claude".to_string(),
+                networking: None,
+                env: HashMap::new(),
+            };
+            let sandbox_config = provisioning_config(
+                "pool_warm",
+                100,
+                "Warm pooled sandbox ready for claim",
+                true,
+                &expected,
+                Some("pool-claim-idle-token"),
+            );
+            queries::create_sandbox(
+                &pool,
+                sandbox_id,
+                &external_id,
+                "recording",
+                &image,
+                None,
+                None,
+                None,
+                Some(&sandbox_config),
+            )
+            .await
+            .expect("create pooled sandbox");
+            assert!(queries::mark_pool_sandbox_ready(&pool, sandbox_id)
+                .await
+                .expect("finalize pooled sandbox"));
+
+            let provider = Arc::new(RecordingProvider {
+                status_marks_idle: Mutex::new(Some((pool.clone(), sandbox_id))),
+                ..Default::default()
+            });
+            let mut config = JoySafeterConfig::from_env();
+            config.sandbox_provider = "recording".to_string();
+            config.sandbox_pool_enabled = true;
+            config.sandbox_workspace_root = None;
+            config.envoy_enabled = false;
+            config.image_claude = image.clone();
+            config.sandbox_image = image.clone();
+            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+            let resolved = resolver
+                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .await
+                .expect("pool claim should survive runner-ready idle race");
+            assert_eq!(resolved, (sandbox_id, external_id.clone()));
+            assert!(provider.destroyed.lock().await.is_empty());
+
+            let sandbox: (String, Option<Uuid>, serde_json::Value) = sqlx::query_as(
+                "SELECT status, chat_session_id, config FROM joysafeter_sandboxes WHERE id = $1",
+            )
+            .bind(sandbox_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load claimed pool sandbox after idle race");
+            assert_eq!(sandbox.0, "idle");
+            assert_eq!(sandbox.1, Some(session_id));
+            assert_eq!(
+                sandbox
+                    .2
+                    .get("provisioning")
+                    .and_then(|value| value.get("stage"))
+                    .and_then(|value| value.as_str()),
+                Some("pool_claimed")
+            );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        result
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_stopped_pool_claim_starts_after_db_claim() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let sandbox_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let image = format!("resolver-pool-stopped-start-{unique}:latest");
+        let external_id = format!("resolver-pool-stopped-start-{sandbox_id}");
+
+        let result = async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
+                VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("resolver-pool-stopped-start-agent-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert stopped pool claim agent");
+
+            sqlx::query(
+                "INSERT INTO joysafeter_sessions (id, agent_id, status) VALUES ($1, $2, 'idle')",
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert stopped pool claim session");
+
+            let expected = ExpectedFingerprint {
+                image: image.clone(),
+                engine_kind: "claude".to_string(),
+                networking: None,
+                env: HashMap::new(),
+            };
+            let sandbox_config = provisioning_config(
+                "pool_warm",
+                100,
+                "Stopped warm pooled sandbox ready for claim",
+                true,
+                &expected,
+                Some("pool-stopped-start-token"),
+            );
+            queries::create_sandbox(
+                &pool,
+                sandbox_id,
+                &external_id,
+                "recording",
+                &image,
+                None,
+                None,
+                None,
+                Some(&sandbox_config),
+            )
+            .await
+            .expect("create stopped pooled sandbox");
+            assert!(queries::mark_pool_sandbox_ready(&pool, sandbox_id)
+                .await
+                .expect("finalize stopped pooled sandbox"));
+
+            let provider = Arc::new(RecordingProvider {
+                start_status_probe: Mutex::new(Some((pool.clone(), sandbox_id))),
+                status_result: Mutex::new(Some(SandboxStatus::Stopped)),
+                ..Default::default()
+            });
+            let mut config = JoySafeterConfig::from_env();
+            config.sandbox_provider = "recording".to_string();
+            config.sandbox_pool_enabled = true;
+            config.sandbox_workspace_root = None;
+            config.envoy_enabled = false;
+            config.image_claude = image.clone();
+            config.sandbox_image = image.clone();
+            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+            let resolved = resolver
+                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .await
+                .expect("stopped pool claim should restart after DB claim");
+            assert_eq!(resolved, (sandbox_id, external_id.clone()));
+
+            assert_eq!(
+                provider.start_observed_statuses.lock().await.as_slice(),
+                &["provisioning".to_string()]
+            );
+            assert!(provider.destroyed.lock().await.is_empty());
+
+            let sandbox: (String, Option<Uuid>, serde_json::Value) = sqlx::query_as(
+                "SELECT status, chat_session_id, config FROM joysafeter_sandboxes WHERE id = $1",
+            )
+            .bind(sandbox_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load stopped pool sandbox after restart claim");
+            assert_eq!(sandbox.0, "provisioning");
+            assert_eq!(sandbox.1, Some(session_id));
+            assert_eq!(
+                sandbox
+                    .2
+                    .get("provisioning")
+                    .and_then(|value| value.get("stage"))
+                    .and_then(|value| value.as_str()),
+                Some("pool_restarting")
+            );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        result
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_pool_claim_error_race_does_not_destroy_changed_runtime() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let sandbox_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let image = format!("resolver-pool-claim-error-{unique}:latest");
+        let external_id = format!("resolver-pool-claim-error-{sandbox_id}");
+
+        let result = async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
+                VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("resolver-pool-claim-error-agent-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert pool claim error agent");
+
+            sqlx::query(
+                "INSERT INTO joysafeter_sessions (id, agent_id, status) VALUES ($1, $2, 'idle')",
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert pool claim error session");
+
+            let expected = ExpectedFingerprint {
+                image: image.clone(),
+                engine_kind: "claude".to_string(),
+                networking: None,
+                env: HashMap::new(),
+            };
+            let sandbox_config = provisioning_config(
+                "pool_warm",
+                100,
+                "Warm pooled sandbox ready for claim",
+                true,
+                &expected,
+                Some("pool-claim-error-token"),
+            );
+            queries::create_sandbox(
+                &pool,
+                sandbox_id,
+                &external_id,
+                "recording",
+                &image,
+                None,
+                None,
+                None,
+                Some(&sandbox_config),
+            )
+            .await
+            .expect("create pooled sandbox");
+            assert!(queries::mark_pool_sandbox_ready(&pool, sandbox_id)
+                .await
+                .expect("finalize pooled sandbox"));
+
+            let provider = Arc::new(RecordingProvider {
+                status_marks_error: Mutex::new(Some((pool.clone(), sandbox_id))),
+                ..Default::default()
+            });
+            let mut config = JoySafeterConfig::from_env();
+            config.sandbox_provider = "recording".to_string();
+            config.sandbox_pool_enabled = true;
+            config.sandbox_workspace_root = None;
+            config.envoy_enabled = false;
+            config.image_claude = image.clone();
+            config.sandbox_image = image.clone();
+            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+            let err = resolver
+                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .await
+                .expect_err("concurrent pool claim error must abort resolve");
+            let message = err.to_string();
+            assert!(
+                message.contains("changed state before session attach"),
+                "{message}"
+            );
+            assert!(provider.destroyed.lock().await.is_empty());
+
+            let sandbox: (String, Option<Uuid>, serde_json::Value) = sqlx::query_as(
+                "SELECT status, chat_session_id, config FROM joysafeter_sandboxes WHERE id = $1",
+            )
+            .bind(sandbox_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load pool sandbox after error race");
+            assert_eq!(sandbox.0, "error");
+            assert_eq!(sandbox.1, None);
+            assert_eq!(
+                sandbox
+                    .2
+                    .get("setup_error")
+                    .and_then(|value| value.as_str()),
+                Some("concurrent pool claim error")
+            );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        result
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_builds_mcp_egress_from_vlt_prefixed_vault_ids() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let vault_id = Uuid::now_v7();
+        let credential_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let mcp_url = "https://mcp.vault-alias.example/api";
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_vaults (id, name, description)
+                VALUES ($1, $2, '')
+                "#,
+            )
+            .bind(vault_id)
+            .bind(format!("resolver-vault-alias-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert vault");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_vault_credentials
+                    (id, vault_id, name, credential_type, mcp_server_url, token_value)
+                VALUES ($1, $2, 'resolver alias credential', 'static_bearer', $3, 'vault-token')
+                "#,
+            )
+            .bind(credential_id)
+            .bind(vault_id)
+            .bind(mcp_url)
+            .execute(&pool)
+            .await
+            .expect("insert vault credential");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata, version
+                )
+                VALUES (
+                    $1, $2, 'claude', $3, '', '{}'::jsonb, $4,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("resolver-vault-alias-agent-{unique}"))
+            .bind(serde_json::json!({"id": "claude-sonnet"}))
+            .bind(serde_json::json!([{
+                "name": "secure-mcp",
+                "type": "http",
+                "url": mcp_url
+            }]))
+            .execute(&pool)
+            .await
+            .expect("insert agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, status, vault_ids)
+                VALUES ($1, $2, 'idle', $3)
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .bind(serde_json::json!([format!("vlt_{vault_id}")]))
+            .execute(&pool)
+            .await
+            .expect("insert session");
+
+            let agent = queries::get_agent(&pool, agent_id)
+                .await
+                .expect("load agent")
+                .expect("agent exists");
+            let egress = SandboxResolver::build_mcp_egress(&pool, Some(session_id), Some(&agent))
+                .await
+                .expect("build mcp egress");
+
+            assert_eq!(egress.len(), 1);
+            assert_eq!(egress[0].name, "secure-mcp");
+            assert_eq!(egress[0].upstream_host, "mcp.vault-alias.example");
+            assert_eq!(egress[0].upstream_port, 443);
+            assert_eq!(egress[0].upstream_prefix, "/api");
+            assert!(egress[0].upstream_tls);
+            assert_eq!(
+                egress[0].headers,
+                vec![(
+                    "authorization".to_string(),
+                    "Bearer vault-token".to_string()
+                )]
+            );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_vault_credentials WHERE id = $1")
+            .bind(credential_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_vaults WHERE id = $1")
+            .bind(vault_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_restart_does_not_resurrect_concurrent_error() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let sandbox_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let image = format!("resolver-race-image-{unique}:latest");
+        let external_id = format!("resolver-race-{sandbox_id}");
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata, version
+                )
+                VALUES (
+                    $1, $2, 'claude', $3, 'resolver race system', '{}'::jsonb, '[]'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("resolver-race-agent-{unique}"))
+            .bind(serde_json::json!({"id": "resolver-race-model"}))
+            .execute(&pool)
+            .await
+            .expect("insert resolver race agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, status)
+                VALUES ($1, $2, 'idle')
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert resolver race session");
+
+            let expected = ExpectedFingerprint {
+                image: image.clone(),
+                engine_kind: "claude".to_string(),
+                networking: None,
+                env: HashMap::new(),
+            };
+            let sandbox_config = provisioning_config(
+                "stopped_for_restart",
+                100,
+                "Stopped sandbox ready for restart",
+                true,
+                &expected,
+                Some("resolver-race-token"),
+            );
+
+            queries::create_sandbox(
+                &pool,
+                sandbox_id,
+                &external_id,
+                "recording",
+                &image,
+                Some(session_id),
+                None,
+                None,
+                Some(&sandbox_config),
+            )
+            .await
+            .expect("create stopped sandbox");
+            sqlx::query("UPDATE joysafeter_sandboxes SET status = 'stopped' WHERE id = $1")
+                .bind(sandbox_id)
+                .execute(&pool)
+                .await
+                .expect("mark sandbox stopped");
+
+            let provider = Arc::new(RecordingProvider {
+                start_marks_error: Mutex::new(Some((pool.clone(), sandbox_id))),
+                ..Default::default()
+            });
+            let mut config = JoySafeterConfig::from_env();
+            config.sandbox_provider = "recording".to_string();
+            config.sandbox_pool_enabled = false;
+            config.sandbox_workspace_root = None;
+            config.envoy_enabled = false;
+            config.sandbox_image = image.clone();
+            config.image_claude = image.clone();
+
+            let resolver = SandboxResolver::new(pool.clone(), provider, config);
+            let err = resolver
+                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .await
+                .expect_err("concurrent error must abort stopped sandbox restart");
+            let message = err.to_string();
+            assert!(
+                message.contains("changed state during restart"),
+                "{message}"
+            );
+
+            let sandbox: (String, serde_json::Value) =
+                sqlx::query_as("SELECT status, config FROM joysafeter_sandboxes WHERE id = $1")
+                    .bind(sandbox_id)
+                    .fetch_one(&pool)
+                    .await
+                    .expect("load sandbox after restart race");
+            assert_eq!(sandbox.0, "error");
+            assert_eq!(
+                sandbox
+                    .1
+                    .get("setup_error")
+                    .and_then(|value| value.as_str()),
+                Some("concurrent restart failure")
+            );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_restart_claims_row_before_provider_start() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let sandbox_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let image = format!("resolver-restart-ordering-{unique}:latest");
+        let external_id = format!("resolver-restart-ordering-{sandbox_id}");
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata, version
+                )
+                VALUES (
+                    $1, $2, 'claude', $3, 'resolver restart ordering system', '{}'::jsonb, '[]'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("resolver-restart-ordering-agent-{unique}"))
+            .bind(serde_json::json!({"id": "resolver-restart-ordering-model"}))
+            .execute(&pool)
+            .await
+            .expect("insert resolver restart ordering agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, status)
+                VALUES ($1, $2, 'idle')
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert resolver restart ordering session");
+
+            let expected = ExpectedFingerprint {
+                image: image.clone(),
+                engine_kind: "claude".to_string(),
+                networking: None,
+                env: HashMap::new(),
+            };
+            let sandbox_config = provisioning_config(
+                "stopped_for_restart",
+                100,
+                "Stopped sandbox ready for restart",
+                true,
+                &expected,
+                Some("resolver-restart-ordering-token"),
+            );
+
+            queries::create_sandbox(
+                &pool,
+                sandbox_id,
+                &external_id,
+                "recording",
+                &image,
+                Some(session_id),
+                None,
+                None,
+                Some(&sandbox_config),
+            )
+            .await
+            .expect("create restart ordering sandbox");
+            sqlx::query("UPDATE joysafeter_sandboxes SET status = 'stopped' WHERE id = $1")
+                .bind(sandbox_id)
+                .execute(&pool)
+                .await
+                .expect("mark restart ordering sandbox stopped");
+
+            let provider = Arc::new(RecordingProvider {
+                start_status_probe: Mutex::new(Some((pool.clone(), sandbox_id))),
+                ..Default::default()
+            });
+            let mut config = JoySafeterConfig::from_env();
+            config.sandbox_provider = "recording".to_string();
+            config.sandbox_pool_enabled = false;
+            config.sandbox_workspace_root = None;
+            config.envoy_enabled = false;
+            config.sandbox_image = image.clone();
+            config.image_claude = image.clone();
+
+            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolved = resolver
+                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .await
+                .expect("restart stopped sandbox");
+            assert_eq!(resolved, (sandbox_id, external_id.clone()));
+
+            assert_eq!(
+                provider.start_observed_statuses.lock().await.as_slice(),
+                &["provisioning".to_string()]
+            );
+
+            let sandbox_status: String =
+                sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
+                    .bind(sandbox_id)
+                    .fetch_one(&pool)
+                    .await
+                    .expect("load restarted sandbox status");
+            assert_eq!(sandbox_status, "provisioning");
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_isolates_stale_creating_before_provider_destroy() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let stale_sandbox_id = Uuid::now_v7();
+        let task_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let image = format!("resolver-stale-creating-{unique}:latest");
+        let external_id = format!("resolver-stale-creating-{stale_sandbox_id}");
+
+        let result = async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata, version
+                )
+                VALUES (
+                    $1, $2, 'claude', $3, 'resolver stale creating system', '{}'::jsonb, '[]'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("resolver-stale-creating-agent-{unique}"))
+            .bind(serde_json::json!({"id": "resolver-stale-creating-model"}))
+            .execute(&pool)
+            .await
+            .expect("insert stale creating agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, status)
+                VALUES ($1, $2, 'idle')
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert stale creating session");
+
+            let expected = ExpectedFingerprint {
+                image: image.clone(),
+                engine_kind: "claude".to_string(),
+                networking: None,
+                env: HashMap::new(),
+            };
+            let sandbox_config = provisioning_config(
+                "stale_creating",
+                0,
+                "Stale creating sandbox should be isolated before provider destroy",
+                false,
+                &expected,
+                Some("resolver-stale-creating-token"),
+            );
+
+            queries::create_sandbox(
+                &pool,
+                stale_sandbox_id,
+                &external_id,
+                "recording",
+                &image,
+                Some(session_id),
+                None,
+                None,
+                Some(&sandbox_config),
+            )
+            .await
+            .expect("create stale creating sandbox");
+
+            let provider = Arc::new(RecordingProvider {
+                destroy_status_probe: Mutex::new(Some((pool.clone(), stale_sandbox_id))),
+                ..Default::default()
+            });
+            let mut config = JoySafeterConfig::from_env();
+            config.sandbox_provider = "recording".to_string();
+            config.sandbox_pool_enabled = false;
+            config.sandbox_workspace_root = None;
+            config.envoy_enabled = false;
+            config.sandbox_image = image.clone();
+            config.image_claude = image.clone();
+
+            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let (resolved_sandbox_id, _resolved_external_id) = resolver
+                .resolve(task_id, Some(session_id), Some(agent_id), None)
+                .await
+                .expect("resolve replacement after stale creating cleanup");
+            assert_ne!(resolved_sandbox_id, stale_sandbox_id);
+
+            let observed = provider.destroy_observed_statuses.lock().await.clone();
+            assert_eq!(observed, vec!["stopping".to_string()]);
+
+            let stale: (String, bool) = sqlx::query_as(
+                "SELECT status, destroyed_at IS NOT NULL FROM joysafeter_sandboxes WHERE id = $1",
+            )
+            .bind(stale_sandbox_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load stale creating sandbox after cleanup");
+            assert_eq!(stale.0, "destroyed");
+            assert!(stale.1);
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE chat_session_id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        result
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_uses_session_snapshot_for_image_network_and_env() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let environment_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let environment_ref = format!("env_{environment_id}");
+        let agent_name = format!("resolver-snapshot-agent-{unique}");
+        let environment_name = format!("resolver-snapshot-env-{unique}");
+        let snapshot = serde_json::json!({
+            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "id": agent_id.to_string(),
+            "version": 3,
+            "name": agent_name,
+            "engine_kind": "claude",
+            "model": {"id": "snapshot-model"},
+            "env": {"AGENT_ENV": "snapshot-agent"},
+            "mcp_configs": [],
+            "tools": [],
+            "skills": [],
+            "agents": [],
+            "commands": [],
+            "permission_mode": "bypassPermissions",
+            "environment_ref": environment_ref,
+            "environment": {
+                "ref": environment_ref,
+                "id": environment_id.to_string(),
+                "name": environment_name,
+                "image_tag": "snapshot-image:1",
+                "image_version": 1,
+                "config": {
+                    "env_vars": {"ENV_LEVEL": "snapshot-env"},
+                    "networking": {
+                        "type": "limited",
+                        "allowed_hosts": ["api.openai.com"]
+                    }
+                }
+            }
+        });
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_environments
+                    (id, name, description, config, image_tag, image_version)
+                VALUES ($1, $2, 'resolver snapshot test env', $3, 'live-image:2', 2)
+                "#,
+            )
+            .bind(environment_id)
+            .bind(&environment_name)
+            .bind(serde_json::json!({
+                "env_vars": {"ENV_LEVEL": "live-env", "LIVE_ONLY": "must-not-appear"},
+                "networking": {"type": "unrestricted"}
+            }))
+            .execute(&pool)
+            .await
+            .expect("insert live environment");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata,
+                    version, environment_ref
+                )
+                VALUES (
+                    $1, $2, 'codex', $3, 'live system', $4, '[]'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'default', '{}'::jsonb, 4, $5
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(&agent_name)
+            .bind(serde_json::json!({"id": "live-model"}))
+            .bind(serde_json::json!({"AGENT_ENV": "live-agent", "LIVE_AGENT_ONLY": "must-not-appear"}))
+            .bind(&environment_ref)
+            .execute(&pool)
+            .await
+            .expect("insert live agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (
+                    id, agent_id, status, agent_version, agent_snapshot, environment_ref
+                )
+                VALUES ($1, $2, 'idle', 3, $3, $4)
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .bind(&snapshot)
+            .bind(&environment_ref)
+            .execute(&pool)
+            .await
+            .expect("insert snapshot session");
+
+            let provider = Arc::new(RecordingProvider::default());
+            let mut config = JoySafeterConfig::from_env();
+            config.sandbox_provider = "recording".to_string();
+            config.sandbox_pool_enabled = false;
+            config.sandbox_workspace_root = None;
+            config.image_claude = "fallback-claude:latest".to_string();
+            config.image_codex = "fallback-codex:latest".to_string();
+            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+            let (sandbox_id, _external_id) = resolver
+                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .await
+                .expect("resolve sandbox from snapshot");
+
+            let created = provider.created.lock().await;
+            assert_eq!(created.len(), 1);
+            let create_config = &created[0];
+            assert_eq!(create_config.image, "snapshot-image:1");
+            assert_eq!(create_config.network.as_deref(), Some("none"));
+            assert_eq!(
+                create_config.env.get("ENV_LEVEL").map(String::as_str),
+                Some("snapshot-env")
+            );
+            assert_eq!(
+                create_config.env.get("AGENT_ENV").map(String::as_str),
+                Some("snapshot-agent")
+            );
+            assert!(!create_config.env.contains_key("LIVE_ONLY"));
+            assert!(!create_config.env.contains_key("LIVE_AGENT_ONLY"));
+            drop(created);
+
+            let networking = provider.networking.lock().await;
+            assert_eq!(networking.len(), 1);
+            assert_eq!(networking[0].0, sandbox_id);
+            assert_eq!(
+                networking[0]
+                    .1
+                    .as_ref()
+                    .and_then(|value| value.get("type"))
+                    .and_then(|value| value.as_str()),
+                Some("limited")
+            );
+            drop(networking);
+
+            let sandbox_config: (String, serde_json::Value) =
+                sqlx::query_as("SELECT image, config FROM joysafeter_sandboxes WHERE id = $1")
+                    .bind(sandbox_id)
+                    .fetch_one(&pool)
+                    .await
+                    .expect("load created sandbox");
+            assert_eq!(sandbox_config.0, "snapshot-image:1");
+            assert_eq!(
+                sandbox_config
+                    .1
+                    .get("fingerprint")
+                    .and_then(|value| value.get("networking"))
+                    .and_then(|value| value.get("type"))
+                    .and_then(|value| value.as_str()),
+                Some("limited")
+            );
+            assert!(sandbox_config
+                .1
+                .get("fingerprint")
+                .and_then(|value| value.get("env"))
+                .and_then(|value| value.get("ENV_LEVEL"))
+                .is_some());
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE chat_session_id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
+            .bind(environment_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn sandbox_resolver_snapshot_session_file_injection_storage_missing_fails_resolve() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let file_id = Uuid::now_v7();
+        let session_file_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let org_id = format!("org-{unique}");
+        let project_id = format!("proj-{unique}");
+        let missing_storage_key = format!("missing-resolver-session-file-{unique}.txt");
+        let workspace_root =
+            std::env::temp_dir().join(format!("joysafeter-resolver-workspace-{unique}"));
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_organizations
+                    (id, name, slug, storage_used_bytes, departed_member_usage)
+                VALUES ($1, $2, $3, 0, 0)
+                "#,
+            )
+            .bind(&org_id)
+            .bind(format!("Resolver File Org {unique}"))
+            .bind(format!("resolver-file-org-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert organization");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_organization_projects
+                    (id, org_id, name, slug, is_default)
+                VALUES ($1, $2, $3, $4, false)
+                "#,
+            )
+            .bind(&project_id)
+            .bind(&org_id)
+            .bind(format!("Resolver File Project {unique}"))
+            .bind(format!("resolver-file-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert project");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, project_id, name, engine_kind, model, system_prompt, env,
+                    mcp_configs, skills, tools, agents, commands, permission_mode,
+                    metadata, version
+                )
+                VALUES (
+                    $1, $2, $3, 'claude', $4, '', '{}'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    '[]'::jsonb, 'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(&project_id)
+            .bind(format!("resolver-file-agent-{unique}"))
+            .bind(serde_json::json!({"id": "claude-sonnet"}))
+            .execute(&pool)
+            .await
+            .expect("insert agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, project_id, status)
+                VALUES ($1, $2, $3, 'idle')
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .bind(&project_id)
+            .execute(&pool)
+            .await
+            .expect("insert session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_files (
+                    id, project_id, filename, purpose, content_type, size_bytes,
+                    sha256, storage_key, downloadable
+                )
+                VALUES (
+                    $1, $2, 'missing.txt', 'user_upload', 'text/plain', 12,
+                    'missing-sha', $3, true
+                )
+                "#,
+            )
+            .bind(file_id)
+            .bind(&project_id)
+            .bind(&missing_storage_key)
+            .execute(&pool)
+            .await
+            .expect("insert file metadata");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_session_files
+                    (id, session_id, file_id, mount_path, access)
+                VALUES ($1, $2, $3, '/workspace/missing.txt', 'read_only')
+                "#,
+            )
+            .bind(session_file_id)
+            .bind(session_id)
+            .bind(file_id)
+            .execute(&pool)
+            .await
+            .expect("insert session file mount");
+
+            let provider = Arc::new(RecordingProvider::default());
+            let mut config = JoySafeterConfig::from_env();
+            config.sandbox_provider = "recording".to_string();
+            config.sandbox_pool_enabled = false;
+            config.sandbox_workspace_root = Some(workspace_root.to_string_lossy().to_string());
+            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+            let err = resolver
+                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .await
+                .expect_err("missing declared session file content must fail sandbox resolve");
+            let message = err.to_string();
+            assert!(
+                message.contains("failed to inject session files"),
+                "{message}"
+            );
+            assert!(message.contains(&missing_storage_key), "{message}");
+            assert!(
+                provider.created.lock().await.is_empty(),
+                "sandbox provider must not create a sandbox after declared input load fails"
+            );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_session_files WHERE id = $1")
+            .bind(session_file_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_files WHERE id = $1")
+            .bind(file_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&org_id)
+            .execute(&pool)
+            .await;
+        let _ = tokio::fs::remove_dir_all(&workspace_root).await;
     }
 }

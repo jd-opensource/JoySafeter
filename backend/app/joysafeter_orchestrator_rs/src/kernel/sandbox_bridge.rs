@@ -19,6 +19,8 @@ pub struct SandboxBridge {
     pub runner_tx: mpsc::Sender<OrchestratorMessage>,
     /// Current task being executed (if any).
     pub current_task_id: Mutex<Option<Uuid>>,
+    /// Owner epoch captured when the current task was claimed/resumed.
+    pub current_task_owner_epoch: Mutex<Option<i64>>,
     /// Notify when a new task is available for this sandbox.
     pub task_available: Notify,
     /// HITL confirmation: use watch channel for resettable signal.
@@ -60,6 +62,7 @@ impl SandboxBridge {
             sandbox_db_id,
             runner_tx,
             current_task_id: Mutex::new(None),
+            current_task_owner_epoch: Mutex::new(None),
             task_available: Notify::new(),
             confirmation_tx,
             confirmation_rx: Mutex::new(confirmation_rx),

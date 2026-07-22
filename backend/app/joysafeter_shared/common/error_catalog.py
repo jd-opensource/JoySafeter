@@ -950,6 +950,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ServiceUnavailableError,
         default_message="Failed to cancel task in sandbox runtime.",
     ),
+    "TASK_CANCEL_STATE_SYNC_FAILED": CatalogEntry(
+        code="TASK_CANCEL_STATE_SYNC_FAILED",
+        error_class=ServiceUnavailableError,
+        default_message="Task cancel could not be finalized because task ownership changed.",
+    ),
     "TASK_CANCEL_SESSION_SYNC_FAILED": CatalogEntry(
         code="TASK_CANCEL_SESSION_SYNC_FAILED",
         error_class=ServiceUnavailableError,

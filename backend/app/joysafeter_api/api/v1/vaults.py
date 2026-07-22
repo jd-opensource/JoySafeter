@@ -54,6 +54,23 @@ def _vault_archived_error(vault_id: uuid.UUID) -> AppError:
     )
 
 
+def _vault_conflict_error(vault_id: uuid.UUID, exc: ValueError) -> AppError:
+    message = str(exc)
+    if message.startswith("Vault is referenced by one or more active sessions"):
+        return ResourceConflictError(
+            code="VAULT_ACTIVE_SESSION_REFERENCE",
+            message=message,
+            data={"vault_id": str(vault_id)},
+            retryable=True,
+            user_action="retry",
+        )
+    return ResourceConflictError(
+        code="VAULT_CONFLICT",
+        message=message,
+        data={"vault_id": str(vault_id)},
+    )
+
+
 def _vault_credential_archived_error(vault_id: uuid.UUID, cred_id: uuid.UUID) -> AppError:
     return ResourceConflictError(
         code="VAULT_CREDENTIAL_ARCHIVED",
@@ -191,7 +208,10 @@ async def delete_vault(
 ) -> dict:
     svc = VaultService(db)
     await _get_mutable_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    ok = await svc.delete_vault(vault_id, project_id=auth_ctx.project_id)
+    try:
+        ok = await svc.delete_vault(vault_id, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise _vault_conflict_error(vault_id, exc) from exc
     if not ok:
         raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(
@@ -214,7 +234,10 @@ async def archive_vault(
 ) -> dict:
     svc = VaultService(db)
     await _get_vault_or_404(svc, vault_id, auth_ctx.project_id)
-    ok = await svc.archive_vault(vault_id, project_id=auth_ctx.project_id)
+    try:
+        ok = await svc.archive_vault(vault_id, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise _vault_conflict_error(vault_id, exc) from exc
     if not ok:
         raise _vault_not_found_error(vault_id)
     await audit_joysafeter_event(

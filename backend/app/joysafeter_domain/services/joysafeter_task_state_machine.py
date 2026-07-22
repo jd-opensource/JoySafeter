@@ -100,6 +100,45 @@ class JoySafeterTaskStateMachine:
             raise ValueError(f"Task already in terminal state: {current.status}")
         return None
 
+    async def cancel_if_owner_matches(
+        self,
+        task_id: uuid.UUID,
+        *,
+        expected_sandbox_id: Optional[uuid.UUID],
+        expected_owner_epoch: Optional[int],
+    ) -> Optional[JoySafeterTask]:
+        now = utc_now()
+        duration_ms = await self._duration_ms_for_task(task_id, now)
+        result = await self.db.execute(
+            sa_update(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.id == task_id,
+                    JoySafeterTask.status.notin_(TERMINAL_VALUES),
+                    JoySafeterTask.sandbox_id.is_not_distinct_from(expected_sandbox_id),
+                    JoySafeterTask.owner_epoch.is_not_distinct_from(expected_owner_epoch),
+                )
+            )
+            .values(
+                status=JoySafeterTaskStatus.CANCELLED.value,
+                completed_at=now,
+                duration_ms=duration_ms,
+            )
+            .returning(JoySafeterTask.id)
+        )
+        await self.db.commit()
+        row = result.one_or_none()
+        if row is not None:
+            return await self._get_task(task_id)
+
+        current = await self._get_task(task_id)
+        if not current:
+            return None
+        status = JoySafeterTaskStatus.from_str_lossy(current.status)
+        if status.is_terminal():
+            raise ValueError(f"Task already in terminal state: {current.status}")
+        return None
+
     async def transition_to(
         self,
         task_id: uuid.UUID,

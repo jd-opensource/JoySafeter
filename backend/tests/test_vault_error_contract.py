@@ -6,16 +6,20 @@ from fastapi import Request
 from sqlalchemy import func, select
 
 from app.joysafeter_api.api.v1.vaults import (
+    archive_vault,
     create_credential,
     delete_credential,
+    delete_vault,
     get_credential,
     get_vault,
     update_credential,
     update_vault,
 )
 from app.joysafeter_api.services import VaultService
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential
 from app.joysafeter_domain.schemas.joysafeter_vault import (
     CreateCredentialRequest,
@@ -95,6 +99,17 @@ async def _credential(db_session, *, vault_id: uuid.UUID, name: str | None = Non
     await db_session.commit()
     await db_session.refresh(cred)
     return cred
+
+
+async def _session_referencing_vault(db_session, vault_id: uuid.UUID, vault_ref: str) -> JoySafeterSession:
+    agent = JoySafeterAgent(name=f"vault-session-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(agent_id=agent.id, status="idle", vault_ids=[vault_ref])
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    return session
 
 
 async def _assert_vault_intact(db_session, vault_id: uuid.UUID) -> JoySafeterVault:
@@ -185,6 +200,51 @@ async def test_update_archived_vault_rejects_without_mutating_metadata(db_sessio
     row = (await db_session.execute(select(JoySafeterVault).where(JoySafeterVault.id == vault_id))).scalar_one()
     assert row.description == "original"
     assert row.metadata_ == {"tier": "prod"}
+
+
+@pytest.mark.asyncio
+async def test_delete_vault_rejects_active_session_reference_without_deleting_row(db_session):
+    vault = JoySafeterVault(name=f"active-session-vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+    await _session_referencing_vault(db_session, vault.id, f"vault_{vault.id}")
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_vault(_request("DELETE"), db_session, vault.id, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "VAULT_ACTIVE_SESSION_REFERENCE",
+        "message": "Vault is referenced by one or more active sessions.",
+        "data": {"vault_id": str(vault.id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    await _assert_vault_intact(db_session, vault.id)
+
+
+@pytest.mark.asyncio
+async def test_archive_vault_rejects_vlt_prefixed_active_session_reference(db_session):
+    vault = JoySafeterVault(name=f"active-session-vlt-vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+    await _session_referencing_vault(db_session, vault.id, f"vlt_{vault.id}")
+
+    with pytest.raises(AppError) as exc_info:
+        await archive_vault(_request("POST"), db_session, vault.id, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "VAULT_ACTIVE_SESSION_REFERENCE",
+        "message": "Vault is referenced by one or more active sessions.",
+        "data": {"vault_id": str(vault.id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    row = await _assert_vault_intact(db_session, vault.id)
+    assert row.archived_at is None
 
 
 @pytest.mark.asyncio

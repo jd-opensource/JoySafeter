@@ -191,11 +191,13 @@ pub trait SandboxProvider: Send + Sync + 'static {
     /// Docker: uses `docker cp` (bollard upload_to_container).
     /// Daytona: uses Daytona Files API.
     /// E2B: uses E2B Files API.
-    async fn inject_files(
-        &self,
-        _external_id: &str,
-        _files: &[FileToInject],
-    ) -> anyhow::Result<()> {
+    async fn inject_files(&self, _external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {
+        if !files.is_empty() {
+            anyhow::bail!(
+                "sandbox provider '{}' does not implement session file injection",
+                self.provider_name()
+            );
+        }
         Ok(())
     }
 

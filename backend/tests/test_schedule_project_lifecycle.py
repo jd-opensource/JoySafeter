@@ -67,6 +67,14 @@ class _FakeCommandRedis:
         return key, payload
 
 
+class _FakeQueueRedis:
+    def __init__(self):
+        self.rpushed: list[tuple[str, str]] = []
+
+    async def rpush(self, key: str, value: str) -> None:
+        self.rpushed.append((key, value))
+
+
 async def _create_project_with_agent(
     db_session,
     *,
@@ -423,6 +431,64 @@ async def test_manual_schedule_trigger_rejects_archived_agent_without_creating_t
         .all()
     )
     assert tasks == []
+
+
+@pytest.mark.asyncio
+async def test_manual_schedule_trigger_stores_full_execution_snapshot(db_session, monkeypatch):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    org, project, agent = await _create_project_with_agent(db_session, name="ManualTriggerSnapshot")
+    env = await _create_environment(db_session, project=project)
+    environment_ref = f"env_{env.id}"
+    env.config = {"setup_commands": ["echo before"], "network": {"mode": "egress"}}
+    env.image_tag = "joysafeter/runtime:before"
+    env.image_version = 7
+    agent.model = {"provider": "openai", "model": "snapshot-model"}
+    agent.system_prompt = "snapshot system"
+    agent.env = {"SNAPSHOT_ENV": "before"}
+    agent.mcp_configs = [{"name": "snapshot-mcp", "url": "https://mcp.before.test"}]
+    agent.tools = [{"name": "snapshot-tool"}]
+    agent.permission_mode = "bypassPermissions"
+    schedule = await _create_due_schedule(db_session, project=project, agent=agent, name="manual-snapshot")
+    schedule.environment_ref = environment_ref
+    await db_session.commit()
+
+    response = await trigger_schedule(schedule.id, db_session, _admin_ctx(project.id, org.id))
+
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.task_id))]
+    db_session.expire_all()
+    session = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == response.session_id))
+    ).scalar_one()
+    snapshot = session.agent_snapshot
+    assert snapshot["schema"] == "joysafeter.agent_execution_snapshot.v1"
+    assert snapshot["model"] == {"provider": "openai", "model": "snapshot-model"}
+    assert snapshot["system_prompt"] == "snapshot system"
+    assert snapshot["env"] == {"SNAPSHOT_ENV": "before"}
+    assert snapshot["mcp_configs"] == [{"name": "snapshot-mcp", "url": "https://mcp.before.test"}]
+    assert snapshot["tools"] == [{"name": "snapshot-tool"}]
+    assert snapshot["environment_ref"] == environment_ref
+    assert snapshot["environment"]["config"] == {"setup_commands": ["echo before"], "network": {"mode": "egress"}}
+    assert snapshot["environment"]["image_tag"] == "joysafeter/runtime:before"
+    assert snapshot["environment"]["image_version"] == 7
+
+    agent.model = {"provider": "openai", "model": "mutated-model"}
+    agent.system_prompt = "mutated system"
+    agent.env = {"SNAPSHOT_ENV": "after"}
+    env.config = {"setup_commands": ["echo after"], "network": {"mode": "blocked"}}
+    env.image_tag = "joysafeter/runtime:after"
+    env.image_version = 8
+    await db_session.commit()
+
+    db_session.expire_all()
+    unchanged = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == response.session_id))
+    ).scalar_one()
+    assert unchanged.agent_snapshot == snapshot
 
 
 @pytest.mark.asyncio

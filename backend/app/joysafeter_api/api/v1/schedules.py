@@ -21,6 +21,8 @@ from app.joysafeter_domain.schemas.joysafeter_schedule import (
     ScheduleUpdateRequest,
     TriggerResponse,
 )
+from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
@@ -177,6 +179,12 @@ async def trigger_schedule(
         project_id=schedule.project_id,
         environment_ref=schedule.environment_ref,
     )
+    environment = None
+    if environment_ref:
+        environment = await EnvironmentService(db).get_environment_by_ref(
+            environment_ref,
+            project_id=schedule.project_id,
+        )
 
     submission = TaskSubmissionService(db)
     await submission.enforce_admission(
@@ -194,7 +202,11 @@ async def trigger_schedule(
         title=f"Scheduled (manual): {schedule.name}",
         environment_ref=environment_ref,
         agent_version=getattr(agent, "version", None),
-        agent_snapshot={"name": agent.name, "model": getattr(agent, "model", None)},
+        agent_snapshot=JoySafeterAgentService.build_execution_snapshot(
+            agent,
+            environment=environment,
+            environment_ref=environment_ref,
+        ),
         project_id=schedule.project_id,
     )
     task, _created = await submission.create_and_dispatch(

@@ -182,6 +182,19 @@ class JoySafeterTaskService:
     async def cancel_task(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
         return await self.state_machine.cancel(task_id)
 
+    async def cancel_task_if_owner_matches(
+        self,
+        task_id: uuid.UUID,
+        *,
+        expected_sandbox_id: Optional[uuid.UUID],
+        expected_owner_epoch: Optional[int],
+    ) -> Optional[JoySafeterTask]:
+        return await self.state_machine.cancel_if_owner_matches(
+            task_id,
+            expected_sandbox_id=expected_sandbox_id,
+            expected_owner_epoch=expected_owner_epoch,
+        )
+
     async def claim_task_for_scheduling(self, task_id: uuid.UUID) -> bool:
         return await self.state_machine.claim_for_scheduling(task_id)
 

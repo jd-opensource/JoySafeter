@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
@@ -91,6 +91,29 @@ class _FakeCommandRedis:
         if payload is None:
             return None
         return key, payload
+
+
+class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
+    def __init__(self, db_session, sandbox_id: uuid.UUID, new_external_id: str):
+        super().__init__()
+        self.db_session = db_session
+        self.sandbox_id = sandbox_id
+        self.new_external_id = new_external_id
+        self.changed = False
+
+    async def blpop(self, key: str, timeout: int = 0):
+        if not self.changed:
+            await self.db_session.execute(
+                text(
+                    "UPDATE joysafeter_sandboxes "
+                    "SET external_id = :external_id, updated_at = NOW() "
+                    "WHERE id = :sandbox_id"
+                ),
+                {"external_id": self.new_external_id, "sandbox_id": self.sandbox_id},
+            )
+            await self.db_session.commit()
+            self.changed = True
+        return await super().blpop(key, timeout=timeout)
 
 
 async def _agent_session_and_task(db_session, *, task_status: str = JoySafeterTaskStatus.PENDING.value):
@@ -311,6 +334,63 @@ async def test_archive_sessions_for_agent_rejects_active_task_even_when_session_
 
 
 @pytest.mark.asyncio
+async def test_archive_agent_fails_closed_when_task_appears_after_active_check(db_session, monkeypatch):
+    agent = JoySafeterAgent(name=f"archive-race-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    agent_id = agent.id
+    session_id = session.id
+
+    async def active_task_appears_after_check(self, agent_id, project_id=None):
+        task = JoySafeterTask(
+            agent_id=agent_id,
+            chat_session_id=session_id,
+            prompt="late task",
+            status=JoySafeterTaskStatus.PENDING.value,
+        )
+        self.db.add(task)
+        await self.db.commit()
+        return 0
+
+    monkeypatch.setattr(
+        JoySafeterAgentService,
+        "_count_active_tasks_for_agent",
+        active_task_appears_after_check,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await archive_agent(agent_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "AGENT_ACTIVE_TASKS",
+        "message": "Agent has active tasks. Stop or cancel them before archiving sessions.",
+        "data": {"agent_id": str(agent_id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+
+    db_session.expire_all()
+    agent_row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    task_count = (
+        await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id))
+    ).scalars().all()
+    assert agent_row.archived_at is None
+    assert session_row.archived_at is None
+    assert session_row.status == "idle"
+    assert len(task_count) == 1
+
+
+@pytest.mark.asyncio
 async def test_delete_agent_rejects_active_task_with_structured_task_ids(db_session):
     agent, session, task = await _agent_session_and_task(db_session)
     agent_id = agent.id
@@ -384,6 +464,64 @@ async def test_delete_agent_destroys_idle_session_sandbox_before_hard_delete(db_
     ).scalar_one()
     assert agent_row is None
     assert sandbox_row.status == "destroyed"
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_rejects_destroy_ack_if_sandbox_external_id_changed(db_session, monkeypatch):
+    agent = JoySafeterAgent(name=f"stale-destroy-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    agent_id = agent.id
+
+    session = JoySafeterSession(agent_id=agent_id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+
+    old_external_id = f"sandbox-old-{uuid.uuid4()}"
+    new_external_id = f"sandbox-new-{uuid.uuid4()}"
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session.id,
+        external_id=old_external_id,
+        image="test-image",
+        status="idle",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    await db_session.refresh(sandbox)
+    sandbox_id = sandbox.id
+
+    redis = _ExternalIdChangingDestroyAckRedis(db_session, sandbox_id, new_external_id)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_agent(agent_id, False, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "AGENT_SANDBOX_STATE_SYNC_FAILED",
+        "message": "Agent could not be deleted because sandbox state sync failed.",
+        "data": {"agent_id": str(agent_id), "sandbox_id": str(sandbox_id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert redis.published[0][1]["external_id"] == old_external_id
+
+    db_session.expire_all()
+    agent_row = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
+    ).scalar_one()
+    sandbox_row = (
+        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
+    ).scalar_one()
+    assert agent_row is not None
+    assert sandbox_row.status == "idle"
+    assert sandbox_row.external_id == new_external_id
+    assert sandbox_row.destroyed_at is None
 
 
 @pytest.mark.asyncio

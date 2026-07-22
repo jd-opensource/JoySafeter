@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 _CANCEL_RETRYABLE_CODES = frozenset(
     {
         "TASK_CANCEL_REDIS_RELAY_FAILED",
+        "TASK_CANCEL_STATE_SYNC_FAILED",
         "TASK_CANCEL_SESSION_SYNC_FAILED",
     }
 )
@@ -188,15 +189,16 @@ class SchedulerLoop:
             # Fresh session per fire — each scheduled run is its own conversation,
             # sidestepping the one-active-task-per-session constraint entirely.
             environment_ref = schedule.environment_ref or getattr(agent, "environment_ref", None)
+            environment = None
             if environment_ref:
-                env = await EnvironmentService(db).get_environment_by_ref(
+                environment = await EnvironmentService(db).get_environment_by_ref(
                     environment_ref,
                     project_id=schedule.project_id,
                 )
-                if env is None:
+                if environment is None:
                     logger.warning("Schedule %s targets missing environment %s; pausing", schedule.id, environment_ref)
                     return
-                if getattr(env, "archived_at", None) is not None:
+                if getattr(environment, "archived_at", None) is not None:
                     logger.warning("Schedule %s targets archived environment %s; pausing", schedule.id, environment_ref)
                     return
 
@@ -225,7 +227,11 @@ class SchedulerLoop:
                 title=f"Scheduled: {schedule.name}",
                 environment_ref=environment_ref,
                 agent_version=getattr(agent, "version", None),
-                agent_snapshot={"name": agent.name, "model": getattr(agent, "model", None)},
+                agent_snapshot=JoySafeterAgentService.build_execution_snapshot(
+                    agent,
+                    environment=environment,
+                    environment_ref=environment_ref,
+                ),
                 project_id=schedule.project_id,
             )
 

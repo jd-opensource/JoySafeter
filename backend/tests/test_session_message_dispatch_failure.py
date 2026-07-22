@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -95,6 +95,29 @@ class _FakeCommandRedis:
         if payload is None:
             return None
         return key, payload
+
+
+class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
+    def __init__(self, db_session, sandbox_id: uuid.UUID, new_external_id: str):
+        super().__init__()
+        self.db_session = db_session
+        self.sandbox_id = sandbox_id
+        self.new_external_id = new_external_id
+        self.changed = False
+
+    async def blpop(self, key: str, timeout: int = 0):
+        if not self.changed:
+            await self.db_session.execute(
+                text(
+                    "UPDATE joysafeter_sandboxes "
+                    "SET external_id = :external_id, updated_at = NOW() "
+                    "WHERE id = :sandbox_id"
+                ),
+                {"external_id": self.new_external_id, "sandbox_id": self.sandbox_id},
+            )
+            await self.db_session.commit()
+            self.changed = True
+        return await super().blpop(key, timeout=timeout)
 
 
 class _FakeAckRedis:
@@ -747,6 +770,158 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
 
 
 @pytest.mark.asyncio
+async def test_tool_confirmation_event_id_is_resolved_to_runtime_call_id_for_redis_relay(
+    db_session,
+    monkeypatch,
+):
+    redis = _FakeCommandRedis(input_receivers=1)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    agent = JoySafeterAgent(name=f"control-call-id-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+
+    svc = SessionService(db_session)
+    tool_event = await svc.send_event(
+        session.id,
+        "agent.tool_use",
+        {
+            "name": "shell",
+            "_call_id": "runtime-call-1",
+            "input": {"cmd": "true"},
+            "is_control_request": True,
+        },
+    )
+
+    req = SendEventRequest(
+        events=[
+            SingleEventRequest(
+                type="user.tool_confirmation",
+                tool_use_id=f"evt_{tool_event.id}",
+                approved=True,
+            )
+        ]
+    )
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.MEMBER,
+    )
+
+    await send_event(req, session.id, db_session, auth_ctx)
+
+    control_event = (
+        await db_session.execute(
+            select(JoySafeterSessionEvent).where(
+                JoySafeterSessionEvent.session_id == session.id,
+                JoySafeterSessionEvent.event_type == "user.tool_confirmation",
+            )
+        )
+    ).scalar_one()
+    assert control_event.payload["tool_use_event_id"] == f"evt_{tool_event.id}"
+    assert control_event.payload["call_id"] == "runtime-call-1"
+    assert control_event.processed_at is not None
+
+    assert len(redis.published) == 1
+    published = redis.published[0][1]
+    assert published["type"] == "input"
+    encoded = published["content"]
+    assert encoded.startswith("__joysafeter_input_v1__:")
+    live_input = json.loads(encoded.removeprefix("__joysafeter_input_v1__:"))
+    assert live_input == {
+        "type": "tool_confirmation",
+        "tool_use_call_id": "runtime-call-1",
+        "approved": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_custom_tool_result_event_id_is_resolved_to_runtime_call_id_for_redis_relay(
+    db_session,
+    monkeypatch,
+):
+    redis = _FakeCommandRedis(input_receivers=1)
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    agent = JoySafeterAgent(name=f"custom-control-call-id-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+
+    svc = SessionService(db_session)
+    custom_tool_event = await svc.send_event(
+        session.id,
+        "agent.custom_tool_use",
+        {
+            "name": "lookup",
+            "_call_id": "runtime-custom-call-1",
+            "input": {"query": "status"},
+        },
+    )
+
+    req = SendEventRequest(
+        events=[
+            SingleEventRequest(
+                type="user.custom_tool_result",
+                tool_use_event_id=f"evt_{custom_tool_event.id}",
+                content="lookup result",
+            )
+        ]
+    )
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.MEMBER,
+    )
+
+    await send_event(req, session.id, db_session, auth_ctx)
+
+    control_event = (
+        await db_session.execute(
+            select(JoySafeterSessionEvent).where(
+                JoySafeterSessionEvent.session_id == session.id,
+                JoySafeterSessionEvent.event_type == "user.custom_tool_result",
+            )
+        )
+    ).scalar_one()
+    assert control_event.payload["tool_use_event_id"] == f"evt_{custom_tool_event.id}"
+    assert control_event.payload["call_id"] == "runtime-custom-call-1"
+    assert control_event.payload["content"] == "lookup result"
+    assert control_event.processed_at is not None
+
+    assert len(redis.published) == 1
+    encoded = redis.published[0][1]["content"]
+    assert encoded.startswith("__joysafeter_input_v1__:")
+    live_input = json.loads(encoded.removeprefix("__joysafeter_input_v1__:"))
+    assert live_input == {
+        "type": "custom_tool_result",
+        "tool_use_call_id": "runtime-custom-call-1",
+        "content": "lookup result",
+    }
+
+
+@pytest.mark.asyncio
 async def test_interrupt_requires_cancel_delivery_for_running_session(
     postgres_url,
     db_session,
@@ -1116,6 +1291,75 @@ async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_pro
     ).scalar_one()
     assert session_row is None
     assert sandbox_row.status == "destroyed"
+
+
+@pytest.mark.asyncio
+async def test_delete_session_rejects_destroy_ack_if_sandbox_external_id_changed(db_session, monkeypatch):
+    broadcaster = _FakeBroadcaster()
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
+
+    agent = JoySafeterAgent(name=f"delete-sandbox-stale-ack-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    old_external_id = f"sandbox-old-{uuid.uuid4()}"
+    new_external_id = f"sandbox-new-{uuid.uuid4()}"
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session_id,
+        external_id=old_external_id,
+        image="test-image",
+        status="idle",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    await db_session.refresh(sandbox)
+    sandbox_id = sandbox.id
+
+    redis = _ExternalIdChangingDestroyAckRedis(db_session, sandbox_id, new_external_id)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    auth_ctx = JoySafeterAuthContext(
+        user_id="test-user",
+        org_id="test-org",
+        project_id=None,  # type: ignore[arg-type]
+        role=JoySafeterRole.MEMBER,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_session_endpoint(session_id, db_session, auth_ctx)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "SESSION_SANDBOX_DESTROY_FAILED",
+        "message": "Session could not be deleted because sandbox state sync failed.",
+        "data": {"session_id": str(session_id), "sandbox_id": str(sandbox_id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "retry",
+    }
+    assert redis.published[0][1]["external_id"] == old_external_id
+    assert broadcaster.sent == []
+
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    sandbox_row = (
+        await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
+    ).scalar_one()
+    assert session_row.status == "idle"
+    assert sandbox_row.status == "idle"
+    assert sandbox_row.external_id == new_external_id
+    assert sandbox_row.destroyed_at is None
 
 
 @pytest.mark.asyncio

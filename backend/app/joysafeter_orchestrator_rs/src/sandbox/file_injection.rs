@@ -1,3 +1,4 @@
+use anyhow::Context;
 use sqlx::PgPool;
 use std::path::{Component, Path};
 
@@ -16,7 +17,7 @@ pub struct FileToInject {
     pub mount_path: String,
     pub content: Option<Vec<u8>>,
     #[allow(dead_code)]
-    pub storage_key: Option<String>,
+    pub storage_key: String,
     #[allow(dead_code)]
     pub size_bytes: u64,
     #[allow(dead_code)]
@@ -63,20 +64,18 @@ pub async fn load_session_files(
 
     let mut files = Vec::new();
     for row in rows {
-        let content = match row.storage_key.as_deref() {
-            Some(storage_key) => match super::storage::read_file(storage_key).await {
-                Ok(content) => Some(content),
-                Err(e) => {
-                    warn!(storage_key = %storage_key, "Failed to read session file from storage: {e}");
-                    None
-                }
-            },
-            None => None,
-        };
+        let content = super::storage::read_file(&row.storage_key)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to read session file '{}' from storage key '{}'",
+                    row.filename, row.storage_key
+                )
+            })?;
         files.push(FileToInject {
             filename: row.filename,
             mount_path: row.mount_path,
-            content,
+            content: Some(content),
             storage_key: row.storage_key,
             size_bytes: row.size_bytes.unwrap_or(0) as u64,
             url: None,
@@ -89,7 +88,7 @@ pub async fn load_session_files(
 struct SessionFileRow {
     mount_path: String,
     filename: String,
-    storage_key: Option<String>,
+    storage_key: String,
     size_bytes: Option<i64>,
     #[allow(dead_code)]
     content_type: Option<String>,
@@ -174,12 +173,19 @@ pub async fn inject_session_files(
                             let Some(target_path) =
                                 resolve_workspace_path(workspace, &file.mount_path)
                             else {
-                                warn!(path = %file.mount_path, "Path traversal, skipping");
-                                continue;
+                                anyhow::bail!(
+                                    "invalid session file mount path '{}': path escapes workspace",
+                                    file.mount_path
+                                );
                             };
                             // Create parent directories
                             if let Some(parent) = target_path.parent() {
-                                let _ = tokio::fs::create_dir_all(parent).await;
+                                tokio::fs::create_dir_all(parent).await.with_context(|| {
+                                    format!(
+                                        "failed to create parent directory for session file '{}'",
+                                        file.mount_path
+                                    )
+                                })?;
                             }
                             tokio::fs::write(&target_path, content).await?;
                             if let Err(e) =

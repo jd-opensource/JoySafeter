@@ -13,7 +13,9 @@ from uuid_utils import uuid7
 
 from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
+from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.storage.base import StorageBackend
 
@@ -217,6 +219,30 @@ class FileService:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             return False
+
+        blocking_result = await db.execute(
+            select(JoySafeterSession.id)
+            .join(JoySafeterSessionFile, JoySafeterSessionFile.session_id == JoySafeterSession.id)
+            .where(
+                JoySafeterSessionFile.file_id == file_id,
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.archived_at.is_(None),
+                JoySafeterSession.status != "terminated",
+            )
+            .order_by(JoySafeterSession.created_at.desc())
+            .limit(20)
+        )
+        blocking_session_ids = [str(session_id) for session_id in blocking_result.scalars().all()]
+        if blocking_session_ids:
+            raise ResourceConflictError(
+                code="FILE_IN_USE_BY_SESSION_RESOURCE",
+                message="File is attached to active session resources",
+                data={
+                    "file_id": f"file_{file_id}",
+                    "session_ids": blocking_session_ids,
+                },
+                user_action="remove_resource",
+            )
 
         record.deleted_at = datetime.now(timezone.utc)
         await db.commit()

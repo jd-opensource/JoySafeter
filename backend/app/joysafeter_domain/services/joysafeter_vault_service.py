@@ -3,9 +3,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
@@ -175,6 +176,8 @@ class VaultService:
         vault = await self.get_vault(vault_id, project_id=project_id)
         if not vault:
             return False
+        if await self.vault_is_referenced_by_sessions(vault_id, project_id=project_id):
+            raise ValueError("Vault is referenced by one or more active sessions.")
         await self.db.execute(delete(JoySafeterVaultCredential).where(JoySafeterVaultCredential.vault_id == vault_id))
         await self.db.execute(delete(JoySafeterVault).where(JoySafeterVault.id == vault_id))
         await self.db.commit()
@@ -186,6 +189,8 @@ class VaultService:
             return False
         if vault.archived_at:
             return True
+        if await self.vault_is_referenced_by_sessions(vault_id, project_id=project_id):
+            raise ValueError("Vault is referenced by one or more active sessions.")
         vault.archived_at = utc_now()
         # Archive all credentials in the vault so they remain visible behind the archived filter.
         await self.db.execute(
@@ -199,6 +204,22 @@ class VaultService:
         )
         await self.db.commit()
         return True
+
+    async def vault_is_referenced_by_sessions(
+        self,
+        vault_id: uuid.UUID,
+        project_id: Optional[str] = None,
+    ) -> bool:
+        vault_refs = [f"vault_{vault_id}", f"vlt_{vault_id}", str(vault_id)]
+        conditions = [
+            or_(*(JoySafeterSession.vault_ids.contains([vault_ref]) for vault_ref in vault_refs)),
+            JoySafeterSession.archived_at.is_(None),
+            JoySafeterSession.status != "terminated",
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterSession.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterSession.id).where(and_(*conditions)).limit(1))
+        return result.scalar_one_or_none() is not None
 
     # --- Credentials ---
 
