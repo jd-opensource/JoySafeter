@@ -317,25 +317,29 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         # Skills, Agent picker, and orchestrator. Keep the historical
         # ``SKILL_SECURITY_BLOCKED`` code for the high-risk verdict, but fail
         # every other runtime-ineligible state with a precise reason.
-        if skill.security_status == "blocked":
-            raise InvalidRequestError(
-                "技能存在高安全风险，已被安全扫描拦截，无法发布版本。请修复后重新扫描。",
-                code="SKILL_SECURITY_BLOCKED",
-                data={
-                    "security_status": skill.security_status,
-                    "security_severity": skill.security_severity,
-                    "security_score": skill.security_score,
-                },
-            )
-        from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+        # When security scanning is disabled globally, skip all scan gates.
+        from app.joysafeter_shared.config import settings as app_settings
 
-        usable, reason = is_skill_usable(skill)
-        if not usable:
-            raise InvalidRequestError(
-                "Skill is not runtime-ready and cannot be published.",
-                code="SKILL_VERSION_NOT_RUNTIME_READY",
-                data={"skill_id": str(skill_id), "reason": reason},
-            )
+        if app_settings.skill_security_scan_enabled:
+            if skill.security_status == "blocked":
+                raise InvalidRequestError(
+                    "技能存在高安全风险，已被安全扫描拦截，无法发布版本。请修复后重新扫描。",
+                    code="SKILL_SECURITY_BLOCKED",
+                    data={
+                        "security_status": skill.security_status,
+                        "security_severity": skill.security_severity,
+                        "security_score": skill.security_score,
+                    },
+                )
+            from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+
+            usable, reason = is_skill_usable(skill)
+            if not usable:
+                raise InvalidRequestError(
+                    "Skill is not runtime-ready and cannot be published.",
+                    code="SKILL_VERSION_NOT_RUNTIME_READY",
+                    data={"skill_id": str(skill_id), "reason": reason},
+                )
 
         # Validate semver format
         try:
@@ -912,9 +916,17 @@ class SkillService(BaseService[JoySafeterSkill]):
         return _ELIGIBILITY_MESSAGES.get(reason, ("Review and resolve the skill readiness issue.", "review_skill"))
 
     def _annotate_runtime_eligibility(self, skill: JoySafeterSkill) -> None:
-        from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+        from app.joysafeter_shared.config import settings as app_settings
 
-        usable, reason = is_skill_usable(skill)
+        if not app_settings.skill_security_scan_enabled:
+            # When scanning is globally disabled, skip security gates for
+            # runtime eligibility — only lifecycle_status matters.
+            usable = skill.lifecycle_status == "approved"
+            reason = None if usable else "skill_not_approved"
+        else:
+            from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+            usable, reason = is_skill_usable(skill)
+
         message, next_action = self._runtime_eligibility_message(reason)
         setattr(
             skill,
