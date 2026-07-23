@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use tokio::sync::broadcast;
 use tracing::{error, warn};
 
 use super::envelope::EventEnvelope;
 use super::persist::EventPersister;
+use super::sink::EventSink;
 
 /// EventStreamPersistSubscriber — PERSIST phase.
 ///
@@ -138,5 +140,20 @@ impl EventStreamPublisher {
                 }
             }
         }
+    }
+}
+
+#[async_trait]
+impl EventSink for EventStreamPublisher {
+    fn name(&self) -> &str {
+        "redis_stream"
+    }
+
+    async fn publish(&self, envelope: &EventEnvelope) {
+        EventStreamPublisher::publish(self, envelope).await;
+    }
+
+    async fn flush(&self) {
+        // Redis Stream publish is immediate (no buffering) — no-op.
     }
 }

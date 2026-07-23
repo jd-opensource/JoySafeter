@@ -5,6 +5,7 @@ pub mod mapping;
 pub mod persist;
 pub mod realtime;
 pub mod session_broadcast;
+pub mod sink;
 pub mod session_state;
 pub mod stream_publisher;
 pub mod task_broadcast;

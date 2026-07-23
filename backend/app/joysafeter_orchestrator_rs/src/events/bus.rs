@@ -6,6 +6,7 @@ use tracing::debug;
 
 use super::envelope::EventEnvelope;
 use super::persist::EventPersister;
+use super::sink::EventSink;
 use super::stream_publisher::EventStreamPublisher;
 use crate::config::JoySafeterConfig;
 use crate::runtime_config::RuntimeConfig;
@@ -13,18 +14,17 @@ use crate::runtime_config::RuntimeConfig;
 /// Two-phase event bus for joysafeter events.
 ///
 /// Mirrors the Python `JoySafeterEventBus`:
-/// - Phase 1 (PERSIST): persist events to DB via batch sender
+/// - Phase 1 (PERSIST): dispatch events to registered sinks
 /// - Phase 2 (BROADCAST): fan-out to subscribers (WebSocket, Redis, etc.)
 #[derive(Clone)]
 pub struct EventBus {
     /// Broadcast channel for subscribers to receive events.
     tx: broadcast::Sender<Arc<EventEnvelope>>,
-    /// Event persister (batched DB writes).
+    /// Registered event sinks (exactly one active: either stream or db).
+    sinks: Vec<Arc<dyn EventSink>>,
+    /// Keep a reference to the DB persister for spawn_flush_timer() and
+    /// direct flush access.
     persister: Arc<EventPersister>,
-    /// Whether DB persistence is the primary persist phase.
-    persist_to_db: bool,
-    /// Redis Stream publisher used as the primary persist phase when enabled.
-    stream_publisher: Option<Arc<EventStreamPublisher>>,
 }
 
 impl EventBus {
@@ -44,26 +44,26 @@ impl EventBus {
             config.instance_id.clone(),
         ));
 
-        let stream_publisher = if config.event_stream_enabled {
-            Some(Arc::new(EventStreamPublisher::new(
+        // Build the persist sink. Redis Stream + Worker is the primary
+        // non-status event persistence path when enabled. Without it,
+        // local/dev deployments keep the direct DB batch persister.
+        let sinks: Vec<Arc<dyn EventSink>> = if config.event_stream_enabled {
+            let stream_publisher = Arc::new(EventStreamPublisher::new(
                 redis_client.clone(),
                 &config.event_stream_key,
                 config.event_stream_max_len,
                 Some(persister.clone()),
                 config.event_stream_fallback_to_db,
-            )))
+            ));
+            vec![stream_publisher]
         } else {
-            None
+            vec![persister.clone()]
         };
 
         Self {
             tx,
+            sinks,
             persister,
-            // Redis Stream + Worker is the primary non-status event persistence
-            // path when enabled. Without it, local/dev deployments keep the
-            // direct DB batch persister as the primary path.
-            persist_to_db: !config.event_stream_enabled,
-            stream_publisher,
         }
     }
 
@@ -85,36 +85,17 @@ impl EventBus {
         // Session status events are state transitions, not ordinary log events:
         // they must be persisted by the atomic status helper or by
         // SessionStateSubscriber so the session row and replay event agree.
-        // The generic batch persister only owns non-status events.
-        if let Some(stream_publisher) = self.stream_publisher.clone() {
-            if !shared.db_persisted && !shared.is_status_change {
+        // The generic sinks only own non-status events. Events already
+        // persisted upstream (`db_persisted`) are skipped as well.
+        if !shared.db_persisted && !shared.is_status_change {
+            for sink in &self.sinks {
                 if shared.flush_immediately {
-                    stream_publisher.publish(&shared).await;
+                    sink.publish(&shared).await;
                 } else {
-                    let stream_envelope = shared.clone();
+                    let sink = sink.clone();
+                    let envelope = shared.clone();
                     tokio::spawn(async move {
-                        stream_publisher.publish(&stream_envelope).await;
-                    });
-                }
-            }
-        } else if self.persist_to_db && !shared.db_persisted && !shared.is_status_change {
-            if let Some(event_id) = shared.event_id {
-                let persister = self.persister.clone();
-                let session_id = shared.session_id;
-                let event_type = shared.event_type.clone();
-                let payload = shared.payload.clone();
-                let session_seq = shared.session_seq;
-                let flush = shared.flush_immediately;
-                if flush {
-                    persister
-                        .push(event_id, session_id, &event_type, &payload, session_seq)
-                        .await;
-                    persister.flush().await;
-                } else {
-                    tokio::spawn(async move {
-                        persister
-                            .push(event_id, session_id, &event_type, &payload, session_seq)
-                            .await;
+                        sink.publish(&envelope).await;
                     });
                 }
             }
@@ -138,8 +119,10 @@ impl EventBus {
         self.persister.clone()
     }
 
-    /// Force-flush any buffered events to DB.
+    /// Force-flush any buffered events across all sinks.
     pub async fn flush(&self) {
-        self.persister.flush().await;
+        for sink in &self.sinks {
+            sink.flush().await;
+        }
     }
 }

@@ -1,13 +1,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use sqlx::PgPool;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use super::envelope::EventEnvelope;
 use super::realtime::publish_session_event_realtime;
+use super::sink::EventSink;
 use crate::runtime_config::RuntimeConfig;
 
 /// Batched event persister — collects events and flushes them to the DB
@@ -343,5 +346,29 @@ impl EventPersister {
                 this.flush().await;
             }
         })
+    }
+}
+
+#[async_trait]
+impl EventSink for EventPersister {
+    fn name(&self) -> &str {
+        "db_batch"
+    }
+
+    async fn publish(&self, envelope: &EventEnvelope) {
+        if let Some(event_id) = envelope.event_id {
+            self.push(
+                event_id,
+                envelope.session_id,
+                &envelope.event_type,
+                &envelope.payload,
+                envelope.session_seq,
+            )
+            .await;
+        }
+    }
+
+    async fn flush(&self) {
+        EventPersister::flush(self).await;
     }
 }
