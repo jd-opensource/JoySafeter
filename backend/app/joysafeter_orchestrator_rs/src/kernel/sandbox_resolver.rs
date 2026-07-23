@@ -633,6 +633,7 @@ impl SandboxResolver {
             configured_networking,
             self.config.envoy_enabled,
             agent.as_ref(),
+            environment.as_ref(),
         )?;
         let network = if networking_type(networking.as_ref()) == Some("limited") {
             Some("none".to_string())
@@ -2004,10 +2005,11 @@ fn effective_networking_config(
     networking: Option<serde_json::Value>,
     envoy_enabled: bool,
     agent: Option<&JoySafeterAgent>,
+    environment: Option<&EnvironmentRow>,
 ) -> anyhow::Result<Option<serde_json::Value>> {
     match networking_type(networking.as_ref()) {
         Some("limited") => networking
-            .map(|networking| merge_mcp_hosts(networking, agent))
+            .map(|networking| merge_mcp_hosts(networking, agent, environment))
             .transpose(),
         Some("unrestricted") => Ok(networking),
         Some(other) => anyhow::bail!("unsupported sandbox networking.type: {other}"),
@@ -2022,7 +2024,7 @@ fn effective_networking_config(
                 "type".to_string(),
                 serde_json::Value::String("limited".to_string()),
             );
-            merge_mcp_hosts(effective, agent).map(Some)
+            merge_mcp_hosts(effective, agent, environment).map(Some)
         }
         None => Ok(networking),
     }
@@ -2040,21 +2042,11 @@ fn networking_type(networking: Option<&serde_json::Value>) -> Option<&str> {
 fn merge_mcp_hosts(
     mut networking: serde_json::Value,
     agent: Option<&JoySafeterAgent>,
+    environment: Option<&EnvironmentRow>,
 ) -> anyhow::Result<serde_json::Value> {
     if networking_type(Some(&networking)) != Some("limited") {
         return Ok(networking);
     }
-
-    let Some(agent) = agent else {
-        return Ok(networking);
-    };
-    let Some(mcp_configs) = agent
-        .mcp_configs
-        .as_ref()
-        .and_then(|value| value.as_array())
-    else {
-        return Ok(networking);
-    };
 
     let mut allowed_hosts = networking
         .get("allowed_hosts")
@@ -2067,15 +2059,37 @@ fn merge_mcp_hosts(
         })
         .unwrap_or_default();
 
-    for config in mcp_configs {
-        let Some(url) = config.get("url").and_then(|value| value.as_str()) else {
-            continue;
-        };
-        if let Some(host) = extract_host(url) {
-            if !allowed_hosts.iter().any(|existing| existing == &host) {
-                allowed_hosts.push(host);
+    // Add MCP server hosts to allowlist.
+    if let Some(mcp_configs) = agent
+        .and_then(|a| a.mcp_configs.as_ref())
+        .and_then(|value| value.as_array())
+    {
+        for config in mcp_configs {
+            let Some(url) = config.get("url").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            if let Some(host) = extract_host(url) {
+                if !allowed_hosts.iter().any(|existing| existing == &host) {
+                    allowed_hosts.push(host);
+                }
             }
         }
+    }
+
+    // Remove external egress service hosts from allowlist. Each external service
+    // emits a transparent credential vhost keyed on its real host. If the same
+    // host also appears in allowed_hosts, the `allowed` vhost would declare a
+    // duplicate domain and Envoy rejects the config.
+    if let Some(egress_hosts) = environment
+        .and_then(|env| env.config.get("egress_services"))
+        .and_then(|v| v.as_array())
+    {
+        let external_hosts: Vec<String> = egress_hosts
+            .iter()
+            .filter_map(|svc| svc.get("base_url").and_then(|v| v.as_str()))
+            .filter_map(|url| extract_host(url))
+            .collect();
+        allowed_hosts.retain(|h| !external_hosts.iter().any(|eh| eh == h));
     }
 
     let Some(object) = networking.as_object_mut() else {
