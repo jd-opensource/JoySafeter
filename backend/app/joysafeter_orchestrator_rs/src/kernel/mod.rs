@@ -7,6 +7,7 @@ pub mod redis_coordinator;
 pub mod run_spec;
 pub mod sandbox_bridge;
 pub mod sandbox_controller;
+pub mod sandbox_lifecycle;
 pub mod sandbox_resolver;
 pub mod scheduler;
 pub mod session_broadcaster;

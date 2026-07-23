@@ -2463,9 +2463,16 @@ pub(crate) struct VaultCipher {
 
 impl VaultCipher {
     pub(crate) fn from_env() -> Self {
-        let key = std::env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY")
-            .ok()
-            .and_then(|raw| parse_vault_key(&raw));
+        // The vault key is process-constant, so parse it once and memoize.
+        // `from_env()` is called on every credential-decrypt path (egress
+        // builders, harness input, secret merge); re-reading the env var and
+        // re-parsing the key each time is wasted work.
+        static KEY: std::sync::OnceLock<Option<[u8; 32]>> = std::sync::OnceLock::new();
+        let key = *KEY.get_or_init(|| {
+            std::env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY")
+                .ok()
+                .and_then(|raw| parse_vault_key(&raw))
+        });
         Self { key }
     }
 

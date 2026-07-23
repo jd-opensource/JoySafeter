@@ -1170,49 +1170,15 @@ impl SandboxController {
         external_id: Option<&str>,
         reason: &str,
     ) -> anyhow::Result<bool> {
-        let claimed = queries::claim_sandbox_for_passive_destroy(
+        crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
+            &self.provider,
             sandbox_id,
             observed_status,
             external_id,
+            reason,
         )
-        .await?;
-
-        if !claimed {
-            warn!(sandbox_id = %sandbox_id, status = %observed_status, reason, "Skipped passive sandbox destroy because DB row changed before provider call");
-            return Ok(false);
-        }
-
-        if let Some(ext_id) = external_id {
-            if let Err(e) = self.provider.destroy(ext_id).await {
-                let err = format!("{e}");
-                if !(err.contains("No such container") || err.contains("404")) {
-                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
-                        &self.pool,
-                        sandbox_id,
-                        observed_status,
-                        external_id,
-                    )
-                    .await;
-                    anyhow::bail!("failed to destroy sandbox {sandbox_id} during {reason}: {err}");
-                }
-            }
-        }
-
-        let destroyed = queries::destroy_sandbox_if_status_and_external_id(
-            &self.pool,
-            sandbox_id,
-            "stopping",
-            external_id,
-        )
-        .await?;
-        if destroyed {
-            let _ = self.teardown_networking(sandbox_id).await;
-        } else {
-            warn!(sandbox_id = %sandbox_id, reason, "Provider destroy completed but DB finalize skipped because sandbox row changed");
-        }
-
-        Ok(destroyed)
+        .await
     }
 }
 

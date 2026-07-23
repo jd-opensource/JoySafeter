@@ -1419,62 +1419,15 @@ impl SandboxResolver {
         sandbox: &JoySafeterSandbox,
         reason: &str,
     ) -> anyhow::Result<bool> {
-        let external_id = sandbox.external_id.as_deref();
-        let claimed = queries::claim_sandbox_for_passive_destroy(
+        crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
+            &self.provider,
             sandbox.id,
             &sandbox.status,
-            external_id,
+            sandbox.external_id.as_deref(),
+            reason,
         )
-        .await?;
-
-        if !claimed {
-            warn!(
-                sandbox_id = %sandbox.id,
-                status = %sandbox.status,
-                reason,
-                "Skipped passive sandbox destroy because DB row changed before provider call"
-            );
-            return Ok(false);
-        }
-
-        if let Some(ext_id) = external_id {
-            if let Err(err) = self.provider.destroy(ext_id).await {
-                let message = err.to_string();
-                if !(message.contains("No such container") || message.contains("404")) {
-                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
-                        &self.pool,
-                        sandbox.id,
-                        &sandbox.status,
-                        external_id,
-                    )
-                    .await;
-                    anyhow::bail!(
-                        "failed to destroy sandbox {} during {reason}: {message}",
-                        sandbox.id
-                    );
-                }
-            }
-        }
-
-        let destroyed = queries::destroy_sandbox_if_status_and_external_id(
-            &self.pool,
-            sandbox.id,
-            "stopping",
-            external_id,
-        )
-        .await?;
-        if destroyed {
-            let _ = self.teardown_networking(sandbox.id).await;
-        } else {
-            warn!(
-                sandbox_id = %sandbox.id,
-                reason,
-                "Provider destroy completed but DB finalize skipped because sandbox row changed"
-            );
-        }
-
-        Ok(destroyed)
+        .await
     }
 
     async fn destroy_unattached_pool_claim(
@@ -1482,6 +1435,9 @@ impl SandboxResolver {
         sandbox: &JoySafeterSandbox,
         reason: &str,
     ) -> anyhow::Result<bool> {
+        // Pool-claim rows use a bespoke claim (status may be `creating` or
+        // `provisioning`); the claim returns the prior status to restore on
+        // failure. The destroy/finalize protocol is then shared.
         let previous_status = queries::claim_unattached_pool_sandbox_for_passive_destroy(
             &self.pool,
             sandbox.id,
@@ -1494,38 +1450,15 @@ impl SandboxResolver {
             return Ok(false);
         };
 
-        if let Some(ext_id) = sandbox.external_id.as_deref() {
-            if let Err(err) = self.provider.destroy(ext_id).await {
-                let err = format!("{err}");
-                if !(err.contains("No such container") || err.contains("404")) {
-                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
-                        &self.pool,
-                        sandbox.id,
-                        &previous_status,
-                        sandbox.external_id.as_deref(),
-                    )
-                    .await;
-                    anyhow::bail!(
-                        "failed to destroy pool-claim sandbox {} during {}: {}",
-                        sandbox.id,
-                        reason,
-                        err
-                    );
-                }
-            }
-        }
-
-        let destroyed = queries::destroy_sandbox_if_status_and_external_id(
+        crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
             &self.pool,
+            &self.provider,
             sandbox.id,
-            "stopping",
             sandbox.external_id.as_deref(),
+            &previous_status,
+            reason,
         )
-        .await?;
-        if destroyed {
-            let _ = self.teardown_networking(sandbox.id).await;
-        }
-        Ok(destroyed)
+        .await
     }
 
     async fn restart_stopped_sandbox(
