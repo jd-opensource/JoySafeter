@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, type Dispatch, type SetStateAction } from 'react'
-import { Check, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 
+import { CopyButton as SharedCopyButton } from '@/components/managed/shared/copy-button'
 import { FieldHelp } from '@/components/managed/shared/field-help'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -171,20 +172,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      type="button"
-      className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-      onClick={() => {
-        void navigator.clipboard?.writeText(value)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      }}
-    >
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-    </button>
-  )
+  return <SharedCopyButton value={value} />
 }
 
 export function EgressServicesEditor({
