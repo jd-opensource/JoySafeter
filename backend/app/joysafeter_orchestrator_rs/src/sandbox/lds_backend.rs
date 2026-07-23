@@ -248,54 +248,17 @@ impl SandboxEgressPolicy {
 /// built from decrypted DB rows. Converted to [`SandboxEgressPolicy`] before it
 /// reaches Envoy rendering. This type holds plaintext secrets and must never be
 /// persisted or logged.
+///
+/// All credential families (LLM, MCP, Git, External) are unified as a flat list
+/// of [`EgressCredentialRoute`]. Builders emit routes directly; the `kind` field
+/// on each route is diagnostic. To add a new credential type, write a builder
+/// that returns `Vec<EgressCredentialRoute>` and `extend` this list — no
+/// intermediate struct or `to_routes` change needed.
 #[derive(Debug, Clone, Default)]
 pub struct SandboxCredentials {
-    pub llm: Option<LlmEgress>,
-    pub mcp: Vec<McpEgress>,
-    pub git: Vec<GitEgress>,
-    pub external: Vec<EgressCredentialRoute>,
+    pub routes: Vec<EgressCredentialRoute>,
 }
 
-/// One LLM upstream: real host + auth headers. The agent's base URL is rewritten
-/// to `http://llm-egress.internal` so the sandbox never learns the real host.
-#[derive(Debug, Clone)]
-pub struct LlmEgress {
-    /// Real upstream host, e.g. `llm.internal.example.com`.
-    pub upstream_host: String,
-    /// Real upstream port.
-    pub upstream_port: u16,
-    /// Real upstream base path prefix, e.g. `/` or `/v1`.
-    pub upstream_prefix: String,
-    /// Whether the upstream is HTTPS.
-    pub upstream_tls: bool,
-    /// Headers to inject (the real key).
-    pub headers: Vec<(String, String)>,
-}
-
-/// One MCP server upstream keyed by its logical name (matches `.mcp.json`).
-#[derive(Debug, Clone)]
-pub struct McpEgress {
-    pub name: String,
-    pub upstream_host: String,
-    pub upstream_port: u16,
-    /// Real upstream base path, e.g. `/sse`.
-    pub upstream_prefix: String,
-    pub upstream_tls: bool,
-    pub headers: Vec<(String, String)>,
-}
-
-/// One git remote upstream keyed by a stable slug used in the path prefix.
-#[derive(Debug, Clone)]
-pub struct GitEgress {
-    /// Stable slug used in `/git/<slug>/`, derived from the repo mount.
-    pub slug: String,
-    pub upstream_host: String,
-    pub upstream_port: u16,
-    /// Real repo path prefix, e.g. `/org/repo.git`.
-    pub upstream_prefix: String,
-    pub upstream_tls: bool,
-    pub headers: Vec<(String, String)>,
-}
 
 impl SandboxCredentials {
     pub fn to_policy(
@@ -309,79 +272,25 @@ impl SandboxCredentials {
         }
     }
 
-    /// Flatten into credential routes. The sandbox targets placeholder hosts:
-    /// LLM at `/` on `llm-egress.internal`; each MCP server at `/mcp/<name>/` on
-    /// `mcp-egress.internal`; each git remote at `/git/<slug>/` on
-    /// `git-egress.internal`. Each route `host_rewrite`s to the real upstream and
-    /// routes to that upstream's dedicated cluster.
+    /// Flatten into credential routes, filling each route's `cluster_name` from
+    /// its upstream host/port when the builder left it empty. All families
+    /// (LLM/MCP/Git/External) already carry fully-formed routes; this is the
+    /// single point where the per-sandbox cluster name is resolved.
     pub fn to_routes(&self, sandbox_id: &Uuid) -> Vec<CredentialRoute> {
-        let mut routes = Vec::new();
-        if let Some(llm) = &self.llm {
-            let cluster_name =
-                upstream_cluster_name(sandbox_id, &llm.upstream_host, llm.upstream_port);
-            routes.push(CredentialRoute {
-                id: "llm".to_string(),
-                kind: EgressKind::Llm,
-                exposure: EgressExposure::Placeholder,
-                match_host: LLM_EGRESS_HOST.to_string(),
-                match_prefix: "/".to_string(),
-                exact_path: false,
-                upstream_host: llm.upstream_host.clone(),
-                upstream_port: llm.upstream_port,
-                upstream_prefix: normalize_rewrite_base_prefix(&llm.upstream_prefix),
-                upstream_tls: llm.upstream_tls,
-                cluster_name,
-                inject_headers: llm.headers.clone(),
-                remove_headers: vec![],
-            });
-        }
-        for mcp in &self.mcp {
-            let cluster_name =
-                upstream_cluster_name(sandbox_id, &mcp.upstream_host, mcp.upstream_port);
-            routes.push(CredentialRoute {
-                id: format!("mcp:{}", mcp.name),
-                kind: EgressKind::Mcp,
-                exposure: EgressExposure::Placeholder,
-                match_host: MCP_EGRESS_HOST.to_string(),
-                match_prefix: format!("/mcp/{}/", mcp.name),
-                exact_path: false,
-                upstream_host: mcp.upstream_host.clone(),
-                upstream_port: mcp.upstream_port,
-                upstream_prefix: normalize_prefix(&mcp.upstream_prefix),
-                upstream_tls: mcp.upstream_tls,
-                cluster_name,
-                inject_headers: mcp.headers.clone(),
-                remove_headers: vec![],
-            });
-        }
-        for git in &self.git {
-            let cluster_name =
-                upstream_cluster_name(sandbox_id, &git.upstream_host, git.upstream_port);
-            routes.push(CredentialRoute {
-                id: format!("git:{}", git.slug),
-                kind: EgressKind::Git,
-                exposure: EgressExposure::Placeholder,
-                match_host: GIT_EGRESS_HOST.to_string(),
-                match_prefix: format!("/git/{}/", git.slug),
-                exact_path: false,
-                upstream_host: git.upstream_host.clone(),
-                upstream_port: git.upstream_port,
-                upstream_prefix: normalize_prefix(&git.upstream_prefix),
-                upstream_tls: git.upstream_tls,
-                cluster_name,
-                inject_headers: git.headers.clone(),
-                remove_headers: vec![],
-            });
-        }
-        for external in &self.external {
-            let mut route = external.clone();
-            if route.cluster_name.is_empty() {
-                route.cluster_name =
-                    upstream_cluster_name(sandbox_id, &route.upstream_host, route.upstream_port);
-            }
-            routes.push(route);
-        }
-        routes
+        self.routes
+            .iter()
+            .map(|r| {
+                let mut route = r.clone();
+                if route.cluster_name.is_empty() {
+                    route.cluster_name = upstream_cluster_name(
+                        sandbox_id,
+                        &route.upstream_host,
+                        route.upstream_port,
+                    );
+                }
+                route
+            })
+            .collect()
     }
 
     /// The per-upstream STRICT_DNS clusters this sandbox needs, de-duplicated by
@@ -392,7 +301,7 @@ impl SandboxCredentials {
 }
 
 /// Ensure a path prefix is non-empty and starts with `/`.
-fn normalize_prefix(p: &str) -> String {
+pub(crate) fn normalize_prefix(p: &str) -> String {
     if p.is_empty() {
         "/".to_string()
     } else if p.starts_with('/') {
@@ -402,12 +311,53 @@ fn normalize_prefix(p: &str) -> String {
     }
 }
 
-fn normalize_rewrite_base_prefix(p: &str) -> String {
+pub(crate) fn normalize_rewrite_base_prefix(p: &str) -> String {
     let mut prefix = normalize_prefix(p);
     if prefix != "/" && !prefix.ends_with('/') {
         prefix.push('/');
     }
     prefix
+}
+
+/// Parsed upstream target from a URL. Eliminates the redundant
+/// `Url::parse` → host/port/prefix/tls extraction duplicated across the
+/// LLM/MCP/Git/External credential builders. `prefix` is the raw URL path
+/// (`/` when empty); callers apply their own prefix normalization on top.
+#[derive(Debug, Clone)]
+pub struct UpstreamTarget {
+    pub host: String,
+    pub port: u16,
+    pub prefix: String,
+    pub tls: bool,
+}
+
+impl UpstreamTarget {
+    /// Parse a URL into upstream target components. Errors on unsupported
+    /// schemes (only http/https) or a missing host.
+    pub fn from_url(raw: &str) -> anyhow::Result<Self> {
+        let url = url::Url::parse(raw)?;
+        let tls = match url.scheme() {
+            "https" => true,
+            "http" => false,
+            other => anyhow::bail!("unsupported scheme: {other}"),
+        };
+        let host = url
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("URL has no host"))?
+            .to_string();
+        let port = url.port().unwrap_or(if tls { 443 } else { 80 });
+        let prefix = if url.path().is_empty() {
+            "/".to_string()
+        } else {
+            url.path().to_string()
+        };
+        Ok(Self {
+            host,
+            port,
+            prefix,
+            tls,
+        })
+    }
 }
 
 fn route_prefix_rewrite(r: &CredentialRoute) -> String {
@@ -1936,23 +1886,41 @@ mod tests {
         // upstream and reference a per-upstream STRICT_DNS cluster that CDS
         // delivers. Validated live against Envoy; this locks the wire shape.
         let creds = SandboxCredentials {
-            llm: Some(LlmEgress {
-                upstream_host: "llm.internal.example.com".to_string(),
-                upstream_port: 443,
-                upstream_prefix: "/v1".to_string(),
-                upstream_tls: true,
-                headers: vec![("authorization".to_string(), "Bearer sk".to_string())],
-            }),
-            mcp: vec![McpEgress {
-                name: "gitlab".to_string(),
-                upstream_host: "mcp.example.com".to_string(),
-                upstream_port: 8443,
-                upstream_prefix: "/sse".to_string(),
-                upstream_tls: true,
-                headers: vec![("authorization".to_string(), "Bearer t".to_string())],
-            }],
-            git: vec![],
-            external: vec![],
+            routes: vec![
+                EgressCredentialRoute {
+                    id: "llm".to_string(),
+                    kind: EgressKind::Llm,
+                    exposure: EgressExposure::Placeholder,
+                    match_host: LLM_EGRESS_HOST.to_string(),
+                    match_prefix: "/".to_string(),
+                    exact_path: false,
+                    upstream_host: "llm.internal.example.com".to_string(),
+                    upstream_port: 443,
+                    upstream_prefix: "/v1/".to_string(),
+                    upstream_tls: true,
+                    cluster_name: String::new(),
+                    inject_headers: vec![(
+                        "authorization".to_string(),
+                        "Bearer sk".to_string(),
+                    )],
+                    remove_headers: vec![],
+                },
+                EgressCredentialRoute {
+                    id: "mcp:gitlab".to_string(),
+                    kind: EgressKind::Mcp,
+                    exposure: EgressExposure::Placeholder,
+                    match_host: MCP_EGRESS_HOST.to_string(),
+                    match_prefix: "/mcp/gitlab/".to_string(),
+                    exact_path: false,
+                    upstream_host: "mcp.example.com".to_string(),
+                    upstream_port: 8443,
+                    upstream_prefix: "/sse".to_string(),
+                    upstream_tls: true,
+                    cluster_name: String::new(),
+                    inject_headers: vec![("authorization".to_string(), "Bearer t".to_string())],
+                    remove_headers: vec![],
+                },
+            ],
         };
         let sid = Uuid::nil();
         let routes = creds.to_routes(&sid);
@@ -2010,10 +1978,7 @@ mod tests {
         let sid = Uuid::nil();
         let cluster = upstream_cluster_name(&sid, "crm.example.com", 443);
         let creds = SandboxCredentials {
-            llm: None,
-            mcp: vec![],
-            git: vec![],
-            external: vec![
+            routes: vec![
                 EgressCredentialRoute {
                     id: "external:crm".to_string(),
                     kind: EgressKind::External,
@@ -2114,10 +2079,7 @@ mod tests {
             remove_headers: vec!["cookie".to_string()],
         };
         let creds = SandboxCredentials {
-            llm: None,
-            mcp: vec![],
-            git: vec![],
-            external: vec![
+            routes: vec![
                 mk("external-direct:crm-api", "/api/"),
                 mk("external-direct:crm-auth", "/auth/api/"),
             ],

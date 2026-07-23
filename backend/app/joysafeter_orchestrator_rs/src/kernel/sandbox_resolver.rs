@@ -15,7 +15,9 @@ use crate::db::queries;
 use crate::kernel::harness_input_builder::VaultCipher;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
-    EgressCredentialRoute, GitEgress, LlmEgress, McpEgress, SandboxCredentials,
+    normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
+    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST, LLM_EGRESS_HOST,
+    MCP_EGRESS_HOST,
 };
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
@@ -648,17 +650,18 @@ impl SandboxResolver {
         // legacy behaviour (key stays in env) since they have no proxy.
         let mut credentials = SandboxCredentials::default();
         if network.as_deref() == Some("none") {
-            credentials.llm =
-                Self::extract_llm_egress(&mut env, &self.config.llm_egress_allowed_hosts);
-            credentials.mcp =
-                Self::build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?;
-            credentials.git = Self::build_git_egress(&self.pool, session_id).await?;
-            credentials.external = Self::build_external_egress(
-                &self.pool,
-                environment.as_ref(),
-                project_id.as_deref(),
-            )
-            .await;
+            let mut routes = Vec::new();
+            routes.extend(Self::extract_llm_egress(
+                &mut env,
+                &self.config.llm_egress_allowed_hosts,
+            ));
+            routes.extend(Self::build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?);
+            routes.extend(Self::build_git_egress(&self.pool, session_id).await?);
+            routes.extend(
+                Self::build_external_egress(&self.pool, environment.as_ref(), project_id.as_deref())
+                    .await,
+            );
+            credentials = SandboxCredentials { routes };
         }
 
         Ok(ResolveContext {
@@ -792,7 +795,7 @@ impl SandboxResolver {
     fn extract_llm_egress(
         env: &mut HashMap<String, String>,
         allowed_hosts: &[String],
-    ) -> Option<LlmEgress> {
+    ) -> Vec<EgressCredentialRoute> {
         // Determine provider + auth scheme by which key variable is present.
         //
         // Anthropic supports two conventions and the header MUST match how the
@@ -864,7 +867,7 @@ impl SandboxResolver {
                 false,
             )
         } else {
-            return None;
+            return vec![];
         };
 
         let is_anthropic = key_var == "ANTHROPIC_API_KEY" || key_var == "ANTHROPIC_AUTH_TOKEN";
@@ -874,7 +877,9 @@ impl SandboxResolver {
 
         // Take the key value, removing it (and any Anthropic alias) from env so
         // no real LLM credential remains in the container.
-        let key_value = env.remove(key_var)?;
+        let Some(key_value) = env.remove(key_var) else {
+            return vec![];
+        };
         env.remove("ANTHROPIC_API_KEY");
         env.remove("ANTHROPIC_AUTH_TOKEN");
         if is_openai {
@@ -902,7 +907,7 @@ impl SandboxResolver {
                     Ok(url) => url,
                     Err(e) => {
                         warn!(base_url_var, error = %e, "Invalid LLM base URL; skipping credential injection");
-                        return None;
+                        return vec![];
                     }
                 };
                 if url.scheme() != "http" && url.scheme() != "https" {
@@ -911,12 +916,12 @@ impl SandboxResolver {
                         scheme = url.scheme(),
                         "Unsupported LLM base URL scheme; skipping credential injection"
                     );
-                    return None;
+                    return vec![];
                 }
                 let host = match (url.host_str(), default_host) {
                     (Some(h), _) => h.to_string(),
                     (None, Some(d)) => d.to_string(),
-                    (None, None) => return None,
+                    (None, None) => return vec![],
                 };
                 let tls = url.scheme() == "https";
                 let port = url.port().unwrap_or(if tls { 443 } else { 80 });
@@ -934,7 +939,7 @@ impl SandboxResolver {
                         "LLM provider requires an explicit base URL (no fixed \
                      endpoint); skipping credential injection"
                     );
-                    return None;
+                    return vec![];
                 }
             },
         };
@@ -945,7 +950,7 @@ impl SandboxResolver {
                 upstream_host = %upstream_host,
                 "LLM base URL host is not allowlisted; skipping credential injection"
             );
-            return None;
+            return vec![];
         }
 
         // Claude Code requires a local API-key signal in non-interactive mode.
@@ -968,7 +973,7 @@ impl SandboxResolver {
         // The real host/port/path is only known to Envoy via the egress route.
         env.insert(
             base_url_var.to_string(),
-            format!("http://{}", crate::sandbox::lds_backend::LLM_EGRESS_HOST),
+            format!("http://{LLM_EGRESS_HOST}"),
         );
 
         let header_value = if is_bearer {
@@ -977,25 +982,34 @@ impl SandboxResolver {
             key_value
         };
 
-        Some(LlmEgress {
+        vec![EgressCredentialRoute {
+            id: "llm".to_string(),
+            kind: EgressKind::Llm,
+            exposure: EgressExposure::Placeholder,
+            match_host: LLM_EGRESS_HOST.to_string(),
+            match_prefix: "/".to_string(),
+            exact_path: false,
             upstream_host,
             upstream_port,
-            upstream_prefix,
+            upstream_prefix: normalize_rewrite_base_prefix(&upstream_prefix),
             upstream_tls,
-            headers: vec![(header_name.to_string(), header_value)],
-        })
+            cluster_name: String::new(),
+            inject_headers: vec![(header_name.to_string(), header_value)],
+            remove_headers: vec![],
+        }]
     }
 
     /// Build MCP egress credentials for a sandbox: for each remote MCP server the
     /// agent references, match a vault credential by URL, decrypt its token, and
-    /// produce an [`McpEgress`] keyed by the server name. The `.mcp.json` written
+    /// produce an [`EgressCredentialRoute`] keyed by the server name. The
+    /// `.mcp.json` written
     /// into the sandbox points at `mcp-egress.internal/mcp/<name>/` with no token;
     /// Envoy injects the real `Authorization` here.
     async fn build_mcp_egress(
         pool: &PgPool,
         session_id: Option<Uuid>,
         agent: Option<&JoySafeterAgent>,
-    ) -> anyhow::Result<Vec<McpEgress>> {
+    ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
         let Some(agent) = agent else {
             return Ok(vec![]);
         };
@@ -1089,40 +1103,36 @@ impl SandboxResolver {
             let Some(token) = token_by_url.get(&url) else {
                 continue;
             };
-            let parsed = Url::parse(&url)
+            let upstream = UpstreamTarget::from_url(&url)
                 .map_err(|e| anyhow::anyhow!("invalid MCP server URL '{url}': {e}"))?;
-            let tls = parsed.scheme() == "https";
-            let host = parsed
-                .host_str()
-                .ok_or_else(|| anyhow::anyhow!("MCP server URL '{url}' has no host"))?
-                .to_string();
-            let port = parsed.port().unwrap_or(if tls { 443 } else { 80 });
-            let prefix = if parsed.path().is_empty() {
-                "/".to_string()
-            } else {
-                parsed.path().to_string()
-            };
-            egress.push(McpEgress {
-                name,
-                upstream_host: host,
-                upstream_port: port,
-                upstream_prefix: prefix,
-                upstream_tls: tls,
-                headers: vec![("authorization".to_string(), format!("Bearer {token}"))],
+            egress.push(EgressCredentialRoute {
+                id: format!("mcp:{name}"),
+                kind: EgressKind::Mcp,
+                exposure: EgressExposure::Placeholder,
+                match_host: MCP_EGRESS_HOST.to_string(),
+                match_prefix: format!("/mcp/{name}/"),
+                exact_path: false,
+                upstream_host: upstream.host,
+                upstream_port: upstream.port,
+                upstream_prefix: normalize_prefix(&upstream.prefix),
+                upstream_tls: upstream.tls,
+                cluster_name: String::new(),
+                inject_headers: vec![("authorization".to_string(), format!("Bearer {token}"))],
+                remove_headers: vec![],
             });
         }
         Ok(egress)
     }
 
     /// Build git egress credentials: decrypt each session repo's clone token and
-    /// produce a [`GitEgress`] keyed by a stable slug ([`git_repo_slug`]). The
+    /// produce an [`EgressCredentialRoute`] keyed by a stable slug ([`git_repo_slug`]). The
     /// sandbox clones from `git-egress.internal/git/<slug>/` (no token); Envoy
     /// rewrites to the real host + repo path, injects HTTP Basic auth, and
     /// forwards over the upstream scheme. The real token never enters the sandbox.
     async fn build_git_egress(
         pool: &PgPool,
         session_id: Option<Uuid>,
-    ) -> anyhow::Result<Vec<GitEgress>> {
+    ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
         let Some(session_id) = session_id else {
             return Ok(vec![]);
         };
@@ -1157,17 +1167,11 @@ impl SandboxResolver {
             if token.is_empty() {
                 continue;
             }
-            let parsed = Url::parse(&url)
+            let upstream = UpstreamTarget::from_url(&url)
                 .map_err(|e| anyhow::anyhow!("invalid Git repo URL '{url}': {e}"))?;
-            let tls = parsed.scheme() == "https";
-            let host = parsed
-                .host_str()
-                .ok_or_else(|| anyhow::anyhow!("Git repo URL '{url}' has no host"))?
-                .to_string();
-            let port = parsed.port().unwrap_or(if tls { 443 } else { 80 });
             // Preserve the repo path so Envoy rewrites /git/<slug>/ back to the
             // real repo path (e.g. /org/repo.git/), keeping git smart-HTTP happy.
-            let mut prefix = parsed.path().to_string();
+            let mut prefix = upstream.prefix;
             if !prefix.ends_with('/') {
                 prefix.push('/');
             }
@@ -1175,13 +1179,21 @@ impl SandboxResolver {
             // password = token. base64("x-access-token:<token>").
             let basic =
                 base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
-            egress.push(GitEgress {
-                slug: crate::sandbox::lds_backend::git_repo_slug(&mount_name, idx),
-                upstream_host: host,
-                upstream_port: port,
+            let slug = crate::sandbox::lds_backend::git_repo_slug(&mount_name, idx);
+            egress.push(EgressCredentialRoute {
+                id: format!("git:{slug}"),
+                kind: EgressKind::Git,
+                exposure: EgressExposure::Placeholder,
+                match_host: GIT_EGRESS_HOST.to_string(),
+                match_prefix: format!("/git/{slug}/"),
+                exact_path: false,
+                upstream_host: upstream.host,
+                upstream_port: upstream.port,
                 upstream_prefix: prefix,
-                upstream_tls: tls,
-                headers: vec![("authorization".to_string(), format!("Basic {basic}"))],
+                upstream_tls: upstream.tls,
+                cluster_name: String::new(),
+                inject_headers: vec![("authorization".to_string(), format!("Basic {basic}"))],
+                remove_headers: vec![],
             });
         }
         Ok(egress)
@@ -1198,8 +1210,6 @@ impl SandboxResolver {
         environment: Option<&EnvironmentRow>,
         project_id: Option<&str>,
     ) -> Vec<EgressCredentialRoute> {
-        use crate::sandbox::lds_backend::{EgressExposure, EgressKind};
-
         let Some(services) = environment
             .and_then(|environment| environment.config.get("egress_services"))
             .and_then(|value| value.as_array())
@@ -1220,20 +1230,14 @@ impl SandboxResolver {
             let Some(base_url) = service.get("base_url").and_then(|value| value.as_str()) else {
                 continue;
             };
-            let Ok(parsed) = Url::parse(base_url) else {
+            let Ok(upstream) = UpstreamTarget::from_url(base_url) else {
                 warn!(service = %name, "Invalid external egress service base_url");
                 continue;
             };
-            if parsed.scheme() != "http" && parsed.scheme() != "https" {
-                warn!(service = %name, scheme = parsed.scheme(), "Unsupported external egress service scheme");
-                continue;
-            }
-            let Some(host) = parsed.host_str().map(ToOwned::to_owned) else {
-                continue;
-            };
-            let tls = parsed.scheme() == "https";
-            let port = parsed.port().unwrap_or(if tls { 443 } else { 80 });
-            let upstream_prefix = normalize_external_upstream_prefix(parsed.path());
+            let host = upstream.host;
+            let tls = upstream.tls;
+            let port = upstream.port;
+            let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
 
             let Some(credential_ref) = service
                 .get("credential_ref")
@@ -1754,14 +1758,14 @@ pub(crate) async fn rebuild_sandbox_credentials(
     sandbox: &crate::db::models::JoySafeterSandbox,
     llm_egress_allowed_hosts: &[String],
 ) -> SandboxCredentials {
-    let mut creds = SandboxCredentials::default();
+    let mut routes = Vec::new();
 
     let Some(session_id) = sandbox.chat_session_id else {
-        return creds;
+        return SandboxCredentials { routes };
     };
     let session = match queries::get_session(pool, session_id).await {
         Ok(Some(s)) => s,
-        _ => return creds,
+        _ => return SandboxCredentials { routes },
     };
     let live_agent = match session.agent_id {
         Some(aid) => queries::get_agent(pool, aid).await.ok().flatten(),
@@ -1798,12 +1802,15 @@ pub(crate) async fn rebuild_sandbox_credentials(
             SandboxResolver::resolve_agent_env_from(pool, agent.as_ref(), environment.as_ref())
                 .await
         {
-            creds.llm = SandboxResolver::extract_llm_egress(&mut env, llm_egress_allowed_hosts);
+            routes.extend(SandboxResolver::extract_llm_egress(
+                &mut env,
+                llm_egress_allowed_hosts,
+            ));
         }
     }
 
     match SandboxResolver::build_mcp_egress(pool, Some(session_id), agent.as_ref()).await {
-        Ok(mcp) => creds.mcp = mcp,
+        Ok(mcp) => routes.extend(mcp),
         Err(e) => warn!(
             session_id = %session_id,
             sandbox_id = %sandbox.id,
@@ -1811,14 +1818,14 @@ pub(crate) async fn rebuild_sandbox_credentials(
         ),
     }
     match SandboxResolver::build_git_egress(pool, Some(session_id)).await {
-        Ok(git) => creds.git = git,
+        Ok(git) => routes.extend(git),
         Err(e) => warn!(
             session_id = %session_id,
             sandbox_id = %sandbox.id,
             "Failed to rebuild Git egress credentials during sandbox recovery: {e}"
         ),
     }
-    creds
+    SandboxCredentials { routes }
 }
 
 /// Standalone environment loader for recovery (mirrors `load_environment`).
@@ -2329,6 +2336,18 @@ mod egress_tests {
         hosts.iter().map(|host| host.to_string()).collect()
     }
 
+    /// Run `extract_llm_egress` and return the single LLM route it emits, if any.
+    /// The builder now returns a `Vec<EgressCredentialRoute>`; LLM egress is
+    /// always zero or one route.
+    fn extract_llm_route(
+        env: &mut HashMap<String, String>,
+        allowed_hosts: &[String],
+    ) -> Option<EgressCredentialRoute> {
+        SandboxResolver::extract_llm_egress(env, allowed_hosts)
+            .into_iter()
+            .next()
+    }
+
     fn database_url() -> Option<String> {
         env::var("DATABASE_URL")
             .ok()
@@ -2468,9 +2487,8 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://llm.internal.example.com/v1"),
             ("DB_PASSWORD", "keepme"),
         ]);
-        let egress =
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["llm.internal.example.com"]))
-                .expect("egress");
+        let egress = extract_llm_route(&mut e, &allow(&["llm.internal.example.com"]))
+            .expect("egress");
 
         // Bearer header, real host preserved in egress, TLS upstream.
         assert_eq!(egress.upstream_host, "llm.internal.example.com");
@@ -2478,7 +2496,7 @@ mod egress_tests {
         assert_eq!(egress.upstream_prefix, "/v1/");
         assert!(egress.upstream_tls);
         assert_eq!(
-            egress.headers,
+            egress.inject_headers,
             vec![("authorization".to_string(), "Bearer tok-123".to_string())]
         );
 
@@ -2504,10 +2522,10 @@ mod egress_tests {
             ("ANTHROPIC_API_KEY", "sk-ant-xyz"),
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
-        let egress = SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.anthropic.com"]))
+        let egress = extract_llm_route(&mut e, &allow(&["api.anthropic.com"]))
             .expect("egress");
         assert_eq!(
-            egress.headers,
+            egress.inject_headers,
             vec![("x-api-key".to_string(), "sk-ant-xyz".to_string())]
         );
         assert_eq!(
@@ -2523,7 +2541,7 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
 
-        assert!(SandboxResolver::extract_llm_egress(&mut e, &[]).is_none());
+        assert!(SandboxResolver::extract_llm_egress(&mut e, &[]).is_empty());
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
@@ -2540,7 +2558,7 @@ mod egress_tests {
         ]);
 
         assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.anthropic.com"])).is_none()
+            SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.anthropic.com"])).is_empty()
         );
         assert!(!e.contains_key("ANTHROPIC_AUTH_TOKEN"));
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
@@ -2556,7 +2574,7 @@ mod egress_tests {
             ("ANTHROPIC_AUTH_TOKEN", "tok-123"),
             ("ANTHROPIC_BASE_URL", "http://ai-api.jdcloud.com/anthropic"),
         ]);
-        let egress = SandboxResolver::extract_llm_egress(&mut e, &allow(&["ai-api.jdcloud.com"]))
+        let egress = extract_llm_route(&mut e, &allow(&["ai-api.jdcloud.com"]))
             .expect("egress");
         assert_eq!(egress.upstream_host, "ai-api.jdcloud.com");
         assert_eq!(egress.upstream_port, 80);
@@ -2571,11 +2589,11 @@ mod egress_tests {
             ("OPENAI_BASE_URL", "https://gw.internal/v1"),
         ]);
         let egress =
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["gw.internal"])).expect("egress");
+            extract_llm_route(&mut e, &allow(&["gw.internal"])).expect("egress");
         assert_eq!(egress.upstream_host, "gw.internal");
         assert_eq!(egress.upstream_prefix, "/v1/");
         assert_eq!(
-            egress.headers,
+            egress.inject_headers,
             vec![("authorization".to_string(), "Bearer sk-oai".to_string())]
         );
         assert_eq!(
@@ -2592,7 +2610,7 @@ mod egress_tests {
     #[test]
     fn no_llm_key_returns_none() {
         let mut e = env(&[("DB_PASSWORD", "x")]);
-        assert!(SandboxResolver::extract_llm_egress(&mut e, &[]).is_none());
+        assert!(SandboxResolver::extract_llm_egress(&mut e, &[]).is_empty());
         assert_eq!(e.get("DB_PASSWORD").unwrap(), "x");
     }
 
@@ -2604,7 +2622,7 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "http://llm.internal:8080/v1"),
         ]);
         let egress =
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["llm.internal"])).expect("egress");
+            extract_llm_route(&mut e, &allow(&["llm.internal"])).expect("egress");
         assert_eq!(egress.upstream_host, "llm.internal");
         assert_eq!(egress.upstream_port, 8080);
         assert_eq!(egress.upstream_prefix, "/v1/");
@@ -2619,7 +2637,7 @@ mod egress_tests {
     fn gemini_uses_x_goog_api_key_and_default_host() {
         // Google Generative Language API: raw key in x-goog-api-key, default host.
         let mut e = env(&[("GEMINI_API_KEY", "AIzaXYZ")]);
-        let egress = SandboxResolver::extract_llm_egress(
+        let egress = extract_llm_route(
             &mut e,
             &allow(&["generativelanguage.googleapis.com"]),
         )
@@ -2627,7 +2645,7 @@ mod egress_tests {
         assert_eq!(egress.upstream_host, "generativelanguage.googleapis.com");
         assert!(egress.upstream_tls);
         assert_eq!(
-            egress.headers,
+            egress.inject_headers,
             vec![("x-goog-api-key".to_string(), "AIzaXYZ".to_string())]
         );
         assert!(!e.contains_key("GEMINI_API_KEY"));
@@ -2641,13 +2659,13 @@ mod egress_tests {
     #[test]
     fn google_api_key_alias_also_works() {
         let mut e = env(&[("GOOGLE_API_KEY", "AIzaABC")]);
-        let egress = SandboxResolver::extract_llm_egress(
+        let egress = extract_llm_route(
             &mut e,
             &allow(&["generativelanguage.googleapis.com"]),
         )
         .expect("egress");
         assert_eq!(
-            egress.headers,
+            egress.inject_headers,
             vec![("x-goog-api-key".to_string(), "AIzaABC".to_string())]
         );
         assert!(!e.contains_key("GOOGLE_API_KEY"));
@@ -2660,12 +2678,12 @@ mod egress_tests {
             ("AZURE_OPENAI_API_KEY", "az-secret"),
             ("AZURE_OPENAI_BASE_URL", "https://my-res.openai.azure.com"),
         ]);
-        let egress = SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"]))
+        let egress = extract_llm_route(&mut e, &allow(&["*.openai.azure.com"]))
             .expect("egress");
         assert_eq!(egress.upstream_host, "my-res.openai.azure.com");
         assert!(egress.upstream_tls);
         assert_eq!(
-            egress.headers,
+            egress.inject_headers,
             vec![("api-key".to_string(), "az-secret".to_string())]
         );
         assert!(!e.contains_key("AZURE_OPENAI_API_KEY"));
@@ -2679,7 +2697,7 @@ mod egress_tests {
         ]);
 
         assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_none()
+            SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_empty()
         );
         assert!(!e.contains_key("AZURE_OPENAI_API_KEY"));
     }
@@ -2690,7 +2708,7 @@ mod egress_tests {
         // key toward an unknown host.
         let mut e = env(&[("AZURE_OPENAI_API_KEY", "az-secret")]);
         assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_none()
+            SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_empty()
         );
     }
 
@@ -2703,7 +2721,7 @@ mod egress_tests {
             ]);
 
             assert!(
-                SandboxResolver::extract_llm_egress(&mut e, &allow(&[host])).is_none(),
+                SandboxResolver::extract_llm_egress(&mut e, &allow(&[host])).is_empty(),
                 "host should be rejected: {host}"
             );
             assert!(!e.contains_key("OPENAI_API_KEY"));
@@ -2717,7 +2735,7 @@ mod egress_tests {
             ("OPENAI_BASE_URL", "file:///tmp/socket"),
         ]);
 
-        assert!(SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.openai.com"])).is_none());
+        assert!(SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.openai.com"])).is_empty());
         assert!(!e.contains_key("OPENAI_API_KEY"));
     }
 
@@ -3451,13 +3469,14 @@ mod egress_tests {
                 .expect("build mcp egress");
 
             assert_eq!(egress.len(), 1);
-            assert_eq!(egress[0].name, "secure-mcp");
+            assert_eq!(egress[0].id, "mcp:secure-mcp");
+            assert_eq!(egress[0].match_prefix, "/mcp/secure-mcp/");
             assert_eq!(egress[0].upstream_host, "mcp.vault-alias.example");
             assert_eq!(egress[0].upstream_port, 443);
             assert_eq!(egress[0].upstream_prefix, "/api");
             assert!(egress[0].upstream_tls);
             assert_eq!(
-                egress[0].headers,
+                egress[0].inject_headers,
                 vec![(
                     "authorization".to_string(),
                     "Bearer vault-token".to_string()
