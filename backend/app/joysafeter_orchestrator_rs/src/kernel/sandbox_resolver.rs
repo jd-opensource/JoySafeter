@@ -657,7 +657,6 @@ impl SandboxResolver {
                 &self.pool,
                 environment.as_ref(),
                 project_id.as_deref(),
-                &mut env,
             )
             .await;
         }
@@ -1198,11 +1197,8 @@ impl SandboxResolver {
         pool: &PgPool,
         environment: Option<&EnvironmentRow>,
         project_id: Option<&str>,
-        env: &mut HashMap<String, String>,
     ) -> Vec<EgressCredentialRoute> {
-        use crate::sandbox::lds_backend::{
-            EgressExposure, EgressKind, EXTERNAL_EGRESS_HOST,
-        };
+        use crate::sandbox::lds_backend::{EgressExposure, EgressKind};
 
         let Some(services) = environment
             .and_then(|environment| environment.config.get("egress_services"))
@@ -1267,13 +1263,6 @@ impl SandboxResolver {
                 }
             };
 
-            let match_prefix = format!("/services/{name}/");
-            let placeholder_base = format!("http://{EXTERNAL_EGRESS_HOST}{match_prefix}");
-            env.insert(
-                format!("{}_BASE_URL", external_service_env_name(&name)),
-                placeholder_base,
-            );
-
             let remove_headers = vec![
                 "authorization".to_string(),
                 "cookie".to_string(),
@@ -1282,27 +1271,9 @@ impl SandboxResolver {
                 "x-goog-api-key".to_string(),
             ];
 
-            // Placeholder route: sandbox targets http://external-egress.internal/services/<name>/;
-            // Envoy rewrites host/path to the real upstream and injects the credential.
-            routes.push(EgressCredentialRoute {
-                id: format!("external:{name}"),
-                kind: EgressKind::External,
-                exposure: EgressExposure::Placeholder,
-                match_host: EXTERNAL_EGRESS_HOST.to_string(),
-                match_prefix,
-                exact_path: false,
-                upstream_host: host.clone(),
-                upstream_port: port,
-                upstream_prefix: upstream_prefix.clone(),
-                upstream_tls: tls,
-                cluster_name: String::new(),
-                inject_headers: headers.clone(),
-                remove_headers: remove_headers.clone(),
-            });
-
-            // Transparent route(s): sandbox may instead call the real host over
-            // plaintext http. Envoy matches the real host vhost, injects the
-            // credential, and TLS-originates to the real upstream when needed.
+            // Transparent route(s): sandbox calls the real host over plaintext http.
+            // Envoy matches the real host vhost, injects the credential, and
+            // TLS-originates to the real upstream when needed.
             let allowed_paths: Vec<String> = service
                 .get("allowed_paths")
                 .and_then(|value| value.as_array())
@@ -2260,18 +2231,6 @@ fn sanitize_external_service_name(name: &str) -> String {
         .collect::<String>()
         .trim_matches('-')
         .to_string()
-}
-
-fn external_service_env_name(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 fn normalize_external_upstream_prefix(path: &str) -> String {
