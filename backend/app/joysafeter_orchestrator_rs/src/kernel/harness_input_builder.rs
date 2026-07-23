@@ -1103,7 +1103,10 @@ impl HarnessInputBuilder {
 }
 
 fn should_inject_conversation_history(provider: &str, has_harness_resume: bool) -> bool {
-    matches!(provider, "claude" | "codex" | "native") && !has_harness_resume
+    super::engine_adapter::engine_spec(provider)
+        .map(|s| s.injects_conversation_history)
+        .unwrap_or(false)
+        && !has_harness_resume
 }
 
 fn session_container_work_dir(last_work_dir: Option<&str>) -> Option<String> {
@@ -2071,15 +2074,16 @@ fn resolve_model_from_secrets(input: &mut HarnessInput) {
         return;
     }
 
-    input.model = if input.provider == "codex" {
-        input.secrets.get("OPENAI_MODEL").cloned()
-    } else {
-        input
-            .secrets
-            .get("ANTHROPIC_MODEL")
-            .or_else(|| input.secrets.get("MODEL"))
-            .cloned()
-    };
+    // Look up model secret keys from the engine registry. For unknown engines,
+    // fall back to claude's keys (matches original else-branch behavior).
+    let spec = super::engine_adapter::engine_spec(&input.provider)
+        .or_else(|| super::engine_adapter::engine_spec("claude"));
+
+    input.model = spec.and_then(|s| {
+        s.model_secret_keys
+            .iter()
+            .find_map(|k| input.secrets.get(*k).cloned())
+    });
 }
 
 fn parse_mcp_configs(value: Option<&serde_json::Value>) -> Vec<proto::McpConfig> {

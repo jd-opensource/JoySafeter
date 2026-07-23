@@ -21,8 +21,9 @@ use crate::sandbox::lds_backend::{
 };
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
-const CLAUDE_CODE_PLACEHOLDER_API_KEY: &str = "joysafeter-placeholder-anthropic-api-key";
-const CODEX_PLACEHOLDER_OPENAI_API_KEY: &str = "joysafeter-placeholder-openai-api-key";
+use super::llm_providers::{
+    llm_provider_registry, CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY,
+};
 
 /// 3-stage sandbox resolution with full Python parity:
 /// 1. Reuse existing active sandbox for the session (with fingerprint check)
@@ -787,111 +788,42 @@ impl SandboxResolver {
     /// boundary. After this, the container env holds no LLM API key — the key is
     /// injected by Envoy at the egress boundary instead.
     ///
-    /// Recognises Anthropic (`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`) and
-    /// OpenAI (`OPENAI_API_KEY`) style credentials. The upstream host is derived
-    /// from the corresponding `*_BASE_URL` (default `api.anthropic.com` /
-    /// `api.openai.com`), then the base URL is rewritten to the plaintext egress
-    /// placeholder so the agent's HTTP client targets Envoy.
+    /// Provider detection is data-driven via [`llm_provider_registry`]: the first
+    /// spec whose detection key is present in `env` wins. The upstream host is
+    /// derived from the corresponding `*_BASE_URL` (using the spec's default when
+    /// unset), then the base URL is rewritten to the plaintext egress placeholder
+    /// so the agent's HTTP client targets Envoy.
     fn extract_llm_egress(
         env: &mut HashMap<String, String>,
         allowed_hosts: &[String],
     ) -> Vec<EgressCredentialRoute> {
-        // Determine provider + auth scheme by which key variable is present.
-        //
-        // Anthropic supports two conventions and the header MUST match how the
-        // token was issued, or a strict gateway rejects it:
-        //   * ANTHROPIC_AUTH_TOKEN → `Authorization: Bearer <token>` — the form
-        //     used by gateways / internal Anthropic-compatible endpoints.
-        //   * ANTHROPIC_API_KEY    → `x-api-key: <key>` — official Anthropic.
-        // OpenAI-compatible endpoints use `Authorization: Bearer <key>`.
-        // Gemini (Google Generative Language API) uses `x-goog-api-key: <key>`.
-        // Azure OpenAI uses `api-key: <key>` (raw, NOT Bearer).
-        //
-        // The env-var name is the signal: each vendor's SDK/CLI sets a well-known
-        // variable and each vendor's API mandates a specific header — a fixed
-        // per-vendor convention, not runtime detection.
-        //
-        // `default_host` is None for providers with no fixed endpoint (Azure:
-        // every resource is `<name>.openai.azure.com`), which therefore require an
-        // explicit base URL.
-        //
-        // Each tuple: (key var to take, base-URL var, default host, header, is_bearer).
-        let (key_var, base_url_var, default_host, header_name, is_bearer): (
-            &str,
-            &str,
-            Option<&str>,
-            &str,
-            bool,
-        ) = if env.contains_key("ANTHROPIC_AUTH_TOKEN") {
-            (
-                "ANTHROPIC_AUTH_TOKEN",
-                "ANTHROPIC_BASE_URL",
-                Some("api.anthropic.com"),
-                "authorization",
-                true,
-            )
-        } else if env.contains_key("ANTHROPIC_API_KEY") {
-            (
-                "ANTHROPIC_API_KEY",
-                "ANTHROPIC_BASE_URL",
-                Some("api.anthropic.com"),
-                "x-api-key",
-                false,
-            )
-        } else if env.contains_key("OPENAI_API_KEY") {
-            (
-                "OPENAI_API_KEY",
-                "OPENAI_BASE_URL",
-                Some("api.openai.com"),
-                "authorization",
-                true,
-            )
-        } else if env.contains_key("GEMINI_API_KEY") || env.contains_key("GOOGLE_API_KEY") {
-            (
-                if env.contains_key("GEMINI_API_KEY") {
-                    "GEMINI_API_KEY"
-                } else {
-                    "GOOGLE_API_KEY"
-                },
-                "GOOGLE_GEMINI_BASE_URL",
-                Some("generativelanguage.googleapis.com"),
-                "x-goog-api-key",
-                false,
-            )
-        } else if env.contains_key("AZURE_OPENAI_API_KEY") {
-            (
-                "AZURE_OPENAI_API_KEY",
-                "AZURE_OPENAI_BASE_URL",
-                None,
-                "api-key",
-                false,
-            )
-        } else {
+        // Find the first matching provider spec by scanning detection keys in
+        // registry order (preserves the original if/else precedence).
+        let registry = llm_provider_registry();
+        let (spec, matched_key) = match registry.iter().find_map(|spec| {
+            spec.detection_keys
+                .iter()
+                .find(|k| env.contains_key(**k))
+                .map(|k| (spec, *k))
+        }) {
+            Some(pair) => pair,
+            None => return vec![],
+        };
+
+        // Take the key value, removing it from env.
+        let Some(key_value) = env.remove(matched_key) else {
             return vec![];
         };
 
-        let is_anthropic = key_var == "ANTHROPIC_API_KEY" || key_var == "ANTHROPIC_AUTH_TOKEN";
-        let is_openai = key_var == "OPENAI_API_KEY";
-        let is_gemini = key_var == "GEMINI_API_KEY" || key_var == "GOOGLE_API_KEY";
-        let is_azure = key_var == "AZURE_OPENAI_API_KEY";
+        // Remove all extra keys associated with this provider (unconditional —
+        // mirrors the original behavior where Anthropic vars are always removed
+        // regardless of which one matched).
+        for extra in spec.extra_keys_to_remove {
+            env.remove(*extra);
+        }
 
-        // Take the key value, removing it (and any Anthropic alias) from env so
-        // no real LLM credential remains in the container.
-        let Some(key_value) = env.remove(key_var) else {
-            return vec![];
-        };
-        env.remove("ANTHROPIC_API_KEY");
-        env.remove("ANTHROPIC_AUTH_TOKEN");
-        if is_openai {
-            env.remove("OPENAI_API_KEY");
-        }
-        if is_gemini {
-            env.remove("GEMINI_API_KEY");
-            env.remove("GOOGLE_API_KEY");
-        }
-        if is_azure {
-            env.remove("AZURE_OPENAI_API_KEY");
-        }
+        let base_url_var = spec.base_url_var;
+        let default_host = spec.default_host;
 
         // Parse the configured base URL to learn the real upstream
         // host/port/scheme/path. The sandbox is then repointed at the placeholder
@@ -953,20 +885,11 @@ impl SandboxResolver {
             return vec![];
         }
 
-        // Claude Code requires a local API-key signal in non-interactive mode.
-        // The value is deliberately non-secret; Envoy overwrites/removes auth
-        // headers at the egress boundary and injects the real credential there.
-        if is_anthropic {
-            env.insert(
-                "ANTHROPIC_API_KEY".to_string(),
-                CLAUDE_CODE_PLACEHOLDER_API_KEY.to_string(),
-            );
-        }
-        if is_openai {
-            env.insert(
-                "OPENAI_API_KEY".to_string(),
-                CODEX_PLACEHOLDER_OPENAI_API_KEY.to_string(),
-            );
+        // Insert non-secret placeholder so the agent CLI doesn't fall back to
+        // interactive login. Envoy overwrites/removes auth headers at the egress
+        // boundary and injects the real credential there.
+        if let Some((placeholder_var, placeholder_val)) = spec.placeholder {
+            env.insert(placeholder_var.to_string(), placeholder_val.to_string());
         }
 
         // Repoint the agent at the placeholder egress host (plaintext http://).
@@ -976,7 +899,7 @@ impl SandboxResolver {
             format!("http://{LLM_EGRESS_HOST}"),
         );
 
-        let header_value = if is_bearer {
+        let header_value = if spec.is_bearer {
             format!("Bearer {key_value}")
         } else {
             key_value
@@ -994,7 +917,7 @@ impl SandboxResolver {
             upstream_prefix: normalize_rewrite_base_prefix(&upstream_prefix),
             upstream_tls,
             cluster_name: String::new(),
-            inject_headers: vec![(header_name.to_string(), header_value)],
+            inject_headers: vec![(spec.header_name.to_string(), header_value)],
             remove_headers: vec![],
         }]
     }
