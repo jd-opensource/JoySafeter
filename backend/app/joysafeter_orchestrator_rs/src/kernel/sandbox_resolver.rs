@@ -14,7 +14,9 @@ use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
 use crate::kernel::harness_input_builder::VaultCipher;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
-use crate::sandbox::lds_backend::{GitEgress, LlmEgress, McpEgress, SandboxCredentials};
+use crate::sandbox::lds_backend::{
+    EgressCredentialRoute, GitEgress, LlmEgress, McpEgress, SandboxCredentials,
+};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
 const CLAUDE_CODE_PLACEHOLDER_API_KEY: &str = "joysafeter-placeholder-anthropic-api-key";
@@ -650,6 +652,13 @@ impl SandboxResolver {
             credentials.mcp =
                 Self::build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?;
             credentials.git = Self::build_git_egress(&self.pool, session_id).await?;
+            credentials.external = Self::build_external_egress(
+                &self.pool,
+                environment.as_ref(),
+                project_id.as_deref(),
+                &mut env,
+            )
+            .await;
         }
 
         Ok(ResolveContext {
@@ -1176,6 +1185,212 @@ impl SandboxResolver {
             });
         }
         Ok(egress)
+    }
+
+    /// Build external-service egress routes from `environment.config.egress_services`.
+    ///
+    /// For each service, emits a placeholder route (on `external-egress.internal`)
+    /// and a transparent route (on the real host) so skills can use either URL
+    /// pattern. The secret is decrypted and headers are built according to the
+    /// `inject` config (bearer / api_key / cookie).
+    async fn build_external_egress(
+        pool: &PgPool,
+        environment: Option<&EnvironmentRow>,
+        project_id: Option<&str>,
+        env: &mut HashMap<String, String>,
+    ) -> Vec<EgressCredentialRoute> {
+        use crate::sandbox::lds_backend::{
+            EgressExposure, EgressKind, EXTERNAL_EGRESS_HOST,
+        };
+
+        let Some(services) = environment
+            .and_then(|environment| environment.config.get("egress_services"))
+            .and_then(|value| value.as_array())
+        else {
+            return vec![];
+        };
+
+        let mut routes = Vec::new();
+        for service in services {
+            let Some(name) = service.get("name").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let name = sanitize_external_service_name(name);
+            if name.is_empty() {
+                continue;
+            }
+
+            let Some(base_url) = service.get("base_url").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let Ok(parsed) = Url::parse(base_url) else {
+                warn!(service = %name, "Invalid external egress service base_url");
+                continue;
+            };
+            if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                warn!(service = %name, scheme = parsed.scheme(), "Unsupported external egress service scheme");
+                continue;
+            }
+            let Some(host) = parsed.host_str().map(ToOwned::to_owned) else {
+                continue;
+            };
+            let tls = parsed.scheme() == "https";
+            let port = parsed.port().unwrap_or(if tls { 443 } else { 80 });
+            let upstream_prefix = normalize_external_upstream_prefix(parsed.path());
+
+            let Some(credential_ref) = service
+                .get("credential_ref")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.trim().is_empty())
+            else {
+                continue;
+            };
+            let Some(inject) = service.get("inject").and_then(|value| value.as_object()) else {
+                continue;
+            };
+
+            let secret = match Self::load_secret_data(pool, credential_ref, project_id).await {
+                Ok(Some(secret)) => secret,
+                Ok(None) => continue,
+                Err(e) => {
+                    warn!(service = %name, credential_ref, "Failed to load external egress secret: {e}");
+                    continue;
+                }
+            };
+            let headers = match build_external_inject_headers(&secret, inject) {
+                Ok(headers) if !headers.is_empty() => headers,
+                Ok(_) => continue,
+                Err(e) => {
+                    warn!(service = %name, credential_ref, "Failed to build external egress headers: {e}");
+                    continue;
+                }
+            };
+
+            let match_prefix = format!("/services/{name}/");
+            let placeholder_base = format!("http://{EXTERNAL_EGRESS_HOST}{match_prefix}");
+            env.insert(
+                format!("{}_BASE_URL", external_service_env_name(&name)),
+                placeholder_base,
+            );
+
+            let remove_headers = vec![
+                "authorization".to_string(),
+                "cookie".to_string(),
+                "x-api-key".to_string(),
+                "api-key".to_string(),
+                "x-goog-api-key".to_string(),
+            ];
+
+            // Placeholder route: sandbox targets http://external-egress.internal/services/<name>/;
+            // Envoy rewrites host/path to the real upstream and injects the credential.
+            routes.push(EgressCredentialRoute {
+                id: format!("external:{name}"),
+                kind: EgressKind::External,
+                exposure: EgressExposure::Placeholder,
+                match_host: EXTERNAL_EGRESS_HOST.to_string(),
+                match_prefix,
+                exact_path: false,
+                upstream_host: host.clone(),
+                upstream_port: port,
+                upstream_prefix: upstream_prefix.clone(),
+                upstream_tls: tls,
+                cluster_name: String::new(),
+                inject_headers: headers.clone(),
+                remove_headers: remove_headers.clone(),
+            });
+
+            // Transparent route(s): sandbox may instead call the real host over
+            // plaintext http. Envoy matches the real host vhost, injects the
+            // credential, and TLS-originates to the real upstream when needed.
+            let allowed_paths: Vec<String> = service
+                .get("allowed_paths")
+                .and_then(|value| value.as_array())
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_str())
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            if allowed_paths.is_empty() {
+                routes.push(EgressCredentialRoute {
+                    id: format!("external-direct:{name}"),
+                    kind: EgressKind::External,
+                    exposure: EgressExposure::Transparent,
+                    match_host: host.clone(),
+                    match_prefix: upstream_prefix.clone(),
+                    exact_path: false,
+                    upstream_host: host.clone(),
+                    upstream_port: port,
+                    upstream_prefix: upstream_prefix.clone(),
+                    upstream_tls: tls,
+                    cluster_name: String::new(),
+                    inject_headers: headers.clone(),
+                    remove_headers: remove_headers.clone(),
+                });
+            } else {
+                for (idx, entry) in allowed_paths.iter().enumerate() {
+                    let is_prefix = entry.ends_with('/');
+                    let full_path = join_service_path(&upstream_prefix, entry);
+                    routes.push(EgressCredentialRoute {
+                        id: format!("external-direct:{name}:{idx}"),
+                        kind: EgressKind::External,
+                        exposure: EgressExposure::Transparent,
+                        match_host: host.clone(),
+                        match_prefix: full_path.clone(),
+                        exact_path: !is_prefix,
+                        upstream_host: host.clone(),
+                        upstream_port: port,
+                        upstream_prefix: full_path,
+                        upstream_tls: tls,
+                        cluster_name: String::new(),
+                        inject_headers: headers.clone(),
+                        remove_headers: remove_headers.clone(),
+                    });
+                }
+            }
+        }
+        routes
+    }
+
+    async fn load_secret_data(
+        pool: &PgPool,
+        secret_ref: &str,
+        project_id: Option<&str>,
+    ) -> anyhow::Result<Option<HashMap<String, String>>> {
+        let secret: Option<(serde_json::Value,)> = sqlx::query_as(
+            r#"
+            SELECT data FROM joysafeter_secrets
+            WHERE name = $1 AND deleted_at IS NULL
+              AND ($2::text IS NULL OR project_id = $2)
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(secret_ref)
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+
+        let Some((data,)) = secret else {
+            return Ok(None);
+        };
+
+        let cipher = VaultCipher::from_env();
+        let mut out = HashMap::new();
+        if let Some(obj) = data.as_object() {
+            for (key, value) in obj {
+                let value = value
+                    .as_str()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| value.to_string());
+                out.insert(key.clone(), cipher.decrypt_or_passthrough(&value)?);
+            }
+        }
+        Ok(Some(out))
     }
 
     async fn merge_secret_ref_into_env(
@@ -2016,6 +2231,108 @@ fn is_blocked_llm_ip(ip: IpAddr) -> bool {
 struct EnvironmentRow {
     config: serde_json::Value,
     image_tag: Option<String>,
+}
+
+fn sanitize_external_service_name(name: &str) -> String {
+    name.trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+fn external_service_env_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn normalize_external_upstream_prefix(path: &str) -> String {
+    let mut prefix = if path.is_empty() {
+        "/".to_string()
+    } else if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    if prefix != "/" && !prefix.ends_with('/') {
+        prefix.push('/');
+    }
+    prefix
+}
+
+/// Join a service base prefix with an allowlist entry into a full host path.
+fn join_service_path(base_prefix: &str, entry: &str) -> String {
+    if entry.starts_with('/') {
+        return entry.to_string();
+    }
+    let base = base_prefix.strip_suffix('/').unwrap_or(base_prefix);
+    format!("{base}/{entry}")
+}
+
+fn build_external_inject_headers(
+    secret: &HashMap<String, String>,
+    inject: &serde_json::Map<String, serde_json::Value>,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let typ = inject
+        .get("type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("bearer");
+    match typ {
+        "bearer" => {
+            let key = inject
+                .get("secret_key")
+                .and_then(|value| value.as_str())
+                .unwrap_or("ACCESS_TOKEN");
+            let token = secret
+                .get(key)
+                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?;
+            let header = inject
+                .get("header")
+                .and_then(|value| value.as_str())
+                .unwrap_or("authorization");
+            Ok(vec![(header.to_string(), format!("Bearer {token}"))])
+        }
+        "api_key" | "raw_header" => {
+            let key = inject
+                .get("secret_key")
+                .and_then(|value| value.as_str())
+                .unwrap_or("API_KEY");
+            let value = secret
+                .get(key)
+                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?;
+            let header = inject
+                .get("header")
+                .and_then(|value| value.as_str())
+                .unwrap_or("x-api-key");
+            Ok(vec![(header.to_string(), value.clone())])
+        }
+        "cookie" => {
+            let key = inject
+                .get("secret_key")
+                .and_then(|value| value.as_str())
+                .unwrap_or("COOKIE_HEADER");
+            let cookie_header = secret
+                .get(key)
+                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?
+                .clone();
+            Ok(vec![("cookie".to_string(), cookie_header)])
+        }
+        other => anyhow::bail!("unsupported external egress inject type {other}"),
+    }
 }
 
 #[cfg(test)]
