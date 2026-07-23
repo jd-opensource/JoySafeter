@@ -430,6 +430,16 @@ fn auth_headers_to_remove(inject_headers: &[(String, String)]) -> Vec<String> {
         .collect()
 }
 
+/// Escape `%` → `%%` in header values so Envoy treats them as literal
+/// characters instead of StreamInfo substitution format markers.
+///
+/// Without this, a credential value like `session_id=abc%7Cdef` causes
+/// Envoy to interpret `%7C` as a format variable and reject the listener
+/// with `Not supported field in StreamInfo: 7C`.
+fn escape_envoy_header_value(raw: &str) -> String {
+    raw.replace('%', "%%")
+}
+
 impl ListenerSpec {
     /// Resource name Envoy sees, e.g. `"<uuid>_grpc"` / `"<uuid>_http"`.
     /// Kept identical to the historical filesystem naming so a mode switch is
@@ -776,7 +786,7 @@ fn build_virtual_hosts_json(
                     .iter()
                     .map(|(k, v)| {
                         json!({
-                            "header": { "key": k, "value": v },
+                            "header": { "key": k, "value": escape_envoy_header_value(v) },
                             "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"
                         })
                     })
@@ -1580,7 +1590,7 @@ fn build_virtual_hosts_proto(
                     .map(|(k, v)| HeaderValueOption {
                         header: Some(HeaderValue {
                             key: k.clone(),
-                            value: v.clone(),
+                            value: escape_envoy_header_value(v),
                             ..Default::default()
                         }),
                         append_action:
@@ -2294,5 +2304,45 @@ mod tests {
             proto_names.iter().map(|s| s.as_str()).collect::<Vec<_>>()
         );
         assert_eq!(json_names[0], "egress_llm-egress_internal");
+    }
+
+    #[test]
+    fn escape_envoy_header_value_escapes_percent() {
+        assert_eq!(escape_envoy_header_value("plain"), "plain");
+        assert_eq!(escape_envoy_header_value("a%7Cb"), "a%%7Cb");
+        assert_eq!(
+            escape_envoy_header_value("sid=x%3Dy%7Cz"),
+            "sid=x%%3Dy%%7Cz"
+        );
+        assert_eq!(escape_envoy_header_value("100%"), "100%%");
+        assert_eq!(escape_envoy_header_value("%%already"), "%%%%already");
+    }
+
+    #[test]
+    fn credential_header_values_with_percent_are_escaped_in_json() {
+        let cred = CredentialRoute {
+            id: "test".to_string(),
+            kind: EgressKind::External,
+            exposure: EgressExposure::Transparent,
+            match_host: "llm-egress.internal".to_string(),
+            match_prefix: "/v1/".to_string(),
+            upstream_host: "api.example.com".to_string(),
+            upstream_port: 443,
+            upstream_prefix: "/v1/".to_string(),
+            upstream_tls: true,
+            cluster_name: "up_test".to_string(),
+            exact_path: false,
+            inject_headers: vec![(
+                "cookie".to_string(),
+                "session=abc%7Cdef%3Dxyz".to_string(),
+            )],
+            remove_headers: vec![],
+        };
+        let vh = build_virtual_hosts_json(&[], &[cred]);
+        let header_val = vh[0]["routes"][0]["request_headers_to_add"][0]["header"]["value"]
+            .as_str()
+            .unwrap();
+        // % must be doubled so Envoy treats them as literal
+        assert_eq!(header_val, "session=abc%%7Cdef%%3Dxyz");
     }
 }
