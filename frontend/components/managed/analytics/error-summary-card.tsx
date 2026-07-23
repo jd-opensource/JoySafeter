@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
+import { statusDotClass } from '@/lib/managed/status-tone'
 import type { ErrorSummary } from '@/lib/managed/analytics/types'
 
 interface ErrorSummaryCardProps {
@@ -9,11 +10,6 @@ interface ErrorSummaryCardProps {
   loading?: boolean
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  failed: 'bg-red-500',
-  timeout: 'bg-amber-500',
-  cancelled: 'bg-gray-400',
-}
 
 export function ErrorSummaryCard({ data, loading }: ErrorSummaryCardProps) {
   const { t } = useTranslation()
@@ -60,7 +56,7 @@ export function ErrorSummaryCard({ data, loading }: ErrorSummaryCardProps) {
         {data.status_breakdown.map((item) => (
           <div
             key={item.status}
-            className={cn('h-full', STATUS_COLORS[item.status] || 'bg-gray-400')}
+            className={cn('h-full', statusDotClass(item.status))}
             style={{ width: `${(item.count / total) * 100}%`, minWidth: '4px' }}
           />
         ))}
@@ -70,7 +66,7 @@ export function ErrorSummaryCard({ data, loading }: ErrorSummaryCardProps) {
       <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
         {data.status_breakdown.map((item) => (
           <div key={item.status} className="flex items-center gap-1.5 text-xs">
-            <div className={cn('h-2 w-2 rounded-full', STATUS_COLORS[item.status] || 'bg-gray-400')} />
+            <div className={cn('h-2 w-2 rounded-full', statusDotClass(item.status))} />
             <span className="text-muted-foreground">{item.status}</span>
             <span className="font-medium text-foreground">{item.count}</span>
           </div>
