@@ -134,7 +134,7 @@ export const authApi = {
   },
 
   async getSession(): Promise<SessionResponse | null> {
-    try {
+    const fetchSession = async (): Promise<SessionResponse | null> => {
       const response = await managedGet<{
         user: {
           id: string
@@ -158,9 +158,27 @@ export const authApi = {
           isSuperUser: response.user.is_super_user,
         },
       }
+    }
+
+    try {
+      return await fetchSession()
     } catch (error) {
       if (isUnauthorizedApiError(error)) {
-        return null
+        // The access-token cookie expired (common after switching tabs, when
+        // refetchOnWindowFocus re-checks the session). Try a one-shot refresh
+        // using the long-lived HttpOnly refresh-token cookie before concluding
+        // the user is logged out — otherwise a still-valid session would be
+        // torn down and the AuthGuard would bounce to /signin.
+        try {
+          await refreshAccessTokenOrRelogin()
+          return await fetchSession()
+        } catch (refreshError) {
+          if (isUnauthorizedApiError(refreshError)) {
+            // Refresh token is also invalid/expired — genuinely logged out.
+            return null
+          }
+          throw refreshError
+        }
       }
       logger.warn('Failed to get session', { error })
       throw error
