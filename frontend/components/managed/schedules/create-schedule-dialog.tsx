@@ -50,12 +50,15 @@ import { useProjectStore } from '@/stores/managed/project-store'
 interface AgentOption {
   id: string
   name: string
+  engine_kind?: string | null
+  model?: { id?: string } | null
   archived_at?: string | null
 }
 
 interface EnvironmentOption {
   id: string
   name: string
+  config?: { type?: string; networking?: { type?: string } } | null
   archived_at?: string | null
 }
 
@@ -328,9 +331,31 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                   <SelectValue placeholder={t('managed.schedules.selectAgent')} />
                 </SelectTrigger>
                 <SelectContent>
+                  {agentsQuery.isLoading && (
+                    <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                      {t('common.loading')}…
+                    </div>
+                  )}
+                  {!agentsQuery.isLoading && agents.length === 0 && (
+                    <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+                      {t('managed.schedules.noAgents', '暂无可用智能体')}
+                    </div>
+                  )}
                   {agents.map((a) => (
                     <SelectItem key={a.id} value={apiResourceId(a.id)}>
-                      {a.name}
+                      <div className="flex items-center gap-2">
+                        <span>{a.name}</span>
+                        {a.engine_kind && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {a.engine_kind}
+                          </span>
+                        )}
+                        {a.model?.id && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {a.model.id}
+                          </span>
+                        )}
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -373,11 +398,26 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                 <SelectItem value={FOLLOW_AGENT_ENV}>
                   {t('managed.schedules.envFollowAgent')}
                 </SelectItem>
-                {environments.map((env) => (
-                  <SelectItem key={env.id} value={env.id}>
-                    {env.name}
-                  </SelectItem>
-                ))}
+                {environmentsQuery.isLoading && (
+                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                    {t('common.loading')}…
+                  </div>
+                )}
+                {environments.map((env) => {
+                  const netType = env.config?.networking?.type || env.config?.type
+                  return (
+                    <SelectItem key={env.id} value={env.id}>
+                      <div className="flex items-center gap-2">
+                        <span>{env.name}</span>
+                        {netType && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {netType}
+                          </span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  )
+                })}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
