@@ -101,6 +101,8 @@ class JoySafeterScheduleService:
         timeout_sec: int = 7200,
         max_retries: int = 2,
         concurrency_policy: str = "allow",
+        session_mode: str = "fresh",
+        pinned_session_id: Optional[uuid.UUID] = None,
         enabled: bool = True,
         project_id: Optional[str] = None,
         user_id: Optional[str] = None,
@@ -123,6 +125,8 @@ class JoySafeterScheduleService:
             timeout_sec=timeout_sec,
             max_retries=max_retries,
             concurrency_policy=concurrency_policy,
+            session_mode=session_mode,
+            pinned_session_id=pinned_session_id,
             enabled=enabled,
             project_id=project_id,
             user_id=user_id,
@@ -307,6 +311,12 @@ class JoySafeterScheduleService:
         self,
         schedule_id: uuid.UUID,
         fired_slot: Optional[datetime],
+        *,
+        success: bool = True,
+        task_id: Optional[uuid.UUID] = None,
+        session_id: Optional[uuid.UUID] = None,
+        error: Optional[str] = None,
+        payload: Optional[dict[str, Any]] = None,
     ) -> None:
         """Release the lock and move ``next_run_at`` to the next future instant.
 
@@ -319,6 +329,23 @@ class JoySafeterScheduleService:
             return
         schedule.locked_by = None
         schedule.locked_at = None
+        now = datetime.now(timezone.utc)
+        schedule.last_attempt_at = now
+        if task_id is not None:
+            schedule.last_task_id = task_id
+        if session_id is not None:
+            schedule.last_session_id = session_id
+            if schedule.session_mode == "reuse":
+                schedule.reusable_session_id = session_id
+        if payload is not None:
+            schedule.last_payload = payload
+        if success:
+            schedule.last_success_at = now
+            schedule.last_error = None
+            schedule.consecutive_failures = 0
+        else:
+            schedule.last_error = error or "schedule fire failed"
+            schedule.consecutive_failures = (schedule.consecutive_failures or 0) + 1
         if fired_slot is not None:
             schedule.last_fired_slot = fired_slot
         if schedule.project_id is not None:

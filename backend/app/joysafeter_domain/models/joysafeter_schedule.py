@@ -16,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +39,14 @@ class ScheduleConcurrencyPolicy(str, enum.Enum):
     ALLOW = "allow"  # fire anyway (fresh session per fire makes this safe)
     FORBID = "forbid"  # skip this fire, log it, wait for the next slot
     REPLACE = "replace"  # cancel the still-active task, then fire
+
+
+class ScheduleSessionMode(str, enum.Enum):
+    """How a schedule maps fires to sessions."""
+
+    FRESH = "fresh"  # current behavior: create a new session per fire
+    REUSE = "reuse"  # reuse the latest schedule-owned session when idle
+    PINNED = "pinned"  # send fires to a specific existing session when idle
 
 
 class JoySafeterSchedule(JoySafeterBaseModel):
@@ -81,12 +90,43 @@ class JoySafeterSchedule(JoySafeterBaseModel):
         default=ScheduleConcurrencyPolicy.ALLOW.value,
         server_default=ScheduleConcurrencyPolicy.ALLOW.value,
     )
+    session_mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=ScheduleSessionMode.FRESH.value,
+        server_default=ScheduleSessionMode.FRESH.value,
+    )
+    pinned_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reusable_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     # The next cron instant this schedule is due (UTC). The poller claims rows
     # whose next_run_at <= now(). NULL only transiently before first compute.
     next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     # The cron slot most recently fired — used as the aligned idempotency key and
     # to implement "catch up once and advance" on restart after downtime.
     last_fired_slot: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    last_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    last_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
 
     # --- Submitter identity, captured at creation so each fire attributes and
     # passes tenant quota exactly like an interactive submission. ---

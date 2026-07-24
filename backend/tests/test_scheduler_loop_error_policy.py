@@ -89,15 +89,15 @@ async def test_scheduler_retryable_replace_cancel_error_releases_claim_without_a
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.claim_due_schedules",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.claim_due_cron_triggers",
         claim_due_schedules,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.release_claim",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.release_claim",
         release_claim,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.advance_after_fire",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.advance_after_fire",
         advance_after_fire,
     )
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
@@ -136,15 +136,15 @@ async def test_scheduler_session_sync_cancel_error_releases_claim_without_advanc
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.claim_due_schedules",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.claim_due_cron_triggers",
         claim_due_schedules,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.release_claim",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.release_claim",
         release_claim,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.advance_after_fire",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.advance_after_fire",
         advance_after_fire,
     )
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
@@ -179,15 +179,15 @@ async def test_scheduler_state_sync_cancel_error_releases_claim_without_advancin
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.claim_due_schedules",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.claim_due_cron_triggers",
         claim_due_schedules,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.release_claim",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.release_claim",
         release_claim,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.advance_after_fire",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.advance_after_fire",
         advance_after_fire,
     )
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
@@ -216,15 +216,15 @@ async def test_scheduler_non_retryable_fire_error_advances_slot(monkeypatch):
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.claim_due_schedules",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.claim_due_cron_triggers",
         claim_due_schedules,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.release_claim",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.release_claim",
         release_claim,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_schedule_service.JoySafeterScheduleService.advance_after_fire",
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.advance_after_fire",
         advance_after_fire,
     )
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)

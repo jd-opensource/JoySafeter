@@ -218,6 +218,16 @@ export default function ScheduleListPage() {
       render: (s) => <StatusBadge status={s.enabled ? 'active' : 'idle'} />,
     },
     {
+      key: 'session_mode',
+      header: t('managed.schedules.sessionMode'),
+      width: '12%',
+      render: (s) => (
+        <span className="text-xs text-muted-foreground">
+          {t(`managed.schedules.sessionModeOption.${s.session_mode || 'fresh'}`)}
+        </span>
+      ),
+    },
+    {
       key: 'enabled',
       header: t('managed.schedules.enabled'),
       width: '8%',

@@ -25,6 +25,7 @@ import {
 } from '@/lib/managed/request-scope'
 
 export type ScheduleConcurrencyPolicy = 'allow' | 'forbid' | 'replace'
+export type ScheduleSessionMode = 'fresh' | 'reuse' | 'pinned'
 
 export interface Schedule {
   id: string
@@ -38,6 +39,8 @@ export interface Schedule {
   timezone: string
   enabled: boolean
   concurrency_policy: ScheduleConcurrencyPolicy
+  session_mode: ScheduleSessionMode
+  pinned_session_id: string | null
   timeout_sec: number
   max_retries: number
   next_run_at: string | null
@@ -59,6 +62,8 @@ export interface ScheduleCreate {
   timeout_sec?: number
   max_retries?: number
   concurrency_policy?: ScheduleConcurrencyPolicy
+  session_mode?: ScheduleSessionMode
+  pinned_session_id?: string | null
   enabled?: boolean
 }
 
@@ -77,6 +82,8 @@ export type ScheduleUpdate = Partial<
     | 'timeout_sec'
     | 'max_retries'
     | 'concurrency_policy'
+    | 'session_mode'
+    | 'pinned_session_id'
     | 'enabled'
   >
 >

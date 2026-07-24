@@ -34,9 +34,11 @@ class ScheduleCreateRequest(BaseModel):
     timeout_sec: int = Field(default=7200, ge=1)
     max_retries: int = Field(default=2, ge=0)
     concurrency_policy: str = "allow"
+    session_mode: str = "fresh"
+    pinned_session_id: Optional[uuid.UUID] = None
     enabled: bool = True
 
-    @field_validator("name", "prompt", "cron_expr", "timezone", "concurrency_policy", mode="before")
+    @field_validator("name", "prompt", "cron_expr", "timezone", "concurrency_policy", "session_mode", mode="before")
     @classmethod
     def _strip_required_string(cls, v):
         if isinstance(v, str):
@@ -71,6 +73,19 @@ class ScheduleCreateRequest(BaseModel):
             raise ValueError("concurrency_policy must be one of: allow, forbid, replace")
         return v
 
+    @field_validator("session_mode")
+    @classmethod
+    def _valid_session_mode(cls, v: str) -> str:
+        if v not in ("fresh", "reuse", "pinned"):
+            raise ValueError("session_mode must be one of: fresh, reuse, pinned")
+        return v
+
+    @model_validator(mode="after")
+    def _valid_pinned_session(self) -> "ScheduleCreateRequest":
+        if self.session_mode == "pinned" and self.pinned_session_id is None:
+            raise ValueError("pinned_session_id is required when session_mode is pinned")
+        return self
+
 
 class ScheduleUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
@@ -83,9 +98,11 @@ class ScheduleUpdateRequest(BaseModel):
     timeout_sec: Optional[int] = Field(default=None, ge=1)
     max_retries: Optional[int] = Field(default=None, ge=0)
     concurrency_policy: Optional[str] = None
+    session_mode: Optional[str] = None
+    pinned_session_id: Optional[uuid.UUID] = None
     enabled: Optional[bool] = None
 
-    @field_validator("name", "prompt", "cron_expr", "timezone", "concurrency_policy", mode="before")
+    @field_validator("name", "prompt", "cron_expr", "timezone", "concurrency_policy", "session_mode", mode="before")
     @classmethod
     def _strip_required_string(cls, v):
         if isinstance(v, str):
@@ -109,6 +126,7 @@ class ScheduleUpdateRequest(BaseModel):
             "timeout_sec",
             "max_retries",
             "concurrency_policy",
+            "session_mode",
             "enabled",
         }
         for field in non_nullable & self.model_fields_set:
@@ -137,6 +155,13 @@ class ScheduleUpdateRequest(BaseModel):
             raise ValueError("concurrency_policy must be one of: allow, forbid, replace")
         return v
 
+    @field_validator("session_mode")
+    @classmethod
+    def _valid_session_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("fresh", "reuse", "pinned"):
+            raise ValueError("session_mode must be one of: fresh, reuse, pinned")
+        return v
+
 
 class ScheduleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -152,10 +177,20 @@ class ScheduleResponse(BaseModel):
     timezone: str
     enabled: bool
     concurrency_policy: str
+    session_mode: str = "fresh"
+    pinned_session_id: Optional[uuid.UUID] = None
+    reusable_session_id: Optional[uuid.UUID] = None
     timeout_sec: int
     max_retries: int
     next_run_at: Optional[datetime]
     last_fired_slot: Optional[datetime]
+    last_attempt_at: Optional[datetime] = None
+    last_success_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+    consecutive_failures: int = 0
+    last_task_id: Optional[uuid.UUID] = None
+    last_session_id: Optional[uuid.UUID] = None
+    last_payload: dict = Field(default_factory=dict)
     project_id: Optional[str]
     created_at: datetime
     updated_at: datetime
@@ -167,6 +202,14 @@ class ScheduleResponse(BaseModel):
     @field_serializer("agent_id")
     def serialize_agent_id(self, v: uuid.UUID) -> str:
         return f"agent_{v}"
+
+    @field_serializer("pinned_session_id", "reusable_session_id", "last_session_id")
+    def serialize_session_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"sess_{v}" if v is not None else None
+
+    @field_serializer("last_task_id")
+    def serialize_last_task_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
+        return f"task_{v}" if v is not None else None
 
 
 class ScheduleRunResponse(BaseModel):

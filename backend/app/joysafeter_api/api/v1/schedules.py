@@ -8,6 +8,7 @@ uses). Execution history is the task table itself, filtered by ``schedule_id``.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Body, Depends, Query
@@ -21,11 +22,8 @@ from app.joysafeter_domain.schemas.joysafeter_schedule import (
     ScheduleUpdateRequest,
     TriggerResponse,
 )
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
-from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
+from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig, render_prompt_template
 from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
-from app.joysafeter_domain.services.joysafeter_session_service import SessionService
-from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -64,6 +62,8 @@ async def create_schedule(
         timeout_sec=body.timeout_sec,
         max_retries=body.max_retries,
         concurrency_policy=body.concurrency_policy,
+        session_mode=body.session_mode,
+        pinned_session_id=body.pinned_session_id,
         enabled=body.enabled,
         project_id=auth_ctx.project_id,
         user_id=auth_ctx.user_id,
@@ -179,54 +179,49 @@ async def trigger_schedule(
         project_id=schedule.project_id,
         environment_ref=schedule.environment_ref,
     )
-    environment = None
-    if environment_ref:
-        environment = await EnvironmentService(db).get_environment_by_ref(
-            environment_ref,
+    now = datetime.now(timezone.utc)
+    payload = {
+        "schedule": {
+            "id": str(schedule.id),
+            "name": schedule.name,
+            "cron_expr": schedule.cron_expr,
+            "timezone": schedule.timezone,
+            "fired_at": now.isoformat(),
+            "last_fired_slot": schedule.last_fired_slot.isoformat() if schedule.last_fired_slot else None,
+        },
+        "trigger": {"type": "manual", "source": "schedule"},
+    }
+    result = await AgentTriggerExecutor(db).run(
+        AgentTriggerRunConfig(
+            agent=agent,
+            name=schedule.name,
+            source=f"schedule:{schedule.id}",
+            prompt=render_prompt_template(schedule.prompt, payload),
+            system_prompt=schedule.system_prompt,
+            environment_ref=environment_ref,
+            timeout_sec=schedule.timeout_sec,
+            max_retries=schedule.max_retries,
             project_id=schedule.project_id,
-        )
-
-    submission = TaskSubmissionService(db)
-    await submission.enforce_admission(
-        project_id=schedule.project_id,
-        user_id=schedule.user_id,
-        # A manual trigger runs as the schedule's owner, so it must count against
-        # that owner's per-user concurrency quota — otherwise it is an unbounded,
-        # quota-exempt task-spawn primitive any project writer could abuse.
+            user_id=schedule.user_id,
+            org_id=schedule.org_id,
+            idempotency_key=f"sched:{schedule.id}:manual:{uuid.uuid4().hex}",
+            session_mode=schedule.session_mode,
+            pinned_session_id=schedule.pinned_session_id,
+            reusable_session_id=schedule.reusable_session_id,
+            schedule_id=schedule.id,
+            metadata={"schedule_id": str(schedule.id), "trigger_type": "manual"},
+        ),
         enforce_user_quota=True,
     )
-
-    session_svc = SessionService(db)
-    session = await session_svc.create_session(
-        agent_id=agent.id,
-        title=f"Scheduled (manual): {schedule.name}",
-        environment_ref=environment_ref,
-        agent_version=getattr(agent, "version", None),
-        agent_snapshot=JoySafeterAgentService.build_execution_snapshot(
-            agent,
-            environment=environment,
-            environment_ref=environment_ref,
-        ),
-        project_id=schedule.project_id,
+    await JoySafeterScheduleService(db).advance_after_fire(
+        schedule.id,
+        None,
+        success=True,
+        task_id=result.task.id,
+        session_id=result.session.id,
+        payload=payload,
     )
-    task, _created = await submission.create_and_dispatch(
-        agent_id=agent.id,
-        prompt=schedule.prompt,
-        system_prompt=schedule.system_prompt,
-        chat_session_id=session.id,
-        session_svc=session_svc,
-        timeout_sec=schedule.timeout_sec,
-        max_retries=schedule.max_retries,
-        project_id=schedule.project_id,
-        user_id=schedule.user_id,
-        org_id=schedule.org_id,
-        idempotency_key=f"sched:{schedule.id}:manual:{uuid.uuid4().hex}",
-        schedule_id=schedule.id,
-        auto_created_session_id=session.id,
-        enforce_admission=False,
-        enforce_user_quota=False,
-    )
-    return TriggerResponse(task_id=task.id, session_id=session.id, status=task.status)
+    return TriggerResponse(task_id=result.task.id, session_id=result.session.id, status=result.task.status)
 
 
 @router.get("/{schedule_id}/runs", response_model=List[ScheduleRunResponse])

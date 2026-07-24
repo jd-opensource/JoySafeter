@@ -43,6 +43,7 @@ import {
   useUpdateSchedule,
   type Schedule,
   type ScheduleConcurrencyPolicy,
+  type ScheduleSessionMode,
 } from '@/lib/managed/schedules'
 import { useProjectStore } from '@/stores/managed/project-store'
 
@@ -58,6 +59,13 @@ interface EnvironmentOption {
   archived_at?: string | null
 }
 
+interface SessionOption {
+  id: string
+  title?: string | null
+  status?: string | null
+  archived_at?: string | null
+}
+
 interface CreateScheduleDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -66,6 +74,7 @@ interface CreateScheduleDialogProps {
 }
 
 const POLICIES: ScheduleConcurrencyPolicy[] = ['allow', 'forbid', 'replace']
+const SESSION_MODES: ScheduleSessionMode[] = ['fresh', 'reuse', 'pinned']
 
 // Sentinel Select value for "no explicit environment" — radix Select cannot use
 // an empty-string item value, so we map this to `environment_ref = null`, which
@@ -88,10 +97,11 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
   const [agentId, setAgentId] = useState('')
   const [environmentRef, setEnvironmentRef] = useState('')
   const [prompt, setPrompt] = useState('')
-  const [systemPrompt, setSystemPrompt] = useState('')
   const [cron, setCron] = useState('0 9 * * *')
   const [tz, setTz] = useState('UTC')
   const [policy, setPolicy] = useState<ScheduleConcurrencyPolicy>('allow')
+  const [sessionMode, setSessionMode] = useState<ScheduleSessionMode>('fresh')
+  const [pinnedSessionId, setPinnedSessionId] = useState('')
   const [timeoutSec, setTimeoutSec] = useState(7200)
   const [maxRetries, setMaxRetries] = useState(2)
   const [enabled, setEnabled] = useState(true)
@@ -125,6 +135,21 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
     return list.filter((e) => !e.archived_at)
   }, [environmentsQuery.data])
+
+  const sessionsQuery = useQuery({
+    queryKey: ['agent-sessions', managedScope.key, agentId, 'for-schedule'],
+    queryFn: () =>
+      managedGet<{ data: SessionOption[] } | SessionOption[]>(
+        `/agents/${agentId}/sessions?limit=100`,
+        managedRequestOptions(managedScope),
+      ),
+    enabled: open && !!agentId && hasManagedRequestScope(managedScope),
+  })
+  const sessions: SessionOption[] = useMemo(() => {
+    const raw = sessionsQuery.data
+    const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
+    return list.filter((s) => !s.archived_at)
+  }, [sessionsQuery.data])
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
@@ -163,10 +188,11 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
       setAgentId(apiResourceId(schedule.agent_id))
       setEnvironmentRef(schedule.environment_ref ?? '')
       setPrompt(schedule.prompt)
-      setSystemPrompt(schedule.system_prompt ?? '')
       setCron(schedule.cron_expr)
       setTz(schedule.timezone)
       setPolicy(schedule.concurrency_policy)
+      setSessionMode(schedule.session_mode || 'fresh')
+      setPinnedSessionId(schedule.pinned_session_id ? apiResourceId(schedule.pinned_session_id) : '')
       setTimeoutSec(schedule.timeout_sec)
       setMaxRetries(schedule.max_retries)
       setEnabled(schedule.enabled)
@@ -176,10 +202,11 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
       setAgentId('')
       setEnvironmentRef('')
       setPrompt('')
-      setSystemPrompt('')
       setCron('0 9 * * *')
       setTz(detectBrowserTimezone())
       setPolicy('allow')
+      setSessionMode('fresh')
+      setPinnedSessionId('')
       setTimeoutSec(7200)
       setMaxRetries(2)
       setEnabled(true)
@@ -191,6 +218,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     !!agentId &&
     prompt.trim().length > 0 &&
     isValidCron(cron) &&
+    (sessionMode !== 'pinned' || !!pinnedSessionId) &&
     Number.isFinite(timeoutSec) &&
     timeoutSec >= 1 &&
     Number.isFinite(maxRetries) &&
@@ -219,11 +247,12 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
             name: name.trim(),
             description: description.trim() || null,
             prompt: prompt.trim(),
-            system_prompt: systemPrompt.trim() || null,
             environment_ref: environmentRef || null,
             cron_expr: cron,
             timezone: tz,
             concurrency_policy: policy,
+            session_mode: sessionMode,
+            pinned_session_id: sessionMode === 'pinned' ? pinnedSessionId : null,
             timeout_sec: timeoutSec,
             max_retries: maxRetries,
             enabled,
@@ -237,10 +266,11 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
           agent_id: agentId,
           environment_ref: environmentRef || null,
           prompt: prompt.trim(),
-          system_prompt: systemPrompt.trim() || null,
           cron_expr: cron,
           timezone: tz,
           concurrency_policy: policy,
+          session_mode: sessionMode,
+          pinned_session_id: sessionMode === 'pinned' ? pinnedSessionId : null,
           timeout_sec: timeoutSec,
           max_retries: maxRetries,
           enabled,
@@ -286,7 +316,14 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
             </div>
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.agent')}</Label>
-              <Select value={agentId} onValueChange={setAgentId} disabled={isEdit}>
+              <Select
+                value={agentId}
+                onValueChange={(value) => {
+                  setAgentId(value)
+                  setPinnedSessionId('')
+                }}
+                disabled={isEdit}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder={t('managed.schedules.selectAgent')} />
                 </SelectTrigger>
@@ -324,17 +361,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="sched-system-prompt">{t('managed.schedules.systemPrompt')}</Label>
-            <Textarea
-              id="sched-system-prompt"
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              rows={2}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>{t('managed.schedules.environment')}</Label>
+            <Label>{t('managed.schedules.runtimeEnvironment')}</Label>
             <Select
               value={environmentRef || FOLLOW_AGENT_ENV}
               onValueChange={(v) => setEnvironmentRef(v === FOLLOW_AGENT_ENV ? '' : v)}
@@ -411,6 +438,61 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
           </div>
 
           <p className="text-xs text-muted-foreground">{t('managed.schedules.concurrencyHint')}</p>
+
+          <div className="space-y-3 rounded-md border p-3">
+            <div className="space-y-1.5">
+              <Label>{t('managed.schedules.sessionMode')}</Label>
+              <Select
+                value={sessionMode}
+                onValueChange={(value) => {
+                  const mode = value as ScheduleSessionMode
+                  setSessionMode(mode)
+                  if (mode !== 'pinned') setPinnedSessionId('')
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SESSION_MODES.map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {t(`managed.schedules.sessionModeOption.${mode}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t(`managed.schedules.sessionModeHint.${sessionMode}`)}
+              </p>
+            </div>
+
+            {sessionMode === 'pinned' && (
+              <div className="space-y-1.5">
+                <Label>{t('managed.schedules.pinnedSessionId')}</Label>
+                <Select
+                  value={pinnedSessionId}
+                  onValueChange={setPinnedSessionId}
+                  disabled={!agentId || sessionsQuery.isLoading}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('managed.schedules.selectPinnedSession')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sessions.map((session) => (
+                      <SelectItem key={session.id} value={apiResourceId(session.id)}>
+                        {session.title?.trim() || session.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {agentId
+                    ? t('managed.schedules.pinnedSessionHint')
+                    : t('managed.schedules.selectAgentFirst')}
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center justify-between rounded-md border p-3">
             <div>

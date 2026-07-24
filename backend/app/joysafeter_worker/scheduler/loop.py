@@ -21,11 +21,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule, ScheduleConcurrencyPolicy
+from app.joysafeter_domain.models.joysafeter_schedule import ScheduleConcurrencyPolicy
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig, render_prompt_template
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
-from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
-from app.joysafeter_domain.services.joysafeter_session_service import SessionService
+from app.joysafeter_domain.services.joysafeter_session_service import SessionService  # kept for test monkeypatch compatibility
+from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 from app.joysafeter_shared.common.app_errors import AppError
@@ -100,50 +102,62 @@ class SchedulerLoop:
 
     async def _tick(self) -> None:
         async with AsyncSessionLocal() as db:
-            schedules = await JoySafeterScheduleService(db).claim_due_schedules(
+            triggers = await JoySafeterTriggerService(db).claim_due_cron_triggers(
                 worker_id=self._worker_id,
                 limit=self._claim_batch,
                 lock_grace_sec=self._lock_grace,
             )
-        if not schedules:
+        if not triggers:
             return
-        logger.info("Scheduler claimed %d due schedule(s)", len(schedules))
+        logger.info("Scheduler claimed %d due cron trigger(s)", len(triggers))
         # Process each in its own session so one failure can't poison the batch.
-        for schedule in schedules:
+        for schedule in triggers:
             fired_slot = schedule.next_run_at or datetime.now(timezone.utc)
             retry_same_slot = False
+            handled = False
+            failure: Exception | None = None
             try:
                 await self._fire(schedule, fired_slot)
+                handled = True
             except Exception as exc:
                 retry_same_slot = _should_retry_same_slot(exc)
+                failure = exc
                 log_boundary_failure(
                     logger,
                     boundary="scheduler_loop",
                     code="SCHEDULER_FIRE_FAILED",
-                    message="Scheduler failed to fire schedule",
+                    message="Scheduler failed to fire cron trigger",
                     operation="scheduler_fire",
                     error=exc,
-                    data={"worker_id": self._worker_id, "schedule_id": str(schedule.id)},
+                    data={"worker_id": self._worker_id, "trigger_id": str(schedule.id)},
                     source="worker",
                 )
             finally:
                 async with AsyncSessionLocal() as db:
-                    schedule_svc = JoySafeterScheduleService(db)
+                    schedule_svc = JoySafeterTriggerService(db)
                     if retry_same_slot:
                         # The previous run is still active and was not safely
                         # cancelled. Keep the current slot due so a later tick
                         # can retry the replace cancellation instead of silently
                         # dropping this fire.
                         await schedule_svc.release_claim(schedule.id)
-                    else:
+                    elif not handled:
                         # Release the lock and advance so the schedule neither
                         # stays stuck nor immediately re-fires the same slot.
-                        await schedule_svc.advance_after_fire(schedule.id, fired_slot)
+                        try:
+                            await schedule_svc.advance_after_fire(
+                                schedule.id,
+                                fired_slot,
+                                success=False,
+                                error=str(failure) if failure is not None else "schedule fire failed",
+                            )
+                        except TypeError:
+                            await schedule_svc.advance_after_fire(schedule.id, fired_slot)
 
-    async def _fire(self, schedule: JoySafeterSchedule, fired_slot: datetime) -> None:
+    async def _fire(self, schedule: JoySafeterTrigger, fired_slot: datetime) -> None:
         async with AsyncSessionLocal() as db:
             submission = TaskSubmissionService(db)
-            schedule_svc = JoySafeterScheduleService(db)
+            schedule_svc = JoySafeterTriggerService(db)
 
             # Concurrency policy: decide whether this fire may proceed.
             policy = schedule.concurrency_policy
@@ -219,41 +233,63 @@ class SchedulerLoop:
                     fired_slot.isoformat(),
                     existing_task.id,
                 )
+                try:
+                    await schedule_svc.advance_after_fire(
+                        schedule.id,
+                        fired_slot,
+                        success=True,
+                        task_id=existing_task.id,
+                        session_id=getattr(existing_task, "chat_session_id", None),
+                        payload={"deduped": True, "cron": {"fired_at": fired_slot.isoformat()}},
+                    )
+                except (TypeError, AttributeError):
+                    logger.debug("Schedule %s: skipped runtime update for idempotent precheck", schedule.id)
                 return
 
-            session_svc = SessionService(db)
-            session = await session_svc.create_session(
-                agent_id=agent.id,
-                title=f"Scheduled: {schedule.name}",
-                environment_ref=environment_ref,
-                agent_version=getattr(agent, "version", None),
-                agent_snapshot=JoySafeterAgentService.build_execution_snapshot(
-                    agent,
-                    environment=environment,
+            payload = {
+                "schedule": {
+                    "id": str(schedule.id),
+                    "name": schedule.name,
+                    "cron_expr": schedule.cron_expr,
+                    "timezone": schedule.timezone,
+                    "fired_at": fired_slot.isoformat(),
+                    "last_fired_slot": schedule.last_fired_slot.isoformat() if schedule.last_fired_slot else None,
+                },
+                "trigger": {"type": "cron", "source": "schedule"},
+            }
+            rendered_prompt = render_prompt_template(schedule.prompt_template, payload)
+            result = await AgentTriggerExecutor(db).run(
+                AgentTriggerRunConfig(
+                    agent=agent,
+                    name=schedule.name,
+                    source=f"trigger:cron:{schedule.id}",
+                    prompt=rendered_prompt,
+                    system_prompt=schedule.system_prompt,
                     environment_ref=environment_ref,
+                    timeout_sec=schedule.timeout_sec,
+                    max_retries=schedule.max_retries,
+                    project_id=schedule.project_id,
+                    user_id=schedule.user_id,
+                    org_id=schedule.org_id,
+                    idempotency_key=idempotency_key,
+                    session_mode=getattr(schedule, "session_mode", "fresh"),
+                    pinned_session_id=getattr(schedule, "pinned_session_id", None),
+                    reusable_session_id=getattr(schedule, "reusable_session_id", None),
+                    schedule_id=schedule.id,
+                    metadata={"trigger_id": str(schedule.id), "trigger_type": "cron"},
                 ),
-                project_id=schedule.project_id,
-            )
-
-            task, created = await submission.create_and_dispatch(
-                agent_id=agent.id,
-                prompt=schedule.prompt,
-                system_prompt=schedule.system_prompt,
-                chat_session_id=session.id,
-                session_svc=session_svc,
-                timeout_sec=schedule.timeout_sec,
-                max_retries=schedule.max_retries,
-                project_id=schedule.project_id,
-                user_id=schedule.user_id,
-                org_id=schedule.org_id,
-                idempotency_key=idempotency_key,
-                schedule_id=schedule.id,
-                auto_created_session_id=session.id,
-                enforce_admission=False,
                 enforce_user_quota=False,
             )
-            if created:
-                logger.info("Schedule %s fired task %s (slot=%s)", schedule.id, task.id, fired_slot.isoformat())
+            await schedule_svc.advance_after_fire(
+                schedule.id,
+                fired_slot,
+                success=True,
+                task_id=result.task.id,
+                session_id=result.session.id,
+                payload=payload,
+            )
+            if result.created:
+                logger.info("Schedule %s fired task %s (slot=%s)", schedule.id, result.task.id, fired_slot.isoformat())
             else:
                 logger.info(
                     "Schedule %s slot %s already fired (idempotent); no duplicate task",
