@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { Plus, Trash2 } from 'lucide-react'
@@ -9,12 +9,7 @@ import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import {
-  managedRequestOptions,
-  managedScopeKey,
-  useManagedRequestScope,
-} from '@/lib/managed/request-scope'
-import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
 import type { Agent } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,11 +26,8 @@ import {
 } from '@/components/managed/shared'
 import { CreateAgentDialog } from './components/create-agent-dialog'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { useProjectStore } from '@/stores/managed/project-store'
-import {
-  currentProjectAllowsWrite,
-  useCurrentProjectReadOnly,
-} from '@/hooks/managed/use-current-project-read-only'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 
 interface DeletePreview {
   sessions: number
@@ -47,11 +39,21 @@ export default function AgentListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const managedScope = useManagedRequestScope()
-  const projectReadOnly = useCurrentProjectReadOnly()
-  const actionRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope.key)
-  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
+  const {
+    scopeRef: managedScopeRef,
+    scope: managedScope,
+    readOnly,
+    beginAction,
+    isCurrentAction,
+    scopeIsActive,
+    bumpRun,
+  } = useScopedActions({
+    onReset: () => {
+      setDeleteTarget(null)
+      setDeletePreview(null)
+      setShowCreateDialog(false)
+    },
+  })
   const [showArchived, setShowArchived] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
@@ -115,45 +117,6 @@ export default function AgentListPage() {
     },
   ]
 
-  useEffect(() => {
-    if (managedScopeRef.current !== managedScope.key) {
-      actionRunRef.current += 1
-      setDeleteTarget(null)
-      setDeletePreview(null)
-    }
-    managedScopeRef.current = managedScope.key
-    managedRequestScopeRef.current = managedScope
-  }, [managedScope.key])
-
-  useEffect(
-    () => () => {
-      actionRunRef.current += 1
-    },
-    [],
-  )
-
-  useEffect(() => {
-    if (!projectReadOnly) return
-    actionRunRef.current += 1
-    setDeleteTarget(null)
-    setDeletePreview(null)
-    setShowCreateDialog(false)
-  }, [projectReadOnly])
-
-  const getCurrentManagedScope = () => {
-    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return managedScopeKey(orgId, projectId)
-  }
-
-  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
-    getCurrentManagedScope() === scope
-
-  const isCurrentAction = (runId: number, scope: string) =>
-    actionRunRef.current === runId &&
-    managedScopeRef.current === scope &&
-    currentManagedScopeIsActive(scope) &&
-    currentProjectAllowsWrite()
-
   const currentAgentIsActive = (agent: Agent, scope: string) =>
     currentProjectAllowsWrite() &&
     queryClient
@@ -166,23 +129,22 @@ export default function AgentListPage() {
 
   const handleDeleteClick = async (agent: Agent) => {
     if (!currentProjectAllowsWrite()) return
-    const requestScope = managedRequestScopeRef.current
-    const actionScope = requestScope.key
-    if (!currentManagedScopeIsActive(actionScope)) return
-    if (!currentAgentIsActive(agent, actionScope)) return
+    if (!scopeIsActive()) return
+    if (!currentAgentIsActive(agent, managedScopeRef.current)) return
 
-    const runId = actionRunRef.current + 1
-    actionRunRef.current = runId
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
     try {
       const preview = await managedGet<DeletePreview>(
         apiResourcePath('agents', agent.id, 'delete_preview'),
         managedRequestOptions(requestScope),
       )
-      if (!isCurrentAction(runId, actionScope)) return
+      if (!isCurrentAction(runId, scope)) return
       setDeletePreview(preview)
       setDeleteTarget(agent)
     } catch (e) {
-      if (!isCurrentAction(runId, actionScope)) return
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
@@ -194,29 +156,28 @@ export default function AgentListPage() {
       setDeletePreview(null)
       return
     }
-    const requestScope = managedRequestScopeRef.current
-    const actionScope = requestScope.key
-    if (!currentManagedScopeIsActive(actionScope)) return
-    if (!currentAgentIsActive(deleteTarget, actionScope)) {
+    if (!scopeIsActive()) return
+    if (!currentAgentIsActive(deleteTarget, managedScopeRef.current)) {
       setDeleteTarget(null)
       setDeletePreview(null)
       return
     }
 
-    const runId = actionRunRef.current + 1
-    actionRunRef.current = runId
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
     try {
       await managedDelete(
         apiResourcePath('agents', deleteTarget.id),
         managedRequestOptions(requestScope),
       )
-      if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['agents', actionScope] })
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['agents', scope] })
     } catch (e) {
-      if (!isCurrentAction(runId, actionScope)) return
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
-      if (isCurrentAction(runId, actionScope)) {
+      if (isCurrentAction(runId, scope)) {
         setDeleteTarget(null)
         setDeletePreview(null)
       }
@@ -225,23 +186,22 @@ export default function AgentListPage() {
 
   const handleArchive = async (agent: Agent) => {
     if (!currentProjectAllowsWrite()) return
-    const requestScope = managedRequestScopeRef.current
-    const actionScope = requestScope.key
-    if (!currentManagedScopeIsActive(actionScope)) return
-    if (!currentAgentIsActive(agent, actionScope)) return
+    if (!scopeIsActive()) return
+    if (!currentAgentIsActive(agent, managedScopeRef.current)) return
 
-    const runId = actionRunRef.current + 1
-    actionRunRef.current = runId
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
     try {
       await managedPost(
         apiResourcePath('agents', agent.id, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
-      if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['agents', actionScope] })
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['agents', scope] })
     } catch (e) {
-      if (!isCurrentAction(runId, actionScope)) return
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
@@ -330,12 +290,12 @@ export default function AgentListPage() {
         title={t('managed.agents.title')}
         subtitle={t('managed.agents.subtitle')}
         action={
-          projectReadOnly ? null : (
+          readOnly ? null : (
             <Button
               size="sm"
               onClick={() => {
                 if (!currentProjectAllowsWrite()) return
-                if (!currentManagedScopeIsActive()) return
+                if (!scopeIsActive()) return
                 setShowCreateDialog(true)
               }}
             >
@@ -362,7 +322,7 @@ export default function AgentListPage() {
         fetching={isFetching}
         onRowClick={(a) => router.push(`/managed/agents/${a.id}`)}
         actionMenu={(a) =>
-          projectReadOnly || a.archived_at
+          readOnly || a.archived_at
             ? []
             : [
                 {
@@ -392,7 +352,7 @@ export default function AgentListPage() {
       />
 
       <ConfirmDialog
-        open={!projectReadOnly && !!deleteTarget}
+        open={!readOnly && !!deleteTarget}
         title={t('managed.agents.deleteTitle', { name: deleteTarget?.name })}
         description={buildDeleteDescription()}
         confirmLabel={t('managed.agents.permanentlyDelete')}
@@ -405,15 +365,15 @@ export default function AgentListPage() {
       />
 
       <CreateAgentDialog
-        open={!projectReadOnly && showCreateDialog}
+        open={!readOnly && showCreateDialog}
         onOpenChange={(open) => {
           if (open && !currentProjectAllowsWrite()) return
-          if (open && !currentManagedScopeIsActive()) return
+          if (open && !scopeIsActive()) return
           setShowCreateDialog(open)
         }}
         onCreated={(id) => {
           const scope = managedScopeRef.current
-          if (!currentManagedScopeIsActive(scope)) return
+          if (!scopeIsActive(scope)) return
           queryClient.invalidateQueries({ queryKey: ['agents', scope] })
           router.push(`/managed/agents/${id}`)
         }}
