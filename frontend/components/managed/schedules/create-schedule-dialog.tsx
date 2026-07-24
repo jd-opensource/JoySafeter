@@ -349,10 +349,10 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                 <SelectTrigger>
                   <SelectValue placeholder={t('managed.schedules.selectAgent')} />
                 </SelectTrigger>
-                <SelectContent>
-                  <div className="sticky top-0 border-b bg-popover px-2 pb-1.5 pt-1">
+                <SelectContent className="max-h-[280px]">
+                  <div className="sticky top-0 z-10 bg-popover px-2 pb-2 pt-1.5">
                     <input
-                      className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                      className="w-full rounded-md bg-muted/60 px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
                       placeholder={t('common.search', '搜索') + '…'}
                       value={agentSearch}
                       onChange={(e) => setAgentSearch(e.target.value)}
@@ -372,14 +372,14 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                   {filteredAgents.map((a) => (
                     <SelectItem key={a.id} value={apiResourceId(a.id)}>
                       <div className="flex items-center gap-2">
-                        <span>{a.name}</span>
+                        <span className="truncate">{a.name}</span>
                         {a.engine_kind && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                             {a.engine_kind}
                           </span>
                         )}
                         {a.model?.id && (
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="shrink-0 truncate text-[10px] text-muted-foreground">
                             {a.model.id}
                           </span>
                         )}
@@ -422,10 +422,10 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
-                <div className="sticky top-0 border-b bg-popover px-2 pb-1.5 pt-1">
+              <SelectContent className="max-h-[280px]">
+                <div className="sticky top-0 z-10 bg-popover px-2 pb-2 pt-1.5">
                   <input
-                    className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                    className="w-full rounded-md bg-muted/60 px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
                     placeholder={t('common.search', '搜索') + '…'}
                     value={envSearch}
                     onChange={(e) => setEnvSearch(e.target.value)}
@@ -445,9 +445,9 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                   return (
                     <SelectItem key={env.id} value={env.id}>
                       <div className="flex items-center gap-2">
-                        <span>{env.name}</span>
+                        <span className="truncate">{env.name}</span>
                         {netType && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                             {netType}
                           </span>
                         )}
