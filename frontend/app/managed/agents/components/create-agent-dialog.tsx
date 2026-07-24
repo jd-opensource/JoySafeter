@@ -1,7 +1,8 @@
 'use client'
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { CircleHelp, Plus, Trash2 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { FieldHelp, SkillVersionSelect } from '@/components/managed/shared'
@@ -514,7 +515,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               placeholder={t('managed.agents.create.systemPromptPlaceholder')}
             />
             <div className="mt-2 flex items-center gap-3">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <input
                   type="radio"
                   name="create_system_prompt_mode"
@@ -524,8 +525,18 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   className="accent-primary"
                 />
                 {t('managed.agents.promptModeAppend', '追加模式')}
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CircleHelp className="h-3.5 w-3.5 cursor-help text-muted-foreground/60" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[240px] text-xs">
+                      {t('managed.agents.promptModeAppendTooltip', '系统提示追加到引擎（Claude Code）内置提示后面，保留引擎的行为规范和最佳实践指引')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </label>
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <input
                   type="radio"
                   name="create_system_prompt_mode"
@@ -535,12 +546,17 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   className="accent-primary"
                 />
                 {t('managed.agents.promptModeReplace', '替换模式')}
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CircleHelp className="h-3.5 w-3.5 cursor-help text-muted-foreground/60" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[240px] text-xs">
+                      {t('managed.agents.promptModeReplaceTooltip', '完全替换引擎内置提示，由你的系统提示全权控制 Agent 行为。工具（Bash/文件读写等）仍可正常使用')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </label>
-              <span className="text-[10px] text-muted-foreground/70">
-                {systemPromptMode === 'replace'
-                  ? t('managed.agents.promptModeReplaceHint', '完全替换引擎内置提示（工具仍可用）')
-                  : t('managed.agents.promptModeAppendHint', '追加到引擎内置提示后面')}
-              </span>
             </div>
           </div>
 
