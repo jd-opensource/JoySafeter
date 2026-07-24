@@ -113,7 +113,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     queryKey: ['agents', managedScope.key, 'for-schedule'],
     queryFn: () =>
       managedGet<AgentOption[] | { data: AgentOption[] }>(
-        '/agents?limit=200',
+        '/agents?limit=100',
         managedRequestOptions(managedScope),
       ),
     enabled: open && hasManagedRequestScope(managedScope),
@@ -128,7 +128,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     queryKey: ['environments', managedScope.key, 'for-schedule'],
     queryFn: () =>
       managedGet<EnvironmentOption[] | { data: EnvironmentOption[] }>(
-        '/environments?limit=200',
+        '/environments?limit=100',
         managedRequestOptions(managedScope),
       ),
     enabled: open && hasManagedRequestScope(managedScope),
