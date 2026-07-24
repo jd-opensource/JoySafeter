@@ -4,20 +4,21 @@
 # 可配置的基础镜像（默认使用官方镜像，可通过 ARG 切换到国内镜像）
 ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
 ARG NODE_VERSION=20-alpine
+ARG BUN_IMAGE=oven/bun:1.3.14-alpine
+FROM ${BUN_IMAGE} AS bun_runtime
+
 FROM ${BASE_IMAGE_REGISTRY}node:${NODE_VERSION} AS base
 RUN apk add --no-cache libc6-compat
 
 FROM base AS deps
 WORKDIR /app
-RUN apk add --no-cache curl unzip bash && \
-    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14
+COPY --from=bun_runtime /usr/local/bin/bun /usr/local/bin/bun
 COPY package.json bun.lock* ./
-RUN /root/.bun/bin/bun install --frozen-lockfile
+RUN bun install --frozen-lockfile
 
 FROM base AS builder
 WORKDIR /app
-RUN apk add --no-cache curl unzip bash && \
-    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14
+COPY --from=bun_runtime /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock* ./
 COPY . .
@@ -26,7 +27,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production \
     NODE_OPTIONS="--max-old-space-size=4096"
-RUN /root/.bun/bin/bun run build
+RUN bun run build
 
 FROM base AS runner
 WORKDIR /app

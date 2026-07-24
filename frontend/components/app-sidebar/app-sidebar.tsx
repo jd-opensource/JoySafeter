@@ -49,6 +49,8 @@ import {
   BarChart3,
   Activity,
   History,
+  CalendarClock,
+  Webhook,
 } from 'lucide-react'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ProjectInfo } from '@/stores/managed/project-store'
@@ -66,6 +68,11 @@ const buildItems: NavItem[] = [
   { to: '/managed/sessions', labelKey: 'nav.sessions', icon: MessageSquare },
   { to: '/managed/environments', labelKey: 'nav.environments', icon: Server },
   { to: '/managed/vaults', labelKey: 'nav.vaults', icon: KeyRound },
+]
+
+const automationItems: NavItem[] = [
+  { to: '/managed/schedules', labelKey: 'nav.schedules', icon: CalendarClock },
+  { to: '/managed/triggers', labelKey: 'nav.triggers', icon: Webhook },
 ]
 
 const insightItems: NavItem[] = [
@@ -569,6 +576,8 @@ export function AppSidebar() {
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
+          <NavSection labelKey="nav.automation" icon={CalendarClock} items={automationItems} collapsed />
+          <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} collapsed />
@@ -598,6 +607,7 @@ export function AppSidebar() {
 
       <nav className="flex-1 overflow-y-auto py-1">
         <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} />
+        <NavSection labelKey="nav.automation" icon={CalendarClock} items={automationItems} />
         <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} />
         <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} />
         <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} />

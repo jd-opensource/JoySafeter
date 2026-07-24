@@ -53,6 +53,10 @@ def parse_schedule_id(schedule_id: str = Path(...)) -> uuid.UUID:
     return _strip_prefix(schedule_id, "sched_", "schedule_id")
 
 
+def parse_trigger_id(trigger_id: str = Path(...)) -> uuid.UUID:
+    return _strip_prefix(trigger_id, "trig_", "trigger_id")
+
+
 def parse_memory_store_id(store_id: str = Path(...)) -> uuid.UUID:
     return _strip_prefix(store_id, "memstore_", "store_id")
 

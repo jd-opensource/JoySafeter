@@ -119,12 +119,11 @@ class JoySafeterTask(JoySafeterBaseModel):
     owner_instance_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     owner_epoch: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    # Set when this task was created by a schedule fire; NULL for interactive
-    # tasks. Not FK-cascade-critical, but constrained so run-history joins are
-    # sound. ON DELETE SET NULL keeps a task's audit record if its schedule is
-    # deleted.
+    # Set when this task was created by a cron trigger fire; NULL for interactive
+    # tasks. The legacy column name stays for migration compatibility, but the
+    # value now references the unified joysafeter_triggers row.
     schedule_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("joysafeter_schedules.id", ondelete="SET NULL"),
+        ForeignKey("joysafeter_triggers.id", ondelete="SET NULL"),
         nullable=True,
     )

@@ -2,11 +2,20 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use tokio::sync::{mpsc, watch, Mutex, Notify};
+use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
 use uuid::Uuid;
 
-use crate::grpc::proto::OrchestratorMessage;
+use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage, SandboxFileResponse};
+
+#[derive(Clone, Debug)]
+pub struct RunnerRuntimeActivity {
+    pub runtime_state: String,
+    pub active_task_id: Option<String>,
+    pub session_id: Option<String>,
+    pub observed_at: DateTime<Utc>,
+}
 
 /// Per-sandbox in-process state.
 ///
@@ -50,8 +59,12 @@ pub struct SandboxBridge {
     /// Last result status (for idle handler stop_reason computation).
     pub last_result_status: Mutex<Option<String>>,
     pub last_result_error: Mutex<Option<String>>,
+    /// Last runner-side busy/idle heartbeat.
+    runner_runtime_activity: Mutex<Option<RunnerRuntimeActivity>>,
     /// Per-task WebSocket subscriber queues.
     task_subscribers: Mutex<HashMap<Uuid, Vec<mpsc::Sender<serde_json::Value>>>>,
+    /// Pending live file requests awaiting runner responses.
+    pending_sandbox_file_requests: Mutex<HashMap<String, oneshot::Sender<SandboxFileResponse>>>,
 }
 
 impl SandboxBridge {
@@ -78,8 +91,32 @@ impl SandboxBridge {
             pending_control_request_ids: Mutex::new(HashMap::new()),
             last_result_status: Mutex::new(None),
             last_result_error: Mutex::new(None),
+            runner_runtime_activity: Mutex::new(None),
             task_subscribers: Mutex::new(HashMap::new()),
+            pending_sandbox_file_requests: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub async fn record_runner_heartbeat(
+        &self,
+        runtime_state: &str,
+        active_task_id: Option<String>,
+        session_id: Option<String>,
+    ) {
+        let state = runtime_state.trim();
+        if state.is_empty() {
+            return;
+        }
+        *self.runner_runtime_activity.lock().await = Some(RunnerRuntimeActivity {
+            runtime_state: state.to_string(),
+            active_task_id,
+            session_id,
+            observed_at: Utc::now(),
+        });
+    }
+
+    pub async fn runner_runtime_activity(&self) -> Option<RunnerRuntimeActivity> {
+        self.runner_runtime_activity.lock().await.clone()
     }
 
     /// Send a message to the connected runner.
@@ -131,6 +168,65 @@ impl SandboxBridge {
             if rx.changed().await.is_err() {
                 return;
             }
+        }
+    }
+
+    pub async fn request_sandbox_file(
+        &self,
+        operation: String,
+        path: String,
+        max_bytes: u64,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<SandboxFileResponse> {
+        let request_id = Uuid::now_v7().to_string();
+        let (tx, rx) = oneshot::channel();
+        self.pending_sandbox_file_requests
+            .lock()
+            .await
+            .insert(request_id.clone(), tx);
+
+        let message = OrchestratorMessage {
+            payload: Some(orchestrator_message::Payload::SandboxFileRequest(
+                proto::SandboxFileRequest {
+                    request_id: request_id.clone(),
+                    operation,
+                    path,
+                    max_bytes,
+                },
+            )),
+        };
+
+        if let Err(e) = self.runner_tx.send(message).await {
+            self.pending_sandbox_file_requests
+                .lock()
+                .await
+                .remove(&request_id);
+            return Err(anyhow::anyhow!("failed to send sandbox file request: {e}"));
+        }
+
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => Err(anyhow::anyhow!("sandbox file response channel closed")),
+            Err(_) => {
+                self.pending_sandbox_file_requests
+                    .lock()
+                    .await
+                    .remove(&request_id);
+                Err(anyhow::anyhow!("sandbox file request timed out"))
+            }
+        }
+    }
+
+    pub async fn complete_sandbox_file_response(&self, response: SandboxFileResponse) -> bool {
+        let request_id = response.request_id.clone();
+        let tx = self
+            .pending_sandbox_file_requests
+            .lock()
+            .await
+            .remove(&request_id);
+        match tx {
+            Some(tx) => tx.send(response).is_ok(),
+            None => false,
         }
     }
 

@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use redis::AsyncCommands;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -154,6 +155,32 @@ impl CommandListener {
             return result;
         }
 
+        if cmd_type == "sandbox_file" {
+            let bridge = match self.bridge_registry.get_by_db_id(sandbox_id) {
+                Some(b) => b,
+                None => {
+                    self.publish_ack_payload(
+                        &cmd,
+                        serde_json::json!({"ok": false, "code": "SANDBOX_NOT_CONNECTED", "error": "sandbox runner is not connected"}),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            };
+            let result = self.handle_sandbox_file(&cmd, &bridge).await;
+            match &result {
+                Ok(payload) => self.publish_ack_payload(&cmd, payload.clone()).await,
+                Err(ref e) => {
+                    self.publish_ack_payload(
+                        &cmd,
+                        serde_json::json!({"ok": false, "error": e.to_string()}),
+                    )
+                    .await;
+                }
+            }
+            return result.map(|_| ());
+        }
+
         let bridge = match self.bridge_registry.get_by_db_id(sandbox_id) {
             Some(b) => b,
             None => {
@@ -198,6 +225,25 @@ impl CommandListener {
         self.publish_ack(&cmd, ack_ok).await;
 
         Ok(())
+    }
+
+    async fn handle_sandbox_file(
+        &self,
+        cmd: &serde_json::Value,
+        bridge: &Arc<crate::kernel::sandbox_bridge::SandboxBridge>,
+    ) -> anyhow::Result<serde_json::Value> {
+        let op = cmd["op"].as_str().unwrap_or("list");
+        let path = cmd["path"].as_str().unwrap_or("/workspace");
+        let max_bytes = cmd["max_bytes"].as_u64().unwrap_or(8 * 1024 * 1024);
+        let response = bridge
+            .request_sandbox_file(
+                op.to_string(),
+                path.to_string(),
+                max_bytes,
+                std::time::Duration::from_secs(15),
+            )
+            .await?;
+        Ok(sandbox_file_response_to_json(response))
     }
 
     async fn handle_destroy_sandbox(
@@ -460,6 +506,61 @@ impl CommandListener {
         );
         Ok(())
     }
+}
+
+fn sandbox_file_response_to_json(response: proto::SandboxFileResponse) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "ok": response.ok,
+        "code": response.code,
+        "error": response.error,
+        "path": response.path,
+    });
+    if let Some(obj) = payload.as_object_mut() {
+        if !response.entries.is_empty() {
+            obj.insert(
+                "entries".to_string(),
+                serde_json::Value::Array(
+                    response
+                        .entries
+                        .into_iter()
+                        .map(|entry| {
+                            serde_json::json!({
+                                "name": entry.name,
+                                "path": entry.path,
+                                "type": entry.file_type,
+                                "size": entry.size,
+                                "mtime": entry.mtime,
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        if !response.encoding.is_empty() {
+            obj.insert("encoding".to_string(), serde_json::Value::String(response.encoding));
+        }
+        if !response.content.is_empty() {
+            obj.insert("content".to_string(), serde_json::Value::String(response.content));
+        }
+        if !response.content_bytes.is_empty() {
+            obj.insert(
+                "content_base64".to_string(),
+                serde_json::Value::String(
+                    base64::engine::general_purpose::STANDARD.encode(response.content_bytes),
+                ),
+            );
+        }
+        if !response.filename.is_empty() {
+            obj.insert("filename".to_string(), serde_json::Value::String(response.filename));
+        }
+        if !response.content_type.is_empty() {
+            obj.insert("content_type".to_string(), serde_json::Value::String(response.content_type));
+        }
+        if response.size > 0 {
+            obj.insert("size".to_string(), serde_json::Value::from(response.size));
+        }
+    }
+    payload
 }
 
 // Need to use futures for the pubsub stream

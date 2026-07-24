@@ -1,5 +1,6 @@
 /// Sandbox providers — Docker, Daytona, E2B, Envoy, Image builder.
 pub mod archive;
+pub mod artifacts;
 pub mod daytona;
 pub mod docker;
 pub mod e2b;

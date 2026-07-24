@@ -291,7 +291,9 @@ impl SandboxController {
     ///      everything is done (RunnerIdle). For cc/native this is precise
     ///      because the harness holds back the turn-complete signal until
     ///      background sub-agents finish; codex multi-agent aggregates child
-    ///      threads in the runtime adapter for the same guarantee.
+    ///      threads in the runtime adapter for the same guarantee. Before
+    ///      stopping, we also ask the in-process bridge for the latest
+    ///      runner-side heartbeat and skip the reap when it still reports busy.
     ///   2. `disconnected_at` past `bridge_disconnect_grace` — the bridge has
     ///      been gone too long; runner crashed or we can't talk to it. The
     ///      orchestrator stamps `disconnected_at` whenever the gRPC stream
@@ -388,6 +390,25 @@ impl SandboxController {
         let mut cleanup_claimed_stopping = graceful;
 
         if graceful {
+            if let Some(bridge) = self.bridge_registry.get_by_db_id(sandbox_id) {
+                if let Some(activity) = bridge.runner_runtime_activity().await {
+                    let max_age_secs = (self.runtime_config.heartbeat_timeout_sec() * 2).max(30) as i64;
+                    let age_secs = chrono::Utc::now()
+                        .signed_duration_since(activity.observed_at)
+                        .num_seconds();
+                    if activity.runtime_state == "busy" && age_secs <= max_age_secs {
+                        debug!(
+                            sandbox_id = %sandbox_id,
+                            active_task_id = ?activity.active_task_id,
+                            session_id = ?activity.session_id,
+                            age_secs,
+                            "Skipping idle reap because runner heartbeat reports busy runtime"
+                        );
+                        return;
+                    }
+                }
+            }
+
             // CAS: idle -> stopping
             let cas_ok =
                 queries::transition_sandbox_cas(&self.pool, sandbox_id, "idle", "stopping")

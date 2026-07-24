@@ -8,15 +8,15 @@
 # ---------------------------------------------------------------------------
 # Stage 1: packages — 安装依赖
 # ---------------------------------------------------------------------------
+ARG BUN_IMAGE=oven/bun:1.3.14
+FROM ${BUN_IMAGE} AS bun_runtime
+
 FROM is.jd.local/llm-app-dev-sys/autosec-langfuse-web-base:v20250824.101509-89d28a67-ItlU5q AS packages
 
 WORKDIR /home/export/App/frontend
 
-# 安装 bun (需要 unzip)
-RUN apt-get update && apt-get install -y --no-install-recommends unzip && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
-    ln -sf /root/.bun/bin/bun /usr/local/bin/bun
+# 安装 bun：从 bun 镜像复制二进制，避免构建时 curl GitHub release 中断。
+COPY --from=bun_runtime /usr/local/bin/bun /usr/local/bin/bun
 
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
@@ -28,10 +28,7 @@ FROM is.jd.local/llm-app-dev-sys/autosec-langfuse-web-base:v20250824.101509-89d2
 
 WORKDIR /home/export/App/frontend
 
-RUN apt-get update && apt-get install -y --no-install-recommends unzip && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
-    ln -sf /root/.bun/bin/bun /usr/local/bin/bun
+COPY --from=bun_runtime /usr/local/bin/bun /usr/local/bin/bun
 
 COPY --from=packages /home/export/App/frontend .
 COPY . .

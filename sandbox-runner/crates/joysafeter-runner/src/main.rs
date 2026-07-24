@@ -3,6 +3,7 @@ mod archive;
 mod memory_fuse;
 mod repos;
 mod runner;
+mod sandbox_files;
 mod stream;
 
 pub mod proto {
@@ -13,7 +14,7 @@ use proto::agent_bridge_client::AgentBridgeClient;
 use proto::{RunnerHarnessResult, RunnerHeartbeat, RunnerIdle, RunnerMessage};
 
 use joysafeter_runtime::AdapterRegistry;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -22,7 +23,7 @@ use tonic::Streaming;
 use tracing::{error, info, warn};
 
 const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
-const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
+const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
 
 enum ConnectionResult {
     Shutdown,
@@ -41,6 +42,50 @@ struct SurvivingTask {
     event_rx: mpsc::Receiver<RunnerMessage>,
     /// Event that was consumed from event_rx but failed to send to gRPC.
     unsent_event: Option<RunnerMessage>,
+}
+
+#[derive(Clone, Default)]
+struct HeartbeatRuntimeState {
+    runtime_state: String,
+    active_task_id: Option<String>,
+    session_id: Option<String>,
+}
+
+impl HeartbeatRuntimeState {
+    fn idle() -> Self {
+        Self {
+            runtime_state: "idle".to_string(),
+            active_task_id: None,
+            session_id: None,
+        }
+    }
+
+    fn busy(task_id: String, session_id: Option<String>) -> Self {
+        Self {
+            runtime_state: "busy".to_string(),
+            active_task_id: Some(task_id),
+            session_id,
+        }
+    }
+}
+
+fn set_heartbeat_runtime_state(
+    state: &Arc<Mutex<HeartbeatRuntimeState>>,
+    value: HeartbeatRuntimeState,
+) {
+    match state.lock() {
+        Ok(mut guard) => *guard = value,
+        Err(poisoned) => *poisoned.into_inner() = value,
+    }
+}
+
+fn get_heartbeat_runtime_state(
+    state: &Arc<Mutex<HeartbeatRuntimeState>>,
+) -> HeartbeatRuntimeState {
+    match state.lock() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    }
 }
 
 #[tokio::main]
@@ -373,14 +418,20 @@ async fn run_session(
     session_config: &mut runner::SessionConfig,
     surviving_task: &mut Option<SurvivingTask>,
 ) -> ConnectionResult {
+    let heartbeat_state = Arc::new(Mutex::new(HeartbeatRuntimeState::idle()));
     let heartbeat_tx = runner_tx.clone();
+    let heartbeat_state_for_task = heartbeat_state.clone();
     let heartbeat_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         loop {
             interval.tick().await;
+            let state = get_heartbeat_runtime_state(&heartbeat_state_for_task);
             let hb = RunnerMessage {
                 payload: Some(proto::runner_message::Payload::Heartbeat(RunnerHeartbeat {
                     timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                    runtime_state: state.runtime_state,
+                    active_task_id: state.active_task_id,
+                    session_id: state.session_id,
                 })),
             };
             if heartbeat_tx.send(hb).await.is_err() {
@@ -393,6 +444,10 @@ async fn run_session(
     // through the new gRPC channel until it completes.
     if let Some(mut task) = surviving_task.take() {
         info!(task_id = %task.task_id, "Resuming surviving task on new connection");
+        set_heartbeat_runtime_state(
+            &heartbeat_state,
+            HeartbeatRuntimeState::busy(task.task_id.clone(), task.session_id.clone()),
+        );
 
         let metadata = loop {
             tokio::select! {
@@ -488,6 +543,14 @@ async fn run_session(
                                     heartbeat_handle.abort();
                                     return ConnectionResult::Shutdown;
                                 }
+                                Some(proto::orchestrator_message::Payload::SandboxFileRequest(request)) => {
+                                    let response = sandbox_files::handle_request(request).await;
+                                    let _ = runner_tx
+                                        .send(RunnerMessage {
+                                            payload: Some(proto::runner_message::Payload::SandboxFileResponse(response)),
+                                        })
+                                        .await;
+                                }
                                 _ => {}
                             }
                         }
@@ -501,6 +564,7 @@ async fn run_session(
                 }
             }
         };
+        set_heartbeat_runtime_state(&heartbeat_state, HeartbeatRuntimeState::idle());
 
         let idle = RunnerMessage {
             payload: Some(proto::runner_message::Payload::Idle(RunnerIdle {
@@ -545,6 +609,10 @@ async fn run_session(
 
                 let task_id_str = start_task.task_id.clone();
                 let task_session_id = start_task.session_id.clone();
+                set_heartbeat_runtime_state(
+                    &heartbeat_state,
+                    HeartbeatRuntimeState::busy(task_id_str.clone(), task_session_id.clone()),
+                );
                 let task_work_dir = session_config
                     .work_dir
                     .as_ref()
@@ -672,6 +740,14 @@ async fn run_session(
                                         Some(proto::orchestrator_message::Payload::MemoryUpdate(update)) => {
                                             runner::handle_memory_update(update, session_config).await;
                                         }
+                                        Some(proto::orchestrator_message::Payload::SandboxFileRequest(request)) => {
+                                            let response = sandbox_files::handle_request(request).await;
+                                            let _ = runner_tx
+                                                .send(RunnerMessage {
+                                                    payload: Some(proto::runner_message::Payload::SandboxFileResponse(response)),
+                                                })
+                                                .await;
+                                        }
                                         _ => {}
                                     }
                                 }
@@ -709,6 +785,8 @@ async fn run_session(
                         }
                     }
                 };
+
+                set_heartbeat_runtime_state(&heartbeat_state, HeartbeatRuntimeState::idle());
 
                 if shutdown {
                     heartbeat_handle.abort();
@@ -775,6 +853,14 @@ async fn run_session(
             Some(proto::orchestrator_message::Payload::Input(_)) => {}
             Some(proto::orchestrator_message::Payload::MemoryUpdate(update)) => {
                 runner::handle_memory_update(update, session_config).await;
+            }
+            Some(proto::orchestrator_message::Payload::SandboxFileRequest(request)) => {
+                let response = sandbox_files::handle_request(request).await;
+                let _ = runner_tx
+                    .send(RunnerMessage {
+                        payload: Some(proto::runner_message::Payload::SandboxFileResponse(response)),
+                    })
+                    .await;
             }
             Some(proto::orchestrator_message::Payload::Shutdown(shutdown)) => {
                 info!(reason = %shutdown.reason, "Received Shutdown, exiting");

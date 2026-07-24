@@ -1,5 +1,6 @@
 mod agent;
 mod event;
+mod file;
 mod sandbox;
 mod session;
 mod task;
@@ -10,6 +11,7 @@ mod tests;
 // Re-export everything to preserve the public surface (`queries::X`).
 pub use agent::*;
 pub use event::*;
+pub use file::*;
 pub use sandbox::*;
 pub use session::*;
 pub use task::*;

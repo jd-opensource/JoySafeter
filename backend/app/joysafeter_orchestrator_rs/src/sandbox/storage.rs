@@ -14,7 +14,7 @@
 //! 3. Done — `read_file()` and all callers pick it up automatically.
 
 use std::env;
-use std::path::Path;
+use std::path::{Component, Path};
 use std::sync::OnceLock;
 
 use anyhow::Context;
@@ -37,6 +37,14 @@ use tracing::debug;
 /// access (files are written by the Python API process).
 #[async_trait]
 pub trait StorageBackend: Send + Sync {
+    /// Write full content to storage.
+    async fn put(
+        &self,
+        key: &str,
+        data: &[u8],
+        content_type: &str,
+    ) -> anyhow::Result<()>;
+
     /// Read the full content of a file by storage key.
     async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>>;
 
@@ -88,8 +96,19 @@ async fn get_backend() -> anyhow::Result<&'static dyn StorageBackend> {
 /// This is the primary entry point used by `file_injection.rs` and
 /// `harness_input_builder.rs`.
 pub async fn read_file(storage_key: &str) -> anyhow::Result<Vec<u8>> {
+    validate_storage_key(storage_key)?;
     let backend = get_backend().await?;
     backend.get(storage_key).await
+}
+
+pub async fn write_file(
+    storage_key: &str,
+    data: &[u8],
+    content_type: &str,
+) -> anyhow::Result<()> {
+    validate_storage_key(storage_key)?;
+    let backend = get_backend().await?;
+    backend.put(storage_key, data, content_type).await
 }
 
 // ===========================================================================
@@ -114,6 +133,7 @@ impl LocalBackend {
     }
 
     fn resolve(&self, key: &str) -> anyhow::Result<std::path::PathBuf> {
+        validate_storage_key(key)?;
         let candidate = self.base.join(key);
         let resolved = candidate
             .canonicalize()
@@ -127,6 +147,41 @@ impl LocalBackend {
 
 #[async_trait]
 impl StorageBackend for LocalBackend {
+    async fn put(
+        &self,
+        key: &str,
+        data: &[u8],
+        _content_type: &str,
+    ) -> anyhow::Result<()> {
+        validate_storage_key(key)?;
+        let candidate = self.base.join(key);
+        let parent = candidate
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("invalid storage key: {key}"))?;
+        if !parent.starts_with(&self.base) {
+            anyhow::bail!("path traversal detected: {key}");
+        }
+        tokio::fs::create_dir_all(parent).await?;
+        let parent = tokio::fs::canonicalize(parent).await?;
+        if !parent.starts_with(&self.base) {
+            anyhow::bail!("path traversal detected: {key}");
+        }
+        if let Ok(metadata) = tokio::fs::symlink_metadata(&candidate).await {
+            if metadata.file_type().is_symlink() {
+                anyhow::bail!("refusing to overwrite symlink storage key: {key}");
+            }
+            if metadata.is_dir() {
+                anyhow::bail!("refusing to overwrite directory storage key: {key}");
+            }
+            let resolved = candidate.canonicalize()?;
+            if !resolved.starts_with(&self.base) {
+                anyhow::bail!("path traversal detected: {key}");
+            }
+        }
+        tokio::fs::write(candidate, data).await?;
+        Ok(())
+    }
+
     async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
         let path = self.resolve(key)?;
         Ok(tokio::fs::read(path).await?)
@@ -138,6 +193,20 @@ impl StorageBackend for LocalBackend {
             Err(_) => Ok(false),
         }
     }
+}
+
+fn validate_storage_key(key: &str) -> anyhow::Result<()> {
+    let path = Path::new(key);
+    if key.is_empty() || path.is_absolute() || key.contains('\0') {
+        anyhow::bail!("invalid storage key: {key}");
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(_) => {}
+            _ => anyhow::bail!("invalid storage key: {key}"),
+        }
+    }
+    Ok(())
 }
 
 // ===========================================================================
@@ -247,6 +316,25 @@ impl S3Backend {
 
 #[async_trait]
 impl StorageBackend for S3Backend {
+    async fn put(
+        &self,
+        key: &str,
+        data: &[u8],
+        content_type: &str,
+    ) -> anyhow::Result<()> {
+        let client = self.client().await;
+        client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .body(aws_sdk_s3::primitives::ByteStream::from(data.to_vec()))
+            .content_type(content_type)
+            .send()
+            .await
+            .with_context(|| format!("S3 put_object failed: {key}"))?;
+        Ok(())
+    }
+
     async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
         let client = self.client().await;
         debug!(bucket = %self.bucket, key = %key, "Downloading file from S3");

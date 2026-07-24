@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 import unicodedata
@@ -60,12 +59,6 @@ async def _broadcast_memory_update(
     not to the API's own instance_id (they are different processes).
     """
     try:
-        from app.joysafeter_shared.cache.redis import RedisClient
-
-        redis = RedisClient.get_client()
-        if not redis:
-            return
-
         # Find all active sandbox owners that have this store mounted. Mount
         # names are session-local, so the Rust runtime must fan out by store_id
         # and translate to each subscriber's own mount_name.
@@ -86,34 +79,25 @@ async def _broadcast_memory_update(
         if not active_rows:
             return  # No active session has this store mounted
 
-        # Find the orchestrator instance_id that owns each sandbox
-        owner_instances: set[str] = set()
-        for (sandbox_id,) in active_rows:
-            if sandbox_id:
-                owner = await redis.get(f"joysafeter:sandbox_owner:{sandbox_id}")
-                if owner:
-                    if isinstance(owner, bytes):
-                        owner = owner.decode()
-                    owner_instances.add(owner)
+        from app.joysafeter_shared.orchestrator_bridge.runtime_commands import publish_to_sandbox_owners_via_redis
 
-        if not owner_instances:
-            return
-
-        payload = json.dumps(
-            {
+        delivered = await publish_to_sandbox_owners_via_redis(
+            [sandbox_id for (sandbox_id,) in active_rows],
+            command={
                 "type": "memory_update",
                 "store_id": str(store_id),
                 "relative_path": path,
                 "content": content,
                 "operation": operation,
-            }
+            },
+            boundary="memory_store_api",
+            operation="broadcast_memory_update",
+            failure_code="MEMORY_STORE_REDIS_UPDATE_PUBLISH_FAILED",
+            failure_message="Redis memory update publish failed",
+            data={"store_id": str(store_id), "relative_path": path},
         )
-
-        # Publish to each orchestrator instance
-        for instance_id in owner_instances:
-            channel = f"joysafeter:cmd:{instance_id}"
-            await redis.publish(channel, payload)
-            logger.debug(f"Broadcast memory_update to {instance_id}: {path}")
+        if delivered:
+            logger.debug("Broadcast memory_update to %s owner instance(s): %s", delivered, path)
     except Exception as e:
         logger.debug(f"Failed to broadcast memory_update: {e}")
 

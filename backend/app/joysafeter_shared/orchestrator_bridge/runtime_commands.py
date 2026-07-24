@@ -170,6 +170,182 @@ async def relay_sandbox_command_via_redis(
     )
 
 
+async def relay_sandbox_command_payload_via_redis(
+    sandbox_id,
+    *,
+    command_type: str,
+    boundary: str,
+    operation: str,
+    failure_code: str,
+    failure_message: str,
+    data: dict[str, Any] | None = None,
+    extra_command: dict[str, Any] | None = None,
+    ack_timeout_seconds: int = COMMAND_ACK_TIMEOUT_SECONDS,
+) -> dict[str, Any] | None:
+    redis_client = RedisClient.get_client()
+    if redis_client is None:
+        return None
+
+    sandbox_id_str = str(sandbox_id)
+    try:
+        owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
+    except Exception:
+        return None
+    if not owner:
+        return None
+    if isinstance(owner, bytes):
+        owner = owner.decode()
+
+    command_id = uuid.uuid4().hex
+    ack_key = f"joysafeter:cmd_ack:{command_id}"
+    channel = f"joysafeter:cmd:{owner}"
+    command: dict[str, Any] = {
+        "type": command_type,
+        "sandbox_id": sandbox_id_str,
+        "command_id": command_id,
+        "ack_key": ack_key,
+    }
+    if extra_command:
+        command.update(extra_command)
+
+    return await publish_command_and_wait_for_ack_payload(
+        redis_client,
+        channel,
+        command,
+        command_id=command_id,
+        ack_key=ack_key,
+        ack_timeout_seconds=ack_timeout_seconds,
+        boundary=boundary,
+        failure_code=failure_code,
+        failure_message=failure_message,
+        data={
+            "sandbox_id": sandbox_id_str,
+            "command_type": command_type,
+            "relay_operation": operation,
+            **(data or {}),
+        },
+    )
+
+
+async def publish_to_sandbox_owner_via_redis(
+    sandbox_id,
+    *,
+    command: dict[str, Any],
+    boundary: str,
+    operation: str,
+    failure_code: str,
+    failure_message: str,
+    data: dict[str, Any] | None = None,
+    require_ack: bool = False,
+    ack_timeout_seconds: int = COMMAND_ACK_TIMEOUT_SECONDS,
+) -> bool:
+    redis_client = RedisClient.get_client()
+    if redis_client is None:
+        return False
+
+    sandbox_id_str = str(sandbox_id)
+    try:
+        owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
+    except Exception:
+        return False
+    if not owner:
+        return False
+    if isinstance(owner, bytes):
+        owner = owner.decode()
+
+    channel = f"joysafeter:cmd:{owner}"
+    command = dict(command)
+    command["sandbox_id"] = sandbox_id_str
+
+    if not require_ack:
+        receivers = await redis_client.publish(channel, json.dumps(command))
+        return receivers is not None and int(receivers) > 0
+
+    command_id = uuid.uuid4().hex
+    ack_key = f"joysafeter:cmd_ack:{command_id}"
+    command["command_id"] = command_id
+    command["ack_key"] = ack_key
+
+    return await publish_command_and_wait_for_ack(
+        redis_client,
+        channel,
+        command,
+        command_id=command_id,
+        ack_key=ack_key,
+        ack_timeout_seconds=ack_timeout_seconds,
+        boundary=boundary,
+        failure_code=failure_code,
+        failure_message=failure_message,
+        data={
+            "sandbox_id": sandbox_id_str,
+            "command_type": str(command.get("type") or ""),
+            "relay_operation": operation,
+            **(data or {}),
+        },
+    )
+
+
+async def publish_to_sandbox_owners_via_redis(
+    sandbox_ids,
+    *,
+    command: dict[str, Any],
+    boundary: str,
+    operation: str,
+    failure_code: str,
+    failure_message: str,
+    data: dict[str, Any] | None = None,
+) -> int:
+    redis_client = RedisClient.get_client()
+    if redis_client is None:
+        return 0
+
+    owner_instances: set[str] = set()
+    for sandbox_id in sandbox_ids:
+        if not sandbox_id:
+            continue
+        sandbox_id_str = str(sandbox_id)
+        try:
+            owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
+        except Exception:
+            continue
+        if not owner:
+            continue
+        if isinstance(owner, bytes):
+            owner = owner.decode()
+        owner_instances.add(str(owner))
+
+    delivered = 0
+    payload = json.dumps(command)
+    for owner in owner_instances:
+        channel = f"joysafeter:cmd:{owner}"
+        try:
+            receivers = await redis_client.publish(channel, payload)
+        except Exception as exc:
+            logger.debug(
+                "Redis command publish failed for owner %s",
+                owner,
+                extra={
+                    "error": async_boundary_error_payload(
+                        code=failure_code,
+                        message=failure_message,
+                        boundary=boundary,
+                        operation=operation,
+                        data={
+                            "channel": channel,
+                            "command_type": str(command.get("type") or ""),
+                            **(data or {}),
+                        },
+                        detail=exc.__class__.__name__,
+                    )
+                },
+                exc_info=True,
+            )
+            continue
+        if receivers is not None and int(receivers) > 0:
+            delivered += 1
+    return delivered
+
+
 async def relay_sandbox_destroy_via_redis(
     sandbox_id,
     *,

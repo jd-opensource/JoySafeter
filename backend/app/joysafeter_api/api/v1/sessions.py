@@ -1,13 +1,15 @@
 import asyncio
+import base64
 import json
 import logging
 import os
 import re
 import uuid
 from typing import Any, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +62,9 @@ router = APIRouter(tags=["joysafeter-sessions"])
 
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+_SANDBOX_FILE_MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
+_SANDBOX_ARCHIVE_MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
+_SANDBOX_FILE_MAX_PREVIEW_CHARS = 2 * 1024 * 1024
 
 
 def _slugify_mount_name(name: str) -> str:
@@ -76,6 +81,50 @@ def _canonical_environment_ref(raw: str | None) -> str:
         return f"env_{env_id}"
     except ValueError:
         return ref
+
+
+def _safe_content_disposition(filename: str) -> str:
+    ascii_fallback = filename.encode("ascii", "ignore").decode("ascii")
+    for ch in ('"', "\\", "\r", "\n"):
+        ascii_fallback = ascii_fallback.replace(ch, "")
+    ascii_fallback = ascii_fallback.strip() or "download"
+    utf8_encoded = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{utf8_encoded}"
+
+
+def _validate_sandbox_file_path(path: str | None) -> str:
+    value = (path or "/workspace").strip() or "/workspace"
+    if len(value) > 4096 or "\x00" in value:
+        raise InvalidRequestError(
+            code="SANDBOX_FILE_PATH_INVALID",
+            message="Invalid sandbox file path",
+            data={"path": path or ""},
+            user_action="fix_input",
+        )
+    parts = [part for part in value.split("/") if part]
+    if any(part == ".." for part in parts):
+        raise InvalidRequestError(
+            code="SANDBOX_FILE_PATH_TRAVERSAL",
+            message="Sandbox file path cannot contain '..'",
+            data={"path": value},
+            user_action="fix_input",
+        )
+    hidden_parts = [part for part in parts if part.startswith(".")]
+    if hidden_parts:
+        raise InvalidRequestError(
+            code="SANDBOX_FILE_PATH_HIDDEN",
+            message="Sandbox hidden files are not accessible",
+            data={"path": value},
+            user_action="fix_input",
+        )
+    if value.startswith("/") and value != "/workspace" and not value.startswith("/workspace/"):
+        raise InvalidRequestError(
+            code="SANDBOX_FILE_PATH_OUTSIDE_WORKSPACE",
+            message="Sandbox file path must be under /workspace",
+            data={"path": value},
+            user_action="fix_input",
+        )
+    return value if value.startswith("/") else f"/workspace/{value}"
 
 
 async def _validate_session_environment_ref(
@@ -806,28 +855,6 @@ CONTROL_TOOL_EVENT_TYPES = {"user.tool_confirmation", "user.custom_tool_result"}
 LIVE_INPUT_PREFIX = "__joysafeter_input_v1__:"
 
 
-async def _publish_command_and_wait_for_ack(
-    redis_client,
-    channel: str,
-    command: dict[str, Any],
-    *,
-    command_id: str,
-    ack_key: str,
-) -> bool:
-    from app.joysafeter_shared.orchestrator_bridge.runtime_commands import publish_command_and_wait_for_ack
-
-    return await publish_command_and_wait_for_ack(
-        redis_client,
-        channel,
-        command,
-        command_id=command_id,
-        ack_key=ack_key,
-        boundary="session_api",
-        failure_code="SESSION_REDIS_COMMAND_ACK_WAIT_FAILED",
-        failure_message="Redis command ACK wait failed",
-    )
-
-
 def _encode_live_input(event: SingleEventRequest, source_event_id: Optional[str] = None) -> Optional[str]:
     event_type = event.type
     if event_type == "user.tool_confirmation":
@@ -907,47 +934,25 @@ async def _relay_control_via_redis(
     if not getattr(session, "last_sandbox_id", None):
         return False
 
-    # The owner registry lives in Redis and is maintained by the Rust
-    # orchestrator. The API only needs GET + PUBLISH here, both stateless.
-    try:
-        from app.joysafeter_shared.cache.redis import RedisClient
-    except Exception:
-        return False
-    redis_client = RedisClient.get_client()
-    if redis_client is None:
-        return False
-
-    sandbox_id = str(session.last_sandbox_id)
-    try:
-        owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id}")
-    except Exception:
-        return False
-    if not owner:
-        return False
-    if isinstance(owner, bytes):
-        owner = owner.decode()
-
     live_input = _encode_live_input(event, source_event_id=event_id)
     if not live_input:
         return False
 
-    command_id = uuid.uuid4().hex
-    ack_key = f"joysafeter:cmd_ack:{command_id}"
-    channel = f"joysafeter:cmd:{owner}"
-    command = {
-        "type": "input",
-        "sandbox_id": sandbox_id,
-        "content": live_input,
-        "command_id": command_id,
-        "ack_key": ack_key,
-    }
     try:
-        delivered = await _publish_command_and_wait_for_ack(
-            redis_client,
-            channel,
-            command,
-            command_id=command_id,
-            ack_key=ack_key,
+        from app.joysafeter_shared.orchestrator_bridge.runtime_commands import publish_to_sandbox_owner_via_redis
+
+        return await publish_to_sandbox_owner_via_redis(
+            session.last_sandbox_id,
+            command={"type": "input", "content": live_input},
+            require_ack=True,
+            boundary="session_api",
+            operation="relay_input_command",
+            failure_code="SESSION_REDIS_INPUT_RELAY_FAILED",
+            failure_message="Redis input relay command failed",
+            data={
+                "session_id": str(getattr(session, "id", "?")),
+                "event_type": event.type,
+            },
         )
     except Exception as exc:
         logger.debug(
@@ -962,10 +967,8 @@ async def _relay_control_via_redis(
                     operation="relay_input_command",
                     data={
                         "session_id": str(getattr(session, "id", "?")),
-                        "sandbox_id": sandbox_id,
+                        "sandbox_id": str(session.last_sandbox_id),
                         "event_type": event.type,
-                        "command_id": command_id,
-                        "channel": channel,
                     },
                     detail=exc.__class__.__name__,
                 )
@@ -973,7 +976,6 @@ async def _relay_control_via_redis(
             exc_info=True,
         )
         return False
-    return delivered
 
 
 async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID | str | None = None) -> bool:
@@ -989,37 +991,17 @@ async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID
     if not sandbox_id:
         return False
     try:
-        from app.joysafeter_shared.cache.redis import RedisClient
-    except Exception:
-        return False
-    redis_client = RedisClient.get_client()
-    if redis_client is None:
-        return False
-    sandbox_id = str(sandbox_id)
-    try:
-        owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id}")
-    except Exception:
-        return False
-    if not owner:
-        return False
-    if isinstance(owner, bytes):
-        owner = owner.decode()
-    command_id = uuid.uuid4().hex
-    ack_key = f"joysafeter:cmd_ack:{command_id}"
-    command = {
-        "type": "cancel",
-        "sandbox_id": sandbox_id,
-        "reason": reason,
-        "command_id": command_id,
-        "ack_key": ack_key,
-    }
-    try:
-        delivered = await _publish_command_and_wait_for_ack(
-            redis_client,
-            f"joysafeter:cmd:{owner}",
-            command,
-            command_id=command_id,
-            ack_key=ack_key,
+        from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_command_via_redis
+
+        return await relay_sandbox_command_via_redis(
+            sandbox_id,
+            command_type="cancel",
+            reason=reason,
+            boundary="session_api",
+            operation="relay_cancel_command",
+            failure_code="SESSION_REDIS_CANCEL_RELAY_FAILED",
+            failure_message="Redis cancel relay command failed",
+            data={"session_id": str(getattr(session, "id", "?"))},
         )
     except Exception as exc:
         logger.debug(
@@ -1033,9 +1015,7 @@ async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID
                     operation="relay_cancel_command",
                     data={
                         "session_id": str(getattr(session, "id", "?")),
-                        "sandbox_id": sandbox_id,
-                        "command_id": command_id,
-                        "channel": f"joysafeter:cmd:{owner}",
+                        "sandbox_id": str(sandbox_id),
                     },
                     detail=exc.__class__.__name__,
                 )
@@ -1043,7 +1023,6 @@ async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID
             exc_info=True,
         )
         return False
-    return delivered
 
 
 async def _relay_sandbox_destroy_via_redis(
@@ -1977,6 +1956,220 @@ async def list_session_resources(
     resource_svc = SessionResourceService(db)
     await resource_svc.get_project_session_or_raise(session_id, auth_ctx.project_id)
     return {"data": await resource_svc.list_resource_payloads(session_id, project_id=auth_ctx.project_id)}
+
+
+async def _relay_sandbox_file_command(
+    *,
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    project_id: Optional[str],
+    op: str,
+    path: str,
+    max_bytes: int | None = None,
+) -> dict[str, Any]:
+    session = await SessionService(db).get_session(session_id, project_id=project_id)
+    if not session:
+        raise NotFoundError(
+            code="SESSION_NOT_FOUND",
+            message="Session not found",
+            data={"session_id": str(session_id)},
+            user_action="refresh",
+        )
+    sandbox_id = getattr(session, "last_sandbox_id", None)
+    if not sandbox_id:
+        raise ServiceUnavailableError(
+            code="SESSION_SANDBOX_NOT_AVAILABLE",
+            message="Session sandbox is not available",
+            data={"session_id": str(session_id)},
+            retryable=False,
+            user_action="refresh",
+        )
+
+    try:
+        from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_command_payload_via_redis
+
+        payload = await relay_sandbox_command_payload_via_redis(
+            sandbox_id,
+            command_type="sandbox_file",
+            extra_command={
+                "op": op,
+                "path": path,
+                **({"max_bytes": max_bytes} if max_bytes is not None else {}),
+            },
+            boundary="session_api",
+            operation="relay_sandbox_file_command",
+            failure_code="SESSION_REDIS_SANDBOX_FILE_RELAY_FAILED",
+            failure_message="Redis sandbox file relay command failed",
+            data={"session_id": str(session_id), "op": op},
+            ack_timeout_seconds=15,
+        )
+    except Exception as exc:
+        log_boundary_failure(
+            logger,
+            boundary="session_api",
+            code="SESSION_SANDBOX_FILE_RELAY_FAILED",
+            message="Sandbox file relay failed",
+            operation="relay_sandbox_file_command",
+            error=exc,
+            data={"session_id": str(session_id), "op": op},
+        )
+        payload = None
+
+    if not payload:
+        raise ServiceUnavailableError(
+            code="SESSION_SANDBOX_FILE_RELAY_UNAVAILABLE",
+            message="Sandbox file service is not available",
+            data={"session_id": str(session_id)},
+            retryable=True,
+            user_action="retry",
+        )
+    if not payload.get("ok"):
+        code = str(payload.get("code") or "SANDBOX_FILE_ERROR")
+        if code == "NOT_FOUND":
+            raise NotFoundError(
+                code="SANDBOX_FILE_NOT_FOUND",
+                message="Sandbox file path not found",
+                data={"path": path},
+                user_action="refresh",
+            )
+        raise InvalidRequestError(
+            code=code,
+            message=str(payload.get("error") or "Sandbox file command failed"),
+            data={"path": path, "op": op},
+            user_action="fix_input",
+        )
+    return payload
+
+
+def _decode_sandbox_file_payload(payload: dict[str, Any], *, max_bytes: int) -> bytes:
+    encoded = payload.get("content_base64")
+    if not isinstance(encoded, str):
+        raise ServiceUnavailableError(
+            code="SANDBOX_FILE_PAYLOAD_INVALID",
+            message="Sandbox file payload is invalid",
+            data={},
+            retryable=True,
+            user_action="retry",
+        )
+    if len(encoded) > ((max_bytes + 2) // 3) * 4 + 16:
+        raise InvalidRequestError(
+            code="SANDBOX_FILE_TOO_LARGE",
+            message="Sandbox file exceeds download size limit",
+            data={"max_bytes": max_bytes},
+            user_action="fix_input",
+        )
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise ServiceUnavailableError(
+            code="SANDBOX_FILE_PAYLOAD_INVALID",
+            message="Sandbox file payload is invalid",
+            data={},
+            retryable=True,
+            user_action="retry",
+        ) from exc
+    if len(data) > max_bytes:
+        raise InvalidRequestError(
+            code="SANDBOX_FILE_TOO_LARGE",
+            message="Sandbox file exceeds download size limit",
+            data={"max_bytes": max_bytes},
+            user_action="fix_input",
+        )
+    return data
+
+
+@router.get("/{session_id}/sandbox/files")
+async def list_sandbox_files(
+    session_id: uuid.UUID,
+    path: Optional[str] = Query(default="/workspace"),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    safe_path = _validate_sandbox_file_path(path)
+    return await _relay_sandbox_file_command(
+        db=db,
+        session_id=session_id,
+        project_id=auth_ctx.project_id,
+        op="list",
+        path=safe_path,
+    )
+
+
+@router.get("/{session_id}/sandbox/files/content")
+async def read_sandbox_file_content(
+    session_id: uuid.UUID,
+    path: str = Query(...),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    safe_path = _validate_sandbox_file_path(path)
+    payload = await _relay_sandbox_file_command(
+        db=db,
+        session_id=session_id,
+        project_id=auth_ctx.project_id,
+        op="content",
+        path=safe_path,
+    )
+    content = payload.get("content")
+    if isinstance(content, str) and len(content) > _SANDBOX_FILE_MAX_PREVIEW_CHARS:
+        raise InvalidRequestError(
+            code="SANDBOX_FILE_TOO_LARGE",
+            message="Sandbox file exceeds preview size limit",
+            data={"max_chars": _SANDBOX_FILE_MAX_PREVIEW_CHARS},
+            user_action="fix_input",
+        )
+    return payload
+
+
+@router.get("/{session_id}/sandbox/files/raw")
+async def download_sandbox_file_raw(
+    session_id: uuid.UUID,
+    path: str = Query(...),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    safe_path = _validate_sandbox_file_path(path)
+    payload = await _relay_sandbox_file_command(
+        db=db,
+        session_id=session_id,
+        project_id=auth_ctx.project_id,
+        op="raw",
+        path=safe_path,
+        max_bytes=_SANDBOX_FILE_MAX_DOWNLOAD_BYTES,
+    )
+    data = _decode_sandbox_file_payload(payload, max_bytes=_SANDBOX_FILE_MAX_DOWNLOAD_BYTES)
+    filename = str(payload.get("filename") or safe_path.rstrip("/").rsplit("/", 1)[-1] or "download")
+    media_type = str(payload.get("content_type") or "application/octet-stream")
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Content-Disposition": _safe_content_disposition(filename)},
+    )
+
+
+@router.get("/{session_id}/sandbox/files/archive")
+async def download_sandbox_file_archive(
+    session_id: uuid.UUID,
+    path: str = Query(default="/workspace"),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    safe_path = _validate_sandbox_file_path(path)
+    payload = await _relay_sandbox_file_command(
+        db=db,
+        session_id=session_id,
+        project_id=auth_ctx.project_id,
+        op="archive",
+        path=safe_path,
+        max_bytes=_SANDBOX_ARCHIVE_MAX_DOWNLOAD_BYTES,
+    )
+    data = _decode_sandbox_file_payload(payload, max_bytes=_SANDBOX_ARCHIVE_MAX_DOWNLOAD_BYTES)
+    filename = str(payload.get("filename") or "workspace.zip")
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": _safe_content_disposition(filename)},
+    )
 
 
 @router.post("/{session_id}/resources", status_code=201)

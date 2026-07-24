@@ -37,6 +37,7 @@ from .joysafeter_skill import (
     JoySafeterSkillVersionFile,
 )
 from .joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from .joysafeter_trigger import JoySafeterTrigger  # noqa: F401 — alembic discovery
 from .joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential  # noqa: F401 — alembic discovery
 
 __all__ = [

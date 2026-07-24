@@ -35,7 +35,7 @@ use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::SandboxProvider;
 
 const HEARTBEAT_TIMEOUT_DEFAULT: u64 = 120;
-const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
+const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
 const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
 
@@ -471,8 +471,15 @@ async fn multi_task_loop(
                         match msg {
                             Ok(Some(runner_msg)) => {
                                 match &runner_msg.payload {
-                                    Some(runner_message::Payload::Heartbeat(_)) => {
+                                    Some(runner_message::Payload::Heartbeat(heartbeat)) => {
                                         heartbeat_deadline = Instant::now() + heartbeat_timeout;
+                                        bridge
+                                            .record_runner_heartbeat(
+                                                &heartbeat.runtime_state,
+                                                heartbeat.active_task_id.clone(),
+                                                heartbeat.session_id.clone(),
+                                            )
+                                            .await;
                                         // Heartbeats no longer touch last_used_at:
                                         // the idle sweep drives off idle_since
                                         // (set by RunnerIdle, precise even with
@@ -493,6 +500,14 @@ async fn multi_task_loop(
                                         )
                                         .await;
                                         return true;
+                                    }
+                                    Some(runner_message::Payload::SandboxFileResponse(response)) => {
+                                        if !bridge
+                                            .complete_sandbox_file_response(response.clone())
+                                            .await
+                                        {
+                                            debug!(sandbox_id = %sandbox_db_id, "Received unmatched sandbox file response while idle");
+                                        }
                                     }
                                     Some(other) => {
                                         debug!(payload = ?other, "Ignoring runner message while idle");
@@ -825,6 +840,18 @@ async fn multi_task_loop(
             .store(false, Ordering::Relaxed);
         bridge.reset_confirmation();
         let setup_failure = is_setup_failure_task_result(&result);
+        if !matches!(result, TaskResult::Disconnected) && !setup_failure {
+            if let Err(e) = crate::sandbox::artifacts::archive_task_artifacts(
+                pool,
+                bridge,
+                task_id,
+                session_id,
+            )
+            .await
+            {
+                warn!(task_id = %task_id, error = %e, "Failed to archive task artifacts");
+            }
+        }
         if !setup_failure {
             let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
         }
@@ -1600,6 +1627,10 @@ async fn handle_task_message(
         }
 
         runner_message::Payload::Idle(idle_msg) => {
+            bridge
+                .record_runner_heartbeat("idle", None, idle_msg.session_id.clone())
+                .await;
+
             // Update sandbox DB status
             let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
 
@@ -1655,7 +1686,14 @@ async fn handle_task_message(
             }
         }
 
-        runner_message::Payload::Heartbeat(_) => {
+        runner_message::Payload::Heartbeat(heartbeat) => {
+            bridge
+                .record_runner_heartbeat(
+                    &heartbeat.runtime_state,
+                    heartbeat.active_task_id.clone(),
+                    heartbeat.session_id.clone(),
+                )
+                .await;
             debug!(task_id = %task_id, "Heartbeat");
             TaskMessageOutcome::default()
         }
@@ -1694,6 +1732,13 @@ async fn handle_task_message(
                     )
                     .await;
             });
+            TaskMessageOutcome::default()
+        }
+
+        runner_message::Payload::SandboxFileResponse(response) => {
+            if !bridge.complete_sandbox_file_response(response.clone()).await {
+                debug!(task_id = %task_id, "Received unmatched sandbox file response");
+            }
             TaskMessageOutcome::default()
         }
 
