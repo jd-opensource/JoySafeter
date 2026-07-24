@@ -349,7 +349,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                 <SelectTrigger>
                   <SelectValue placeholder={t('managed.schedules.selectAgent')} />
                 </SelectTrigger>
-                <SelectContent className="max-h-[280px]">
+                <SelectContent className="max-h-[280px]" align="start" side="bottom" sideOffset={4} style={{ width: 'var(--radix-select-trigger-width)' }}>
                   <div className="sticky top-0 z-10 bg-popover px-2 pb-2 pt-1.5">
                     <input
                       className="w-full rounded-md bg-muted/60 px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
