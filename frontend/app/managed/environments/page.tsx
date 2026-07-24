@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
@@ -10,12 +10,7 @@ import type { Environment, Secret } from '@/types/managed'
 import { managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import {
-  managedRequestOptions,
-  managedScopeKey,
-  useManagedRequestScope,
-  type ManagedRequestScope,
-} from '@/lib/managed/request-scope'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -30,11 +25,8 @@ import {
   ResourceErrorState,
 } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { useProjectStore } from '@/stores/managed/project-store'
-import {
-  currentProjectAllowsWrite,
-  useCurrentProjectReadOnly,
-} from '@/hooks/managed/use-current-project-read-only'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import {
   Dialog,
   DialogContent,
@@ -63,8 +55,23 @@ export default function EnvironmentListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const managedScope = useManagedRequestScope()
-  const projectReadOnly = useCurrentProjectReadOnly()
+  const {
+    scopeRef: managedScopeRef,
+    requestScopeRef: managedRequestScopeRef,
+    scope: managedScope,
+    readOnly,
+    beginAction,
+    isCurrentAction,
+    scopeIsActive,
+    bumpRun,
+  } = useScopedActions({
+    onReset: () => {
+      createRunRef.current += 1
+      setCreating(false)
+      setShowCreate(false)
+      resetForm()
+    },
+  })
 
   const [showArchived, setShowArchived] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -83,10 +90,6 @@ export default function EnvironmentListPage() {
   const [formErrors, setFormErrors] = useState<CreateEnvironmentErrors>(emptyCreateErrors)
   const [creating, setCreating] = useState(false)
   const createRunRef = useRef(0)
-  const actionRunRef = useRef(0)
-  const previousScopeRef = useRef<string | null>(null)
-  const managedScopeRef = useRef(managedScope.key)
-  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
 
   const {
     data,
@@ -207,7 +210,7 @@ export default function EnvironmentListPage() {
     Boolean(errors.name) || Object.keys(errors.egressServices).length > 0
 
   const resetDialog = (open: boolean) => {
-    if (open && (!currentManagedScopeIsActive() || !currentProjectAllowsWrite())) return
+    if (open && (!scopeIsActive() || !currentProjectAllowsWrite())) return
     createRunRef.current += 1
     if (open) {
       resetForm()
@@ -218,57 +221,10 @@ export default function EnvironmentListPage() {
     }
   }
 
-  useEffect(() => {
-    if (previousScopeRef.current === null) {
-      previousScopeRef.current = managedScope.key
-      return
-    }
-    if (previousScopeRef.current === managedScope.key) return
-    previousScopeRef.current = managedScope.key
-    managedScopeRef.current = managedScope.key
-    managedRequestScopeRef.current = managedScope
-    createRunRef.current += 1
-    actionRunRef.current += 1
-    setCreating(false)
-    setShowCreate(false)
-    resetForm()
-  }, [managedScope.key])
-
-  useEffect(
-    () => () => {
-      createRunRef.current += 1
-      actionRunRef.current += 1
-    },
-    [],
-  )
-
-  useEffect(() => {
-    if (!projectReadOnly) return
-    createRunRef.current += 1
-    actionRunRef.current += 1
-    setCreating(false)
-    setShowCreate(false)
-    resetForm()
-  }, [projectReadOnly])
-
-  const getCurrentManagedScope = () => {
-    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return managedScopeKey(orgId, projectId)
-  }
-
-  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
-    getCurrentManagedScope() === scope
-
   const isCurrentCreateRun = (runId: number, scope: string) =>
     runId === createRunRef.current &&
     scope === managedScopeRef.current &&
-    currentManagedScopeIsActive(scope) &&
-    currentProjectAllowsWrite()
-
-  const isCurrentAction = (runId: number, scope: string) =>
-    actionRunRef.current === runId &&
-    managedScopeRef.current === scope &&
-    currentManagedScopeIsActive(scope) &&
+    scopeIsActive(scope) &&
     currentProjectAllowsWrite()
 
   const currentEnvironmentIsActive = (env: Environment, scope: string) =>
@@ -286,7 +242,7 @@ export default function EnvironmentListPage() {
 
   const handleCreate = useCallback(async () => {
     if (!currentProjectAllowsWrite()) return
-    if (!currentManagedScopeIsActive()) return
+    if (!scopeIsActive()) return
     const validationErrors = validateCreateForm()
     setFormErrors(validationErrors)
     if (hasCreateErrors(validationErrors)) return
@@ -359,23 +315,22 @@ export default function EnvironmentListPage() {
 
   const handleArchive = async (env: Environment) => {
     if (!currentProjectAllowsWrite()) return
-    const actionScope = managedScopeRef.current
-    if (!currentManagedScopeIsActive(actionScope)) return
-    if (!currentEnvironmentIsActive(env, actionScope)) return
+    if (!scopeIsActive()) return
+    if (!currentEnvironmentIsActive(env, managedScopeRef.current)) return
 
-    const runId = actionRunRef.current + 1
-    actionRunRef.current = runId
-    const requestScope = managedRequestScopeRef.current
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
     try {
       await managedPost(
         apiResourcePath('environments', env.id, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
-      if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['environments', actionScope] })
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['environments', scope] })
     } catch (e) {
-      if (!isCurrentAction(runId, actionScope)) return
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
@@ -432,7 +387,7 @@ export default function EnvironmentListPage() {
         title={t('managed.environments.title')}
         subtitle={t('managed.environments.subtitle')}
         action={
-          projectReadOnly ? null : (
+          readOnly ? null : (
             <Button size="sm" onClick={() => resetDialog(true)}>
               <Plus className="h-4 w-4" />
               {t('managed.environments.add')}
@@ -457,7 +412,7 @@ export default function EnvironmentListPage() {
         fetching={isFetching}
         onRowClick={(e) => router.push(`/managed/environments/${e.id}`)}
         actionMenu={(env) =>
-          projectReadOnly || env.archived_at
+          readOnly || env.archived_at
             ? []
             : [
                 {
@@ -480,7 +435,7 @@ export default function EnvironmentListPage() {
         emptyMessage={t('managed.environments.empty')}
       />
 
-      <Dialog open={!projectReadOnly && showCreate} onOpenChange={resetDialog}>
+      <Dialog open={!readOnly && showCreate} onOpenChange={resetDialog}>
         <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('managed.environments.addTitle')}</DialogTitle>
