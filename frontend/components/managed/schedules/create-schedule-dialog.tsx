@@ -105,6 +105,8 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
   const [policy, setPolicy] = useState<ScheduleConcurrencyPolicy>('allow')
   const [sessionMode, setSessionMode] = useState<ScheduleSessionMode>('fresh')
   const [pinnedSessionId, setPinnedSessionId] = useState('')
+  const [agentSearch, setAgentSearch] = useState('')
+  const [envSearch, setEnvSearch] = useState('')
   const [timeoutSec, setTimeoutSec] = useState(7200)
   const [maxRetries, setMaxRetries] = useState(2)
   const [enabled, setEnabled] = useState(true)
@@ -123,6 +125,16 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
     return list.filter((a) => !a.archived_at)
   }, [agentsQuery.data])
+  const filteredAgents = useMemo(() => {
+    if (!agentSearch.trim()) return agents
+    const q = agentSearch.toLowerCase()
+    return agents.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.engine_kind?.toLowerCase().includes(q) ||
+        a.model?.id?.toLowerCase().includes(q),
+    )
+  }, [agents, agentSearch])
 
   const environmentsQuery = useQuery({
     queryKey: ['environments', managedScope.key, 'for-schedule'],
@@ -138,6 +150,11 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
     return list.filter((e) => !e.archived_at)
   }, [environmentsQuery.data])
+  const filteredEnvironments = useMemo(() => {
+    if (!envSearch.trim()) return environments
+    const q = envSearch.toLowerCase()
+    return environments.filter((e) => e.name.toLowerCase().includes(q))
+  }, [environments, envSearch])
 
   const sessionsQuery = useQuery({
     queryKey: ['agent-sessions', managedScope.key, agentId, 'for-schedule'],
@@ -214,6 +231,8 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
       setMaxRetries(2)
       setEnabled(true)
     }
+    setAgentSearch('')
+    setEnvSearch('')
   }, [open, schedule])
 
   const canSubmit =
@@ -331,17 +350,26 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                   <SelectValue placeholder={t('managed.schedules.selectAgent')} />
                 </SelectTrigger>
                 <SelectContent>
+                  <div className="sticky top-0 border-b bg-popover px-2 pb-1.5 pt-1">
+                    <input
+                      className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                      placeholder={t('common.search', '搜索') + '…'}
+                      value={agentSearch}
+                      onChange={(e) => setAgentSearch(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
+                  </div>
                   {agentsQuery.isLoading && (
                     <div className="px-2 py-4 text-center text-xs text-muted-foreground">
                       {t('common.loading')}…
                     </div>
                   )}
-                  {!agentsQuery.isLoading && agents.length === 0 && (
+                  {!agentsQuery.isLoading && filteredAgents.length === 0 && (
                     <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                      {t('managed.schedules.noAgents', '暂无可用智能体')}
+                      {agentSearch ? t('common.noResults', '无匹配结果') : t('managed.schedules.noAgents', '暂无可用智能体')}
                     </div>
                   )}
-                  {agents.map((a) => (
+                  {filteredAgents.map((a) => (
                     <SelectItem key={a.id} value={apiResourceId(a.id)}>
                       <div className="flex items-center gap-2">
                         <span>{a.name}</span>
@@ -395,6 +423,15 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <div className="sticky top-0 border-b bg-popover px-2 pb-1.5 pt-1">
+                  <input
+                    className="w-full rounded-md border border-border bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                    placeholder={t('common.search', '搜索') + '…'}
+                    value={envSearch}
+                    onChange={(e) => setEnvSearch(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  />
+                </div>
                 <SelectItem value={FOLLOW_AGENT_ENV}>
                   {t('managed.schedules.envFollowAgent')}
                 </SelectItem>
@@ -403,7 +440,7 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
                     {t('common.loading')}…
                   </div>
                 )}
-                {environments.map((env) => {
+                {filteredEnvironments.map((env) => {
                   const netType = env.config?.networking?.type || env.config?.type
                   return (
                     <SelectItem key={env.id} value={env.id}>
