@@ -232,6 +232,9 @@ message StartTask {
   repeated string setup_commands = 18;
   repeated CustomTool custom_tools = 19;
   repeated string ask_tools = 20;
+  // "append" (default): --append-system-prompt (CC keeps its built-in prompt)
+  // "replace": --system-prompt (CC built-in prompt is replaced)
+  optional string system_prompt_mode = 21;
 }
 
 message CustomTool {

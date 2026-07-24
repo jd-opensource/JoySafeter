@@ -144,7 +144,12 @@ impl NativeAdapter {
             args.extend(["--resume".to_string(), session_id.clone()]);
         }
         if let Some(system_prompt) = &input.system_prompt {
-            args.extend(["--append-system-prompt".to_string(), system_prompt.clone()]);
+            let flag = if input.system_prompt_mode == "replace" {
+                "--system-prompt"
+            } else {
+                "--append-system-prompt"
+            };
+            args.extend([flag.to_string(), system_prompt.clone()]);
         }
 
         let mut cmd = Command::new("ccb");

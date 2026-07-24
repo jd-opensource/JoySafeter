@@ -149,6 +149,10 @@ pub async fn handle_task(
             (Some(mem_prompt), None) => Some(mem_prompt.clone()),
             (None, sp) => sp.clone(),
         },
+        system_prompt_mode: task
+            .system_prompt_mode
+            .clone()
+            .unwrap_or_else(|| "append".to_string()),
         session_id: task.session_id.clone(),
         model,
         max_turns: task.max_turns,

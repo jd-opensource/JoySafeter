@@ -54,6 +54,8 @@ pub struct HarnessInput {
     pub ask_tools: Vec<String>,
     pub work_dir: Option<String>,
     pub max_turns: u32,
+    /// "append" (default) or "replace" — controls --append-system-prompt vs --system-prompt
+    pub system_prompt_mode: String,
 }
 
 impl HarnessInputBuilder {
@@ -141,6 +143,13 @@ impl HarnessInputBuilder {
             .or_else(|| agent.as_ref().and_then(|a| a.system_prompt.clone()));
         input.system_prompt =
             combine_system_prompt(base_system, input.memory_system_prompt.clone());
+        input.system_prompt_mode = agent
+            .as_ref()
+            .and_then(|a| a.metadata.as_ref())
+            .and_then(|m| m.get("system_prompt_mode"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("append")
+            .to_string();
 
         let has_harness_resume = input
             .session_id
@@ -209,6 +218,11 @@ impl HarnessInputBuilder {
             permission_mode: input.permission_mode.clone(),
             setup_commands: input.setup_commands.clone(),
             custom_tools: input.custom_tools.clone(),
+            system_prompt_mode: if input.system_prompt_mode.is_empty() {
+                None
+            } else {
+                Some(input.system_prompt_mode.clone())
+            },
         }
     }
 
