@@ -101,6 +101,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [description, setDescription] = useState('')
   const [engineKind, setEngineKind] = useState('claude')
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [systemPromptMode, setSystemPromptMode] = useState<'append' | 'replace'>('append')
   const [enabledTools, setEnabledTools] = useState<Set<string>>(new Set(BUILTIN_TOOLS))
   const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([])
   const [showMcpForm, setShowMcpForm] = useState(false)
@@ -344,6 +345,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           description: description.trim() || null,
           engine_kind: engineKind,
           system_prompt: systemPrompt || null,
+          metadata: { system_prompt_mode: systemPromptMode },
           ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
           ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
           tools,
@@ -511,6 +513,35 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder={t('managed.agents.create.systemPromptPlaceholder')}
             />
+            <div className="mt-2 flex items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="radio"
+                  name="create_system_prompt_mode"
+                  value="append"
+                  checked={systemPromptMode === 'append'}
+                  onChange={() => setSystemPromptMode('append')}
+                  className="accent-primary"
+                />
+                {t('managed.agents.promptModeAppend', '追加模式')}
+              </label>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="radio"
+                  name="create_system_prompt_mode"
+                  value="replace"
+                  checked={systemPromptMode === 'replace'}
+                  onChange={() => setSystemPromptMode('replace')}
+                  className="accent-primary"
+                />
+                {t('managed.agents.promptModeReplace', '替换模式')}
+              </label>
+              <span className="text-[10px] text-muted-foreground/70">
+                {systemPromptMode === 'replace'
+                  ? t('managed.agents.promptModeReplaceHint', '完全替换引擎内置提示（工具仍可用）')
+                  : t('managed.agents.promptModeAppendHint', '追加到引擎内置提示后面')}
+              </span>
+            </div>
           </div>
 
           <hr className="border-dashed" />
