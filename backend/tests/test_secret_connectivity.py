@@ -77,7 +77,7 @@ async def test_secret_connectivity_anthropic_preserves_prefix_and_uses_auth_toke
             data={
                 "ANTHROPIC_AUTH_TOKEN": "anthropic-token",
                 "ANTHROPIC_BASE_URL": "http://127.0.0.1:9999/anthropic",
-                "ANTHROPIC_MODEL": "claude-opus-4-20250514",
+                "ANTHROPIC_MODEL": "Claude-Opus-4.6",
             },
         )
     )
@@ -86,7 +86,7 @@ async def test_secret_connectivity_anthropic_preserves_prefix_and_uses_auth_toke
     assert FakeAsyncClient.captured["endpoint"] == "http://127.0.0.1:9999/anthropic/v1/messages"
     assert FakeAsyncClient.captured["headers"]["authorization"] == "Bearer anthropic-token"
     assert "x-api-key" not in FakeAsyncClient.captured["headers"]
-    assert FakeAsyncClient.captured["json"]["model"] == "claude-opus-4-20250514"
+    assert FakeAsyncClient.captured["json"]["model"] == "Claude-Opus-4.6"
     assert FakeAsyncClient.captured["json"]["max_tokens"] == secrets.SECRET_TEST_MAX_OUTPUT_TOKENS
 
 
