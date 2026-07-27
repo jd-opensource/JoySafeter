@@ -1631,9 +1631,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: Only owner can delete
-        if skill.owner_id != current_user_id:
-            raise AccessDeniedError("Only the owner can delete a skill", code="SKILL_DELETE_FORBIDDEN")
         await check_skill_access(
             self.db,
             skill,

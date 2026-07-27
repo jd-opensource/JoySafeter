@@ -138,6 +138,31 @@ async def test_delete_skill_owner_denied_when_in_different_active_org(monkeypatc
     svc.db.commit.assert_not_called()
 
 
+async def test_project_admin_non_owner_can_delete_skill(monkeypatch):
+    """Regression: delete is gated on ADMIN capability, not skill ownership.
+
+    A project admin (or org super-user) who is NOT the skill's ``owner_id``
+    must be able to delete it — that is exactly what ``check_skill_access``
+    with ``ProjectCapability.ADMIN`` grants, and the module contract in
+    ``skill_permissions.py`` states there is "no owner short-circuit". A
+    leftover ``owner_id != current_user_id`` guard used to 403 this caller
+    before the capability gate ever ran; this test pins that it doesn't."""
+    s = _skill(owner_id="alice", visibility="project")
+    _patch_skill_org_id(monkeypatch, org_id="org-A")
+    _patch_project_role(monkeypatch, role="admin")
+    svc = _make_skill_service(s, current_user_id="bob", active_org_id="org-A")
+    svc.repo.delete = AsyncMock()
+    svc.file_repo.delete_by_skill = AsyncMock()
+    svc._has_skill_references = AsyncMock(return_value=False)
+
+    # "bob" is a project admin in the skill's org but NOT the owner ("alice").
+    await svc.delete_skill(s.id, current_user_id="bob")
+
+    svc.file_repo.delete_by_skill.assert_awaited_once_with(s.id)
+    svc.repo.delete.assert_awaited_once_with(s.id)
+    svc.db.commit.assert_awaited_once()
+
+
 async def test_org_superuser_gets_admin_in_own_org(monkeypatch):
     """Org owner/admin manage every skill in their own org — capability
     resolves to ADMIN without a project row."""
