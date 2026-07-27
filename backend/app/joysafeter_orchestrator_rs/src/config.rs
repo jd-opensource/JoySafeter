@@ -58,6 +58,7 @@ pub struct JoySafeterConfig {
     /// "use the image's default USER" (less safe).
     pub sandbox_run_as_user: String,
 
+
     // Multi-image map
     pub image_claude: String,
     pub image_codex: String,
@@ -127,6 +128,11 @@ pub struct JoySafeterConfig {
     pub e2b_api_key: String,
     pub e2b_template_id: String,
 
+    // Sandbox - Kubernetes
+    pub k8s_namespace: String,
+    pub k8s_kubectl_path: String,
+    pub k8s_orchestrator_url: Option<String>,
+
     // Database
     pub database_url: String,
 
@@ -184,7 +190,6 @@ impl JoySafeterConfig {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(256),
             sandbox_run_as_user: env_str("JOYSAFETER_SANDBOX_RUN_AS_USER", "1000:1000"),
-
             image_claude: env_str("JOYSAFETER_IMAGE_CLAUDE", ""),
             image_codex: env_str("JOYSAFETER_IMAGE_CODEX", ""),
             image_native: env_str("JOYSAFETER_IMAGE_NATIVE", ""),
@@ -253,6 +258,12 @@ impl JoySafeterConfig {
             e2b_api_url: env::var("JOYSAFETER_E2B_API_URL").ok(),
             e2b_api_key: env_str("JOYSAFETER_E2B_API_KEY", ""),
             e2b_template_id: env_str("JOYSAFETER_E2B_TEMPLATE_ID", ""),
+
+            k8s_namespace: env_str("JOYSAFETER_K8S_NAMESPACE", "joysafeter-sandboxes"),
+            k8s_kubectl_path: env_str("JOYSAFETER_K8S_KUBECTL_PATH", "kubectl"),
+            k8s_orchestrator_url: env::var("JOYSAFETER_K8S_ORCHESTRATOR_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
 
             database_url: build_database_url(),
             redis_url: env::var("REDIS_URL").ok(),

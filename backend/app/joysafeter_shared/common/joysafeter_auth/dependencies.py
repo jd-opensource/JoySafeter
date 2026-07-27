@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_api_key import JoySafeterApiKey
+from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
@@ -231,13 +232,20 @@ async def _verify_joysafeter_context(
         )
 
     project_role = await project_service.get_project_member_role(project_id, user_id)
+    is_super_user = await _is_platform_super_user(db, user_id)
     return JoySafeterAuthContext(
         user_id=user_id,
         org_id=org_id,
         project_id=project_id,
         role=role,
         project_role=project_role,
+        is_super_user=is_super_user,
     )
+
+
+async def _is_platform_super_user(db: AsyncSession, user_id: str) -> bool:
+    result = await db.execute(select(AuthUser.is_super_user).where(AuthUser.id == user_id).limit(1))
+    return bool(result.scalar_one_or_none())
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +325,7 @@ async def _auth_via_api_key(
         role=JoySafeterRole.MEMBER,
         principal_type="api_key",
         project_role=api_key.role,
+        is_super_user=False,
     )
 
 
@@ -445,6 +454,7 @@ async def _auth_via_user_session(
         project_id=project_id,
         role=role,
         project_role=project_role,
+        is_super_user=bool(user.is_super_user),
     )
 
 
@@ -577,6 +587,19 @@ async def require_joysafeter_user_admin(
     """Require a user principal with organization admin privileges."""
     ctx = _require_user_principal(ctx)
     return await _require_admin_context(db, ctx)
+
+
+async def require_joysafeter_platform_admin(
+    ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> JoySafeterAuthContext:
+    """Require a platform super-user for infrastructure-level operations."""
+    ctx = _require_user_principal(ctx)
+    if not ctx.is_super_user:
+        raise AccessDeniedError(
+            "Platform admin access required",
+            code="JOYSAFETER_PLATFORM_ADMIN_REQUIRED",
+        )
+    return ctx
 
 
 async def require_joysafeter_project_admin(

@@ -93,6 +93,92 @@ const TEMPLATE_IDS = [
   'analyst',
 ]
 
+const TEMPLATE_META: Record<string, { categoryKey: string; badgeKey: string }> = {
+  blank: { categoryKey: 'managed.quickstart.templateCategory.basic', badgeKey: 'managed.quickstart.templateBadge.basic' },
+  researcher: { categoryKey: 'managed.quickstart.templateCategory.research', badgeKey: 'managed.quickstart.templateBadge.web' },
+  extractor: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.data' },
+  monitor: { categoryKey: 'managed.quickstart.templateCategory.ops', badgeKey: 'managed.quickstart.templateBadge.alert' },
+  support: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.chat' },
+  incident: { categoryKey: 'managed.quickstart.templateCategory.ops', badgeKey: 'managed.quickstart.templateBadge.workflow' },
+  feedback: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.insight' },
+  retro: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.meeting' },
+  escalator: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.workflow' },
+  analyst: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.report' },
+}
+
+const TEMPLATE_CONFIGS: Record<string, Record<string, unknown>> = {
+  blank: {
+    name: 'Blank Agent',
+    description: 'A minimal general-purpose agent configuration.',
+    system_prompt: 'You are a helpful assistant. Clarify the user goal, plan briefly, and complete the task safely and accurately.',
+    tools: [],
+    metadata: { quickstart_template: 'blank' },
+  },
+  researcher: {
+    name: 'Deep Researcher',
+    description: 'Research topics in depth and produce concise, sourced summaries.',
+    system_prompt: 'You are a deep research agent. Break down the research question, gather relevant information, compare sources, identify uncertainties, and produce a structured answer with concise citations or source notes when available.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'researcher' },
+  },
+  extractor: {
+    name: 'Structured Extractor',
+    description: 'Extract structured data from unstructured text.',
+    system_prompt: 'You extract structured data from unstructured input. Preserve source meaning, avoid inventing missing fields, and return clean JSON or tables that match the requested schema.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'extractor' },
+  },
+  monitor: {
+    name: 'Site Monitor',
+    description: 'Monitor data sources and summarize changes or alerts.',
+    system_prompt: 'You are a monitoring agent. Check the configured sources, detect meaningful changes, classify severity, and produce clear alerts with recommended next actions.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'monitor' },
+  },
+  support: {
+    name: 'Customer Support Agent',
+    description: 'Handle support conversations with clear troubleshooting steps.',
+    system_prompt: 'You are a customer support agent. Be empathetic, ask focused clarifying questions, troubleshoot step by step, and summarize the resolution or escalation path.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'support' },
+  },
+  incident: {
+    name: 'Incident Commander',
+    description: 'Coordinate incident response workflows.',
+    system_prompt: 'You are an incident commander. Establish impact, timeline, owners, mitigation, communication updates, and post-incident follow-up. Keep responses action-oriented and time-aware.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'incident' },
+  },
+  feedback: {
+    name: 'Feedback Miner',
+    description: 'Analyze user feedback for themes and insights.',
+    system_prompt: 'You analyze user feedback. Cluster comments into themes, extract representative examples, estimate impact, and propose prioritized product actions.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'feedback' },
+  },
+  retro: {
+    name: 'Sprint Retro Host',
+    description: 'Host retrospectives and record action items.',
+    system_prompt: 'You facilitate sprint retrospectives. Collect wins, pain points, root causes, action items, owners, and follow-up dates. Keep the discussion balanced and constructive.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'retro' },
+  },
+  escalator: {
+    name: 'Support to Engineering',
+    description: 'Triage and escalate support tickets to engineering teams.',
+    system_prompt: 'You triage support tickets for engineering. Reproduce the issue from available evidence, classify severity, identify affected systems, and write a concise engineering-ready escalation.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'escalator' },
+  },
+  analyst: {
+    name: 'Data Analyst',
+    description: 'Analyze datasets and generate reports.',
+    system_prompt: 'You are a data analyst. Inspect data quality, compute relevant summaries, identify trends or anomalies, and produce clear recommendations with assumptions stated.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'analyst' },
+  },
+}
+
 const STEP_API_ENDPOINTS: Record<number, string> = {
   3: '/agents',
   4: '/environments',
@@ -369,24 +455,40 @@ function TemplateCard({
 }) {
   const { t } = useTranslation()
   const Icon = TEMPLATE_ICONS[templateId] || FileText
+  const meta = TEMPLATE_META[templateId]
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex items-start gap-3 rounded-xl border border-border bg-background p-4 text-left transition-colors hover:bg-muted/50',
+        'group relative flex min-h-[104px] items-start gap-3 rounded-2xl border border-border bg-background p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring',
         disabled && 'cursor-not-allowed opacity-60 hover:bg-background',
       )}
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-        <Icon className="h-4.5 w-4.5 text-muted-foreground" />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted transition-colors group-hover:bg-primary/10">
+        <Icon className="h-5 w-5 text-muted-foreground transition-colors group-hover:text-primary" />
       </div>
-      <div className="min-w-0">
-        <div className="text-[14px] font-semibold text-foreground">
-          {t(`quickstart.template.${templateId}.name`)}
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="truncate text-[14px] font-semibold text-foreground">
+            {t(`quickstart.template.${templateId}.name`)}
+          </div>
+          {meta && (
+            <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              {t(meta.badgeKey)}
+            </span>
+          )}
         </div>
         <div className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
           {t(`quickstart.template.${templateId}.description`)}
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
+          <span className="text-muted-foreground">
+            {meta ? t(meta.categoryKey) : t('managed.quickstart.templateCategory.basic')}
+          </span>
+          <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+            {t('managed.quickstart.useTemplate')}
+          </span>
         </div>
       </div>
     </button>
@@ -713,6 +815,7 @@ export default function QuickstartPage() {
     pendingConfirmation,
     isCreating,
     sendMessage,
+    applyTemplate,
     selectEngine,
     selectAgentSecret,
     advanceStep,
@@ -1249,12 +1352,18 @@ export default function QuickstartPage() {
   const handleTemplateClick = (templateId: string) => {
     if (!currentPageProjectAllowsWrite()) return
     const name = t(`quickstart.template.${templateId}.name`)
-    const desc = t(`quickstart.template.${templateId}.description`)
-    if (templateId === 'blank') {
-      sendMessage('Create a blank agent with default configuration')
-    } else {
-      sendMessage(`Create a ${name.toLowerCase()} agent: ${desc}`)
-    }
+    const config = TEMPLATE_CONFIGS[templateId] || TEMPLATE_CONFIGS.blank
+    applyTemplate({
+      message: t('managed.quickstart.templateApplyMessage', {
+        name,
+        defaultValue: `Create an agent from the "${name}" template`,
+      }),
+      agent: {
+        ...config,
+        name,
+        description: t(`quickstart.template.${templateId}.description`),
+      },
+    })
   }
 
   const configObj = useMemo(() => {
@@ -1460,11 +1569,19 @@ export default function QuickstartPage() {
             </div>
           </section>
 
-          <section className="overflow-auto rounded-2xl border border-border bg-card p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-[16px] font-semibold text-foreground">
-                {t('managed.quickstart.browseTemplates')}
-              </h3>
+          <section className="overflow-auto rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-[17px] font-semibold text-foreground">
+                  {t('managed.quickstart.browseTemplates')}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t('managed.quickstart.templateBrowseHint')}
+                </p>
+              </div>
+              <div className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                {t('managed.quickstart.templateCount', { count: filteredTemplates.length })}
+              </div>
             </div>
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1476,7 +1593,7 @@ export default function QuickstartPage() {
                 className="h-9 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 xl:grid-cols-2">
               {filteredTemplates.map((id) => (
                 <TemplateCard
                   key={id}
@@ -1487,8 +1604,18 @@ export default function QuickstartPage() {
               ))}
             </div>
             {filteredTemplates.length === 0 && (
-              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-                {t('managed.quickstart.noTemplatesMatch')}
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20 px-4 py-12 text-center">
+                <Search className="mb-3 h-6 w-6 text-muted-foreground" />
+                <div className="text-sm font-medium text-foreground">
+                  {t('managed.quickstart.noTemplatesMatch')}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTemplateSearch('')}
+                  className="mt-2 text-xs font-medium text-primary hover:underline"
+                >
+                  {t('managed.quickstart.clearTemplateSearch')}
+                </button>
               </div>
             )}
           </section>

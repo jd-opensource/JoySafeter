@@ -28,6 +28,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,14 @@ async def _validate_secret_refs(
             )
 
 
+@router.get("/mount-catalog/storage")
+async def get_storage_mount_catalog(
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> dict:
+    return {"data": await StorageMountService(db).catalog_for_project(auth_ctx.project_id)}
+
+
 @router.post("", status_code=201)
 async def create_environment(
     req: CreateEnvironmentRequest,
@@ -203,6 +212,7 @@ async def create_environment(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
     await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+    await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     svc = EnvironmentService(db)
     env = await svc.create_environment(req, project_id=auth_ctx.project_id)
@@ -279,6 +289,7 @@ async def update_environment(
 
     if req.config is not None:
         await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+        await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     try:
         try:

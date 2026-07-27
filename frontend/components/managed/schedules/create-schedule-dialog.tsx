@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { CronEditor } from '@/components/managed/schedules/cron-editor'
+import { SearchableSelect } from '@/components/managed/schedules/searchable-select'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -15,13 +16,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { managedGet } from '@/lib/api-client'
@@ -105,8 +99,6 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
   const [policy, setPolicy] = useState<ScheduleConcurrencyPolicy>('allow')
   const [sessionMode, setSessionMode] = useState<ScheduleSessionMode>('fresh')
   const [pinnedSessionId, setPinnedSessionId] = useState('')
-  const [agentSearch, setAgentSearch] = useState('')
-  const [envSearch, setEnvSearch] = useState('')
   const [timeoutSec, setTimeoutSec] = useState(7200)
   const [maxRetries, setMaxRetries] = useState(2)
   const [enabled, setEnabled] = useState(true)
@@ -125,16 +117,29 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
     return list.filter((a) => !a.archived_at)
   }, [agentsQuery.data])
-  const filteredAgents = useMemo(() => {
-    if (!agentSearch.trim()) return agents
-    const q = agentSearch.toLowerCase()
-    return agents.filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        a.engine_kind?.toLowerCase().includes(q) ||
-        a.model?.id?.toLowerCase().includes(q),
-    )
-  }, [agents, agentSearch])
+  const agentOptions = useMemo(
+    () =>
+      agents.map((agent) => ({
+        value: apiResourceId(agent.id),
+        searchText: `${agent.name} ${agent.engine_kind || ''} ${agent.model?.id || ''}`,
+        label: (
+          <div className="flex items-center gap-2">
+            <span className="truncate">{agent.name}</span>
+            {agent.engine_kind && (
+              <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                {agent.engine_kind}
+              </span>
+            )}
+            {agent.model?.id && (
+              <span className="shrink-0 truncate text-[10px] text-muted-foreground">
+                {agent.model.id}
+              </span>
+            )}
+          </div>
+        ),
+      })),
+    [agents],
+  )
 
   const environmentsQuery = useQuery({
     queryKey: ['environments', managedScope.key, 'for-schedule'],
@@ -150,11 +155,53 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
     return list.filter((e) => !e.archived_at)
   }, [environmentsQuery.data])
-  const filteredEnvironments = useMemo(() => {
-    if (!envSearch.trim()) return environments
-    const q = envSearch.toLowerCase()
-    return environments.filter((e) => e.name.toLowerCase().includes(q))
-  }, [environments, envSearch])
+  const environmentOptions = useMemo(
+    () => [
+      {
+        value: FOLLOW_AGENT_ENV,
+        label: t('managed.schedules.envFollowAgent'),
+        searchText: t('managed.schedules.envFollowAgent'),
+      },
+      ...environments.map((env) => {
+        const netType = env.config?.networking?.type || env.config?.type || ''
+        return {
+          value: env.id,
+          searchText: `${env.name} ${env.id} ${netType}`,
+          label: (
+            <div className="flex items-center gap-2">
+              <span className="truncate">{env.name}</span>
+              {netType && (
+                <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  {netType}
+                </span>
+              )}
+            </div>
+          ),
+        }
+      }),
+    ],
+    [environments, t],
+  )
+
+  const policyOptions = useMemo(
+    () =>
+      POLICIES.map((policyValue) => ({
+        value: policyValue,
+        label: t(`managed.schedules.policy.${policyValue}`),
+        searchText: t(`managed.schedules.policy.${policyValue}`),
+      })),
+    [t],
+  )
+
+  const sessionModeOptions = useMemo(
+    () =>
+      SESSION_MODES.map((mode) => ({
+        value: mode,
+        label: t(`managed.schedules.sessionModeOption.${mode}`),
+        searchText: `${t(`managed.schedules.sessionModeOption.${mode}`)} ${t(`managed.schedules.sessionModeHint.${mode}`)}`,
+      })),
+    [t],
+  )
 
   const sessionsQuery = useQuery({
     queryKey: ['agent-sessions', managedScope.key, agentId, 'for-schedule'],
@@ -170,6 +217,15 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
     const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
     return list.filter((s) => !s.archived_at)
   }, [sessionsQuery.data])
+  const sessionOptions = useMemo(
+    () =>
+      sessions.map((session) => ({
+        value: apiResourceId(session.id),
+        label: session.title?.trim() || session.id,
+        searchText: `${session.title || ''} ${session.id} ${session.status || ''}`,
+      })),
+    [sessions],
+  )
 
   const getCurrentManagedScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
@@ -231,8 +287,6 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
       setMaxRetries(2)
       setEnabled(true)
     }
-    setAgentSearch('')
-    setEnvSearch('')
   }, [open, schedule])
 
   const canSubmit =
@@ -338,56 +392,20 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
             </div>
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.agent')}</Label>
-              <Select
+              <SearchableSelect
                 value={agentId}
-                onValueChange={(value) => {
+                onChange={(value) => {
                   setAgentId(value)
                   setPinnedSessionId('')
                 }}
                 disabled={isEdit}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t('managed.schedules.selectAgent')} />
-                </SelectTrigger>
-                <SelectContent className="max-h-[280px]" align="start" side="bottom" sideOffset={4} style={{ width: 'var(--radix-select-trigger-width)' }}>
-                  <div className="sticky top-0 z-10 bg-popover px-2 pb-2 pt-1.5">
-                    <input
-                      className="w-full rounded-md bg-muted/60 px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
-                      placeholder={t('common.search', '搜索') + '…'}
-                      value={agentSearch}
-                      onChange={(e) => setAgentSearch(e.target.value)}
-                      onKeyDown={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                  {agentsQuery.isLoading && (
-                    <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                      {t('common.loading')}…
-                    </div>
-                  )}
-                  {!agentsQuery.isLoading && filteredAgents.length === 0 && (
-                    <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                      {agentSearch ? t('common.noResults', '无匹配结果') : t('managed.schedules.noAgents', '暂无可用智能体')}
-                    </div>
-                  )}
-                  {filteredAgents.map((a) => (
-                    <SelectItem key={a.id} value={apiResourceId(a.id)}>
-                      <div className="flex items-center gap-2">
-                        <span className="truncate">{a.name}</span>
-                        {a.engine_kind && (
-                          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                            {a.engine_kind}
-                          </span>
-                        )}
-                        {a.model?.id && (
-                          <span className="shrink-0 truncate text-[10px] text-muted-foreground">
-                            {a.model.id}
-                          </span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={agentOptions}
+                placeholder={t('managed.schedules.selectAgent')}
+                searchPlaceholder={t('managed.schedules.searchAgent')}
+                emptyText={agentsQuery.isLoading ? `${t('common.loading')}…` : t('managed.schedules.noAgentMatch')}
+                clearSearchLabel={t('managed.schedules.clearSearch')}
+                contentClassName="max-h-[280px]"
+              />
             </div>
           </div>
 
@@ -415,48 +433,15 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
 
           <div className="space-y-1.5">
             <Label>{t('managed.schedules.runtimeEnvironment')}</Label>
-            <Select
+            <SearchableSelect
               value={environmentRef || FOLLOW_AGENT_ENV}
-              onValueChange={(v) => setEnvironmentRef(v === FOLLOW_AGENT_ENV ? '' : v)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="max-h-[280px]">
-                <div className="sticky top-0 z-10 bg-popover px-2 pb-2 pt-1.5">
-                  <input
-                    className="w-full rounded-md bg-muted/60 px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
-                    placeholder={t('common.search', '搜索') + '…'}
-                    value={envSearch}
-                    onChange={(e) => setEnvSearch(e.target.value)}
-                    onKeyDown={(e) => e.stopPropagation()}
-                  />
-                </div>
-                <SelectItem value={FOLLOW_AGENT_ENV}>
-                  {t('managed.schedules.envFollowAgent')}
-                </SelectItem>
-                {environmentsQuery.isLoading && (
-                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                    {t('common.loading')}…
-                  </div>
-                )}
-                {filteredEnvironments.map((env) => {
-                  const netType = env.config?.networking?.type || env.config?.type
-                  return (
-                    <SelectItem key={env.id} value={env.id}>
-                      <div className="flex items-center gap-2">
-                        <span className="truncate">{env.name}</span>
-                        {netType && (
-                          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                            {netType}
-                          </span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  )
-                })}
-              </SelectContent>
-            </Select>
+              onChange={(value) => setEnvironmentRef(value === FOLLOW_AGENT_ENV ? '' : value)}
+              options={environmentOptions}
+              searchPlaceholder={t('managed.schedules.searchEnvironment')}
+              emptyText={environmentsQuery.isLoading ? `${t('common.loading')}…` : t('managed.schedules.noEnvironmentMatch')}
+              clearSearchLabel={t('managed.schedules.clearSearch')}
+              contentClassName="max-h-[280px]"
+            />
             <p className="text-xs text-muted-foreground">
               {t('managed.schedules.environmentHint')}
             </p>
@@ -476,21 +461,14 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.concurrency')}</Label>
-              <Select
+              <SearchableSelect
                 value={policy}
-                onValueChange={(v) => setPolicy(v as ScheduleConcurrencyPolicy)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {POLICIES.map((p) => (
-                    <SelectItem key={p} value={p}>
-                      {t(`managed.schedules.policy.${p}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(value) => setPolicy(value as ScheduleConcurrencyPolicy)}
+                options={policyOptions}
+                searchPlaceholder={t('managed.schedules.searchPolicy')}
+                emptyText={t('managed.schedules.noPolicyMatch')}
+                clearSearchLabel={t('managed.schedules.clearSearch')}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sched-timeout">{t('managed.schedules.timeoutSec')}</Label>
@@ -519,25 +497,18 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
           <div className="space-y-3 rounded-md border p-3">
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.sessionMode')}</Label>
-              <Select
+              <SearchableSelect
                 value={sessionMode}
-                onValueChange={(value) => {
+                onChange={(value) => {
                   const mode = value as ScheduleSessionMode
                   setSessionMode(mode)
                   if (mode !== 'pinned') setPinnedSessionId('')
                 }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SESSION_MODES.map((mode) => (
-                    <SelectItem key={mode} value={mode}>
-                      {t(`managed.schedules.sessionModeOption.${mode}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={sessionModeOptions}
+                searchPlaceholder={t('managed.schedules.searchSessionMode')}
+                emptyText={t('managed.schedules.noSessionModeMatch')}
+                clearSearchLabel={t('managed.schedules.clearSearch')}
+              />
               <p className="text-xs text-muted-foreground">
                 {t(`managed.schedules.sessionModeHint.${sessionMode}`)}
               </p>
@@ -546,22 +517,16 @@ export function CreateScheduleDialog({ open, onOpenChange, schedule }: CreateSch
             {sessionMode === 'pinned' && (
               <div className="space-y-1.5">
                 <Label>{t('managed.schedules.pinnedSessionId')}</Label>
-                <Select
+                <SearchableSelect
                   value={pinnedSessionId}
-                  onValueChange={setPinnedSessionId}
+                  onChange={setPinnedSessionId}
                   disabled={!agentId || sessionsQuery.isLoading}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('managed.schedules.selectPinnedSession')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sessions.map((session) => (
-                      <SelectItem key={session.id} value={apiResourceId(session.id)}>
-                        {session.title?.trim() || session.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={sessionOptions}
+                  placeholder={t('managed.schedules.selectPinnedSession')}
+                  searchPlaceholder={t('managed.schedules.searchPinnedSession')}
+                  emptyText={sessionsQuery.isLoading ? `${t('common.loading')}…` : t('managed.schedules.noPinnedSessionMatch')}
+                  clearSearchLabel={t('managed.schedules.clearSearch')}
+                />
                 <p className="text-xs text-muted-foreground">
                   {agentId
                     ? t('managed.schedules.pinnedSessionHint')

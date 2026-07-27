@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::sandbox::file_injection::{FileToInject, InjectionStrategy};
 use crate::sandbox::lds_backend::SandboxCredentials;
+use crate::sandbox::mounts::SandboxMount;
 
 /// Status of a sandbox container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +56,9 @@ pub struct SandboxCreateConfig {
     /// Memory store mounts: (host_path, container_mount_path).
     /// Each entry maps a host directory to a container path like `/mnt/memory/<mount_name>`.
     pub memory_mounts: Vec<(String, String)>,
+    /// Platform-authorized external filesystem mounts. Credentials and backing
+    /// host/PVC details are resolved outside the sandbox from deployment config.
+    pub mounts: Vec<SandboxMount>,
 }
 
 /// Active sandbox known by a provider.

@@ -254,11 +254,12 @@ export default function SecretListPage() {
     setShowCreate(false)
   }
 
-  // Deep-link: /managed/secrets?create=custom opens the create dialog
-  // pre-selected to the third-party (custom) kind, then strips the param.
+  // Deep-link: /managed/secrets?create=custom|llm opens the create dialog
+  // pre-selected to the requested kind, then strips the param.
   useEffect(() => {
-    if (searchParams.get('create') === 'custom') {
-      openCreateDialog('custom')
+    const createKind = searchParams.get('create')
+    if (createKind === 'custom' || createKind === 'llm') {
+      openCreateDialog(createKind)
       router.replace('/managed/secrets')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

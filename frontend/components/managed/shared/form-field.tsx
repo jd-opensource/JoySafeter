@@ -54,3 +54,40 @@ export function FormFieldError({ message, id }: { message?: string; id?: string 
     </p>
   )
 }
+
+export function FormSectionCard({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title?: ReactNode
+  description?: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <section className={cn('rounded-xl border border-border bg-card/60 p-4 shadow-sm', className)}>
+      {(title || description) && (
+        <div className="mb-4 space-y-1">
+          {title && <h3 className="text-sm font-semibold text-foreground">{title}</h3>}
+          {description && <p className="text-xs leading-5 text-muted-foreground">{description}</p>}
+        </div>
+      )}
+      <div className="space-y-4">{children}</div>
+    </section>
+  )
+}
+
+export function FormActionBar({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        'sticky bottom-0 -mx-6 mt-6 flex justify-end gap-2 border-t border-border bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80',
+        className,
+      )}
+    >
+      {children}
+    </div>
+  )
+}

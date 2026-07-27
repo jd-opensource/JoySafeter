@@ -19,6 +19,7 @@ use super::lds_backend::{
     CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
     SandboxCredentials,
 };
+use super::mounts::SandboxMount;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
     SandboxProvider, SandboxStatus,
@@ -462,6 +463,22 @@ impl SandboxProvider for DockerProvider {
         for (host_path, container_path) in &config.memory_mounts {
             let _ = tokio::fs::create_dir_all(host_path).await;
             binds.push(format!("{host_path}:{container_path}"));
+        }
+
+        for mount in &config.mounts {
+            match mount {
+                SandboxMount::DockerBind {
+                    source,
+                    target,
+                    read_only,
+                } => {
+                    let mode = if *read_only { ":ro" } else { ":rw" };
+                    binds.push(format!("{source}:{target}{mode}"));
+                }
+                SandboxMount::K8sPvc { .. } => {
+                    anyhow::bail!("K8s PVC mount was passed to Docker provider");
+                }
+            }
         }
 
         if !binds.is_empty() {

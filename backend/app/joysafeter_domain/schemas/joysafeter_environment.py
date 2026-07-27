@@ -1,3 +1,4 @@
+import posixpath
 import uuid
 from datetime import datetime
 from typing import Any, Optional
@@ -15,6 +16,21 @@ from pydantic import (
 SUPPORTED_EGRESS_INJECT_TYPES = {"bearer", "api_key", "raw_header", "cookie"}
 SUPPORTED_EGRESS_EXPOSURES = {"placeholder"}
 SUPPORTED_EGRESS_KINDS = {"external"}
+SUPPORTED_MOUNT_RESOURCE_TYPES = {"storage"}
+SUPPORTED_MOUNT_ACCESS = {"read_only", "read_write"}
+FORBIDDEN_MOUNT_PATHS = {
+    "/",
+    "/workspace",
+    "/etc",
+    "/root",
+    "/home",
+    "/proc",
+    "/sys",
+    "/dev",
+    "/var",
+    "/var/run",
+    "/sockets",
+}
 
 
 def _trim_string(value: Optional[str]) -> Optional[str]:
@@ -25,7 +41,45 @@ def _is_safe_token(value: str, *, allow_dash: bool = True) -> bool:
     allowed = {"_"}
     if allow_dash:
         allowed.add("-")
-    return bool(value) and all(ch.isalnum() or ch in allowed for ch in value)
+    return bool(value) and all(ch.isascii() and (ch.isalnum() or ch in allowed) for ch in value)
+
+
+def normalize_safe_relative_path(value: str, *, field_name: str) -> str:
+    raw = str(value or "").replace("\\", "/").strip().strip("/")
+    if not raw:
+        return ""
+    if raw.startswith("/"):
+        raise ValueError(f"{field_name} must be relative")
+    normalized = posixpath.normpath(raw)
+    if normalized in {".", ""}:
+        return ""
+    parts = normalized.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"{field_name} must not contain path traversal")
+    return normalized
+
+
+def normalize_safe_workspace_mount_path(value: str) -> str:
+    raw = str(value or "").replace("\\", "/").strip()
+    if not raw:
+        raise ValueError("mount_path is required")
+    if not raw.startswith("/"):
+        raise ValueError("mount_path must be absolute")
+    normalized = posixpath.normpath(raw)
+    parts = normalized.split("/")
+    if any(part in {"", ".", ".."} for part in parts[1:]):
+        raise ValueError("mount_path must not contain path traversal")
+    if normalized in FORBIDDEN_MOUNT_PATHS:
+        raise ValueError(f"mount_path is reserved: {normalized}")
+    if not normalized.startswith("/workspace/"):
+        raise ValueError("mount_path must be under /workspace/")
+    return normalized
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    left = left.rstrip("/")
+    right = right.rstrip("/")
+    return left == right or left.startswith(f"{right}/") or right.startswith(f"{left}/")
 
 
 class Packages(BaseModel):
@@ -177,6 +231,50 @@ class EgressService(BaseModel):
         return ref
 
 
+class MountResource(BaseModel):
+    type: str = "storage"
+    name: str
+    volume_ref: str
+    sub_path: str = ""
+    mount_path: str
+    access: str = "read_only"
+    required: bool = True
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def validate_type(cls, value: object) -> str:
+        typ = str(value or "storage").strip().lower()
+        if typ not in SUPPORTED_MOUNT_RESOURCE_TYPES:
+            raise ValueError(f"unsupported mount resource type: {typ}")
+        return typ
+
+    @field_validator("name", "volume_ref", mode="before")
+    @classmethod
+    def validate_safe_name(cls, value: object) -> str:
+        text = str(value or "").strip()
+        if not _is_safe_token(text):
+            raise ValueError("mount name and volume_ref must contain only letters, numbers, '-' or '_'")
+        return text
+
+    @field_validator("sub_path", mode="before")
+    @classmethod
+    def validate_sub_path(cls, value: object) -> str:
+        return normalize_safe_relative_path(str(value or ""), field_name="sub_path")
+
+    @field_validator("mount_path", mode="before")
+    @classmethod
+    def validate_mount_path(cls, value: object) -> str:
+        return normalize_safe_workspace_mount_path(str(value or ""))
+
+    @field_validator("access", mode="before")
+    @classmethod
+    def validate_access(cls, value: object) -> str:
+        access = str(value or "read_only").strip().lower()
+        if access not in SUPPORTED_MOUNT_ACCESS:
+            raise ValueError(f"unsupported mount access: {access}")
+        return access
+
+
 class EnvironmentConfig(BaseModel):
     type: str = "cloud"
     packages: Packages = Field(default_factory=Packages)
@@ -184,6 +282,7 @@ class EnvironmentConfig(BaseModel):
     env_vars: dict[str, str] = Field(default_factory=dict)
     secret_refs: list[str] = Field(default_factory=list)
     egress_services: list[EgressService] = Field(default_factory=list)
+    mount_resources: list[MountResource] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_egress_services(self) -> "EnvironmentConfig":
@@ -192,6 +291,20 @@ class EnvironmentConfig(BaseModel):
             if service.name in names:
                 raise ValueError(f"duplicate egress service name: {service.name}")
             names.add(service.name)
+        return self
+
+    @model_validator(mode="after")
+    def validate_mount_resources(self) -> "EnvironmentConfig":
+        names: set[str] = set()
+        mount_paths: list[str] = []
+        for resource in self.mount_resources:
+            if resource.name in names:
+                raise ValueError(f"duplicate mount resource name: {resource.name}")
+            names.add(resource.name)
+            for existing in mount_paths:
+                if _paths_overlap(resource.mount_path, existing):
+                    raise ValueError(f"mount_path overlaps with another mount: {resource.mount_path}")
+            mount_paths.append(resource.mount_path)
         return self
 
 

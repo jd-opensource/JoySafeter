@@ -428,6 +428,11 @@ class Settings(BaseSettings):
         default=None,
         description="Root directory for DeepAgents artifacts",
     )
+    storage_volume_host_path_roots: str = Field(
+        default="/mnt/joysafeter/storage",
+        validation_alias=AliasChoices("JOYSAFETER_STORAGE_VOLUME_HOST_PATH_ROOTS", "STORAGE_VOLUME_HOST_PATH_ROOTS"),
+        description="Comma-separated host path roots allowed for platform storage volumes",
+    )
 
     # UV Package Manager Configuration
     uv_index_url: str = Field(
@@ -703,6 +708,12 @@ class JoySafeterConfig(BaseSettings):
     e2b_api_url: Optional[str] = None
     e2b_api_key: str = ""
     e2b_template_id: str = ""
+
+    # Sandbox - Kubernetes. Kubernetes itself owns Storage mounting through CSI
+    # PVCs; the sandbox pod only receives volumeMounts and never Storage secrets.
+    k8s_namespace: str = "joysafeter-sandboxes"
+    k8s_kubectl_path: str = "kubectl"
+    k8s_orchestrator_url: Optional[str] = None
 
     # gRPC server
     grpc_port: int = 9090

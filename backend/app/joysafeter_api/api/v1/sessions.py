@@ -23,6 +23,7 @@ from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLo
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
+    MAX_STORAGE_MOUNT_RESOURCES,
     AgentRef,
     CreateSessionRequest,
     SendEventRequest,
@@ -34,12 +35,15 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionResourceResponse,
     SessionResponse,
     SessionSkillUsageResponse,
+    SessionStorageMountResponse,
     SessionUsage,
     SingleEventRequest,
     UpdateRepoResourceRequest,
 )
 from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS
 from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
+from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
+from app.joysafeter_domain.models.joysafeter_storage_mount import JoySafeterSessionStorageMount
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
     NotFoundError,
@@ -179,7 +183,18 @@ async def _load_session_repos(db: AsyncSession, session_id: uuid.UUID, project_i
     return await SessionResourceService(db).list_repo_records(session_id, project_id=project_id)
 
 
-def _session_to_response(session, agent=None, resources=None, repo_resources=None) -> SessionResponse:
+async def _load_session_storage_mounts(db: AsyncSession, session_id: uuid.UUID, project_id: Optional[str]) -> list:
+    query = select(JoySafeterSessionStorageMount).where(
+        JoySafeterSessionStorageMount.session_id == session_id,
+        JoySafeterSessionStorageMount.detached_at.is_(None),
+    )
+    if project_id is not None:
+        query = query.where(JoySafeterSessionStorageMount.project_id == project_id)
+    result = await db.execute(query.order_by(JoySafeterSessionStorageMount.created_at.asc()))
+    return list(result.scalars().all())
+
+
+def _session_to_response(session, agent=None, resources=None, repo_resources=None, storage_mounts=None) -> SessionResponse:
     agent_snapshot = session.agent_snapshot or {}
     agent_data = SessionAgent(
         id=session.agent_id,
@@ -215,6 +230,21 @@ def _session_to_response(session, agent=None, resources=None, repo_resources=Non
                 mount_name=rr.mount_name or "",
             )
         )
+    storage_mount_responses = []
+    for mount in storage_mounts or []:
+        config = mount.config or {}
+        storage_mount_responses.append(
+            SessionStorageMountResponse(
+                id=mount.id,
+                name=mount.name,
+                volume_ref=str(config.get("volume_ref") or ""),
+                sub_path=mount.sub_path or "",
+                mount_path=mount.mount_path,
+                access=mount.access,
+                required=mount.required,
+                created_at=mount.created_at,
+            )
+        )
     return SessionResponse(
         id=session.id,
         agent=agent_data,
@@ -226,6 +256,7 @@ def _session_to_response(session, agent=None, resources=None, repo_resources=Non
         vault_ids=session.vault_ids or [],
         resources=resource_responses,
         repo_resources=repo_responses,
+        storage_mounts=storage_mount_responses,
         usage=SessionUsage(**usage_data) if isinstance(usage_data, dict) else SessionUsage(),
         created_at=session.created_at,
         updated_at=session.updated_at,
@@ -245,6 +276,13 @@ async def create_session(
             code="SESSION_MEMORY_STORE_RESOURCE_LIMIT_EXCEEDED",
             message=f"Too many memory_store resources (max {MAX_MEMORY_STORE_RESOURCES})",
             data={"max": MAX_MEMORY_STORE_RESOURCES, "actual": len(req.resources)},
+            user_action="fix_input",
+        )
+    if len(req.storage_mounts) > MAX_STORAGE_MOUNT_RESOURCES:
+        raise InvalidRequestError(
+            code="SESSION_STORAGE_MOUNT_LIMIT_EXCEEDED",
+            message=f"Too many storage mounts (max {MAX_STORAGE_MOUNT_RESOURCES})",
+            data={"max": MAX_STORAGE_MOUNT_RESOURCES, "actual": len(req.storage_mounts)},
             user_action="fix_input",
         )
 
@@ -327,6 +365,17 @@ async def create_session(
         agent_snapshot = {**agent_snapshot, "environment_ref": effective_environment_ref}
         if environment_snapshot is not None:
             agent_snapshot = {**agent_snapshot, "environment": environment_snapshot}
+
+    storage_svc = StorageMountService(db)
+    await storage_svc.validate_mount_resources(req.storage_mounts, auth_ctx.project_id)
+    if req.storage_mounts:
+        env_snapshot = dict(agent_snapshot.get("environment") or {})
+        env_config = dict(env_snapshot.get("config") or {})
+        existing_mounts = list(env_config.get("mount_resources") or [])
+        session_mounts = [mount.model_dump() for mount in req.storage_mounts]
+        env_config["mount_resources"] = existing_mounts + session_mounts
+        env_snapshot["config"] = env_config
+        agent_snapshot = {**agent_snapshot, "environment": env_snapshot}
 
     # --- Compute mount_name for each resource ---
     from app.joysafeter_api.services import JoySafeterMemoryService as MemoryService
@@ -414,6 +463,46 @@ async def create_session(
     if resource_dicts:
         resources = await svc.attach_memory_stores(session.id, resource_dicts, project_id=auth_ctx.project_id)
 
+    storage_mount_records = []
+    if req.storage_mounts:
+        authorized = {
+            item["volume_ref"]: item for item in await storage_svc.catalog_for_project(auth_ctx.project_id)
+        }
+        for mount in req.storage_mounts:
+            volume = await storage_svc.get_volume_by_ref(mount.volume_ref)
+            if not volume:
+                continue
+            record = JoySafeterSessionStorageMount(
+                session_id=session.id,
+                volume_id=volume.id,
+                project_id=auth_ctx.project_id,
+                name=mount.name,
+                sub_path=mount.sub_path,
+                mount_path=mount.mount_path,
+                access=mount.access,
+                required=mount.required,
+                config={"volume_ref": mount.volume_ref, "catalog": authorized.get(mount.volume_ref, {})},
+            )
+            db.add(record)
+            storage_mount_records.append(record)
+        await db.flush()
+        for record in storage_mount_records:
+            await storage_svc.record_audit(
+                action="session.mount.attach",
+                volume_id=record.volume_id,
+                volume_ref=(record.config or {}).get("volume_ref"),
+                project_id=auth_ctx.project_id,
+                session_id=session.id,
+                user_id=auth_ctx.user_id,
+                mount_path=record.mount_path,
+                sub_path=record.sub_path,
+                access=record.access,
+                commit=False,
+            )
+        await db.commit()
+        for record in storage_mount_records:
+            await db.refresh(record)
+
     await resource_svc.attach_prepared_resources(
         session.id,
         files=file_resource_records,
@@ -421,7 +510,14 @@ async def create_session(
     )
 
     repo_records = await resource_svc.list_repo_records(session.id, project_id=auth_ctx.project_id)
-    return _session_to_response(session, agent, resources=resources, repo_resources=repo_records)
+    storage_mount_records = await _load_session_storage_mounts(db, session.id, auth_ctx.project_id)
+    return _session_to_response(
+        session,
+        agent,
+        resources=resources,
+        repo_resources=repo_records,
+        storage_mounts=storage_mount_records,
+    )
 
 
 @router.get("")
@@ -462,7 +558,24 @@ async def list_sessions(
             agent_query = agent_query.where(JoySafeterAgent.project_id == auth_ctx.project_id)
         result = await db.execute(agent_query)
         agents_by_id = {agent.id: agent for agent in result.scalars().all()}
-    data = [_session_to_response(s, agents_by_id.get(s.agent_id)) for s in sessions]
+    storage_mounts_by_session = {}
+    if sessions:
+        mount_query = select(JoySafeterSessionStorageMount).where(
+            JoySafeterSessionStorageMount.session_id.in_([s.id for s in sessions])
+        )
+        if auth_ctx.project_id is not None:
+            mount_query = mount_query.where(JoySafeterSessionStorageMount.project_id == auth_ctx.project_id)
+        mount_result = await db.execute(mount_query)
+        for mount in mount_result.scalars().all():
+            storage_mounts_by_session.setdefault(mount.session_id, []).append(mount)
+    data = [
+        _session_to_response(
+            s,
+            agents_by_id.get(s.agent_id),
+            storage_mounts=storage_mounts_by_session.get(s.id, []),
+        )
+        for s in sessions
+    ]
     return PaginatedResponse(
         data=data,
         has_more=has_more,
@@ -488,11 +601,18 @@ async def get_session(
         )
     resources = await svc.list_session_memory_stores(session_id)
     repo_records = await _load_session_repos(db, session_id, auth_ctx.project_id)
+    storage_mount_records = await _load_session_storage_mounts(db, session_id, auth_ctx.project_id)
     agent = None
     if session.agent_id:
         agent_svc = AgentService(db)
         agent = await agent_svc.get_agent(session.agent_id, project_id=auth_ctx.project_id)
-    return _session_to_response(session, agent=agent, resources=resources, repo_resources=repo_records)
+    return _session_to_response(
+        session,
+        agent=agent,
+        resources=resources,
+        repo_resources=repo_records,
+        storage_mounts=storage_mount_records,
+    )
 
 
 @router.get("/{session_id}/skill-usage")

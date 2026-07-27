@@ -16,6 +16,7 @@ from app.joysafeter_api.api.v1.secrets import router as secrets_router
 from app.joysafeter_api.api.v1.sessions import router as sessions_router
 from app.joysafeter_api.api.v1.skills import router as skills_router
 from app.joysafeter_api.api.v1.skills_ai_authoring import router as skills_ai_authoring_router
+from app.joysafeter_api.api.v1.storage_volumes import router as storage_volumes_router
 from app.joysafeter_api.api.v1.tasks import router as tasks_router
 from app.joysafeter_api.api.v1.triggers import router as triggers_router
 from app.joysafeter_api.api.v1.vaults import router as vaults_router
@@ -30,6 +31,7 @@ joysafeter_router.include_router(schedules_router, prefix="/schedules")
 joysafeter_router.include_router(triggers_router, prefix="/triggers")
 joysafeter_router.include_router(sessions_router, prefix="/sessions")
 joysafeter_router.include_router(environments_router, prefix="/environments")
+joysafeter_router.include_router(storage_volumes_router, prefix="/storage-volumes")
 joysafeter_router.include_router(secrets_router, prefix="/secrets")
 joysafeter_router.include_router(skills_router, prefix="/skills")
 # AI-assisted skill authoring (SSE chat + save-draft). Mounted under

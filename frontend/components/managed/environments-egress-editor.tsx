@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, type Dispatch, type SetStateAction } from 'react'
-import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { ChevronDown, ChevronRight, Plus, Search, Trash2, X } from 'lucide-react'
 
 import { CopyButton as SharedCopyButton } from '@/components/managed/shared/copy-button'
 import { FieldHelp } from '@/components/managed/shared/field-help'
@@ -175,6 +175,95 @@ function CopyButton({ value }: { value: string }) {
   return <SharedCopyButton value={value} />
 }
 
+function SearchableSecretSelect({
+  value,
+  secrets,
+  placeholder,
+  searchPlaceholder,
+  emptyText,
+  createText,
+  invalid,
+  onChange,
+  onCreate,
+}: {
+  value: string
+  secrets: Secret[]
+  placeholder: string
+  searchPlaceholder: string
+  emptyText: string
+  createText: string
+  invalid?: boolean
+  onChange: (value: string) => void
+  onCreate: () => void
+}) {
+  const [search, setSearch] = useState('')
+  const filteredSecrets = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return secrets
+    return secrets.filter((secret) =>
+      `${secret.name} ${secret.provider || ''} ${secret.protocol || ''}`.toLowerCase().includes(query),
+    )
+  }, [secrets, search])
+
+  return (
+    <Select
+      value={value || undefined}
+      onValueChange={(nextValue) => {
+        if (nextValue === CREATE_SECRET_OPTION) {
+          onCreate()
+          return
+        }
+        onChange(nextValue)
+      }}
+    >
+      <SelectTrigger aria-invalid={invalid}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent className="max-h-80">
+        <div className="sticky top-0 z-10 border-b border-border bg-popover p-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => event.stopPropagation()}
+              placeholder={searchPlaceholder}
+              className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            {search ? (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                onMouseDown={(event) => event.preventDefault()}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {filteredSecrets.length > 0 ? (
+          filteredSecrets.map((secret) => (
+            <SelectItem key={secret.id} value={secret.name}>
+              {secret.name}
+            </SelectItem>
+          ))
+        ) : (
+          <div className="px-3 py-6 text-center text-xs text-muted-foreground">{emptyText}</div>
+        )}
+        <SelectItem value={CREATE_SECRET_OPTION} className="text-primary">
+          <span className="flex items-center gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
+            {createText}
+          </span>
+        </SelectItem>
+      </SelectContent>
+    </Select>
+  )
+}
+
 export function EgressServicesEditor({
   services,
   setServices,
@@ -305,13 +394,16 @@ export function EgressServicesEditor({
                     <RequiredMark />
                     <FieldHelp text={t('managed.environments.egressCredentialTooltip')} />
                   </Label>
-                  <Select
-                    value={service.credentialRef || undefined}
-                    onValueChange={(value) => {
-                      if (value === CREATE_SECRET_OPTION) {
-                        window.open('/managed/secrets?create=custom', '_blank')
-                        return
-                      }
+                  <SearchableSecretSelect
+                    value={service.credentialRef}
+                    secrets={customSecrets}
+                    placeholder={t('managed.environments.egressSelectCredential')}
+                    searchPlaceholder={t('managed.environments.egressSearchCredential')}
+                    emptyText={t('managed.environments.egressNoCredentialFound')}
+                    createText={t('managed.environments.egressCreateSecretOption')}
+                    invalid={Boolean(errors[index]?.credentialRef)}
+                    onCreate={() => window.open('/managed/secrets?create=custom', '_blank')}
+                    onChange={(value) => {
                       const secret = customSecrets.find((item) => item.name === value)
                       changeService(
                         index,
@@ -322,24 +414,7 @@ export function EgressServicesEditor({
                         'credentialRef',
                       )
                     }}
-                  >
-                    <SelectTrigger aria-invalid={Boolean(errors[index]?.credentialRef)}>
-                      <SelectValue placeholder={t('managed.environments.egressSelectCredential')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {customSecrets.map((secret) => (
-                        <SelectItem key={secret.id} value={secret.name}>
-                          {secret.name}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value={CREATE_SECRET_OPTION} className="text-primary">
-                        <span className="flex items-center gap-1.5">
-                          <Plus className="h-3.5 w-3.5" />
-                          {t('managed.environments.egressCreateSecretOption')}
-                        </span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                  />
                   {errors[index]?.credentialRef && (
                     <p className="text-xs text-destructive">{errors[index]?.credentialRef}</p>
                   )}

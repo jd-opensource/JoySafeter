@@ -5,13 +5,7 @@ import { useMemo, useState } from 'react'
 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { SearchableSelect } from '@/components/managed/schedules/searchable-select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTranslation } from '@/lib/i18n'
 import {
@@ -70,6 +64,17 @@ export function CronEditor({
   const valid = isValidCron(value)
   const description = useMemo(() => describeCron(value, locale), [value, locale])
   const previews = useMemo(() => nextRuns(value, timezone, 5), [value, timezone])
+  const clearSearchLabel = t('managed.schedules.clearSearch')
+  const noCronOptionMatch = t('managed.schedules.cron.noOptionMatch')
+  const frequencyOptions = useMemo(
+    () =>
+      (['minutely', 'hourly', 'daily', 'weekly', 'monthly'] as Frequency[]).map((item) => ({
+        value: item,
+        label: t(`managed.schedules.cron.freq.${item}`),
+        searchText: t(`managed.schedules.cron.freq.${item}`),
+      })),
+    [t],
+  )
 
   const applyBuilder = (next: Partial<Record<string, unknown>>) => {
     const f = (next.frequency as Frequency) ?? frequency
@@ -131,49 +136,33 @@ export function CronEditor({
         <TabsContent value="builder" className="mt-3 space-y-3">
           <div className="space-y-1.5">
             <Label>{t('managed.schedules.cron.frequency')}</Label>
-            <Select
+            <SearchableSelect
               value={frequency}
-              onValueChange={(v) => {
+              onChange={(v) => {
                 setFrequency(v as Frequency)
                 applyBuilder({ frequency: v })
               }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="minutely">
-                  {t('managed.schedules.cron.freq.minutely')}
-                </SelectItem>
-                <SelectItem value="hourly">{t('managed.schedules.cron.freq.hourly')}</SelectItem>
-                <SelectItem value="daily">{t('managed.schedules.cron.freq.daily')}</SelectItem>
-                <SelectItem value="weekly">{t('managed.schedules.cron.freq.weekly')}</SelectItem>
-                <SelectItem value="monthly">{t('managed.schedules.cron.freq.monthly')}</SelectItem>
-              </SelectContent>
-            </Select>
+              options={frequencyOptions}
+              searchPlaceholder={t('managed.schedules.cron.searchFrequency')}
+              emptyText={noCronOptionMatch}
+              clearSearchLabel={clearSearchLabel}
+            />
           </div>
 
           {frequency === 'minutely' && (
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.cron.everyNMinutes')}</Label>
-              <Select
+              <SearchableSelect
                 value={String(everyN)}
-                onValueChange={(v) => {
+                onChange={(v) => {
                   setEveryN(Number(v))
                   applyBuilder({ everyN: Number(v) })
                 }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 5, 10, 15, 20, 30].map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={[1, 2, 5, 10, 15, 20, 30].map((n) => ({ value: String(n), label: String(n), searchText: String(n) }))}
+                searchPlaceholder={t('managed.schedules.cron.searchMinuteInterval')}
+                emptyText={noCronOptionMatch}
+                clearSearchLabel={clearSearchLabel}
+              />
             </div>
           )}
 
@@ -182,6 +171,9 @@ export function CronEditor({
               <Label>{t('managed.schedules.cron.atMinute')}</Label>
               <MinuteSelect
                 value={minute}
+                searchPlaceholder={t('managed.schedules.cron.searchMinute')}
+                emptyText={noCronOptionMatch}
+                clearSearchLabel={clearSearchLabel}
                 onChange={(m) => {
                   setMinute(m)
                   applyBuilder({ minute: m })
@@ -194,29 +186,25 @@ export function CronEditor({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
                 <Label>{t('managed.schedules.cron.hour')}</Label>
-                <Select
+                <SearchableSelect
                   value={String(hour)}
-                  onValueChange={(v) => {
+                  onChange={(v) => {
                     setHour(Number(v))
                     applyBuilder({ hour: Number(v) })
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {range(24).map((h) => (
-                      <SelectItem key={h} value={String(h)}>
-                        {pad(h)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={range(24).map((h) => ({ value: String(h), label: pad(h), searchText: `${h} ${pad(h)}` }))}
+                  searchPlaceholder={t('managed.schedules.cron.searchHour')}
+                  emptyText={noCronOptionMatch}
+                  clearSearchLabel={clearSearchLabel}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>{t('managed.schedules.cron.minute')}</Label>
                 <MinuteSelect
                   value={minute}
+                  searchPlaceholder={t('managed.schedules.cron.searchMinute')}
+                  emptyText={noCronOptionMatch}
+                  clearSearchLabel={clearSearchLabel}
                   onChange={(m) => {
                     setMinute(m)
                     applyBuilder({ minute: m })
@@ -254,24 +242,17 @@ export function CronEditor({
           {frequency === 'monthly' && (
             <div className="space-y-1.5">
               <Label>{t('managed.schedules.cron.dayOfMonth')}</Label>
-              <Select
+              <SearchableSelect
                 value={String(dom)}
-                onValueChange={(v) => {
+                onChange={(v) => {
                   setDom(Number(v))
                   applyBuilder({ dom: Number(v) })
                 }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {range(31).map((d) => (
-                    <SelectItem key={d + 1} value={String(d + 1)}>
-                      {d + 1}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={range(31).map((d) => ({ value: String(d + 1), label: String(d + 1), searchText: String(d + 1) }))}
+                searchPlaceholder={t('managed.schedules.cron.searchDayOfMonth')}
+                emptyText={noCronOptionMatch}
+                clearSearchLabel={clearSearchLabel}
+              />
             </div>
           )}
         </TabsContent>
@@ -296,18 +277,14 @@ export function CronEditor({
       {/* Timezone */}
       <div className="space-y-1.5">
         <Label>{t('managed.schedules.cron.timezone')}</Label>
-        <Select value={timezone} onValueChange={onTimezoneChange}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {COMMON_TIMEZONES.map((tz) => (
-              <SelectItem key={tz} value={tz}>
-                {tz}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          value={timezone}
+          onChange={onTimezoneChange}
+          options={COMMON_TIMEZONES.map((tz) => ({ value: tz, label: tz, searchText: tz }))}
+          searchPlaceholder={t('managed.schedules.cron.searchTimezone')}
+          emptyText={noCronOptionMatch}
+          clearSearchLabel={clearSearchLabel}
+        />
       </div>
 
       {/* Live feedback: validity, description, next-N preview */}
@@ -339,19 +316,27 @@ export function CronEditor({
   )
 }
 
-function MinuteSelect({ value, onChange }: { value: number; onChange: (m: number) => void }) {
+function MinuteSelect({
+  value,
+  onChange,
+  searchPlaceholder,
+  emptyText,
+  clearSearchLabel,
+}: {
+  value: number
+  onChange: (m: number) => void
+  searchPlaceholder: string
+  emptyText: string
+  clearSearchLabel: string
+}) {
   return (
-    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
-      <SelectTrigger>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {range(60).map((m) => (
-          <SelectItem key={m} value={String(m)}>
-            {pad(m)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      value={String(value)}
+      onChange={(v) => onChange(Number(v))}
+      options={range(60).map((m) => ({ value: String(m), label: pad(m), searchText: `${m} ${pad(m)}` }))}
+      searchPlaceholder={searchPlaceholder}
+      emptyText={emptyText}
+      clearSearchLabel={clearSearchLabel}
+    />
   )
 }

@@ -164,3 +164,6 @@ class JoySafeterAuthContext:
     # row). Combined with `role` via effective_project_capability to decide what
     # the caller may do in this project. Ignored for org super-users.
     project_role: str | None = None
+    # Platform-level super user. This is distinct from org owner/admin and is
+    # reserved for cross-organization infrastructure operations.
+    is_super_user: bool = False

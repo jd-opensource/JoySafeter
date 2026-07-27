@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -31,6 +31,11 @@ import {
   RelativeTime,
   ResourceErrorState,
   FieldHelp,
+  AdvancedSection,
+  FormActionBar,
+  FormFieldError,
+  FormFieldLabel,
+  FormSectionCard,
 } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
@@ -79,6 +84,7 @@ const defaultMountPath = (name: string) => `/workspace/storage/${name || 'data'}
 export default function EnvironmentListPage() {
   const { t } = useTranslation()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const {
     scopeRef: managedScopeRef,
@@ -110,11 +116,11 @@ export default function EnvironmentListPage() {
   const [pipPackages, setPipPackages] = useState('')
   const [npmPackages, setNpmPackages] = useState('')
   const [envVars, setEnvVars] = useState('')
-  const [secretRefs, setSecretRefs] = useState('')
   const [egressServices, setEgressServices] = useState<EgressServiceForm[]>([])
   const [mountResources, setMountResources] = useState<MountResourceForm[]>([])
   const [formErrors, setFormErrors] = useState<CreateEnvironmentErrors>(emptyCreateErrors)
   const [creating, setCreating] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const createRunRef = useRef(0)
 
   const {
@@ -196,10 +202,10 @@ export default function EnvironmentListPage() {
     setPipPackages('')
     setNpmPackages('')
     setEnvVars('')
-    setSecretRefs('')
     setEgressServices([])
     setMountResources([])
     setFormErrors(emptyCreateErrors())
+    setShowAdvanced(false)
   }
 
   const clearFieldError = (field: keyof Omit<CreateEnvironmentErrors, 'egressServices'>) => {
@@ -255,6 +261,14 @@ export default function EnvironmentListPage() {
     }
   }
 
+  useEffect(() => {
+    if (searchParams.get('create') === '1') {
+      resetDialog(true)
+      router.replace('/managed/environments')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+
   const isCurrentCreateRun = (runId: number, scope: string) =>
     runId === createRunRef.current &&
     scope === managedScopeRef.current &&
@@ -305,9 +319,6 @@ export default function EnvironmentListPage() {
       const ev = parseEnvVars(envVars)
       if (Object.keys(ev).length > 0) config.env_vars = ev
 
-      const refs = splitLines(secretRefs)
-      if (refs.length > 0) config.secret_refs = refs
-
       const services = buildEgressServices(egressServices)
       if (services.length > 0) config.egress_services = services
 
@@ -355,7 +366,6 @@ export default function EnvironmentListPage() {
     pipPackages,
     npmPackages,
     envVars,
-    secretRefs,
     egressServices,
     mountResources,
     queryClient,
@@ -484,17 +494,20 @@ export default function EnvironmentListPage() {
       />
 
       <Dialog open={!readOnly && showCreate} onOpenChange={resetDialog}>
-        <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
+        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('managed.environments.addTitle')}</DialogTitle>
             <DialogDescription>{t('managed.environments.addDesc')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <FormSectionCard
+              title={t('managed.environments.basicSettings', '基础配置')}
+              description={t('managed.environments.basicSettingsDesc', '设置环境名称、用途和默认网络访问策略。')}
+            >
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="environment-name">
+              <FormFieldLabel htmlFor="environment-name" required>
                 {t('managed.environments.name')}
-                <span className="ml-1 text-destructive">*</span>
-              </label>
+              </FormFieldLabel>
               <Input
                 id="environment-name"
                 placeholder={t('managed.environments.namePlaceholder')}
@@ -506,15 +519,12 @@ export default function EnvironmentListPage() {
                 }}
                 autoFocus
               />
-              {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
+              <FormFieldError message={formErrors.name} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="environment-description">
+              <FormFieldLabel htmlFor="environment-description" optional={t('managed.environments.optional')}>
                 {t('managed.environments.description')}
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  {t('managed.environments.optional')}
-                </span>
-              </label>
+              </FormFieldLabel>
               <Input
                 id="environment-description"
                 placeholder={t('managed.environments.descPlaceholder')}
@@ -523,42 +533,70 @@ export default function EnvironmentListPage() {
               />
             </div>
 
-            <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">
+            <div className="space-y-2">
+              <FormFieldLabel
+                required
+                tooltip={t('managed.environments.networkingHint', '受限网络模式下，沙箱默认无法访问外网。只有白名单中的主机和第三方服务配置的地址可以访问。')}
+              >
                 {t('managed.environments.networking')}
-                <span className="ml-1 text-destructive">*</span>
-                <FieldHelp text={t('managed.environments.networkingHint', '受限网络模式下，沙箱默认无法访问外网。只有白名单中的主机和第三方服务配置的地址可以访问。')} />
-              </h4>
-              <div className="space-y-3">
-                <Input value={t('managed.environments.netLimited')} readOnly />
-                {networkType === 'limited' && (
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium" htmlFor="environment-allowed-hosts">
-                      {t('managed.environments.allowedHosts')}
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">
-                        {t('managed.environments.optional')}
+              </FormFieldLabel>
+              <div className="rounded-xl border border-border bg-muted/25 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="text-sm font-medium text-foreground">
+                        {t('managed.environments.netLimited')}
                       </span>
-                      <FieldHelp text={t('managed.environments.allowedHostsHint', '沙箱可直接访问的外网主机白名单（逗号分隔）。第三方服务配置的地址会自动放行，无需重复填写。')} />
-                    </label>
-                    <Input
+                    </div>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t('managed.environments.netLimitedDesc', '默认禁止外网访问，仅允许白名单主机和已配置的第三方服务。')}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                    {t('managed.environments.recommended', '推荐')}
+                  </span>
+                </div>
+                {networkType === 'limited' && (
+                  <div className="mt-3 space-y-1.5 border-t border-border/70 pt-3">
+                    <FormFieldLabel
+                      htmlFor="environment-allowed-hosts"
+                      optional={t('managed.environments.optional')}
+                      tooltip={t('managed.environments.allowedHostsHint', '沙箱可直接访问的外网主机白名单（逗号分隔）。第三方服务配置的地址会自动放行，无需重复填写。')}
+                    >
+                      {t('managed.environments.allowedHosts')}
+                    </FormFieldLabel>
+                    <textarea
                       id="environment-allowed-hosts"
-                      placeholder="api.example.com, github.com"
+                      placeholder={t('managed.environments.allowedHostsPlaceholder', 'api.example.com\ngithub.com\n*.internal.example.com')}
                       value={allowedHosts}
                       onChange={(e) => setAllowedHosts(e.target.value)}
+                      rows={4}
+                      className="flex min-h-[96px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     />
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t('managed.environments.allowedHostsDesc', '第三方服务地址会自动放行；这里仅填写额外需要直连访问的主机。')}
+                    </p>
                   </div>
                 )}
               </div>
             </div>
+            </FormSectionCard>
 
-            <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">
+            <AdvancedSection
+              open={showAdvanced}
+              onOpenChange={setShowAdvanced}
+              title={t('managed.environments.advancedOptions', '高级选项')}
+              summary={t('managed.environments.advancedSummary', '环境变量、数据卷挂载、第三方服务')}
+            >
+            <div>
+              <FormFieldLabel
+                optional={t('managed.environments.optional')}
+                tooltip={t('managed.environments.envVarsHint', '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感凭证。')}
+                className="mb-3"
+              >
                 {t('managed.environments.envVarsLabel')}
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  {t('managed.environments.optional')}
-                </span>
-                <FieldHelp text={t('managed.environments.envVarsHint', '注入到沙箱的环境变量。格式：KEY=value，逗号或换行分隔。Agent 运行时可直接读取。')} />
-              </h4>
+              </FormFieldLabel>
               <Input
                 placeholder="KEY=value, NODE_ENV=production"
                 value={envVars}
@@ -566,30 +604,12 @@ export default function EnvironmentListPage() {
               />
             </div>
 
-            <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">
-                {t('managed.environments.secretRefsLabel')}
-                <span className="ml-1 text-xs font-normal text-muted-foreground">
-                  {t('managed.environments.optional')}
-                </span>
-                <FieldHelp text={t('managed.environments.secretRefsHint', '引用密钥库中的密钥名称，沙箱启动时自动解密注入为环境变量。逗号分隔。')} />
-              </h4>
-              <Input
-                placeholder="my-api-secret, db-credentials"
-                value={secretRefs}
-                onChange={(e) => setSecretRefs(e.target.value)}
-              />
-            </div>
-
             <div className="pt-4">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <div>
-                  <h4 className="text-sm font-medium">
-                    数据卷挂载
-                    <span className="ml-1 text-xs font-normal text-muted-foreground">
-                      {t('managed.environments.optional')}
-                    </span>
-                  </h4>
+                  <FormFieldLabel optional={t('managed.environments.optional')}>
+                    {t('managed.environments.storageMounts', '数据卷挂载')}
+                  </FormFieldLabel>
                   <p className="text-xs text-muted-foreground">
                     将平台管理的共享存储目录挂载到沙箱的 /workspace 下，供 Agent 读写文件。
                   </p>
@@ -750,12 +770,9 @@ export default function EnvironmentListPage() {
             <div className="pt-4">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <div>
-                  <h4 className="text-sm font-medium">
+                  <FormFieldLabel optional={t('managed.environments.optional')}>
                     {t('managed.environments.egressServices')}
-                    <span className="ml-1 text-xs font-normal text-muted-foreground">
-                      {t('managed.environments.optional')}
-                    </span>
-                  </h4>
+                  </FormFieldLabel>
                   <p className="text-xs text-muted-foreground">
                     {t('managed.environments.egressServicesHint')}
                   </p>
@@ -791,12 +808,16 @@ export default function EnvironmentListPage() {
                 }}
               />
             </div>
+            </AdvancedSection>
           </div>
-          <DialogFooter>
+          <FormActionBar>
+            <Button variant="outline" onClick={() => resetDialog(false)}>
+              {t('common.cancel')}
+            </Button>
             <Button onClick={handleCreate} disabled={creating}>
               {creating ? t('managed.environments.creating') : t('managed.environments.add')}
             </Button>
-          </DialogFooter>
+          </FormActionBar>
         </DialogContent>
       </Dialog>
     </div>
