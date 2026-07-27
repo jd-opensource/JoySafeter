@@ -579,7 +579,7 @@ export default function EnvironmentListPage() {
                     </span>
                   </h4>
                   <p className="text-xs text-muted-foreground">
-                    将平台管理的共享存储目录挂载到沙箱的 /workspace 下，供 Agent 读写文件。底层存储路径对沙箱不可见。
+                    将平台管理的共享存储目录挂载到沙箱的 /workspace 下，供 Agent 读写文件。
                   </p>
                 </div>
                 <Button
