@@ -35,6 +35,7 @@ from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkill,
     JoySafeterSkillLifecycleStatus,
     JoySafeterSkillSecurityScan,
+    JoySafeterSkillSecurityStatus,
 )
 from app.joysafeter_domain.models.joysafeter_skill import (
     recompute_visibility_from_pointers as _recompute_visibility_from_pointers,
@@ -295,7 +296,9 @@ class SkillSecurityScannerClient:
 # Scan verdicts that trigger the fail-closed rescan auto-demote: a served
 # org/public version whose fresh verdict lands here is no longer trusted, so
 # ``apply_latest_scan`` clears the tier pointers and lowers visibility.
-_AUTO_DEMOTE_SCAN_STATUSES = frozenset({"failed", "blocked"})
+_AUTO_DEMOTE_SCAN_STATUSES = frozenset(
+    {JoySafeterSkillSecurityStatus.FAILED.value, JoySafeterSkillSecurityStatus.BLOCKED.value}
+)
 
 
 class SkillSecurityService:
@@ -431,7 +434,7 @@ class SkillSecurityService:
                 target_hash=target_hash,
                 scanner="skillspector",
                 scanner_version=None,
-                status="failed",
+                status=JoySafeterSkillSecurityStatus.FAILED.value,
                 score=None,
                 severity=None,
                 recommendation=None,
@@ -533,7 +536,7 @@ class SkillSecurityService:
                     ),
                 ),
                 scanner="skillspector",
-                status="not_scanned",
+                status=JoySafeterSkillSecurityStatus.NOT_SCANNED.value,
                 score=None,
                 severity=None,
                 recommendation=None,
@@ -809,29 +812,29 @@ class SkillSecurityService:
         """
         if counts["critical"] > 0:
             score = min(100, 90 + (counts["critical"] - 1) * 5 + counts["high"] * 3 + counts["medium"])
-            return SkillSecurityPolicyDecision("blocked", score, "CRITICAL", "DO_NOT_INSTALL", "critical_issue")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.BLOCKED.value, score, "CRITICAL", "DO_NOT_INSTALL", "critical_issue")
 
         if counts["high"] > 0:
             score = min(89, 70 + (counts["high"] - 1) * 5 + counts["medium"] * 2 + min(counts["low"], 10))
-            return SkillSecurityPolicyDecision("blocked", score, "HIGH", "DO_NOT_INSTALL", "high_issue")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.BLOCKED.value, score, "HIGH", "DO_NOT_INSTALL", "high_issue")
 
         if counts["medium"] > 0:
             score = min(69, 30 + (counts["medium"] - 1) * 5 + min(counts["low"], 10))
-            return SkillSecurityPolicyDecision("warning", score, "MEDIUM", "CAUTION", "medium_issue")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "MEDIUM", "CAUTION", "medium_issue")
 
         if counts["low"] > 0:
             score = min(29, 5 + min(counts["low"] * 2, 24))
-            return SkillSecurityPolicyDecision("warning", score, "LOW", "CAUTION", "low_issue")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "LOW", "CAUTION", "low_issue")
 
         if counts["issues"] > 0:
             score = min(49, max(1, scanner_score or counts["issues"]))
-            return SkillSecurityPolicyDecision("warning", score, "LOW", "CAUTION", "unknown_issue_severity")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "LOW", "CAUTION", "unknown_issue_severity")
 
         if self._scanner_aggregate_blocks(scanner_recommendation, scanner_severity, scanner_score):
             score = min(100, max(70, scanner_score or 70))
             severity = scanner_severity if scanner_severity in {"HIGH", "CRITICAL"} else "HIGH"
             return SkillSecurityPolicyDecision(
-                "blocked",
+                JoySafeterSkillSecurityStatus.BLOCKED.value,
                 score,
                 severity,
                 "DO_NOT_INSTALL",
@@ -841,9 +844,9 @@ class SkillSecurityService:
         if scanner_recommendation == "CAUTION" or (scanner_score is not None and scanner_score > 0):
             score = min(49, max(1, scanner_score or 1))
             severity = scanner_severity if scanner_severity in {"MEDIUM", "LOW"} else "LOW"
-            return SkillSecurityPolicyDecision("warning", score, severity, "CAUTION", "scanner_caution_without_issues")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, severity, "CAUTION", "scanner_caution_without_issues")
 
-        return SkillSecurityPolicyDecision("passed", 0, "LOW", "SAFE", "no_issues")
+        return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.PASSED.value, 0, "LOW", "SAFE", "no_issues")
 
     def _scanner_aggregate_blocks(
         self,
@@ -881,7 +884,9 @@ class SkillSecurityService:
         return enriched
 
     def _is_blocked(self, scan: JoySafeterSkillSecurityScan) -> bool:
-        return scan.status == "blocked" or (scan.status == "failed" and settings.skill_security_fail_closed)
+        return scan.status == JoySafeterSkillSecurityStatus.BLOCKED.value or (
+            scan.status == JoySafeterSkillSecurityStatus.FAILED.value and settings.skill_security_fail_closed
+        )
 
     def _error_data(self, scan: JoySafeterSkillSecurityScan) -> dict[str, Any]:
         report = scan.report if isinstance(scan.report, dict) else {}
@@ -1004,8 +1009,8 @@ class SkillSecurityService:
         skill = await self.db.get(JoySafeterSkill, skill_id)
         if skill is None:
             return
-        if skill.security_status != "scanning":
-            skill.security_status = "scanning"
+        if skill.security_status != JoySafeterSkillSecurityStatus.SCANNING.value:
+            skill.security_status = JoySafeterSkillSecurityStatus.SCANNING.value
             await self.db.flush()
 
 
@@ -1048,7 +1053,9 @@ treated as "no scan completed" until SkillSpector returns.
 # are runtime-fatal. ``scanning`` is the P2 async-scan intermediate
 # state; runtime treats it the same as ``not_scanned`` so an in-flight
 # rescan never accidentally loads stale content.
-_RUNTIME_ALLOWED_SECURITY_STATUSES = frozenset({"passed", "warning"})
+_RUNTIME_ALLOWED_SECURITY_STATUSES = frozenset(
+    {JoySafeterSkillSecurityStatus.PASSED.value, JoySafeterSkillSecurityStatus.WARNING.value}
+)
 
 
 def is_skill_usable(skill: JoySafeterSkill, *, check_drift: bool = True) -> tuple[bool, Optional[str]]:
@@ -1604,10 +1611,10 @@ async def run_scan_in_background(
     # Lazy imports keep the orchestrator import graph clean: this
     # module is loaded by the FastAPI request path, but the BG task
     # only needs the session factory and the service when invoked.
+    from sqlalchemy import select as _bg_select
+
     from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
     from app.joysafeter_shared.database import AsyncSessionLocal
-
-    from sqlalchemy import select as _bg_select
 
     async with AsyncSessionLocal() as db:
         try:
@@ -1632,8 +1639,8 @@ async def run_scan_in_background(
                 # ``scanning`` placeholder so the runtime gate stops
                 # treating the row as in-flight.
                 skill = await db.get(JoySafeterSkill, skill_id)
-                if skill and skill.security_status == "scanning":
-                    skill.security_status = "not_scanned"
+                if skill and skill.security_status == JoySafeterSkillSecurityStatus.SCANNING.value:
+                    skill.security_status = JoySafeterSkillSecurityStatus.NOT_SCANNED.value
                     await db.commit()
                 return
                 # Refresh the skill row with the latest verdict.
@@ -1709,7 +1716,7 @@ async def run_scan_in_background(
                     target_hash=target_hash,
                     scanner="skillspector",
                     scanner_version=None,
-                    status="failed",
+                    status=JoySafeterSkillSecurityStatus.FAILED.value,
                     score=None,
                     severity=None,
                     recommendation=None,
@@ -1727,7 +1734,7 @@ async def run_scan_in_background(
                     _bg_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id).with_for_update()
                 )
                 skill = _fail_result.scalar_one_or_none()
-                if skill and skill.security_status == "scanning":
+                if skill and skill.security_status == JoySafeterSkillSecurityStatus.SCANNING.value:
                     svc.apply_latest_scan(skill, failed_scan)
                 await db.commit()
             except Exception:

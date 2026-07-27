@@ -27,7 +27,7 @@ async def _recover_stuck_scanning_skills() -> None:
     """
     from sqlalchemy import update
 
-    from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
+    from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillSecurityStatus
     from app.joysafeter_shared.config.settings import settings
     from app.joysafeter_shared.database import AsyncSessionLocal
     from app.joysafeter_shared.utils.datetime import utc_now
@@ -40,10 +40,10 @@ async def _recover_stuck_scanning_skills() -> None:
         result = await db.execute(
             update(JoySafeterSkill)
             .where(
-                JoySafeterSkill.security_status == "scanning",
+                JoySafeterSkill.security_status == JoySafeterSkillSecurityStatus.SCANNING.value,
                 JoySafeterSkill.updated_at < cutoff,
             )
-            .values(security_status="not_scanned")
+            .values(security_status=JoySafeterSkillSecurityStatus.NOT_SCANNED.value)
             .returning(JoySafeterSkill.id)
         )
         recovered_ids = [row[0] for row in result.fetchall()]

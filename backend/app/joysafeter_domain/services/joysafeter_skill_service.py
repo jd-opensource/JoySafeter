@@ -319,10 +319,11 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         # ``SKILL_SECURITY_BLOCKED`` code for the high-risk verdict, but fail
         # every other runtime-ineligible state with a precise reason.
         # When security scanning is disabled globally, skip all scan gates.
+        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
         from app.joysafeter_shared.config import settings as app_settings
 
         if app_settings.skill_security_scan_enabled:
-            if skill.security_status == "blocked":
+            if skill.security_status == JoySafeterSkillSecurityStatus.BLOCKED.value:
                 raise InvalidRequestError(
                     "技能存在高安全风险，已被安全扫描拦截，无法发布版本。请修复后重新扫描。",
                     code="SKILL_SECURITY_BLOCKED",
@@ -978,9 +979,9 @@ class SkillService(BaseService[JoySafeterSkill]):
         from sqlalchemy import select
 
         from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
+        from app.joysafeter_domain.models.joysafeter_project import Project
         from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
         from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
-        from app.joysafeter_domain.models.joysafeter_project import Project
 
         project_filter: Any
         if self._active_org_id:
@@ -2081,6 +2082,8 @@ class SkillService(BaseService[JoySafeterSkill]):
         latest = await sec.repo.get_latest_by_skill(skill.id)
         if latest is not None:
             return latest
+        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
+
         placeholder = JoySafeterSkillSecurityScan(
             skill_id=skill.id,
             project_id=skill.project_id,
@@ -2090,7 +2093,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             target_name=skill.name,
             target_hash="",
             scanner="skillspector",
-            status="scanning",
+            status=JoySafeterSkillSecurityStatus.SCANNING.value,
             score=None,
             severity=None,
             recommendation=None,
