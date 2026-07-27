@@ -95,8 +95,19 @@ def validate_auth_assignable_role(role: str) -> JoySafeterRole:
     return JoySafeterRole(normalized)
 
 
-def _role_rank(role: str) -> int:
-    return JoySafeterRole.normalize(role).rank
+def _actor_outranks(actor: "str | JoySafeterRole", target: "str | JoySafeterRole") -> bool:
+    """True when ``actor`` may grant/modify/remove a principal holding ``target``.
+
+    The single rank rule for org-member management (owner > admin > member; an
+    actor may act on peers at or below their own rank). Delegates to
+    ``JoySafeterRole.can_grant`` — the one authoritative rank comparison in
+    ``context.py`` — so this module no longer carries its own rank arithmetic.
+    Accepts either raw role strings (the ``organizations.py`` surface) or
+    ``JoySafeterRole`` enums (the ``auth.py`` surface).
+    """
+    a = actor if isinstance(actor, JoySafeterRole) else JoySafeterRole.normalize(actor)
+    t = target if isinstance(target, JoySafeterRole) else JoySafeterRole.normalize(target)
+    return a.can_grant(t)
 
 
 def ensure_can_assign_role(actor_role: str, target_role: str) -> None:
@@ -107,7 +118,7 @@ def ensure_can_assign_role(actor_role: str, target_role: str) -> None:
             actor_role=actor_role,
             target_role=target_role,
         )
-    if _role_rank(actor_role) < _role_rank(target_role):
+    if not _actor_outranks(actor_role, target_role):
         raise _permission_error(
             code="ORGANIZATION_ROLE_GRANT_FORBIDDEN",
             message="Cannot grant a role higher than your own",
@@ -132,7 +143,7 @@ def ensure_can_modify_member(actor_role: str, current_role: str, new_role: str) 
             actor_role=actor_role,
             target_role=new_role,
         )
-    if _role_rank(actor_role) < _role_rank(current_role) or _role_rank(actor_role) < _role_rank(new_role):
+    if not _actor_outranks(actor_role, current_role) or not _actor_outranks(actor_role, new_role):
         raise _permission_error(
             code="ORGANIZATION_ROLE_MODIFY_FORBIDDEN",
             message="Cannot modify or grant a role higher than your own",
@@ -440,7 +451,7 @@ class OrganizationMemberService:
                 data={"organization_id": organization_id, "member_id": member_id},
                 user_action="fix_input",
             )
-        if _role_rank(actor.role) < _role_rank(member.role):
+        if not _actor_outranks(actor.role, member.role):
             raise _permission_error(
                 code="ORGANIZATION_ROLE_REMOVE_FORBIDDEN",
                 message="Cannot remove a member with a higher role than your own",
