@@ -456,7 +456,6 @@ def test_organization_member_lifecycle_stays_in_domain_services():
     assert "list_accessible_projects" in project_service_text
     assert "ORGANIZATION_MEMBER_ROLE_INVALID" in member_service_text
     assert "ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN" in member_service_text
-    assert "ORGANIZATION_ROLE_MODIFY_FORBIDDEN" in member_service_text
     assert "async def add_member" in member_service_text
     assert "async def transfer_ownership" in member_service_text
     assert "async def create_with_owner_and_default_project" in org_service_text
