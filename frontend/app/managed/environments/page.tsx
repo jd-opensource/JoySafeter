@@ -4,10 +4,10 @@ import { useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import type { Environment, Secret } from '@/types/managed'
-import { managedPost } from '@/lib/api-client'
+import type { StorageVolumeCatalogItem, Environment, EnvironmentMountResource, Secret } from '@/types/managed'
+import { managedGet, managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
@@ -49,7 +49,24 @@ type CreateEnvironmentErrors = {
   egressServices: EgressServiceErrors
 }
 
+type MountResourceForm = {
+  name: string
+  volumeRef: string
+  subPath: string
+  mountPath: string
+  access: 'read_only' | 'read_write'
+  required: boolean
+}
+
 const emptyCreateErrors = (): CreateEnvironmentErrors => ({ egressServices: {} })
+
+const mountNameFromVolume = (volumeRef: string) =>
+  volumeRef
+    .replace(/^storage[-_]?/, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'storage-data'
+
+const defaultMountPath = (name: string) => `/workspace/storage/${name || 'data'}`
 
 export default function EnvironmentListPage() {
   const { t } = useTranslation()
@@ -87,6 +104,7 @@ export default function EnvironmentListPage() {
   const [envVars, setEnvVars] = useState('')
   const [secretRefs, setSecretRefs] = useState('')
   const [egressServices, setEgressServices] = useState<EgressServiceForm[]>([])
+  const [mountResources, setMountResources] = useState<MountResourceForm[]>([])
   const [formErrors, setFormErrors] = useState<CreateEnvironmentErrors>(emptyCreateErrors)
   const [creating, setCreating] = useState(false)
   const createRunRef = useRef(0)
@@ -116,6 +134,13 @@ export default function EnvironmentListPage() {
     path: '/secrets',
     limit: 50,
   })
+  const { data: storageCatalog } = useQuery({
+    queryKey: ['storage-mount-catalog', managedScope],
+    queryFn: () => managedGet<{ data: StorageVolumeCatalogItem[] }>('/storage-volumes/catalog'),
+    enabled: scopeIsActive(),
+    staleTime: 60_000,
+  })
+  const storageVolumes = storageCatalog?.data || []
 
   const environments = data.filter(
     (e) =>
@@ -165,6 +190,7 @@ export default function EnvironmentListPage() {
     setEnvVars('')
     setSecretRefs('')
     setEgressServices([])
+    setMountResources([])
     setFormErrors(emptyCreateErrors())
   }
 
@@ -277,6 +303,19 @@ export default function EnvironmentListPage() {
       const services = buildEgressServices(egressServices)
       if (services.length > 0) config.egress_services = services
 
+      const mounts: EnvironmentMountResource[] = mountResources
+        .map((resource) => ({
+          type: 'storage',
+          name: resource.name.trim(),
+          volume_ref: resource.volumeRef.trim(),
+          sub_path: resource.subPath.trim(),
+          mount_path: resource.mountPath.trim(),
+          access: resource.access,
+          required: resource.required,
+        }))
+        .filter((resource) => resource.name && resource.volume_ref && resource.mount_path)
+      if (mounts.length > 0) config.mount_resources = mounts
+
       await managedPost(
         '/environments',
         {
@@ -310,6 +349,7 @@ export default function EnvironmentListPage() {
     envVars,
     secretRefs,
     egressServices,
+    mountResources,
     queryClient,
   ])
 
@@ -527,6 +567,164 @@ export default function EnvironmentListPage() {
                 value={secretRefs}
                 onChange={(e) => setSecretRefs(e.target.value)}
               />
+            </div>
+
+            <div className="pt-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-sm font-medium">
+                    数据卷挂载
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      {t('managed.environments.optional')}
+                    </span>
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    将平台管理的共享存储目录挂载到沙箱的 /workspace 下，供 Agent 读写文件。底层存储路径对沙箱不可见。
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={storageVolumes.length === 0}
+                  onClick={() => {
+                    const first = storageVolumes[0]
+                    if (!first) return
+                    const name = mountNameFromVolume(first.volume_ref)
+                    setMountResources((items) => [
+                      ...items,
+                      {
+                        name,
+                        volumeRef: first.volume_ref,
+                        subPath: first.allowed_prefixes?.[0] || '',
+                        mountPath: defaultMountPath(name),
+                        access: 'read_only',
+                        required: true,
+                      },
+                    ])
+                  }}
+                >
+                  添加挂载
+                </Button>
+              </div>
+              {storageVolumes.length === 0 && (
+                <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
+                  当前部署未配置 Storage volume catalog。
+                </div>
+              )}
+              {mountResources.length > 0 && (
+                <div className="space-y-3">
+                  {mountResources.map((resource, index) => {
+                    const selected = storageVolumes.find((item) => item.volume_ref === resource.volumeRef)
+                    const canWrite = selected?.max_access === 'read_write'
+                    return (
+                      <div key={`${resource.volumeRef}-${index}`} className="rounded-xl border bg-card p-3">
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium">{resource.name || '数据卷'}</p>
+                            <p className="text-xs text-muted-foreground">
+                              挂载到 {resource.mountPath || '/workspace/storage/data'}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setMountResources((items) => items.filter((_, i) => i !== index))}
+                          >
+                            移除
+                          </Button>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">数据卷</span>
+                            <select
+                              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                              value={resource.volumeRef}
+                              onChange={(event) => {
+                                const volume = storageVolumes.find((item) => item.volume_ref === event.target.value)
+                                const name = mountNameFromVolume(event.target.value)
+                                setMountResources((items) =>
+                                  items.map((item, i) =>
+                                    i === index
+                                      ? {
+                                          ...item,
+                                          name,
+                                          volumeRef: event.target.value,
+                                          subPath: volume?.allowed_prefixes?.[0] || '',
+                                          mountPath: defaultMountPath(name),
+                                          access: 'read_only',
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }}
+                            >
+                              {storageVolumes.map((volume) => (
+                                <option key={volume.volume_ref} value={volume.volume_ref}>
+                                  {volume.display_name || volume.volume_ref}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">访问权限</span>
+                            <select
+                              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                              value={resource.access}
+                              onChange={(event) =>
+                                setMountResources((items) =>
+                                  items.map((item, i) =>
+                                    i === index
+                                      ? { ...item, access: event.target.value as MountResourceForm['access'] }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            >
+                              <option value="read_only">只读</option>
+                              {canWrite && <option value="read_write">读写</option>}
+                            </select>
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">子目录</span>
+                            <Input
+                              value={resource.subPath}
+                              placeholder="tenant-a/project-x"
+                              onChange={(event) =>
+                                setMountResources((items) =>
+                                  items.map((item, i) =>
+                                    i === index ? { ...item, subPath: event.target.value } : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-medium">沙箱路径</span>
+                            <Input
+                              value={resource.mountPath}
+                              placeholder="/workspace/storage/data"
+                              onChange={(event) =>
+                                setMountResources((items) =>
+                                  items.map((item, i) =>
+                                    i === index ? { ...item, mountPath: event.target.value } : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+                        {selected?.allowed_prefixes && selected.allowed_prefixes.length > 0 && (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            允许前缀：{selected.allowed_prefixes.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="pt-4">
