@@ -83,6 +83,7 @@ import {
   currentProjectAllowsWrite,
   currentProjectAllowsAdmin,
   useCurrentProjectReadOnly,
+  useCurrentProjectIsAdmin,
 } from '@/hooks/managed/use-current-project-read-only'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
@@ -1647,7 +1648,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
   // Promotion gating: submitting a version for promotion needs project ADMIN
   // capability; approving / rejecting / taking down needs the org OWNER role
   // (the backend enforces both — these just drive which controls render).
-  const isProjectSkillAdmin = useProjectStore((s) => s.currentProject?.capability) === 'admin'
+  const isProjectSkillAdmin = useCurrentProjectIsAdmin()
   const isOrgOwner = canOwn(
     useProjectStore((s) => s.organizations.find((o) => o.id === s.currentOrgId)?.role),
   )
