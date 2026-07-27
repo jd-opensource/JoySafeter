@@ -81,6 +81,21 @@ CATALOG: dict[str, CatalogEntry] = {
     "AGENT_VERSION_CONFLICT": CatalogEntry(
         code="AGENT_VERSION_CONFLICT", error_class=ResourceConflictError, default_message="Agent version conflict"
     ),
+    "AGENT_SKILL_REF_INVALID": CatalogEntry(
+        code="AGENT_SKILL_REF_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid skill reference id",
+    ),
+    "AGENT_SKILL_REF_NOT_FOUND": CatalogEntry(
+        code="AGENT_SKILL_REF_NOT_FOUND",
+        error_class=InvalidRequestError,
+        default_message="Agent references skills that do not exist in this project",
+    ),
+    "AGENT_SKILL_REF_NOT_RUNTIME_READY": CatalogEntry(
+        code="AGENT_SKILL_REF_NOT_RUNTIME_READY",
+        error_class=InvalidRequestError,
+        default_message="Agent can only reference published, runtime-ready skills",
+    ),
     "API_KEY_NOT_FOUND": CatalogEntry(
         code="API_KEY_NOT_FOUND", error_class=NotFoundError, default_message="API key not found"
     ),
@@ -181,6 +196,11 @@ CATALOG: dict[str, CatalogEntry] = {
     "FILE_NOT_FOUND": CatalogEntry(code="FILE_NOT_FOUND", error_class=NotFoundError, default_message="File not found"),
     "FILE_UPLOAD_FAILED": CatalogEntry(
         code="FILE_UPLOAD_FAILED", error_class=InternalServiceError, default_message="File upload failed"
+    ),
+    "FILE_IN_USE_BY_SESSION_RESOURCE": CatalogEntry(
+        code="FILE_IN_USE_BY_SESSION_RESOURCE",
+        error_class=ResourceConflictError,
+        default_message="File is attached to active session resources",
     ),
     "FORBIDDEN": CatalogEntry(code="FORBIDDEN", error_class=AccessDeniedError, default_message="无权限"),
     "IDEMPOTENCY_KEY_IN_PROGRESS": CatalogEntry(
@@ -501,6 +521,41 @@ CATALOG: dict[str, CatalogEntry] = {
     "SANDBOX_NOT_FOUND": CatalogEntry(
         code="SANDBOX_NOT_FOUND", error_class=NotFoundError, default_message="Sandbox not found"
     ),
+    "SANDBOX_FILE_NOT_FOUND": CatalogEntry(
+        code="SANDBOX_FILE_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Sandbox file path not found",
+    ),
+    "SANDBOX_FILE_PATH_HIDDEN": CatalogEntry(
+        code="SANDBOX_FILE_PATH_HIDDEN",
+        error_class=InvalidRequestError,
+        default_message="Sandbox hidden files are not accessible",
+    ),
+    "SANDBOX_FILE_PATH_INVALID": CatalogEntry(
+        code="SANDBOX_FILE_PATH_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid sandbox file path",
+    ),
+    "SANDBOX_FILE_PATH_OUTSIDE_WORKSPACE": CatalogEntry(
+        code="SANDBOX_FILE_PATH_OUTSIDE_WORKSPACE",
+        error_class=InvalidRequestError,
+        default_message="Sandbox file path must be under /workspace",
+    ),
+    "SANDBOX_FILE_PATH_TRAVERSAL": CatalogEntry(
+        code="SANDBOX_FILE_PATH_TRAVERSAL",
+        error_class=InvalidRequestError,
+        default_message="Sandbox file path cannot contain '..'",
+    ),
+    "SANDBOX_FILE_PAYLOAD_INVALID": CatalogEntry(
+        code="SANDBOX_FILE_PAYLOAD_INVALID",
+        error_class=ServiceUnavailableError,
+        default_message="Sandbox file payload is invalid",
+    ),
+    "SANDBOX_FILE_TOO_LARGE": CatalogEntry(
+        code="SANDBOX_FILE_TOO_LARGE",
+        error_class=InvalidRequestError,
+        default_message="Sandbox file exceeds download size limit",
+    ),
     "SECRET_ACTIVE_TASK_DEPENDENCY": CatalogEntry(
         code="SECRET_ACTIVE_TASK_DEPENDENCY",
         error_class=ResourceConflictError,
@@ -715,6 +770,46 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SESSION_VAULT_ARCHIVED",
         error_class=ResourceConflictError,
         default_message="Session vault is archived",
+    ),
+    "SESSION_FILE_MOUNT_PATH_CONFLICT": CatalogEntry(
+        code="SESSION_FILE_MOUNT_PATH_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="Session file mount path conflict",
+    ),
+    "SESSION_MEMORY_STORE_ALREADY_ATTACHED": CatalogEntry(
+        code="SESSION_MEMORY_STORE_ALREADY_ATTACHED",
+        error_class=ResourceConflictError,
+        default_message="Session memory store already attached",
+    ),
+    "SESSION_MEMORY_STORE_ARCHIVED": CatalogEntry(
+        code="SESSION_MEMORY_STORE_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Session memory store archived",
+    ),
+    "SESSION_REPO_MOUNT_PATH_CONFLICT": CatalogEntry(
+        code="SESSION_REPO_MOUNT_PATH_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="Session repo mount path conflict",
+    ),
+    "SESSION_REPO_MOUNT_PATH_INVALID": CatalogEntry(
+        code="SESSION_REPO_MOUNT_PATH_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Session repo mount path invalid",
+    ),
+    "SESSION_RESOURCE_MOUNT_PATH_CONFLICT": CatalogEntry(
+        code="SESSION_RESOURCE_MOUNT_PATH_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="Session resource mount path conflict",
+    ),
+    "SESSION_SANDBOX_FILE_RELAY_UNAVAILABLE": CatalogEntry(
+        code="SESSION_SANDBOX_FILE_RELAY_UNAVAILABLE",
+        error_class=ServiceUnavailableError,
+        default_message="Sandbox file service is not available",
+    ),
+    "SESSION_SANDBOX_NOT_AVAILABLE": CatalogEntry(
+        code="SESSION_SANDBOX_NOT_AVAILABLE",
+        error_class=ServiceUnavailableError,
+        default_message="Session sandbox is not available",
     ),
     "SCHEDULE_ENVIRONMENT_NOT_FOUND": CatalogEntry(
         code="SCHEDULE_ENVIRONMENT_NOT_FOUND",
@@ -931,6 +1026,31 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="A stored skill version is not valid semver; cannot compute the next version.",
     ),
+    "SKILL_DELETE_HAS_REFERENCES": CatalogEntry(
+        code="SKILL_DELETE_HAS_REFERENCES",
+        error_class=ResourceConflictError,
+        default_message="Skill is still referenced by agents, schedules, or active tasks. Remove references before deleting.",
+    ),
+    "SKILL_LIFECYCLE_NOT_RUNTIME_READY": CatalogEntry(
+        code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",
+        error_class=InvalidRequestError,
+        default_message="Skill must pass security scan before entering approved state.",
+    ),
+    "SKILL_USAGE_FILTER_REQUIRED": CatalogEntry(
+        code="SKILL_USAGE_FILTER_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="At least one usage filter is required.",
+    ),
+    "SKILL_USAGE_HASH_INVALID": CatalogEntry(
+        code="SKILL_USAGE_HASH_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Skill usage hash invalid",
+    ),
+    "SKILL_VERSION_NOT_RUNTIME_READY": CatalogEntry(
+        code="SKILL_VERSION_NOT_RUNTIME_READY",
+        error_class=InvalidRequestError,
+        default_message="Skill is not runtime-ready and cannot be published.",
+    ),
     "TASK_AGENT_NOT_FOUND": CatalogEntry(
         code="TASK_AGENT_NOT_FOUND", error_class=NotFoundError, default_message="Agent not found"
     ),
@@ -990,6 +1110,51 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InternalServiceError,
         default_message="Token refresh failed. Please login again.",
     ),
+    "TRIGGER_NAME_EXISTS": CatalogEntry(
+        code="TRIGGER_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="Trigger name exists",
+    ),
+    "TRIGGER_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Trigger not found",
+    ),
+    "TRIGGER_PINNED_SESSION_AGENT_MISMATCH": CatalogEntry(
+        code="TRIGGER_PINNED_SESSION_AGENT_MISMATCH",
+        error_class=RequestValidationAppError,
+        default_message="Pinned session belongs to a different agent",
+    ),
+    "TRIGGER_PINNED_SESSION_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_PINNED_SESSION_NOT_FOUND",
+        error_class=RequestValidationAppError,
+        default_message="Pinned session not found",
+    ),
+    "TRIGGER_PINNED_SESSION_REQUIRED": CatalogEntry(
+        code="TRIGGER_PINNED_SESSION_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="pinned session mode requires pinned_session_id",
+    ),
+    "TRIGGER_SECRET_KEY_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_SECRET_KEY_NOT_FOUND",
+        error_class=RequestValidationAppError,
+        default_message="Trigger secret key not found",
+    ),
+    "TRIGGER_SECRET_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_SECRET_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Trigger secret not found",
+    ),
+    "TRIGGER_SECRET_REF_REQUIRED": CatalogEntry(
+        code="TRIGGER_SECRET_REF_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Webhook trigger requires secret_ref",
+    ),
+    "TRIGGER_WEBHOOK_UNAUTHORIZED": CatalogEntry(
+        code="TRIGGER_WEBHOOK_UNAUTHORIZED",
+        error_class=RequestValidationAppError,
+        default_message="Invalid webhook signature or token",
+    ),
     "UNAUTHORIZED": CatalogEntry(code="UNAUTHORIZED", error_class=AuthenticationError, default_message="未认证"),
     "USER_ALREADY_EXISTS": CatalogEntry(
         code="USER_ALREADY_EXISTS", error_class=InvalidRequestError, default_message="Email already registered"
@@ -1025,6 +1190,16 @@ CATALOG: dict[str, CatalogEntry] = {
         code="VAULT_ARCHIVED",
         error_class=ResourceConflictError,
         default_message="Vault is archived",
+    ),
+    "VAULT_ACTIVE_SESSION_REFERENCE": CatalogEntry(
+        code="VAULT_ACTIVE_SESSION_REFERENCE",
+        error_class=ResourceConflictError,
+        default_message="Vault active session reference",
+    ),
+    "VAULT_CONFLICT": CatalogEntry(
+        code="VAULT_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="Vault conflict",
     ),
     "VERIFICATION_TOKEN_EXPIRED": CatalogEntry(
         code="VERIFICATION_TOKEN_EXPIRED",
