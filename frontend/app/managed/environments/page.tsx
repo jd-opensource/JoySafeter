@@ -557,6 +557,7 @@ export default function EnvironmentListPage() {
                 <span className="ml-1 text-xs font-normal text-muted-foreground">
                   {t('managed.environments.optional')}
                 </span>
+                <FieldHelp text={t('managed.environments.envVarsHint', '注入到沙箱的环境变量。格式：KEY=value，逗号或换行分隔。Agent 运行时可直接读取。')} />
               </h4>
               <Input
                 placeholder="KEY=value, NODE_ENV=production"
@@ -571,6 +572,7 @@ export default function EnvironmentListPage() {
                 <span className="ml-1 text-xs font-normal text-muted-foreground">
                   {t('managed.environments.optional')}
                 </span>
+                <FieldHelp text={t('managed.environments.secretRefsHint', '引用密钥库中的密钥名称，沙箱启动时自动解密注入为环境变量。逗号分隔。')} />
               </h4>
               <Input
                 placeholder="my-api-secret, db-credentials"
@@ -682,7 +684,7 @@ export default function EnvironmentListPage() {
                             </Select>
                           </label>
                           <label className="space-y-1 text-sm">
-                            <span className="font-medium">访问权限</span>
+                            <span className="font-medium">访问权限 <FieldHelp text="只读模式下 Agent 只能读取文件，无法修改；读写模式允许 Agent 创建和修改文件。不能超过平台管理员授予的最大权限。" /></span>
                             <Select
                               value={resource.access}
                               onValueChange={(value) =>
@@ -705,7 +707,7 @@ export default function EnvironmentListPage() {
                             </Select>
                           </label>
                           <label className="space-y-1 text-sm">
-                            <span className="font-medium">子目录</span>
+                            <span className="font-medium">子目录 <FieldHelp text="存储卷内的子目录路径（相对路径）。留空则挂载整个存储卷根目录。必须在管理员配置的允许前缀范围内。" /></span>
                             <Input
                               value={resource.subPath}
                               placeholder="tenant-a/project-x"
@@ -719,7 +721,7 @@ export default function EnvironmentListPage() {
                             />
                           </label>
                           <label className="space-y-1 text-sm">
-                            <span className="font-medium">沙箱路径</span>
+                            <span className="font-medium">沙箱路径 <FieldHelp text="数据卷在沙箱容器内的挂载位置。必须是 /workspace/ 下的绝对路径，Agent 通过这个路径读写文件。" /></span>
                             <Input
                               value={resource.mountPath}
                               placeholder="/workspace/storage/data"
