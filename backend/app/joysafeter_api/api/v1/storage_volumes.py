@@ -83,13 +83,18 @@ async def list_storage_mount_audit(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> dict[str, list[StorageMountAuditResponse]]:
     svc = StorageMountService(db)
-    if volume_id is not None and not auth_ctx.is_super_user:
-        await svc.ensure_project_volume_access(volume_id, auth_ctx.project_id)
-    rows = await svc.list_audit(
-        project_id=auth_ctx.project_id,
-        volume_id=volume_id,
-        limit=limit,
-    )
+    if auth_ctx.is_super_user:
+        # Platform admin: see all audit logs (optionally filtered by volume).
+        rows = await svc.list_audit(volume_id=volume_id, limit=limit)
+    else:
+        # Org admin: see audit logs scoped to their organization's projects.
+        if volume_id is not None:
+            await svc.ensure_project_volume_access(volume_id, auth_ctx.project_id)
+        rows = await svc.list_audit(
+            org_id=auth_ctx.org_id,
+            volume_id=volume_id,
+            limit=limit,
+        )
     return {"data": [StorageMountAuditResponse.model_validate(row) for row in rows]}
 
 
