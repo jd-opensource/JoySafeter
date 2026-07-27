@@ -701,15 +701,15 @@ def _ensure_skill_mutable(skill) -> None:
         raise _skill_archived_error(skill)
 
 
-_ELIGIBILITY_MESSAGES: dict[str | None, tuple[str, str]] = {
-    None: ("Skill is approved, scanned, unchanged, and ready for runtime packing.", "none"),
-    "skill_not_approved": ("Approve the skill before agents can load it.", "submit_or_approve"),
-    "security_not_scanned": ("Run a security scan before publishing or loading this skill.", "run_security_scan"),
-    "security_scanning": ("Wait for the in-flight security scan to finish.", "wait_for_scan"),
-    "security_failed": ("Fix the scanner error and rescan this skill.", "fix_and_rescan"),
-    "security_blocked": ("Resolve blocking security findings before this skill can run.", "fix_and_rescan"),
-    "no_security_scan_hash": ("Rescan this skill so the runtime can verify the exact content.", "run_security_scan"),
-    "content_changed_after_scan": ("Rescan this skill because its content changed after the last scan.", "run_security_scan"),
+_ELIGIBILITY_NEXT_ACTIONS: dict[str | None, str] = {
+    None: "none",
+    "skill_not_approved": "submit_or_approve",
+    "security_not_scanned": "run_security_scan",
+    "security_scanning": "wait_for_scan",
+    "security_failed": "fix_and_rescan",
+    "security_blocked": "fix_and_rescan",
+    "no_security_scan_hash": "run_security_scan",
+    "content_changed_after_scan": "run_security_scan",
 }
 
 
@@ -912,8 +912,8 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = fields["tags"]
         skill.license = fields["license"]
 
-    def _runtime_eligibility_message(self, reason: Optional[str]) -> tuple[str, str]:
-        return _ELIGIBILITY_MESSAGES.get(reason, ("Review and resolve the skill readiness issue.", "review_skill"))
+    def _runtime_eligibility_next_action(self, reason: Optional[str]) -> str:
+        return _ELIGIBILITY_NEXT_ACTIONS.get(reason, "review_skill")
 
     def _annotate_runtime_eligibility(self, skill: JoySafeterSkill) -> None:
         from app.joysafeter_shared.config import settings as app_settings
@@ -927,14 +927,13 @@ class SkillService(BaseService[JoySafeterSkill]):
             from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
             usable, reason = is_skill_usable(skill)
 
-        message, next_action = self._runtime_eligibility_message(reason)
+        next_action = self._runtime_eligibility_next_action(reason)
         setattr(
             skill,
             "runtime_eligibility",
             {
                 "usable": usable,
                 "reason": reason,
-                "user_message": message,
                 "next_action": next_action,
             },
         )

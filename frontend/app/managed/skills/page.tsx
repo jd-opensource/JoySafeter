@@ -53,6 +53,7 @@ import {
   SkillVisibilityBadge,
 } from '@/components/managed/skills/skill-status-badges'
 import { SkillLifecycleActions } from '@/components/managed/skills/skill-lifecycle-actions'
+import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import {
   SkillVersionDiffView,
   type DiffViewMode,
@@ -3352,7 +3353,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                     securityBlocked
                       ? t('managed.skills.publishBlockedBySecurity')
                       : publishRuntimeBlocked
-                        ? runtimeEligibility?.user_message
+                        ? t(eligibilityActionView(runtimeEligibility?.next_action).hintKey)
                         : hasUnpublishedChanges
                           ? t('managed.skills.unpublishedChanges')
                           : undefined
@@ -3424,17 +3425,17 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
         <div className="mb-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm dark:border-amber-800/50 dark:bg-amber-950/30">
           <div className="flex items-center gap-2.5">
             <span className="flex h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-            <span className="font-medium text-amber-900 dark:text-amber-100">
-              {t('managed.skills.runtimeNotReady', 'Runtime not ready')}
+            <span
+              className="font-medium text-amber-900 dark:text-amber-100"
+              // Raw reason code kept as a hover affordance for operators/support,
+              // not shown as primary UI. Localized copy carries the meaning.
+              title={runtimeEligibility.reason || undefined}
+            >
+              {t(eligibilityReasonView(runtimeEligibility.reason).titleKey)}
             </span>
-            {runtimeEligibility.reason && (
-              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-xs text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
-                {runtimeEligibility.reason}
-              </span>
-            )}
           </div>
           <div className="mt-1 pl-4 text-xs text-amber-800 dark:text-amber-200">
-            {runtimeEligibility.user_message}
+            {t(eligibilityActionView(runtimeEligibility.next_action).hintKey)}
           </div>
         </div>
       )}

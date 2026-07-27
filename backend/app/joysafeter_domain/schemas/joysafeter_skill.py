@@ -82,9 +82,11 @@ class SkillSecurityScanSummary(BaseModel):
 
 
 class SkillRuntimeEligibility(BaseModel):
+    # ``reason`` + ``next_action`` are the stable machine contract. Human-facing
+    # text is NOT carried here — presentation (localized copy) lives entirely in
+    # the frontend i18n layer keyed on ``reason`` / ``next_action`` codes.
     usable: bool = False
     reason: Optional[str] = None
-    user_message: str = "Skill is not runtime-ready."
     next_action: str = "review_skill"
 
 
