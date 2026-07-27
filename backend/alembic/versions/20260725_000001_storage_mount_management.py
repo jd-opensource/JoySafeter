@@ -1,7 +1,7 @@
 """storage mount management
 
 Revision ID: 20260725_000001
-Revises: 20260724_000001
+Revises: 20260727_000001
 Create Date: 2026-07-25 00:00:00.000000+00:00
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260725_000001"
-down_revision: Union[str, None] = "20260724_000001"
+down_revision: Union[str, None] = "20260727_000001"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -1,6 +1,6 @@
 """add storage organization grants
 
-Revision ID: 20260727_000001
+Revision ID: 20260727_000002
 Revises: 20260725_000001
 Create Date: 2026-07-27 00:00:01.000000
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "20260727_000001"
+revision = "20260727_000002"
 down_revision = "20260725_000001"
 branch_labels = None
 depends_on = None
