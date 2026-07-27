@@ -577,6 +577,7 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
     {
       key: 'actions',
       header: '操作',
+      width: '320px',
       render: (volume) => (
         <div className="flex items-center gap-1.5">
           <Button size="sm" variant="outline" onClick={() => setSelectedVolume(volume)}>
@@ -616,7 +617,7 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
     <div className="space-y-6">
       <PageHeader
         title={pageTitle}
-        subtitle={platformMode ? '平台侧维护底层存储卷：CFS/CubeFS/NFS/PVC 等运行时配置只在这里维护。' : '组织管理员只负责把平台存储卷授权给当前项目；底层 CFS/CubeFS/NFS/PVC 由平台管理员配置。'}
+        subtitle={platformMode ? '平台侧维护底层存储卷：CFS/CubeFS/NFS/PVC 等运行时配置只在这里维护。' : '将平台已授权给本组织的存储卷分配给当前项目。'}
         action={platformMode ? (
           <Button size="sm" disabled={readOnly || !canManagePlatformVolumes} title={canManagePlatformVolumes ? undefined : '只有平台管理员可以新增底层存储卷'} onClick={() => setVolumeForm(emptyVolumeForm('create'))}>
             <Plus className="mr-2 h-4 w-4" />
