@@ -53,6 +53,7 @@ import {
   SkillVisibilityBadge,
 } from '@/components/managed/skills/skill-status-badges'
 import { SkillLifecycleActions } from '@/components/managed/skills/skill-lifecycle-actions'
+import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import {
   SkillVersionDiffView,
   type DiffViewMode,
@@ -80,7 +81,9 @@ import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   currentProjectAllowsWrite,
+  currentProjectAllowsAdmin,
   useCurrentProjectReadOnly,
+  useCurrentProjectIsAdmin,
 } from '@/hooks/managed/use-current-project-read-only'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
@@ -100,6 +103,7 @@ import {
   buildManagedSkillImportFromDirectory,
   getManagedSkillImportValidationMessage,
 } from '@/lib/managed/skill-import'
+import { severityLabelKey } from '@/lib/managed/skill-severity'
 import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
 import type {
   SkillRecord,
@@ -1645,7 +1649,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
   // Promotion gating: submitting a version for promotion needs project ADMIN
   // capability; approving / rejecting / taking down needs the org OWNER role
   // (the backend enforces both — these just drive which controls render).
-  const isProjectSkillAdmin = useProjectStore((s) => s.currentProject?.capability) === 'admin'
+  const isProjectSkillAdmin = useCurrentProjectIsAdmin()
   const isOrgOwner = canOwn(
     useProjectStore((s) => s.organizations.find((o) => o.id === s.currentOrgId)?.role),
   )
@@ -2771,7 +2775,12 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
 
   const openDeleteSkillDialog = useCallback(
     (id: string) => {
-      if (!isSkillMutable(currentSkillInList(id))) return
+      // delete_skill requires ADMIN on the backend — gate the single choke
+      // point every delete flow passes through. Archived skills stay
+      // deletable (delete is a purge, not an edit), so we do NOT gate on
+      // isSkillMutable here — only that the skill is still in the list.
+      if (!currentProjectAllowsAdmin()) return
+      if (!currentSkillInList(id)) return
 
       mutationRunRef.current += 1
       setDeleteTarget(id)
@@ -2780,7 +2789,14 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
   )
 
   const closeDeleteSkillDialog = useCallback(() => {
-    mutationRunRef.current += 1
+    // NOTE: must NOT bump mutationRunRef here. The ConfirmDialog's confirm
+    // button is a Radix AlertDialogAction, which auto-fires onOpenChange(false)
+    // -> onCancel on the same click as onConfirm. Bumping the run counter on
+    // that close would make the just-launched delete's onSuccess guard fail,
+    // silently skipping invalidateQueries — the delete would land server-side
+    // but the row would linger in the list until a manual refresh. Staleness
+    // from opening a *new* dialog is already covered by openDeleteSkillDialog's
+    // bump, and scope changes are covered by the scope check.
     setDeleteTarget(null)
   }, [])
 
@@ -3129,7 +3145,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
               label: t('managed.skills.viewDetails'),
               onClick: () => handleSelectSkill(s.id),
             },
-            ...(!projectReadOnly && isSkillMutable(s)
+            ...(!projectReadOnly && isProjectSkillAdmin
               ? [
                   {
                     label: t('managed.skills.deleteSkill'),
@@ -3218,7 +3234,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
           destructive
           onConfirm={() => {
             const target = currentSkillInList(deleteTarget)
-            if (!target || !isSkillMutable(target)) {
+            if (!target) {
               closeDeleteSkillDialog()
               return
             }
@@ -3292,7 +3308,11 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                   requestScope={managedScope}
                   operationScope={`${managedScope.key}:${selectedSkill.id}`}
                   canSubmitTransition={(endpoint) => {
-                    if (!currentProjectAllowsWrite()) return false
+                    // Lifecycle transitions require ProjectCapability.ADMIN on
+                    // the backend (submit/approve/reject/archive/…), so gate on
+                    // admin — a WRITE-only editor would otherwise see buttons
+                    // the API rejects with SKILL_ACCESS_DENIED.
+                    if (!currentProjectAllowsAdmin()) return false
                     const current = currentSkillInList(selectedSkill.id)
                     if (!current || current.lifecycle_status !== selectedSkill.lifecycle_status)
                       return false
@@ -3344,15 +3364,17 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                 <Button
                   className="relative h-9 gap-2"
                   onClick={() => {
-                    if (!canEditSelectedSkill) return
+                    // Publishing a version requires ADMIN (backend create_version
+                    // gate); WRITE-only editors must not reach this.
+                    if (!canEditSelectedSkill || !isProjectSkillAdmin) return
                     setShowVersionForm(true)
                   }}
-                  disabled={!canEditSelectedSkill || publishRuntimeBlocked}
+                  disabled={!canEditSelectedSkill || !isProjectSkillAdmin || publishRuntimeBlocked}
                   title={
                     securityBlocked
                       ? t('managed.skills.publishBlockedBySecurity')
                       : publishRuntimeBlocked
-                        ? runtimeEligibility?.user_message
+                        ? t(eligibilityActionView(runtimeEligibility?.next_action).hintKey)
                         : hasUnpublishedChanges
                           ? t('managed.skills.unpublishedChanges')
                           : undefined
@@ -3424,17 +3446,17 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
         <div className="mb-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm dark:border-amber-800/50 dark:bg-amber-950/30">
           <div className="flex items-center gap-2.5">
             <span className="flex h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-            <span className="font-medium text-amber-900 dark:text-amber-100">
-              {t('managed.skills.runtimeNotReady', 'Runtime not ready')}
+            <span
+              className="font-medium text-amber-900 dark:text-amber-100"
+              // Raw reason code kept as a hover affordance for operators/support,
+              // not shown as primary UI. Localized copy carries the meaning.
+              title={runtimeEligibility.reason || undefined}
+            >
+              {t(eligibilityReasonView(runtimeEligibility.reason).titleKey)}
             </span>
-            {runtimeEligibility.reason && (
-              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-xs text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
-                {runtimeEligibility.reason}
-              </span>
-            )}
           </div>
           <div className="mt-1 pl-4 text-xs text-amber-800 dark:text-amber-200">
-            {runtimeEligibility.user_message}
+            {t(eligibilityActionView(runtimeEligibility.next_action).hintKey)}
           </div>
         </div>
       )}
@@ -3883,7 +3905,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                         </div>
                       </div>
                       <div className="min-w-0 text-xs text-muted-foreground md:col-span-3">
-                        {t('managed.skills.securitySeverity')}: {scan.severity || '-'} ·{' '}
+                        {t('managed.skills.securitySeverity')}: {scan.severity ? t(severityLabelKey(scan.severity)) : '-'} ·{' '}
                         {t('managed.skills.securityRecommendation')}: {scan.recommendation || '-'}
                         {scan.error_message ? (
                           <span className="ml-2 text-destructive">{scan.error_message}</span>
@@ -3896,7 +3918,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                               {t('managed.skills.securityAggregateRisk')}
                             </span>
                             <span className="text-muted-foreground">
-                              {t('managed.skills.securitySeverity')}: {scan.severity || '-'}
+                              {t('managed.skills.securitySeverity')}: {scan.severity ? t(severityLabelKey(scan.severity)) : '-'}
                             </span>
                             <span className="text-muted-foreground">
                               {t('managed.skills.securityRecommendation')}:{' '}
@@ -3909,7 +3931,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                                 key={item.severity}
                                 className={`rounded-full border px-2 py-0.5 font-medium ${securityIssueSeverityClass(item.severity)}`}
                               >
-                                {item.severity} {item.count}
+                                {t(severityLabelKey(item.severity))} {item.count}
                               </span>
                             ))}
                           </div>
@@ -3917,7 +3939,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                             {t('managed.skills.securityAggregateRiskDescription', {
                               score:
                                 scan.score !== null && scan.score !== undefined ? scan.score : '-',
-                              severity: scan.severity || '-',
+                              severity: scan.severity ? t(severityLabelKey(scan.severity)) : '-',
                               recommendation: scan.recommendation || '-',
                             })}
                           </div>
@@ -3961,7 +3983,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                                         className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${securityIssueSeverityClass(issue.severity)}`}
                                       >
                                         {t('managed.skills.securitySingleIssueSeverity', {
-                                          severity: issue.severity,
+                                          severity: t(severityLabelKey(issue.severity)),
                                         })}
                                       </span>
                                       <span className="min-w-0 truncate font-medium text-foreground">

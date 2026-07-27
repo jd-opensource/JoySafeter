@@ -1,10 +1,13 @@
 'use client'
 
-import Link from 'next/link'
-import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
-import type { AlertItem, AlertConfig } from '@/lib/managed/analytics/types'
 import { AlertTriangle, XCircle, Info, ArrowRight, CheckCircle2 } from 'lucide-react'
+import Link from 'next/link'
+
+import { useTranslation } from '@/lib/i18n'
+import { alertDetailKey } from '@/lib/managed/analytics/health-presenter'
+import type { AlertItem, AlertConfig } from '@/lib/managed/analytics/types'
+import { cn } from '@/lib/utils'
+
 import { AlertConfigPanel } from './alert-config-panel'
 
 interface AlertListProps {
@@ -81,7 +84,7 @@ export function AlertList({ alerts, loading, config, onConfigChange }: AlertList
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground line-clamp-1">
-                    {alert.detail}
+                    {t(alertDetailKey(alert.type), alert.params)}
                   </p>
                 </div>
                 {alert.agent_id && (

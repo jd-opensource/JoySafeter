@@ -40,10 +40,6 @@ class AddMemberRequest(BaseModel):
     role: str = "member"
 
 
-class UpdateMemberRequest(BaseModel):
-    role: str
-
-
 class TransferOwnershipRequest(BaseModel):
     new_owner_user_id: str
 
@@ -247,33 +243,3 @@ async def add_member(
     )
     return {"id": member.id, "user_id": member.user_id, "role": member.role}
 
-
-@router.put("/{organization_id}/members/{member_id}")
-async def update_member_role(
-    organization_id: str,
-    member_id: str,
-    req: UpdateMemberRequest,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-):
-    member = await OrganizationMemberService(db).update_member_role_by_id(
-        organization_id=organization_id,
-        member_id=member_id,
-        actor_user_id=current_user.id,
-        role=req.role,
-    )
-    return {"id": member.id, "user_id": member.user_id, "role": member.role}
-
-
-@router.delete("/{organization_id}/members/{member_id}", status_code=204)
-async def remove_member(
-    organization_id: str,
-    member_id: str,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-):
-    await OrganizationMemberService(db).remove_member_by_id(
-        organization_id=organization_id,
-        member_id=member_id,
-        actor_user_id=current_user.id,
-    )

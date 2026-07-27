@@ -43,12 +43,14 @@ def _skill(
     owner_id="alice",
     visibility="project",
     project_id="proj-1",
+    lifecycle_status="draft",
 ):
     return SimpleNamespace(
         id=skill_id or uuid.uuid4(),
         owner_id=owner_id,
         visibility=visibility,
         project_id=project_id,
+        lifecycle_status=lifecycle_status,
     )
 
 
@@ -136,6 +138,53 @@ async def test_delete_skill_owner_denied_when_in_different_active_org(monkeypatc
     svc.file_repo.delete_by_skill.assert_not_called()
     svc.repo.delete.assert_not_called()
     svc.db.commit.assert_not_called()
+
+
+async def test_project_admin_non_owner_can_delete_skill(monkeypatch):
+    """Regression: delete is gated on ADMIN capability, not skill ownership.
+
+    A project admin (or org super-user) who is NOT the skill's ``owner_id``
+    must be able to delete it — that is exactly what ``check_skill_access``
+    with ``ProjectCapability.ADMIN`` grants, and the module contract in
+    ``skill_permissions.py`` states there is "no owner short-circuit". A
+    leftover ``owner_id != current_user_id`` guard used to 403 this caller
+    before the capability gate ever ran; this test pins that it doesn't."""
+    s = _skill(owner_id="alice", visibility="project")
+    _patch_skill_org_id(monkeypatch, org_id="org-A")
+    _patch_project_role(monkeypatch, role="admin")
+    svc = _make_skill_service(s, current_user_id="bob", active_org_id="org-A")
+    svc.repo.delete = AsyncMock()
+    svc.file_repo.delete_by_skill = AsyncMock()
+    svc._has_skill_references = AsyncMock(return_value=False)
+
+    # "bob" is a project admin in the skill's org but NOT the owner ("alice").
+    await svc.delete_skill(s.id, current_user_id="bob")
+
+    svc.file_repo.delete_by_skill.assert_awaited_once_with(s.id)
+    svc.repo.delete.assert_awaited_once_with(s.id)
+    svc.db.commit.assert_awaited_once()
+
+
+async def test_archived_skill_can_be_deleted(monkeypatch):
+    """Regression: archived skills stay deletable.
+
+    Archiving retires a skill (read-only for edits), but purging a retired
+    skill is a legitimate follow-up. ``delete_skill`` must NOT run the
+    ``_ensure_skill_mutable`` archived-guard that blocks *edits*; only the
+    reference check (agents/schedules/tasks) may block a delete."""
+    s = _skill(owner_id="alice", visibility="project", lifecycle_status="archived")
+    _patch_skill_org_id(monkeypatch, org_id="org-A")
+    _patch_project_role(monkeypatch, role="admin")
+    svc = _make_skill_service(s, current_user_id="alice", active_org_id="org-A")
+    svc.repo.delete = AsyncMock()
+    svc.file_repo.delete_by_skill = AsyncMock()
+    svc._has_skill_references = AsyncMock(return_value=False)
+
+    await svc.delete_skill(s.id, current_user_id="alice")
+
+    svc.file_repo.delete_by_skill.assert_awaited_once_with(s.id)
+    svc.repo.delete.assert_awaited_once_with(s.id)
+    svc.db.commit.assert_awaited_once()
 
 
 async def test_org_superuser_gets_admin_in_own_org(monkeypatch):

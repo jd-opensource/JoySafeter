@@ -61,6 +61,7 @@ import { useQuery } from '@tanstack/react-query'
 import { FileTreeNode, buildFileTree } from '@/components/managed/skills/skill-workspace'
 import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
 import { downloadDraftZip } from '@/lib/managed/skill-draft-zip'
+import { severityLabelKey } from '@/lib/managed/skill-severity'
 import type { SkillFileRecord } from '@/types/managed'
 import {
   hasManagedRequestScope,
@@ -1161,7 +1162,7 @@ function ScanResultBadge({
             <span className="text-muted-foreground">
               {t('managed.skills.aiAuthor.scan.severityLabel')}:{' '}
             </span>
-            <span>{result.severity}</span>
+            <span>{t(severityLabelKey(result.severity))}</span>
           </div>
         )}
         {typeof result.issues_count === 'number' && (

@@ -23,7 +23,10 @@ import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { Button } from '@/components/ui/button'
 import type { SkillImpactSummary, SkillLifecycleStatus } from '@/types/managed'
-import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import {
+  currentProjectAllowsWrite,
+  currentProjectAllowsAdmin,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface TransitionResponse {
   skill_id: string
@@ -208,7 +211,7 @@ export function SkillLifecycleActions({
       {available.map((edge) => {
         const canSubmit = canSubmitTransition
           ? canSubmitTransition(edge.endpoint, currentStatus)
-          : currentProjectAllowsWrite()
+          : currentProjectAllowsAdmin()
         return (
           <Button
             key={edge.endpoint}

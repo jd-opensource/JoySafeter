@@ -180,9 +180,16 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_by_name_and_owner(self, name: str, owner_id: Optional[str]) -> Optional[JoySafeterSkill]:
-        """Get a skill by name and owner."""
-        query = select(JoySafeterSkill).where(and_(JoySafeterSkill.name == name, JoySafeterSkill.owner_id == owner_id))
+    async def get_by_name_and_project(self, name: str, project_id: Optional[str]) -> Optional[JoySafeterSkill]:
+        """Get a skill by name within a project.
+
+        Skill names are unique per ``(project_id, name)`` — the single-axis
+        identity key. ``None`` project_id can never match a real skill (the
+        column is NOT NULL) and simply yields no row.
+        """
+        query = select(JoySafeterSkill).where(
+            and_(JoySafeterSkill.name == name, JoySafeterSkill.project_id == project_id)
+        )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 

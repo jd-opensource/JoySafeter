@@ -105,3 +105,41 @@ export function statusBadgeClass(status: string): string {
 export function statusDotClass(status: string): string {
   return STATUS_TONE[statusToTone(status)].dot
 }
+
+/**
+ * Raw status/kind → i18n key for its human label. Values are i18n keys (not
+ * translated strings) so this module stays framework-free; callers translate
+ * via ``t()`` and fall back to the raw code when a status is unmapped. This is
+ * the single label map shared by every status surface (``StatusBadge`` pills,
+ * the analytics error legend, …) so they never drift out of sync.
+ */
+const STATUS_LABEL_KEY: Record<string, string> = {
+  active: 'common.active',
+  // A session that is "running" reads as "Agent running" — intentionally not common.*.
+  running: 'managed.sessions.agentRunning',
+  idle: 'common.idle',
+  terminated: 'common.terminated',
+  archived: 'common.archived',
+  private: 'common.private',
+  passed: 'common.passed',
+  warning: 'common.warning',
+  blocked: 'common.blocked',
+  failed: 'common.failed',
+  not_scanned: 'common.notScanned',
+  pending: 'common.pending',
+  scheduling: 'common.scheduling',
+  rescheduling: 'common.rescheduling',
+  completed: 'common.completed',
+  aborted: 'common.aborted',
+  timeout: 'common.timeout',
+  cancelled: 'common.cancelled',
+  error: 'common.error',
+}
+
+/**
+ * Raw status → i18n key for its label, or ``undefined`` when unmapped (caller
+ * falls back to the raw string). Case-insensitive.
+ */
+export function statusLabelKey(status: string): string | undefined {
+  return STATUS_LABEL_KEY[status.toLowerCase()]
+}

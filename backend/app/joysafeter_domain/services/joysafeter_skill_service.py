@@ -192,9 +192,10 @@ class SkillLifecycleService:
                 data={"skill_id": str(skill_id)},
             )
 
-            # Authorization: gate the state machine on the caller's project
-            # capability via ``check_skill_access`` — same gate as the rest of
-            # skill writes, so the auth model stays consistent.
+        # Authorization: lifecycle transitions (submit/approve/reject/archive/
+        # unarchive/reopen) require ProjectCapability.ADMIN — a stricter gate
+        # than ordinary content writes (create/edit files use WRITE). Approving
+        # or publishing a skill is a higher-privilege act than editing it.
         await check_skill_access(
             self.db,
             skill,
@@ -318,10 +319,11 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         # ``SKILL_SECURITY_BLOCKED`` code for the high-risk verdict, but fail
         # every other runtime-ineligible state with a precise reason.
         # When security scanning is disabled globally, skip all scan gates.
+        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
         from app.joysafeter_shared.config import settings as app_settings
 
         if app_settings.skill_security_scan_enabled:
-            if skill.security_status == "blocked":
+            if skill.security_status == JoySafeterSkillSecurityStatus.BLOCKED.value:
                 raise InvalidRequestError(
                     "技能存在高安全风险，已被安全扫描拦截，无法发布版本。请修复后重新扫描。",
                     code="SKILL_SECURITY_BLOCKED",
@@ -701,15 +703,15 @@ def _ensure_skill_mutable(skill) -> None:
         raise _skill_archived_error(skill)
 
 
-_ELIGIBILITY_MESSAGES: dict[str | None, tuple[str, str]] = {
-    None: ("Skill is approved, scanned, unchanged, and ready for runtime packing.", "none"),
-    "skill_not_approved": ("Approve the skill before agents can load it.", "submit_or_approve"),
-    "security_not_scanned": ("Run a security scan before publishing or loading this skill.", "run_security_scan"),
-    "security_scanning": ("Wait for the in-flight security scan to finish.", "wait_for_scan"),
-    "security_failed": ("Fix the scanner error and rescan this skill.", "fix_and_rescan"),
-    "security_blocked": ("Resolve blocking security findings before this skill can run.", "fix_and_rescan"),
-    "no_security_scan_hash": ("Rescan this skill so the runtime can verify the exact content.", "run_security_scan"),
-    "content_changed_after_scan": ("Rescan this skill because its content changed after the last scan.", "run_security_scan"),
+_ELIGIBILITY_NEXT_ACTIONS: dict[str | None, str] = {
+    None: "none",
+    "skill_not_approved": "submit_or_approve",
+    "security_not_scanned": "run_security_scan",
+    "security_scanning": "wait_for_scan",
+    "security_failed": "fix_and_rescan",
+    "security_blocked": "fix_and_rescan",
+    "no_security_scan_hash": "run_security_scan",
+    "content_changed_after_scan": "run_security_scan",
 }
 
 
@@ -912,8 +914,8 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = fields["tags"]
         skill.license = fields["license"]
 
-    def _runtime_eligibility_message(self, reason: Optional[str]) -> tuple[str, str]:
-        return _ELIGIBILITY_MESSAGES.get(reason, ("Review and resolve the skill readiness issue.", "review_skill"))
+    def _runtime_eligibility_next_action(self, reason: Optional[str]) -> str:
+        return _ELIGIBILITY_NEXT_ACTIONS.get(reason, "review_skill")
 
     def _annotate_runtime_eligibility(self, skill: JoySafeterSkill) -> None:
         from app.joysafeter_shared.config import settings as app_settings
@@ -927,14 +929,13 @@ class SkillService(BaseService[JoySafeterSkill]):
             from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
             usable, reason = is_skill_usable(skill)
 
-        message, next_action = self._runtime_eligibility_message(reason)
+        next_action = self._runtime_eligibility_next_action(reason)
         setattr(
             skill,
             "runtime_eligibility",
             {
                 "usable": usable,
                 "reason": reason,
-                "user_message": message,
                 "next_action": next_action,
             },
         )
@@ -978,9 +979,9 @@ class SkillService(BaseService[JoySafeterSkill]):
         from sqlalchemy import select
 
         from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
+        from app.joysafeter_domain.models.joysafeter_project import Project
         from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
         from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
-        from app.joysafeter_domain.models.joysafeter_project import Project
 
         project_filter: Any
         if self._active_org_id:
@@ -1224,11 +1225,11 @@ class SkillService(BaseService[JoySafeterSkill]):
                 logger.warning(f"Skill compatibility exceeds 500 characters, truncating: {error}")
                 compatibility = truncate_compatibility(compatibility)
 
-                # Check if Skill with same name exists (same owner)
-        existing = await self.repo.get_by_name_and_owner(name, owner_id)
+                # Check if Skill with same name exists (same project)
+        existing = await self.repo.get_by_name_and_project(name, project_id)
         if existing:
             raise InvalidRequestError(
-                f"Skill name '{name}' already exists for this owner",
+                f"Skill name '{name}' already exists in this project",
                 code="SKILL_NAME_ALREADY_EXISTS",
                 data={"name": name},
             )
@@ -1469,10 +1470,10 @@ class SkillService(BaseService[JoySafeterSkill]):
                     code="SKILL_NAME_INVALID",
                     data={"validation_error": error, "name": name},
                 )
-            existing = await self.repo.get_by_name_and_owner(name, skill.owner_id)
+            existing = await self.repo.get_by_name_and_project(name, skill.project_id)
             if existing:
                 raise InvalidRequestError(
-                    f"Skill name '{name}' already exists for this owner",
+                    f"Skill name '{name}' already exists in this project",
                     code="SKILL_NAME_ALREADY_EXISTS",
                     data={"name": name},
                 )
@@ -1631,9 +1632,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: Only owner can delete
-        if skill.owner_id != current_user_id:
-            raise AccessDeniedError("Only the owner can delete a skill", code="SKILL_DELETE_FORBIDDEN")
         await check_skill_access(
             self.db,
             skill,
@@ -1642,12 +1640,15 @@ class SkillService(BaseService[JoySafeterSkill]):
             caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
-        _ensure_skill_mutable(skill)
+        # Deletion is intentionally allowed on archived skills: archiving is a
+        # retire/take-offline step, and purging a retired skill is a legitimate
+        # follow-up. The archived read-only guard (_ensure_skill_mutable) applies
+        # to *edits*, not to removal.
         if await self._has_skill_references(skill):
             await self._annotate_skill_impact(skill)
             impact = getattr(skill, "impact", None) or {}
             raise ResourceConflictError(
-                "Skill is still referenced by agents, schedules, or active tasks. Archive it or remove references before deleting.",
+                "Skill is still referenced by agents, schedules, or active tasks. Remove references before deleting.",
                 code="SKILL_DELETE_HAS_REFERENCES",
                 data={"skill_id": str(skill_id), "impact": impact},
                 retryable=False,
@@ -2081,6 +2082,8 @@ class SkillService(BaseService[JoySafeterSkill]):
         latest = await sec.repo.get_latest_by_skill(skill.id)
         if latest is not None:
             return latest
+        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
+
         placeholder = JoySafeterSkillSecurityScan(
             skill_id=skill.id,
             project_id=skill.project_id,
@@ -2090,7 +2093,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             target_name=skill.name,
             target_hash="",
             scanner="skillspector",
-            status="scanning",
+            status=JoySafeterSkillSecurityStatus.SCANNING.value,
             score=None,
             severity=None,
             recommendation=None,

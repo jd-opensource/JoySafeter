@@ -147,7 +147,7 @@ export function getDefaultSecretPairs(provider: string, protocol: string) {
   ) {
     return [
       { key: 'ANTHROPIC_API_KEY', value: '' },
-      { key: 'ANTHROPIC_MODEL', value: 'claude-opus-4-20250514' },
+      { key: 'ANTHROPIC_MODEL', value: 'Claude-Opus-4.6' },
       { key: 'ANTHROPIC_BASE_URL', value: '' },
     ]
   }

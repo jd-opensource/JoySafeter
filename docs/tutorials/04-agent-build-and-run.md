@@ -47,7 +47,7 @@ curl -X POST http://localhost:8000/api/v1/agents \
   -d '{
     "name": "recon-helper",
     "engine_kind": "claude",
-    "model": { "id": "claude-opus-4-20250514" },
+    "model": { "id": "Claude-Opus-4.6" },
     "system_prompt": "你是一名授权范围内的安全侦察助手。",
     "skills": [ { "type": "skill_id", "skill_id": "<id>", "version": "1.0.0" } ],
     "tools": [ ],

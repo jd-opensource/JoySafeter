@@ -41,6 +41,7 @@ import {
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import type { SkillRuntimeEligibility } from '@/types/managed'
+import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -763,10 +764,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                         }`}
                         title={
                           unavailable
-                            ? t('managed.agents.create.skillUnavailable', {
-                                reason: unavailableReason,
-                                defaultValue: `Skill is not runtime-ready: ${unavailableReason}`,
-                              })
+                            ? t(eligibilityReasonView(unavailableReason).titleKey)
                             : undefined
                         }
                       >
@@ -798,11 +796,20 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                           {skill.name || skill.id}
                         </span>
                         {unavailable && (
-                          <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
-                            {unavailableReason}
+                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
+                            {t(eligibilityReasonView(unavailableReason).shortKey)}
                           </span>
                         )}
                       </label>
+                      {unavailable && (
+                        <a
+                          href={`/managed/skills/${skill.id}`}
+                          className="shrink-0 whitespace-nowrap text-xs text-amber-700 underline underline-offset-2 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+                          title={t(eligibilityActionView(skill.runtime_eligibility?.next_action).hintKey)}
+                        >
+                          {t('managed.agents.create.openSkill', { defaultValue: 'Open skill' })}
+                        </a>
+                      )}
                       {isSelected && (
                         <SkillVersionSelect
                           skillId={skill.id}

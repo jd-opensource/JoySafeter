@@ -92,6 +92,28 @@ class JoySafeterSkillLifecycleStatus(str, enum.Enum):
     ARCHIVED = "archived"
 
 
+class JoySafeterSkillSecurityStatus(str, enum.Enum):
+    """Result of the most recent security scan on a skill.
+
+    Single source of the security-status vocabulary (previously scattered as
+    string literals across the scan service, the runtime gate, and the worker).
+    Orthogonal to ``JoySafeterSkillLifecycleStatus`` — a skill can be
+    ``approved`` (lifecycle) yet ``blocked`` (security), or vice versa.
+
+      not_scanned -> scanning -> {passed | warning | failed | blocked}
+
+    The runtime gate (``is_skill_usable``) admits only ``passed``/``warning``;
+    ``failed``/``blocked`` auto-demote the skill.
+    """
+
+    NOT_SCANNED = "not_scanned"
+    SCANNING = "scanning"
+    PASSED = "passed"
+    WARNING = "warning"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+
+
 class JoySafeterSkill(BaseModel):
     """Skill table."""
 
@@ -125,7 +147,9 @@ class JoySafeterSkill(BaseModel):
     compatibility: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     meta_data: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     allowed_tools: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
-    security_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_scanned")
+    security_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=JoySafeterSkillSecurityStatus.NOT_SCANNED.value
+    )
     security_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     security_severity: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     security_recommendation: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
@@ -188,7 +212,11 @@ class JoySafeterSkill(BaseModel):
     impact: ClassVar[Optional[dict[str, Any]]] = None
 
     __table_args__ = (
-        UniqueConstraint("owner_id", "name", name="skills_owner_name_unique"),
+        # Skill names are unique per PROJECT (single-axis model), matching how
+        # agents/environments/secrets/vaults are already scoped. ``owner_id`` is
+        # no longer part of the identity key — it only records attribution and
+        # the ownership-transfer principal.
+        UniqueConstraint("project_id", "name", name="skills_project_name_unique"),
         Index("skills_owner_idx", "owner_id"),
         Index("skills_created_by_idx", "created_by_id"),
         Index("skills_project_idx", "project_id"),

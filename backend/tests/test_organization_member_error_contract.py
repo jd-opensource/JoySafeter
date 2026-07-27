@@ -11,32 +11,30 @@ from app.joysafeter_api.api.v1.auth import (
     CreateOrganizationRequest,
     InviteMemberRequest,
     SwitchContextRequest,
+    UpdateMemberRoleRequest,
     archive_project,
     create_organization,
     get_me,
     get_project,
     invite_member,
     list_projects,
+    remove_member,
     revoke_api_key,
     switch_context,
+    update_member_role,
 )
 from app.joysafeter_api.api.v1.organizations import (
     AddMemberRequest,
     TransferOwnershipRequest,
-    UpdateMemberRequest,
     add_member,
     delete_organization,
     transfer_ownership,
-    update_member_role,
 )
 from app.joysafeter_api.api.v1.organizations import (
     CreateOrganizationRequest as OrganizationCreateRequest,
 )
 from app.joysafeter_api.api.v1.organizations import (
     create_organization as create_scoped_organization,
-)
-from app.joysafeter_api.api.v1.organizations import (
-    remove_member as remove_organization_member,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
@@ -296,23 +294,19 @@ async def test_invite_member_grants_default_project_membership(db_session):
 @pytest.mark.asyncio
 async def test_remove_member_cleans_project_memberships(db_session):
     org = await _org(db_session)
-    actor = AuthUser(name="Actor User", email=f"actor-{uuid.uuid4()}@example.com")
     target = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
     project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
-    db_session.add_all([actor, target, project])
+    db_session.add_all([target, project])
     await db_session.flush()
-    member = Member(user_id=target.id, organization_id=org.id, role="member")
     db_session.add_all(
         [
-            Member(user_id=actor.id, organization_id=org.id, role="admin"),
-            member,
+            Member(user_id=target.id, organization_id=org.id, role="member"),
             ProjectMember(project_id=project.id, user_id=target.id, role="editor"),
         ]
     )
     await db_session.commit()
-    await db_session.refresh(member)
 
-    await remove_organization_member(org.id, member.id, SimpleNamespace(id=actor.id), db_session)
+    await remove_member(target.id, None, db_session, _auth_ctx(org.id))  # type: ignore[arg-type]
 
     assert (
         await db_session.execute(
@@ -324,26 +318,21 @@ async def test_remove_member_cleans_project_memberships(db_session):
 @pytest.mark.asyncio
 async def test_update_organization_member_missing_member_returns_structured_error(db_session):
     org = await _org(db_session)
-    actor = AuthUser(name="Actor User", email=f"actor-{uuid.uuid4()}@example.com")
-    db_session.add(actor)
-    await db_session.flush()
-    db_session.add(Member(user_id=actor.id, organization_id=org.id, role="admin"))
-    await db_session.commit()
-    missing_member_id = f"member-{uuid.uuid4()}"
+    missing_user_id = f"user-{uuid.uuid4()}"
 
     with pytest.raises(AppError) as exc_info:
         await update_member_role(
-            org.id,
-            missing_member_id,
-            UpdateMemberRequest(role="member"),
-            SimpleNamespace(id=actor.id),
+            missing_user_id,
+            UpdateMemberRoleRequest(role="member"),
+            None,  # type: ignore[arg-type]
             db_session,
+            _auth_ctx(org.id),
         )
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "ORGANIZATION_MEMBER_NOT_FOUND",
         "message": "Member not found",
-        "data": {"organization_id": org.id, "member_id": missing_member_id},
+        "data": {"organization_id": org.id, "user_id": missing_user_id},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -441,21 +430,21 @@ async def test_remove_owner_returns_structured_error(db_session):
     owner = AuthUser(name="Owner User", email=f"owner-{uuid.uuid4()}@example.com")
     db_session.add(owner)
     await db_session.flush()
-    member = Member(user_id=owner.id, organization_id=org.id, role="owner")
-    db_session.add(member)
+    db_session.add(Member(user_id=owner.id, organization_id=org.id, role="owner"))
     await db_session.commit()
-    await db_session.refresh(member)
 
     with pytest.raises(AppError) as exc_info:
-        await remove_organization_member(org.id, member.id, SimpleNamespace(id=owner.id), db_session)
+        await remove_member(owner.id, None, db_session, _auth_ctx(org.id))  # type: ignore[arg-type]
 
-    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
-        "code": "ORGANIZATION_OWNER_REMOVE_FORBIDDEN",
-        "message": "Cannot remove the owner",
-        "data": {"organization_id": org.id, "member_id": member.id},
-        "source": "api",
+    # The owner is protected on the auth surface via the same gate that blocks
+    # any change to an owner's role (removal == demote-to-member internally).
+    assert await handled_app_error_payload(exc_info.value, status_code=403) == {
+        "code": "AUTH_OWNER_ROLE_CHANGE_FORBIDDEN",
+        "message": "Cannot change the owner's role",
+        "data": {"actor_role": "admin", "current_role": "owner", "target_role": "member"},
+        "source": "auth",
         "retryable": False,
-        "user_action": "fix_input",
+        "user_action": "request_access",
     }
 
 

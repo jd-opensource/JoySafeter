@@ -421,7 +421,6 @@ export type SkillLifecycleStatus = 'draft' | 'pending_review' | 'approved' | 're
 export interface SkillRuntimeEligibility {
   usable: boolean
   reason: string | null
-  user_message: string
   next_action: string
 }
 

@@ -764,11 +764,6 @@ CATALOG: dict[str, CatalogEntry] = {
     "SKILL_AUTHORING_SECRET_NOT_FOUND": CatalogEntry(
         code="SKILL_AUTHORING_SECRET_NOT_FOUND", error_class=NotFoundError, default_message="Secret not found."
     ),
-    "SKILL_DELETE_FORBIDDEN": CatalogEntry(
-        code="SKILL_DELETE_FORBIDDEN",
-        error_class=AccessDeniedError,
-        default_message="Only the owner can delete a skill",
-    ),
     "SKILL_FILE_CONTENT_INVALID": CatalogEntry(
         code="SKILL_FILE_CONTENT_INVALID", error_class=InvalidRequestError, default_message="Skill file content invalid"
     ),

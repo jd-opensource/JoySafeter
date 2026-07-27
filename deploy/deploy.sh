@@ -428,6 +428,79 @@ read_env_value() {
     ' "$file"
 }
 
+# vault 密钥合法性校验：64 位 hex（Rust 兼容）或 base64 解码后为 32 字节。
+# 无 openssl 时无法校验，返回成功以避免误报。
+vault_key_is_valid() {
+    local key="$1"
+    if printf '%s' "$key" | grep -Eq '^[0-9a-fA-F]{64}$'; then
+        return 0
+    fi
+    if command -v openssl >/dev/null 2>&1; then
+        local decoded_bytes
+        decoded_bytes="$(printf '%s' "$key" | openssl base64 -d -A 2>/dev/null | wc -c | tr -d '[:space:]')"
+        [ "$decoded_bytes" = "32" ] && return 0
+        return 1
+    fi
+    return 0
+}
+
+# 确保 vault 加密密钥在 deploy/.env 与 backend/.env 中【存在且为同一把】。
+# compose 的 env_file 顺序是 [backend/.env, deploy/.env]，后者覆盖前者，故
+# deploy/.env 为权威真源。解析出唯一有效 key 后同步写入两个文件：
+#   - deploy/.env 已有合法真实 key -> 以它为准；
+#   - deploy/.env 为空/占位符：若 backend/.env 有合法真实 key 则提升为真源，否则 openssl 生成；
+#   - 已有的合法真实 key 绝不静默丢弃（覆盖会让已有 enc: 密文永久无法解密）。
+ensure_vault_encryption_key() {
+    local deploy_env="$1"
+    local backend_env="$2"
+    local placeholder="CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
+    local key_var="JOYSAFETER_VAULT_ENCRYPTION_KEY"
+
+    local deploy_key backend_key
+    deploy_key="$(read_env_value "$deploy_env" "$key_var")"
+    backend_key="$(read_env_value "$backend_env" "$key_var")"
+
+    local deploy_real=false backend_real=false
+    [ -n "$deploy_key" ] && [ "$deploy_key" != "$placeholder" ] && deploy_real=true
+    [ -n "$backend_key" ] && [ "$backend_key" != "$placeholder" ] && backend_real=true
+
+    local effective=""
+    if [ "$deploy_real" = true ]; then
+        if ! vault_key_is_valid "$deploy_key"; then
+            log_warning "deploy/.env 的 $key_var 已设置但不是合法 32 字节密钥（64 位 hex 或 base64）；托管密钥会失败，请修正后再部署（本次不改动 backend/.env）"
+            return 0
+        fi
+        effective="$deploy_key"
+    elif [ "$backend_real" = true ]; then
+        if vault_key_is_valid "$backend_key"; then
+            effective="$backend_key"
+            log_info "复用 backend/.env 中已有的 $key_var 作为 vault 密钥真源"
+        else
+            log_warning "backend/.env 的 $key_var 已设置但不是合法 32 字节密钥；将忽略它并生成新密钥"
+        fi
+    fi
+
+    if [ -z "$effective" ]; then
+        if ! command -v openssl >/dev/null 2>&1; then
+            log_warning "未检测到 openssl，无法自动生成 $key_var；托管密钥功能将不可用。请手动在 deploy/.env 与 backend/.env 设置同一把（openssl rand -base64 32）"
+            return 0
+        fi
+        effective="$(openssl rand -base64 32)"
+        log_success "已自动生成 $key_var（vault 凭证加密密钥）"
+        log_warning "该密钥一经启用请勿更改，否则已加密的托管密钥密文将无法解密"
+    fi
+
+    if [ "$deploy_key" != "$effective" ]; then
+        set_env_value "$deploy_env" "$key_var" "$effective"
+    fi
+    if [ "$backend_key" != "$effective" ]; then
+        if [ "$backend_real" = true ]; then
+            log_warning "backend/.env 原有一把不同的 $key_var，已同步为 deploy/.env 的权威密钥（compose 中 deploy/.env 本就覆盖 backend/.env）"
+        fi
+        set_env_value "$backend_env" "$key_var" "$effective"
+    fi
+}
+
 compose_path_exists() {
     local path="$1"
     case "$path" in
@@ -685,6 +758,8 @@ configure_local_compose_env() {
     ensure_env_file "$deploy_env" "$SCRIPT_DIR/.env.example"
     ensure_env_file "$PROJECT_ROOT/backend/.env" "$PROJECT_ROOT/backend/env.example"
     ensure_env_file "$PROJECT_ROOT/frontend/.env" "$PROJECT_ROOT/frontend/env.example"
+
+    ensure_vault_encryption_key "$deploy_env" "$PROJECT_ROOT/backend/.env"
 
     set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$BASE_IMAGE_REGISTRY"
     set_env_value "$deploy_env" "RUST_IMAGE" "$RUST_IMAGE"

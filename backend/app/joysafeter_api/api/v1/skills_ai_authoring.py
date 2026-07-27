@@ -194,18 +194,18 @@ def _normalize_draft_files(raw_files: list[dict[str, Any]]) -> list[dict[str, An
     return normalized
 
 
-async def _dedupe_skill_name(svc: SkillService, name: str, owner_id: str) -> str:
-    """Return ``name`` if the owner has no skill by that name, else the first
+async def _dedupe_skill_name(svc: SkillService, name: str, project_id: str) -> str:
+    """Return ``name`` if the project has no skill by that name, else the first
     free ``name-2`` / ``name-3`` / … variant.
 
-    Skill names are unique per ``(owner_id, name)`` (not global), so the only
-    possible collision is with the caller's own skills. We keep the first
-    save clean and only add a numeric suffix when the base name is taken —
+    Skill names are unique per ``(project_id, name)`` (not global), so the only
+    possible collision is with another skill in the same project. We keep the
+    first save clean and only add a numeric suffix when the base name is taken —
     so a repeated ``auto-daily-report`` becomes ``auto-daily-report-2``.
     The 64-char ``name`` cap is respected by trimming the base before the
     suffix when necessary.
     """
-    if not await svc.repo.get_by_name_and_owner(name, owner_id):
+    if not await svc.repo.get_by_name_and_project(name, project_id):
         return name
     # Probe -2, -3, … until one is free. Capped so a pathological loop can't
     # run forever; 999 variants is far beyond any real usage.
@@ -213,7 +213,7 @@ async def _dedupe_skill_name(svc: SkillService, name: str, owner_id: str) -> str
         suffix = f"-{n}"
         base = name[: 64 - len(suffix)]
         candidate = f"{base}{suffix}"
-        if not await svc.repo.get_by_name_and_owner(candidate, owner_id):
+        if not await svc.repo.get_by_name_and_project(candidate, project_id):
             return candidate
     return name
 
@@ -331,9 +331,9 @@ async def authoring_save_draft(
         return {"skill_id": f"skill_{skill.id}", "created": False}
 
     # Only-when-taken suffix: keep the first save clean, auto-bump to
-    # ``name-2`` / ``-3`` only if the caller already owns that name. Prevents
+    # ``name-2`` / ``-3`` only if the project already has that name. Prevents
     # the duplicate-name 500 without uglifying every new skill.
-    unique_name = await _dedupe_skill_name(svc, req.name, auth_ctx.user_id)
+    unique_name = await _dedupe_skill_name(svc, req.name, auth_ctx.project_id)
     try:
         skill = await svc.create_skill(
             created_by_id=auth_ctx.user_id,

@@ -144,11 +144,14 @@ class AgentMetricsResponse(BaseModel):
 
 
 class AlertItem(BaseModel):
-    type: str  # consecutive_failures, slow_agent, token_spike, timeout_spike
+    # Machine-only contract: ``type`` identifies the anomaly and ``params`` carries
+    # the numeric values. All human-facing, localized copy lives in the frontend
+    # i18n locales (analytics.alerts.detail.*) — never baked into the backend.
+    type: str  # consecutive_failures, slow_agent, token_spike, high_retries, zombie_session
     severity: str  # error, warning, info
     agent_name: Optional[str] = None
     agent_id: Optional[str] = None
-    detail: str
+    params: dict[str, float] = {}
 
 
 class TokenSummary(BaseModel):
@@ -160,8 +163,10 @@ class TokenSummary(BaseModel):
 
 
 class SuggestionItem(BaseModel):
-    type: str
-    message: str
+    # Machine-only contract (see AlertItem). Localized copy lives in the frontend
+    # i18n locales (analytics.tokenSummary.suggestionMessages.*).
+    type: str  # low_cache_hit, high_output_ratio, high_queue_wait
+    params: dict[str, float] = {}
 
 
 class QueueWaitInfo(BaseModel):
