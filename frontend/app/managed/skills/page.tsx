@@ -81,6 +81,7 @@ import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   currentProjectAllowsWrite,
+  currentProjectAllowsAdmin,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
@@ -3293,7 +3294,11 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                   requestScope={managedScope}
                   operationScope={`${managedScope.key}:${selectedSkill.id}`}
                   canSubmitTransition={(endpoint) => {
-                    if (!currentProjectAllowsWrite()) return false
+                    // Lifecycle transitions require ProjectCapability.ADMIN on
+                    // the backend (submit/approve/reject/archive/…), so gate on
+                    // admin — a WRITE-only editor would otherwise see buttons
+                    // the API rejects with SKILL_ACCESS_DENIED.
+                    if (!currentProjectAllowsAdmin()) return false
                     const current = currentSkillInList(selectedSkill.id)
                     if (!current || current.lifecycle_status !== selectedSkill.lifecycle_status)
                       return false

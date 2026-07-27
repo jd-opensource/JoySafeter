@@ -99,6 +99,8 @@ describe('SkillLifecycleActions lifecycle', () => {
         slug: 'project-a',
         is_default: true,
         archived_at: null,
+        // Lifecycle transitions require ADMIN capability (backend gate).
+        capability: 'admin',
       },
       organizations: [],
       projects: [],

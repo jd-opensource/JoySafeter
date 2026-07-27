@@ -192,9 +192,10 @@ class SkillLifecycleService:
                 data={"skill_id": str(skill_id)},
             )
 
-            # Authorization: gate the state machine on the caller's project
-            # capability via ``check_skill_access`` — same gate as the rest of
-            # skill writes, so the auth model stays consistent.
+        # Authorization: lifecycle transitions (submit/approve/reject/archive/
+        # unarchive/reopen) require ProjectCapability.ADMIN — a stricter gate
+        # than ordinary content writes (create/edit files use WRITE). Approving
+        # or publishing a skill is a higher-privilege act than editing it.
         await check_skill_access(
             self.db,
             skill,
