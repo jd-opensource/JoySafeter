@@ -13,11 +13,6 @@
  *   the detail page, a deep link in the agent picker, etc.)
  */
 
-// Which affordance a surface should offer for a given next_action. The copy is
-// shared; the control is chosen per-surface (the detail page already has the
-// real buttons in its toolbar; the agent picker can only deep-link out).
-export type EligibilityActionKind = 'lifecycle' | 'rescan' | 'wait' | 'none'
-
 // reason machine code → i18n slug (camelCase leaf under managed.skills.eligibility.*)
 const REASON_SLUG: Record<string, string> = {
   skill_not_approved: 'skillNotApproved',
@@ -32,16 +27,6 @@ const REASON_SLUG: Record<string, string> = {
   // the picker maps them through the same table instead of showing raw codes.
   no_published_version: 'noPublishedVersion',
   runtime_not_ready: 'runtimeNotReady',
-}
-
-// next_action machine code → affordance kind
-const ACTION_KIND: Record<string, EligibilityActionKind> = {
-  submit_or_approve: 'lifecycle',
-  run_security_scan: 'rescan',
-  fix_and_rescan: 'rescan',
-  wait_for_scan: 'wait',
-  review_skill: 'none',
-  none: 'none',
 }
 
 export interface EligibilityReasonView {
@@ -60,7 +45,6 @@ export function eligibilityReasonView(reason: string | null | undefined): Eligib
 }
 
 export interface EligibilityActionView {
-  kind: EligibilityActionKind
   /** Location-neutral next-step hint (safe to show on any surface). */
   hintKey: string
 }
@@ -68,7 +52,6 @@ export interface EligibilityActionView {
 export function eligibilityActionView(nextAction: string | null | undefined): EligibilityActionView {
   const code = nextAction || 'review_skill'
   return {
-    kind: ACTION_KIND[code] ?? 'none',
     hintKey: `managed.skills.eligibility.action.${code}`,
   }
 }
