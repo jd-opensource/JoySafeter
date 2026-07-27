@@ -702,6 +702,55 @@ describe('SkillManagerPage managed scope lifecycle', () => {
     expect(view.getByRole('button', { name: 'cancel' })).toBeTruthy()
   })
 
+  it('invalidates the skills list after a confirmed delete resolves', async () => {
+    // Regression: in production the confirm button is a Radix AlertDialogAction,
+    // which fires onOpenChange(false) -> onCancel on the SAME click as onConfirm.
+    // The mocked ConfirmDialog doesn't replicate that, so we click confirm and
+    // then cancel to reproduce the real sequence. The bug was that onCancel
+    // (closeDeleteSkillDialog) bumped the shared run counter, so the just-fired
+    // delete's onSuccess saw itself as "stale" and skipped invalidateQueries —
+    // the deleted row lingered in the list until a manual refresh.
+    const deleteSkill = deferred<Record<string, never>>()
+    managedDeleteMock.mockReturnValueOnce(deleteSkill.promise)
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    const view = renderSkillsPage(queryClient)
+
+    await waitFor(() => {
+      expect(view.getByRole('button', { name: 'Skill A' })).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByText('skill_a:managed.skills.deleteSkill'))
+    })
+
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: 'managed.skills.deleteSkill' }))
+      await Promise.resolve()
+    })
+
+    // Reproduce Radix AlertDialogAction auto-closing (onCancel) on confirm.
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: 'cancel' }))
+    })
+
+    expect(managedDeleteMock).toHaveBeenCalledWith('/skills/a', managedOptions())
+
+    await act(async () => {
+      deleteSkill.resolve({})
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['skills', 'org-a:project-a'] })
+  })
+
   it('does not delete a skill that leaves the current skills list during confirmation', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -1337,7 +1386,7 @@ describe('SkillManagerPage managed scope lifecycle', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['skills'] })
   })
 
-  it('does not offer destructive list actions for an archived skill', async () => {
+  it('still offers delete for an archived skill (archived is deletable, just read-only for edits)', async () => {
     setupManagedGetMock({ skillARecord: archivedSkillA })
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -1354,7 +1403,8 @@ describe('SkillManagerPage managed scope lifecycle', () => {
     })
 
     expect(view.getByText('skill_a:managed.skills.viewDetails')).toBeTruthy()
-    expect(view.queryByText('skill_a:managed.skills.deleteSkill')).toBeNull()
+    // Archiving is a retire step; purging a retired skill stays allowed.
+    expect(view.getByText('skill_a:managed.skills.deleteSkill')).toBeTruthy()
   })
 
   it('keeps an archived skill read-only across toolbar, keyboard, and workspace mutations', async () => {

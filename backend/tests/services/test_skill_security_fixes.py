@@ -43,12 +43,14 @@ def _skill(
     owner_id="alice",
     visibility="project",
     project_id="proj-1",
+    lifecycle_status="draft",
 ):
     return SimpleNamespace(
         id=skill_id or uuid.uuid4(),
         owner_id=owner_id,
         visibility=visibility,
         project_id=project_id,
+        lifecycle_status=lifecycle_status,
     )
 
 
@@ -157,6 +159,28 @@ async def test_project_admin_non_owner_can_delete_skill(monkeypatch):
 
     # "bob" is a project admin in the skill's org but NOT the owner ("alice").
     await svc.delete_skill(s.id, current_user_id="bob")
+
+    svc.file_repo.delete_by_skill.assert_awaited_once_with(s.id)
+    svc.repo.delete.assert_awaited_once_with(s.id)
+    svc.db.commit.assert_awaited_once()
+
+
+async def test_archived_skill_can_be_deleted(monkeypatch):
+    """Regression: archived skills stay deletable.
+
+    Archiving retires a skill (read-only for edits), but purging a retired
+    skill is a legitimate follow-up. ``delete_skill`` must NOT run the
+    ``_ensure_skill_mutable`` archived-guard that blocks *edits*; only the
+    reference check (agents/schedules/tasks) may block a delete."""
+    s = _skill(owner_id="alice", visibility="project", lifecycle_status="archived")
+    _patch_skill_org_id(monkeypatch, org_id="org-A")
+    _patch_project_role(monkeypatch, role="admin")
+    svc = _make_skill_service(s, current_user_id="alice", active_org_id="org-A")
+    svc.repo.delete = AsyncMock()
+    svc.file_repo.delete_by_skill = AsyncMock()
+    svc._has_skill_references = AsyncMock(return_value=False)
+
+    await svc.delete_skill(s.id, current_user_id="alice")
 
     svc.file_repo.delete_by_skill.assert_awaited_once_with(s.id)
     svc.repo.delete.assert_awaited_once_with(s.id)

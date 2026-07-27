@@ -1639,12 +1639,15 @@ class SkillService(BaseService[JoySafeterSkill]):
             caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
-        _ensure_skill_mutable(skill)
+        # Deletion is intentionally allowed on archived skills: archiving is a
+        # retire/take-offline step, and purging a retired skill is a legitimate
+        # follow-up. The archived read-only guard (_ensure_skill_mutable) applies
+        # to *edits*, not to removal.
         if await self._has_skill_references(skill):
             await self._annotate_skill_impact(skill)
             impact = getattr(skill, "impact", None) or {}
             raise ResourceConflictError(
-                "Skill is still referenced by agents, schedules, or active tasks. Archive it or remove references before deleting.",
+                "Skill is still referenced by agents, schedules, or active tasks. Remove references before deleting.",
                 code="SKILL_DELETE_HAS_REFERENCES",
                 data={"skill_id": str(skill_id), "impact": impact},
                 retryable=False,

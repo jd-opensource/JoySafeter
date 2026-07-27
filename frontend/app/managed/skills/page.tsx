@@ -2776,9 +2776,11 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
   const openDeleteSkillDialog = useCallback(
     (id: string) => {
       // delete_skill requires ADMIN on the backend — gate the single choke
-      // point every delete flow passes through.
+      // point every delete flow passes through. Archived skills stay
+      // deletable (delete is a purge, not an edit), so we do NOT gate on
+      // isSkillMutable here — only that the skill is still in the list.
       if (!currentProjectAllowsAdmin()) return
-      if (!isSkillMutable(currentSkillInList(id))) return
+      if (!currentSkillInList(id)) return
 
       mutationRunRef.current += 1
       setDeleteTarget(id)
@@ -2787,7 +2789,14 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
   )
 
   const closeDeleteSkillDialog = useCallback(() => {
-    mutationRunRef.current += 1
+    // NOTE: must NOT bump mutationRunRef here. The ConfirmDialog's confirm
+    // button is a Radix AlertDialogAction, which auto-fires onOpenChange(false)
+    // -> onCancel on the same click as onConfirm. Bumping the run counter on
+    // that close would make the just-launched delete's onSuccess guard fail,
+    // silently skipping invalidateQueries — the delete would land server-side
+    // but the row would linger in the list until a manual refresh. Staleness
+    // from opening a *new* dialog is already covered by openDeleteSkillDialog's
+    // bump, and scope changes are covered by the scope check.
     setDeleteTarget(null)
   }, [])
 
@@ -3136,7 +3145,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
               label: t('managed.skills.viewDetails'),
               onClick: () => handleSelectSkill(s.id),
             },
-            ...(!projectReadOnly && isProjectSkillAdmin && isSkillMutable(s)
+            ...(!projectReadOnly && isProjectSkillAdmin
               ? [
                   {
                     label: t('managed.skills.deleteSkill'),
@@ -3225,7 +3234,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
           destructive
           onConfirm={() => {
             const target = currentSkillInList(deleteTarget)
-            if (!target || !isSkillMutable(target)) {
+            if (!target) {
               closeDeleteSkillDialog()
               return
             }
