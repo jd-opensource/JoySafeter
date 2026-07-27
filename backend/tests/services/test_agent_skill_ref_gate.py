@@ -8,6 +8,7 @@ import pytest
 
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
+from app.joysafeter_shared.config import settings as app_settings
 
 
 pytestmark = pytest.mark.no_db
@@ -93,6 +94,10 @@ async def test_agent_skill_ref_gate_rejects_unpublished_skill(monkeypatch):
 async def test_agent_skill_ref_gate_rejects_runtime_blocked_skill(monkeypatch):
     skill_id = uuid.uuid4()
     svc = JoySafeterAgentService(_Db([_skill(skill_id, status="blocked")]))
+
+    # The security-status gate only runs when scanning is enabled; with it
+    # off, only lifecycle_status is checked. Turn it on to reach is_skill_usable.
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
 
     async def _latest_map(_repo, ids):
         return {ids[0]: "1.0.0"}
