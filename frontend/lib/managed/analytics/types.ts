@@ -173,7 +173,7 @@ export interface AlertItem {
   severity: AlertSeverity
   agent_name: string | null
   agent_id: string | null
-  detail: string
+  params: Record<string, number>
 }
 
 export interface TokenSummary {
@@ -204,7 +204,7 @@ export interface HealthCheckResponse {
 
 export interface SuggestionItem {
   type: string
-  message: string
+  params: Record<string, number>
 }
 
 // --- Error Summary ---

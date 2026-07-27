@@ -103,6 +103,7 @@ import {
   buildManagedSkillImportFromDirectory,
   getManagedSkillImportValidationMessage,
 } from '@/lib/managed/skill-import'
+import { severityLabelKey } from '@/lib/managed/skill-severity'
 import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
 import type {
   SkillRecord,
@@ -3895,7 +3896,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                         </div>
                       </div>
                       <div className="min-w-0 text-xs text-muted-foreground md:col-span-3">
-                        {t('managed.skills.securitySeverity')}: {scan.severity || '-'} ·{' '}
+                        {t('managed.skills.securitySeverity')}: {scan.severity ? t(severityLabelKey(scan.severity)) : '-'} ·{' '}
                         {t('managed.skills.securityRecommendation')}: {scan.recommendation || '-'}
                         {scan.error_message ? (
                           <span className="ml-2 text-destructive">{scan.error_message}</span>
@@ -3908,7 +3909,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                               {t('managed.skills.securityAggregateRisk')}
                             </span>
                             <span className="text-muted-foreground">
-                              {t('managed.skills.securitySeverity')}: {scan.severity || '-'}
+                              {t('managed.skills.securitySeverity')}: {scan.severity ? t(severityLabelKey(scan.severity)) : '-'}
                             </span>
                             <span className="text-muted-foreground">
                               {t('managed.skills.securityRecommendation')}:{' '}
@@ -3921,7 +3922,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                                 key={item.severity}
                                 className={`rounded-full border px-2 py-0.5 font-medium ${securityIssueSeverityClass(item.severity)}`}
                               >
-                                {item.severity} {item.count}
+                                {t(severityLabelKey(item.severity))} {item.count}
                               </span>
                             ))}
                           </div>
@@ -3929,7 +3930,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                             {t('managed.skills.securityAggregateRiskDescription', {
                               score:
                                 scan.score !== null && scan.score !== undefined ? scan.score : '-',
-                              severity: scan.severity || '-',
+                              severity: scan.severity ? t(severityLabelKey(scan.severity)) : '-',
                               recommendation: scan.recommendation || '-',
                             })}
                           </div>
@@ -3973,7 +3974,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                                         className={`w-fit rounded-full border px-2 py-0.5 text-[11px] font-medium ${securityIssueSeverityClass(issue.severity)}`}
                                       >
                                         {t('managed.skills.securitySingleIssueSeverity', {
-                                          severity: issue.severity,
+                                          severity: t(severityLabelKey(issue.severity)),
                                         })}
                                       </span>
                                       <span className="min-w-0 truncate font-medium text-foreground">

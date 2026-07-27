@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { useCurrentProjectReadOnly, currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { managedGet } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { useManagedRequestScope, managedRequestOptions } from '@/lib/managed/request-scope'
 import { useAgentTriggers, useCreateAgentTrigger, useDeleteAgentTrigger } from '@/lib/managed/triggers'
 import { toastSuccess, toastError } from '@/lib/utils/toast'
@@ -26,21 +28,25 @@ type WebhookForm = {
   session_mode: 'fresh' | 'reuse'
 }
 
+const EMPTY_FORM: WebhookForm = {
+  name: '',
+  agent_id: '',
+  prompt_template: 'Handle webhook payload:\n{{ body }}',
+  secret_ref: '',
+  description: '',
+  session_mode: 'fresh',
+}
+
 export default function AgentTriggersPage() {
+  const { t } = useTranslation()
+  const projectReadOnly = useCurrentProjectReadOnly()
   const scope = useManagedRequestScope()
   const triggersQuery = useAgentTriggers()
   const createMut = useCreateAgentTrigger()
   const deleteMut = useDeleteAgentTrigger()
   const [agents, setAgents] = useState<AgentOption[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState<WebhookForm>({
-    name: '',
-    agent_id: '',
-    prompt_template: 'Handle webhook payload:\n{{ body }}',
-    secret_ref: '',
-    description: '',
-    session_mode: 'fresh',
-  })
+  const [form, setForm] = useState<WebhookForm>(EMPTY_FORM)
 
   useEffect(() => {
     if (!scope.key) return
@@ -52,6 +58,7 @@ export default function AgentTriggersPage() {
   const triggers = triggersQuery.data ?? []
 
   async function createTrigger() {
+    if (!currentProjectAllowsWrite()) return
     try {
       await createMut.mutateAsync({
         name: form.name,
@@ -64,55 +71,65 @@ export default function AgentTriggersPage() {
         type: 'webhook',
       })
       setShowForm(false)
-      setForm({ name: '', agent_id: '', prompt_template: 'Handle webhook payload:\n{{ body }}', secret_ref: '', description: '', session_mode: 'fresh' })
-      toastSuccess('触发器已创建')
+      setForm(EMPTY_FORM)
+      toastSuccess(t('managed.triggers.created'))
     } catch (error) {
-      toastError(error instanceof Error ? error.message : '创建触发器失败')
+      toastError(error instanceof Error ? error.message : t('managed.triggers.createFailed'))
     }
+  }
+
+  function deleteTrigger(id: string) {
+    if (!currentProjectAllowsWrite()) return
+    deleteMut.mutate(id)
   }
 
   return (
     <main className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">触发器</h1>
-          <p className="text-sm text-muted-foreground">配置 webhook 触发指定智能体执行 prompt。</p>
+          <h1 className="text-2xl font-semibold">{t('managed.triggers.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('managed.triggers.subtitle')}</p>
         </div>
-        <Button onClick={() => setShowForm((v) => !v)}><Plus className="mr-2 h-4 w-4" />新建触发器</Button>
+        {!projectReadOnly && (
+          <Button onClick={() => setShowForm((v) => !v)}><Plus className="mr-2 h-4 w-4" />{t('managed.triggers.new')}</Button>
+        )}
       </div>
 
-      {showForm && (
+      {showForm && !projectReadOnly && (
         <section className="space-y-4 rounded-lg border bg-card p-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>名称</Label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="告警 webhook" />
+              <Label>{t('managed.triggers.name')}</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t('managed.triggers.namePlaceholder')} />
             </div>
             <div className="space-y-2">
-              <Label>智能体</Label>
+              <Label>{t('managed.triggers.agent')}</Label>
               <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.agent_id} onChange={(e) => setForm({ ...form, agent_id: e.target.value })}>
-                <option value="">请选择智能体</option>
+                <option value="">{t('managed.triggers.selectAgent')}</option>
                 {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Secret 引用</Label>
-              <Input value={form.secret_ref} onChange={(e) => setForm({ ...form, secret_ref: e.target.value })} placeholder="选择或输入保存 WEBHOOK_SECRET 的密钥名称" />
+              <Label>{t('managed.triggers.secretRef')}</Label>
+              <Input value={form.secret_ref} onChange={(e) => setForm({ ...form, secret_ref: e.target.value })} placeholder={t('managed.triggers.secretRefPlaceholder')} />
             </div>
             <div className="space-y-2">
-              <Label>会话模式</Label>
+              <Label>{t('managed.triggers.sessionMode')}</Label>
               <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.session_mode} onChange={(e) => setForm({ ...form, session_mode: e.target.value as 'fresh' | 'reuse' })}>
-                <option value="fresh">每次新建会话</option>
-                <option value="reuse">复用触发器会话</option>
+                <option value="fresh">{t('managed.schedules.sessionModeOption.fresh')}</option>
+                <option value="reuse">{t('managed.schedules.sessionModeOption.reuse')}</option>
               </select>
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Prompt 模板</Label>
+            <Label>{t('managed.triggers.promptTemplate')}</Label>
             <Textarea className="min-h-32" value={form.prompt_template} onChange={(e) => setForm({ ...form, prompt_template: e.target.value })} />
-            <p className="text-xs text-muted-foreground">可用变量示例：{'{{ body }}'}、{'{{ body.alert.name }}'}、{'{{ headers.user_agent }}'}。</p>
+            <p className="text-xs text-muted-foreground">
+              {t('managed.triggers.promptVarsHint')}{' '}
+              <code>{'{{ body }}'}</code>, <code>{'{{ body.alert.name }}'}</code>, <code>{'{{ headers.user_agent }}'}</code>
+            </p>
           </div>
-          <Button disabled={!form.name || !form.agent_id || !form.secret_ref || !form.prompt_template || createMut.isPending} onClick={createTrigger}>保存</Button>
+          <Button disabled={!form.name || !form.agent_id || !form.secret_ref || !form.prompt_template || createMut.isPending} onClick={createTrigger}>{t('common.save')}</Button>
         </section>
       )}
 
@@ -122,18 +139,22 @@ export default function AgentTriggersPage() {
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0 space-y-1">
                 <div className="font-medium">{trigger.name}</div>
-                <div className="text-sm text-muted-foreground">{trigger.enabled ? '已启用' : '已禁用'} · {trigger.session_mode}</div>
+                <div className="text-sm text-muted-foreground">
+                  {trigger.enabled ? t('managed.triggers.enabled') : t('managed.triggers.disabled')} · {t(`managed.schedules.sessionModeOption.${trigger.session_mode || 'fresh'}`)}
+                </div>
                 <code className="block truncate rounded bg-muted px-2 py-1 text-xs">{trigger.webhook_url}</code>
-                {trigger.last_error && <div className="text-sm text-destructive">最近错误：{trigger.last_error}</div>}
+                {trigger.last_error && <div className="text-sm text-destructive">{t('managed.triggers.lastError')} {trigger.last_error}</div>}
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard?.writeText(trigger.webhook_url ?? ''); toastSuccess('Webhook URL 已复制') }}><Copy className="h-4 w-4" /></Button>
-                <Button variant="destructive" size="sm" onClick={() => deleteMut.mutate(trigger.id)}><Trash2 className="h-4 w-4" /></Button>
+                <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard?.writeText(trigger.webhook_url ?? ''); toastSuccess(t('managed.triggers.urlCopied')) }}><Copy className="h-4 w-4" /></Button>
+                {!projectReadOnly && (
+                  <Button variant="destructive" size="sm" onClick={() => deleteTrigger(trigger.id)}><Trash2 className="h-4 w-4" /></Button>
+                )}
               </div>
             </div>
           </div>
         ))}
-        {!triggers.length && <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">暂无触发器</div>}
+        {!triggers.length && <div className="rounded-lg border bg-card p-8 text-center text-muted-foreground">{t('managed.triggers.empty')}</div>}
       </section>
     </main>
   )

@@ -1,10 +1,13 @@
 'use client'
 
+import { Lightbulb } from 'lucide-react'
+
 import { useTranslation } from '@/lib/i18n'
 import { formatCompactNumber, formatPercent } from '@/lib/managed/analytics/formatters'
+import { suggestionMessageKey } from '@/lib/managed/analytics/health-presenter'
 import type { TokenSummary, EngineShareItem, SuggestionItem } from '@/lib/managed/analytics/types'
+
 import { CHART_COLORS, ENGINE_COLOR_MAP, ENGINE_LABELS } from './constants'
-import { Lightbulb } from 'lucide-react'
 
 interface TokenSummaryCardProps {
   tokenSummary: TokenSummary | undefined
@@ -116,7 +119,7 @@ export function TokenSummaryCard({ tokenSummary, engineShare, suggestions, loadi
             {suggestions.map((s, i) => (
               <div key={i} className="flex items-start gap-2 text-xs">
                 <Lightbulb className="h-3 w-3 text-amber-500 shrink-0 mt-0.5" />
-                <span className="text-muted-foreground">{s.message}</span>
+                <span className="text-muted-foreground">{t(suggestionMessageKey(s.type), s.params)}</span>
               </div>
             ))}
           </div>

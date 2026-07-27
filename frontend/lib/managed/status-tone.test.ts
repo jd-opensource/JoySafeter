@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { STATUS_TONE, statusBadgeClass, statusDotClass, statusToTone } from './status-tone'
+import { enTree, zhTree, resolveKey as resolve } from '@/lib/i18n/test-utils'
+
+import { STATUS_TONE, statusBadgeClass, statusDotClass, statusLabelKey, statusToTone } from './status-tone'
 
 describe('statusToTone', () => {
   it('maps success-family statuses', () => {
@@ -48,5 +50,29 @@ describe('class helpers', () => {
   it('statusDotClass returns the tone dot class', () => {
     expect(statusDotClass('timeout')).toBe(STATUS_TONE.warning.dot)
     expect(statusDotClass('cancelled')).toBe(STATUS_TONE.neutral.dot)
+  })
+})
+
+describe('statusLabelKey', () => {
+  it('maps every task/session lifecycle status to an i18n key that resolves in both locales', () => {
+    for (const s of [
+      'active', 'running', 'idle', 'terminated', 'archived',
+      'pending', 'scheduling', 'rescheduling', 'completed',
+      'aborted', 'timeout', 'cancelled', 'failed', 'error',
+    ]) {
+      const key = statusLabelKey(s)
+      expect(key, s).toBeTruthy()
+      expect(resolve(enTree, key!), `en:${key}`).toBeTruthy()
+      expect(resolve(zhTree, key!), `zh:${key}`).toBeTruthy()
+    }
+  })
+
+  it('is case-insensitive', () => {
+    expect(statusLabelKey('COMPLETED')).toBe('common.completed')
+    expect(statusLabelKey('Cancelled')).toBe('common.cancelled')
+  })
+
+  it('returns undefined for unmapped codes so callers fall back to the raw string', () => {
+    expect(statusLabelKey('some_unknown_code')).toBeUndefined()
   })
 })

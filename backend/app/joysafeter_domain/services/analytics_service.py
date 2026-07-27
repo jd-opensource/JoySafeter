@@ -693,17 +693,17 @@ class AnalyticsService:
         if cache_hit_rate < 0.5 and total_input > 0:
             suggestions.append({
                 "type": "low_cache_hit",
-                "message": f"Cache hit rate is {round(cache_hit_rate * 100)}% — consider reducing system prompt variation to improve caching",
+                "params": {"cacheHitPct": round(cache_hit_rate * 100)},
             })
         if total_output > 0 and total_input > 0 and total_output / total_input > 0.5:
             suggestions.append({
                 "type": "high_output_ratio",
-                "message": f"Output tokens are {round(total_output / total_input * 100)}% of input — consider constraining agent response length",
+                "params": {"outputRatioPct": round(total_output / total_input * 100)},
             })
         if avg_queue_wait_sec > 30:
             suggestions.append({
                 "type": "high_queue_wait",
-                "message": f"Average queue wait is {round(avg_queue_wait_sec)}s — consider adding more sandbox capacity",
+                "params": {"queueWaitSec": round(avg_queue_wait_sec)},
             })
 
         return {
@@ -776,7 +776,7 @@ class AnalyticsService:
                     "severity": "error",
                     "agent_name": agent_name,
                     "agent_id": str(agent_id),
-                    "detail": f"{consecutive} consecutive failures (threshold: {threshold})",
+                    "params": {"count": consecutive, "threshold": threshold},
                 })
 
         return alerts
@@ -810,7 +810,10 @@ class AnalyticsService:
                 "severity": "warning",
                 "agent_name": row.name,
                 "agent_id": str(row.agent_id),
-                "detail": f"avg {round(row.avg_duration / 1000, 1)}s (threshold: {threshold_ms // 1000}s)",
+                "params": {
+                    "avgSec": round(row.avg_duration / 1000, 1),
+                    "thresholdSec": threshold_ms // 1000,
+                },
             }
             for row in result.all()
         ]
@@ -870,7 +873,10 @@ class AnalyticsService:
                     "severity": "warning",
                     "agent_name": None,
                     "agent_id": None,
-                    "detail": f"token usage up {round(change_pct * 100, 1)}% vs previous period (threshold: {threshold_pct}%)",
+                    "params": {
+                        "changePct": round(change_pct * 100, 1),
+                        "thresholdPct": threshold_pct,
+                    },
                 }]
 
         return []
@@ -905,7 +911,7 @@ class AnalyticsService:
                 "severity": "warning",
                 "agent_name": row.name,
                 "agent_id": str(row.agent_id),
-                "detail": f"max {row.max_retries} retries ({row.task_count} tasks)",
+                "params": {"maxRetries": row.max_retries, "taskCount": row.task_count},
             }
             for row in result.all()
         ]
@@ -942,7 +948,7 @@ class AnalyticsService:
                 "severity": "warning",
                 "agent_name": row.name,
                 "agent_id": str(row.agent_id) if row.agent_id else None,
-                "detail": f"session running for {hours:.1f}h",
+                "params": {"hours": round(hours, 1)},
             })
         return alerts
 

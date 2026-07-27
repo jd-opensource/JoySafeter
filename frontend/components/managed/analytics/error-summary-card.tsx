@@ -1,9 +1,9 @@
 'use client'
 
-import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
-import { statusDotClass } from '@/lib/managed/status-tone'
 import type { ErrorSummary } from '@/lib/managed/analytics/types'
+import { statusDotClass, statusLabelKey } from '@/lib/managed/status-tone'
+import { cn } from '@/lib/utils'
 
 interface ErrorSummaryCardProps {
   data: ErrorSummary | undefined
@@ -64,13 +64,16 @@ export function ErrorSummaryCard({ data, loading }: ErrorSummaryCardProps) {
 
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
-        {data.status_breakdown.map((item) => (
-          <div key={item.status} className="flex items-center gap-1.5 text-xs">
-            <div className={cn('h-2 w-2 rounded-full', statusDotClass(item.status))} />
-            <span className="text-muted-foreground">{item.status}</span>
-            <span className="font-medium text-foreground">{item.count}</span>
-          </div>
-        ))}
+        {data.status_breakdown.map((item) => {
+          const labelKey = statusLabelKey(item.status)
+          return (
+            <div key={item.status} className="flex items-center gap-1.5 text-xs">
+              <div className={cn('h-2 w-2 rounded-full', statusDotClass(item.status))} />
+              <span className="text-muted-foreground">{labelKey ? t(labelKey) : item.status}</span>
+              <span className="font-medium text-foreground">{item.count}</span>
+            </div>
+          )
+        })}
       </div>
 
       {/* Top error messages */}
