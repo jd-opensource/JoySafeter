@@ -771,6 +771,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             <div>
               <label className="mb-1.5 block text-sm font-medium text-foreground">
                 {t('agents.edit.permissionMode')}
+                <FieldHelp text={t('managed.agents.edit.permissionModeHint', '控制 Agent 使用工具（如执行命令、写文件）时是否需要人工确认。「跳过确认」允许 Agent 自主执行所有操作。')} />
               </label>
               <select
                 className="flex w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"

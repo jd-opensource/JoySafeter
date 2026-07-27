@@ -14,6 +14,13 @@ import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   PageHeader,
   FilterBar,
   type FilterDef,
@@ -23,6 +30,7 @@ import {
   MonoId,
   RelativeTime,
   ResourceErrorState,
+  FieldHelp,
 } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
@@ -519,6 +527,7 @@ export default function EnvironmentListPage() {
               <h4 className="mb-3 text-sm font-medium">
                 {t('managed.environments.networking')}
                 <span className="ml-1 text-destructive">*</span>
+                <FieldHelp text={t('managed.environments.networkingHint', '受限网络模式下，沙箱默认无法访问外网。只有白名单中的主机和第三方服务配置的地址可以访问。')} />
               </h4>
               <div className="space-y-3">
                 <Input value={t('managed.environments.netLimited')} readOnly />
@@ -529,6 +538,7 @@ export default function EnvironmentListPage() {
                       <span className="ml-1 text-xs font-normal text-muted-foreground">
                         {t('managed.environments.optional')}
                       </span>
+                      <FieldHelp text={t('managed.environments.allowedHostsHint', '沙箱可直接访问的外网主机白名单（逗号分隔）。第三方服务配置的地址会自动放行，无需重复填写。')} />
                     </label>
                     <Input
                       id="environment-allowed-hosts"
@@ -638,19 +648,18 @@ export default function EnvironmentListPage() {
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="space-y-1 text-sm">
                             <span className="font-medium">数据卷</span>
-                            <select
-                              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                            <Select
                               value={resource.volumeRef}
-                              onChange={(event) => {
-                                const volume = storageVolumes.find((item) => item.volume_ref === event.target.value)
-                                const name = mountNameFromVolume(event.target.value)
+                              onValueChange={(value) => {
+                                const volume = storageVolumes.find((item) => item.volume_ref === value)
+                                const name = mountNameFromVolume(value)
                                 setMountResources((items) =>
                                   items.map((item, i) =>
                                     i === index
                                       ? {
                                           ...item,
                                           name,
-                                          volumeRef: event.target.value,
+                                          volumeRef: value,
                                           subPath: volume?.allowed_prefixes?.[0] || '',
                                           mountPath: defaultMountPath(name),
                                           access: 'read_only',
@@ -660,31 +669,40 @@ export default function EnvironmentListPage() {
                                 )
                               }}
                             >
-                              {storageVolumes.map((volume) => (
-                                <option key={volume.volume_ref} value={volume.volume_ref}>
-                                  {volume.display_name || volume.volume_ref}
-                                </option>
-                              ))}
-                            </select>
+                              <SelectTrigger>
+                                <SelectValue placeholder="选择数据卷" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {storageVolumes.map((volume) => (
+                                  <SelectItem key={volume.volume_ref} value={volume.volume_ref}>
+                                    {volume.display_name || volume.volume_ref}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </label>
                           <label className="space-y-1 text-sm">
                             <span className="font-medium">访问权限</span>
-                            <select
-                              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                            <Select
                               value={resource.access}
-                              onChange={(event) =>
+                              onValueChange={(value) =>
                                 setMountResources((items) =>
                                   items.map((item, i) =>
                                     i === index
-                                      ? { ...item, access: event.target.value as MountResourceForm['access'] }
+                                      ? { ...item, access: value as MountResourceForm['access'] }
                                       : item,
                                   ),
                                 )
                               }
                             >
-                              <option value="read_only">只读</option>
-                              {canWrite && <option value="read_write">读写</option>}
-                            </select>
+                              <SelectTrigger>
+                                <SelectValue placeholder="选择访问权限" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="read_only">只读</SelectItem>
+                                {canWrite && <SelectItem value="read_write">读写</SelectItem>}
+                              </SelectContent>
+                            </Select>
                           </label>
                           <label className="space-y-1 text-sm">
                             <span className="font-medium">子目录</span>
