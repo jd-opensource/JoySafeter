@@ -1861,7 +1861,6 @@ async def list_events(
     )
 
 
-@router.get("/{session_id}/events/stream")
 async def _iter_events_after(svc, session_id, start_seq, project_id, page_size: int = 1000):
     """Yield every event with seq > start_seq, in order, paginating past the
     per-call page limit.
@@ -1886,6 +1885,7 @@ async def _iter_events_after(svc, session_id, start_seq, project_id, page_size: 
             return
 
 
+@router.get("/{session_id}/events/stream")
 async def session_event_stream(
     request: Request,
     session_id: uuid.UUID = Depends(_parse_session_id),

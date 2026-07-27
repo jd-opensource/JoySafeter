@@ -23,7 +23,9 @@ from app.joysafeter_domain.schemas.joysafeter_schedule import (
     TriggerResponse,
 )
 from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig, render_prompt_template
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
+from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -35,14 +37,56 @@ from app.joysafeter_shared.database import get_db
 router = APIRouter(tags=["joysafeter-schedules"])
 
 
+def _schedule_response(trigger: JoySafeterTrigger) -> ScheduleResponse:
+    return ScheduleResponse.model_validate(
+        {
+            "id": trigger.id,
+            "name": trigger.name,
+            "description": trigger.description,
+            "agent_id": trigger.agent_id,
+            "prompt": trigger.prompt_template,
+            "system_prompt": trigger.system_prompt,
+            "environment_ref": trigger.environment_ref,
+            "cron_expr": trigger.cron_expr or "",
+            "timezone": trigger.timezone or "UTC",
+            "enabled": trigger.enabled,
+            "concurrency_policy": trigger.concurrency_policy,
+            "session_mode": trigger.session_mode,
+            "pinned_session_id": trigger.pinned_session_id,
+            "reusable_session_id": trigger.reusable_session_id,
+            "timeout_sec": trigger.timeout_sec,
+            "max_retries": trigger.max_retries,
+            "next_run_at": trigger.next_run_at,
+            "last_fired_slot": trigger.last_fired_slot,
+            "last_attempt_at": trigger.last_attempt_at,
+            "last_success_at": trigger.last_success_at,
+            "last_error": trigger.last_error,
+            "consecutive_failures": trigger.consecutive_failures,
+            "last_task_id": trigger.last_task_id,
+            "last_session_id": trigger.last_session_id,
+            "last_payload": trigger.last_payload or {},
+            "project_id": trigger.project_id,
+            "created_at": trigger.created_at,
+            "updated_at": trigger.updated_at,
+        }
+    )
+
+
+def _trigger_update_fields(fields: dict) -> dict:
+    mapped = dict(fields)
+    if "prompt" in mapped:
+        mapped["prompt_template"] = mapped.pop("prompt")
+    return mapped
+
+
 @router.post("", status_code=201, response_model=ScheduleResponse)
 async def create_schedule(
     body: ScheduleCreateRequest,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
-    svc = JoySafeterScheduleService(db)
-    if await svc.get_by_name(body.name, auth_ctx.project_id) is not None:
+    svc = JoySafeterTriggerService(db)
+    if await svc.get_by_name(body.name, auth_ctx.project_id, type="cron") is not None:
         raise ResourceConflictError(
             code="SCHEDULE_NAME_EXISTS",
             message=f"A schedule named '{body.name}' already exists in this project",
@@ -52,8 +96,9 @@ async def create_schedule(
 
     schedule = await svc.create(
         name=body.name,
+        type="cron",
         agent_id=body.agent_id,
-        prompt=body.prompt,
+        prompt_template=body.prompt,
         cron_expr=body.cron_expr,
         timezone=body.timezone,
         system_prompt=body.system_prompt,
@@ -69,7 +114,7 @@ async def create_schedule(
         user_id=auth_ctx.user_id,
         org_id=auth_ctx.org_id,
     )
-    return ScheduleResponse.model_validate(schedule)
+    return _schedule_response(schedule)
 
 
 @router.get("", response_model=List[ScheduleResponse])
@@ -80,14 +125,16 @@ async def list_schedules(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> List[ScheduleResponse]:
-    schedules = await JoySafeterScheduleService(db).list(
-        project_id=auth_ctx.project_id, enabled=enabled, limit=limit, offset=offset
+    schedules = await JoySafeterTriggerService(db).list(
+        project_id=auth_ctx.project_id, enabled=enabled, type="cron", limit=limit, offset=offset
     )
-    return [ScheduleResponse.model_validate(s) for s in schedules]
+    return [_schedule_response(s) for s in schedules]
 
 
 async def _get_or_404(db: AsyncSession, schedule_id: uuid.UUID, project_id):
-    schedule = await JoySafeterScheduleService(db).get(schedule_id, project_id=project_id)
+    schedule = await JoySafeterTriggerService(db).get(schedule_id, project_id=project_id)
+    if schedule is not None and schedule.type != "cron":
+        schedule = None
     if schedule is None:
         raise NotFoundError(
             code="SCHEDULE_NOT_FOUND",
@@ -104,7 +151,7 @@ async def get_schedule(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> ScheduleResponse:
-    return ScheduleResponse.model_validate(await _get_or_404(db, schedule_id, auth_ctx.project_id))
+    return _schedule_response(await _get_or_404(db, schedule_id, auth_ctx.project_id))
 
 
 @router.patch("/{schedule_id}", response_model=ScheduleResponse)
@@ -114,11 +161,11 @@ async def update_schedule(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
-    svc = JoySafeterScheduleService(db)
+    svc = JoySafeterTriggerService(db)
     schedule = await _get_or_404(db, schedule_id, auth_ctx.project_id)
     fields = body.model_dump(exclude_unset=True)
     if "name" in fields and fields["name"] != schedule.name:
-        existing = await svc.get_by_name(fields["name"], auth_ctx.project_id)
+        existing = await svc.get_by_name(fields["name"], auth_ctx.project_id, type="cron")
         if existing is not None and existing.id != schedule_id:
             raise ResourceConflictError(
                 code="SCHEDULE_NAME_EXISTS",
@@ -126,8 +173,8 @@ async def update_schedule(
                 data={"name": fields["name"]},
                 user_action="fix_input",
             )
-    updated = await svc.update(schedule_id, auth_ctx.project_id, **fields)
-    return ScheduleResponse.model_validate(updated)
+    updated = await svc.update(schedule_id, auth_ctx.project_id, **_trigger_update_fields(fields))
+    return _schedule_response(updated)
 
 
 @router.delete("/{schedule_id}", status_code=204)
@@ -137,7 +184,7 @@ async def delete_schedule(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
     await _get_or_404(db, schedule_id, auth_ctx.project_id)
-    await JoySafeterScheduleService(db).delete(schedule_id, project_id=auth_ctx.project_id)
+    await JoySafeterTriggerService(db).delete(schedule_id, project_id=auth_ctx.project_id)
 
 
 @router.post("/{schedule_id}/enable", response_model=ScheduleResponse)
@@ -147,8 +194,8 @@ async def enable_schedule(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
     await _get_or_404(db, schedule_id, auth_ctx.project_id)
-    updated = await JoySafeterScheduleService(db).update(schedule_id, auth_ctx.project_id, enabled=True)
-    return ScheduleResponse.model_validate(updated)
+    updated = await JoySafeterTriggerService(db).update(schedule_id, auth_ctx.project_id, enabled=True)
+    return _schedule_response(updated)
 
 
 @router.post("/{schedule_id}/disable", response_model=ScheduleResponse)
@@ -158,8 +205,8 @@ async def disable_schedule(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> ScheduleResponse:
     await _get_or_404(db, schedule_id, auth_ctx.project_id)
-    updated = await JoySafeterScheduleService(db).update(schedule_id, auth_ctx.project_id, enabled=False)
-    return ScheduleResponse.model_validate(updated)
+    updated = await JoySafeterTriggerService(db).update(schedule_id, auth_ctx.project_id, enabled=False)
+    return _schedule_response(updated)
 
 
 @router.post("/{schedule_id}/trigger", status_code=202, response_model=TriggerResponse)
@@ -196,7 +243,7 @@ async def trigger_schedule(
             agent=agent,
             name=schedule.name,
             source=f"schedule:{schedule.id}",
-            prompt=render_prompt_template(schedule.prompt, payload),
+            prompt=render_prompt_template(schedule.prompt_template, payload),
             system_prompt=schedule.system_prompt,
             environment_ref=environment_ref,
             timeout_sec=schedule.timeout_sec,
@@ -213,9 +260,8 @@ async def trigger_schedule(
         ),
         enforce_user_quota=True,
     )
-    await JoySafeterScheduleService(db).advance_after_fire(
-        schedule.id,
-        None,
+    await JoySafeterTriggerService(db).mark_attempt(
+        schedule,
         success=True,
         task_id=result.task.id,
         session_id=result.session.id,
@@ -232,7 +278,7 @@ async def list_schedule_runs(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> List[ScheduleRunResponse]:
-    runs = await JoySafeterScheduleService(db).list_runs(
+    runs = await JoySafeterTriggerService(db).list_runs(
         schedule_id,
         project_id=auth_ctx.project_id,
         limit=limit,

@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ShieldCheck, ShieldOff, Search } from 'lucide-react'
-import { managedGet, managedPut } from '@/lib/api-client'
+import { managedPut } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog, DataTable, type Column, MonoId, PageHeader, RelativeTime, ResourceErrorState, StatusBadge } from '@/components/managed/shared'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { toastOperationError } from '@/lib/managed/errors'
 import { useAuthStore } from '@/stores/auth/store'
 
@@ -28,9 +29,28 @@ export default function PlatformUsersPage() {
   const [query, setQuery] = useState('')
   const [pendingUser, setPendingUser] = useState<PlatformUser | null>(null)
 
-  const usersQuery = useQuery({
-    queryKey: ['platform-users', query],
-    queryFn: () => managedGet<PlatformUser[]>(`/auth/platform/users?limit=100${query.trim() ? `&q=${encodeURIComponent(query.trim())}` : ''}`),
+  const search = query.trim()
+  const usersPath = `/auth/platform/users${search ? `?q=${encodeURIComponent(search)}` : ''}`
+  const {
+    data: users,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<PlatformUser>({
+    queryKey: 'platform-users',
+    path: usersPath,
+    limit: 25,
+    pageSizeOptions: [10, 25, 50, 100],
   })
 
   const updateMutation = useMutation({
@@ -42,7 +62,6 @@ export default function PlatformUsersPage() {
     onError: (err) => toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
   })
 
-  const users = usersQuery.data || []
   const columns: Column<PlatformUser>[] = [
     {
       key: 'user',
@@ -75,12 +94,33 @@ export default function PlatformUsersPage() {
       <PageHeader title="平台用户" subtitle="管理全局平台管理员。平台管理员可以维护跨组织基础设施配置，例如存储卷底层挂载。" />
       <div className="flex max-w-md items-center gap-2">
         <Search className="h-4 w-4 text-muted-foreground" />
-        <Input value={query} placeholder="搜索邮箱或姓名" onChange={(event) => setQuery(event.target.value)} />
+        <Input
+          value={query}
+          placeholder="搜索邮箱或姓名"
+          onChange={(event) => setQuery(event.target.value)}
+        />
       </div>
-      {usersQuery.isError ? (
-        <ResourceErrorState error={usersQuery.error} resource="project" />
+      {isError ? (
+        <ResourceErrorState error={error} resource="project" />
       ) : (
-        <DataTable data={users} columns={columns} loading={usersQuery.isLoading} fetching={usersQuery.isFetching} emptyMessage="暂无用户" />
+        <DataTable
+          data={users}
+          columns={columns}
+          loading={isLoading}
+          fetching={isFetching}
+          emptyMessage="暂无用户"
+          pagination={{
+            hasNext,
+            hasPrev,
+            page,
+            pageSize,
+            pageSizeOptions,
+            onNext: goNext,
+            onPrev: goPrev,
+            onPageChange: goToPage,
+            onPageSizeChange: setPageSize,
+          }}
+        />
       )}
       <ConfirmDialog
         open={!!pendingUser}

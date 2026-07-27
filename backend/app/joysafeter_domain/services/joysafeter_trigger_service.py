@@ -131,7 +131,7 @@ class JoySafeterTriggerService:
                     data={"secret_ref": secret_ref},
                     user_action="fix_input",
                 )
-        next_run_at = compute_next_run(cron_expr, timezone) if type == "cron" and cron_expr else None
+        next_run_at = compute_next_run(cron_expr, timezone) if enabled and type == "cron" and cron_expr else None
         trigger = JoySafeterTrigger(
             name=name,
             type=type,
@@ -179,10 +179,17 @@ class JoySafeterTriggerService:
         result = await self.db.execute(select(JoySafeterTrigger).where(*conditions))
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, name: str, project_id: Optional[str]) -> Optional[JoySafeterTrigger]:
-        result = await self.db.execute(
-            select(JoySafeterTrigger).where(JoySafeterTrigger.name == name, JoySafeterTrigger.project_id == project_id)
-        )
+    async def get_by_name(
+        self,
+        name: str,
+        project_id: Optional[str],
+        *,
+        type: Optional[str] = None,
+    ) -> Optional[JoySafeterTrigger]:
+        conditions = [JoySafeterTrigger.name == name, JoySafeterTrigger.project_id == project_id]
+        if type is not None:
+            conditions.append(JoySafeterTrigger.type == type)
+        result = await self.db.execute(select(JoySafeterTrigger).where(*conditions))
         return result.scalar_one_or_none()
 
     async def list(
@@ -226,7 +233,7 @@ class JoySafeterTriggerService:
                     data={"secret_ref": fields["secret_ref"]},
                     user_action="fix_input",
                 )
-        recompute_next = trigger.type == "cron" and any(k in fields for k in ("cron_expr", "timezone"))
+        recompute_next = trigger.type == "cron" and any(k in fields for k in ("cron_expr", "timezone", "enabled"))
         for key, value in fields.items():
             if key in {"auth_methods", "dedupe_header"}:
                 config = dict(trigger.config or {})
@@ -234,8 +241,12 @@ class JoySafeterTriggerService:
                 trigger.config = config
             elif hasattr(trigger, key):
                 setattr(trigger, key, value)
-        if recompute_next and trigger.cron_expr:
-            trigger.next_run_at = compute_next_run(trigger.cron_expr, trigger.timezone or "UTC")
+        if recompute_next:
+            trigger.next_run_at = (
+                compute_next_run(trigger.cron_expr, trigger.timezone or "UTC")
+                if trigger.enabled and trigger.cron_expr
+                else None
+            )
         self._sync_config(trigger)
         await self.db.commit()
         await self.db.refresh(trigger)

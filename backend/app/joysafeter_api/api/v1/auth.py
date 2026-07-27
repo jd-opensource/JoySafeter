@@ -383,6 +383,13 @@ class PlatformUserResponse(BaseModel):
     updated_at: datetime
 
 
+class PaginatedPlatformUsersResponse(BaseModel):
+    data: list[PlatformUserResponse]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
+
+
 class PlatformOrganizationResponse(BaseModel):
     id: str
     name: str
@@ -1324,23 +1331,40 @@ async def remove_project_member(
 async def list_platform_users(
     q: str = Query("", max_length=100),
     limit: int = Query(50, ge=1, le=200),
+    after_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
-) -> list[PlatformUserResponse]:
+) -> PaginatedPlatformUsersResponse:
     """List platform users for platform-level administration."""
-    from sqlalchemy import or_
+    from sqlalchemy import and_, or_
 
-    query = select(AuthUser).order_by(AuthUser.created_at.desc()).limit(limit)
+    query = select(AuthUser)
     if q.strip():
         search = f"%{q.strip()}%"
-        query = (
-            select(AuthUser)
-            .where(or_(AuthUser.email.ilike(search), AuthUser.name.ilike(search)))
-            .order_by(AuthUser.created_at.desc())
-            .limit(limit)
-        )
+        query = query.where(or_(AuthUser.email.ilike(search), AuthUser.name.ilike(search)))
+
+    if after_id:
+        cursor_result = await db.execute(select(AuthUser).where(AuthUser.id == after_id))
+        cursor_user = cursor_result.scalar_one_or_none()
+        if cursor_user is not None:
+            query = query.where(
+                or_(
+                    AuthUser.created_at < cursor_user.created_at,
+                    and_(AuthUser.created_at == cursor_user.created_at, AuthUser.id < cursor_user.id),
+                )
+            )
+
+    query = query.order_by(AuthUser.created_at.desc(), AuthUser.id.desc()).limit(limit + 1)
     result = await db.execute(query)
-    return [_platform_user_to_response(user) for user in result.scalars().all()]
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    return PaginatedPlatformUsersResponse(
+        data=[_platform_user_to_response(user) for user in page_rows],
+        has_more=has_more,
+        first_id=page_rows[0].id if page_rows else None,
+        last_id=page_rows[-1].id if page_rows else None,
+    )
 
 
 @router.get("/platform/organizations")
