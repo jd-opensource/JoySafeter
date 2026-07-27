@@ -42,6 +42,8 @@ import {
   buildEgressServices,
   emptyEgressService,
   serviceToForm,
+  type EgressServiceErrorField,
+  type EgressServiceErrors,
   type EgressServiceForm,
 } from '@/components/managed/environments-egress-editor'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
@@ -104,6 +106,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
   const [envVars, setEnvVars] = useState('')
   const [secretRefs, setSecretRefs] = useState('')
   const [egressServices, setEgressServices] = useState<EgressServiceForm[]>([])
+  const [egressErrors, setEgressErrors] = useState<EgressServiceErrors>({})
   const [dirty, setDirty] = useState(false)
 
   useEffect(() => {
@@ -406,9 +409,25 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
             services={egressServices}
             setServices={setEgressServices}
             secrets={secrets}
+            errors={egressErrors}
+            onClearFieldError={(index, field) => {
+              setEgressErrors((prev) => {
+                const next = { ...prev }
+                if (next[index]) {
+                  next[index] = { ...next[index], [field]: undefined }
+                  if (Object.values(next[index]).every((v) => !v)) delete next[index]
+                }
+                return next
+              })
+            }}
             onDirty={() => setDirty(true)}
             onRemove={(index) => {
               setEgressServices((items) => items.filter((_, i) => i !== index))
+              setEgressErrors((prev) => {
+                const next = { ...prev }
+                delete next[index]
+                return next
+              })
               setDirty(true)
             }}
           />
@@ -420,6 +439,19 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           ) : (
             <Button
               onClick={() => {
+                // Validate egress services before save
+                const errors: EgressServiceErrors = {}
+                egressServices.forEach((svc, idx) => {
+                  const e: Record<string, string> = {}
+                  if (!svc.name.trim()) e.name = t('managed.environments.validation.required')
+                  if (!svc.baseUrl.trim()) e.baseUrl = t('managed.environments.validation.required')
+                  if (!svc.credentialRef.trim()) e.credentialRef = t('managed.environments.validation.required')
+                  if (svc.authType === 'cookie' && !svc.secretKey.trim()) e.secretKey = t('managed.environments.validation.cookieRequired')
+                  if (Object.keys(e).length) errors[idx] = e
+                })
+                setEgressErrors(errors)
+                if (Object.keys(errors).length > 0) return
+
                 if (!currentEditableEnvironment()) return
                 const requestScope = managedRequestScopeRef.current
                 const scope = operationScopeRef.current

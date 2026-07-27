@@ -984,7 +984,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                 scope,
               })
             }}
-            disabled={formReadOnly || mutation.isPending}
+            disabled={formReadOnly || mutation.isPending || !name.trim()}
           >
             {mutation.isPending ? t('managed.agents.saving') : t('managed.agents.saveChanges')}
           </Button>
