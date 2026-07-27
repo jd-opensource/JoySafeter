@@ -59,8 +59,6 @@ interface VolumeFormState {
   dockerHostPath: string
   k8sNamespace: string
   k8sPvc: string
-  quotaBytes: string
-  metadataJson: string
   enabled: boolean
 }
 
@@ -69,7 +67,6 @@ interface GrantFormState {
   projectId: string
   maxAccess: AccessMode
   allowedPrefixes: string
-  quotaBytes: string
   enabled: boolean
 }
 
@@ -99,7 +96,7 @@ interface SimpleSelectOption {
 const emptyVolumeForm = (mode: VolumeFormMode = 'create'): VolumeFormState => ({
   mode,
   volumeRef: '',
-  backendType: 'generic',
+  backendType: 'cubefs',
   displayName: '',
   description: '',
   maxAccess: 'read_only',
@@ -108,8 +105,6 @@ const emptyVolumeForm = (mode: VolumeFormMode = 'create'): VolumeFormState => ({
   dockerHostPath: '',
   k8sNamespace: 'joysafeter-sandboxes',
   k8sPvc: '',
-  quotaBytes: '',
-  metadataJson: '',
   enabled: true,
 })
 
@@ -118,7 +113,6 @@ const emptyGrantForm = (): GrantFormState => ({
   projectId: '',
   maxAccess: 'read_only',
   allowedPrefixes: '',
-  quotaBytes: '',
   enabled: true,
 })
 
@@ -133,23 +127,6 @@ function joinLines(value?: string[]) {
   return (value || []).join(', ')
 }
 
-function parseJsonObject(value: string): Record<string, unknown> {
-  if (!value.trim()) return {}
-  const parsed = JSON.parse(value)
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('JSON must be an object')
-  }
-  return parsed as Record<string, unknown>
-}
-
-function numberOrNull(value: string): number | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  if (!Number.isFinite(parsed) || parsed < 0) throw new Error('quota_bytes must be a non-negative number')
-  return parsed
-}
-
 function formatBytes(value?: number | null) {
   if (value == null) return '-'
   if (value < 1024) return `${value} B`
@@ -161,11 +138,6 @@ function formatBytes(value?: number | null) {
     unitIndex += 1
   }
   return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unitIndex]}`
-}
-
-function usagePercent(used?: number, quota?: number | null) {
-  if (!quota || quota <= 0) return null
-  return Math.min(100, Math.round(((used || 0) / quota) * 100))
 }
 
 function SearchableGroupedSelect({
@@ -300,8 +272,6 @@ function volumeToForm(volume: StorageVolume): VolumeFormState {
     dockerHostPath,
     k8sNamespace: typeof volume.k8s?.namespace === 'string' ? volume.k8s.namespace : 'joysafeter-sandboxes',
     k8sPvc,
-    quotaBytes: volume.quota_bytes == null ? '' : String(volume.quota_bytes),
-    metadataJson: volume.metadata && Object.keys(volume.metadata).length ? JSON.stringify(volume.metadata, null, 2) : '',
     enabled: volume.enabled,
   }
 }
@@ -313,7 +283,6 @@ function projectGrantToForm(grant?: StorageProjectGrant): GrantFormState {
     projectId: grant.project_id,
     maxAccess: grant.max_access === 'read_write' ? 'read_write' : 'read_only',
     allowedPrefixes: joinLines(grant.allowed_prefixes),
-    quotaBytes: grant.quota_bytes == null ? '' : String(grant.quota_bytes),
     enabled: grant.enabled,
   }
 }
@@ -325,7 +294,6 @@ function organizationGrantToForm(grant?: StorageOrganizationGrant): GrantFormSta
     projectId: '',
     maxAccess: grant.max_access === 'read_write' ? 'read_write' : 'read_only',
     allowedPrefixes: joinLines(grant.allowed_prefixes),
-    quotaBytes: grant.quota_bytes == null ? '' : String(grant.quota_bytes),
     enabled: grant.enabled,
   }
 }
@@ -349,8 +317,6 @@ function buildVolumePayload(form: VolumeFormState) {
     allowed_prefixes: splitLines(form.allowedPrefixes),
     docker,
     k8s,
-    quota_bytes: numberOrNull(form.quotaBytes),
-    metadata: parseJsonObject(form.metadataJson),
     enabled: form.enabled,
   }
   if (form.mode === 'create') {
@@ -364,7 +330,6 @@ function buildGrantPayload(form: GrantFormState) {
     project_id: form.projectId.trim(),
     max_access: form.maxAccess,
     allowed_prefixes: splitLines(form.allowedPrefixes),
-    quota_bytes: numberOrNull(form.quotaBytes),
     enabled: form.enabled,
   }
 }
@@ -374,7 +339,6 @@ function buildOrganizationGrantPayload(form: GrantFormState) {
     org_id: form.orgId.trim(),
     max_access: form.maxAccess,
     allowed_prefixes: splitLines(form.allowedPrefixes),
-    quota_bytes: numberOrNull(form.quotaBytes),
     enabled: form.enabled,
   }
 }
@@ -402,7 +366,7 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   const isPlatformAdmin = Boolean(session.data?.user?.isSuperUser)
   const platformMode = mode === 'platform'
   const canManagePlatformVolumes = platformMode && isPlatformAdmin
-  const pageTitle = platformMode ? '存储卷配置' : '存储授权'
+  const pageTitle = platformMode ? '存储卷配置' : '数据卷'
   const [volumeForm, setVolumeForm] = useState<VolumeFormState | null>(null)
   const [grantTarget, setGrantTarget] = useState<StorageVolume | null>(null)
   const [grantForm, setGrantForm] = useState<GrantFormState>(emptyGrantForm())
@@ -550,20 +514,8 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
     { key: 'backend_type', header: '后端', render: (volume) => <span className="uppercase">{volume.backend_type || 'generic'}</span> },
     {
       key: 'usage',
-      header: '用量/配额',
-      render: (volume) => {
-        const percent = usagePercent(volume.used_bytes, volume.quota_bytes)
-        return (
-          <div className="min-w-[150px] space-y-1 text-xs">
-            <div>{formatBytes(volume.used_bytes)} / {formatBytes(volume.quota_bytes)}</div>
-            {percent == null ? null : (
-              <div className="h-1.5 rounded-full bg-muted">
-                <div className="h-1.5 rounded-full bg-primary" style={{ width: `${percent}%` }} />
-              </div>
-            )}
-          </div>
-        )
-      },
+      header: '用量',
+      render: (volume) => <span className="text-xs">{formatBytes(volume.used_bytes)}</span>,
     },
     { key: 'access', header: platformMode ? '最大权限' : '可申请权限', render: (volume) => (volume.max_access === 'read_write' ? '读写' : '只读') },
     {
@@ -665,7 +617,7 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold">{platformMode ? '挂载审计' : '授权审计'}</h2>
-            <p className="text-sm text-muted-foreground">{platformMode ? '查看 volume、grant、session attach 等存储挂载相关操作。' : '查看当前项目的存储授权和挂载相关操作。'}</p>
+            <p className="text-sm text-muted-foreground">{platformMode ? '查看 volume、grant、session attach 等存储挂载相关操作。' : '查看当前项目的数据卷授权和挂载相关操作。'}</p>
           </div>
           {selectedVolume ? (
             <Button size="sm" variant="outline" onClick={() => setSelectedVolume(null)}>查看全部</Button>
@@ -707,13 +659,13 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
         <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{volumeForm?.mode === 'edit' ? '编辑存储卷' : '新增存储卷'}</DialogTitle>
-            <DialogDescription>管理员配置底层运行时；普通用户只能选择已授权的 volume_ref。</DialogDescription>
+            <DialogDescription>建议一个项目一个独立目录或 PVC，默认只读，沙箱只挂载授权后的 volume_ref。</DialogDescription>
           </DialogHeader>
           {volumeForm ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-1 text-sm">
                 <span className="font-medium">Volume Ref</span>
-                <Input value={volumeForm.volumeRef} disabled={volumeForm.mode === 'edit'} placeholder="assets-prod" onChange={(e) => setVolumeForm({ ...volumeForm, volumeRef: e.target.value })} />
+                <Input value={volumeForm.volumeRef} disabled={volumeForm.mode === 'edit'} placeholder="org-a-project-a-assets" onChange={(e) => setVolumeForm({ ...volumeForm, volumeRef: e.target.value })} />
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-medium">后端类型</span>
@@ -757,7 +709,8 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
               </label>
               <label className="space-y-1 text-sm sm:col-span-2">
                 <span className="font-medium">允许前缀</span>
-                <Input value={volumeForm.allowedPrefixes} placeholder="tenant-a/project-x, tenant-a/shared" onChange={(e) => setVolumeForm({ ...volumeForm, allowedPrefixes: e.target.value })} />
+                <Input value={volumeForm.allowedPrefixes} placeholder="强隔离模式下建议留空" onChange={(e) => setVolumeForm({ ...volumeForm, allowedPrefixes: e.target.value })} />
+                <p className="text-xs text-muted-foreground">如果 host_path/PVC 已经是项目独立目录，建议留空；只有共享大目录才需要填写子目录前缀。</p>
               </label>
               <label className="space-y-1 text-sm sm:col-span-2">
                 <span className="font-medium">运行时类型</span>
@@ -766,12 +719,13 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                   onChange={(value) => setVolumeForm({ ...volumeForm, runtimeMode: value as StorageRuntimeMode })}
                   options={[{ value: 'docker', label: 'Docker 容器' }, { value: 'k8s', label: 'Kubernetes PVC' }]}
                 />
-                <p className="text-xs text-muted-foreground">Docker 填宿主机已挂载目录；Kubernetes 填命名空间和 PVC。</p>
+                <p className="text-xs text-muted-foreground">Docker 使用平台受控根目录下的项目独立目录；Kubernetes 使用项目独立 PVC。</p>
               </label>
               {volumeForm.runtimeMode === 'docker' ? (
                 <label className="space-y-1 text-sm sm:col-span-2">
                   <span className="font-medium">Docker 宿主路径</span>
-                  <Input value={volumeForm.dockerHostPath} placeholder="/mnt/joysafeter/storage/assets-prod" onChange={(e) => setVolumeForm({ ...volumeForm, dockerHostPath: e.target.value })} />
+                  <Input value={volumeForm.dockerHostPath} placeholder="/mnt/joysafeter/storage/cubefs/org-a/project-a/assets" onChange={(e) => setVolumeForm({ ...volumeForm, dockerHostPath: e.target.value })} />
+                  <p className="text-xs text-muted-foreground">默认只允许 /mnt/joysafeter/storage 下的路径；不要配置 CubeFS 根目录或多项目共享目录。</p>
                 </label>
               ) : (
                 <>
@@ -781,18 +735,10 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="font-medium">K8s PVC</span>
-                    <Input value={volumeForm.k8sPvc} placeholder="pvc-assets-prod" onChange={(e) => setVolumeForm({ ...volumeForm, k8sPvc: e.target.value })} />
+                    <Input value={volumeForm.k8sPvc} placeholder="cubefs-org-a-project-a-assets" onChange={(e) => setVolumeForm({ ...volumeForm, k8sPvc: e.target.value })} />
                   </label>
                 </>
               )}
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">配额 bytes</span>
-                <Input value={volumeForm.quotaBytes} placeholder="可选" onChange={(e) => setVolumeForm({ ...volumeForm, quotaBytes: e.target.value })} />
-              </label>
-              <label className="space-y-1 text-sm sm:col-span-2">
-                <span className="font-medium">Metadata JSON</span>
-                <textarea className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" value={volumeForm.metadataJson} placeholder='{"owner":"secops"}' onChange={(e) => setVolumeForm({ ...volumeForm, metadataJson: e.target.value })} />
-              </label>
             </div>
           ) : null}
           <DialogFooter>
@@ -890,10 +836,6 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                 <label className="space-y-1 text-sm sm:col-span-2">
                   <span className="font-medium">允许前缀</span>
                   <Input value={grantForm.allowedPrefixes} placeholder="默认继承 volume 前缀" onChange={(e) => setGrantForm({ ...grantForm, allowedPrefixes: e.target.value })} />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span className="font-medium">配额 bytes</span>
-                  <Input value={grantForm.quotaBytes} placeholder="可选" onChange={(e) => setGrantForm({ ...grantForm, quotaBytes: e.target.value })} />
                 </label>
               </div>
               {platformMode ? <div className="space-y-2">
