@@ -317,6 +317,9 @@ function projectInfo(archivedAt: string | null = null) {
     slug: 'project-a',
     is_default: true,
     archived_at: archivedAt,
+    // Admin-tier actions (publish, delete, lifecycle) require capability
+    // 'admin'; fixtures represent a project admin unless a test overrides.
+    capability: 'admin',
   }
 }
 
@@ -1276,6 +1279,10 @@ describe('SkillManagerPage managed scope lifecycle', () => {
         data: [skillB],
         has_more: false,
       })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
       fireEvent.click(
         view.getByRole('button', {
           name: 'managed.skills.transition.submitForReview',

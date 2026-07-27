@@ -2773,6 +2773,9 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
 
   const openDeleteSkillDialog = useCallback(
     (id: string) => {
+      // delete_skill requires ADMIN on the backend — gate the single choke
+      // point every delete flow passes through.
+      if (!currentProjectAllowsAdmin()) return
       if (!isSkillMutable(currentSkillInList(id))) return
 
       mutationRunRef.current += 1
@@ -3131,7 +3134,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
               label: t('managed.skills.viewDetails'),
               onClick: () => handleSelectSkill(s.id),
             },
-            ...(!projectReadOnly && isSkillMutable(s)
+            ...(!projectReadOnly && isProjectSkillAdmin && isSkillMutable(s)
               ? [
                   {
                     label: t('managed.skills.deleteSkill'),
@@ -3350,10 +3353,12 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                 <Button
                   className="relative h-9 gap-2"
                   onClick={() => {
-                    if (!canEditSelectedSkill) return
+                    // Publishing a version requires ADMIN (backend create_version
+                    // gate); WRITE-only editors must not reach this.
+                    if (!canEditSelectedSkill || !isProjectSkillAdmin) return
                     setShowVersionForm(true)
                   }}
-                  disabled={!canEditSelectedSkill || publishRuntimeBlocked}
+                  disabled={!canEditSelectedSkill || !isProjectSkillAdmin || publishRuntimeBlocked}
                   title={
                     securityBlocked
                       ? t('managed.skills.publishBlockedBySecurity')

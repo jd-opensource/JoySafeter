@@ -23,7 +23,10 @@ import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { Button } from '@/components/ui/button'
 import type { SkillImpactSummary, SkillLifecycleStatus } from '@/types/managed'
-import { currentProjectAllowsAdmin } from '@/hooks/managed/use-current-project-read-only'
+import {
+  currentProjectAllowsWrite,
+  currentProjectAllowsAdmin,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface TransitionResponse {
   skill_id: string
@@ -128,7 +131,7 @@ export function SkillLifecycleActions({
   )
 
   const nextMutation = (endpoint: string) => {
-    if (!currentProjectAllowsAdmin()) return null
+    if (!currentProjectAllowsWrite()) return null
     const runId = mutationRunRef.current + 1
     mutationRunRef.current = runId
     return {
@@ -143,7 +146,7 @@ export function SkillLifecycleActions({
   const isCurrentMutation = (runId: number, scope: string) =>
     mutationRunRef.current === runId &&
     operationScopeRef.current === scope &&
-    currentProjectAllowsAdmin()
+    currentProjectAllowsWrite()
 
   const mutation = useMutation({
     mutationFn: async ({
@@ -160,7 +163,7 @@ export function SkillLifecycleActions({
       runId: number
       scope: string
     }) => {
-      if (!currentProjectAllowsAdmin()) {
+      if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project skill lifecycle transition ignored')
       }
       setBusyEndpoint(endpoint)
