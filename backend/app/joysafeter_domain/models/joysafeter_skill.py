@@ -188,7 +188,11 @@ class JoySafeterSkill(BaseModel):
     impact: ClassVar[Optional[dict[str, Any]]] = None
 
     __table_args__ = (
-        UniqueConstraint("owner_id", "name", name="skills_owner_name_unique"),
+        # Skill names are unique per PROJECT (single-axis model), matching how
+        # agents/environments/secrets/vaults are already scoped. ``owner_id`` is
+        # no longer part of the identity key — it only records attribution and
+        # the ownership-transfer principal.
+        UniqueConstraint("project_id", "name", name="skills_project_name_unique"),
         Index("skills_owner_idx", "owner_id"),
         Index("skills_created_by_idx", "created_by_id"),
         Index("skills_project_idx", "project_id"),

@@ -1224,11 +1224,11 @@ class SkillService(BaseService[JoySafeterSkill]):
                 logger.warning(f"Skill compatibility exceeds 500 characters, truncating: {error}")
                 compatibility = truncate_compatibility(compatibility)
 
-                # Check if Skill with same name exists (same owner)
-        existing = await self.repo.get_by_name_and_owner(name, owner_id)
+                # Check if Skill with same name exists (same project)
+        existing = await self.repo.get_by_name_and_project(name, project_id)
         if existing:
             raise InvalidRequestError(
-                f"Skill name '{name}' already exists for this owner",
+                f"Skill name '{name}' already exists in this project",
                 code="SKILL_NAME_ALREADY_EXISTS",
                 data={"name": name},
             )
@@ -1469,10 +1469,10 @@ class SkillService(BaseService[JoySafeterSkill]):
                     code="SKILL_NAME_INVALID",
                     data={"validation_error": error, "name": name},
                 )
-            existing = await self.repo.get_by_name_and_owner(name, skill.owner_id)
+            existing = await self.repo.get_by_name_and_project(name, skill.project_id)
             if existing:
                 raise InvalidRequestError(
-                    f"Skill name '{name}' already exists for this owner",
+                    f"Skill name '{name}' already exists in this project",
                     code="SKILL_NAME_ALREADY_EXISTS",
                     data={"name": name},
                 )
