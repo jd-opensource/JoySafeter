@@ -36,6 +36,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   FileText,
+  Database,
   FolderCode,
   Lock,
   Sparkles,
@@ -81,9 +82,15 @@ const insightItems: NavItem[] = [
 
 const resourceItems: NavItem[] = [
   { to: '/managed/files', labelKey: 'nav.files', icon: FileText },
+  { to: '/managed/storage-volumes', labelKey: 'nav.storageGrants', icon: Database },
   { to: '/managed/skills', labelKey: 'nav.resourceSkills', icon: Sparkles },
   { to: '/managed/secrets', labelKey: 'nav.secrets', icon: Lock },
   { to: '/managed/memory-stores', labelKey: 'nav.memory', icon: Brain },
+]
+
+const platformManageItems: NavItem[] = [
+  { to: '/managed/platform/users', labelKey: 'nav.platformUsers', icon: Users },
+  { to: '/managed/platform/storage', labelKey: 'nav.platformStorageVolumes', icon: Database },
 ]
 
 // platformItems (the old /dashboard /agents /tasks /skills /tools /settings
@@ -561,6 +568,8 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
 export function AppSidebar() {
   const { t } = useTranslation()
   const { isCollapsed, setIsCollapsed } = useSidebarStore()
+  const session = useSession()
+  const isPlatformAdmin = Boolean(session.data?.user?.isSuperUser)
   const toggleSidebar = () => setIsCollapsed(!isCollapsed)
 
   if (isCollapsed) {
@@ -582,6 +591,8 @@ export function AppSidebar() {
           <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} collapsed />
+          {isPlatformAdmin ? <div className="my-1 h-px w-6 bg-border" /> : null}
+          {isPlatformAdmin ? <NavSection labelKey="nav.platformManage" icon={Shield} items={platformManageItems} collapsed /> : null}
         </nav>
         <UserMenu collapsed />
       </aside>
@@ -610,6 +621,7 @@ export function AppSidebar() {
         <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} />
         <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} />
         <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} />
+        {isPlatformAdmin ? <NavSection labelKey="nav.platformManage" icon={Shield} items={platformManageItems} /> : null}
       </nav>
 
       <UserMenu />

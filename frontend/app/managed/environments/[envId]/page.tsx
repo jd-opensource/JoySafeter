@@ -15,7 +15,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import type { Environment, Secret } from '@/types/managed'
+import type { Environment, EnvironmentMountResource, Secret, StorageVolumeCatalogItem } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -31,6 +31,11 @@ import {
   MonoId,
   RelativeTime,
   ResourceErrorState,
+  FieldHelp,
+  AdvancedSection,
+  FormActionBar,
+  FormFieldLabel,
+  FormSectionCard,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -42,6 +47,8 @@ import {
   buildEgressServices,
   emptyEgressService,
   serviceToForm,
+  type EgressServiceErrorField,
+  type EgressServiceErrors,
   type EgressServiceForm,
 } from '@/components/managed/environments-egress-editor'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
@@ -58,6 +65,32 @@ interface SaveEnvironmentVariables {
   runId: number
   scope: string
 }
+
+type MountResourceForm = {
+  name: string
+  volumeRef: string
+  subPath: string
+  mountPath: string
+  access: 'read_only' | 'read_write'
+  required: boolean
+}
+
+const mountNameFromVolume = (volumeRef: string) =>
+  volumeRef
+    .replace(/^storage[-_]?/, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'storage-data'
+
+const defaultMountPath = (name: string) => `/workspace/storage/${name || 'data'}`
+
+const mountResourceToForm = (resource: EnvironmentMountResource): MountResourceForm => ({
+  name: resource.name || mountNameFromVolume(resource.volume_ref || ''),
+  volumeRef: resource.volume_ref || '',
+  subPath: resource.sub_path || '',
+  mountPath: resource.mount_path || defaultMountPath(resource.name || 'data'),
+  access: resource.access === 'read_write' ? 'read_write' : 'read_only',
+  required: resource.required !== false,
+})
 
 export default function EnvironmentDetailPage({ params }: { params: Promise<{ envId: string }> }) {
   const { envId: rawId } = React.use(params)
@@ -93,6 +126,13 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     path: '/secrets',
     limit: 50,
   })
+  const { data: storageCatalog } = useQuery({
+    queryKey: ['storage-mount-catalog', managedScope.key],
+    queryFn: () => managedGet<{ data: StorageVolumeCatalogItem[] }>('/storage-volumes/catalog'),
+    enabled: hasManagedRequestScope(managedScope),
+    staleTime: 60_000,
+  })
+  const storageVolumes = storageCatalog?.data || []
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -102,9 +142,11 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
   const [pipPackages, setPipPackages] = useState('')
   const [npmPackages, setNpmPackages] = useState('')
   const [envVars, setEnvVars] = useState('')
-  const [secretRefs, setSecretRefs] = useState('')
+  const [mountResources, setMountResources] = useState<MountResourceForm[]>([])
   const [egressServices, setEgressServices] = useState<EgressServiceForm[]>([])
+  const [egressErrors, setEgressErrors] = useState<EgressServiceErrors>({})
   const [dirty, setDirty] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   useEffect(() => {
     if (operationScopeRef.current !== operationScope) {
@@ -138,7 +180,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           .map(([k, v]) => `${k}=${v}`)
           .join(', '),
       )
-      setSecretRefs(env.config?.secret_refs?.join(', ') || '')
+      setMountResources((env.config?.mount_resources || []).map(mountResourceToForm))
       setEgressServices((env.config?.egress_services || []).map(serviceToForm))
       hydratedEnvironmentScopeRef.current = operationScope
       setDirty(false)
@@ -181,8 +223,18 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     const ev = parseEnvVarsStr(envVars)
     if (Object.keys(ev).length > 0) config.env_vars = ev
 
-    const refs = splitList(secretRefs)
-    if (refs.length > 0) config.secret_refs = refs
+    const mounts: EnvironmentMountResource[] = mountResources
+      .map((resource) => ({
+        type: 'storage',
+        name: resource.name.trim(),
+        volume_ref: resource.volumeRef.trim(),
+        sub_path: resource.subPath.trim(),
+        mount_path: resource.mountPath.trim(),
+        access: resource.access,
+        required: resource.required,
+      }))
+      .filter((resource) => resource.name && resource.volume_ref && resource.mount_path)
+    if (mounts.length > 0) config.mount_resources = mounts
 
     const services = buildEgressServices(egressServices)
     if (services.length > 0) config.egress_services = services
@@ -298,10 +350,17 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
       </div>
 
       <fieldset disabled={isReadOnly} className="mt-6 max-w-2xl space-y-6">
+        <FormSectionCard
+          title={t('managed.environments.basicSettings', '基础配置')}
+          description={t('managed.environments.basicSettingsDesc', '设置环境名称、用途和默认网络访问策略。')}
+        >
         <div className="space-y-2">
-          <label className="text-sm font-medium">{t('managed.environments.name')}</label>
+          <FormFieldLabel required>
+            {t('managed.environments.name')}
+          </FormFieldLabel>
           <Input
             value={name}
+            placeholder={t('managed.environments.namePlaceholder')}
             onChange={(e) => {
               setName(e.target.value)
               setDirty(true)
@@ -310,9 +369,12 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">{t('managed.environments.description')}</label>
+          <FormFieldLabel optional={t('managed.environments.optional')}>
+            {t('managed.environments.description')}
+          </FormFieldLabel>
           <Input
             value={description}
+            placeholder={t('managed.environments.descPlaceholder')}
             onChange={(e) => {
               setDescription(e.target.value)
               setDirty(true)
@@ -320,9 +382,14 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           />
         </div>
 
-        <div className="border-t pt-4">
-          <h4 className="mb-3 text-sm font-medium">{t('managed.environments.networking')}</h4>
-          <div className="space-y-3">
+        <div className="space-y-2">
+          <FormFieldLabel
+            required
+            tooltip={t('managed.environments.networkingHint', '受限网络模式下，沙箱默认无法访问外网。只有白名单中的主机和第三方服务配置的地址可以访问。')}
+          >
+            {t('managed.environments.networking')}
+          </FormFieldLabel>
+          <div className="rounded-xl border border-border bg-muted/25 p-3">
             <Select
               value={networkType}
               onValueChange={(value) => {
@@ -340,26 +407,48 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
                 <SelectItem value="limited">{t('managed.environments.netLimited')}</SelectItem>
               </SelectContent>
             </Select>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              {networkType === 'limited'
+                ? t('managed.environments.netLimitedDesc', '默认禁止外网访问，仅允许白名单主机和已配置的第三方服务。')
+                : t('managed.environments.netUnrestrictedDesc', '允许沙箱访问外网；仅建议在可信环境或调试场景使用。')}
+            </p>
             {networkType === 'limited' && (
-              <div className="space-y-1">
-                <label className="text-sm font-medium">
+              <div className="mt-3 space-y-1.5 border-t border-border/70 pt-3">
+                <FormFieldLabel optional={t('managed.environments.optional')}>
                   {t('managed.environments.allowedHosts')}
-                </label>
-                <Input
-                  placeholder="api.example.com, github.com"
+                </FormFieldLabel>
+                <textarea
+                  placeholder={t('managed.environments.allowedHostsPlaceholder', 'api.example.com\ngithub.com\n*.internal.example.com')}
                   value={allowedHosts}
                   onChange={(e) => {
                     setAllowedHosts(e.target.value)
                     setDirty(true)
                   }}
+                  rows={4}
+                  className="flex min-h-[96px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {t('managed.environments.allowedHostsDesc', '第三方服务地址会自动放行；这里仅填写额外需要直连访问的主机。')}
+                </p>
               </div>
             )}
           </div>
         </div>
-
-        <div className="border-t pt-4">
-          <h4 className="mb-3 text-sm font-medium">{t('managed.environments.envVarsLabel')}</h4>
+        </FormSectionCard>
+        <AdvancedSection
+          open={showAdvanced}
+          onOpenChange={setShowAdvanced}
+          title={t('managed.environments.advancedOptions', '高级选项')}
+          summary={t('managed.environments.advancedSummaryEdit', '环境变量、数据卷挂载、第三方服务')}
+        >
+        <div>
+          <FormFieldLabel
+            optional={t('managed.environments.optional')}
+            tooltip={t('managed.environments.envVarsHint', '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感凭证。')}
+            className="mb-3"
+          >
+            {t('managed.environments.envVarsLabel')}
+          </FormFieldLabel>
           <Input
             value={envVars}
             onChange={(e) => {
@@ -370,22 +459,189 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
           />
         </div>
 
-        <div className="border-t pt-4">
-          <h4 className="mb-3 text-sm font-medium">{t('managed.environments.secretRefsLabel')}</h4>
-          <Input
-            value={secretRefs}
-            onChange={(e) => {
-              setSecretRefs(e.target.value)
-              setDirty(true)
-            }}
-            placeholder="my-api-secret, db-credentials"
-          />
+        <div className="pt-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <FormFieldLabel optional={t('managed.environments.optional')}>
+                {t('managed.environments.storageMounts', '数据卷挂载')}
+              </FormFieldLabel>
+              <p className="text-xs text-muted-foreground">
+                将平台管理的共享存储目录挂载到沙箱的 /workspace 下，供 Agent 读写文件。
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={storageVolumes.length === 0}
+              onClick={() => {
+                const first = storageVolumes[0]
+                if (!first) return
+                const mountName = mountNameFromVolume(first.volume_ref)
+                setMountResources((items) => [
+                  ...items,
+                  {
+                    name: mountName,
+                    volumeRef: first.volume_ref,
+                    subPath: first.allowed_prefixes?.[0] || '',
+                    mountPath: defaultMountPath(mountName),
+                    access: 'read_only',
+                    required: true,
+                  },
+                ])
+                setDirty(true)
+              }}
+            >
+              添加挂载
+            </Button>
+          </div>
+          {storageVolumes.length === 0 && (
+            <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
+              当前部署未配置 Storage volume catalog。
+            </div>
+          )}
+          {mountResources.length > 0 && (
+            <div className="space-y-3">
+              {mountResources.map((resource, index) => {
+                const selected = storageVolumes.find((item) => item.volume_ref === resource.volumeRef)
+                const canWrite = selected?.max_access === 'read_write'
+                return (
+                  <div key={`${resource.volumeRef}-${index}`} className="rounded-xl border bg-card p-3">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">{resource.name || '数据卷'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          挂载到 {resource.mountPath || '/workspace/storage/data'}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setMountResources((items) => items.filter((_, itemIndex) => itemIndex !== index))
+                          setDirty(true)
+                        }}
+                      >
+                        移除
+                      </Button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1 text-sm">
+                        <span className="font-medium">数据卷</span>
+                        <Select
+                          value={resource.volumeRef}
+                          onValueChange={(value) => {
+                            const volume = storageVolumes.find((item) => item.volume_ref === value)
+                            const mountName = mountNameFromVolume(value)
+                            setMountResources((items) =>
+                              items.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...item,
+                                      name: mountName,
+                                      volumeRef: value,
+                                      subPath: volume?.allowed_prefixes?.[0] || '',
+                                      mountPath: defaultMountPath(mountName),
+                                      access: 'read_only',
+                                    }
+                                  : item,
+                              ),
+                            )
+                            setDirty(true)
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择数据卷" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {storageVolumes.map((volume) => (
+                              <SelectItem key={volume.volume_ref} value={volume.volume_ref}>
+                                {volume.display_name || volume.volume_ref}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </label>
+                      <label className="space-y-1 text-sm">
+                        <span className="font-medium">
+                          访问权限 <FieldHelp text="只读模式下 Agent 只能读取文件，无法修改；读写模式允许 Agent 创建和修改文件。不能超过平台管理员授予的最大权限。" />
+                        </span>
+                        <Select
+                          value={resource.access}
+                          onValueChange={(value) => {
+                            setMountResources((items) =>
+                              items.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, access: value as MountResourceForm['access'] }
+                                  : item,
+                              ),
+                            )
+                            setDirty(true)
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择访问权限" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="read_only">只读</SelectItem>
+                            {canWrite && <SelectItem value="read_write">读写</SelectItem>}
+                          </SelectContent>
+                        </Select>
+                      </label>
+                      <label className="space-y-1 text-sm">
+                        <span className="font-medium">
+                          子目录 <FieldHelp text="存储卷内的子目录路径（相对路径）。留空则挂载整个存储卷根目录。必须在管理员配置的允许前缀范围内。" />
+                        </span>
+                        <Input
+                          value={resource.subPath}
+                          placeholder="tenant-a/project-x"
+                          onChange={(event) => {
+                            setMountResources((items) =>
+                              items.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, subPath: event.target.value } : item,
+                              ),
+                            )
+                            setDirty(true)
+                          }}
+                        />
+                      </label>
+                      <label className="space-y-1 text-sm">
+                        <span className="font-medium">
+                          沙箱路径 <FieldHelp text="数据卷在沙箱容器内的挂载位置。必须是 /workspace/ 下的绝对路径，Agent 通过这个路径读写文件。" />
+                        </span>
+                        <Input
+                          value={resource.mountPath}
+                          placeholder="/workspace/storage/data"
+                          onChange={(event) => {
+                            setMountResources((items) =>
+                              items.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, mountPath: event.target.value } : item,
+                              ),
+                            )
+                            setDirty(true)
+                          }}
+                        />
+                      </label>
+                    </div>
+                    {selected?.allowed_prefixes && selected.allowed_prefixes.length > 0 && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        允许前缀：{selected.allowed_prefixes.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         <div className="pt-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
-              <h4 className="text-sm font-medium">{t('managed.environments.egressServices')}</h4>
+              <FormFieldLabel optional={t('managed.environments.optional')}>
+                {t('managed.environments.egressServices')}
+              </FormFieldLabel>
               <p className="text-xs text-muted-foreground">
                 {t('managed.environments.egressServicesHint')}
               </p>
@@ -406,20 +662,51 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
             services={egressServices}
             setServices={setEgressServices}
             secrets={secrets}
+            errors={egressErrors}
+            onClearFieldError={(index, field) => {
+              setEgressErrors((prev) => {
+                const next = { ...prev }
+                if (next[index]) {
+                  next[index] = { ...next[index], [field]: undefined }
+                  if (Object.values(next[index]).every((v) => !v)) delete next[index]
+                }
+                return next
+              })
+            }}
             onDirty={() => setDirty(true)}
             onRemove={(index) => {
               setEgressServices((items) => items.filter((_, i) => i !== index))
+              setEgressErrors((prev) => {
+                const next = { ...prev }
+                delete next[index]
+                return next
+              })
               setDirty(true)
             }}
           />
         </div>
 
-        <div className="border-t pt-4">
+        </AdvancedSection>
+
+        <FormActionBar className="mx-0">
           {isReadOnly ? (
             <p className="text-sm text-muted-foreground">{t('managed.errors.projectArchived')}</p>
           ) : (
             <Button
               onClick={() => {
+                // Validate egress services before save
+                const errors: EgressServiceErrors = {}
+                egressServices.forEach((svc, idx) => {
+                  const e: Record<string, string> = {}
+                  if (!svc.name.trim()) e.name = t('managed.environments.validation.required')
+                  if (!svc.baseUrl.trim()) e.baseUrl = t('managed.environments.validation.required')
+                  if (!svc.credentialRef.trim()) e.credentialRef = t('managed.environments.validation.required')
+                  if (svc.authType === 'cookie' && !svc.secretKey.trim()) e.secretKey = t('managed.environments.validation.cookieRequired')
+                  if (Object.keys(e).length) errors[idx] = e
+                })
+                setEgressErrors(errors)
+                if (Object.keys(errors).length > 0) return
+
                 if (!currentEditableEnvironment()) return
                 const requestScope = managedRequestScopeRef.current
                 const scope = operationScopeRef.current
@@ -441,7 +728,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
               {saveMutation.isPending ? t('common.loading') : t('managed.environments.save')}
             </Button>
           )}
-        </div>
+        </FormActionBar>
       </fieldset>
     </div>
   )

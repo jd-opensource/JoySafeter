@@ -26,13 +26,24 @@ import {
   SelectItem,
   SelectValue,
 } from '@/components/ui/select'
-import { FieldHelp, PageHeader, SkillVersionSelect } from '@/components/managed/shared'
-import { Plus, Trash2 } from 'lucide-react'
+import {
+  AdvancedSection,
+  FieldHelp,
+  FormActionBar,
+  FormFieldLabel,
+  FormSectionCard,
+  PageHeader,
+  SkillVersionSelect,
+} from '@/components/managed/shared'
+import { CircleHelp, Plus, Trash2 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
+import { ModelSecretSelect } from '../../components/model-secret-select'
+import { SearchableAgentConfigSelect } from '../../components/searchable-agent-config-select'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
 
@@ -46,11 +57,6 @@ interface McpServerEntry {
   url: string
   /** Permission policy for this server's tools. Defaults to always_ask. */
   policy?: 'always_allow' | 'always_ask'
-}
-
-interface EnvVarEntry {
-  key: string
-  value: string
 }
 
 interface ManagedListResponse<T> {
@@ -141,6 +147,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const [systemPrompt, setSystemPrompt] = useState('')
   const [systemPromptMode, setSystemPromptMode] = useState<'append' | 'replace'>('append')
   const [dirty, setDirty] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const systemPromptRequired = systemPromptMode === 'replace'
+  const systemPromptValid = !systemPromptRequired || systemPrompt.trim().length > 0
 
   // ── MCP servers state ──
   const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([])
@@ -201,8 +210,6 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   // ── Permission mode ──
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
 
-  // ── Environment variables ──
-  const [envVars, setEnvVars] = useState<EnvVarEntry[]>([])
   const markDirty = () => setDirty(true)
 
   useEffect(() => {
@@ -292,7 +299,6 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     setEnvironmentRef(agent.environment_ref || '')
 
     // Env vars
-    setEnvVars(Object.entries(agent.env || {}).map(([key, value]) => ({ key, value })))
     hydratedAgentScopeRef.current = operationScope
     setDirty(false)
   }, [agent, dirty, operationScope])
@@ -349,21 +355,6 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   }
 
   // ── Env var helpers ──
-  const addEnvVar = () => {
-    markDirty()
-    setEnvVars((prev) => [...prev, { key: '', value: '' }])
-  }
-
-  const updateEnvVar = (idx: number, field: 'key' | 'value', val: string) => {
-    markDirty()
-    setEnvVars((prev) => prev.map((e, i) => (i === idx ? { ...e, [field]: val } : e)))
-  }
-
-  const removeEnvVar = (idx: number) => {
-    markDirty()
-    setEnvVars((prev) => prev.filter((_, i) => i !== idx))
-  }
-
   // ── Build tools payload ──
   const buildToolsPayload = () => {
     const tools: Record<string, unknown>[] = []
@@ -391,17 +382,6 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
       })
     }
     return tools
-  }
-
-  // ── Build env vars payload ──
-  const buildEnvPayload = (): Record<string, string> => {
-    const result: Record<string, string> = {}
-    for (const entry of envVars) {
-      if (entry.key.trim()) {
-        result[entry.key.trim()] = entry.value
-      }
-    }
-    return result
   }
 
   const buildSavePayload = (
@@ -450,7 +430,6 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
       })),
       ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
       ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
-      env: buildEnvPayload(),
       metadata: { system_prompt_mode: systemPromptMode },
     }
   }
@@ -532,17 +511,17 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
           </Alert>
         )}
 
-        <fieldset disabled={formReadOnly} className="space-y-8">
+        <fieldset disabled={formReadOnly} className="space-y-6">
           {/* ───────── Basic Info ───────── */}
-          <section className="space-y-4">
-            <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
-              {t('agents.edit.basicInfo')}
-            </h3>
+          <FormSectionCard
+            title={t('agents.edit.basicInfo')}
+            description={t('managed.agents.basicSettingsDesc', '设置智能体名称、模型密钥、引擎和系统提示词。')}
+          >
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
+              <FormFieldLabel required className="mb-1.5">
                 {t('managed.agents.name')}
-              </label>
+              </FormFieldLabel>
               <Input
                 value={name}
                 onChange={(e) => {
@@ -553,9 +532,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
+              <FormFieldLabel optional={t('managed.agents.formOptional')} className="mb-1.5">
                 {t('managed.agents.description')}
-              </label>
+              </FormFieldLabel>
               <Input
                 value={description}
                 onChange={(e) => {
@@ -567,12 +546,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             </div>
 
             <div>
-              <div className="mb-1.5 flex items-center gap-1.5">
-                <label className="text-sm font-medium text-foreground">
-                  {t('managed.agents.engineKind')}
-                </label>
-                <FieldHelp text={t('managed.agents.engineKindDesc')} />
-              </div>
+              <FormFieldLabel required tooltip={t('managed.agents.engineKindDesc')} className="mb-1.5">
+                {t('managed.agents.engineKind')}
+              </FormFieldLabel>
               <Select
                 value={engineKind}
                 onValueChange={(value) => {
@@ -591,10 +567,88 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
               </Select>
             </div>
 
+          {/* ───────── Secret Reference ───────── */}
+          <section className="space-y-3">
+            <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
+              {t('agents.edit.secretRef')}
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                {t('managed.agents.formOptional')}
+              </span>
+            </h3>
+            {secrets && secrets.length > 0 ? (
+              <ModelSecretSelect
+                value={secretRef}
+                secrets={secrets}
+                placeholder={t('agents.edit.selectSecret')}
+                noneLabel={t('agents.edit.noSelection')}
+                searchPlaceholder={t('agents.edit.searchSecret')}
+                emptyText={t('agents.edit.noSecretMatch')}
+                createLabel={t('agents.edit.createSecret')}
+                clearSearchLabel={t('agents.edit.clearSearch')}
+                onChange={(value) => {
+                  setSecretRef(value)
+                  markDirty()
+                }}
+                onCreate={() => window.open('/managed/secrets?create=llm', '_blank')}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {t('managed.agents.create.noSecrets')}
+              </p>
+            )}
+          </section>
+
+
+          {/* ───────── Environment Reference ───────── */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-1.5 border-b border-border pb-2">
+              <h3 className="text-sm font-semibold text-foreground">
+                {t('agents.edit.environmentRef')}
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  {t('managed.agents.formOptional')}
+                </span>
+              </h3>
+              <FieldHelp text={t('agents.edit.environmentRefHint')} />
+            </div>
+            {environments && environments.length > 0 ? (
+              <SearchableAgentConfigSelect
+                value={environmentRef || '__none__'}
+                options={environments.map((env) => ({ value: env.id, label: env.name, searchText: env.id }))}
+                placeholder={t('agents.edit.selectEnvironment')}
+                noneLabel={t('agents.edit.noSelection')}
+                searchPlaceholder={t('agents.edit.searchEnvironment')}
+                emptyText={t('agents.edit.noEnvironmentMatch')}
+                createLabel={t('agents.edit.createEnvironment')}
+                clearSearchLabel={t('agents.edit.clearSearch')}
+                onChange={(value) => {
+                  setEnvironmentRef(value)
+                  markDirty()
+                }}
+                onCreate={() => window.open('/managed/environments?create=1', '_blank')}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {t('agents.edit.noEnvironments')}
+                <button
+                  type="button"
+                  onClick={() => window.open('/managed/environments?create=1', '_blank')}
+                  className="ml-2 text-primary hover:underline"
+                >
+                  {t('agents.edit.createEnvironment')}
+                </button>
+              </p>
+            )}
+          </section>
+
+
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
+              <FormFieldLabel
+                required={systemPromptRequired}
+                optional={!systemPromptRequired ? t('managed.agents.formOptional') : undefined}
+                className="mb-1.5"
+              >
                 {t('managed.agents.systemPrompt')}
-              </label>
+              </FormFieldLabel>
               <textarea
                 className="flex min-h-[200px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 value={systemPrompt}
@@ -605,7 +659,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                 placeholder={t('managed.agents.systemPromptPlaceholder')}
               />
               <div className="mt-2 flex items-center gap-3">
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <input
                     type="radio"
                     name="system_prompt_mode"
@@ -615,8 +669,18 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                     className="accent-primary"
                   />
                   {t('managed.agents.promptModeAppend', '追加模式')}
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <CircleHelp className="h-3.5 w-3.5 cursor-help text-muted-foreground/60" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[240px] text-xs">
+                        {t('managed.agents.promptModeAppendTooltip', '系统提示追加到引擎（Claude Code）内置提示后面，保留引擎的行为规范和最佳实践指引')}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </label>
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <input
                     type="radio"
                     name="system_prompt_mode"
@@ -626,21 +690,36 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                     className="accent-primary"
                   />
                   {t('managed.agents.promptModeReplace', '替换模式')}
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <CircleHelp className="h-3.5 w-3.5 cursor-help text-muted-foreground/60" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[240px] text-xs">
+                        {t('managed.agents.promptModeReplaceTooltip', '完全替换引擎内置提示，由你的系统提示全权控制 Agent 行为。工具（Bash/文件读写等）仍可正常使用')}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </label>
-                <span className="text-[10px] text-muted-foreground/70">
-                  {systemPromptMode === 'replace'
-                    ? t('managed.agents.promptModeReplaceHint', '完全替换引擎内置提示（工具仍可用）')
-                    : t('managed.agents.promptModeAppendHint', '追加到引擎内置提示后面')}
-                </span>
               </div>
             </div>
-          </section>
+          </FormSectionCard>
+
+          <AdvancedSection
+            open={showAdvanced}
+            onOpenChange={setShowAdvanced}
+            title={t('managed.agents.create.advancedOptions', '高级选项')}
+            summary={t('managed.agents.edit.advancedSummary', 'MCP、工具、Skills')}
+          >
 
           {/* ───────── MCP Servers ───────── */}
           <section className="space-y-3">
             <div className="flex items-center justify-between border-b border-border pb-2">
               <h3 className="text-sm font-semibold text-foreground">
                 {t('agents.edit.mcpServers')}
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  {t('managed.agents.formOptional')}
+                </span>
               </h3>
               <button
                 type="button"
@@ -720,6 +799,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
           <section className="space-y-3">
             <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
               {t('agents.edit.tools')}
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                {t('managed.agents.formOptionalDefaultEnabled')}
+              </span>
             </h3>
             <div className="grid grid-cols-4 gap-3">
               {BUILTIN_TOOLS.map((tool) => (
@@ -753,9 +835,13 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
             {/* Permission mode — applies to the whole toolset */}
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">
+              <FormFieldLabel
+                optional={t('managed.agents.formOptionalDefaultEnabled')}
+                tooltip={t('managed.agents.edit.permissionModeHint', '控制 Agent 使用工具（如执行命令、写文件）时是否需要人工确认。「跳过确认」允许 Agent 自主执行所有操作。')}
+                className="mb-1.5"
+              >
                 {t('agents.edit.permissionMode')}
-              </label>
+              </FormFieldLabel>
               <select
                 className="flex w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                 value={permissionMode}
@@ -776,6 +862,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
           <section className="space-y-3">
             <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
               {t('agents.edit.skills')}
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                {t('managed.agents.formOptional')}
+              </span>
             </h3>
             {!visibleSkills || visibleSkills.length === 0 ? (
               <p className="py-2 text-center text-sm text-muted-foreground">
@@ -839,118 +928,11 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             )}
           </section>
 
-          {/* ───────── Secret Reference ───────── */}
-          <section className="space-y-3">
-            <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
-              {t('agents.edit.secretRef')}
-            </h3>
-            {secrets && secrets.length > 0 ? (
-              <Select
-                value={secretRef || '__none__'}
-                onValueChange={(v) => {
-                  setSecretRef(v === '__none__' ? '' : v)
-                  markDirty()
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t('agents.edit.selectSecret')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">{t('agents.edit.noSelection')}</SelectItem>
-                  {secrets.map((s) => (
-                    <SelectItem key={s.name} value={s.name}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {t('managed.agents.create.noSecrets')}
-              </p>
-            )}
-          </section>
-
-          {/* ───────── Environment Reference ───────── */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-1.5 border-b border-border pb-2">
-              <h3 className="text-sm font-semibold text-foreground">
-                {t('agents.edit.environmentRef')}
-              </h3>
-              <FieldHelp text={t('agents.edit.environmentRefHint')} />
-            </div>
-            {environments && environments.length > 0 ? (
-              <Select
-                value={environmentRef || '__none__'}
-                onValueChange={(v) => {
-                  setEnvironmentRef(v === '__none__' ? '' : v)
-                  markDirty()
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t('agents.edit.selectEnvironment')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">{t('agents.edit.noSelection')}</SelectItem>
-                  {environments.map((env) => (
-                    <SelectItem key={env.id} value={env.id}>
-                      {env.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t('agents.edit.noEnvironments')}</p>
-            )}
-          </section>
-
-          {/* ───────── Environment Variables ───────── */}
-          <section className="space-y-3">
-            <div className="flex items-center justify-between border-b border-border pb-2">
-              <h3 className="text-sm font-semibold text-foreground">{t('agents.edit.envVars')}</h3>
-              <button
-                type="button"
-                onClick={addEnvVar}
-                className="flex h-6 w-6 items-center justify-center rounded border border-border transition-colors hover:bg-accent"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {envVars.length === 0 && (
-              <p className="py-2 text-center text-sm text-muted-foreground">
-                {t('agents.edit.noEnvVars')}
-              </p>
-            )}
-
-            {envVars.map((entry, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <Input
-                  className="flex-1 text-sm"
-                  placeholder={t('agents.edit.envKeyPlaceholder')}
-                  value={entry.key}
-                  onChange={(e) => updateEnvVar(i, 'key', e.target.value)}
-                />
-                <Input
-                  className="flex-[2] text-sm"
-                  placeholder={t('agents.edit.envValuePlaceholder')}
-                  value={entry.value}
-                  onChange={(e) => updateEnvVar(i, 'value', e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeEnvVar(i)}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </section>
+          </AdvancedSection>
         </fieldset>
 
         {/* ───────── Action buttons ───────── */}
-        <div className="flex items-center gap-3 border-t border-border pt-2">
+        <FormActionBar className="mx-0">
           <Button
             onClick={() => {
               const current = currentEditableAgent()
@@ -968,14 +950,14 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                 scope,
               })
             }}
-            disabled={formReadOnly || mutation.isPending}
+            disabled={formReadOnly || mutation.isPending || !name.trim() || !systemPromptValid}
           >
             {mutation.isPending ? t('managed.agents.saving') : t('managed.agents.saveChanges')}
           </Button>
           <Button variant="outline" onClick={() => router.push(`/managed/agents/${agentId}`)}>
             {t('common.cancel')}
           </Button>
-        </div>
+        </FormActionBar>
       </div>
     </div>
   )

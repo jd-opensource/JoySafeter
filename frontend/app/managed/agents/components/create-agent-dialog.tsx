@@ -1,10 +1,19 @@
 'use client'
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { CircleHelp, Plus, Trash2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { FieldHelp, SkillVersionSelect } from '@/components/managed/shared'
+import {
+  AdvancedSection,
+  FormActionBar,
+  FormFieldLabel,
+  FormSectionCard,
+  FieldHelp,
+  SkillVersionSelect,
+} from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -36,6 +45,8 @@ import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skil
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { ModelSecretSelect } from './model-secret-select'
+import { SearchableAgentConfigSelect } from './searchable-agent-config-select'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
 
@@ -50,11 +61,6 @@ interface McpServerEntry {
   /** Permission policy for this server's tools. Defaults to always_ask
    * (matches the Managed Agents default for mcp_toolset). */
   policy?: 'always_allow' | 'always_ask'
-}
-
-interface EnvVarEntry {
-  key: string
-  value: string
 }
 
 interface ManagedListResponse<T> {
@@ -92,6 +98,7 @@ interface CreateAgentDialogProps {
 
 export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgentDialogProps) {
   const { t } = useTranslation()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
   const createRunRef = useRef(0)
@@ -115,8 +122,10 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
   /** skill_id → chosen version keyword ("latest", "draft") or semver string. */
   const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
-  const [envVars, setEnvVars] = useState<EnvVarEntry[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const systemPromptRequired = systemPromptMode === 'replace'
+  const systemPromptValid = !systemPromptRequired || systemPrompt.trim().length > 0
 
   const { data: secretsRes } = useQuery({
     queryKey: ['secrets', managedScope.key],
@@ -194,8 +203,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setPermissionMode('bypassPermissions')
     setSelectedSkillIds(new Set())
     setSkillVersions({})
-    setEnvVars([])
     setSubmitting(false)
+    setShowAdvanced(false)
   }
 
   useEffect(() => {
@@ -299,14 +308,6 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         })
       }
 
-      // Build env payload
-      const envPayload: Record<string, string> = {}
-      for (const entry of envVars) {
-        if (entry.key.trim()) {
-          envPayload[entry.key.trim()] = entry.value
-        }
-      }
-
       const currentSecrets =
         queryClient.getQueryData<{ data?: { name: string }[] }>(['secrets', scopeAtStart])?.data ??
         secrets
@@ -357,7 +358,6 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             skill_id: id,
             version: currentSkillVersions[id] || 'latest',
           })),
-          env: Object.keys(envPayload).length > 0 ? envPayload : undefined,
         },
         managedRequestOptions(requestScope),
       )
@@ -393,12 +393,16 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           <DialogTitle>{t('managed.agents.create.title')}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6 py-2">
+        <div className="space-y-4 py-2">
+          <FormSectionCard
+            title={t('managed.agents.basicSettings', '基础配置')}
+            description={t('managed.agents.basicSettingsDesc', '设置智能体名称、模型密钥、引擎和系统提示词。')}
+          >
           {/* Name */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
+            <FormFieldLabel required className="mb-1.5">
               {t('managed.agents.name')}
-            </label>
+            </FormFieldLabel>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -408,11 +412,12 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
           {/* Description */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
+            <FormFieldLabel optional={t('managed.agents.formOptional')} className="mb-1.5">
               {t('managed.agents.description')}
-            </label>
+            </FormFieldLabel>
             <textarea
-              className="flex min-h-[100px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              rows={2}
+              className="flex min-h-[64px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t('managed.agents.create.descriptionPlaceholder')}
@@ -421,12 +426,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
           {/* Engine Kind */}
           <div>
-            <div className="mb-1.5 flex items-center gap-1.5">
-              <label className="text-sm font-medium text-foreground">
-                {t('managed.agents.engineKind')}
-              </label>
-              <FieldHelp text={t('managed.agents.engineKindDesc')} />
-            </div>
+            <FormFieldLabel required tooltip={t('managed.agents.engineKindDesc')} className="mb-1.5">
+              {t('managed.agents.engineKind')}
+            </FormFieldLabel>
             <Select value={engineKind} onValueChange={setEngineKind}>
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -441,73 +443,94 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
           {/* Secret / API Key */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
+            <FormFieldLabel optional={t('managed.agents.formOptionalWithDefault')} className="mb-1.5">
               {t('managed.agents.edit.secretRef')}
-            </label>
+            </FormFieldLabel>
             {secrets && secrets.length > 0 ? (
-              <Select
-                value={effectiveSecretRef || '__none__'}
-                onValueChange={(v) => {
-                  setSecretRef(v === '__none__' ? '' : v)
-                  setSecretSelectionCleared(v === '__none__')
+              <ModelSecretSelect
+                value={effectiveSecretRef}
+                secrets={secrets}
+                placeholder={t('managed.agents.edit.selectSecret')}
+                noneLabel={t('managed.agents.edit.noSelection')}
+                searchPlaceholder={t('managed.agents.edit.searchSecret')}
+                emptyText={t('managed.agents.edit.noSecretMatch')}
+                createLabel={t('managed.agents.edit.createSecret')}
+                clearSearchLabel={t('managed.agents.edit.clearSearch')}
+                onChange={(value) => {
+                  setSecretRef(value)
+                  setSecretSelectionCleared(!value)
                 }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">{t('managed.agents.edit.noSelection')}</SelectItem>
-                  {secrets.map((s) => (
-                    <SelectItem key={s.name} value={s.name}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onCreate={() => router.push('/managed/secrets?create=llm')}
+              />
             ) : (
-              <p className="text-sm text-muted-foreground">
-                {t('managed.agents.create.noSecrets')}
-              </p>
+              <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/20 p-3">
+                <p className="text-sm text-muted-foreground">
+                  {t('managed.agents.create.noSecrets')}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push('/managed/secrets?create=llm')}
+                >
+                  {t('managed.agents.edit.createSecret')}
+                </Button>
+              </div>
             )}
           </div>
 
           {/* Default Environment */}
           <div>
-            <div className="mb-1.5 flex items-center gap-1.5">
-              <label className="text-sm font-medium text-foreground">
-                {t('managed.agents.edit.environmentRef')}
-              </label>
-              <FieldHelp text={t('managed.agents.edit.environmentRefHint')} />
-            </div>
+            <FormFieldLabel
+              optional={t('managed.agents.formOptional')}
+              tooltip={t('managed.agents.edit.environmentRefHint')}
+              className="mb-1.5"
+            >
+              {t('managed.agents.edit.environmentRef')}
+            </FormFieldLabel>
             {environments && environments.length > 0 ? (
-              <Select
-                value={effectiveEnvironmentRef || '__none__'}
-                onValueChange={(v) => setEnvironmentRef(v === '__none__' ? '' : v)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t('managed.agents.edit.selectEnvironment')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">{t('managed.agents.edit.noSelection')}</SelectItem>
-                  {environments.map((env) => (
-                    <SelectItem key={env.id} value={env.id}>
-                      {env.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableAgentConfigSelect
+                value={effectiveEnvironmentRef}
+                options={environments.map((env) => ({
+                  value: env.id,
+                  label: env.name,
+                  searchText: env.id,
+                }))}
+                placeholder={t('managed.agents.edit.selectEnvironment')}
+                noneLabel={t('managed.agents.edit.noSelection')}
+                searchPlaceholder={t('managed.agents.edit.searchEnvironment')}
+                emptyText={t('managed.agents.edit.noEnvironmentMatch')}
+                createLabel={t('managed.agents.edit.createEnvironment')}
+                clearSearchLabel={t('managed.agents.edit.clearSearch')}
+                onChange={setEnvironmentRef}
+                onCreate={() => router.push('/managed/environments?create=1')}
+              />
             ) : (
-              <p className="text-sm text-muted-foreground">
-                {t('managed.agents.edit.noEnvironments')}
-              </p>
+              <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/20 p-3">
+                <p className="text-sm text-muted-foreground">
+                  {t('managed.agents.edit.noEnvironments')}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push('/managed/environments?create=1')}
+                >
+                  {t('managed.agents.edit.createEnvironment')}
+                </Button>
+              </div>
             )}
           </div>
 
           {/* System prompt */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">
+            <FormFieldLabel
+              required={systemPromptRequired}
+              optional={!systemPromptRequired ? t('managed.agents.formOptional') : undefined}
+              className="mb-1.5"
+            >
               {t('managed.agents.systemPrompt')}
-            </label>
+            </FormFieldLabel>
             <textarea
               className="flex min-h-[160px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               value={systemPrompt}
@@ -515,7 +538,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               placeholder={t('managed.agents.create.systemPromptPlaceholder')}
             />
             <div className="mt-2 flex items-center gap-3">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <input
                   type="radio"
                   name="create_system_prompt_mode"
@@ -525,8 +548,18 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   className="accent-primary"
                 />
                 {t('managed.agents.promptModeAppend', '追加模式')}
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CircleHelp className="h-3.5 w-3.5 cursor-help text-muted-foreground/60" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[240px] text-xs">
+                      {t('managed.agents.promptModeAppendTooltip', '系统提示追加到引擎（Claude Code）内置提示后面，保留引擎的行为规范和最佳实践指引')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </label>
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <input
                   type="radio"
                   name="create_system_prompt_mode"
@@ -536,19 +569,32 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   className="accent-primary"
                 />
                 {t('managed.agents.promptModeReplace', '替换模式')}
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CircleHelp className="h-3.5 w-3.5 cursor-help text-muted-foreground/60" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[240px] text-xs">
+                      {t('managed.agents.promptModeReplaceTooltip', '完全替换引擎内置提示，由你的系统提示全权控制 Agent 行为。工具（Bash/文件读写等）仍可正常使用')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </label>
-              <span className="text-[10px] text-muted-foreground/70">
-                {systemPromptMode === 'replace'
-                  ? t('managed.agents.promptModeReplaceHint', '完全替换引擎内置提示（工具仍可用）')
-                  : t('managed.agents.promptModeAppendHint', '追加到引擎内置提示后面')}
-              </span>
             </div>
           </div>
 
           <hr className="border-dashed" />
 
+          </FormSectionCard>
+
+          <AdvancedSection
+            open={showAdvanced}
+            onOpenChange={setShowAdvanced}
+            title={t('managed.agents.create.advancedOptions', '高级选项')}
+            summary={t('managed.agents.create.advancedSummary', 'MCP、工具、Skills')}
+          >
           {/* Tools */}
-          <div>
+          <div className="order-3">
             <label className="mb-3 block text-sm font-medium text-foreground">
               {t('managed.agents.edit.tools')}
             </label>
@@ -586,6 +632,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             <div className="mt-4">
               <label className="mb-1.5 block text-sm font-medium text-foreground">
                 {t('managed.agents.edit.permissionMode')}
+                <FieldHelp text={t('managed.agents.edit.permissionModeHint', '控制 Agent 使用工具（如执行命令、写文件）时是否需要人工确认。「跳过确认」允许 Agent 自主执行所有操作。')} />
               </label>
               <select
                 className="flex w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
@@ -601,10 +648,10 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             </div>
           </div>
 
-          <hr className="border-dashed" />
+          <hr className="order-4 border-dashed" />
 
           {/* MCP Servers */}
-          <div>
+          <div className="order-1">
             <div className="mb-3 flex items-center justify-between">
               <label className="text-sm font-medium text-foreground">
                 {t('managed.agents.edit.mcpServers')}
@@ -680,10 +727,10 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             )}
           </div>
 
-          <hr className="border-dashed" />
+          <hr className="order-2 border-dashed" />
 
           {/* Skills */}
-          <div>
+          <div className="order-5">
             <label className="mb-3 block text-sm font-medium text-foreground">
               {t('managed.agents.edit.skills')}
             </label>
@@ -776,9 +823,10 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               </div>
             )}
           </div>
+          </AdvancedSection>
         </div>
 
-        <DialogFooter>
+        <FormActionBar>
           <Button
             variant="outline"
             onClick={() => {
@@ -788,10 +836,10 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           >
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={submitting || !name.trim()}>
+          <Button onClick={handleSubmit} disabled={submitting || !name.trim() || !systemPromptValid}>
             {submitting ? t('managed.agents.create.creating') : t('managed.agents.create.submit')}
           </Button>
-        </DialogFooter>
+        </FormActionBar>
       </DialogContent>
     </Dialog>
   )

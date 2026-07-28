@@ -367,10 +367,17 @@ class JoySafeterTriggerService:
         result = await self.db.execute(select(JoySafeterTrigger).where(*conditions))
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, name: str, project_id: Optional[str]) -> Optional[JoySafeterTrigger]:
-        result = await self.db.execute(
-            select(JoySafeterTrigger).where(JoySafeterTrigger.name == name, JoySafeterTrigger.project_id == project_id)
-        )
+    async def get_by_name(
+        self,
+        name: str,
+        project_id: Optional[str],
+        *,
+        type: Optional[str] = None,
+    ) -> Optional[JoySafeterTrigger]:
+        conditions = [JoySafeterTrigger.name == name, JoySafeterTrigger.project_id == project_id]
+        if type is not None:
+            conditions.append(JoySafeterTrigger.type == type)
+        result = await self.db.execute(select(JoySafeterTrigger).where(*conditions))
         return result.scalar_one_or_none()
 
     async def list(
@@ -415,7 +422,9 @@ class JoySafeterTriggerService:
                     user_action="fix_input",
                 )
         self._validate_update_candidate(trigger, fields)
-        recompute_next = trigger.type == "cron" and any(k in fields for k in ("cron_expr", "timezone", "run_at"))
+        recompute_next = trigger.type == "cron" and any(
+            k in fields for k in ("cron_expr", "timezone", "run_at", "enabled")
+        )
         for key, value in fields.items():
             if key in {"auth_methods", "dedupe_header"}:
                 config = dict(trigger.config or {})

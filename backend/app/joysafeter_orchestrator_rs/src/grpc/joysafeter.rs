@@ -459,6 +459,10 @@ pub struct StartTask {
     pub custom_tools: ::prost::alloc::vec::Vec<CustomTool>,
     #[prost(string, repeated, tag = "20")]
     pub ask_tools: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// "append" (default): --append-system-prompt (CC keeps its built-in prompt)
+    /// "replace": --system-prompt (CC built-in prompt is replaced)
+    #[prost(string, optional, tag = "21")]
+    pub system_prompt_mode: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CustomTool {

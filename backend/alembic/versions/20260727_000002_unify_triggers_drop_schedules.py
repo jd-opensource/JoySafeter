@@ -1,7 +1,7 @@
 """unify triggers: rename tasks.schedule_id -> trigger_id, drop joysafeter_schedules
 
 Revision ID: 20260727_000002
-Revises: 20260727_000001
+Revises: 20260725_000002
 Create Date: 2026-07-27
 
 Cron scheduling is now a ``type='cron'`` row in ``joysafeter_triggers`` (the
@@ -19,7 +19,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260727_000002"
-down_revision: Union[str, None] = "20260727_000001"
+down_revision: Union[str, None] = "20260725_000002"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

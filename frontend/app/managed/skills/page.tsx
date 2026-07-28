@@ -3292,7 +3292,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
             { label: selectedSkill.name },
           ]}
           action={
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {savedFlash && (
                 <span className="flex items-center gap-1 text-xs text-green-600">
                   <Check className="h-3 w-3" />

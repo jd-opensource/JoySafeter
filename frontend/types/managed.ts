@@ -193,6 +193,83 @@ export interface EnvironmentEgressService {
   allowed_paths?: string[]
 }
 
+export interface EnvironmentMountResource {
+  type: 'storage' | string
+  name: string
+  volume_ref: string
+  sub_path?: string
+  mount_path: string
+  access?: 'read_only' | 'read_write' | string
+  required?: boolean
+}
+
+export interface StorageVolumeCatalogItem {
+  volume_ref: string
+  backend_type?: string
+  display_name: string
+  description?: string
+  max_access: 'read_only' | 'read_write' | string
+  allowed_prefixes?: string[]
+  quota_bytes?: number | null
+  used_bytes?: number
+  supports_docker?: boolean
+  supports_k8s?: boolean
+}
+
+export interface StorageProjectGrant {
+  id: string
+  volume_id: string
+  project_id: string
+  max_access: 'read_only' | 'read_write' | string
+  allowed_prefixes?: string[]
+  quota_bytes?: number | null
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface StorageOrganizationGrant {
+  id: string
+  volume_id: string
+  org_id: string
+  max_access: 'read_only' | 'read_write' | string
+  allowed_prefixes?: string[]
+  quota_bytes?: number | null
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface StorageVolume extends StorageVolumeCatalogItem {
+  id: string
+  docker?: Record<string, unknown>
+  k8s?: Record<string, unknown>
+  enabled: boolean
+  metadata?: Record<string, unknown>
+  grants?: StorageProjectGrant[]
+  organization_grants?: StorageOrganizationGrant[]
+  created_at: string
+  updated_at: string
+}
+
+export interface StorageMountAudit {
+  id: string
+  volume_id?: string | null
+  project_id?: string | null
+  session_id?: string | null
+  environment_id?: string | null
+  user_id?: string | null
+  action: string
+  volume_ref?: string | null
+  mount_path?: string | null
+  sub_path?: string | null
+  access?: string | null
+  bytes_used?: number | null
+  result: string
+  detail?: Record<string, unknown>
+  created_at: string
+}
+
 export interface EnvironmentConfig {
   type?: string
   packages?: EnvironmentPackages
@@ -200,6 +277,7 @@ export interface EnvironmentConfig {
   env_vars?: Record<string, string>
   secret_refs?: string[]
   egress_services?: EnvironmentEgressService[]
+  mount_resources?: EnvironmentMountResource[]
 }
 
 export interface Environment {

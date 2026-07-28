@@ -21,6 +21,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from app.joysafeter_domain.schemas.joysafeter_environment import MountResource
 
 # ---------------------------------------------------------------------------
 # JoySafeter Session Schemas
@@ -214,9 +215,14 @@ class SessionRepoResourceRequest(BaseModel):
         return self
 
 
+class SessionStorageMountRequest(MountResource):
+    type: str = "storage"
+
+
 MAX_MEMORY_STORE_RESOURCES = 8
 MAX_FILE_RESOURCES = 100
 MAX_REPO_RESOURCES = 16
+MAX_STORAGE_MOUNT_RESOURCES = 16
 
 
 def _parse_agent_id(raw: str) -> uuid.UUID:
@@ -236,6 +242,7 @@ class CreateSessionRequest(BaseModel):
     resources: list[SessionResourceRequest] = Field(default_factory=list)
     file_resources: list[SessionFileResourceRequest] = Field(default_factory=list)
     repo_resources: list[SessionRepoResourceRequest] = Field(default_factory=list)
+    storage_mounts: list[SessionStorageMountRequest] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -296,6 +303,22 @@ class SessionFileResourceResponse(BaseModel):
         return f"file_{v}"
 
 
+class SessionStorageMountResponse(BaseModel):
+    id: uuid.UUID
+    type: str = "storage"
+    name: str
+    volume_ref: str
+    sub_path: str = ""
+    mount_path: str
+    access: str
+    required: bool = True
+    created_at: datetime
+
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return str(v)
+
+
 class UpdateRepoResourceRequest(BaseModel):
     """Rotate the clone credential on a github_repository resource."""
 
@@ -314,6 +337,7 @@ class SessionResponse(BaseModel):
     vault_ids: list[str] = Field(default_factory=list)
     resources: list[SessionResourceResponse] = Field(default_factory=list)
     repo_resources: list[SessionRepoResourceResponse] = Field(default_factory=list)
+    storage_mounts: list[SessionStorageMountResponse] = Field(default_factory=list)
     usage: SessionUsage = Field(default_factory=SessionUsage)
     stats: SessionStats = Field(default_factory=SessionStats)
     created_at: datetime

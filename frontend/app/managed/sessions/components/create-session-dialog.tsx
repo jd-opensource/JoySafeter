@@ -1,11 +1,11 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, ExternalLink, X, Check, FileIcon, GitBranch, Search } from 'lucide-react'
+import { Plus, ExternalLink, X, Check, FileIcon, GitBranch, Search, ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { FieldHelp } from '@/components/managed/shared'
+import { AdvancedSection, FormActionBar, FormFieldLabel, FormSectionCard } from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -74,6 +74,10 @@ interface CreateSessionMutationInput {
   scope: ManagedRequestScope
 }
 
+const sessionSelectTriggerClassName = 'h-10 text-sm data-[placeholder]:text-muted-foreground'
+const customSelectTriggerClassName =
+  'flex h-10 w-full items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] shadow-sm ring-offset-background transition-all focus:border-[var(--brand-400)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-100)] disabled:cursor-not-allowed disabled:opacity-50'
+
 export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSessionDialogProps) {
   const { t } = useTranslation()
   const router = useRouter()
@@ -82,18 +86,26 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const managedScopeRef = useRef(managedScope.key)
   const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const createRunRef = useRef(0)
+  const vaultDropdownRef = useRef<HTMLDivElement | null>(null)
+  const fileDropdownRef = useRef<HTMLDivElement | null>(null)
+  const memoryStoreDropdownRef = useRef<HTMLDivElement | null>(null)
 
   const [title, setTitle] = useState('')
   const [agentId, setAgentId] = useState('')
   const [agentSearch, setAgentSearch] = useState('')
   const [envId, setEnvId] = useState('')
+  const [envSearch, setEnvSearch] = useState('')
   const [selectedVaultIds, setSelectedVaultIds] = useState<string[]>([])
+  const [vaultSearch, setVaultSearch] = useState('')
   const [showVaultDropdown, setShowVaultDropdown] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
+  const [fileSearch, setFileSearch] = useState('')
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [selectedRepos, setSelectedRepos] = useState<SelectedRepo[]>([])
   const [selectedMemoryStores, setSelectedMemoryStores] = useState<string[]>([])
+  const [memoryStoreSearch, setMemoryStoreSearch] = useState('')
   const [showMemoryStoreDropdown, setShowMemoryStoreDropdown] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const { data: agents = [] } = useQuery({
     queryKey: ['agents-for-session', managedScope.key],
@@ -184,6 +196,16 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   }, [activeAgents, agentSearch])
   const activeEnvs = useMemo(() => environments.filter((e) => !e.archived_at), [environments])
   const activeVaults = useMemo(() => vaults.filter((v) => !v.archived_at), [vaults])
+  const filteredEnvs = useMemo(() => {
+    const q = envSearch.trim().toLowerCase()
+    if (!q) return activeEnvs
+    return activeEnvs.filter((env) => `${env.name} ${env.id}`.toLowerCase().includes(q))
+  }, [activeEnvs, envSearch])
+  const filteredVaults = useMemo(() => {
+    const q = vaultSearch.trim().toLowerCase()
+    if (!q) return activeVaults
+    return activeVaults.filter((vault) => `${vault.name} ${vault.id}`.toLowerCase().includes(q))
+  }, [activeVaults, vaultSearch])
   const effectiveAgentId = useMemo(
     () => (agentId && activeAgents.some((agent) => agent.id === agentId) ? agentId : ''),
     [activeAgents, agentId],
@@ -208,6 +230,11 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     () => memoryStores.filter((store) => !effectiveSelectedMemoryStores.includes(store.id)),
     [effectiveSelectedMemoryStores, memoryStores],
   )
+  const filteredAvailableMemoryStores = useMemo(() => {
+    const q = memoryStoreSearch.trim().toLowerCase()
+    if (!q) return availableMemoryStores
+    return availableMemoryStores.filter((store) => `${store.name} ${store.id}`.toLowerCase().includes(q))
+  }, [availableMemoryStores, memoryStoreSearch])
   const selectedAgent = useMemo(
     () => activeAgents.find((agent) => agent.id === effectiveAgentId),
     [activeAgents, effectiveAgentId],
@@ -225,19 +252,29 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     () => files.filter((f) => !effectiveSelectedFiles.some((sf) => sf.file_id === f.id)),
     [effectiveSelectedFiles, files],
   )
+  const filteredAvailableFiles = useMemo(() => {
+    const q = fileSearch.trim().toLowerCase()
+    if (!q) return availableFiles
+    return availableFiles.filter((file) => `${file.filename} ${file.id}`.toLowerCase().includes(q))
+  }, [availableFiles, fileSearch])
 
   const resetForm = () => {
     setTitle('')
     setAgentId('')
     setAgentSearch('')
     setEnvId('')
+    setEnvSearch('')
     setSelectedVaultIds([])
+    setVaultSearch('')
     setShowVaultDropdown(false)
     setSelectedFiles([])
+    setFileSearch('')
     setShowFileDropdown(false)
     setSelectedRepos([])
     setSelectedMemoryStores([])
+    setMemoryStoreSearch('')
     setShowMemoryStoreDropdown(false)
+    setShowAdvanced(false)
   }
 
   const getCurrentManagedScope = () => {
@@ -296,6 +333,29 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     },
     [],
   )
+
+  useEffect(() => {
+    if (!open || (!showVaultDropdown && !showFileDropdown && !showMemoryStoreDropdown)) return
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (!target) return
+      const element = target instanceof Element ? target : target.parentElement
+      const isInteractiveTarget = Boolean(
+        element?.closest('button,input,textarea,select,a,[role="option"],[data-dropdown-interactive="true"]'),
+      )
+      const insideDropdown = Boolean(
+        vaultDropdownRef.current?.contains(target) ||
+          fileDropdownRef.current?.contains(target) ||
+          memoryStoreDropdownRef.current?.contains(target),
+      )
+      if (insideDropdown && isInteractiveTarget) return
+      setShowVaultDropdown(false)
+      setShowFileDropdown(false)
+      setShowMemoryStoreDropdown(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [open, showFileDropdown, showMemoryStoreDropdown, showVaultDropdown])
 
   const buildCreatePayload = (scope = managedScopeRef.current) => {
     if (!currentManagedScopeIsActive(scope)) return null
@@ -408,6 +468,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
       ...prev,
       { file_id: file.id, filename: file.filename, mount_path: `/workspace/${file.filename}` },
     ])
+    setFileSearch('')
     setShowFileDropdown(false)
   }
 
@@ -448,7 +509,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
             {t('managed.sessions.create.title')}
@@ -456,12 +517,16 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           <DialogDescription>{t('managed.sessions.create.subtitle')}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-4">
+        <div className="space-y-4 py-4">
+          <FormSectionCard
+            title={t('managed.sessions.create.basicSettings', '基础配置')}
+            description={t('managed.sessions.create.basicSettingsDesc', '选择要运行的智能体，并可设置本次会话标题。')}
+          >
           {/* Title */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium">
+            <FormFieldLabel optional={t('managed.sessions.create.optional')} className="mb-1.5">
               {t('managed.sessions.create.sessionTitle')}
-            </label>
+            </FormFieldLabel>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -472,7 +537,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           {/* Agent */}
           <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <label className="text-sm font-medium">{t('managed.sessions.create.agent')}</label>
+              <FormFieldLabel required>
+                {t('managed.sessions.create.agent')}
+              </FormFieldLabel>
               <button
                 onClick={() => router.push('/managed/agents')}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -481,7 +548,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
               </button>
             </div>
             <Select value={effectiveAgentId || undefined} onValueChange={setAgentId}>
-              <SelectTrigger>
+              <SelectTrigger className={sessionSelectTriggerClassName}>
                 <SelectValue placeholder={t('managed.sessions.create.selectAgent')} />
               </SelectTrigger>
               <SelectContent>
@@ -559,17 +626,42 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 )}
               </SelectContent>
             </Select>
+            {selectedAgent && (
+              <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 truncate font-medium text-foreground">
+                    {selectedAgent.name}
+                  </span>
+                  <span className="shrink-0 rounded bg-background px-1.5 py-0.5 font-mono uppercase">
+                    {selectedAgent.engine_kind || t('managed.sessions.create.unknownEngine', 'unknown')}
+                  </span>
+                </div>
+                <div className="mt-1 truncate">
+                  {selectedAgentDefaultEnv
+                    ? t('managed.sessions.create.selectedAgentEnvironment', {
+                        name: selectedAgentDefaultEnv.name,
+                      })
+                    : t('managed.sessions.create.selectedAgentNoEnvironment', '未配置默认运行环境')}
+                </div>
+              </div>
+            )}
           </div>
 
+          </FormSectionCard>
+
+          <AdvancedSection
+            open={showAdvanced}
+            onOpenChange={setShowAdvanced}
+            title={t('managed.sessions.create.advancedOptions', '高级选项')}
+            summary={t('managed.sessions.create.advancedSummary', '运行环境、凭证库、文件资源、Memory、Git')}
+          >
           {/* Environment */}
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <label className="text-sm font-medium">
-                  {t('managed.sessions.create.environment')}
-                </label>
-                <FieldHelp
-                  text={
+                <FormFieldLabel
+                  optional={t('managed.sessions.create.optional')}
+                  tooltip={
                     effectiveEnvId
                       ? t('managed.sessions.create.environmentOverrideHint')
                       : selectedAgentDefaultEnv
@@ -578,7 +670,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                           })
                         : t('managed.sessions.create.environmentFallbackHint')
                   }
-                />
+                >
+                  {t('managed.sessions.create.runtimeEnvironment')}
+                </FormFieldLabel>
               </div>
               <button
                 onClick={() => router.push('/managed/environments')}
@@ -587,16 +681,63 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 {t('managed.sessions.create.manageEnvs')} <ExternalLink className="h-3 w-3" />
               </button>
             </div>
-            <Select value={effectiveEnvId || undefined} onValueChange={setEnvId}>
-              <SelectTrigger>
+            <Select
+              value={effectiveEnvId || undefined}
+              onValueChange={(value) => {
+                if (value === '__create_environment__') {
+                  router.push('/managed/environments?create=1')
+                  return
+                }
+                setEnvId(value)
+              }}
+            >
+              <SelectTrigger className={sessionSelectTriggerClassName}>
                 <SelectValue placeholder={t('managed.sessions.create.selectEnv')} />
               </SelectTrigger>
               <SelectContent>
-                {activeEnvs.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.name}
-                  </SelectItem>
-                ))}
+                <div className="sticky top-0 z-10 border-b border-border bg-popover p-2">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={envSearch}
+                      onChange={(e) => setEnvSearch(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      placeholder={t('managed.sessions.create.searchEnv')}
+                      className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    {envSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setEnvSearch('')}
+                        onMouseDown={(e) => e.preventDefault()}
+                        aria-label={t('managed.sessions.create.clearSearch')}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {filteredEnvs.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    {envSearch
+                      ? t('managed.sessions.create.noEnvMatch')
+                      : t('managed.sessions.create.noEnvs')}
+                  </div>
+                ) : (
+                  filteredEnvs.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      <span className="truncate">{e.name}</span>
+                    </SelectItem>
+                  ))
+                )}
+                <SelectItem value="__create_environment__" className="text-primary">
+                  <span className="flex items-center gap-1.5">
+                    <Plus className="h-3.5 w-3.5" />
+                    {t('managed.sessions.create.createEnvironment')}
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -604,7 +745,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           {/* Credential Vaults (multi-select) */}
           <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <label className="text-sm font-medium">{t('managed.sessions.create.vaults')}</label>
+              <FormFieldLabel optional={t('managed.sessions.create.optional')}>
+                {t('managed.sessions.create.vaults')}
+              </FormFieldLabel>
               <button
                 onClick={() => router.push('/managed/vaults')}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -612,45 +755,63 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                 {t('managed.sessions.create.manageVaults')} <ExternalLink className="h-3 w-3" />
               </button>
             </div>
-            <div className="relative">
+            <div ref={vaultDropdownRef} className="relative">
               <button
                 type="button"
-                onClick={() => setShowVaultDropdown(!showVaultDropdown)}
-                className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                onClick={() => {
+                  setShowVaultDropdown(!showVaultDropdown)
+                  setShowFileDropdown(false)
+                  setShowMemoryStoreDropdown(false)
+                }}
+                className={customSelectTriggerClassName}
               >
                 <span
                   className={
                     effectiveSelectedVaultIds.length === 0
-                      ? 'text-muted-foreground'
-                      : 'text-foreground'
+                      ? 'truncate text-muted-foreground'
+                      : 'truncate text-foreground'
                   }
                 >
                   {effectiveSelectedVaultIds.length === 0
                     ? t('managed.sessions.create.selectVaults')
                     : selectedVaultNames.join(', ')}
                 </span>
-                <svg
-                  className="h-4 w-4 opacity-50"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
+                <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
               </button>
               {showVaultDropdown && (
                 <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-background py-1 shadow-lg">
-                  {activeVaults.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">
-                      {t('managed.sessions.create.noVaults')}
+                  <div className="sticky top-0 z-10 border-b border-border bg-popover p-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={vaultSearch}
+                        onChange={(e) => setVaultSearch(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        placeholder={t('managed.sessions.create.searchVault')}
+                        className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      {vaultSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setVaultSearch('')}
+                          onMouseDown={(e) => e.preventDefault()}
+                          aria-label={t('managed.sessions.create.clearSearch')}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {filteredVaults.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      {vaultSearch
+                        ? t('managed.sessions.create.noVaultMatch')
+                        : t('managed.sessions.create.noVaults')}
                     </div>
                   ) : (
-                    activeVaults.map((v) => (
+                    filteredVaults.map((v) => (
                       <button
                         key={v.id}
                         type="button"
@@ -672,6 +833,14 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                       </button>
                     ))
                   )}
+                  <button
+                    type="button"
+                    onClick={() => router.push('/managed/vaults?create=1')}
+                    className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-sm text-primary hover:bg-muted/50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t('managed.sessions.create.createVault')}
+                  </button>
                 </div>
               )}
             </div>
@@ -699,9 +868,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
           {/* File Resources */}
           <div>
-            <label className="mb-0.5 block text-sm font-medium">
+            <FormFieldLabel optional={t('managed.sessions.create.optional')} className="mb-0.5">
               {t('managed.sessions.create.resources')}
-            </label>
+            </FormFieldLabel>
             <p className="mb-2 text-xs text-muted-foreground">
               {t('managed.sessions.create.resourcesDesc')}
             </p>
@@ -737,24 +906,54 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
             )}
 
             {/* Add file dropdown */}
-            <div className="relative">
+            <div ref={fileDropdownRef} className="relative">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setShowFileDropdown(!showFileDropdown)}
+                onClick={() => {
+                  setShowFileDropdown(!showFileDropdown)
+                  setShowVaultDropdown(false)
+                  setShowMemoryStoreDropdown(false)
+                }}
                 type="button"
               >
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
                 {t('managed.sessions.create.addResource')}
               </Button>
               {showFileDropdown && (
-                <div className="absolute z-50 mt-1 max-h-48 w-64 overflow-y-auto rounded-md border border-border bg-background py-1 shadow-lg">
-                  {availableFiles.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">
-                      {t('managed.sessions.create.noFiles')}
+                <div className="absolute z-50 mt-1 max-h-72 w-80 overflow-y-auto rounded-md border border-border bg-background py-1 shadow-lg">
+                  <div className="sticky top-0 z-10 border-b border-border bg-popover p-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={fileSearch}
+                        onChange={(e) => setFileSearch(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        placeholder={t('managed.sessions.create.searchFiles')}
+                        className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      {fileSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setFileSearch('')}
+                          onMouseDown={(e) => e.preventDefault()}
+                          aria-label={t('managed.sessions.create.clearSearch')}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {filteredAvailableFiles.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      {fileSearch
+                        ? t('managed.sessions.create.noFileMatch')
+                        : t('managed.sessions.create.noFiles')}
                     </div>
                   ) : (
-                    availableFiles.map((f) => (
+                    filteredAvailableFiles.map((f) => (
                       <button
                         key={f.id}
                         type="button"
@@ -778,9 +977,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
           {/* Memory Stores */}
           <div>
-            <label className="mb-0.5 block text-sm font-medium">
+            <FormFieldLabel optional={t('managed.sessions.create.optional')} className="mb-0.5">
               {t('managed.sessions.create.memoryStores')}
-            </label>
+            </FormFieldLabel>
             <p className="mb-2 text-xs text-muted-foreground">
               {t('managed.sessions.create.memoryStoresDesc')}
             </p>
@@ -811,29 +1010,60 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
               </div>
             )}
 
-            <div className="relative">
+            <div ref={memoryStoreDropdownRef} className="relative">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setShowMemoryStoreDropdown(!showMemoryStoreDropdown)}
+                onClick={() => {
+                  setShowMemoryStoreDropdown(!showMemoryStoreDropdown)
+                  setShowVaultDropdown(false)
+                  setShowFileDropdown(false)
+                }}
                 type="button"
               >
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
                 {t('managed.sessions.create.addMemoryStore')}
               </Button>
               {showMemoryStoreDropdown && (
-                <div className="absolute z-50 mt-1 max-h-48 w-64 overflow-y-auto rounded-md border border-border bg-background py-1 shadow-lg">
-                  {availableMemoryStores.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">
-                      {t('managed.sessions.create.noMemoryStores')}
+                <div className="absolute z-50 mt-1 max-h-72 w-80 overflow-y-auto rounded-md border border-border bg-background py-1 shadow-lg">
+                  <div className="sticky top-0 z-10 border-b border-border bg-popover p-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={memoryStoreSearch}
+                        onChange={(e) => setMemoryStoreSearch(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        placeholder={t('managed.sessions.create.searchMemoryStores')}
+                        className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      {memoryStoreSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setMemoryStoreSearch('')}
+                          onMouseDown={(e) => e.preventDefault()}
+                          aria-label={t('managed.sessions.create.clearSearch')}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {filteredAvailableMemoryStores.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      {memoryStoreSearch
+                        ? t('managed.sessions.create.noMemoryStoreMatch')
+                        : t('managed.sessions.create.noMemoryStores')}
                     </div>
                   ) : (
-                    availableMemoryStores.map((memoryStore) => (
+                    filteredAvailableMemoryStores.map((memoryStore) => (
                       <button
                         key={memoryStore.id}
                         type="button"
                         onClick={() => {
                           setSelectedMemoryStores((prev) => [...prev, memoryStore.id])
+                          setMemoryStoreSearch('')
                           setShowMemoryStoreDropdown(false)
                         }}
                         className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
@@ -849,9 +1079,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
 
           {/* Git Repositories */}
           <div>
-            <label className="mb-0.5 block text-sm font-medium">
+            <FormFieldLabel optional={t('managed.sessions.create.optional')} className="mb-0.5">
               {t('managed.sessions.create.repositories')}
-            </label>
+            </FormFieldLabel>
             <p className="mb-2 text-xs text-muted-foreground">
               {t('managed.sessions.create.repositoriesDesc')}
             </p>
@@ -915,9 +1145,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
               {t('managed.sessions.create.addRepository')}
             </Button>
           </div>
+          </AdvancedSection>
         </div>
 
-        <DialogFooter>
+        <FormActionBar>
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             {t('common.cancel')}
           </Button>
@@ -926,7 +1157,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
               ? t('managed.sessions.create.creating')
               : t('managed.sessions.create.submit')}
           </Button>
-        </DialogFooter>
+        </FormActionBar>
       </DialogContent>
     </Dialog>
   )

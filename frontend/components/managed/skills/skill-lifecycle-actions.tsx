@@ -207,7 +207,7 @@ export function SkillLifecycleActions({
   }
 
   return (
-    <div className="inline-flex flex-wrap items-center gap-2">
+    <div className="inline-flex items-center gap-1.5">
       {available.map((edge) => {
         const canSubmit = canSubmitTransition
           ? canSubmitTransition(edge.endpoint, currentStatus)

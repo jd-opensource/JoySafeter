@@ -43,6 +43,7 @@ from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     JoySafeterRole,
+    require_joysafeter_platform_admin,
     require_joysafeter_project_admin,
     require_joysafeter_user_admin,
     require_joysafeter_user_context,
@@ -372,6 +373,40 @@ class UserResponse(BaseModel):
     is_super_user: bool
 
 
+class PlatformUserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    image: Optional[str] = None
+    email_verified: bool
+    is_active: bool
+    is_super_user: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PaginatedPlatformUsersResponse(BaseModel):
+    data: list[PlatformUserResponse]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
+
+
+class PlatformOrganizationResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    logo: Optional[str] = None
+    member_count: int = 0
+    project_count: int = 0
+    member_emails: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class UpdatePlatformUserRequest(BaseModel):
+    is_super_user: bool
+
+
 # --- Identity-flow helpers --------------------------------------------------
 
 
@@ -443,6 +478,20 @@ def _user_to_response(user: AuthUser) -> UserResponse:
         image=user.image,
         email_verified=user.email_verified,
         is_super_user=user.is_super_user,
+    )
+
+
+def _platform_user_to_response(user: AuthUser) -> PlatformUserResponse:
+    return PlatformUserResponse(
+        id=user.id,
+        email=user.email,
+        name=user.name or "",
+        image=user.image,
+        email_verified=user.email_verified,
+        is_active=user.is_active,
+        is_super_user=user.is_super_user,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
     )
 
 
@@ -1280,6 +1329,122 @@ async def remove_project_member(
 # ---------------------------------------------------------------------------
 # User search (for member invite)
 # ---------------------------------------------------------------------------
+
+
+@router.get("/platform/users")
+async def list_platform_users(
+    q: str = Query("", max_length=100),
+    limit: int = Query(50, ge=1, le=200),
+    after_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
+) -> PaginatedPlatformUsersResponse:
+    """List platform users for platform-level administration."""
+    from sqlalchemy import and_, or_
+
+    query = select(AuthUser)
+    if q.strip():
+        search = f"%{q.strip()}%"
+        query = query.where(or_(AuthUser.email.ilike(search), AuthUser.name.ilike(search)))
+
+    if after_id:
+        cursor_result = await db.execute(select(AuthUser).where(AuthUser.id == after_id))
+        cursor_user = cursor_result.scalar_one_or_none()
+        if cursor_user is not None:
+            query = query.where(
+                or_(
+                    AuthUser.created_at < cursor_user.created_at,
+                    and_(AuthUser.created_at == cursor_user.created_at, AuthUser.id < cursor_user.id),
+                )
+            )
+
+    query = query.order_by(AuthUser.created_at.desc(), AuthUser.id.desc()).limit(limit + 1)
+    result = await db.execute(query)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    return PaginatedPlatformUsersResponse(
+        data=[_platform_user_to_response(user) for user in page_rows],
+        has_more=has_more,
+        first_id=page_rows[0].id if page_rows else None,
+        last_id=page_rows[-1].id if page_rows else None,
+    )
+
+
+@router.get("/platform/organizations")
+async def list_platform_organizations(
+    q: str = Query("", max_length=100),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
+) -> list[PlatformOrganizationResponse]:
+    """List organizations for platform-level resource grants."""
+    from sqlalchemy import or_
+    from sqlalchemy.orm import selectinload
+
+    query = (
+        select(Organization)
+        .options(selectinload(Organization.members).selectinload(Member.user), selectinload(Organization.projects))
+        .order_by(Organization.created_at.desc())
+        .limit(limit)
+    )
+    if q.strip():
+        search = f"%{q.strip()}%"
+        query = (
+            select(Organization)
+            .options(selectinload(Organization.members).selectinload(Member.user), selectinload(Organization.projects))
+            .where(or_(Organization.name.ilike(search), Organization.slug.ilike(search)))
+            .order_by(Organization.created_at.desc())
+            .limit(limit)
+        )
+    result = await db.execute(query)
+    return [
+        PlatformOrganizationResponse(
+            id=org.id,
+            name=org.name,
+            slug=org.slug,
+            logo=org.logo,
+            member_count=len(org.members or []),
+            project_count=len(org.projects or []),
+            member_emails=[member.user.email for member in (org.members or []) if member.user and member.user.email],
+            created_at=org.created_at,
+        )
+        for org in result.scalars().all()
+    ]
+
+
+@router.put("/platform/users/{user_id}")
+async def update_platform_user(
+    user_id: str,
+    req: UpdatePlatformUserRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
+) -> PlatformUserResponse:
+    """Grant or revoke platform super-user privileges."""
+    result = await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise NotFoundError(code="PLATFORM_USER_NOT_FOUND", message="User not found")
+    if user.id == auth_ctx.user_id and not req.is_super_user:
+        raise InvalidRequestError(
+            code="PLATFORM_ADMIN_SELF_REVOKE_DENIED",
+            message="You cannot revoke your own platform admin role",
+            user_action="fix_input",
+        )
+    user.is_super_user = req.is_super_user
+    await db.commit()
+    await db.refresh(user)
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="platform_user.updated",
+        target_type="user",
+        target_id=user.id,
+        details={"is_super_user": user.is_super_user},
+    )
+    return _platform_user_to_response(user)
 
 
 @router.get("/search-users")

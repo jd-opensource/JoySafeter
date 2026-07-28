@@ -23,11 +23,14 @@ import {
   Archive,
   StopCircle,
   FileIcon,
+  Folder,
+  Download,
+  Eye,
   Plus,
   Trash2,
   GitBranch,
 } from 'lucide-react'
-import { managedGet, managedPost, managedDelete, managedPatch } from '@/lib/api-client'
+import { MANAGED_API_BASE, managedGet, managedPost, managedDelete, managedPatch } from '@/lib/api-client'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
@@ -66,7 +69,7 @@ import type {
 } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { StatusBadge, MonoId, ResourceErrorState, PageHeader } from '@/components/managed/shared'
 import { EventList, EventDetail, EventFilter, EventTimeline } from '@/components/managed/session'
@@ -192,6 +195,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   // we stop yanking them back down.
   const stickToBottomRef = useRef(true)
   const { events: streamEvents, connected: sseConnected } = useSessionStream(id || '', !!id)
+
+  const openSessionFiles = useCallback(() => {
+    setActiveDrawer('files')
+  }, [])
 
   const {
     data: session,
@@ -1022,6 +1029,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           ]}
           action={
             <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={openSessionFiles}>
+                <Folder className="mr-1.5 h-3.5 w-3.5" />
+                {t('managed.sessions.filesAndOutputs')}
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
@@ -2164,6 +2175,277 @@ function VaultDrawer({
   )
 }
 
+type SandboxFileEntry = {
+  name: string
+  path: string
+  file_type: 'file' | 'directory' | string
+  size: number
+  mtime: number
+}
+
+type SandboxFileListResponse = {
+  ok: boolean
+  path: string
+  entries: SandboxFileEntry[]
+}
+
+type SandboxFileContentResponse = {
+  ok: boolean
+  path: string
+  encoding?: string
+  content?: string
+  content_base64?: string
+  content_type?: string
+  filename?: string
+}
+
+function SandboxFilesPanel({
+  sessionId,
+  requestScope,
+}: {
+  sessionId: string
+  requestScope: ManagedRequestScope
+}) {
+  const { t } = useTranslation()
+  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  const [downloadingPath, setDownloadingPath] = useState<string | null>(null)
+  const [searchText, setSearchText] = useState('')
+
+  const previewQuery = useQuery({
+    queryKey: ['session-sandbox-file-content', sessionId, requestScope.key, previewPath],
+    queryFn: () =>
+      managedGet<SandboxFileContentResponse>(
+        apiResourceSubpath('sessions', sessionId, ['sandbox', 'files', 'content'], {
+          path: previewPath || '',
+        }),
+        {
+          ...managedRequestOptions(requestScope),
+          timeout: 20000,
+        },
+      ),
+    enabled: Boolean(previewPath) && hasManagedRequestScope(requestScope),
+    retry: false,
+  })
+
+  const selectedPreview = previewPath ? previewQuery.data : null
+
+  const downloadFile = async (targetPath: string, archive = false) => {
+    setDownloadingPath(targetPath)
+    try {
+      const endpoint = apiResourceSubpath(
+        'sessions',
+        sessionId,
+        ['sandbox', 'files', archive ? 'archive' : 'raw'],
+        { path: targetPath },
+      )
+      const response = await fetch(`${MANAGED_API_BASE}${endpoint}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          ...(requestScope.orgId ? { 'X-Org-Id': requestScope.orgId } : {}),
+          ...(requestScope.projectId ? { 'X-Project-Id': requestScope.projectId } : {}),
+        },
+      })
+      if (!response.ok) {
+        const message = await response.text().catch(() => '')
+        throw new Error(message || response.statusText)
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = getDownloadFilename(response, targetPath, archive)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (downloadError) {
+      toastOperationError(t, downloadError, 'common.operationFailed')
+    } finally {
+      setDownloadingPath(null)
+    }
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-border bg-background px-5 py-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder={t('managed.sessions.searchFiles')}
+            className="h-10 pl-9"
+          />
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <SandboxDirectoryTree
+          sessionId={sessionId}
+          requestScope={requestScope}
+          path="/workspace"
+          name="workspace"
+          level={0}
+          defaultExpanded
+          searchText={searchText}
+          downloadingPath={downloadingPath}
+          onPreview={setPreviewPath}
+          onDownload={(filePath) => downloadFile(filePath, false)}
+        />
+
+        {previewPath && (
+          <div className="mt-4 rounded-lg border border-border bg-muted/20 p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold">{t('managed.sessions.filePreview')}</h3>
+            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setPreviewPath(null)}>
+              {t('common.close')}
+            </Button>
+          </div>
+          {previewQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          ) : previewQuery.error ? (
+            <p className="text-sm text-muted-foreground">{t('managed.sessions.previewUnavailable')}</p>
+          ) : selectedPreview?.encoding === 'base64' ? (
+            <div className="rounded-lg border border-dashed border-border bg-background p-3 text-sm text-muted-foreground">
+              {t('managed.sessions.binaryPreviewUnavailable')}
+            </div>
+          ) : (
+            <div className="flex max-h-64 flex-col overflow-hidden rounded-lg border border-border bg-background">
+              <div className="border-b border-border px-3 py-2 font-mono text-xs text-muted-foreground">
+                {previewPath}
+              </div>
+              <pre className="min-h-0 flex-1 overflow-auto p-3 text-xs leading-5">
+                {selectedPreview?.content || ''}
+              </pre>
+            </div>
+          )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SandboxDirectoryTree({
+  sessionId,
+  requestScope,
+  path,
+  name,
+  level,
+  defaultExpanded = false,
+  searchText,
+  downloadingPath,
+  onPreview,
+  onDownload,
+}: {
+  sessionId: string
+  requestScope: ManagedRequestScope
+  path: string
+  name: string
+  level: number
+  defaultExpanded?: boolean
+  searchText: string
+  downloadingPath: string | null
+  onPreview: (path: string) => void
+  onDownload: (path: string) => void
+}) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  const normalizedSearch = searchText.trim().toLowerCase()
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['session-sandbox-files', sessionId, requestScope.key, path],
+    queryFn: () =>
+      managedGet<SandboxFileListResponse>(
+        apiResourceSubpath('sessions', sessionId, ['sandbox', 'files'], { path }),
+        {
+          ...managedRequestOptions(requestScope),
+          timeout: 20000,
+        },
+      ),
+    enabled: expanded && Boolean(sessionId) && hasManagedRequestScope(requestScope),
+    retry: false,
+  })
+  const entries = (data?.entries || []).filter((entry) => {
+    if (!normalizedSearch) return true
+    return entry.name.toLowerCase().includes(normalizedSearch) || entry.file_type === 'directory'
+  })
+
+  return (
+    <div>
+      <button
+        type="button"
+        className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-muted/50"
+        style={{ paddingLeft: 8 + level * 20 }}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? '' : '-rotate-90'}`} />
+        <Folder className="h-4 w-4 text-sky-500" />
+        <span className="truncate font-medium text-foreground">{name}</span>
+      </button>
+
+      {expanded && (
+        <div className="border-l border-border/60" style={{ marginLeft: 18 + level * 20 }}>
+          {isLoading ? (
+            <div className="px-3 py-2 text-sm text-muted-foreground">{t('common.loading')}</div>
+          ) : error ? (
+            <div className="px-3 py-2 text-sm text-muted-foreground">
+              {t('managed.sessions.sandboxFilesUnavailable')}
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-muted-foreground">
+              {t('managed.sessions.emptySandboxFiles')}
+            </div>
+          ) : (
+            entries.map((entry) =>
+              entry.file_type === 'directory' ? (
+                <SandboxDirectoryTree
+                  key={entry.path}
+                  sessionId={sessionId}
+                  requestScope={requestScope}
+                  path={entry.path}
+                  name={entry.name}
+                  level={level + 1}
+                  searchText={searchText}
+                  downloadingPath={downloadingPath}
+                  onPreview={onPreview}
+                  onDownload={onDownload}
+                />
+              ) : (
+                <div
+                  key={entry.path}
+                  className="group ml-2 flex h-10 items-center gap-2 rounded-md px-2 hover:bg-muted/50"
+                  style={{ paddingLeft: 8 + level * 20 }}
+                >
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => onPreview(entry.path)}
+                    title={t('managed.sessions.previewFile')}
+                  >
+                    <FileIcon className="h-4 w-4 shrink-0 text-sky-500" />
+                    <span className="truncate text-sm text-foreground">{entry.name}</span>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground opacity-80 hover:text-foreground group-hover:opacity-100"
+                    onClick={() => onDownload(entry.path)}
+                    disabled={downloadingPath === entry.path}
+                    title={t('managed.sessions.downloadFile')}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </div>
+              ),
+            )
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FilesDrawer({
   sessionId,
   operationScope,
@@ -2186,180 +2468,50 @@ function FilesDrawer({
   onChanged: () => void
 }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [showAddDropdown, setShowAddDropdown] = useState(false)
-  const operationScopeRef = useRef(operationScope)
-  const mutationRunRef = useRef(0)
+  const [fileTab, setFileTab] = useState<'persistent' | 'sandbox'>('sandbox')
 
-  useEffect(() => {
-    if (operationScopeRef.current === operationScope) return
-    operationScopeRef.current = operationScope
-    mutationRunRef.current += 1
-    setShowAddDropdown(false)
-  }, [operationScope])
+  const persistentFilesContent = (
+    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">
+            {t('managed.sessions.persistentFiles')}
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t('managed.sessions.persistentFilesDesc')}
+          </p>
+        </div>
+      </div>
 
-  useEffect(
-    () => () => {
-      mutationRunRef.current += 1
-    },
-    [],
+      {files.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t('managed.sessions.noOutputFiles')}</p>
+      ) : (
+        <div className="space-y-3">
+          {files.map((f) => (
+            <div key={f.id} className="space-y-1.5 rounded-lg border border-border p-3">
+              <div className="flex items-center gap-2">
+                <FileIcon className="h-4 w-4 text-muted-foreground" />
+                <span className="font-mono text-sm font-medium">{f.file_id}</span>
+              </div>
+              <div className="flex items-center text-xs text-muted-foreground">
+                <span className="w-20 shrink-0">{t('managed.sessions.create.mountPath')}</span>
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{f.mount_path}</code>
+              </div>
+              <div className="flex items-center text-xs text-muted-foreground">
+                <span className="w-20 shrink-0">{t('managed.sessions.type')}</span>
+                <span>{f.access}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
-
-  const isCurrentMutation = (runId: number, scope: string) =>
-    mutationRunRef.current === runId && operationScopeRef.current === scope && isScopeActive(scope)
-
-  const nextMutation = () => {
-    if (!isScopeActive(operationScopeRef.current)) return null
-    const runId = mutationRunRef.current + 1
-    mutationRunRef.current = runId
-    return { runId, scope: operationScopeRef.current }
-  }
-
-  const toggleAddDropdown = () => {
-    if (!canMutate()) {
-      setShowAddDropdown(false)
-      return
-    }
-    mutationRunRef.current += 1
-    setShowAddDropdown((open) => !open)
-  }
-
-  const { data: allFilesResp } = useQuery({
-    queryKey: ['files-for-add', operationScope],
-    queryFn: () =>
-      managedGet<{ data: FileRecord[] }>('/files?limit=100', managedRequestOptions(requestScope)),
-    enabled: showAddDropdown && hasManagedRequestScope(requestScope),
-  })
-  const allFiles = useMemo(() => {
-    if (!allFilesResp) return []
-    return allFilesResp.data || []
-  }, [allFilesResp])
-
-  const alreadyMountedIds = new Set(files.map((f) => f.file_id))
-  const availableFiles = allFiles.filter((f) => !alreadyMountedIds.has(f.id))
-
-  const addFileMutation = useMutation({
-    mutationFn: ({
-      file,
-      sessionId,
-      runId,
-      scope,
-    }: {
-      file: FileRecord
-      sessionId: string
-      runId: number
-      scope: string
-    }) => {
-      if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPost(
-        apiResourcePath('sessions', sessionId, 'resources'),
-        {
-          type: 'file',
-          file_id: file.id,
-          mount_path: `/workspace/${file.filename}`,
-        },
-        managedRequestOptions(requestScope),
-      )
-    },
-    onSuccess: (_data, { runId, scope }) => {
-      if (!isCurrentMutation(runId, scope)) return
-      onChanged()
-      setShowAddDropdown(false)
-    },
-    onError: (error, { runId, scope }) => {
-      if (!isCurrentMutation(runId, scope)) return
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  const removeFileMutation = useMutation({
-    mutationFn: ({
-      resourceId,
-      sessionId,
-      runId,
-      scope,
-    }: {
-      resourceId: string
-      sessionId: string
-      runId: number
-      scope: string
-    }) => {
-      if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedDelete(
-        apiResourcePath('sessions', sessionId, 'resources', resourceId),
-        managedRequestOptions(requestScope),
-      )
-    },
-    onSuccess: (_data, { runId, scope }) => {
-      if (!isCurrentMutation(runId, scope)) return
-      onChanged()
-    },
-    onError: (error, { runId, scope }) => {
-      if (!isCurrentMutation(runId, scope)) return
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  const handleAddFile = (file: FileRecord) => {
-    if (!canMutate()) {
-      setShowAddDropdown(false)
-      return
-    }
-    const currentFiles =
-      queryClient.getQueryData<{ data?: FileRecord[] }>([
-        'files-for-add',
-        operationScopeRef.current,
-      ])?.data || []
-    const currentFile = currentFiles.find((candidate) => candidate.id === file.id)
-    if (!currentFile) return
-
-    const currentResources = queryClient.getQueryData<{ data?: SessionResource[] }>([
-      'session-resources',
-      operationScopeRef.current,
-    ])
-    const currentMountedIds = new Set(
-      (currentResources?.data || files)
-        .filter((resource): resource is SessionFileResource => resource.type === 'file')
-        .map((resource) => resource.file_id),
-    )
-    if (currentMountedIds.has(currentFile.id)) return
-
-    const action = nextMutation()
-    if (!action) return
-
-    addFileMutation.mutate({
-      file: currentFile,
-      sessionId,
-      ...action,
-    })
-  }
-
-  const handleRemoveFile = (resourceId: string) => {
-    if (!canMutate()) return
-
-    const currentResources = queryClient.getQueryData<{ data?: SessionResource[] }>([
-      'session-resources',
-      operationScopeRef.current,
-    ])
-    const currentFileResource = (currentResources?.data || files)
-      .filter((resource): resource is SessionFileResource => resource.type === 'file')
-      .find((resource) => resource.id === resourceId)
-    if (!currentFileResource) return
-
-    const action = nextMutation()
-    if (!action) return
-
-    removeFileMutation.mutate({
-      resourceId: currentFileResource.id,
-      sessionId,
-      ...action,
-    })
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative h-full w-[480px] max-w-full overflow-y-auto border-l border-border bg-background shadow-xl">
+      <div className="relative flex h-full w-[460px] max-w-[calc(100vw-1rem)] flex-col border-l border-border bg-background shadow-xl">
         <Button
           variant="ghost"
           size="icon"
@@ -2369,83 +2521,38 @@ function FilesDrawer({
           <X className="h-4 w-4" />
         </Button>
 
-        <div className="space-y-6 px-6 py-5">
-          <section>
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-foreground">
-                {t('managed.sessions.mountedFiles')}
-              </h2>
-              {isIdle && (
-                <div className="relative">
-                  <Button variant="outline" size="sm" onClick={toggleAddDropdown}>
-                    <Plus className="mr-1 h-3.5 w-3.5" />
-                    {t('managed.sessions.addFile')}
-                  </Button>
-                  {showAddDropdown && (
-                    <div className="absolute right-0 z-50 mt-1 max-h-48 w-64 overflow-y-auto rounded-md border border-border bg-background py-1 shadow-lg">
-                      {availableFiles.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          {t('managed.sessions.create.noFiles')}
-                        </div>
-                      ) : (
-                        availableFiles.map((f) => (
-                          <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => handleAddFile(f)}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-muted/50"
-                          >
-                            <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span className="truncate">{f.filename}</span>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('managed.sessions.create.resourcesDesc')}
-            </p>
-          </section>
+        <Tabs
+          value={fileTab}
+          onValueChange={(value) => setFileTab(value as 'persistent' | 'sandbox')}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="border-b border-border px-6 pb-0 pt-5">
+          <h2 className="text-xl font-semibold text-foreground">
+            {t('managed.sessions.fileList')}
+          </h2>
+            <TabsList className="mt-5 h-auto justify-start gap-6 rounded-none bg-transparent p-0">
+              <TabsTrigger
+                value="persistent"
+                className="relative rounded-none bg-transparent px-0 pb-3 pt-0 text-base shadow-none data-[state=active]:bg-transparent data-[state=active]:shadow-none after:absolute after:inset-x-2 after:-bottom-px after:hidden after:h-1 after:rounded-full after:bg-foreground data-[state=active]:after:block"
+              >
+                {t('managed.sessions.persistentFiles')}
+              </TabsTrigger>
+              <TabsTrigger
+                value="sandbox"
+                className="relative rounded-none bg-transparent px-0 pb-3 pt-0 text-base shadow-none data-[state=active]:bg-transparent data-[state=active]:shadow-none after:absolute after:inset-x-2 after:-bottom-px after:hidden after:h-1 after:rounded-full after:bg-foreground data-[state=active]:after:block"
+              >
+                {t('managed.sessions.runtimeSandboxFiles')}
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-          {files.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('managed.sessions.noMountedFiles')}</p>
-          ) : (
-            <div className="space-y-3">
-              {files.map((f) => (
-                <div key={f.id} className="space-y-1.5 rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FileIcon className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-mono text-sm font-medium">{f.file_id}</span>
-                    </div>
-                    {isIdle && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                        onClick={() => handleRemoveFile(f.id)}
-                        disabled={removeFileMutation.isPending}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                  <div className="flex items-center text-xs text-muted-foreground">
-                    <span className="w-20 shrink-0">{t('managed.sessions.create.mountPath')}</span>
-                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{f.mount_path}</code>
-                  </div>
-                  <div className="flex items-center text-xs text-muted-foreground">
-                    <span className="w-20 shrink-0">{t('managed.sessions.type')}</span>
-                    <span>{f.access}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+          <TabsContent value="sandbox" className="m-0 min-h-0 flex-1">
+            <SandboxFilesPanel sessionId={sessionId} requestScope={requestScope} />
+          </TabsContent>
+          <TabsContent value="persistent" className="m-0 min-h-0 flex-1">
+            {persistentFilesContent}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )
@@ -2674,4 +2781,20 @@ function formatRelativeTime(dateStr: string): string {
 
 function formatSessionId(id: string): string {
   return id.startsWith('sess_') ? id : `sess_${stripIdPrefix(id)}`
+}
+
+function getDownloadFilename(response: Response, path: string, archive: boolean): string {
+  const disposition = response.headers.get('content-disposition') || ''
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1])
+    } catch {
+      return utf8Match[1]
+    }
+  }
+  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i)
+  if (asciiMatch?.[1]) return asciiMatch[1]
+  const fallback = path.replace(/\/+$/g, '').split('/').pop() || 'workspace'
+  return archive && !fallback.endsWith('.zip') ? `${fallback}.zip` : fallback
 }

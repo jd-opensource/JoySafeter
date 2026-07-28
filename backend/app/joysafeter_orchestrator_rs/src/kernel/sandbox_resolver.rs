@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use tracing::{debug, info, warn};
 use url::Url;
 use uuid::Uuid;
@@ -19,6 +19,7 @@ use crate::sandbox::lds_backend::{
     EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST, LLM_EGRESS_HOST,
     MCP_EGRESS_HOST,
 };
+use crate::sandbox::mounts::{resolve_mount_resources, SandboxMount, SandboxMountFingerprint};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
 use super::llm_providers::{
@@ -466,6 +467,7 @@ impl SandboxResolver {
                 }
             }),
             memory_mounts: context.memory_mounts.clone(),
+            mounts: context.mounts.clone(),
         };
 
         if create_config.network.as_deref() == Some("none") {
@@ -659,11 +661,22 @@ impl SandboxResolver {
             routes.extend(Self::build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?);
             routes.extend(Self::build_git_egress(&self.pool, session_id).await?);
             routes.extend(
-                Self::build_external_egress(&self.pool, environment.as_ref(), project_id.as_deref())
-                    .await,
+                Self::build_external_egress(
+                    &self.pool,
+                    environment.as_ref(),
+                    project_id.as_deref(),
+                )
+                .await,
             );
             credentials = SandboxCredentials { routes };
         }
+
+        let storage_catalog = self.load_storage_volume_catalog(project_id.as_deref()).await?;
+        let (mounts, mount_fingerprint) = resolve_mount_resources(
+            environment.as_ref().map(|env| &env.config),
+            &storage_catalog,
+            &self.config.sandbox_provider,
+        )?;
 
         Ok(ResolveContext {
             session_id,
@@ -675,8 +688,10 @@ impl SandboxResolver {
                 engine_kind,
                 networking,
                 env,
+                mounts: mount_fingerprint,
             },
             memory_mounts: vec![], // populated by caller when memory stores are resolved
+            mounts,
             credentials,
         })
     }
@@ -712,6 +727,81 @@ impl SandboxResolver {
         .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
+    }
+
+    async fn load_storage_volume_catalog(&self, project_id: Option<&str>) -> anyhow::Result<serde_json::Value> {
+        let Some(project_id) = project_id else {
+            return Ok(serde_json::Value::Object(serde_json::Map::new()));
+        };
+        let rows = {
+            sqlx::query(
+                r#"
+                SELECT v.volume_ref, v.backend_type, v.max_access AS volume_max_access,
+                       v.allowed_prefixes AS volume_allowed_prefixes, v.docker, v.k8s,
+                       og.max_access AS org_grant_max_access, og.allowed_prefixes AS org_grant_allowed_prefixes,
+                       g.max_access AS grant_max_access, g.allowed_prefixes AS grant_allowed_prefixes
+                  FROM joysafeter_storage_volumes v
+                  JOIN joysafeter_organization_projects p ON p.id = $1
+                  JOIN joysafeter_storage_organization_grants og
+                    ON og.volume_id = v.id AND og.org_id = p.org_id
+                  JOIN joysafeter_storage_project_grants g ON g.volume_id = v.id
+                 WHERE v.deleted_at IS NULL
+                   AND v.enabled IS TRUE
+                   AND og.enabled IS TRUE
+                   AND g.enabled IS TRUE
+                   AND g.project_id = $1
+                "#,
+            )
+            .bind(project_id)
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        let mut map = serde_json::Map::new();
+        for row in rows {
+            let volume_ref: String = row.try_get("volume_ref")?;
+            let backend_type: String = row.try_get("backend_type")?;
+            let volume_max_access: String = row.try_get("volume_max_access")?;
+            let org_grant_max_access: Option<String> = row.try_get("org_grant_max_access")?;
+            let grant_max_access: Option<String> = row.try_get("grant_max_access")?;
+            let volume_allowed_prefixes: serde_json::Value = row.try_get("volume_allowed_prefixes")?;
+            let org_grant_allowed_prefixes: Option<serde_json::Value> = row.try_get("org_grant_allowed_prefixes")?;
+            let grant_allowed_prefixes: Option<serde_json::Value> = row.try_get("grant_allowed_prefixes")?;
+            let docker: serde_json::Value = row.try_get("docker")?;
+            let k8s: serde_json::Value = row.try_get("k8s")?;
+            let volume_prefixes = volume_allowed_prefixes
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let grant_prefixes = grant_allowed_prefixes
+                .as_ref()
+                .and_then(|value| value.as_array().cloned())
+                .unwrap_or_default();
+            let org_grant_prefixes = org_grant_allowed_prefixes
+                .as_ref()
+                .and_then(|value| value.as_array().cloned())
+                .unwrap_or_default();
+            let allowed_prefixes = effective_prefixes(vec![volume_prefixes, org_grant_prefixes, grant_prefixes]);
+            let max_access = if volume_max_access == "read_only"
+                || org_grant_max_access.as_deref() == Some("read_only")
+                || grant_max_access.as_deref() == Some("read_only")
+            {
+                "read_only"
+            } else {
+                "read_write"
+            };
+            map.insert(
+                volume_ref,
+                serde_json::json!({
+                    "backend_type": backend_type,
+                    "max_access": max_access,
+                    "allowed_prefixes": allowed_prefixes,
+                    "docker": docker,
+                    "k8s": k8s,
+                }),
+            );
+        }
+        Ok(serde_json::Value::Object(map))
     }
 
     async fn resolve_agent_env_from(
@@ -1521,6 +1611,7 @@ impl SandboxResolver {
             // resolve_sandbox above.
             workspace_path: None,
             memory_mounts: vec![],
+            mounts: vec![],
         };
 
         let expected = ExpectedFingerprint {
@@ -1528,6 +1619,7 @@ impl SandboxResolver {
             engine_kind: String::new(),
             networking: None,
             env: create_config.env.clone(),
+            mounts: vec![],
         };
         let sandbox_config = provisioning_config(
             "pool_warm",
@@ -1712,6 +1804,7 @@ struct ExpectedFingerprint {
     engine_kind: String,
     networking: Option<serde_json::Value>,
     env: HashMap<String, String>,
+    mounts: Vec<SandboxMountFingerprint>,
 }
 
 #[derive(Debug, Clone)]
@@ -1723,6 +1816,8 @@ struct ResolveContext {
     expected: ExpectedFingerprint,
     /// Memory store bind mounts: (host_path, container_mount_path).
     memory_mounts: Vec<(String, String)>,
+    /// Platform-resolved sandbox mounts.
+    mounts: Vec<SandboxMount>,
     /// Real secrets to inject at the Envoy egress boundary (never enter the
     /// sandbox). Built from decrypted DB rows at resolve time.
     credentials: SandboxCredentials,
@@ -1753,6 +1848,7 @@ impl ExpectedFingerprint {
             "engine_kind": self.engine_kind,
             "networking": self.networking.clone().unwrap_or_else(|| serde_json::json!({})),
             "env": env_hashes,
+            "mounts": self.mounts,
         })
     }
 }
@@ -2119,6 +2215,52 @@ fn join_service_path(base_prefix: &str, entry: &str) -> String {
     format!("{base}/{entry}")
 }
 
+fn prefix_allows(sub_path: &str, prefixes: &[serde_json::Value]) -> bool {
+    let sub_path = sub_path.trim_matches('/');
+    if prefixes.is_empty() {
+        return sub_path.is_empty();
+    }
+    prefixes.iter().any(|prefix| {
+        let Some(prefix) = prefix.as_str() else {
+            return false;
+        };
+        let prefix = prefix.trim_matches('/');
+        prefix.is_empty() || sub_path == prefix || sub_path.starts_with(&format!("{prefix}/"))
+    })
+}
+
+fn effective_prefixes(prefix_sets: Vec<Vec<serde_json::Value>>) -> Vec<serde_json::Value> {
+    let mut constrained: Vec<Vec<serde_json::Value>> = prefix_sets
+        .into_iter()
+        .filter(|prefixes| !prefixes.is_empty())
+        .collect();
+    if constrained.is_empty() {
+        return Vec::new();
+    }
+    let mut candidates = constrained.pop().unwrap_or_default();
+    while let Some(prefixes) = constrained.pop() {
+        let mut next = Vec::new();
+        for candidate in &candidates {
+            let Some(candidate_str) = candidate.as_str() else {
+                continue;
+            };
+            if prefix_allows(candidate_str, &prefixes) && !next.contains(candidate) {
+                next.push(candidate.clone());
+            }
+        }
+        for prefix in &prefixes {
+            let Some(prefix_str) = prefix.as_str() else {
+                continue;
+            };
+            if prefix_allows(prefix_str, &candidates) && !next.contains(prefix) {
+                next.push(prefix.clone());
+            }
+        }
+        candidates = next;
+    }
+    candidates
+}
+
 fn build_external_inject_headers(
     secret: &HashMap<String, String>,
     inject: &serde_json::Map<String, serde_json::Value>,
@@ -2343,8 +2485,8 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://llm.internal.example.com/v1"),
             ("DB_PASSWORD", "keepme"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["llm.internal.example.com"]))
-            .expect("egress");
+        let egress =
+            extract_llm_route(&mut e, &allow(&["llm.internal.example.com"])).expect("egress");
 
         // Bearer header, real host preserved in egress, TLS upstream.
         assert_eq!(egress.upstream_host, "llm.internal.example.com");
@@ -2378,8 +2520,7 @@ mod egress_tests {
             ("ANTHROPIC_API_KEY", "sk-ant-xyz"),
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["api.anthropic.com"]))
-            .expect("egress");
+        let egress = extract_llm_route(&mut e, &allow(&["api.anthropic.com"])).expect("egress");
         assert_eq!(
             egress.inject_headers,
             vec![("x-api-key".to_string(), "sk-ant-xyz".to_string())]
@@ -2430,8 +2571,7 @@ mod egress_tests {
             ("ANTHROPIC_AUTH_TOKEN", "tok-123"),
             ("ANTHROPIC_BASE_URL", "http://ai-api.jdcloud.com/anthropic"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["ai-api.jdcloud.com"]))
-            .expect("egress");
+        let egress = extract_llm_route(&mut e, &allow(&["ai-api.jdcloud.com"])).expect("egress");
         assert_eq!(egress.upstream_host, "ai-api.jdcloud.com");
         assert_eq!(egress.upstream_port, 80);
         assert_eq!(egress.upstream_prefix, "/anthropic/");
@@ -2444,8 +2584,7 @@ mod egress_tests {
             ("OPENAI_API_KEY", "sk-oai"),
             ("OPENAI_BASE_URL", "https://gw.internal/v1"),
         ]);
-        let egress =
-            extract_llm_route(&mut e, &allow(&["gw.internal"])).expect("egress");
+        let egress = extract_llm_route(&mut e, &allow(&["gw.internal"])).expect("egress");
         assert_eq!(egress.upstream_host, "gw.internal");
         assert_eq!(egress.upstream_prefix, "/v1/");
         assert_eq!(
@@ -2477,8 +2616,7 @@ mod egress_tests {
             ("ANTHROPIC_AUTH_TOKEN", "t"),
             ("ANTHROPIC_BASE_URL", "http://llm.internal:8080/v1"),
         ]);
-        let egress =
-            extract_llm_route(&mut e, &allow(&["llm.internal"])).expect("egress");
+        let egress = extract_llm_route(&mut e, &allow(&["llm.internal"])).expect("egress");
         assert_eq!(egress.upstream_host, "llm.internal");
         assert_eq!(egress.upstream_port, 8080);
         assert_eq!(egress.upstream_prefix, "/v1/");
@@ -2493,11 +2631,8 @@ mod egress_tests {
     fn gemini_uses_x_goog_api_key_and_default_host() {
         // Google Generative Language API: raw key in x-goog-api-key, default host.
         let mut e = env(&[("GEMINI_API_KEY", "AIzaXYZ")]);
-        let egress = extract_llm_route(
-            &mut e,
-            &allow(&["generativelanguage.googleapis.com"]),
-        )
-        .expect("egress");
+        let egress = extract_llm_route(&mut e, &allow(&["generativelanguage.googleapis.com"]))
+            .expect("egress");
         assert_eq!(egress.upstream_host, "generativelanguage.googleapis.com");
         assert!(egress.upstream_tls);
         assert_eq!(
@@ -2515,11 +2650,8 @@ mod egress_tests {
     #[test]
     fn google_api_key_alias_also_works() {
         let mut e = env(&[("GOOGLE_API_KEY", "AIzaABC")]);
-        let egress = extract_llm_route(
-            &mut e,
-            &allow(&["generativelanguage.googleapis.com"]),
-        )
-        .expect("egress");
+        let egress = extract_llm_route(&mut e, &allow(&["generativelanguage.googleapis.com"]))
+            .expect("egress");
         assert_eq!(
             egress.inject_headers,
             vec![("x-goog-api-key".to_string(), "AIzaABC".to_string())]
@@ -2534,8 +2666,7 @@ mod egress_tests {
             ("AZURE_OPENAI_API_KEY", "az-secret"),
             ("AZURE_OPENAI_BASE_URL", "https://my-res.openai.azure.com"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["*.openai.azure.com"]))
-            .expect("egress");
+        let egress = extract_llm_route(&mut e, &allow(&["*.openai.azure.com"])).expect("egress");
         assert_eq!(egress.upstream_host, "my-res.openai.azure.com");
         assert!(egress.upstream_tls);
         assert_eq!(
@@ -2591,7 +2722,9 @@ mod egress_tests {
             ("OPENAI_BASE_URL", "file:///tmp/socket"),
         ]);
 
-        assert!(SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.openai.com"])).is_empty());
+        assert!(
+            SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.openai.com"])).is_empty()
+        );
         assert!(!e.contains_key("OPENAI_API_KEY"));
     }
 
@@ -2906,6 +3039,7 @@ mod egress_tests {
                 engine_kind: "claude".to_string(),
                 networking: None,
                 env: HashMap::new(),
+                mounts: vec![],
             };
             let sandbox_config = provisioning_config(
                 "pool_warm",
@@ -3027,6 +3161,7 @@ mod egress_tests {
                 engine_kind: "claude".to_string(),
                 networking: None,
                 env: HashMap::new(),
+                mounts: vec![],
             };
             let sandbox_config = provisioning_config(
                 "pool_warm",
@@ -3154,6 +3289,7 @@ mod egress_tests {
                 engine_kind: "claude".to_string(),
                 networking: None,
                 env: HashMap::new(),
+                mounts: vec![],
             };
             let sandbox_config = provisioning_config(
                 "pool_warm",
@@ -3410,6 +3546,7 @@ mod egress_tests {
                 engine_kind: "claude".to_string(),
                 networking: None,
                 env: HashMap::new(),
+                mounts: vec![],
             };
             let sandbox_config = provisioning_config(
                 "stopped_for_restart",
@@ -3544,6 +3681,7 @@ mod egress_tests {
                 engine_kind: "claude".to_string(),
                 networking: None,
                 env: HashMap::new(),
+                mounts: vec![],
             };
             let sandbox_config = provisioning_config(
                 "stopped_for_restart",
@@ -3673,6 +3811,7 @@ mod egress_tests {
                 engine_kind: "claude".to_string(),
                 networking: None,
                 env: HashMap::new(),
+                mounts: vec![],
             };
             let sandbox_config = provisioning_config(
                 "stale_creating",

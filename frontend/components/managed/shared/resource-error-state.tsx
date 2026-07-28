@@ -12,7 +12,6 @@ type ManagedResourceKind =
   | 'file'
   | 'memoryStore'
   | 'project'
-  | 'schedule'
   | 'secret'
   | 'session'
   | 'skill'
