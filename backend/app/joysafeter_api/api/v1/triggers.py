@@ -2,21 +2,28 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_trigger_id
-from app.joysafeter_domain.schemas.joysafeter_trigger import TriggerCreateRequest, TriggerFireResponse, TriggerResponse, TriggerUpdateRequest
-from app.joysafeter_domain.schemas.joysafeter_schedule import ScheduleRunResponse
-from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig, render_prompt_template
-from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
+from app.joysafeter_domain.schemas.joysafeter_trigger import (
+    TriggerCreateRequest,
+    TriggerFireResponse,
+    TriggerResponse,
+    TriggerRunResponse,
+    TriggerUpdateRequest,
+)
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError, ResourceConflictError
-from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, get_joysafeter_auth_context, require_joysafeter_write
+from app.joysafeter_shared.common.joysafeter_auth import (
+    JoySafeterAuthContext,
+    get_joysafeter_auth_context,
+    require_joysafeter_write,
+)
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.rate_limit import get_client_ip, rate_limit
 
 router = APIRouter(tags=["joysafeter-triggers"])
 
@@ -28,8 +35,30 @@ def _webhook_url(request: Request, trigger_id: uuid.UUID) -> str:
 
 def _response(trigger, request: Request) -> TriggerResponse:
     data = TriggerResponse.model_validate(trigger)
-    data.webhook_url = _webhook_url(request, trigger.id)
+    # Only webhook triggers have an ingress URL; cron triggers are worker-fired.
+    data.webhook_url = _webhook_url(request, trigger.id) if trigger.type == "webhook" else None
     return data
+
+
+def _webhook_rate_limit_key(request: Request) -> str:
+    trigger_id = request.path_params.get("trigger_id") or "unknown"
+    return f"rate_limit:webhook:{trigger_id}:{get_client_ip(request)}"
+
+
+def _webhook_delivery_id(
+    request: Request,
+    trigger,
+    *,
+    fallback_delivery_id: Optional[str],
+    github_delivery_id: Optional[str],
+    request_id: Optional[str],
+) -> Optional[str]:
+    configured_header = ((trigger.config or {}).get("dedupe_header") or "").strip()
+    if configured_header:
+        configured_value = request.headers.get(configured_header)
+        if configured_value:
+            return configured_value
+    return fallback_delivery_id or github_delivery_id or request_id
 
 
 @router.post("", status_code=201, response_model=TriggerResponse)
@@ -58,11 +87,13 @@ async def create_trigger(
         enabled=body.enabled,
         session_mode=body.session_mode,
         pinned_session_id=body.pinned_session_id,
+        session_key=body.session_key,
         filter=body.filter,
         timeout_sec=body.timeout_sec,
         max_retries=body.max_retries,
         cron_expr=body.cron_expr,
         timezone=body.timezone,
+        run_at=body.run_at,
         concurrency_policy=body.concurrency_policy,
         secret_ref=body.secret_ref,
         secret_key=body.secret_key,
@@ -150,71 +181,24 @@ async def run_trigger_now(
     trigger_id: uuid.UUID = Depends(parse_trigger_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key"),
 ) -> TriggerFireResponse:
     trigger = await _get_or_404(db, trigger_id, auth_ctx.project_id)
-    agent, environment_ref = await JoySafeterScheduleService(db).resolve_runnable_target(
-        agent_id=trigger.agent_id,
-        project_id=trigger.project_id,
-        environment_ref=trigger.environment_ref,
-    )
-    now = datetime.now(timezone.utc)
-    payload = {
-        "trigger": {
-            "id": str(trigger.id),
-            "name": trigger.name,
-            "type": "manual",
-            "source_type": trigger.type,
-            "fired_at": now.isoformat(),
-        },
-        "schedule": {
-            "id": str(trigger.id),
-            "name": trigger.name,
-            "cron_expr": trigger.cron_expr,
-            "timezone": trigger.timezone,
-            "fired_at": now.isoformat(),
-            "last_fired_slot": trigger.last_fired_slot.isoformat() if trigger.last_fired_slot else None,
-        },
-    }
-    result = await AgentTriggerExecutor(db).run(
-        AgentTriggerRunConfig(
-            agent=agent,
-            name=trigger.name,
-            source=f"trigger:manual:{trigger.id}",
-            prompt=render_prompt_template(trigger.prompt_template, payload),
-            system_prompt=trigger.system_prompt,
-            environment_ref=environment_ref,
-            timeout_sec=trigger.timeout_sec,
-            max_retries=trigger.max_retries,
-            project_id=trigger.project_id,
-            user_id=trigger.user_id,
-            org_id=trigger.org_id,
-            idempotency_key=f"trigger:{trigger.id}:manual:{uuid.uuid4().hex}",
-            session_mode=trigger.session_mode,
-            pinned_session_id=trigger.pinned_session_id,
-            reusable_session_id=trigger.reusable_session_id,
-            schedule_id=trigger.id,
-            metadata={"trigger_id": str(trigger.id), "trigger_type": "manual", "source_trigger_type": trigger.type},
-        ),
-        enforce_user_quota=True,
-    )
-    await JoySafeterTriggerService(db).mark_attempt(
+    result = await JoySafeterTriggerService(db).fire_manual(
         trigger,
-        success=True,
-        task_id=result.task.id,
-        session_id=result.session.id,
-        payload=payload,
+        idempotency_header=idempotency_key_header,
     )
     return TriggerFireResponse(status=result.task.status, task_id=f"task_{result.task.id}", session_id=f"sess_{result.session.id}")
 
 
-@router.get("/{trigger_id}/runs", response_model=List[ScheduleRunResponse])
+@router.get("/{trigger_id}/runs", response_model=List[TriggerRunResponse])
 async def list_trigger_runs(
     trigger_id: uuid.UUID = Depends(parse_trigger_id),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> List[ScheduleRunResponse]:
+) -> List[TriggerRunResponse]:
     runs = await JoySafeterTriggerService(db).list_runs(
         trigger_id,
         project_id=auth_ctx.project_id,
@@ -223,10 +207,11 @@ async def list_trigger_runs(
     )
     if runs is None:
         raise NotFoundError(code="TRIGGER_NOT_FOUND", message="Trigger not found", data={"trigger_id": str(trigger_id)}, user_action="refresh")
-    return [ScheduleRunResponse.model_validate(task) for task in runs]
+    return [TriggerRunResponse.model_validate(task) for task in runs]
 
 
 @router.post("/{trigger_id}/webhook", status_code=202, response_model=TriggerFireResponse)
+@rate_limit(max_requests=60, window_seconds=60, key_func=_webhook_rate_limit_key)
 async def fire_webhook_trigger(
     request: Request,
     trigger_id: uuid.UUID = Depends(parse_trigger_id),
@@ -275,7 +260,93 @@ async def fire_webhook_trigger(
         trigger,
         raw_body=raw_body,
         payload=payload,
-        delivery_id=x_joysafeter_delivery_id or x_github_delivery or x_request_id,
+        delivery_id=_webhook_delivery_id(
+            request,
+            trigger,
+            fallback_delivery_id=x_joysafeter_delivery_id,
+            github_delivery_id=x_github_delivery,
+            request_id=x_request_id,
+        ),
         auth_fingerprint=signature or token or "",
     )
-    return TriggerFireResponse(status=status, task_id=task.id if task else None, session_id=session_id, reason=reason, deduped=deduped)
+    return TriggerFireResponse(
+        status=status,
+        task_id=(f"task_{task.id}" if task else None),
+        session_id=(f"sess_{session_id}" if session_id else None),
+        reason=reason,
+        deduped=deduped,
+    )
+
+
+@router.post("/{trigger_id}/test", status_code=202, response_model=TriggerFireResponse)
+async def test_fire_webhook_trigger(
+    request: Request,
+    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    body: dict[str, Any] = Body(default_factory=dict),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> TriggerFireResponse:
+    """Owner-authenticated test fire of a webhook trigger (no signature needed).
+
+    Synthesizes a delivery from the supplied sample body and fires through the
+    real webhook path with a unique delivery id (so it always fires, never
+    dedups) — including for a disabled trigger, so it can be validated before
+    going live.
+    """
+    trigger = await _get_or_404(db, trigger_id, auth_ctx.project_id)
+    if trigger.type != "webhook":
+        raise RequestValidationAppError(
+            code="TRIGGER_NOT_WEBHOOK",
+            message="Test fire is only available for webhook triggers",
+            data={"trigger_id": str(trigger_id), "type": trigger.type},
+            user_action="fix_input",
+        )
+    sample_body = body or {"test": True}
+    raw_body = json.dumps(sample_body).encode("utf-8")
+    payload = {
+        "body": sample_body,
+        "headers": {"content_type": "application/json", "user_agent": "joysafeter-test", "forwarded_for": None},
+        "trigger": {"id": str(trigger.id), "name": trigger.name, "type": "webhook", "test": True},
+    }
+    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db).fire_webhook(
+        trigger,
+        raw_body=raw_body,
+        payload=payload,
+        delivery_id=f"test:{uuid.uuid4().hex}",
+        auth_fingerprint="test",
+        ignore_enabled=True,
+    )
+    return TriggerFireResponse(
+        status=status,
+        task_id=(f"task_{task.id}" if task else None),
+        session_id=(f"sess_{session_id}" if session_id else None),
+        reason=reason,
+        deduped=deduped,
+    )
+
+
+@router.get("/{trigger_id}/webhook-sample")
+async def webhook_sample(
+    request: Request,
+    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> dict[str, Any]:
+    """A copy-paste, correctly-signed ``curl`` for delivering to this webhook."""
+    trigger = await _get_or_404(db, trigger_id, auth_ctx.project_id)
+    if trigger.type != "webhook":
+        raise RequestValidationAppError(
+            code="TRIGGER_NOT_WEBHOOK",
+            message="Webhook sample is only available for webhook triggers",
+            data={"trigger_id": str(trigger_id), "type": trigger.type},
+            user_action="fix_input",
+        )
+    url = _webhook_url(request, trigger.id)
+    sample_body = {"example": "payload"}
+    curl = await JoySafeterTriggerService(db).build_webhook_curl(trigger, url=url, sample_body=sample_body)
+    return {
+        "url": url,
+        "signature_header": "X-JoySafeter-Signature",
+        "sample_body": sample_body,
+        "curl": curl,
+    }
