@@ -228,7 +228,13 @@ services:
   worker:
     image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
-    container_name: joysafeter-worker
+    # No container_name: the worker hosts the cron scheduler, which is
+    # multi-instance-safe (FOR UPDATE SKIP LOCKED claim + stale-lock reclaim +
+    # hostname-derived worker_id) and the event-stream consumer (Redis consumer
+    # group + per-instance consumer name). Omitting container_name lets it scale:
+    #   docker compose ... up -d --scale worker=3
+    # See deploy/HA.md. WORKERS stays 1 (one scheduler loop per container);
+    # scale by adding container replicas, not uvicorn workers.
     restart: unless-stopped
     env_file: *backend-env-files
     environment:
@@ -238,8 +244,12 @@ services:
       BACKEND_PORT: 8002
       WORKER_HTTP_HOST: 0.0.0.0
       WORKERS: 1
-    ports:
-      - "${WORKER_HEALTH_BIND_HOST:-127.0.0.1}:${WORKER_HEALTH_PORT_HOST:-8002}:8002"
+    # Health port is exposed on the compose network (not published to a fixed
+    # host port) so N replicas don't collide on one host. Reach it via
+    # `docker compose exec worker curl localhost:8002/health` or the compose
+    # healthcheck below.
+    expose:
+      - "8002"
     depends_on: *backend-depends
     volumes: *backend-volumes
     healthcheck:
