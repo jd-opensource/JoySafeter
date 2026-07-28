@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.joysafeter_domain.models.joysafeter_schedule import ScheduleConcurrencyPolicy
+from app.joysafeter_domain.models.joysafeter_trigger import TriggerConcurrencyPolicy
 from app.joysafeter_shared.utils.cron import compute_next_run, validate_cron, validate_timezone
 
 pytestmark = pytest.mark.no_db
@@ -59,4 +59,4 @@ def test_compute_next_run_advances_from_given_slot() -> None:
 
 
 def test_concurrency_policy_values() -> None:
-    assert {p.value for p in ScheduleConcurrencyPolicy} == {"allow", "forbid", "replace"}
+    assert {p.value for p in TriggerConcurrencyPolicy} == {"allow", "forbid", "replace"}

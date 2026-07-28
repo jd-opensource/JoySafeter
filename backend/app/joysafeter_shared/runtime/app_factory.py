@@ -97,6 +97,16 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
                 checks["status"] = "unhealthy"
                 checks["event_stream"] = {"status": "unhealthy", "error": str(e)}
 
+            if settings.scheduler_enabled:
+                try:
+                    from app.joysafeter_worker.lifecycle import scheduler_health
+
+                    checks["scheduler"] = scheduler_health()
+                except Exception as e:
+                    if checks["status"] == "ok":
+                        checks["status"] = "degraded"
+                    checks["scheduler"] = {"status": "degraded", "error": str(e)}
+
         # Check DB connectivity
         try:
             from app.joysafeter_shared.database import engine

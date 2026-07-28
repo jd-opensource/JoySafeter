@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, SessionStatus
-from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_domain.models.joysafeter_task import (
+    JOYSAFETER_TERMINAL_STATUSES,
+    JoySafeterTask,
+)
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
@@ -81,7 +84,8 @@ class AgentTriggerRunConfig:
     session_mode: str = "fresh"
     pinned_session_id: Optional[uuid.UUID] = None
     reusable_session_id: Optional[uuid.UUID] = None
-    schedule_id: Optional[uuid.UUID] = None
+    session_key: Optional[str] = None  # rendered key for keyed session mode
+    trigger_id: Optional[uuid.UUID] = None
     metadata: Optional[dict[str, Any]] = None
 
 
@@ -135,12 +139,41 @@ class AgentTriggerExecutor:
             if session is not None and session.status == SessionStatus.IDLE.value:
                 return session, False
 
+        keyed_value = (config.session_key or "").strip() if mode == "keyed" else None
+        if mode == "keyed" and keyed_value:
+            # Bucket by the rendered key: reuse this key's newest idle session, so
+            # a shared webhook keeps one thread per customer/chat/repo. Falls
+            # through to a fresh session (stamped with the key) when none is
+            # reusable — that fresh session becomes canonical for the key.
+            conditions = [
+                JoySafeterSession.agent_id == config.agent.id,
+                JoySafeterSession.archived_at.is_(None),
+                JoySafeterSession.metadata_["trigger_session_key"].astext == keyed_value,
+            ]
+            if config.project_id is not None:
+                conditions.append(JoySafeterSession.project_id == config.project_id)
+            result = await self.db.execute(
+                select(JoySafeterSession)
+                .where(*conditions)
+                .order_by(JoySafeterSession.created_at.desc())
+                .limit(1)
+            )
+            keyed_session = result.scalar_one_or_none()
+            if keyed_session is not None and keyed_session.status == SessionStatus.IDLE.value:
+                return keyed_session, False
+
         environment = None
         if config.environment_ref:
             environment = await EnvironmentService(self.db).get_environment_by_ref(
                 config.environment_ref,
                 project_id=config.project_id,
             )
+        session_metadata: dict[str, Any] = {
+            "trigger_source": config.source,
+            **(config.metadata or {}),
+        }
+        if keyed_value:
+            session_metadata["trigger_session_key"] = keyed_value
         session = await session_svc.create_session(
             agent_id=config.agent.id,
             title=f"Triggered: {config.name}",
@@ -152,10 +185,7 @@ class AgentTriggerExecutor:
                 environment_ref=config.environment_ref,
             ),
             project_id=config.project_id,
-            metadata={
-                "trigger_source": config.source,
-                **(config.metadata or {}),
-            },
+            metadata=session_metadata,
         )
         return session, True
 
@@ -190,9 +220,17 @@ class AgentTriggerExecutor:
             user_id=config.user_id,
             org_id=config.org_id,
             idempotency_key=config.idempotency_key,
-            schedule_id=config.schedule_id,
+            trigger_id=config.trigger_id,
             auto_created_session_id=session.id if created_session else None,
             enforce_admission=False,
             enforce_user_quota=False,
         )
+        if not created and created_session and task.chat_session_id != session.id:
+            # Idempotent replay: create_and_dispatch dropped the fresh session we
+            # auto-created for this attempt and returned the pre-existing task.
+            # Return that task's real session so callers (mark_attempt.last_session_id)
+            # never reference the deleted orphan row (FK violation).
+            existing = await session_svc.get_session(task.chat_session_id, project_id=config.project_id)
+            if existing is not None:
+                session = existing
         return AgentTriggerRunResult(task=task, session=session, created=created)

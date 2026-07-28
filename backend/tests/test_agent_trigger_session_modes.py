@@ -75,7 +75,7 @@ def _config(agent, **overrides):
         session_mode="fresh",
         pinned_session_id=None,
         reusable_session_id=None,
-        schedule_id=uuid.uuid4(),
+        trigger_id=uuid.uuid4(),
         metadata={"trigger_type": "cron"},
     )
     values.update(overrides)
