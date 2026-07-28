@@ -527,7 +527,13 @@ impl TaskController {
         }
 
         let tasks: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM joysafeter_tasks WHERE status = 'pending' ORDER BY created_at LIMIT 500",
+            r#"
+            SELECT id FROM joysafeter_tasks
+            WHERE status = 'pending'
+              AND (next_schedule_at IS NULL OR next_schedule_at <= NOW())
+            ORDER BY created_at
+            LIMIT 500
+            "#,
         )
         .fetch_all(&mut *tx)
         .await?;

@@ -2,11 +2,10 @@
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck, ShieldOff, Search } from 'lucide-react'
+import { ShieldCheck, ShieldOff } from 'lucide-react'
 import { managedPut } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { ConfirmDialog, DataTable, type Column, MonoId, PageHeader, RelativeTime, ResourceErrorState, StatusBadge } from '@/components/managed/shared'
+import { ConfirmDialog, DataTable, FilterBar, type Column, MonoId, PageHeader, RelativeTime, ResourceErrorState, StatusBadge } from '@/components/managed/shared'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { toastOperationError } from '@/lib/managed/errors'
 import { useAuthStore } from '@/stores/auth/store'
@@ -46,11 +45,10 @@ export default function PlatformUsersPage() {
     goPrev,
     goToPage,
     setPageSize,
+    reset,
   } = usePaginatedList<PlatformUser>({
     queryKey: 'platform-users',
     path: usersPath,
-    limit: 25,
-    pageSizeOptions: [10, 25, 50, 100],
   })
 
   const updateMutation = useMutation({
@@ -92,14 +90,14 @@ export default function PlatformUsersPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="平台用户" subtitle="管理全局平台管理员。平台管理员可以维护跨组织基础设施配置，例如存储卷底层挂载。" />
-      <div className="flex max-w-md items-center gap-2">
-        <Search className="h-4 w-4 text-muted-foreground" />
-        <Input
-          value={query}
-          placeholder="搜索邮箱或姓名"
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </div>
+      <FilterBar
+        searchPlaceholder="搜索邮箱或姓名"
+        searchValue={query}
+        onSearchChange={(value) => {
+          reset()
+          setQuery(value)
+        }}
+      />
       {isError ? (
         <ResourceErrorState error={error} resource="project" />
       ) : (

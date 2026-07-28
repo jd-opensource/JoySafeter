@@ -37,6 +37,7 @@ import {
   PanelLeftOpen,
   FileText,
   Database,
+  Network,
   FolderCode,
   Lock,
   Sparkles,
@@ -92,6 +93,7 @@ const resourceItems: NavItem[] = [
 const platformManageItems: NavItem[] = [
   { to: '/managed/platform/users', labelKey: 'nav.platformUsers', icon: Users },
   { to: '/managed/platform/storage', labelKey: 'nav.platformStorageVolumes', icon: Database },
+  { to: '/managed/platform/network-policies', labelKey: 'nav.networkPolicyDiagnostics', icon: Network },
 ]
 
 // platformItems (the old /dashboard /agents /tasks /skills /tools /settings
@@ -150,11 +152,12 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
         }))
       } else {
         try {
-          const data = await managedGet<ProjectInfo[]>('/auth/projects?include_archived=false', {
+          const data = await managedGet<ProjectInfo[] | { data: ProjectInfo[] }>('/auth/projects?include_archived=false&limit=500', {
             skipManagedContext: true,
             headers: { 'X-Org-Id': org.id },
           })
-          result[org.id] = (data || [])
+          const rows = Array.isArray(data) ? data : data?.data || []
+          result[org.id] = rows
             .filter((project) => !project.org_id || project.org_id === org.id)
             .map((project) => ({ ...project, org_id: project.org_id || org.id }))
         } catch {

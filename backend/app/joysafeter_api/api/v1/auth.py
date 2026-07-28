@@ -99,6 +99,13 @@ class ProjectResponse(BaseModel):
     updated_at: Optional[str] = None
 
 
+class PaginatedProjectsResponse(BaseModel):
+    data: list[ProjectResponse]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
+
+
 class CreateProjectRequest(BaseModel):
     name: str
     slug: str
@@ -112,6 +119,13 @@ class ApiKeyResponse(BaseModel):
     role: str
     created_at: Optional[str] = None
     last_used_at: Optional[str] = None
+
+
+class PaginatedApiKeysResponse(BaseModel):
+    data: list[ApiKeyResponse]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
 
 
 class ApiKeyCreateResponse(BaseModel):
@@ -978,18 +992,28 @@ async def switch_context(
 @router.get("/projects")
 async def list_projects(
     include_archived: bool = Query(False),
+    limit: int = Query(50, ge=1, le=200),
+    after_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
-) -> list[ProjectResponse]:
+) -> PaginatedProjectsResponse:
     """List projects for the current org."""
     svc = ProjectService(db)
-    projects = await svc.list_accessible_projects(
+    projects, has_more = await svc.list_accessible_projects_page(
         org_id=auth_ctx.org_id,
         user_id=auth_ctx.user_id,
         org_role=auth_ctx.role,
         include_archived=include_archived,
+        limit=limit,
+        after_id=after_id,
     )
-    return [_project_to_response(p) for p in projects]
+    data = [_project_to_response(p) for p in projects]
+    return PaginatedProjectsResponse(
+        data=data,
+        has_more=has_more,
+        first_id=projects[0].id if projects else None,
+        last_id=projects[-1].id if projects else None,
+    )
 
 
 @router.post("/projects", status_code=201)
@@ -1011,13 +1035,21 @@ async def create_project(
 
 @router.get("/api-keys")
 async def list_api_keys(
+    limit: int = Query(50, ge=1, le=200),
+    after_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
-) -> list[ApiKeyResponse]:
+) -> PaginatedApiKeysResponse:
     """List API keys for the current project."""
     svc = ApiKeyService(db)
-    keys = await svc.list_project_keys(auth_ctx.project_id)
-    return [_api_key_to_response(k) for k in keys]
+    keys, has_more = await svc.list_project_keys_page(auth_ctx.project_id, limit=limit, after_id=after_id)
+    data = [_api_key_to_response(k) for k in keys]
+    return PaginatedApiKeysResponse(
+        data=data,
+        has_more=has_more,
+        first_id=str(keys[0].id) if keys else None,
+        last_id=str(keys[-1].id) if keys else None,
+    )
 
 
 @router.post("/api-keys", status_code=201)
@@ -1187,12 +1219,21 @@ class ProjectAccess(str, Enum):
 
 
 class ProjectMemberResponse(BaseModel):
+    id: Optional[str] = None
     user_id: str
     email: str
     display_name: str
     org_role: str
     access: ProjectAccess
     project_role: Optional[str] = None
+    joined_at: Optional[str] = None
+
+
+class PaginatedProjectMembersResponse(BaseModel):
+    data: list[ProjectMemberResponse]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
 
 
 class AddProjectMemberRequest(BaseModel):
@@ -1212,9 +1253,12 @@ def _project_member_access(org_role: str, *, has_explicit_row: bool) -> ProjectA
 @router.get("/projects/{project_id}/members")
 async def list_project_members(
     project_id: str,
+    q: str = Query("", max_length=100),
+    limit: int = Query(50, ge=1, le=200),
+    after_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
-) -> list[ProjectMemberResponse]:
+) -> PaginatedProjectMembersResponse:
     """List organization members with their access status for a project (requires admin role)."""
     svc = ProjectService(db)
     project = await svc.get_project(project_id, auth_ctx.org_id)
@@ -1222,18 +1266,31 @@ async def list_project_members(
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
 
     explicit_role_by_user = {row.user_id: row.role for row in await svc.list_project_members(project_id)}
-
-    return [
+    members, has_more = await OrganizationMemberService(db).list_members_page(
+        auth_ctx.org_id,
+        limit=limit,
+        after_id=after_id,
+        q=q,
+    )
+    data = [
         ProjectMemberResponse(
+            id=member.id,
             user_id=member.user_id,
             email=user.email,
             display_name=user.name,
             org_role=member.role,
             access=_project_member_access(member.role, has_explicit_row=member.user_id in explicit_role_by_user),
             project_role=explicit_role_by_user.get(member.user_id),
+            joined_at=str(member.created_at) if member.created_at else None,
         )
-        for member, user in await OrganizationMemberService(db).list_members_with_users(auth_ctx.org_id)
+        for member, user in ((item.member, item.user) for item in members)
     ]
+    return PaginatedProjectMembersResponse(
+        data=data,
+        has_more=has_more,
+        first_id=members[0].member.id if members else None,
+        last_id=members[-1].member.id if members else None,
+    )
 
 
 @router.post("/projects/{project_id}/members", status_code=201)
@@ -1499,11 +1556,19 @@ class OrganizationResponse(BaseModel):
 
 
 class MemberResponse(BaseModel):
+    id: Optional[str] = None
     user_id: str
     email: str
     display_name: str
     role: str
     joined_at: Optional[str] = None
+
+
+class PaginatedMembersResponse(BaseModel):
+    data: list[MemberResponse]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
 
 
 class InviteMemberRequest(BaseModel):
@@ -1556,21 +1621,36 @@ async def create_organization(
 
 @router.get("/members")
 async def list_members(
+    q: str = Query("", max_length=100),
+    limit: int = Query(50, ge=1, le=200),
+    after_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
-) -> list[MemberResponse]:
+) -> PaginatedMembersResponse:
     """List members of the current organization."""
-    rows = await OrganizationMemberService(db).list_members_with_users(auth_ctx.org_id)
-    return [
+    rows, has_more = await OrganizationMemberService(db).list_members_page(
+        auth_ctx.org_id,
+        limit=limit,
+        after_id=after_id,
+        q=q,
+    )
+    data = [
         MemberResponse(
+            id=member.id,
             user_id=member.user_id,
             email=user.email,
             display_name=user.name,
             role=member.role,
             joined_at=str(member.created_at) if member.created_at else None,
         )
-        for member, user in rows
+        for member, user in ((item.member, item.user) for item in rows)
     ]
+    return PaginatedMembersResponse(
+        data=data,
+        has_more=has_more,
+        first_id=rows[0].member.id if rows else None,
+        last_id=rows[-1].member.id if rows else None,
+    )
 
 
 @router.post("/members/invite", status_code=201)
@@ -1598,6 +1678,7 @@ async def invite_member(
     )
 
     return MemberResponse(
+        id=member.id,
         user_id=user.id,
         email=user.email,
         display_name=user.name,

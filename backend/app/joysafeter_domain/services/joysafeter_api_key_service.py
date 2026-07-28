@@ -7,6 +7,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_api_key import JoySafeterApiKey
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 
 
 class ApiKeyService:
@@ -51,6 +52,21 @@ class ApiKeyService:
             .order_by(JoySafeterApiKey.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def list_project_keys_page(
+        self,
+        project_id: str,
+        *,
+        limit: int,
+        after_id: Optional[uuid.UUID] = None,
+    ) -> Tuple[List[JoySafeterApiKey], bool]:
+        query = select(JoySafeterApiKey).where(
+            and_(JoySafeterApiKey.project_id == project_id, JoySafeterApiKey.revoked_at.is_(None))
+        )
+        query = apply_created_at_desc_cursor(query, JoySafeterApiKey, after_id).limit(limit + 1)
+        result = await self.db.execute(query)
+        rows = list(result.scalars().all())
+        return rows[:limit], len(rows) > limit
 
     async def revoke_key(self, key_id, project_id: str) -> bool:
         result = await self.db.execute(

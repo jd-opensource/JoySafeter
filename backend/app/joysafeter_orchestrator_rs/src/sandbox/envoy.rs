@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
+use bollard::container::RestartContainerOptions;
 use bollard::Docker;
 use serde_json::json;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::lds_backend::{
-    exec_in_envoy, write_file_in_envoy, CdsBackend, LdsBackend, ListenerKind, ListenerSpec,
-    SandboxCredentials, SandboxEgressPolicy,
+    exec_in_envoy, validate_egress_policy, write_file_in_envoy, CdsBackend, LdsBackend,
+    ListenerKind, ListenerSpec, SandboxCredentials, SandboxEgressPolicy,
 };
 
 /// Per-sandbox network isolation via a shared Envoy proxy sidecar container.
@@ -38,6 +39,10 @@ pub struct EnvoyConfig {
     pub container_name: String,
     /// `"filesystem"` (default, `lds.json`) or `"grpc"` (Delta xDS).
     pub xds_mode: String,
+    pub write_debug_entries: bool,
+    pub socket_owner: String,
+    pub health_check_interval_sec: u64,
+    pub health_failure_threshold: u64,
 }
 
 impl EnvoyConfig {
@@ -59,6 +64,110 @@ impl EnvoyManager {
             lds,
             cds,
         }
+    }
+
+    /// Ensure the per-sandbox socket directory exists before either Envoy creates
+    /// sockets in it or Docker mounts it as a volume subpath into the sandbox.
+    pub async fn prepare_socket_dir(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        let socket_dir = format!("/sockets/{sandbox_id}");
+        self.exec_in_envoy(&format!(
+            "mkdir -p {socket_dir} && chown {} {socket_dir} && chmod 700 {socket_dir}",
+            shell_escape(&self.config.socket_owner)
+        ))
+            .await?;
+        Ok(())
+    }
+
+    async fn secure_socket_files(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        let socket_dir = format!("/sockets/{sandbox_id}");
+        self.exec_in_envoy(&format!(
+            "chown {} {socket_dir}/grpc.sock {socket_dir}/http.sock && chmod 600 {socket_dir}/grpc.sock {socket_dir}/http.sock",
+            shell_escape(&self.config.socket_owner)
+        ))
+        .await?;
+        Ok(())
+    }
+
+    pub fn spawn_health_monitor(
+        self: Arc<Self>,
+        pool: sqlx::PgPool,
+        llm_egress_allowed_hosts: Vec<String>,
+    ) {
+        if self.config.health_check_interval_sec == 0 {
+            return;
+        }
+        tokio::spawn(async move {
+            let mut failures = 0u64;
+            let threshold = self.config.health_failure_threshold.max(1);
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+                self.config.health_check_interval_sec,
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                match self.health_check().await {
+                    Ok(()) => {
+                        failures = 0;
+                    }
+                    Err(e) => {
+                        failures += 1;
+                        warn!(
+                            failures,
+                            threshold,
+                            error = %e,
+                            "Envoy health check failed"
+                        );
+                        if failures >= threshold {
+                            failures = 0;
+                            if let Err(recover_err) = self.restart_and_recover(&pool, &llm_egress_allowed_hosts).await {
+                                warn!(error = %recover_err, "Envoy restart/recovery failed");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    async fn health_check(&self) -> anyhow::Result<()> {
+        let output = self
+            .exec_in_envoy("wget -q -T 2 -O - http://127.0.0.1:9901/ready 2>/dev/null || true")
+            .await?;
+        if output.contains("LIVE") || output.contains("ready") {
+            Ok(())
+        } else {
+            anyhow::bail!("Envoy admin /ready did not report ready: {output}")
+        }
+    }
+
+    async fn restart_and_recover(
+        &self,
+        pool: &sqlx::PgPool,
+        llm_egress_allowed_hosts: &[String],
+    ) -> anyhow::Result<()> {
+        warn!("Restarting Envoy container after failed health checks");
+        self.docker
+            .restart_container(
+                &self.config.container_name,
+                Some(RestartContainerOptions { t: 10 }),
+            )
+            .await?;
+        self.wait_until_ready(std::time::Duration::from_secs(15)).await?;
+        self.init().await?;
+        self.recover_from_db(pool, llm_egress_allowed_hosts).await
+    }
+
+    async fn wait_until_ready(&self, timeout: std::time::Duration) -> anyhow::Result<()> {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut last_error = String::new();
+        while std::time::Instant::now() < deadline {
+            match self.health_check().await {
+                Ok(()) => return Ok(()),
+                Err(e) => last_error = e.to_string(),
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        anyhow::bail!("Envoy did not become ready after restart: {last_error}")
     }
 
     /// Initialize: clean stale config, write bootstrap, reset LDS.
@@ -124,10 +233,7 @@ impl EnvoyManager {
             // Recreate the socket dir; the Envoy container may have restarted and
             // lost /sockets contents. Envoy recreates the pipes once it accepts
             // the pushed listeners.
-            let socket_dir = format!("/sockets/{}", sb.id);
-            let _ = self
-                .exec_in_envoy(&format!("mkdir -p {socket_dir} && chmod 777 {socket_dir}"))
-                .await;
+            let _ = self.prepare_socket_dir(sb.id).await;
 
             // Re-derive the sandbox's egress credentials from the DB and render
             // both its listener routes and its per-upstream clusters.
@@ -138,19 +244,53 @@ impl EnvoyManager {
             )
             .await;
             let policy = creds.to_policy(&sb.id, allowed_hosts);
+            if let Err(e) = validate_egress_policy(&sb.id, &policy) {
+                warn!(sandbox_id = %sb.id, error = %e, "Skipping invalid recovered egress policy");
+                let _ = crate::db::queries::update_sandbox_networking_status(
+                    pool,
+                    sb.id,
+                    "failed",
+                    sb.networking_policy_hash.as_deref(),
+                    None,
+                    Some(&e.to_string()),
+                )
+                .await;
+                continue;
+            }
             clusters.extend(policy.clusters(&sb.id));
+
+            let policy_hash = sb
+                .networking_policy_hash
+                .clone()
+                .or_else(|| {
+                    sb.config
+                        .as_ref()
+                        .and_then(|c| c.get("fingerprint"))
+                        .and_then(|f| f.get("egress_policy_hash"))
+                        .and_then(|v| v.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .unwrap_or_else(|| "recovered-unknown".to_string());
+            let _ = crate::db::queries::prepare_sandbox_network_policy_push(
+                pool,
+                sb.id,
+                &policy_hash,
+            )
+            .await;
 
             specs.push(ListenerSpec {
                 sandbox_id: sb.id,
                 kind: ListenerKind::Grpc,
                 allowed_hosts: vec![],
                 credentials: vec![],
+                proxy_auth_token: None,
             });
             specs.push(ListenerSpec {
                 sandbox_id: sb.id,
                 kind: ListenerKind::Http,
                 allowed_hosts: policy.allowlist_hosts,
                 credentials: policy.credential_routes,
+                proxy_auth_token: policy.proxy_auth_token,
             });
             recovered += 1;
         }
@@ -198,28 +338,33 @@ impl EnvoyManager {
         sandbox_id: Uuid,
         policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()> {
-        // Create socket directory inside container
+        validate_egress_policy(&sandbox_id, &policy)?;
+        // Create socket directory inside container.
+        self.prepare_socket_dir(sandbox_id).await?;
         let socket_dir = format!("/sockets/{sandbox_id}");
-        self.exec_in_envoy(&format!("mkdir -p {socket_dir} && chmod 777 {socket_dir}"))
-            .await?;
 
-        // Write a per-sandbox entry file for crash-recovery/debugging visibility.
-        // NOTE: never include secrets here — only the non-sensitive allowlist.
-        let entry_json = json!({
-            "sandbox_id": sandbox_id.to_string(),
-            "allowed_hosts": policy.allowlist_hosts,
-        });
-        let entry_path = format!("/envoy-config/sandboxes/{sandbox_id}.json");
-        self.write_file_in_envoy(&entry_path, &serde_json::to_string(&entry_json)?)
-            .await?;
+        if self.config.write_debug_entries {
+            // Write a per-sandbox entry file for debugging visibility only.
+            // NOTE: never include secrets here — only the non-sensitive allowlist.
+            let entry_json = json!({
+                "sandbox_id": sandbox_id.to_string(),
+                "allowed_hosts": policy.allowlist_hosts,
+            });
+            let entry_path = format!("/envoy-config/sandboxes/{sandbox_id}.json");
+            self.write_file_in_envoy(&entry_path, &serde_json::to_string(&entry_json)?)
+                .await?;
+        }
 
         let cred_clusters = policy.clusters(&sandbox_id);
+        let cluster_prefix = format!("up_{sandbox_id}_");
 
-        // Push clusters BEFORE listeners (make-before-break): a listener whose
-        // routes reference a not-yet-known cluster would fail to warm.
-        if !cred_clusters.is_empty() {
-            self.cds.upsert(cred_clusters).await?;
-        }
+        // Push this sandbox's full cluster set BEFORE listeners
+        // (make-before-break): a listener whose routes reference a not-yet-known
+        // cluster would fail to warm. Replacing by prefix also removes clusters
+        // for credentials that were deleted since the last policy refresh.
+        self.cds
+            .replace_by_prefix(&cluster_prefix, cred_clusters)
+            .await?;
 
         // Push the two listeners for this sandbox through the active backend.
         self.lds
@@ -229,14 +374,20 @@ impl EnvoyManager {
                     kind: ListenerKind::Grpc,
                     allowed_hosts: vec![],
                     credentials: vec![],
+                    proxy_auth_token: None,
                 },
                 ListenerSpec {
                     sandbox_id,
                     kind: ListenerKind::Http,
                     allowed_hosts: policy.allowlist_hosts.clone(),
                     credentials: policy.credential_routes.clone(),
+                    proxy_auth_token: policy.proxy_auth_token.clone(),
                 },
             ])
+            .await?;
+
+        self.lds
+            .wait_for_sandbox_ack(sandbox_id, std::time::Duration::from_secs(10))
             .await?;
 
         // Wait for sockets to appear (up to 10s). Envoy only starts listening
@@ -250,6 +401,7 @@ impl EnvoyManager {
                 .await;
             if let Ok(output) = check {
                 if output.contains("ok") {
+                    self.secure_socket_files(sandbox_id).await?;
                     info!(sandbox_id = %sandbox_id, "Added sandbox to Envoy config");
                     return Ok(());
                 }
@@ -294,10 +446,11 @@ impl EnvoyManager {
             .exec_in_envoy(&format!("rm -rf /sockets/{sandbox_id}"))
             .await;
 
-        // Remove entry file
-        let _ = self
-            .exec_in_envoy(&format!("rm -f /envoy-config/sandboxes/{sandbox_id}.json"))
-            .await;
+        if self.config.write_debug_entries {
+            let _ = self
+                .exec_in_envoy(&format!("rm -f /envoy-config/sandboxes/{sandbox_id}.json"))
+                .await;
+        }
 
         debug!(sandbox_id = %sandbox_id, "Removed sandbox from Envoy config");
         Ok(())
@@ -489,4 +642,8 @@ fn extract_allowed_hosts(networking_config: Option<&serde_json::Value>) -> Vec<S
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn shell_escape(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }

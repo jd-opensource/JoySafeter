@@ -3,9 +3,12 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Database, Edit3, KeyRound, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import type { ProjectRecord, StorageMountAudit, StorageOrganizationGrant, StorageProjectGrant, StorageVolume } from '@/types/managed'
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { useSession } from '@/lib/auth/auth-client'
@@ -32,7 +35,9 @@ import {
 import {
   ConfirmDialog,
   DataTable,
+  FilterBar,
   type Column,
+  type FilterDef,
   MonoId,
   PageHeader,
   RelativeTime,
@@ -358,6 +363,7 @@ function organizationOptionLabel(org: PlatformOrganization) {
 }
 
 export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const requestScope = useManagedRequestScope()
   const readOnly = useCurrentProjectReadOnly()
@@ -372,31 +378,69 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   const [grantForm, setGrantForm] = useState<GrantFormState>(emptyGrantForm())
   const [deleteTarget, setDeleteTarget] = useState<StorageVolume | null>(null)
   const [selectedVolume, setSelectedVolume] = useState<StorageVolume | null>(null)
+  const [auditSearch, setAuditSearch] = useState('')
+  const [auditCreatedFilter, setAuditCreatedFilter] = useState('all')
+  const auditParams = [
+    selectedVolume ? `volume_id=${selectedVolume.id}` : '',
+    auditSearch.trim() ? `q=${encodeURIComponent(auditSearch.trim())}` : '',
+  ].filter(Boolean).join('&')
 
   const volumesQuery = useQuery({
     queryKey: ['storage-volumes', requestScope.key],
     queryFn: () => managedGet<{ data: StorageVolume[] }>(`/storage-volumes?include_disabled=true${platformMode ? '' : '&scope=organization'}`),
   })
-  const auditQuery = useQuery({
-    queryKey: ['storage-volumes-audit', requestScope.key, selectedVolume?.id || 'all'],
-    queryFn: () => managedGet<{ data: StorageMountAudit[] }>(`/storage-volumes/audit/logs?limit=100${selectedVolume ? `&volume_id=${selectedVolume.id}` : ''}`),
+  const auditQuery = usePaginatedList<StorageMountAudit>({
+    queryKey: 'storage-volumes-audit',
+    path: `/storage-volumes/audit/logs${auditParams ? `?${auditParams}` : ''}`,
   })
   const projectsQuery = useQuery({
     queryKey: ['storage-volumes-projects', requestScope.key],
-    queryFn: () => managedGet<ProjectRecord[]>('/auth/projects'),
+    queryFn: () => managedGet<{ data: ProjectRecord[] }>('/auth/projects?limit=500'),
   })
   const organizationsQuery = useQuery({
     queryKey: ['platform-organizations', requestScope.key],
-    queryFn: () => managedGet<PlatformOrganization[]>('/auth/platform/organizations?limit=500'),
+    queryFn: () => managedGet<{ data: PlatformOrganization[] }>('/auth/platform/organizations?limit=500'),
     enabled: platformMode && isPlatformAdmin,
   })
 
   const volumes = volumesQuery.data?.data || []
-  const auditRows = auditQuery.data?.data || []
-  const projects = projectsQuery.data || []
-  const organizations = organizationsQuery.data || []
+  const auditRows = auditQuery.data || []
+  const filteredAuditRows = auditRows.filter((row) =>
+    filterByCreatedTime(row.created_at || '', auditCreatedFilter) &&
+    matchesSearch(auditSearch, [
+      row.id,
+      row.action,
+      row.volume_ref || '',
+      row.project_id || '',
+      row.mount_path || '',
+      row.sub_path || '',
+      row.access || '',
+      row.result,
+    ]),
+  )
+  const showVolumeAudit = (volume: StorageVolume | null) => {
+    auditQuery.reset()
+    setSelectedVolume(volume)
+  }
+  const projects = projectsQuery.data?.data || []
+  const organizations = organizationsQuery.data?.data || []
   const projectNameById = useMemo(() => new Map(projects.map((project) => [project.id, project.name || project.slug || project.id])), [projects])
   const organizationNameById = useMemo(() => new Map(organizations.map((org) => [org.id, organizationOptionLabel(org)])), [organizations])
+  const auditColumns: Column<StorageMountAudit>[] = [
+    { key: 'created_at', header: '时间', render: (row) => <RelativeTime date={row.created_at} /> },
+    { key: 'action', header: '动作', render: (row) => <span className="font-medium">{row.action}</span> },
+    { key: 'volume_ref', header: 'Volume', render: (row) => row.volume_ref || '-' },
+    { key: 'project_id', header: '项目', render: (row) => row.project_id ? projectNameById.get(row.project_id) || row.project_id : '-' },
+    { key: 'mount_path', header: '路径', render: (row) => row.mount_path || row.sub_path || '-' },
+    { key: 'result', header: '结果', render: (row) => row.result },
+  ]
+  const auditFilters: FilterDef[] = [
+    {
+      ...createCreatedTimeFilter(t),
+      value: auditCreatedFilter,
+      onChange: setAuditCreatedFilter,
+    },
+  ]
   const volumeOptions = useMemo<SearchSelectOption[]>(() => volumes.map((volume) => ({
     value: volume.id,
     label: volume.display_name,
@@ -532,7 +576,7 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
       width: '320px',
       render: (volume) => (
         <div className="flex items-center gap-1.5">
-          <Button size="sm" variant="outline" onClick={() => setSelectedVolume(volume)}>
+          <Button size="sm" variant="outline" onClick={() => showVolumeAudit(volume)}>
             审计
           </Button>
           {canManagePlatformVolumes ? (
@@ -620,39 +664,37 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
             <p className="text-sm text-muted-foreground">{platformMode ? '查看 volume、grant、session attach 等存储挂载相关操作。' : '查看当前项目的数据卷授权和挂载相关操作。'}</p>
           </div>
           {selectedVolume ? (
-            <Button size="sm" variant="outline" onClick={() => setSelectedVolume(null)}>查看全部</Button>
+            <Button size="sm" variant="outline" onClick={() => showVolumeAudit(null)}>查看全部</Button>
           ) : null}
         </div>
         <div className="text-sm text-muted-foreground">当前筛选：{selectedVolume ? selectedVolume.display_name : platformMode ? '全部存储卷' : '当前项目'}</div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="py-2 pr-3">时间</th>
-                <th className="py-2 pr-3">动作</th>
-                <th className="py-2 pr-3">Volume</th>
-                <th className="py-2 pr-3">项目</th>
-                <th className="py-2 pr-3">路径</th>
-                <th className="py-2 pr-3">结果</th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditRows.map((row) => (
-                <tr key={row.id} className="border-b last:border-0">
-                  <td className="py-2 pr-3"><RelativeTime date={row.created_at} /></td>
-                  <td className="py-2 pr-3 font-medium">{row.action}</td>
-                  <td className="py-2 pr-3">{row.volume_ref || '-'}</td>
-                  <td className="py-2 pr-3">{row.project_id ? projectNameById.get(row.project_id) || row.project_id : '-'}</td>
-                  <td className="py-2 pr-3">{row.mount_path || row.sub_path || '-'}</td>
-                  <td className="py-2 pr-3">{row.result}</td>
-                </tr>
-              ))}
-              {!auditRows.length ? (
-                <tr><td className="py-6 text-center text-muted-foreground" colSpan={6}>暂无审计记录</td></tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <FilterBar
+          searchPlaceholder="按动作、Volume、项目、路径或结果搜索审计"
+          searchValue={auditSearch}
+          onSearchChange={(value) => {
+            auditQuery.reset()
+            setAuditSearch(value)
+          }}
+          filters={auditFilters}
+        />
+        <DataTable
+          columns={auditColumns}
+          data={filteredAuditRows}
+          loading={auditQuery.isLoading}
+          fetching={auditQuery.isFetching}
+          emptyMessage="暂无审计记录"
+          pagination={{
+            hasNext: auditQuery.hasNext,
+            hasPrev: auditQuery.hasPrev,
+            page: auditQuery.page,
+            pageSize: auditQuery.pageSize,
+            pageSizeOptions: auditQuery.pageSizeOptions,
+            onNext: auditQuery.goNext,
+            onPrev: auditQuery.goPrev,
+            onPageChange: auditQuery.goToPage,
+            onPageSizeChange: auditQuery.setPageSize,
+          }}
+        />
       </section>
 
       <Dialog open={!!volumeForm} onOpenChange={(open) => !open && setVolumeForm(null)}>

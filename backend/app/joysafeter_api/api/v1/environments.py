@@ -7,6 +7,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_env_id
+from app.joysafeter_api.api.v1.network_policy_refresh import (
+    refresh_live_limited_sandbox_network_policies,
+)
 from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_environment import (
@@ -314,6 +317,15 @@ async def update_environment(
         if req.config is not None:
             raise _environment_image_build_error(env_id, operation="update", exc=exc) from exc
         raise
+
+    if req.config is not None:
+        await refresh_live_limited_sandbox_network_policies(
+            db,
+            project_id=auth_ctx.project_id,
+            reason="environment.updated",
+            source_type="environment",
+            source_id=str(env_id),
+        )
 
     return _env_to_response(env)
 

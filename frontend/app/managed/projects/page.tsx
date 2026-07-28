@@ -3,8 +3,9 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { managedGet, managedPost, managedPatch, managedDelete } from '@/lib/api-client'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { managedPost, managedPatch, managedDelete } from '@/lib/api-client'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -67,13 +68,25 @@ export default function ProjectsPage() {
   const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
 
   const {
-    data: projects = [],
+    data: projects,
     isLoading,
+    isFetching,
     isError,
     error,
-  } = useQuery({
-    queryKey: ['projects-list', currentOrgId, showArchived],
-    queryFn: async () => managedGet<Project[]>(`/auth/projects?include_archived=${showArchived}`),
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+    reset: resetProjectsPagination,
+  } = usePaginatedList<Project>({
+    queryKey: 'projects-list',
+    path: '/auth/projects',
+    includeArchived: showArchived,
   })
 
   const resetCreateDraft = () => {
@@ -102,6 +115,7 @@ export default function ProjectsPage() {
     setArchiveTarget(null)
     setEditTarget(null)
     setEditName('')
+    resetProjectsPagination()
   }, [orgScope])
 
   useEffect(
@@ -115,8 +129,6 @@ export default function ProjectsPage() {
 
   const currentOrgScopeIsActive = (scope = orgScopeRef.current) =>
     orgScopeRef.current === scope && getCurrentOrgScope() === scope
-
-  const projectsQueryKey = (scope = orgScopeRef.current) => ['projects-list', scope] as const
 
   const isCurrentAction = (runId: number, scope: string) =>
     actionRunRef.current === runId && currentOrgScopeIsActive(scope)
@@ -135,7 +147,8 @@ export default function ProjectsPage() {
     if (!project) return null
     if (!currentOrgScopeIsActive()) return null
     const current = queryClient
-      .getQueryData<Project[]>(['projects-list', orgScopeRef.current, showArchived])
+      .getQueriesData<{ data: Project[] }>({ queryKey: ['projects-list'] })
+      .flatMap(([, page]) => page?.data ?? [])
       ?.find((candidate) => candidate.id === project.id)
     return current && !current.archived_at && !current.is_default ? current : null
   }
@@ -144,7 +157,8 @@ export default function ProjectsPage() {
     if (!project) return null
     if (!currentOrgScopeIsActive()) return null
     const current = queryClient
-      .getQueryData<Project[]>(['projects-list', orgScopeRef.current, showArchived])
+      .getQueriesData<{ data: Project[] }>({ queryKey: ['projects-list'] })
+      .flatMap(([, page]) => page?.data ?? [])
       ?.find((candidate) => candidate.id === project.id)
     return current?.archived_at ? current : null
   }
@@ -158,7 +172,8 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
+      resetProjectsPagination()
+      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
       resetCreateDraft()
     },
     onError: (error, variables) => {
@@ -176,7 +191,8 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
+      resetProjectsPagination()
+      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
     },
     onError: (error, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
@@ -193,7 +209,8 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
+      resetProjectsPagination()
+      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
     },
     onError: (error, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
@@ -233,7 +250,7 @@ export default function ProjectsPage() {
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
       setEditTarget(null)
-      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
+      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
     onError: (error, variables) => {
@@ -264,7 +281,8 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
+      resetProjectsPagination()
+      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
     onError: (error, variables) => {
@@ -354,7 +372,7 @@ export default function ProjectsPage() {
       <ResourceErrorState
         error={error}
         resource="project"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: projectsQueryKey() })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['projects-list'] })}
       />
     )
   }
@@ -428,7 +446,19 @@ export default function ProjectsPage() {
         columns={columns}
         data={filteredProjects}
         loading={isLoading}
+        fetching={isFetching}
         emptyMessage={t('manage.projects.empty')}
+        pagination={{
+          hasNext,
+          hasPrev,
+          page,
+          pageSize,
+          pageSizeOptions,
+          onNext: goNext,
+          onPrev: goPrev,
+          onPageChange: goToPage,
+          onPageSizeChange: setPageSize,
+        }}
         actionMenu={
           canAdmin
             ? (project) => {

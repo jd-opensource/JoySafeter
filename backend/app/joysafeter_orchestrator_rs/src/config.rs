@@ -101,6 +101,17 @@ pub struct JoySafeterConfig {
     pub envoy_container_name: String,
     /// LDS transport: `"filesystem"` (default, `lds.json`) or `"grpc"` (Delta xDS).
     pub envoy_xds_mode: String,
+    /// Write per-sandbox non-secret debug entry files under Envoy config dir.
+    /// Disabled by default because gRPC xDS recovery derives state from DB and
+    /// these files add one Docker exec/tar upload per policy push.
+    pub envoy_write_debug_entries: bool,
+    /// Mount only this sandbox's socket subdirectory via Docker volume subpath.
+    /// Disable only if the target Docker Engine/API rejects volume subpaths.
+    pub envoy_socket_subpath_mount: bool,
+    /// Health-check interval for the shared Envoy container. 0 disables checks.
+    pub envoy_health_check_interval_sec: u64,
+    /// Consecutive failed checks before restarting Envoy and recovering xDS.
+    pub envoy_health_failure_threshold: u64,
     /// Hosts that LLM egress credential routes may target. This protects the
     /// Envoy-side key injection path from sending credentials to arbitrary
     /// user-controlled base URLs.
@@ -237,6 +248,16 @@ impl JoySafeterConfig {
             envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 9090),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
             envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", "filesystem"),
+            envoy_write_debug_entries: env_bool("JOYSAFETER_ENVOY_WRITE_DEBUG_ENTRIES", false),
+            envoy_socket_subpath_mount: env_bool("JOYSAFETER_ENVOY_SOCKET_SUBPATH_MOUNT", true),
+            envoy_health_check_interval_sec: env_u64(
+                "JOYSAFETER_ENVOY_HEALTH_CHECK_INTERVAL_SEC",
+                30,
+            ),
+            envoy_health_failure_threshold: env_u64(
+                "JOYSAFETER_ENVOY_HEALTH_FAILURE_THRESHOLD",
+                3,
+            ),
             llm_egress_allowed_hosts: env_list("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS"),
 
             image_builder_enabled: env_bool("JOYSAFETER_IMAGE_BUILDER_ENABLED", false),

@@ -1,5 +1,6 @@
 use base64::Engine as _;
 use redis::AsyncCommands;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -10,7 +11,9 @@ use crate::db::queries;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::redis_coordinator::RedisCoordinator;
+use crate::kernel::sandbox_resolver::{allowed_hosts_from_networking, rebuild_sandbox_credentials};
 use crate::kernel::sandbox_bridge::BridgeRegistry;
+use crate::sandbox::lds_backend;
 use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::image_builder::{EnvironmentPackages, ImageBuilder};
 use crate::sandbox::provider::SandboxProvider;
@@ -33,6 +36,7 @@ pub struct CommandListener {
     bridge_registry: BridgeRegistry,
     provider: Arc<dyn SandboxProvider>,
     envoy_manager: Option<Arc<EnvoyManager>>,
+    llm_egress_allowed_hosts: Vec<String>,
     image_builder: Option<Arc<ImageBuilder>>,
     redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -46,6 +50,7 @@ impl CommandListener {
         bridge_registry: BridgeRegistry,
         provider: Arc<dyn SandboxProvider>,
         envoy_manager: Option<Arc<EnvoyManager>>,
+        llm_egress_allowed_hosts: Vec<String>,
         image_builder: Option<Arc<ImageBuilder>>,
         redis_coordinator: Option<Arc<RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -57,6 +62,7 @@ impl CommandListener {
             bridge_registry,
             provider,
             envoy_manager,
+            llm_egress_allowed_hosts,
             image_builder,
             redis_coordinator,
             memory_subscribers,
@@ -181,6 +187,21 @@ impl CommandListener {
             return result.map(|_| ());
         }
 
+        if cmd_type == "network_policy_refresh" {
+            let result = self.handle_network_policy_refresh(&cmd, sandbox_id).await;
+            match &result {
+                Ok(payload) => self.publish_ack_payload(&cmd, payload.clone()).await,
+                Err(ref e) => {
+                    self.publish_ack_payload(
+                        &cmd,
+                        serde_json::json!({"ok": false, "error": e.to_string()}),
+                    )
+                    .await;
+                }
+            }
+            return result.map(|_| ());
+        }
+
         let bridge = match self.bridge_registry.get_by_db_id(sandbox_id) {
             Some(b) => b,
             None => {
@@ -244,6 +265,55 @@ impl CommandListener {
             )
             .await?;
         Ok(sandbox_file_response_to_json(response))
+    }
+
+    async fn handle_network_policy_refresh(
+        &self,
+        _cmd: &serde_json::Value,
+        sandbox_id: Uuid,
+    ) -> anyhow::Result<serde_json::Value> {
+        let sandbox = queries::get_sandbox(&self.pool, sandbox_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("sandbox not found: {sandbox_id}"))?;
+        let external_id = sandbox
+            .external_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("sandbox has no external_id: {sandbox_id}"))?;
+        let networking = sandbox
+            .config
+            .as_ref()
+            .and_then(|config| config.get("fingerprint"))
+            .and_then(|fingerprint| fingerprint.get("networking"));
+        if networking.and_then(|value| value.get("type")).and_then(|value| value.as_str())
+            != Some("limited")
+        {
+            return Ok(serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}));
+        }
+
+        let credentials = rebuild_sandbox_credentials(
+            &self.pool,
+            &sandbox,
+            &self.llm_egress_allowed_hosts,
+        )
+        .await;
+        let policy = credentials.to_policy(&sandbox_id, allowed_hosts_from_networking(networking));
+        lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
+        let summary = lds_backend::egress_policy_summary(&sandbox_id, &policy);
+        let policy_hash = network_policy_hash(networking, &summary);
+
+        queries::prepare_sandbox_network_policy_push(&self.pool, sandbox_id, &policy_hash).await?;
+        self.provider
+            .refresh_networking(sandbox_id, external_id, networking, credentials)
+            .await?;
+        queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_id).await?;
+
+        info!(sandbox_id = %sandbox_id, policy_hash = %policy_hash, "Refreshed sandbox network policy");
+        Ok(serde_json::json!({
+            "ok": true,
+            "refreshed": true,
+            "policy_hash": policy_hash,
+        }))
     }
 
     async fn handle_destroy_sandbox(
@@ -508,6 +578,16 @@ impl CommandListener {
     }
 }
 
+fn network_policy_hash(networking: Option<&serde_json::Value>, summary: &serde_json::Value) -> String {
+    let material = serde_json::json!({
+        "networking": networking.cloned().unwrap_or_else(|| serde_json::json!({})),
+        "summary": summary,
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(material.to_string().as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 fn sandbox_file_response_to_json(response: proto::SandboxFileResponse) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "ok": response.ok,
@@ -660,6 +740,7 @@ mod tests {
             BridgeRegistry::new(),
             provider,
             None,
+            vec![],
             None,
             None,
             Arc::new(MemoryStoreSubscribers::new()),

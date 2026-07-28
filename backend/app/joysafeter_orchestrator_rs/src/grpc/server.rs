@@ -841,13 +841,9 @@ async fn multi_task_loop(
         bridge.reset_confirmation();
         let setup_failure = is_setup_failure_task_result(&result);
         if !matches!(result, TaskResult::Disconnected) && !setup_failure {
-            if let Err(e) = crate::sandbox::artifacts::archive_task_artifacts(
-                pool,
-                bridge,
-                task_id,
-                session_id,
-            )
-            .await
+            if let Err(e) =
+                crate::sandbox::artifacts::archive_task_artifacts(pool, bridge, task_id, session_id)
+                    .await
             {
                 warn!(task_id = %task_id, error = %e, "Failed to archive task artifacts");
             }
@@ -1736,7 +1732,10 @@ async fn handle_task_message(
         }
 
         runner_message::Payload::SandboxFileResponse(response) => {
-            if !bridge.complete_sandbox_file_response(response.clone()).await {
+            if !bridge
+                .complete_sandbox_file_response(response.clone())
+                .await
+            {
                 debug!(task_id = %task_id, "Received unmatched sandbox file response");
             }
             TaskMessageOutcome::default()
@@ -5599,6 +5598,11 @@ async fn send_setup(
         timeout_sec: None,
         retry_count: 0,
         max_retries: 0,
+        schedule_attempts: 0,
+        next_schedule_at: None,
+        last_schedule_error: None,
+        last_schedule_error_type: None,
+        scheduling_started_at: None,
         started_at: None,
         completed_at: None,
         duration_ms: None,

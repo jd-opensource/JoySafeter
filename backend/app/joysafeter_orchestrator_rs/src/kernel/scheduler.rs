@@ -21,6 +21,8 @@ use crate::sandbox::provider::SandboxProvider;
 
 const QUEUE_POP_TIMEOUT: Duration = Duration::from_secs(1);
 const DB_REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
+const SCHEDULING_RETRY_BASE_BACKOFF: Duration = Duration::from_secs(5);
+const SCHEDULING_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(60);
 
 #[derive(Debug, sqlx::FromRow)]
 struct SchedulerEnvironmentSnapshot {
@@ -373,7 +375,7 @@ async fn create_session_and_attach_to_scheduling_task(
     Ok(Some(session))
 }
 
-async fn handle_scheduling_failure(pool: &PgPool, queue: &TaskQueue, task_id: Uuid, reason: &str) {
+async fn handle_scheduling_failure(pool: &PgPool, _queue: &TaskQueue, task_id: Uuid, reason: &str) {
     let task = match queries::get_task(pool, task_id).await {
         Ok(Some(task)) => task,
         Ok(None) => {
@@ -396,7 +398,18 @@ async fn handle_scheduling_failure(pool: &PgPool, queue: &TaskQueue, task_id: Uu
     }
 
     if task.retry_count < task.max_retries {
-        match queries::increment_scheduling_retry(pool, task_id, task.retry_count).await {
+        let next_retry_count = task.retry_count + 1;
+        let backoff = scheduling_retry_backoff(next_retry_count);
+        match queries::increment_scheduling_retry_keep_scheduling(
+            pool,
+            task_id,
+            task.retry_count,
+            backoff.as_secs() as i64,
+            classify_scheduling_error(reason),
+            reason,
+        )
+        .await
+        {
             Ok(true) => {
                 if let Some(session_id) = task.session_id {
                     let stop_reason = json!({"type": "sandbox_failed"});
@@ -422,8 +435,21 @@ async fn handle_scheduling_failure(pool: &PgPool, queue: &TaskQueue, task_id: Uu
                         );
                     }
                 }
-                if let Err(e) = queue.push_to_global(task_id).await {
-                    warn!(task_id = %task_id, error = %e, "Failed to re-enqueue task after scheduling retry");
+                match queries::release_scheduling_retry_to_pending(pool, task_id, next_retry_count)
+                    .await
+                {
+                    Ok(true) => debug!(
+                        task_id = %task_id,
+                        retry = next_retry_count,
+                        backoff_seconds = backoff.as_secs(),
+                        "Scheduling retry persisted with durable DB backoff"
+                    ),
+                    Ok(false) => {
+                        warn!(task_id = %task_id, "Scheduling retry release skipped due to CAS conflict")
+                    }
+                    Err(e) => {
+                        error!(task_id = %task_id, error = %e, "Failed to release scheduling retry after persisting backoff")
+                    }
                 }
             }
             Ok(false) => {
@@ -445,6 +471,26 @@ async fn handle_scheduling_failure(pool: &PgPool, queue: &TaskQueue, task_id: Uu
         json!({"type": "error", "message": reason}),
     )
     .await;
+}
+
+fn scheduling_retry_backoff(retry_count: i32) -> Duration {
+    let exponent = retry_count.saturating_sub(1).clamp(0, 4) as u32;
+    let seconds = SCHEDULING_RETRY_BASE_BACKOFF.as_secs() * 2u64.saturating_pow(exponent);
+    Duration::from_secs(seconds.min(SCHEDULING_RETRY_MAX_BACKOFF.as_secs()))
+}
+
+fn classify_scheduling_error(reason: &str) -> &'static str {
+    if reason.contains("Envoy NACK") || reason.contains("NACK'd xDS") {
+        "envoy_nack"
+    } else if reason.contains("Envoy") || reason.contains("socket") {
+        "envoy_setup"
+    } else if reason.contains("Storage volume") || reason.contains("mount") {
+        "storage_mount"
+    } else if reason.contains("Docker") || reason.contains("container") {
+        "sandbox_provider"
+    } else {
+        "schedule_error"
+    }
 }
 
 async fn mark_terminal_task_and_session_idle(
@@ -792,6 +838,17 @@ mod tests {
         TaskQueue::new(redis::Client::open("redis://127.0.0.1:1/").expect("redis URL"))
     }
 
+    #[test]
+    fn scheduling_retry_backoff_is_bounded_exponential() {
+        assert_eq!(scheduling_retry_backoff(0), Duration::from_secs(5));
+        assert_eq!(scheduling_retry_backoff(1), Duration::from_secs(5));
+        assert_eq!(scheduling_retry_backoff(2), Duration::from_secs(10));
+        assert_eq!(scheduling_retry_backoff(3), Duration::from_secs(20));
+        assert_eq!(scheduling_retry_backoff(4), Duration::from_secs(40));
+        assert_eq!(scheduling_retry_backoff(5), Duration::from_secs(60));
+        assert_eq!(scheduling_retry_backoff(99), Duration::from_secs(60));
+    }
+
     #[tokio::test]
     async fn scheduler_auto_session_attach_skips_task_that_left_scheduling_without_leaking_session()
     {
@@ -888,8 +945,8 @@ mod tests {
         let result = async {
             handle_scheduling_failure(&pool, &test_queue(), task_id, "resolver failed").await;
 
-            let task: (String, i32, Option<Uuid>) = sqlx::query_as(
-                "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
+            let task: (String, i32, Option<Uuid>, i32, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+                "SELECT status, retry_count, sandbox_id, schedule_attempts, next_schedule_at FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
             .fetch_one(&pool)
@@ -898,6 +955,8 @@ mod tests {
             assert_eq!(task.0, "pending");
             assert_eq!(task.1, 1);
             assert_eq!(task.2, None);
+            assert_eq!(task.3, 1);
+            assert!(task.4.is_some());
 
             let session: (String, Option<Value>) =
                 sqlx::query_as("SELECT status, stop_reason FROM joysafeter_sessions WHERE id = $1")

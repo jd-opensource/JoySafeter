@@ -3,12 +3,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Check, Trash2, Pencil, Crown } from 'lucide-react'
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 
 import {
   DataTable,
+  FilterBar,
   MonoId,
   RelativeTime,
   type Column,
+  type FilterDef,
   type MenuItem,
   PageHeader,
 } from '@/components/managed/shared'
@@ -25,6 +28,7 @@ import { Input } from '@/components/ui/input'
 import { managedGet, managedPost, managedDelete, managedPut } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { canAdmin, canOwn, roleLabel } from '@/lib/managed/roles'
 import { clearNonSessionQueryData } from '@/lib/query-client-lifecycle'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -39,6 +43,15 @@ interface MeResponse {
     created_at?: string
   }
   organizations: { id: string; name: string; slug: string; role: string; created_at?: string }[]
+}
+
+interface OrganizationRecord {
+  id: string
+  name: string
+  slug: string
+  logo?: string | null
+  role: string
+  created_at?: string | null
 }
 
 interface OrganizationMember {
@@ -100,6 +113,8 @@ export default function OrganizationPage() {
   const managedScopeRef = useRef(managedScope)
   const [showCreateOrg, setShowCreateOrg] = useState(false)
   const [newOrgName, setNewOrgName] = useState('')
+  const [organizationSearch, setOrganizationSearch] = useState('')
+  const [organizationCreatedFilter, setOrganizationCreatedFilter] = useState('all')
 
   const getCurrentManagedContext = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
@@ -128,8 +143,30 @@ export default function OrganizationPage() {
     queryFn: () => managedGet<MeResponse>('auth/me'),
   })
 
+  const {
+    data: organizations,
+    isLoading: organizationsLoading,
+    isFetching: organizationsFetching,
+    hasNext: organizationsHasNext,
+    hasPrev: organizationsHasPrev,
+    page: organizationsPage,
+    pageSize: organizationsPageSize,
+    pageSizeOptions: organizationsPageSizeOptions,
+    goNext: goNextOrganizations,
+    goPrev: goPrevOrganizations,
+    goToPage: goToOrganizationsPage,
+    setPageSize: setOrganizationsPageSize,
+    reset: resetOrganizationsPagination,
+  } = usePaginatedList<OrganizationRecord>({
+    queryKey: 'organizations-list',
+    path: `/organizations${organizationSearch.trim() ? `?q=${encodeURIComponent(organizationSearch.trim())}` : ''}`,
+  })
+
   const currentOrg = me?.organization
-  const organizations = me?.organizations || []
+  const filteredOrganizations = organizations.filter((org) =>
+    filterByCreatedTime(org.created_at || '', organizationCreatedFilter) &&
+    matchesSearch(organizationSearch, [org.id, org.name, org.slug]),
+  )
 
   const createOrgMutation = useMutation({
     mutationFn: async ({ name, scope }: CreateOrgVariables) => {
@@ -140,7 +177,9 @@ export default function OrganizationPage() {
     },
     onSuccess: (_createdOrg, action) => {
       if (!isCurrentScopedRun(createOrgRunRef, action)) return
+      resetOrganizationsPagination()
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
+      queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
       setShowCreateOrg(false)
       setNewOrgName('')
     },
@@ -186,7 +225,7 @@ export default function OrganizationPage() {
       const targetProjectId = data?.project?.id || data?.project_id
       const { setContext, setCurrentOrg, setCurrentProject } = useProjectStore.getState()
       if (targetProjectId && data?.project && data?.projects) {
-        setContext(targetOrgId, targetProjectId, organizations, data.projects, data.project)
+        setContext(targetOrgId, targetProjectId, me?.organizations || organizations, data.projects, data.project)
       } else {
         setCurrentOrg(targetOrgId)
         if (targetProjectId) {
@@ -210,7 +249,9 @@ export default function OrganizationPage() {
     },
     onSuccess: (_result, action) => {
       if (!isCurrentScopedRun(deleteOrgRunRef, action)) return
+      resetOrganizationsPagination()
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
+      queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
       setDeleteTarget(null)
     },
     onError: (error, action) => {
@@ -226,10 +267,8 @@ export default function OrganizationPage() {
 
   const currentDeletableOrganization = (target: { id: string; name: string } | null) => {
     if (!target) return null
-    const { orgId, projectId } = getCurrentManagedContext()
-    const currentMe = queryClient.getQueryData<MeResponse>(['auth-me', orgId, projectId])
-    const current = currentMe?.organizations.find((org) => org.id === target.id)
-    if (current && canOwn(current.role) && current.id !== currentMe?.organization.id) {
+    const current = organizations.find((org) => org.id === target.id)
+    if (current && canOwn(current.role) && current.id !== currentOrg?.id) {
       return { id: current.id, name: current.name }
     }
     return null
@@ -237,17 +276,13 @@ export default function OrganizationPage() {
 
   const currentEditableOrganization = (target: { id: string; name: string } | null) => {
     if (!target) return null
-    const { orgId, projectId } = getCurrentManagedContext()
-    const currentMe = queryClient.getQueryData<MeResponse>(['auth-me', orgId, projectId])
-    const current = currentMe?.organizations.find((org) => org.id === target.id)
+    const current = organizations.find((org) => org.id === target.id)
     return current && canAdmin(current.role) ? { id: current.id, name: current.name } : null
   }
 
   const currentTransferableOrganization = (target: { id: string; name: string } | null) => {
     if (!target) return null
-    const { orgId, projectId } = getCurrentManagedContext()
-    const currentMe = queryClient.getQueryData<MeResponse>(['auth-me', orgId, projectId])
-    const current = currentMe?.organizations.find((org) => org.id === target.id)
+    const current = organizations.find((org) => org.id === target.id)
     return current && canOwn(current.role) ? { id: current.id, name: current.name } : null
   }
 
@@ -295,6 +330,7 @@ export default function OrganizationPage() {
     onSuccess: (_updatedOrg, action) => {
       if (!isCurrentScopedRun(editOrgRunRef, action)) return
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
+      queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
       setEditTarget(null)
       setEditName('')
     },
@@ -395,6 +431,7 @@ export default function OrganizationPage() {
     onSuccess: (_result, action) => {
       if (!isCurrentScopedRun(transferOwnershipRunRef, action)) return
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
+      queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
       queryClient.invalidateQueries({ queryKey: ['organization-members', action.orgId] })
       setTransferTarget(null)
       setSelectedNewOwnerId('')
@@ -445,7 +482,15 @@ export default function OrganizationPage() {
     [],
   )
 
-  type Organization = MeResponse['organizations'][number]
+  type Organization = OrganizationRecord
+
+  const filters: FilterDef[] = [
+    {
+      ...createCreatedTimeFilter(t),
+      value: organizationCreatedFilter,
+      onChange: setOrganizationCreatedFilter,
+    },
+  ]
 
   const columns: Column<Organization>[] = [
     {
@@ -501,10 +546,33 @@ export default function OrganizationPage() {
         }
       />
 
+      <FilterBar
+        searchPlaceholder="按名称、Slug 或 ID 搜索组织"
+        searchValue={organizationSearch}
+        onSearchChange={(value) => {
+          resetOrganizationsPagination()
+          setOrganizationSearch(value)
+        }}
+        filters={filters}
+      />
+
       <DataTable
         columns={columns}
-        data={organizations}
+        data={filteredOrganizations}
+        loading={organizationsLoading}
+        fetching={organizationsFetching}
         emptyMessage={t('manage.organization.empty')}
+        pagination={{
+          hasNext: organizationsHasNext,
+          hasPrev: organizationsHasPrev,
+          page: organizationsPage,
+          pageSize: organizationsPageSize,
+          pageSizeOptions: organizationsPageSizeOptions,
+          onNext: goNextOrganizations,
+          onPrev: goPrevOrganizations,
+          onPageChange: goToOrganizationsPage,
+          onPageSizeChange: setOrganizationsPageSize,
+        }}
         actionMenu={(org) => {
           const isCurrent = org.id === currentOrg?.id
           const items: MenuItem[] = []

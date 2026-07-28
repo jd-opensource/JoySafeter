@@ -79,9 +79,7 @@ fn set_heartbeat_runtime_state(
     }
 }
 
-fn get_heartbeat_runtime_state(
-    state: &Arc<Mutex<HeartbeatRuntimeState>>,
-) -> HeartbeatRuntimeState {
+fn get_heartbeat_runtime_state(state: &Arc<Mutex<HeartbeatRuntimeState>>) -> HeartbeatRuntimeState {
     match state.lock() {
         Ok(guard) => guard.clone(),
         Err(poisoned) => poisoned.into_inner().clone(),
@@ -109,7 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let token = std::fs::read_to_string(&path).ok()?.trim().to_string();
                 // Delete the file after reading — one-shot.
                 let _ = std::fs::remove_file(&path);
-                if token.is_empty() { None } else { Some(token) }
+                if token.is_empty() {
+                    None
+                } else {
+                    Some(token)
+                }
             })
     });
 
@@ -125,7 +127,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if let Some(ref http_sock) = http_sock_path {
-        if http_sock.exists() {
+        let mut socket_ready = http_sock.exists();
+        for _ in 0..50 {
+            if socket_ready {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            socket_ready = http_sock.exists();
+        }
+
+        if socket_ready {
             info!("Restricted networking detected, starting socat HTTP proxy bridge");
             match tokio::process::Command::new("socat")
                 .args([
@@ -135,19 +146,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .spawn()
             {
                 Ok(_child) => {
-                    let proxy = "http://127.0.0.1:3128";
-                    std::env::set_var("HTTP_PROXY", proxy);
-                    std::env::set_var("HTTPS_PROXY", proxy);
-                    std::env::set_var("http_proxy", proxy);
-                    std::env::set_var("https_proxy", proxy);
-                    std::env::set_var("ALL_PROXY", proxy);
-                    std::env::set_var("all_proxy", proxy);
+                    let proxy = runner_token
+                        .as_ref()
+                        .map(|token| {
+                            format!("http://sandbox:{}@127.0.0.1:3128", url_escape(token))
+                        })
+                        .unwrap_or_else(|| "http://127.0.0.1:3128".to_string());
+                    std::env::set_var("HTTP_PROXY", &proxy);
+                    std::env::set_var("HTTPS_PROXY", &proxy);
+                    std::env::set_var("http_proxy", &proxy);
+                    std::env::set_var("https_proxy", &proxy);
+                    std::env::set_var("ALL_PROXY", &proxy);
+                    std::env::set_var("all_proxy", &proxy);
                     info!("socat HTTP proxy bridge started on 127.0.0.1:3128");
                 }
                 Err(e) => {
                     warn!(error = %e, "Failed to start socat bridge, HTTP proxy will be unavailable");
                 }
             }
+        } else {
+            warn!(path = %http_sock.display(), "Restricted networking socket was not ready; HTTP proxy will be unavailable");
         }
     }
 
@@ -330,6 +348,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Runner shutting down");
     Ok(())
+}
+
+fn url_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                escaped.push(byte as char)
+            }
+            _ => escaped.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    escaped
 }
 
 async fn handle_retry(retry_count: &mut u32, surviving_task: &Option<SurvivingTask>) -> bool {
@@ -858,7 +889,9 @@ async fn run_session(
                 let response = sandbox_files::handle_request(request).await;
                 let _ = runner_tx
                     .send(RunnerMessage {
-                        payload: Some(proto::runner_message::Payload::SandboxFileResponse(response)),
+                        payload: Some(proto::runner_message::Payload::SandboxFileResponse(
+                            response,
+                        )),
                     })
                     .await;
             }

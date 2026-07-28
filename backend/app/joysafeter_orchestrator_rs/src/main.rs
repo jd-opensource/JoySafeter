@@ -304,6 +304,7 @@ async fn main() -> anyhow::Result<()> {
             bridge_registry.clone(),
             sandbox_provider.clone(),
             None, // envoy_manager
+            config.llm_egress_allowed_hosts.clone(),
             None, // image_builder
             redis_coordinator.clone(),
             memory_subscribers.clone(),

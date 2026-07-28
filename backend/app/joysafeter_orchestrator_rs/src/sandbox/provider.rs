@@ -155,6 +155,22 @@ pub trait SandboxProvider: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Refresh an existing sandbox's egress networking policy.
+    ///
+    /// Docker/Envoy can hot-replace listeners and clusters for a sandbox. Other
+    /// providers may keep the default setup implementation if their networking
+    /// API is idempotent, or override this with a cheaper patch call.
+    async fn refresh_networking(
+        &self,
+        sandbox_id: Uuid,
+        sandbox_external_id: &str,
+        networking: Option<&serde_json::Value>,
+        credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        self.setup_networking(sandbox_id, sandbox_external_id, networking, credentials)
+            .await
+    }
+
     /// Tear down sandbox networking configuration.
     ///
     /// Docker: calls EnvoyManager.teardown_for_sandbox() to remove listeners.

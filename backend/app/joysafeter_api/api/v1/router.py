@@ -7,6 +7,7 @@ from app.joysafeter_api.api.v1.environments import router as environments_router
 from app.joysafeter_api.api.v1.files import router as files_router
 from app.joysafeter_api.api.v1.health import router as health_router
 from app.joysafeter_api.api.v1.memory_stores import router as memory_stores_router
+from app.joysafeter_api.api.v1.network_policies import router as network_policies_router
 from app.joysafeter_api.api.v1.oauth import router as oauth_router
 from app.joysafeter_api.api.v1.organizations import router as organizations_router
 from app.joysafeter_api.api.v1.quickstart import router as quickstart_router
@@ -39,6 +40,7 @@ joysafeter_router.include_router(skills_router, prefix="/skills")
 joysafeter_router.include_router(skills_ai_authoring_router, prefix="/skills/ai-authoring")
 joysafeter_router.include_router(sandboxes_router, prefix="/sandboxes")
 joysafeter_router.include_router(memory_stores_router, prefix="/memory_stores")
+joysafeter_router.include_router(network_policies_router, prefix="/network-policies")
 joysafeter_router.include_router(vaults_router, prefix="/vaults")
 joysafeter_router.include_router(files_router, prefix="/files")
 joysafeter_router.include_router(health_router, prefix="/health")

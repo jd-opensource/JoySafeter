@@ -21,6 +21,7 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -28,6 +29,8 @@ use bollard::Docker;
 use futures::Stream;
 use prost::Message;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 use tokio::sync::{watch, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
@@ -71,6 +74,8 @@ pub struct ListenerSpec {
     /// egress boundary, and forward (optionally over TLS) to the true upstream.
     /// The sandbox itself never holds these secrets.
     pub credentials: Vec<EgressCredentialRoute>,
+    /// Expected HTTP proxy authorization token for this sandbox listener.
+    pub proxy_auth_token: Option<String>,
 }
 
 /// Credential family used for diagnostics and future policy decisions. Envoy
@@ -106,7 +111,7 @@ pub enum EgressExposure {
 /// STRICT_DNS cluster (`cluster_name`). Because the cluster endpoint is the real
 /// host (resolved independently of request authority), `host_rewrite` only fixes
 /// the Host header + TLS SNI.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EgressCredentialRoute {
     /// Stable route id scoped by the owning sandbox policy.
     pub id: String,
@@ -141,6 +146,32 @@ pub struct EgressCredentialRoute {
     /// Headers to remove before injection. This prevents sandbox-supplied auth
     /// from shadowing or mixing with platform credentials.
     pub remove_headers: Vec<String>,
+}
+
+impl std::fmt::Debug for EgressCredentialRoute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inject_header_names: Vec<&str> = self
+            .inject_headers
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        f.debug_struct("EgressCredentialRoute")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("exposure", &self.exposure)
+            .field("match_host", &self.match_host)
+            .field("match_prefix", &self.match_prefix)
+            .field("exact_path", &self.exact_path)
+            .field("upstream_host", &self.upstream_host)
+            .field("upstream_port", &self.upstream_port)
+            .field("upstream_prefix", &self.upstream_prefix)
+            .field("upstream_tls", &self.upstream_tls)
+            .field("cluster_name", &self.cluster_name)
+            .field("inject_header_names", &inject_header_names)
+            .field("inject_header_values", &"<redacted>")
+            .field("remove_headers", &self.remove_headers)
+            .finish()
+    }
 }
 
 /// Backward-compatible alias while call sites migrate to the unified egress
@@ -215,13 +246,29 @@ pub fn upstream_cluster_name(sandbox_id: &Uuid, upstream_host: &str, upstream_po
 /// allowlist hosts for ordinary egress plus credential-injection routes for any
 /// credential family. The routes hold plaintext secrets and must never be
 /// persisted or logged.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct SandboxEgressPolicy {
     pub allowlist_hosts: Vec<String>,
     pub credential_routes: Vec<EgressCredentialRoute>,
+    pub proxy_auth_token: Option<String>,
+}
+
+impl std::fmt::Debug for SandboxEgressPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SandboxEgressPolicy")
+            .field("allowlist_hosts", &self.allowlist_hosts)
+            .field("credential_routes", &self.credential_routes)
+            .field("proxy_auth_token", &self.proxy_auth_token.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 impl SandboxEgressPolicy {
+    pub fn with_proxy_auth_token(mut self, token: Option<String>) -> Self {
+        self.proxy_auth_token = token;
+        self
+    }
+
     pub fn clusters(&self, sandbox_id: &Uuid) -> Vec<ClusterSpec> {
         let mut seen = std::collections::HashSet::new();
         let mut clusters = Vec::new();
@@ -244,6 +291,149 @@ impl SandboxEgressPolicy {
     }
 }
 
+pub fn validate_egress_policy(
+    sandbox_id: &Uuid,
+    policy: &SandboxEgressPolicy,
+) -> anyhow::Result<()> {
+    let mut route_ids = std::collections::HashSet::new();
+    let clusters = policy.clusters(sandbox_id);
+    let cluster_names: std::collections::HashSet<&str> = clusters
+        .iter()
+        .map(|cluster| cluster.name.as_str())
+        .collect();
+
+    for host in &policy.allowlist_hosts {
+        validate_route_host(host)
+            .map_err(|e| anyhow::anyhow!("invalid allowlist host {host}: {e}"))?;
+    }
+
+    for route in &policy.credential_routes {
+        if !route_ids.insert(route.id.as_str()) {
+            anyhow::bail!("duplicate egress route id: {}", route.id);
+        }
+        validate_route_host(&route.match_host)
+            .map_err(|e| anyhow::anyhow!("invalid egress match_host {}: {e}", route.match_host))?;
+        validate_route_host(&route.upstream_host).map_err(|e| {
+            anyhow::anyhow!("invalid egress upstream_host {}: {e}", route.upstream_host)
+        })?;
+        validate_route_path(&route.match_prefix).map_err(|e| {
+            anyhow::anyhow!("invalid egress match_prefix {}: {e}", route.match_prefix)
+        })?;
+        validate_route_path(&route.upstream_prefix).map_err(|e| {
+            anyhow::anyhow!(
+                "invalid egress upstream_prefix {}: {e}",
+                route.upstream_prefix
+            )
+        })?;
+        if route.cluster_name.is_empty() || !cluster_names.contains(route.cluster_name.as_str()) {
+            anyhow::bail!(
+                "egress route {} references missing cluster {}",
+                route.id,
+                route.cluster_name
+            );
+        }
+        for (header, _) in &route.inject_headers {
+            validate_header_name(header).map_err(|e| {
+                anyhow::anyhow!(
+                    "invalid injected header {header} on route {}: {e}",
+                    route.id
+                )
+            })?;
+        }
+        for header in &route.remove_headers {
+            validate_header_name(header).map_err(|e| {
+                anyhow::anyhow!("invalid removed header {header} on route {}: {e}", route.id)
+            })?;
+        }
+    }
+
+    let mut domains = std::collections::HashMap::<String, String>::new();
+    let credential_match_hosts: Vec<String> = policy
+        .credential_routes
+        .iter()
+        .map(|route| canonical_policy_host(&route.match_host))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    for (host, routes) in group_credentials_by_host(&policy.credential_routes) {
+        for domain in domains_for_credential_host(&host, &routes) {
+            let domain = canonical_policy_domain(&domain)?;
+            if let Some(existing) = domains.insert(domain.clone(), format!("credential:{host}")) {
+                anyhow::bail!("duplicate Envoy virtual-host domain {domain} between {existing} and credential:{host}");
+            }
+        }
+    }
+    for host in &policy.allowlist_hosts {
+        for credential_host in &credential_match_hosts {
+            if allowlist_host_covers_credential_host(host, credential_host)? {
+                anyhow::bail!(
+                    "allowlist host {host} overlaps credential-injection host {credential_host}; remove it to prevent CONNECT/plain egress bypass"
+                );
+            }
+        }
+        for domain in domains_for_allowlist_host(host) {
+            let domain = canonical_policy_domain(&domain)?;
+            if let Some(existing) = domains.insert(domain.clone(), "allowlist".to_string()) {
+                anyhow::bail!(
+                    "duplicate Envoy virtual-host domain {domain} between {existing} and allowlist"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn egress_policy_summary(sandbox_id: &Uuid, policy: &SandboxEgressPolicy) -> Value {
+    let routes: Vec<Value> = policy
+        .credential_routes
+        .iter()
+        .map(|route| {
+            let inject_headers: Vec<Value> = route
+                .inject_headers
+                .iter()
+                .map(|(name, value)| {
+                    let mut hasher = Sha256::new();
+                    hasher.update(value.as_bytes());
+                    json!({
+                        "name": name.to_ascii_lowercase(),
+                        "value_sha256": hex::encode(hasher.finalize()),
+                    })
+                })
+                .collect();
+            json!({
+                "id": route.id,
+                "kind": format!("{:?}", route.kind),
+                "exposure": format!("{:?}", route.exposure),
+                "match_host": route.match_host,
+                "match_prefix": route.match_prefix,
+                "exact_path": route.exact_path,
+                "upstream_host": route.upstream_host,
+                "upstream_port": route.upstream_port,
+                "upstream_prefix": route.upstream_prefix,
+                "upstream_tls": route.upstream_tls,
+                "cluster_name": route.cluster_name,
+                "inject_headers": inject_headers,
+                "remove_headers": route.remove_headers,
+            })
+        })
+        .collect();
+    let clusters: Vec<Value> = policy
+        .clusters(sandbox_id)
+        .into_iter()
+        .map(|cluster| {
+            json!({
+                "name": cluster.name,
+                "upstream_host": cluster.upstream_host,
+                "upstream_port": cluster.upstream_port,
+                "upstream_tls": cluster.upstream_tls,
+            })
+        })
+        .collect();
+    json!({
+        "allowlist_hosts": policy.allowlist_hosts,
+        "credential_routes": routes,
+        "clusters": clusters,
+    })
+}
+
 /// Legacy orchestrator-facing description of the real secrets for one sandbox,
 /// built from decrypted DB rows. Converted to [`SandboxEgressPolicy`] before it
 /// reaches Envoy rendering. This type holds plaintext secrets and must never be
@@ -254,13 +444,32 @@ impl SandboxEgressPolicy {
 /// on each route is diagnostic. To add a new credential type, write a builder
 /// that returns `Vec<EgressCredentialRoute>` and `extend` this list — no
 /// intermediate struct or `to_routes` change needed.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct SandboxCredentials {
     pub routes: Vec<EgressCredentialRoute>,
+    /// Per-sandbox bearer material used only to authenticate local proxy access
+    /// from the sandbox runner to its own Envoy HTTP listener.
+    pub proxy_auth_token: Option<String>,
 }
 
+impl std::fmt::Debug for SandboxCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SandboxCredentials")
+            .field("routes", &self.routes)
+            .field(
+                "proxy_auth_token",
+                &self.proxy_auth_token.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
 
 impl SandboxCredentials {
+    pub fn with_proxy_auth_token(mut self, token: Option<String>) -> Self {
+        self.proxy_auth_token = token;
+        self
+    }
+
     pub fn to_policy(
         &self,
         sandbox_id: &Uuid,
@@ -269,6 +478,7 @@ impl SandboxCredentials {
         SandboxEgressPolicy {
             allowlist_hosts,
             credential_routes: self.to_routes(sandbox_id),
+            proxy_auth_token: self.proxy_auth_token.clone(),
         }
     }
 
@@ -415,6 +625,15 @@ pub trait LdsBackend: Send + Sync {
     async fn remove(&self, names: Vec<String>) -> anyhow::Result<()>;
     /// Replace the entire set (used for init and gRPC re-sync on reconnect).
     async fn replace_all(&self, specs: Vec<ListenerSpec>) -> anyhow::Result<()>;
+    /// Wait until Envoy accepts the sandbox's listener resources.
+    /// Filesystem LDS has no ACK channel, so its default is successful after write.
+    async fn wait_for_sandbox_ack(
+        &self,
+        _sandbox_id: Uuid,
+        _timeout: Duration,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 // ===========================================================================
@@ -502,6 +721,10 @@ pub trait CdsBackend: Send + Sync {
     /// Remove every cluster whose name starts with `prefix` (used to drop all of
     /// a sandbox's per-upstream clusters without enumerating their hosts).
     async fn remove_by_prefix(&self, prefix: &str) -> anyhow::Result<()>;
+    /// Replace every cluster whose name starts with `prefix` in a single backend
+    /// update. Used when refreshing one sandbox's egress policy so removed routes
+    /// do not leave stale upstream clusters behind.
+    async fn replace_by_prefix(&self, prefix: &str, specs: Vec<ClusterSpec>) -> anyhow::Result<()>;
     async fn replace_all(&self, specs: Vec<ClusterSpec>) -> anyhow::Result<()>;
 }
 
@@ -559,6 +782,15 @@ impl CdsBackend for FilesystemCds {
     async fn remove_by_prefix(&self, prefix: &str) -> anyhow::Result<()> {
         let mut clusters = self.clusters.lock().await;
         clusters.retain(|name, _| !name.starts_with(prefix));
+        self.write_cds(&clusters).await
+    }
+
+    async fn replace_by_prefix(&self, prefix: &str, specs: Vec<ClusterSpec>) -> anyhow::Result<()> {
+        let mut clusters = self.clusters.lock().await;
+        clusters.retain(|name, _| !name.starts_with(prefix));
+        for spec in specs {
+            clusters.insert(spec.name.clone(), render_cluster_json(&spec));
+        }
         self.write_cds(&clusters).await
     }
 
@@ -625,7 +857,12 @@ fn render_listener_json(spec: &ListenerSpec) -> Value {
     match spec.kind {
         ListenerKind::Grpc => build_grpc_listener_json(&spec.sandbox_id),
         ListenerKind::Http => {
-            build_http_listener_json(&spec.sandbox_id, &spec.allowed_hosts, &spec.credentials)
+            build_http_listener_json(
+                &spec.sandbox_id,
+                &spec.allowed_hosts,
+                &spec.credentials,
+                spec.proxy_auth_token.as_deref(),
+            )
         }
     }
 }
@@ -638,7 +875,7 @@ fn build_grpc_listener_json(sandbox_id: &Uuid) -> Value {
         "address": {
             "pipe": {
                 "path": format!("/sockets/{sandbox_id}/grpc.sock"),
-                "mode": 438
+                "mode": 384
             }
         },
         "filter_chains": [{
@@ -659,8 +896,9 @@ fn build_http_listener_json(
     sandbox_id: &Uuid,
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
+    proxy_auth_token: Option<&str>,
 ) -> Value {
-    let virtual_hosts = build_virtual_hosts_json(allowed_hosts, credentials);
+    let virtual_hosts = build_virtual_hosts_json(allowed_hosts, credentials, proxy_auth_token);
 
     json!({
         "@type": LISTENER_TYPE_URL,
@@ -668,7 +906,7 @@ fn build_http_listener_json(
         "address": {
             "pipe": {
                 "path": format!("/sockets/{sandbox_id}/http.sock"),
-                "mode": 438
+                "mode": 384
             }
         },
         "filter_chains": [{
@@ -721,6 +959,7 @@ fn build_http_listener_json(
 fn build_virtual_hosts_json(
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
+    proxy_auth_token: Option<&str>,
 ) -> Vec<Value> {
     let mut vhosts = Vec::new();
 
@@ -741,11 +980,17 @@ fn build_virtual_hosts_json(
                         })
                     })
                     .collect();
-                let headers_to_remove = if r.remove_headers.is_empty() {
+                let mut headers_to_remove = if r.remove_headers.is_empty() {
                     auth_headers_to_remove(&r.inject_headers)
                 } else {
                     r.remove_headers.clone()
                 };
+                if !headers_to_remove
+                    .iter()
+                    .any(|h| h.eq_ignore_ascii_case("proxy-authorization"))
+                {
+                    headers_to_remove.push("proxy-authorization".to_string());
+                }
                 // host_rewrite → real upstream (fixes Host header + TLS SNI);
                 // prefix_rewrite → real upstream path; cluster → per-upstream
                 // STRICT_DNS cluster whose endpoint is the real host (resolved
@@ -768,11 +1013,12 @@ fn build_virtual_hosts_json(
                         "timeout": "0s"
                     })
                 };
-                let match_json = if r.exact_path {
+                let mut match_json = if r.exact_path {
                     json!({ "path": r.match_prefix })
                 } else {
                     json!({ "prefix": r.match_prefix })
                 };
+                add_proxy_auth_match(&mut match_json, proxy_auth_token);
                 json!({
                     "match": match_json,
                     "route": route_json,
@@ -821,18 +1067,20 @@ fn build_virtual_hosts_json(
             "domains": domains,
             "routes": [
                 {
-                    "match": { "connect_matcher": {} },
+                    "match": route_match_with_proxy_auth(json!({ "connect_matcher": {} }), proxy_auth_token),
                     "route": {
                         "cluster": "dynamic_forward_proxy",
                         "upgrade_configs": [{
                             "upgrade_type": "CONNECT",
                             "connect_config": {}
                         }]
-                    }
+                    },
+                    "request_headers_to_remove": ["proxy-authorization"]
                 },
                 {
-                    "match": { "prefix": "/" },
-                    "route": { "cluster": "dynamic_forward_proxy" }
+                    "match": route_match_with_proxy_auth(json!({ "prefix": "/" }), proxy_auth_token),
+                    "route": { "cluster": "dynamic_forward_proxy" },
+                    "request_headers_to_remove": ["proxy-authorization"]
                 }
             ]
         }));
@@ -852,6 +1100,142 @@ fn build_virtual_hosts_json(
     }));
 
     vhosts
+}
+
+fn proxy_authorization_value(token: &str) -> String {
+    format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(format!("sandbox:{token}"))
+    )
+}
+
+fn add_proxy_auth_match(match_json: &mut Value, proxy_auth_token: Option<&str>) {
+    let Some(token) = proxy_auth_token.filter(|token| !token.is_empty()) else {
+        return;
+    };
+    if let Some(obj) = match_json.as_object_mut() {
+        obj.insert(
+            "headers".to_string(),
+            json!([{
+                "name": "proxy-authorization",
+                "string_match": { "exact": proxy_authorization_value(token) }
+            }]),
+        );
+    }
+}
+
+fn route_match_with_proxy_auth(mut match_json: Value, proxy_auth_token: Option<&str>) -> Value {
+    add_proxy_auth_match(&mut match_json, proxy_auth_token);
+    match_json
+}
+
+fn domains_for_credential_host(match_host: &str, routes: &[CredentialRoute]) -> Vec<String> {
+    let mut domains = vec![
+        match_host.to_string(),
+        format!("{match_host}:80"),
+        format!("{match_host}:443"),
+    ];
+    for route in routes {
+        if route.upstream_port != 80 && route.upstream_port != 443 {
+            let with_port = format!("{match_host}:{}", route.upstream_port);
+            if !domains.iter().any(|domain| domain == &with_port) {
+                domains.push(with_port);
+            }
+        }
+    }
+    domains
+}
+
+fn domains_for_allowlist_host(host: &str) -> Vec<String> {
+    let mut domains = vec![host.to_string()];
+    if !host.contains(':') {
+        domains.push(format!("{host}:443"));
+        domains.push(format!("{host}:80"));
+    }
+    domains
+}
+
+fn canonical_policy_domain(domain: &str) -> anyhow::Result<String> {
+    let trimmed = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+    validate_route_host(&trimmed)?;
+    Ok(trimmed)
+}
+
+fn canonical_policy_host(host: &str) -> anyhow::Result<String> {
+    let domain = canonical_policy_domain(host)?;
+    Ok(domain
+        .rsplit_once(':')
+        .and_then(|(base, port)| port.parse::<u16>().ok().map(|_| base.to_string()))
+        .unwrap_or(domain))
+}
+
+fn allowlist_host_covers_credential_host(
+    allowlist_host: &str,
+    credential_host: &str,
+) -> anyhow::Result<bool> {
+    let allow = canonical_policy_host(allowlist_host)?;
+    let credential = canonical_policy_host(credential_host)?;
+    if allow == credential {
+        return Ok(true);
+    }
+    if let Some(suffix) = allow.strip_prefix("*.") {
+        return Ok(credential == suffix || credential.ends_with(&format!(".{suffix}")));
+    }
+    Ok(false)
+}
+
+fn validate_route_host(host: &str) -> anyhow::Result<()> {
+    let trimmed = host.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("host is empty");
+    }
+    if trimmed.contains('/') || trimmed.contains(' ') || trimmed.contains('\t') {
+        anyhow::bail!("host must not contain path, whitespace, or scheme");
+    }
+    if trimmed.contains("://") {
+        anyhow::bail!("host must not include scheme");
+    }
+    Ok(())
+}
+
+fn validate_route_path(path: &str) -> anyhow::Result<()> {
+    if !path.starts_with('/') {
+        anyhow::bail!("path must start with '/'");
+    }
+    if path.contains('\n') || path.contains('\r') || path.contains('\0') {
+        anyhow::bail!("path contains control characters");
+    }
+    Ok(())
+}
+
+fn validate_header_name(name: &str) -> anyhow::Result<()> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("header name is empty");
+    }
+    if !trimmed.bytes().all(|byte| {
+        byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'!' | b'#'
+                    | b'$'
+                    | b'%'
+                    | b'&'
+                    | b'\''
+                    | b'*'
+                    | b'+'
+                    | b'-'
+                    | b'.'
+                    | b'^'
+                    | b'_'
+                    | b'`'
+                    | b'|'
+                    | b'~'
+            )
+    }) {
+        anyhow::bail!("header name is not a valid HTTP token");
+    }
+    Ok(())
 }
 
 /// Group credential routes by their placeholder `match_host`, returning a stable
@@ -895,6 +1279,13 @@ struct XdsState {
     version: u64,
 }
 
+#[derive(Debug, Clone)]
+enum XdsApplyStatus {
+    Pending { min_version: u64 },
+    Acked,
+    Nacked(String),
+}
+
 impl XdsState {
     fn new() -> Self {
         Self {
@@ -921,24 +1312,71 @@ pub struct DeltaXdsServer {
     state: Arc<Mutex<XdsState>>,
     /// Bumped on every state change to wake the active Delta stream.
     notify: watch::Sender<u64>,
+    /// Optional DB handle attached on orchestrator startup for ACK/NACK status
+    /// persistence. Kept optional so unit tests and filesystem mode do not need a DB.
+    db_pool: Arc<Mutex<Option<PgPool>>>,
+    apply_status: Arc<Mutex<HashMap<Uuid, XdsApplyStatus>>>,
+    status_notify: watch::Sender<u64>,
 }
 
 impl DeltaXdsServer {
     pub fn new() -> Arc<Self> {
         let (notify, _rx) = watch::channel(0u64);
+        let (status_notify, _status_rx) = watch::channel(0u64);
         Arc::new(Self {
             state: Arc::new(Mutex::new(XdsState::new())),
             notify,
+            db_pool: Arc::new(Mutex::new(None)),
+            apply_status: Arc::new(Mutex::new(HashMap::new())),
+            status_notify,
         })
     }
 
+    pub async fn attach_db_pool(&self, pool: PgPool) {
+        *self.db_pool.lock().await = Some(pool);
+    }
+
+    pub async fn wait_for_sandbox_ack(
+        &self,
+        sandbox_id: Uuid,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let mut rx = self.status_notify.subscribe();
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            match self.apply_status.lock().await.get(&sandbox_id).cloned() {
+                Some(XdsApplyStatus::Acked) => return Ok(()),
+                Some(XdsApplyStatus::Nacked(reason)) => {
+                    anyhow::bail!("Envoy NACK'd xDS update for sandbox {sandbox_id}: {reason}")
+                }
+                Some(XdsApplyStatus::Pending { .. }) | None => {}
+            }
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                anyhow::bail!("timed out waiting for Envoy xDS ACK for sandbox {sandbox_id}");
+            }
+            if tokio::time::timeout_at(deadline, rx.changed())
+                .await
+                .is_err()
+            {
+                anyhow::bail!("timed out waiting for Envoy xDS ACK for sandbox {sandbox_id}");
+            }
+        }
+    }
+
     /// Apply a batch of changes to one resource type and wake the stream.
-    async fn apply(&self, type_url: &str, changes: Vec<Change>) {
+    async fn apply(
+        &self,
+        type_url: &str,
+        changes: Vec<Change>,
+        pending_sandboxes: Vec<Uuid>,
+    ) -> u64 {
         if changes.is_empty() {
-            return;
+            return *self.notify.borrow();
         }
         let mut st = self.state.lock().await;
         st.version += 1;
+        let version = st.version;
         {
             let map = st.entry(type_url);
             for change in &changes {
@@ -952,11 +1390,23 @@ impl DeltaXdsServer {
                 }
             }
         }
-        let version = st.version;
         drop(st);
+        if !pending_sandboxes.is_empty() {
+            let mut statuses = self.apply_status.lock().await;
+            for sandbox_id in pending_sandboxes {
+                statuses.insert(
+                    sandbox_id,
+                    XdsApplyStatus::Pending {
+                        min_version: version,
+                    },
+                );
+            }
+            let _ = self.status_notify.send(*self.status_notify.borrow() + 1);
+        }
         // Ignore send error: no receiver means no Envoy connected yet; the
         // change is already recorded and delivered as initial state on connect.
         let _ = self.notify.send(version);
+        version
     }
 }
 
@@ -964,17 +1414,23 @@ impl DeltaXdsServer {
 impl LdsBackend for GrpcLds {
     async fn upsert(&self, specs: Vec<ListenerSpec>) -> anyhow::Result<()> {
         let mut changes = Vec::with_capacity(specs.len());
+        let mut pending_sandboxes = Vec::new();
         for spec in specs {
+            if !pending_sandboxes.contains(&spec.sandbox_id) {
+                pending_sandboxes.push(spec.sandbox_id);
+            }
             let any = encode_listener_any(&spec)?;
             changes.push(Change::Upsert(spec.resource_name(), any));
         }
-        self.server.apply(LISTENER_TYPE_URL, changes).await;
+        self.server
+            .apply(LISTENER_TYPE_URL, changes, pending_sandboxes)
+            .await;
         Ok(())
     }
 
     async fn remove(&self, names: Vec<String>) -> anyhow::Result<()> {
         let changes = names.into_iter().map(Change::Remove).collect();
-        self.server.apply(LISTENER_TYPE_URL, changes).await;
+        self.server.apply(LISTENER_TYPE_URL, changes, vec![]).await;
         Ok(())
     }
 
@@ -983,9 +1439,13 @@ impl LdsBackend for GrpcLds {
         // `specs`, remove anything no longer present.
         let mut new_names = std::collections::HashSet::new();
         let mut changes = Vec::new();
+        let mut pending_sandboxes = Vec::new();
         for spec in &specs {
             let name = spec.resource_name();
             new_names.insert(name.clone());
+            if !pending_sandboxes.contains(&spec.sandbox_id) {
+                pending_sandboxes.push(spec.sandbox_id);
+            }
             changes.push(Change::Upsert(name, encode_listener_any(spec)?));
         }
         {
@@ -996,8 +1456,18 @@ impl LdsBackend for GrpcLds {
                 }
             }
         }
-        self.server.apply(LISTENER_TYPE_URL, changes).await;
+        self.server
+            .apply(LISTENER_TYPE_URL, changes, pending_sandboxes)
+            .await;
         Ok(())
+    }
+
+    async fn wait_for_sandbox_ack(
+        &self,
+        sandbox_id: Uuid,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        self.server.wait_for_sandbox_ack(sandbox_id, timeout).await
     }
 }
 
@@ -1035,7 +1505,7 @@ impl CdsBackend for GrpcCds {
                 encode_cluster_any(&spec)?,
             ));
         }
-        self.server.apply(CLUSTER_TYPE_URL, changes).await;
+        self.server.apply(CLUSTER_TYPE_URL, changes, vec![]).await;
         Ok(())
     }
 
@@ -1049,7 +1519,26 @@ impl CdsBackend for GrpcCds {
                 .collect()
         };
         let changes = names.into_iter().map(Change::Remove).collect();
-        self.server.apply(CLUSTER_TYPE_URL, changes).await;
+        self.server.apply(CLUSTER_TYPE_URL, changes, vec![]).await;
+        Ok(())
+    }
+
+    async fn replace_by_prefix(&self, prefix: &str, specs: Vec<ClusterSpec>) -> anyhow::Result<()> {
+        let mut new_names = std::collections::HashSet::new();
+        let mut changes = Vec::new();
+        for spec in &specs {
+            new_names.insert(spec.name.clone());
+            changes.push(Change::Upsert(spec.name.clone(), encode_cluster_any(spec)?));
+        }
+        {
+            let st = self.server.state.lock().await;
+            for existing in st.snapshot_type(CLUSTER_TYPE_URL).keys() {
+                if existing.starts_with(prefix) && !new_names.contains(existing) {
+                    changes.push(Change::Remove(existing.clone()));
+                }
+            }
+        }
+        self.server.apply(CLUSTER_TYPE_URL, changes, vec![]).await;
         Ok(())
     }
 
@@ -1068,7 +1557,7 @@ impl CdsBackend for GrpcCds {
                 }
             }
         }
-        self.server.apply(CLUSTER_TYPE_URL, changes).await;
+        self.server.apply(CLUSTER_TYPE_URL, changes, vec![]).await;
         Ok(())
     }
 }
@@ -1109,6 +1598,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
 
         let mut notify_rx = self.notify.subscribe();
         let state_handle = self.state_snapshot_handle();
+        let xds_status_handle = self.status_handle();
 
         // Resource types this aggregated stream serves. Order matters: Clusters
         // (CDS) must be pushed before Listeners (LDS) so a listener's routes
@@ -1144,8 +1634,24 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
         };
 
         let task = async move {
+            // Track response nonce -> resource names so ACK/NACK can be mapped
+            // back to sandbox policy rows.
+            let mut nonce_resources: HashMap<String, (String, u64, Vec<String>)> = HashMap::new();
+
             // Send initial state (CDS then LDS).
             for resp in initial {
+                nonce_resources.insert(
+                    resp.nonce.clone(),
+                    (
+                        resp.type_url.clone(),
+                        resp.system_version_info.parse::<u64>().unwrap_or_default(),
+                        resp.resources
+                            .iter()
+                            .map(|resource| resource.name.clone())
+                            .chain(resp.removed_resources.iter().cloned())
+                            .collect(),
+                    ),
+                );
                 if tx.send(Ok(resp)).await.is_err() {
                     return;
                 }
@@ -1166,8 +1672,17 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                     msg = inbound.message() => {
                         match msg {
                             Ok(Some(req)) => {
-                                if let Some(err) = &req.error_detail {
-                                    warn!(code = err.code, message = %err.message, "Envoy NACK'd xDS update");
+                                if !req.response_nonce.is_empty() {
+                                    let (acked_type_url, acked_version, resources) = nonce_resources
+                                        .get(&req.response_nonce)
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    if let Some(err) = &req.error_detail {
+                                        warn!(code = err.code, message = %err.message, nonce = %req.response_nonce, "Envoy NACK'd xDS update");
+                                        xds_status_handle.persist_nack(resources, acked_version, err.message.clone()).await;
+                                    } else if acked_type_url == LISTENER_TYPE_URL {
+                                        xds_status_handle.persist_ack(resources, acked_version).await;
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -1210,12 +1725,25 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                                 prev.difference(&current).cloned().collect();
                             *prev = current;
 
+                            let nonce = format!("n-{type_url}-{version}");
+                            nonce_resources.insert(
+                                nonce.clone(),
+                                (
+                                    type_url.to_string(),
+                                    version,
+                                    resources
+                                        .iter()
+                                        .map(|resource| resource.name.clone())
+                                        .chain(removed.iter().cloned())
+                                        .collect(),
+                                ),
+                            );
                             let resp = DeltaDiscoveryResponse {
                                 system_version_info: version.to_string(),
                                 resources,
                                 removed_resources: removed,
                                 type_url: type_url.to_string(),
-                                nonce: format!("n-{type_url}-{version}"),
+                                nonce,
                                 ..Default::default()
                             };
                             if tx.send(Ok(resp)).await.is_err() {
@@ -1235,6 +1763,81 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
         Ok(Response::new(
             Box::pin(ReceiverStream::new(rx)) as DeltaStream
         ))
+    }
+}
+
+struct XdsStatusHandle {
+    db_pool: Arc<Mutex<Option<PgPool>>>,
+    apply_status: Arc<Mutex<HashMap<Uuid, XdsApplyStatus>>>,
+    status_notify: watch::Sender<u64>,
+}
+
+impl XdsStatusHandle {
+    async fn persist_ack(&self, resources: Vec<String>, acked_version: u64) {
+        let sandbox_ids = sandbox_ids_from_xds_resources(&resources);
+        let mut acked_sandboxes = Vec::new();
+        if !sandbox_ids.is_empty() {
+            let mut statuses = self.apply_status.lock().await;
+            for sandbox_id in &sandbox_ids {
+                let should_ack = match statuses.get(sandbox_id) {
+                    Some(XdsApplyStatus::Pending { min_version }) => acked_version >= *min_version,
+                    Some(XdsApplyStatus::Acked) => false,
+                    Some(XdsApplyStatus::Nacked(_)) | None => false,
+                };
+                if should_ack {
+                    statuses.insert(*sandbox_id, XdsApplyStatus::Acked);
+                    acked_sandboxes.push(*sandbox_id);
+                }
+            }
+            if !acked_sandboxes.is_empty() {
+                let _ = self.status_notify.send(*self.status_notify.borrow() + 1);
+            }
+        }
+        let Some(pool) = self.db_pool.lock().await.clone() else {
+            return;
+        };
+        for sandbox_id in acked_sandboxes {
+            if let Err(e) = crate::db::queries::mark_sandbox_network_policy_acked(&pool, sandbox_id)
+                .await
+            {
+                warn!(sandbox_id = %sandbox_id, error = %e, "Failed to persist xDS ACK status");
+            }
+        }
+    }
+
+    async fn persist_nack(&self, resources: Vec<String>, nacked_version: u64, reason: String) {
+        let sandbox_ids = sandbox_ids_from_xds_resources(&resources);
+        let mut nacked_sandboxes = Vec::new();
+        if !sandbox_ids.is_empty() {
+            let mut statuses = self.apply_status.lock().await;
+            for sandbox_id in &sandbox_ids {
+                let should_nack = match statuses.get(sandbox_id) {
+                    Some(XdsApplyStatus::Pending { min_version }) => nacked_version >= *min_version,
+                    Some(XdsApplyStatus::Acked) | Some(XdsApplyStatus::Nacked(_)) | None => false,
+                };
+                if should_nack {
+                    statuses.insert(*sandbox_id, XdsApplyStatus::Nacked(reason.clone()));
+                    nacked_sandboxes.push(*sandbox_id);
+                }
+            }
+            if !nacked_sandboxes.is_empty() {
+                let _ = self.status_notify.send(*self.status_notify.borrow() + 1);
+            }
+        }
+        let Some(pool) = self.db_pool.lock().await.clone() else {
+            return;
+        };
+        for sandbox_id in nacked_sandboxes {
+            if let Err(e) = crate::db::queries::record_network_policy_failure(
+                &pool,
+                sandbox_id,
+                &reason,
+            )
+            .await
+            {
+                warn!(sandbox_id = %sandbox_id, error = %e, "Failed to persist xDS NACK status");
+            }
+        }
     }
 }
 
@@ -1261,6 +1864,32 @@ impl DeltaXdsServer {
             state: self.state.clone(),
         }
     }
+
+    fn status_handle(&self) -> XdsStatusHandle {
+        XdsStatusHandle {
+            db_pool: self.db_pool.clone(),
+            apply_status: self.apply_status.clone(),
+            status_notify: self.status_notify.clone(),
+        }
+    }
+}
+
+fn sandbox_ids_from_xds_resources(resource_names: &[String]) -> Vec<Uuid> {
+    let mut ids = Vec::new();
+    for name in resource_names {
+        if let Some(id) = sandbox_id_from_xds_resource(name) {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    ids
+}
+
+fn sandbox_id_from_xds_resource(name: &str) -> Option<Uuid> {
+    let raw = name.strip_prefix("up_").unwrap_or(name);
+    let candidate = raw.get(..36)?;
+    Uuid::parse_str(candidate).ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -1274,9 +1903,12 @@ fn encode_listener_any(spec: &ListenerSpec) -> anyhow::Result<Any> {
 
     let listener: Listener = match spec.kind {
         ListenerKind::Grpc => build_grpc_listener_proto(&spec.sandbox_id),
-        ListenerKind::Http => {
-            build_http_listener_proto(&spec.sandbox_id, &spec.allowed_hosts, &spec.credentials)
-        }
+        ListenerKind::Http => build_http_listener_proto(
+            &spec.sandbox_id,
+            &spec.allowed_hosts,
+            &spec.credentials,
+            spec.proxy_auth_token.as_deref(),
+        ),
     };
     let mut buf = Vec::new();
     listener.encode(&mut buf)?;
@@ -1410,7 +2042,7 @@ fn build_grpc_listener_proto(
         address: Some(Address {
             address: Some(address::Address::Pipe(Pipe {
                 path: format!("/sockets/{sandbox_id}/grpc.sock"),
-                mode: 438,
+                mode: 384,
             })),
         }),
         filter_chains: vec![FilterChain {
@@ -1431,7 +2063,9 @@ fn build_http_listener_proto(
     sandbox_id: &Uuid,
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
+    proxy_auth_token: Option<&str>,
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
+    use envoy_types::pb::envoy::config::cluster::v3::cluster::DnsLookupFamily;
     use envoy_types::pb::envoy::config::core::v3::{address, Address, Http1ProtocolOptions, Pipe};
     use envoy_types::pb::envoy::config::listener::v3::{filter, Filter, FilterChain, Listener};
     use envoy_types::pb::envoy::config::route::v3::RouteConfiguration;
@@ -1448,8 +2082,7 @@ fn build_http_listener_proto(
         implementation_specifier: Some(filter_config::ImplementationSpecifier::DnsCacheConfig(
             DnsCacheConfig {
                 name: "dynamic_forward_proxy_cache".to_string(),
-                // dns_lookup_family: V4_ONLY == 0 (default enum value), so we
-                // leave it at Default to match the JSON path.
+                dns_lookup_family: DnsLookupFamily::V4Only as i32,
                 ..Default::default()
             },
         )),
@@ -1468,7 +2101,11 @@ fn build_http_listener_proto(
         }],
         route_specifier: Some(http_connection_manager::RouteSpecifier::RouteConfig(
             RouteConfiguration {
-                virtual_hosts: build_virtual_hosts_proto(allowed_hosts, credentials),
+                virtual_hosts: build_virtual_hosts_proto(
+                    allowed_hosts,
+                    credentials,
+                    proxy_auth_token,
+                ),
                 ..Default::default()
             },
         )),
@@ -1498,7 +2135,7 @@ fn build_http_listener_proto(
         address: Some(Address {
             address: Some(address::Address::Pipe(Pipe {
                 path: format!("/sockets/{sandbox_id}/http.sock"),
-                mode: 438,
+                mode: 384,
             })),
         }),
         filter_chains: vec![FilterChain {
@@ -1518,6 +2155,7 @@ fn build_http_listener_proto(
 fn build_virtual_hosts_proto(
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
+    proxy_auth_token: Option<&str>,
 ) -> Vec<envoy_types::pb::envoy::config::route::v3::VirtualHost> {
     use envoy_types::pb::envoy::config::core::v3::{
         data_source, header_value_option, DataSource, HeaderValue, HeaderValueOption,
@@ -1548,11 +2186,17 @@ fn build_virtual_hosts_proto(
                         ..Default::default()
                     })
                     .collect();
-                let headers_to_remove = if r.remove_headers.is_empty() {
+                let mut headers_to_remove = if r.remove_headers.is_empty() {
                     auth_headers_to_remove(&r.inject_headers)
                 } else {
                     r.remove_headers.clone()
                 };
+                if !headers_to_remove
+                    .iter()
+                    .any(|h| h.eq_ignore_ascii_case("proxy-authorization"))
+                {
+                    headers_to_remove.push("proxy-authorization".to_string());
+                }
                 let path_specifier = if r.exact_path {
                     route_match::PathSpecifier::Path(r.match_prefix.clone())
                 } else {
@@ -1568,6 +2212,7 @@ fn build_virtual_hosts_proto(
                 Route {
                     r#match: Some(RouteMatch {
                         path_specifier: Some(path_specifier),
+                        headers: proxy_auth_headers_proto(proxy_auth_token),
                         ..Default::default()
                     }),
                     action: Some(route::Action::Route(RouteAction {
@@ -1629,6 +2274,7 @@ fn build_virtual_hosts_proto(
                 path_specifier: Some(route_match::PathSpecifier::ConnectMatcher(
                     route_match::ConnectMatcher {},
                 )),
+                headers: proxy_auth_headers_proto(proxy_auth_token),
                 ..Default::default()
             }),
             action: Some(route::Action::Route(RouteAction {
@@ -1642,6 +2288,7 @@ fn build_virtual_hosts_proto(
                 }],
                 ..Default::default()
             })),
+            request_headers_to_remove: vec!["proxy-authorization".to_string()],
             ..Default::default()
         };
 
@@ -1649,6 +2296,7 @@ fn build_virtual_hosts_proto(
         let prefix_route = Route {
             r#match: Some(RouteMatch {
                 path_specifier: Some(route_match::PathSpecifier::Prefix("/".to_string())),
+                headers: proxy_auth_headers_proto(proxy_auth_token),
                 ..Default::default()
             }),
             action: Some(route::Action::Route(RouteAction {
@@ -1657,6 +2305,7 @@ fn build_virtual_hosts_proto(
                 )),
                 ..Default::default()
             })),
+            request_headers_to_remove: vec!["proxy-authorization".to_string()],
             ..Default::default()
         };
 
@@ -1692,6 +2341,23 @@ fn build_virtual_hosts_proto(
     });
 
     vhosts
+}
+
+fn proxy_auth_headers_proto(
+    proxy_auth_token: Option<&str>,
+) -> Vec<envoy_types::pb::envoy::config::route::v3::HeaderMatcher> {
+    use envoy_types::pb::envoy::config::route::v3::{header_matcher, HeaderMatcher};
+
+    let Some(token) = proxy_auth_token.filter(|token| !token.is_empty()) else {
+        return vec![];
+    };
+    vec![HeaderMatcher {
+        name: "proxy-authorization".to_string(),
+        header_match_specifier: Some(header_matcher::HeaderMatchSpecifier::ExactMatch(
+            proxy_authorization_value(token),
+        )),
+        ..Default::default()
+    }]
 }
 
 // ---------------------------------------------------------------------------
@@ -1744,7 +2410,12 @@ pub async fn exec_in_envoy(
     Ok(output)
 }
 
-/// Write a file inside the Envoy container atomically (tmp + mv) via base64.
+/// Write a file inside the Envoy container atomically (tmp + mv).
+///
+/// The file payload is uploaded as a tar archive instead of being embedded into
+/// a shell command. Envoy configs can become large when many routes or secret
+/// header injections are present, and passing the full content through `sh -c`
+/// can exceed the kernel's argv/env size limit.
 ///
 /// After the atomic rename, we `touch` the parent directory to guarantee that
 /// Envoy's `watched_directory` inotify picks up the change. On Docker bind
@@ -1758,18 +2429,55 @@ pub async fn write_file_in_envoy(
     path: &str,
     content: &str,
 ) -> anyhow::Result<()> {
-    let encoded = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
     let tmp_path = format!("{path}.tmp");
     // Derive the parent directory for the post-write touch.
     let parent = std::path::Path::new(path)
         .parent()
         .and_then(|p| p.to_str())
         .unwrap_or("/envoy-config");
-    let cmd = format!(
-        "printf %s '{}' | base64 -d > '{}' && mv '{}' '{}' && touch '{}'",
-        encoded, tmp_path, tmp_path, path, parent
-    );
+
+    let tmp_name = std::path::Path::new(&tmp_path)
+        .file_name()
+        .and_then(|p| p.to_str())
+        .ok_or_else(|| anyhow::anyhow!("invalid Envoy config path: {path}"))?;
+    upload_file_to_envoy(docker, container_name, parent, tmp_name, content.as_bytes()).await?;
+
+    let cmd = format!("mv '{}' '{}' && touch '{}'", tmp_path, path, parent);
     exec_in_envoy(docker, container_name, &cmd).await?;
+    Ok(())
+}
+
+async fn upload_file_to_envoy(
+    docker: &Docker,
+    container_name: &str,
+    dir: &str,
+    file_name: &str,
+    content: &[u8],
+) -> anyhow::Result<()> {
+    use bollard::container::UploadToContainerOptions;
+
+    let mut tar_buf = Vec::new();
+    {
+        let mut archive = tar::Builder::new(&mut tar_buf);
+        let mut header = tar::Header::new_gnu();
+        header.set_path(file_name)?;
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive.append(&header, content)?;
+        archive.finish()?;
+    }
+
+    docker
+        .upload_to_container(
+            container_name,
+            Some(UploadToContainerOptions {
+                path: dir,
+                ..Default::default()
+            }),
+            tar_buf.into(),
+        )
+        .await?;
     Ok(())
 }
 
@@ -1784,6 +2492,7 @@ mod tests {
             kind,
             allowed_hosts: hosts.iter().map(|s| s.to_string()).collect(),
             credentials: vec![],
+            proxy_auth_token: None,
         }
     }
 
@@ -1797,6 +2506,7 @@ mod tests {
             kind,
             allowed_hosts: hosts.iter().map(|s| s.to_string()).collect(),
             credentials: creds,
+            proxy_auth_token: None,
         }
     }
 
@@ -1846,6 +2556,52 @@ mod tests {
             spec(ListenerKind::Http, &[]).resource_name(),
             "00000000-0000-0000-0000-000000000000_http"
         );
+    }
+
+    #[test]
+    fn xds_resource_names_map_back_to_sandbox_ids() {
+        let id = Uuid::parse_str("018f5f50-0000-7000-8000-000000000001").unwrap();
+        assert_eq!(
+            sandbox_id_from_xds_resource(&format!("{id}_http")),
+            Some(id)
+        );
+        assert_eq!(
+            sandbox_id_from_xds_resource(&format!("{id}_grpc")),
+            Some(id)
+        );
+        assert_eq!(
+            sandbox_id_from_xds_resource(&format!("up_{id}_external_api")),
+            Some(id)
+        );
+        assert_eq!(sandbox_id_from_xds_resource("dynamic_forward_proxy"), None);
+    }
+
+    #[test]
+    fn validates_duplicate_credential_and_allowlist_domains() {
+        let sid = Uuid::nil();
+        let policy = SandboxEgressPolicy {
+            allowlist_hosts: vec![LLM_EGRESS_HOST.to_string()],
+            credential_routes: vec![llm_route()],
+            proxy_auth_token: None,
+        };
+        let err = validate_egress_policy(&sid, &policy)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("overlaps credential-injection host"), "{err}");
+    }
+
+    #[test]
+    fn policy_summary_hashes_injected_header_values() {
+        let sid = Uuid::nil();
+        let policy = SandboxCredentials {
+            routes: vec![llm_route()],
+            proxy_auth_token: None,
+        }
+        .to_policy(&sid, vec![]);
+        let summary = egress_policy_summary(&sid, &policy);
+        let text = summary.to_string();
+        assert!(text.contains("value_sha256"));
+        assert!(!text.contains("Bearer sk-secret"));
     }
 
     #[test]
@@ -1899,10 +2655,7 @@ mod tests {
                     upstream_prefix: "/v1/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
-                    inject_headers: vec![(
-                        "authorization".to_string(),
-                        "Bearer sk".to_string(),
-                    )],
+                    inject_headers: vec![("authorization".to_string(), "Bearer sk".to_string())],
                     remove_headers: vec![],
                 },
                 EgressCredentialRoute {
@@ -1921,6 +2674,7 @@ mod tests {
                     remove_headers: vec![],
                 },
             ],
+            proxy_auth_token: None,
         };
         let sid = Uuid::nil();
         let routes = creds.to_routes(&sid);
@@ -2010,6 +2764,7 @@ mod tests {
                     remove_headers: vec!["cookie".to_string()],
                 },
             ],
+            proxy_auth_token: None,
         };
 
         let routes = creds.to_routes(&sid);
@@ -2038,7 +2793,7 @@ mod tests {
         // the listener the way it is actually assembled — transparent routes +
         // an allowlist that does NOT contain the transparent host — and assert
         // every exact domain is unique across vhosts (Envoy rejects duplicates).
-        let vh = build_virtual_hosts_json(&["other.example.com".to_string()], &routes);
+        let vh = build_virtual_hosts_json(&["other.example.com".to_string()], &routes, None);
         assert!(vh.iter().any(|v| v["name"] == "egress_crm_example_com"));
 
         let mut seen = std::collections::HashSet::new();
@@ -2083,9 +2838,10 @@ mod tests {
                 mk("external-direct:crm-api", "/api/"),
                 mk("external-direct:crm-auth", "/auth/api/"),
             ],
+            proxy_auth_token: None,
         };
         let routes = creds.to_routes(&sid);
-        let vh = build_virtual_hosts_json(&[], &routes);
+        let vh = build_virtual_hosts_json(&[], &routes, None);
 
         // Exactly one credential vhost for the host, holding both routes.
         let host_vhosts: Vec<_> = vh
@@ -2144,7 +2900,7 @@ mod tests {
             ..exact.clone()
         };
 
-        let vh = build_virtual_hosts_json(&[], &[exact, prefix]);
+        let vh = build_virtual_hosts_json(&[], &[exact, prefix], None);
         let routes = vh
             .iter()
             .find(|v| v["name"] == "egress_crm_example_com")
@@ -2174,11 +2930,11 @@ mod tests {
     #[test]
     fn http_vhosts_have_deny_all_last() {
         // With no allowlist, only the catch-all deny_all vhost exists.
-        let vh = build_virtual_hosts_json(&[], &[]);
+        let vh = build_virtual_hosts_json(&[], &[], None);
         assert_eq!(vh.len(), 1);
         assert_eq!(vh[0]["name"], "deny_all");
         // With an allowlist, `allowed` precedes `deny_all`.
-        let vh = build_virtual_hosts_json(&["a.com".to_string()], &[]);
+        let vh = build_virtual_hosts_json(&["a.com".to_string()], &[], None);
         assert_eq!(vh.len(), 2);
         assert_eq!(vh[0]["name"], "allowed");
         assert_eq!(vh[1]["name"], "deny_all");
@@ -2187,7 +2943,7 @@ mod tests {
     #[test]
     fn credential_vhosts_precede_allowlist_and_inject_headers() {
         let creds = vec![llm_route(), mcp_route("gitlab"), mcp_route("jira")];
-        let vh = build_virtual_hosts_json(&["a.com".to_string()], &creds);
+        let vh = build_virtual_hosts_json(&["a.com".to_string()], &creds, None);
         // Placeholder-host vhosts, then allowlist, then deny_all.
         assert_eq!(vh[0]["name"], "egress_llm-egress_internal");
         assert_eq!(vh[1]["name"], "egress_mcp-egress_internal");
@@ -2208,7 +2964,8 @@ mod tests {
             &vec![
                 json!("x-api-key"),
                 json!("api-key"),
-                json!("x-goog-api-key")
+                json!("x-goog-api-key"),
+                json!("proxy-authorization")
             ]
         );
         assert_eq!(
@@ -2226,6 +2983,67 @@ mod tests {
             .unwrap()
             .starts_with("/mcp/"));
         assert_eq!(mcp_routes[0]["route"]["prefix_rewrite"], "/sse");
+    }
+
+    #[test]
+    fn proxy_auth_token_is_required_on_egress_routes() {
+        let expected = proxy_authorization_value("runner-secret");
+        let vh = build_virtual_hosts_json(
+            &["a.com".to_string()],
+            &[llm_route()],
+            Some("runner-secret"),
+        );
+
+        let credential_headers = vh[0]["routes"][0]["match"]["headers"]
+            .as_array()
+            .unwrap();
+        assert_eq!(credential_headers[0]["name"], "proxy-authorization");
+        assert_eq!(credential_headers[0]["string_match"]["exact"], expected);
+
+        let allowlist_headers = vh[1]["routes"][0]["match"]["headers"]
+            .as_array()
+            .unwrap();
+        assert_eq!(allowlist_headers[0]["name"], "proxy-authorization");
+        assert_eq!(allowlist_headers[0]["string_match"]["exact"], expected);
+    }
+
+    #[test]
+    fn proxy_auth_token_is_required_in_proto_routes() {
+        let expected = proxy_authorization_value("runner-secret");
+        let mut http = spec_with_creds(ListenerKind::Http, &["a.com"], vec![llm_route()]);
+        http.proxy_auth_token = Some("runner-secret".to_string());
+
+        let any = encode_listener_any(&http).unwrap();
+        use envoy_types::pb::envoy::config::listener::v3::Listener;
+        use envoy_types::pb::envoy::config::route::v3::header_matcher;
+        use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
+            http_connection_manager, HttpConnectionManager,
+        };
+        let l = Listener::decode(any.value.as_slice()).unwrap();
+        let hcm_any = match &l.filter_chains[0].filters[0].config_type {
+            Some(
+                envoy_types::pb::envoy::config::listener::v3::filter::ConfigType::TypedConfig(a),
+            ) => a,
+            _ => panic!("expected typed config"),
+        };
+        let hcm = HttpConnectionManager::decode(hcm_any.value.as_slice()).unwrap();
+        let rc = match hcm.route_specifier {
+            Some(http_connection_manager::RouteSpecifier::RouteConfig(rc)) => rc,
+            _ => panic!("expected route config"),
+        };
+        let credential_header = &rc.virtual_hosts[0].routes[0].r#match.as_ref().unwrap().headers[0];
+        assert_eq!(credential_header.name, "proxy-authorization");
+        assert!(matches!(
+            credential_header.header_match_specifier.as_ref(),
+            Some(header_matcher::HeaderMatchSpecifier::ExactMatch(value)) if value == &expected
+        ));
+
+        let allowed_header = &rc.virtual_hosts[1].routes[0].r#match.as_ref().unwrap().headers[0];
+        assert_eq!(allowed_header.name, "proxy-authorization");
+        assert!(matches!(
+            allowed_header.header_match_specifier.as_ref(),
+            Some(header_matcher::HeaderMatchSpecifier::ExactMatch(value)) if value == &expected
+        ));
     }
 
     #[test]
@@ -2294,13 +3112,10 @@ mod tests {
             upstream_tls: true,
             cluster_name: "up_test".to_string(),
             exact_path: false,
-            inject_headers: vec![(
-                "cookie".to_string(),
-                "session=abc%7Cdef%3Dxyz".to_string(),
-            )],
+            inject_headers: vec![("cookie".to_string(), "session=abc%7Cdef%3Dxyz".to_string())],
             remove_headers: vec![],
         };
-        let vh = build_virtual_hosts_json(&[], &[cred]);
+        let vh = build_virtual_hosts_json(&[], &[cred], None);
         let header_val = vh[0]["routes"][0]["request_headers_to_add"][0]["header"]["value"]
             .as_str()
             .unwrap();
