@@ -16,6 +16,7 @@ type ManagedResourceKind =
   | 'secret'
   | 'session'
   | 'skill'
+  | 'trigger'
   | 'vault'
 
 type ErrorReason = 'forbidden' | 'notFound' | 'unknown'
