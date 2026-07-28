@@ -27,7 +27,7 @@ import { useTranslation } from '@/lib/i18n'
 import { describeCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { fireResultToastKey, formatRunOnce } from '@/lib/managed/trigger-format'
+import { fireResultToastMessage, formatRunOnce } from '@/lib/managed/trigger-format'
 import {
   useAgentTriggers,
   useToggleAgentTrigger,
@@ -116,7 +116,7 @@ export default function TriggerListPage() {
     if (!currentProjectAllowsWrite() || !scopeIsActive()) return
     try {
       const res = await runMut.mutateAsync({ id: trig.id })
-      toastSuccess(t(fireResultToastKey(res.status), { name: trig.name }))
+      toastSuccess(fireResultToastMessage(t, res.status, trig.name, res.reason))
     } catch (err) {
       toastOperationError(t, err, 'managed.triggers.fireFailed')
     }

@@ -76,6 +76,7 @@ export function statusToTone(status: string): StatusTone {
     case 'timeout':
     case 'modified':
     case 'auto_disabled':
+    case 'paused':
       return 'warning'
     // danger
     case 'blocked':
@@ -121,6 +122,7 @@ const STATUS_LABEL_KEY: Record<string, string> = {
   idle: 'common.idle',
   terminated: 'common.terminated',
   archived: 'common.archived',
+  paused: 'common.paused',
   private: 'common.private',
   passed: 'common.passed',
   warning: 'common.warning',

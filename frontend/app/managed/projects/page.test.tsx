@@ -143,6 +143,7 @@ interface ProjectRecord {
   name: string
   slug: string
   is_default: boolean
+  triggers_paused?: boolean
   archived_at?: string | null
   created_at?: string
 }
@@ -167,6 +168,7 @@ function project(id: string, name: string): ProjectRecord {
     name,
     slug: name.toLowerCase(),
     is_default: false,
+    triggers_paused: false,
     archived_at: null,
     created_at: '2026-01-01T00:00:00Z',
   }
@@ -608,6 +610,106 @@ describe('ProjectsPage object lifecycle', () => {
     })
 
     expect(managedPostMock).not.toHaveBeenCalledWith('/auth/projects/project-a/set-default', {})
+  })
+
+  it('pauses triggers for an active project', async () => {
+    const projectA = project('project-a', 'Alpha')
+    managedGetMock.mockResolvedValue([projectA])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Alpha')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('project-a:manage.projects.pauseTriggers'))
+      await Promise.resolve()
+    })
+
+    expect(managedPatchMock).toHaveBeenCalledWith('/auth/projects/project-a', {
+      triggers_paused: true,
+    })
+  })
+
+  it('resumes triggers for a paused project', async () => {
+    const projectA = { ...project('project-a', 'Alpha'), triggers_paused: true }
+    managedGetMock.mockResolvedValue([projectA])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Alpha')).toBeTruthy()
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('project-a:manage.projects.resumeTriggers'))
+      await Promise.resolve()
+    })
+
+    expect(managedPatchMock).toHaveBeenCalledWith('/auth/projects/project-a', {
+      triggers_paused: false,
+    })
+  })
+
+  it('does not toggle triggers for a project target that leaves the current projects list', async () => {
+    const projectA = project('project-a', 'Alpha')
+    const projectB = project('project-b', 'Beta')
+    managedGetMock.mockResolvedValue([projectA])
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(getByText('Alpha')).toBeTruthy()
+    })
+
+    const oldPauseButton = getByText('project-a:manage.projects.pauseTriggers')
+
+    await act(async () => {
+      queryClient.setQueryData(['projects-list', 'org-a', false], [projectB])
+      fireEvent.click(oldPauseButton)
+      await Promise.resolve()
+    })
+
+    expect(managedPatchMock).not.toHaveBeenCalledWith('/auth/projects/project-a', {
+      triggers_paused: true,
+    })
   })
 
   it('restores an archived project from the archived project list', async () => {

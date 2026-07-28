@@ -814,13 +814,13 @@ export function CreateTriggerDialog({ open, onOpenChange, trigger }: CreateTrigg
                 <SelectContent>
                   {SESSION_MODES.map((mode) => (
                     <SelectItem key={mode} value={mode}>
-                      {t(`managed.schedules.sessionModeOption.${mode}`)}
+                      {t(`managed.triggers.sessionModeOption.${mode}`)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {t(`managed.schedules.sessionModeHint.${sessionMode}`)}
+                {t(`managed.triggers.sessionModeHint.${sessionMode}`)}
               </p>
             </div>
 

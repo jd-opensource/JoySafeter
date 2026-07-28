@@ -350,7 +350,7 @@ export interface SkillImpactSummary {
   counts: {
     agents: number
     agent_versions: number
-    schedules: number
+    triggers: number
     active_tasks: number
     total: number
   }

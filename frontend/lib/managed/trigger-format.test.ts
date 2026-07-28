@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fireResultToastKey, formatRunOnce } from './trigger-format'
+import { fireResultToastKey, fireResultToastMessage, formatRunOnce } from './trigger-format'
 
 describe('fireResultToastKey', () => {
   it('maps known fire statuses to their toast keys', () => {
@@ -29,5 +29,16 @@ describe('formatRunOnce', () => {
   it('passes the raw value through when the timestamp is unparseable', () => {
     const out = formatRunOnce(t, 'not-a-date')
     expect(out).toContain('not-a-date')
+  })
+})
+
+describe('fireResultToastMessage', () => {
+  const t = (key: string, opts?: Record<string, unknown>) => `${key}:${opts ? JSON.stringify(opts) : ''}`
+
+  it('includes skipped reasons instead of using the generic in-progress copy', () => {
+    const out = fireResultToastMessage(t, 'skipped', 'Nightly', 'triggers are paused for this project')
+
+    expect(out).toContain('managed.triggers.fireSkippedWithReason')
+    expect(out).toContain('triggers are paused for this project')
   })
 })

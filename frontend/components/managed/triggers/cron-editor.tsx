@@ -33,13 +33,13 @@ interface CronEditorProps {
 type Frequency = 'minutely' | 'hourly' | 'daily' | 'weekly' | 'monthly'
 
 const WEEKDAYS = [
-  { value: 1, labelKey: 'managed.schedules.cron.weekday.mon' },
-  { value: 2, labelKey: 'managed.schedules.cron.weekday.tue' },
-  { value: 3, labelKey: 'managed.schedules.cron.weekday.wed' },
-  { value: 4, labelKey: 'managed.schedules.cron.weekday.thu' },
-  { value: 5, labelKey: 'managed.schedules.cron.weekday.fri' },
-  { value: 6, labelKey: 'managed.schedules.cron.weekday.sat' },
-  { value: 0, labelKey: 'managed.schedules.cron.weekday.sun' },
+  { value: 1, labelKey: 'managed.triggers.cron.weekday.mon' },
+  { value: 2, labelKey: 'managed.triggers.cron.weekday.tue' },
+  { value: 3, labelKey: 'managed.triggers.cron.weekday.wed' },
+  { value: 4, labelKey: 'managed.triggers.cron.weekday.thu' },
+  { value: 5, labelKey: 'managed.triggers.cron.weekday.fri' },
+  { value: 6, labelKey: 'managed.triggers.cron.weekday.sat' },
+  { value: 0, labelKey: 'managed.triggers.cron.weekday.sun' },
 ]
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -98,9 +98,9 @@ export function CronEditor({
     <div className="space-y-3">
       <Tabs defaultValue="builder">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="presets">{t('managed.schedules.cron.tabPresets')}</TabsTrigger>
-          <TabsTrigger value="builder">{t('managed.schedules.cron.tabBuilder')}</TabsTrigger>
-          <TabsTrigger value="advanced">{t('managed.schedules.cron.tabAdvanced')}</TabsTrigger>
+          <TabsTrigger value="presets">{t('managed.triggers.cron.tabPresets')}</TabsTrigger>
+          <TabsTrigger value="builder">{t('managed.triggers.cron.tabBuilder')}</TabsTrigger>
+          <TabsTrigger value="advanced">{t('managed.triggers.cron.tabAdvanced')}</TabsTrigger>
         </TabsList>
 
         {/* Presets */}
@@ -130,7 +130,7 @@ export function CronEditor({
         {/* Visual builder */}
         <TabsContent value="builder" className="mt-3 space-y-3">
           <div className="space-y-1.5">
-            <Label>{t('managed.schedules.cron.frequency')}</Label>
+            <Label>{t('managed.triggers.cron.frequency')}</Label>
             <Select
               value={frequency}
               onValueChange={(v) => {
@@ -143,19 +143,19 @@ export function CronEditor({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="minutely">
-                  {t('managed.schedules.cron.freq.minutely')}
+                  {t('managed.triggers.cron.freq.minutely')}
                 </SelectItem>
-                <SelectItem value="hourly">{t('managed.schedules.cron.freq.hourly')}</SelectItem>
-                <SelectItem value="daily">{t('managed.schedules.cron.freq.daily')}</SelectItem>
-                <SelectItem value="weekly">{t('managed.schedules.cron.freq.weekly')}</SelectItem>
-                <SelectItem value="monthly">{t('managed.schedules.cron.freq.monthly')}</SelectItem>
+                <SelectItem value="hourly">{t('managed.triggers.cron.freq.hourly')}</SelectItem>
+                <SelectItem value="daily">{t('managed.triggers.cron.freq.daily')}</SelectItem>
+                <SelectItem value="weekly">{t('managed.triggers.cron.freq.weekly')}</SelectItem>
+                <SelectItem value="monthly">{t('managed.triggers.cron.freq.monthly')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {frequency === 'minutely' && (
             <div className="space-y-1.5">
-              <Label>{t('managed.schedules.cron.everyNMinutes')}</Label>
+              <Label>{t('managed.triggers.cron.everyNMinutes')}</Label>
               <Select
                 value={String(everyN)}
                 onValueChange={(v) => {
@@ -179,7 +179,7 @@ export function CronEditor({
 
           {frequency === 'hourly' && (
             <div className="space-y-1.5">
-              <Label>{t('managed.schedules.cron.atMinute')}</Label>
+              <Label>{t('managed.triggers.cron.atMinute')}</Label>
               <MinuteSelect
                 value={minute}
                 onChange={(m) => {
@@ -193,7 +193,7 @@ export function CronEditor({
           {(frequency === 'daily' || frequency === 'weekly' || frequency === 'monthly') && (
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
-                <Label>{t('managed.schedules.cron.hour')}</Label>
+                <Label>{t('managed.triggers.cron.hour')}</Label>
                 <Select
                   value={String(hour)}
                   onValueChange={(v) => {
@@ -214,7 +214,7 @@ export function CronEditor({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>{t('managed.schedules.cron.minute')}</Label>
+                <Label>{t('managed.triggers.cron.minute')}</Label>
                 <MinuteSelect
                   value={minute}
                   onChange={(m) => {
@@ -228,7 +228,7 @@ export function CronEditor({
 
           {frequency === 'weekly' && (
             <div className="space-y-1.5">
-              <Label>{t('managed.schedules.cron.onDays')}</Label>
+              <Label>{t('managed.triggers.cron.onDays')}</Label>
               <div className="flex flex-wrap gap-1.5">
                 {WEEKDAYS.map((d) => {
                   const active = weekdays.includes(d.value)
@@ -253,7 +253,7 @@ export function CronEditor({
 
           {frequency === 'monthly' && (
             <div className="space-y-1.5">
-              <Label>{t('managed.schedules.cron.dayOfMonth')}</Label>
+              <Label>{t('managed.triggers.cron.dayOfMonth')}</Label>
               <Select
                 value={String(dom)}
                 onValueChange={(v) => {
@@ -278,7 +278,7 @@ export function CronEditor({
 
         {/* Advanced raw */}
         <TabsContent value="advanced" className="mt-3 space-y-1.5">
-          <Label htmlFor="cron-expr">{t('managed.schedules.cron.expression')}</Label>
+          <Label htmlFor="cron-expr">{t('managed.triggers.cron.expression')}</Label>
           <Input
             id="cron-expr"
             value={value}
@@ -288,14 +288,14 @@ export function CronEditor({
             aria-invalid={!valid}
           />
           <p className="text-xs text-muted-foreground">
-            {t('managed.schedules.cron.advancedHint')}
+            {t('managed.triggers.cron.advancedHint')}
           </p>
         </TabsContent>
       </Tabs>
 
       {/* Timezone */}
       <div className="space-y-1.5">
-        <Label>{t('managed.schedules.cron.timezone')}</Label>
+        <Label>{t('managed.triggers.cron.timezone')}</Label>
         <Select value={timezone} onValueChange={onTimezoneChange}>
           <SelectTrigger>
             <SelectValue />
@@ -313,7 +313,7 @@ export function CronEditor({
       {/* Live feedback: validity, description, next-N preview */}
       <div className="rounded-md border bg-muted/30 p-3 text-sm">
         {!valid ? (
-          <p className="text-destructive">{t('managed.schedules.cron.invalid')}</p>
+          <p className="text-destructive">{t('managed.triggers.cron.invalid')}</p>
         ) : (
           <>
             <p className="font-medium text-foreground">{description}</p>
@@ -321,7 +321,7 @@ export function CronEditor({
               <div className="mt-2 space-y-1">
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Clock className="h-3 w-3" />
-                  {t('managed.schedules.cron.nextRuns')}
+                  {t('managed.triggers.cron.nextRuns')}
                 </p>
                 <ul className="space-y-0.5 text-xs text-muted-foreground">
                   {previews.map((d, i) => (

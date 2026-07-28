@@ -26,7 +26,7 @@ import { useTranslation } from '@/lib/i18n'
 import { describeCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
-import { fireResultToastKey, formatRunOnce } from '@/lib/managed/trigger-format'
+import { fireResultToastMessage, formatRunOnce } from '@/lib/managed/trigger-format'
 import {
   useAgentTrigger,
   useTriggerRuns,
@@ -77,7 +77,7 @@ export default function TriggerDetailPage({
     if (!currentProjectAllowsWrite() || !scopeIsActive()) return
     try {
       const res = await runMut.mutateAsync({})
-      toastSuccess(t(fireResultToastKey(res.status), { name: trigger?.name ?? '' }))
+      toastSuccess(fireResultToastMessage(t, res.status, trigger?.name ?? '', res.reason))
     } catch (err) {
       toastOperationError(t, err, 'managed.triggers.fireFailed')
     }
@@ -87,7 +87,7 @@ export default function TriggerDetailPage({
     if (!currentProjectAllowsWrite() || !scopeIsActive()) return
     try {
       const res = await testMut.mutateAsync()
-      toastSuccess(t(fireResultToastKey(res.status), { name: trigger?.name ?? '' }))
+      toastSuccess(fireResultToastMessage(t, res.status, trigger?.name ?? '', res.reason))
     } catch (err) {
       toastOperationError(t, err, 'managed.triggers.fireFailed')
     }
@@ -236,7 +236,7 @@ export default function TriggerDetailPage({
   }
 
   const sessionModeValue = () => {
-    const label = t(`managed.schedules.sessionModeOption.${trigger.session_mode || 'fresh'}`)
+    const label = t(`managed.triggers.sessionModeOption.${trigger.session_mode || 'fresh'}`)
     if (trigger.session_mode === 'keyed' && trigger.session_key) {
       return (
         <div>

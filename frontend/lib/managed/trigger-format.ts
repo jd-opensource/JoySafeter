@@ -17,6 +17,16 @@ export function fireResultToastKey(status: string): string {
   }
 }
 
+export function fireResultToastMessage(
+  t: Translator,
+  status: string,
+  name: string,
+  reason?: string | null,
+): string {
+  const key = status === 'skipped' && reason ? 'managed.triggers.fireSkippedWithReason' : fireResultToastKey(status)
+  return t(key, { name, reason: reason ?? '' })
+}
+
 /** Human-readable "Run once @ <time>" summary for a one-off cron trigger. */
 export function formatRunOnce(t: Translator, runAt: string): string {
   const d = new Date(runAt)
