@@ -6,7 +6,11 @@ from types import SimpleNamespace
 import pytest
 
 from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig
+from app.joysafeter_domain.services.agent_trigger_execution import (
+    AgentTriggerExecutor,
+    AgentTriggerRunConfig,
+    render_session_key,
+)
 
 pytestmark = pytest.mark.no_db
 
@@ -111,3 +115,21 @@ async def test_keyed_creates_new_session_stamped_with_key_on_miss(patch_deps):
     assert created is True
     assert session.metadata_.get("trigger_session_key") == "beta"
     assert len(patch_deps["created"]) == 1
+
+
+def test_rendered_keyed_session_key_is_trimmed_and_bounded():
+    rendered = render_session_key("customer:{{ body.customer_id }}", {"body": {"customer_id": "x" * 10_000}})
+
+    assert rendered is not None
+    assert rendered.startswith("customer:")
+    assert len(rendered) <= 512
+
+
+@pytest.mark.asyncio
+async def test_keyed_executor_bounds_direct_config_session_key_on_miss(patch_deps):
+    agent = _agent()
+    executor = AgentTriggerExecutor(_SequencedDb(keyed_session=None))
+    session, created = await executor.resolve_session(_config(agent, session_key=" y" * 10_000))
+
+    assert created is True
+    assert len(session.metadata_.get("trigger_session_key")) <= 512

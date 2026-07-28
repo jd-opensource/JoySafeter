@@ -26,7 +26,11 @@ import { useTranslation } from '@/lib/i18n'
 import { describeCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
-import { fireResultToastMessage, formatRunOnce } from '@/lib/managed/trigger-format'
+import {
+  fireResultToastMessage,
+  formatRunOnce,
+  triggerLifecycleStatus,
+} from '@/lib/managed/trigger-format'
 import {
   useAgentTrigger,
   useTriggerRuns,
@@ -298,15 +302,17 @@ export default function TriggerDetailPage({
     },
   )
 
+  const lifecycleStatus = triggerLifecycleStatus(trigger)
+
   return (
     <div>
       <PageHeader
         title={trigger.name}
         titleExtra={
-          trigger.auto_disabled_at ? (
+          lifecycleStatus === 'auto_disabled' ? (
             <StatusBadge status="auto_disabled" />
           ) : (
-            <StatusBadge status={trigger.enabled ? 'active' : 'idle'} />
+            <StatusBadge status={lifecycleStatus} />
           )
         }
         breadcrumb={[

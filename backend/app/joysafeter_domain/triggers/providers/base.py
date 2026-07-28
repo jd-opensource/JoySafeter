@@ -15,9 +15,14 @@ A provider owns three pure operations:
 
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import Any, Protocol, runtime_checkable
 
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
+
+_MAX_INLINE_EXTERNAL_COMPONENT_CHARS = 128
+_SAFE_EXTERNAL_COMPONENT_RE = re.compile(r"^[A-Za-z0-9._:@/+=-]+$")
 
 
 @runtime_checkable
@@ -47,6 +52,13 @@ def cron_block(trigger: Any, fired_at: str) -> dict[str, Any]:
         "fired_at": fired_at,
         "last_fired_slot": trigger.last_fired_slot.isoformat() if trigger.last_fired_slot else None,
     }
+
+
+def stable_external_idempotency_component(value: Any) -> str:
+    raw = str(value)
+    if len(raw) <= _MAX_INLINE_EXTERNAL_COMPONENT_CHARS and _SAFE_EXTERNAL_COMPONENT_RE.fullmatch(raw):
+        return raw
+    return f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
 
 
 _REGISTRY: dict[str, TriggerProvider] = {}

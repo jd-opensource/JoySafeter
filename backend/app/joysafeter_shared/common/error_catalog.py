@@ -367,11 +367,6 @@ CATALOG: dict[str, CatalogEntry] = {
     "ORGANIZATION_NOT_FOUND": CatalogEntry(
         code="ORGANIZATION_NOT_FOUND", error_class=NotFoundError, default_message="Organization not found"
     ),
-    "ORGANIZATION_OWNER_REMOVE_FORBIDDEN": CatalogEntry(
-        code="ORGANIZATION_OWNER_REMOVE_FORBIDDEN",
-        error_class=InvalidRequestError,
-        default_message="Cannot remove the owner",
-    ),
     "ORGANIZATION_OWNER_TRANSFER_SELF": CatalogEntry(
         code="ORGANIZATION_OWNER_TRANSFER_SELF",
         error_class=InvalidRequestError,
@@ -1100,6 +1095,36 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InternalServiceError,
         default_message="Token refresh failed. Please login again.",
     ),
+    "TRIGGER_AUTH_METHODS_INVALID": CatalogEntry(
+        code="TRIGGER_AUTH_METHODS_INVALID",
+        error_class=RequestValidationAppError,
+        default_message="Webhook auth_methods contains unsupported values",
+    ),
+    "TRIGGER_AUTH_METHODS_REQUIRED": CatalogEntry(
+        code="TRIGGER_AUTH_METHODS_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Webhook auth_methods must not be empty",
+    ),
+    "TRIGGER_CONCURRENCY_POLICY_INVALID": CatalogEntry(
+        code="TRIGGER_CONCURRENCY_POLICY_INVALID",
+        error_class=RequestValidationAppError,
+        default_message="Invalid trigger concurrency policy",
+    ),
+    "TRIGGER_CRON_SCHEDULE_REQUIRED": CatalogEntry(
+        code="TRIGGER_CRON_SCHEDULE_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Cron trigger requires exactly one of cron_expr or run_at",
+    ),
+    "TRIGGER_INVALID_CRON_EXPR": CatalogEntry(
+        code="TRIGGER_INVALID_CRON_EXPR",
+        error_class=RequestValidationAppError,
+        default_message="Invalid cron expression",
+    ),
+    "TRIGGER_INVALID_TIMEZONE": CatalogEntry(
+        code="TRIGGER_INVALID_TIMEZONE",
+        error_class=RequestValidationAppError,
+        default_message="Invalid trigger timezone",
+    ),
     "TRIGGER_NAME_EXISTS": CatalogEntry(
         code="TRIGGER_NAME_EXISTS",
         error_class=ResourceConflictError,
@@ -1130,6 +1155,21 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=RequestValidationAppError,
         default_message="pinned session mode requires pinned_session_id",
     ),
+    "TRIGGER_RUN_AT_IN_PAST": CatalogEntry(
+        code="TRIGGER_RUN_AT_IN_PAST",
+        error_class=RequestValidationAppError,
+        default_message="run_at must be in the future",
+    ),
+    "TRIGGER_RUN_AT_NOT_ALLOWED": CatalogEntry(
+        code="TRIGGER_RUN_AT_NOT_ALLOWED",
+        error_class=RequestValidationAppError,
+        default_message="run_at is only valid for cron triggers",
+    ),
+    "TRIGGER_SECRET_KEY_REQUIRED": CatalogEntry(
+        code="TRIGGER_SECRET_KEY_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Webhook trigger requires secret_key",
+    ),
     "TRIGGER_SECRET_KEY_NOT_FOUND": CatalogEntry(
         code="TRIGGER_SECRET_KEY_NOT_FOUND",
         error_class=RequestValidationAppError,
@@ -1144,6 +1184,26 @@ CATALOG: dict[str, CatalogEntry] = {
         code="TRIGGER_SECRET_REF_REQUIRED",
         error_class=RequestValidationAppError,
         default_message="Webhook trigger requires secret_ref",
+    ),
+    "TRIGGER_SECRET_REQUIRED": CatalogEntry(
+        code="TRIGGER_SECRET_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Webhook trigger requires secret_ref",
+    ),
+    "TRIGGER_SESSION_KEY_REQUIRED": CatalogEntry(
+        code="TRIGGER_SESSION_KEY_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="keyed session mode requires session_key",
+    ),
+    "TRIGGER_SESSION_MODE_INVALID": CatalogEntry(
+        code="TRIGGER_SESSION_MODE_INVALID",
+        error_class=RequestValidationAppError,
+        default_message="Invalid trigger session mode",
+    ),
+    "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED": CatalogEntry(
+        code="TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
+        error_class=RequestValidationAppError,
+        default_message="Schedule fields are only valid for cron triggers",
     ),
     "TRIGGER_TYPE_UNSUPPORTED": CatalogEntry(
         code="TRIGGER_TYPE_UNSUPPORTED",

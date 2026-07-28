@@ -1,5 +1,30 @@
 type Translator = (key: string, options?: Record<string, unknown>) => string
 
+export type TriggerLifecycleStatus = 'active' | 'idle' | 'auto_disabled' | 'completed'
+
+export interface TriggerLifecycleInput {
+  type: string
+  enabled: boolean
+  auto_disabled_at?: string | null
+  run_at?: string | null
+  next_run_at?: string | null
+  last_fired_slot?: string | null
+}
+
+export function triggerLifecycleStatus(trigger: TriggerLifecycleInput): TriggerLifecycleStatus {
+  if (trigger.auto_disabled_at) return 'auto_disabled'
+  if (
+    trigger.enabled &&
+    trigger.type === 'cron' &&
+    !!trigger.run_at &&
+    !!trigger.last_fired_slot &&
+    !trigger.next_run_at
+  ) {
+    return 'completed'
+  }
+  return trigger.enabled ? 'active' : 'idle'
+}
+
 /** Map a fire/run result `status` to a localized toast i18n key. */
 export function fireResultToastKey(status: string): string {
   switch (status) {

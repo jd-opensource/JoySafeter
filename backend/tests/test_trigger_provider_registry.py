@@ -57,6 +57,11 @@ def test_webhook_build_config_defaults():
     }
 
 
+def test_webhook_build_config_preserves_explicit_empty_auth_methods():
+    cfg = get_provider("webhook").build_config(secret_ref="hook", auth_methods=[])
+    assert cfg["auth_methods"] == []
+
+
 def test_manual_build_config_empty():
     assert get_provider("manual").build_config() == {}
 
@@ -76,6 +81,23 @@ def test_cron_idempotency_key_attempt_suffix():
 def test_webhook_idempotency_key():
     key = get_provider("webhook").idempotency_key(_trigger(), delivery_key="D1")
     assert key == "trigger:webhook:TID:D1"
+
+
+def test_webhook_idempotency_key_hashes_oversized_delivery_key():
+    key = get_provider("webhook").idempotency_key(_trigger(), delivery_key="x" * 10_000)
+    assert key.startswith("trigger:webhook:TID:sha256:")
+    assert len(key) < 160
+
+
+def test_manual_idempotency_key_hashes_oversized_external_header():
+    key = get_provider("manual").idempotency_key(
+        _trigger(),
+        idempotency_header="x" * 10_000,
+        user_id="owner",
+        now=datetime(2026, 7, 27, 12, 0, tzinfo=timezone.utc),
+    )
+    assert key.startswith("trigger:TID:manual:sha256:")
+    assert len(key) < 160
 
 
 def test_cron_build_payload_shape():

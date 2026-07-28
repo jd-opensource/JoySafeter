@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from .base import cron_block, register
+from .base import cron_block, register, stable_external_idempotency_component
 
 # When no explicit Idempotency-Key header is supplied, collapse rapid repeat
 # clicks (e.g. a double-click or an impatient retry) within this window into one
@@ -23,7 +23,8 @@ class ManualTriggerProvider:
     def idempotency_key(self, trigger: Any, **context: Any) -> str:
         idempotency_header: Optional[str] = context.get("idempotency_header")
         if idempotency_header:
-            return f"trigger:{trigger.id}:manual:{idempotency_header}"
+            header_component = stable_external_idempotency_component(idempotency_header)
+            return f"trigger:{trigger.id}:manual:{header_component}"
         user_id: Optional[str] = context.get("user_id")
         moment = context.get("now") or datetime.now(timezone.utc)
         bucket = int(moment.timestamp()) // _MANUAL_DEDUPE_WINDOW_SEC

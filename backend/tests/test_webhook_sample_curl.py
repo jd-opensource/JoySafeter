@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import shlex
 from types import SimpleNamespace
 
 import pytest
@@ -35,3 +36,17 @@ async def test_build_webhook_curl_signs_sample_body():
     assert url in curl
     assert f"X-JoySafeter-Signature: sha256={expected_sig}" in curl
     assert f"-d '{body}'" in curl
+
+
+@pytest.mark.asyncio
+async def test_build_webhook_curl_shell_quotes_body_with_single_quote():
+    svc = _StubService("s3kret")
+    trigger = SimpleNamespace(id="TID", secret_ref="hook", secret_key="WEBHOOK_SECRET")
+    url = "https://api.example.com/api/v1/triggers/trig_TID/webhook"
+    sample = {"customer": "O'Reilly"}
+
+    curl = await svc.build_webhook_curl(trigger, url=url, sample_body=sample)
+
+    body = json.dumps(sample, separators=(",", ":"))
+    assert body in shlex.split(curl)
+    assert f"-d {shlex.quote(body)}" in curl

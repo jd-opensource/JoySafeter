@@ -1091,6 +1091,7 @@ const zh = {
         filterAll: '全部',
         filterEnabled: '已启用',
         filterDisabled: '已禁用',
+        filterCompleted: '已完成',
         filterAutoDisabled: '自动禁用',
         // Shared form fields
         name: '名称',

@@ -23,6 +23,7 @@ from app.joysafeter_domain.services.task_submission_service import TaskSubmissio
 from app.joysafeter_shared.common.app_errors import ConflictError, RequestValidationAppError
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
+_SESSION_KEY_MAX_CHARS = 512
 
 
 def _value_at_path(source: Any, path: list[str]) -> Any:
@@ -58,7 +59,14 @@ def render_session_key(session_key: Optional[str], payload: dict[str, Any]) -> O
     """Render a keyed-session-mode key template, or None when the trigger isn't keyed."""
     if not session_key:
         return None
-    return render_prompt_template(session_key, payload)
+    return _normalize_session_key(render_prompt_template(session_key, payload))
+
+
+def _normalize_session_key(value: Optional[str]) -> Optional[str]:
+    normalized = (value or "").strip()
+    if not normalized:
+        return None
+    return normalized[:_SESSION_KEY_MAX_CHARS]
 
 
 def payload_filter_matches(filter_config: dict[str, Any] | None, payload: dict[str, Any]) -> bool:
@@ -146,7 +154,7 @@ class AgentTriggerExecutor:
             if session is not None and session.status == SessionStatus.IDLE.value:
                 return session, False
 
-        keyed_value = (config.session_key or "").strip() if mode == "keyed" else None
+        keyed_value = _normalize_session_key(config.session_key) if mode == "keyed" else None
         if mode == "keyed" and keyed_value:
             # Bucket by the rendered key: reuse this key's newest idle session, so
             # a shared webhook keeps one thread per customer/chat/repo. Falls

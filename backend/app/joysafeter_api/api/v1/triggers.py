@@ -16,7 +16,7 @@ from app.joysafeter_domain.schemas.joysafeter_trigger import (
     TriggerUpdateRequest,
 )
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
-from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError, ResourceConflictError
+from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
@@ -58,7 +58,29 @@ def _webhook_delivery_id(
         configured_value = request.headers.get(configured_header)
         if configured_value:
             return configured_value
-    return fallback_delivery_id or github_delivery_id or request_id
+    # ``X-Request-ID`` is a transport correlation id, not a provider delivery
+    # identity. Gateways often mint a fresh value for each retry; using it here
+    # would bypass the service's body-hash fallback and duplicate deliveries.
+    _ = request_id
+    return fallback_delivery_id or github_delivery_id
+
+
+_WEBHOOK_SECRET_RESOLUTION_ERROR_CODES = frozenset(
+    {
+        "TRIGGER_SECRET_REF_REQUIRED",
+        "TRIGGER_SECRET_NOT_FOUND",
+        "TRIGGER_SECRET_KEY_NOT_FOUND",
+    }
+)
+
+
+def _webhook_unauthorized() -> RequestValidationAppError:
+    return RequestValidationAppError(
+        code="TRIGGER_WEBHOOK_UNAUTHORIZED",
+        message="Invalid webhook signature or token",
+        data={},
+        user_action="fix_input",
+    )
 
 
 @router.post("", status_code=201, response_model=TriggerResponse)
@@ -69,13 +91,6 @@ async def create_trigger(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> TriggerResponse:
     svc = JoySafeterTriggerService(db)
-    if await svc.get_by_name(body.name, auth_ctx.project_id) is not None:
-        raise ResourceConflictError(
-            code="TRIGGER_NAME_EXISTS",
-            message=f"A trigger named '{body.name}' already exists in this project",
-            data={"name": body.name},
-            user_action="fix_input",
-        )
     trigger = await svc.create(
         name=body.name,
         type=body.type,
@@ -151,18 +166,10 @@ async def update_trigger(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> TriggerResponse:
     svc = JoySafeterTriggerService(db)
-    trigger = await _get_or_404(db, trigger_id, auth_ctx.project_id)
     fields = body.model_dump(exclude_unset=True)
-    if "name" in fields and fields["name"] != trigger.name:
-        existing = await svc.get_by_name(fields["name"], auth_ctx.project_id)
-        if existing is not None and existing.id != trigger_id:
-            raise ResourceConflictError(
-                code="TRIGGER_NAME_EXISTS",
-                message=f"A trigger named '{fields['name']}' already exists in this project",
-                data={"name": fields["name"]},
-                user_action="fix_input",
-            )
     updated = await svc.update(trigger_id, auth_ctx.project_id, **fields)
+    if updated is None:
+        raise NotFoundError(code="TRIGGER_NOT_FOUND", message="Trigger not found", data={"trigger_id": str(trigger_id)}, user_action="refresh")
     return _response(updated, request)
 
 
@@ -241,14 +248,14 @@ async def fire_webhook_trigger(
         scheme, _, value = authorization.partition(" ")
         if scheme.lower() == "bearer":
             token = value.strip()
-    authed = await svc.verify_webhook_auth(trigger, raw_body, signature, token)
+    try:
+        authed = await svc.verify_webhook_auth(trigger, raw_body, signature, token)
+    except (NotFoundError, RequestValidationAppError) as exc:
+        if exc.code in _WEBHOOK_SECRET_RESOLUTION_ERROR_CODES:
+            raise _webhook_unauthorized() from exc
+        raise
     if not authed:
-        raise RequestValidationAppError(
-            code="TRIGGER_WEBHOOK_UNAUTHORIZED",
-            message="Invalid webhook signature or token",
-            data={},
-            user_action="fix_input",
-        )
+        raise _webhook_unauthorized()
     try:
         body: Any = json.loads(raw_body.decode("utf-8")) if raw_body.strip() else {}
     except Exception:

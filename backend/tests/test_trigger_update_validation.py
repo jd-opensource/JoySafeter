@@ -1,9 +1,11 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
 
@@ -62,9 +64,176 @@ def test_update_rejects_keyed_session_without_key():
     )
 
 
+def test_update_rejects_invalid_session_mode():
+    _assert_invalid(
+        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        {"session_mode": "loop"},
+        "TRIGGER_SESSION_MODE_INVALID",
+    )
+
+
+def test_update_rejects_invalid_concurrency_policy():
+    _assert_invalid(
+        _trigger(type="cron", cron_expr="0 9 * * *", run_at=None),
+        {"concurrency_policy": "queue"},
+        "TRIGGER_CONCURRENCY_POLICY_INVALID",
+    )
+
+
 def test_update_rejects_empty_webhook_auth_methods():
     _assert_invalid(
         _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
         {"auth_methods": []},
         "TRIGGER_AUTH_METHODS_REQUIRED",
     )
+
+
+def test_update_allows_legacy_webhook_config_missing_auth_methods():
+    JoySafeterTriggerService(None)._validate_update_candidate(  # type: ignore[arg-type]
+        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={}),
+        {"description": "updated"},
+    )
+
+
+def test_update_rejects_unknown_webhook_auth_methods():
+    _assert_invalid(
+        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        {"auth_methods": ["hmac", "magic-link"]},
+        "TRIGGER_AUTH_METHODS_INVALID",
+    )
+
+
+def test_update_rejects_cron_expr_on_webhook_trigger():
+    _assert_invalid(
+        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        {"cron_expr": "*/5 * * * *"},
+        "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
+    )
+
+
+def test_update_rejects_concurrency_policy_on_webhook_trigger():
+    _assert_invalid(
+        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        {"concurrency_policy": "forbid"},
+        "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
+    )
+
+
+def test_sync_config_preserves_explicit_empty_webhook_auth_methods():
+    trigger = _trigger(
+        type="webhook",
+        secret_ref="hook-secret",
+        secret_key="WEBHOOK_SECRET",
+        config={"auth_methods": []},
+    )
+
+    JoySafeterTriggerService(None)._sync_config(trigger)  # type: ignore[arg-type]
+
+    assert trigger.config["auth_methods"] == []
+
+
+def test_update_plan_captures_runtime_and_secret_dependency_checks():
+    trigger = _trigger(
+        type="webhook",
+        secret_ref="old-secret",
+        secret_key="WEBHOOK_SECRET",
+        environment_ref="old-env",
+        config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
+    )
+
+    plan = TriggerConfigPolicy.plan_update(
+        trigger,
+        {"environment_ref": "new-env", "secret_ref": "new-secret", "auth_methods": ["bearer"]},
+    )
+
+    assert plan.should_resolve_target is True
+    assert plan.next_environment_ref == "new-env"
+    assert plan.secret_ref_to_verify == "new-secret"
+    assert plan.recompute_next_run is False
+    plan.apply_to(trigger)
+    assert trigger.environment_ref == "new-env"
+    assert trigger.secret_ref == "new-secret"
+    assert trigger.config["auth_methods"] == ["bearer"]
+
+
+def test_update_plan_marks_cron_rearm_and_reenable_intent():
+    trigger = _trigger(type="cron", cron_expr="0 9 * * *", run_at=None, next_run_at=None, enabled=False)
+
+    plan = TriggerConfigPolicy.plan_update(trigger, {"enabled": True, "cron_expr": "*/5 * * * *"})
+
+    assert plan.should_resolve_target is True
+    assert plan.recompute_next_run is True
+    assert plan.is_reenable is True
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_webhook_without_secret_ref_at_domain_boundary():
+    with pytest.raises(RequestValidationAppError) as exc_info:
+        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+            name="unsafe-webhook",
+            type="webhook",
+            agent_id=uuid.uuid4(),
+            prompt_template="run",
+            secret_ref=None,
+        )
+
+    assert exc_info.value.code == "TRIGGER_SECRET_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_cron_without_schedule_at_domain_boundary():
+    with pytest.raises(RequestValidationAppError) as exc_info:
+        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+            name="broken-cron",
+            type="cron",
+            agent_id=uuid.uuid4(),
+            prompt_template="run",
+        )
+
+    assert exc_info.value.code == "TRIGGER_CRON_SCHEDULE_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_empty_webhook_auth_methods_at_domain_boundary():
+    with pytest.raises(RequestValidationAppError) as exc_info:
+        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+            name="unsafe-webhook",
+            type="webhook",
+            agent_id=uuid.uuid4(),
+            prompt_template="run",
+            secret_ref="hook-secret",
+            auth_methods=[],
+        )
+
+    assert exc_info.value.code == "TRIGGER_AUTH_METHODS_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_cron_expr_on_webhook_at_domain_boundary():
+    with pytest.raises(RequestValidationAppError) as exc_info:
+        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+            name="dirty-webhook",
+            type="webhook",
+            agent_id=uuid.uuid4(),
+            prompt_template="run",
+            secret_ref="hook-secret",
+            cron_expr="*/5 * * * *",
+        )
+
+    assert exc_info.value.code == "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED"
+
+
+class _NoDb:
+    def add(self, _value):
+        pass
+
+    async def commit(self):
+        pass
+
+    async def refresh(self, _value):
+        pass
+
+
+class _NoDbCreateService(JoySafeterTriggerService):
+    async def resolve_runnable_target(self, **_kwargs):
+        return SimpleNamespace(id=uuid.uuid4()), None

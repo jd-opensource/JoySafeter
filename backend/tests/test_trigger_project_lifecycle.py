@@ -784,6 +784,12 @@ async def test_manual_trigger_run_skips_when_project_triggers_paused(db_session,
     org, project, agent = await _create_project_with_agent(db_session, name="PausedManualTrigger")
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="paused-manual")
     trigger_id = trigger.id
+    prior_success_at = utc_now()
+    prior_attempt_at = utc_now()
+    trigger.last_success_at = prior_success_at
+    trigger.last_attempt_at = prior_attempt_at
+    trigger.last_error = "prior failure"
+    trigger.consecutive_failures = 2
     project.triggers_paused = True
     await db_session.commit()
 
@@ -801,6 +807,57 @@ async def test_manual_trigger_run_skips_when_project_triggers_paused(db_session,
         .all()
     )
     assert tasks == []
+    await db_session.refresh(trigger)
+    assert trigger.last_attempt_at is not None
+    assert trigger.last_attempt_at != prior_attempt_at
+    assert trigger.last_payload["trigger"]["type"] == "manual"
+    assert trigger.last_success_at == prior_success_at
+    assert trigger.last_error == "prior failure"
+    assert trigger.consecutive_failures == 2
+
+
+@pytest.mark.asyncio
+async def test_manual_trigger_run_bounds_oversized_idempotency_header(db_session, monkeypatch):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    org, project, agent = await _create_project_with_agent(db_session, name="ManualOversizedIdempotency")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="manual-oversized-idem")
+    oversized_header = "x" * 10_000
+
+    response = await run_trigger_now(
+        trigger.id,
+        db_session,
+        _admin_ctx(project.id, org.id),
+        idempotency_key_header=oversized_header,
+    )
+
+    assert response.status == "fired"
+    assert response.task_id is not None
+    assert response.session_id is not None
+    assert response.deduped is False
+    task_uuid = uuid.UUID(response.task_id.removeprefix("task_"))
+    session_uuid = uuid.UUID(response.session_id.removeprefix("sess_"))
+    stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
+    assert stored_task.idempotency_key is not None
+    assert oversized_header not in stored_task.idempotency_key
+    assert ":sha256:" in stored_task.idempotency_key
+    assert len(stored_task.idempotency_key) < 260
+
+    replay = await run_trigger_now(
+        trigger.id,
+        db_session,
+        _admin_ctx(project.id, org.id),
+        idempotency_key_header=oversized_header,
+    )
+
+    assert replay.status == "deduped"
+    assert replay.task_id == response.task_id
+    assert replay.session_id == f"sess_{session_uuid}"
+    assert replay.deduped is True
+    assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
 
 
 @pytest.mark.asyncio
@@ -973,6 +1030,90 @@ async def test_trigger_service_rejects_cross_project_agent_without_creating_trig
         .all()
     )
     assert triggers == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_service_create_rejects_duplicate_name_without_creating_trigger(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="CreateDuplicateName")
+    existing = await _create_due_trigger(db_session, project=project, agent=agent, name="duplicate-create")
+
+    with pytest.raises(AppError) as exc_info:
+        await JoySafeterTriggerService(db_session).create(
+            name=existing.name,
+            type="cron",
+            agent_id=agent.id,
+            prompt_template="must not create duplicate",
+            cron_expr="*/5 * * * *",
+            timezone="UTC",
+            project_id=project.id,
+            user_id="owner-user",
+            org_id=org.id,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "TRIGGER_NAME_EXISTS",
+        "message": f"A trigger named '{existing.name}' already exists in this project",
+        "data": {"name": existing.name},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    rows = (
+        (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.project_id == project.id)))
+        .scalars()
+        .all()
+    )
+    assert [row.name for row in rows] == [existing.name]
+
+
+@pytest.mark.asyncio
+async def test_trigger_service_create_race_converts_db_unique_violation_to_conflict(db_session, monkeypatch):
+    org, project, agent = await _create_project_with_agent(db_session, name="CreateDuplicateRace")
+    project_id = project.id
+    existing = await _create_due_trigger(db_session, project=project, agent=agent, name="duplicate-create-race")
+    existing_id = existing.id
+    existing_name = existing.name
+    svc = JoySafeterTriggerService(db_session)
+    real_lookup = svc.get_by_name
+
+    async def _race_misses_existing_name(name: str, lookup_project_id: str | None, *, type: str | None = None):
+        if name == existing_name and lookup_project_id == project_id:
+            return None
+        return await real_lookup(name, lookup_project_id, type=type)
+
+    monkeypatch.setattr(svc, "get_by_name", _race_misses_existing_name)
+
+    with pytest.raises(AppError) as exc_info:
+        await svc.create(
+            name=existing_name,
+            type="cron",
+            agent_id=agent.id,
+            prompt_template="race should surface conflict",
+            cron_expr="*/5 * * * *",
+            timezone="UTC",
+            project_id=project_id,
+            user_id="owner-user",
+            org_id=org.id,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "TRIGGER_NAME_EXISTS",
+        "message": f"A trigger named '{existing_name}' already exists in this project",
+        "data": {"name": existing_name},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    rows = (
+        (
+            await db_session.execute(
+                select(JoySafeterTrigger).where(JoySafeterTrigger.project_id == project_id, JoySafeterTrigger.name == existing_name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [row.id for row in rows] == [existing_id]
 
 
 @pytest.mark.asyncio
@@ -1161,6 +1302,41 @@ async def test_update_trigger_rejects_duplicate_name_without_persisting_change(d
         "code": "TRIGGER_NAME_EXISTS",
         "message": f"A trigger named '{existing.name}' already exists in this project",
         "data": {"name": existing.name},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == target_id))).scalar_one()
+    assert row.name == original_name
+
+
+@pytest.mark.asyncio
+async def test_trigger_service_update_race_converts_db_unique_violation_to_conflict(db_session, monkeypatch):
+    org, project, agent = await _create_project_with_agent(db_session, name="UpdateDuplicateRace")
+    project_id = project.id
+    existing = await _create_due_trigger(db_session, project=project, agent=agent, name="existing-race")
+    target = await _create_due_trigger(db_session, project=project, agent=agent, name="target-race")
+    existing_name = existing.name
+    target_id = target.id
+    original_name = target.name
+    svc = JoySafeterTriggerService(db_session)
+    real_lookup = svc.get_by_name
+
+    async def _race_misses_existing_name(name: str, lookup_project_id: str | None, *, type: str | None = None):
+        if name == existing_name and lookup_project_id == project_id:
+            return None
+        return await real_lookup(name, lookup_project_id, type=type)
+
+    monkeypatch.setattr(svc, "get_by_name", _race_misses_existing_name)
+
+    with pytest.raises(AppError) as exc_info:
+        await svc.update(target_id, project_id, name=existing_name)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "TRIGGER_NAME_EXISTS",
+        "message": f"A trigger named '{existing_name}' already exists in this project",
+        "data": {"name": existing_name},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",

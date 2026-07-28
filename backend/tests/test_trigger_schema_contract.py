@@ -39,14 +39,46 @@ def test_cron_trigger_create_trims_strings_before_validation() -> None:
     assert req.system_prompt == "be concise"
 
 
-def test_cron_trigger_create_requires_cron_expr() -> None:
-    with pytest.raises(ValidationError):
-        TriggerCreateRequest(
-            name="Daily report",
-            type="cron",
-            agent_id=uuid.uuid4(),
-            prompt_template="do work",
-        )
+def test_trigger_create_schema_leaves_business_invariants_to_domain_policy() -> None:
+    req = TriggerCreateRequest(
+        name="Daily report",
+        type="cron",
+        agent_id=uuid.uuid4(),
+        prompt_template="do work",
+    )
+
+    assert req.type == "cron"
+    assert req.cron_expr is None
+    assert req.run_at is None
+
+
+def test_trigger_create_schema_accepts_business_enum_wire_values_for_domain_policy() -> None:
+    req = TriggerCreateRequest(
+        name="Daily report",
+        type="event",
+        agent_id=uuid.uuid4(),
+        prompt_template="do work",
+        session_mode="loop",
+        concurrency_policy="queue",
+        auth_methods=["magic-link"],
+    )
+
+    assert req.type == "event"
+    assert req.session_mode == "loop"
+    assert req.concurrency_policy == "queue"
+    assert req.auth_methods == ["magic-link"]
+
+
+def test_trigger_update_schema_accepts_business_enum_wire_values_for_domain_policy() -> None:
+    req = TriggerUpdateRequest(
+        session_mode="loop",
+        concurrency_policy="queue",
+        auth_methods=["magic-link"],
+    )
+
+    assert req.session_mode == "loop"
+    assert req.concurrency_policy == "queue"
+    assert req.auth_methods == ["magic-link"]
 
 
 def test_trigger_create_rejects_whitespace_only_required_strings() -> None:

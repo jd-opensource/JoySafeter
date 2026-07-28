@@ -3,7 +3,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Play, Pencil, History, Trash2, Plus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
   PageHeader,
@@ -27,7 +27,11 @@ import { useTranslation } from '@/lib/i18n'
 import { describeCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { fireResultToastMessage, formatRunOnce } from '@/lib/managed/trigger-format'
+import {
+  fireResultToastMessage,
+  formatRunOnce,
+  triggerLifecycleStatus,
+} from '@/lib/managed/trigger-format'
 import {
   useAgentTriggers,
   useToggleAgentTrigger,
@@ -69,19 +73,22 @@ export default function TriggerListPage() {
   const runMut = useRunTrigger()
   const deleteMut = useDeleteAgentTrigger()
 
-  const triggers = triggersQuery.data ?? []
+  const triggers = useMemo(() => triggersQuery.data ?? [], [triggersQuery.data])
 
   // Triggers are project-scoped and typically low-count, so the backend returns
   // them all; filtering/pagination happen client-side (mirrors schedules).
   const filtered = useMemo(() => {
     const matchesStatus = (trig: AgentTrigger) => {
+      const lifecycleStatus = triggerLifecycleStatus(trig)
       switch (statusFilter) {
         case 'enabled':
-          return trig.enabled && !trig.auto_disabled_at
+          return lifecycleStatus === 'active'
         case 'disabled':
-          return !trig.enabled && !trig.auto_disabled_at
+          return lifecycleStatus === 'idle'
         case 'auto_disabled':
-          return !!trig.auto_disabled_at
+          return lifecycleStatus === 'auto_disabled'
+        case 'completed':
+          return lifecycleStatus === 'completed'
         default:
           return true
       }
@@ -99,9 +106,32 @@ export default function TriggerListPage() {
   const clampedPage = Math.min(page, totalPages)
   const paged = filtered.slice((clampedPage - 1) * pageSize, clampedPage * pageSize)
 
-  useEffect(() => {
-    setPage(1)
-  }, [searchQuery, createdFilter, typeFilter, statusFilter, pageSize])
+  const resetPage = () => setPage(1)
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    resetPage()
+  }
+
+  const handleCreatedFilterChange = (value: string) => {
+    setCreatedFilter(value)
+    resetPage()
+  }
+
+  const handleTypeFilterChange = (value: string) => {
+    setTypeFilter(value)
+    resetPage()
+  }
+
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value)
+    resetPage()
+  }
+
+  const handlePageSizeChange = (value: number) => {
+    setPageSize(value)
+    resetPage()
+  }
 
   const handleToggle = async (trig: AgentTrigger, enabled: boolean) => {
     if (!currentProjectAllowsWrite() || !scopeIsActive()) return
@@ -140,13 +170,13 @@ export default function TriggerListPage() {
     {
       ...createCreatedTimeFilter(t),
       value: createdFilter,
-      onChange: setCreatedFilter,
+      onChange: handleCreatedFilterChange,
     },
     {
       key: 'type',
       label: t('managed.triggers.typeFilter'),
       value: typeFilter,
-      onChange: setTypeFilter,
+      onChange: handleTypeFilterChange,
       options: [
         { value: 'all', label: t('managed.triggers.filterAll') },
         { value: 'cron', label: t('managed.triggers.typeOption.cron') },
@@ -158,11 +188,12 @@ export default function TriggerListPage() {
       key: 'status',
       label: t('managed.triggers.statusFilter'),
       value: statusFilter,
-      onChange: setStatusFilter,
+      onChange: handleStatusFilterChange,
       options: [
         { value: 'all', label: t('managed.triggers.filterAll') },
         { value: 'enabled', label: t('managed.triggers.filterEnabled') },
         { value: 'disabled', label: t('managed.triggers.filterDisabled') },
+        { value: 'completed', label: t('managed.triggers.filterCompleted') },
         { value: 'auto_disabled', label: t('managed.triggers.filterAutoDisabled') },
       ],
     },
@@ -205,14 +236,15 @@ export default function TriggerListPage() {
   }
 
   const renderStatus = (trig: AgentTrigger) => {
-    if (trig.auto_disabled_at) {
+    const lifecycleStatus = triggerLifecycleStatus(trig)
+    if (lifecycleStatus === 'auto_disabled') {
       return (
         <span title={trig.disabled_reason ?? undefined}>
           <StatusBadge status="auto_disabled" />
         </span>
       )
     }
-    return <StatusBadge status={trig.enabled ? 'active' : 'idle'} />
+    return <StatusBadge status={lifecycleStatus} />
   }
 
   const columns: Column<AgentTrigger>[] = [
@@ -319,7 +351,7 @@ export default function TriggerListPage() {
       <FilterBar
         searchPlaceholder={t('managed.search.triggers')}
         searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={handleSearchChange}
         filters={filters}
       />
 
@@ -373,7 +405,7 @@ export default function TriggerListPage() {
           onNext: () => setPage((p) => Math.min(totalPages, p + 1)),
           onPrev: () => setPage((p) => Math.max(1, p - 1)),
           onPageChange: (p) => setPage(p),
-          onPageSizeChange: (n) => setPageSize(n),
+          onPageSizeChange: handlePageSizeChange,
         }}
         emptyMessage={t('managed.triggers.empty')}
       />

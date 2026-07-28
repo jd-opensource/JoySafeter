@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { fireResultToastKey, fireResultToastMessage, formatRunOnce } from './trigger-format'
+import {
+  fireResultToastKey,
+  fireResultToastMessage,
+  formatRunOnce,
+  triggerLifecycleStatus,
+} from './trigger-format'
 
 describe('fireResultToastKey', () => {
   it('maps known fire statuses to their toast keys', () => {
@@ -40,5 +45,44 @@ describe('fireResultToastMessage', () => {
 
     expect(out).toContain('managed.triggers.fireSkippedWithReason')
     expect(out).toContain('triggers are paused for this project')
+  })
+})
+
+describe('triggerLifecycleStatus', () => {
+  it('classifies parked one-off cron triggers as completed, not active', () => {
+    expect(
+      triggerLifecycleStatus({
+        type: 'cron',
+        enabled: true,
+        run_at: '2030-01-01T00:00:00Z',
+        last_fired_slot: '2030-01-01T00:00:00Z',
+        next_run_at: null,
+      }),
+    ).toBe('completed')
+  })
+
+  it('keeps recurring enabled triggers active even before their next slot is shown', () => {
+    expect(
+      triggerLifecycleStatus({
+        type: 'cron',
+        enabled: true,
+        run_at: null,
+        last_fired_slot: null,
+        next_run_at: null,
+      }),
+    ).toBe('active')
+  })
+
+  it('prioritizes auto-disabled over completed', () => {
+    expect(
+      triggerLifecycleStatus({
+        type: 'cron',
+        enabled: true,
+        auto_disabled_at: '2030-01-02T00:00:00Z',
+        run_at: '2030-01-01T00:00:00Z',
+        last_fired_slot: '2030-01-01T00:00:00Z',
+        next_run_at: null,
+      }),
+    ).toBe('auto_disabled')
   })
 })

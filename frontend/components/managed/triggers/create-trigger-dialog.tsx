@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
 import { SecretKeySelect } from '@/components/managed/shared'
 import { CronEditor } from '@/components/managed/triggers/cron-editor'
@@ -80,6 +80,34 @@ const SESSION_MODES: TriggerSessionMode[] = ['fresh', 'reuse', 'pinned', 'keyed'
 const AUTH_METHODS: WebhookAuthMethod[] = ['hmac', 'bearer', 'token']
 const DEFAULT_DEDUPE_HEADER = 'x-joysafeter-delivery'
 const DEFAULT_SECRET_KEY = 'WEBHOOK_SECRET'
+const NOW_REFRESH_MS = 1000
+let nowSnapshot = Math.floor(Date.now() / NOW_REFRESH_MS) * NOW_REFRESH_MS
+
+function currentNowSnapshot(): number {
+  const next = Math.floor(Date.now() / NOW_REFRESH_MS) * NOW_REFRESH_MS
+  if (next > nowSnapshot) nowSnapshot = next
+  return nowSnapshot
+}
+
+function subscribeNowSnapshot(onStoreChange: () => void): () => void {
+  const interval = window.setInterval(() => {
+    currentNowSnapshot()
+    onStoreChange()
+  }, NOW_REFRESH_MS)
+  return () => window.clearInterval(interval)
+}
+
+function subscribeNoop(): () => void {
+  return () => undefined
+}
+
+function inactiveNowSnapshot(): number {
+  return nowSnapshot
+}
+
+function isWebhookAuthMethod(value: unknown): value is WebhookAuthMethod {
+  return typeof value === 'string' && AUTH_METHODS.includes(value as WebhookAuthMethod)
+}
 
 // Sentinel Select value for "no explicit environment" — radix Select cannot use
 // an empty-string item value, so we map this to `environment_ref = null`.
@@ -88,6 +116,33 @@ const FOLLOW_AGENT_ENV = '__agent_default__'
 interface FilterRow {
   path: string
   value: string
+}
+
+interface TriggerFormState {
+  type: TriggerKind
+  name: string
+  description: string
+  agentId: string
+  environmentRef: string
+  prompt: string
+  agentSearch: string
+  envSearch: string
+  timeoutSec: number
+  maxRetries: number
+  enabled: boolean
+  sessionMode: TriggerSessionMode
+  pinnedSessionId: string
+  sessionKey: string
+  scheduleMode: 'repeats' | 'once'
+  cron: string
+  tz: string
+  runAt: string
+  policy: TriggerConcurrencyPolicy
+  secretRef: string
+  secretKey: string
+  authMethods: WebhookAuthMethod[]
+  dedupeHeader: string
+  filterRows: FilterRow[]
 }
 
 function filterToRows(filter: Record<string, unknown> | null | undefined): FilterRow[] {
@@ -112,7 +167,83 @@ function isoToLocalInput(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export function CreateTriggerDialog({ open, onOpenChange, trigger }: CreateTriggerDialogProps) {
+function useNowMs(active: boolean): number {
+  return useSyncExternalStore(
+    active ? subscribeNowSnapshot : subscribeNoop,
+    active ? currentNowSnapshot : inactiveNowSnapshot,
+    inactiveNowSnapshot,
+  )
+}
+
+function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
+  if (!trigger) {
+    return {
+      type: 'cron',
+      name: '',
+      description: '',
+      agentId: '',
+      environmentRef: '',
+      prompt: '',
+      agentSearch: '',
+      envSearch: '',
+      timeoutSec: 7200,
+      maxRetries: 2,
+      enabled: true,
+      sessionMode: 'fresh',
+      pinnedSessionId: '',
+      sessionKey: '',
+      scheduleMode: 'repeats',
+      cron: '0 9 * * *',
+      tz: detectBrowserTimezone(),
+      runAt: '',
+      policy: 'allow',
+      secretRef: '',
+      secretKey: DEFAULT_SECRET_KEY,
+      authMethods: [...AUTH_METHODS],
+      dedupeHeader: DEFAULT_DEDUPE_HEADER,
+      filterRows: [],
+    }
+  }
+
+  const cfgAuth = trigger.config?.auth_methods
+  return {
+    type: trigger.type === 'webhook' ? 'webhook' : 'cron',
+    name: trigger.name,
+    description: trigger.description ?? '',
+    agentId: apiResourceId(trigger.agent_id),
+    environmentRef: trigger.environment_ref ?? '',
+    prompt: trigger.prompt_template,
+    agentSearch: '',
+    envSearch: '',
+    timeoutSec: trigger.timeout_sec,
+    maxRetries: trigger.max_retries,
+    enabled: trigger.enabled,
+    sessionMode: trigger.session_mode || 'fresh',
+    pinnedSessionId: trigger.pinned_session_id ? apiResourceId(trigger.pinned_session_id) : '',
+    sessionKey: trigger.session_key ?? '',
+    scheduleMode: trigger.run_at ? 'once' : 'repeats',
+    cron: trigger.cron_expr || '0 9 * * *',
+    tz: trigger.timezone || 'UTC',
+    runAt: isoToLocalInput(trigger.run_at),
+    policy: (trigger.concurrency_policy ?? 'allow') as TriggerConcurrencyPolicy,
+    secretRef: trigger.secret_ref ?? '',
+    secretKey: trigger.secret_key ?? DEFAULT_SECRET_KEY,
+    authMethods: Array.isArray(cfgAuth) ? cfgAuth.filter(isWebhookAuthMethod) : [...AUTH_METHODS],
+    dedupeHeader: (trigger.config?.dedupe_header as string) ?? DEFAULT_DEDUPE_HEADER,
+    filterRows: filterToRows(trigger.filter),
+  }
+}
+
+function formInstanceKey(open: boolean, trigger?: AgentTrigger | null): string {
+  if (!open) return 'closed'
+  return trigger?.id ?? 'create'
+}
+
+export function CreateTriggerDialog(props: CreateTriggerDialogProps) {
+  return <CreateTriggerDialogForm key={formInstanceKey(props.open, props.trigger)} {...props} />
+}
+
+function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerDialogProps) {
   const { t } = useTranslation()
   const isEdit = !!trigger
   const createMut = useCreateAgentTrigger()
@@ -122,36 +253,37 @@ export function CreateTriggerDialog({ open, onOpenChange, trigger }: CreateTrigg
     onReset: () => onOpenChange(false),
   })
   const submitRunRef = useRef(0)
+  const [initialForm] = useState(() => triggerToFormState(trigger))
 
-  const [type, setType] = useState<TriggerKind>('cron')
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [agentId, setAgentId] = useState('')
-  const [environmentRef, setEnvironmentRef] = useState('')
-  const [prompt, setPrompt] = useState('')
-  const [agentSearch, setAgentSearch] = useState('')
-  const [envSearch, setEnvSearch] = useState('')
-  const [timeoutSec, setTimeoutSec] = useState(7200)
-  const [maxRetries, setMaxRetries] = useState(2)
-  const [enabled, setEnabled] = useState(true)
+  const [type, setType] = useState<TriggerKind>(initialForm.type)
+  const [name, setName] = useState(initialForm.name)
+  const [description, setDescription] = useState(initialForm.description)
+  const [agentId, setAgentId] = useState(initialForm.agentId)
+  const [environmentRef, setEnvironmentRef] = useState(initialForm.environmentRef)
+  const [prompt, setPrompt] = useState(initialForm.prompt)
+  const [agentSearch, setAgentSearch] = useState(initialForm.agentSearch)
+  const [envSearch, setEnvSearch] = useState(initialForm.envSearch)
+  const [timeoutSec, setTimeoutSec] = useState(initialForm.timeoutSec)
+  const [maxRetries, setMaxRetries] = useState(initialForm.maxRetries)
+  const [enabled, setEnabled] = useState(initialForm.enabled)
 
-  const [sessionMode, setSessionMode] = useState<TriggerSessionMode>('fresh')
-  const [pinnedSessionId, setPinnedSessionId] = useState('')
-  const [sessionKey, setSessionKey] = useState('')
+  const [sessionMode, setSessionMode] = useState<TriggerSessionMode>(initialForm.sessionMode)
+  const [pinnedSessionId, setPinnedSessionId] = useState(initialForm.pinnedSessionId)
+  const [sessionKey, setSessionKey] = useState(initialForm.sessionKey)
 
   // Cron / run-once
-  const [scheduleMode, setScheduleMode] = useState<'repeats' | 'once'>('repeats')
-  const [cron, setCron] = useState('0 9 * * *')
-  const [tz, setTz] = useState('UTC')
-  const [runAt, setRunAt] = useState('')
-  const [policy, setPolicy] = useState<TriggerConcurrencyPolicy>('allow')
+  const [scheduleMode, setScheduleMode] = useState<'repeats' | 'once'>(initialForm.scheduleMode)
+  const [cron, setCron] = useState(initialForm.cron)
+  const [tz, setTz] = useState(initialForm.tz)
+  const [runAt, setRunAt] = useState(initialForm.runAt)
+  const [policy, setPolicy] = useState<TriggerConcurrencyPolicy>(initialForm.policy)
 
   // Webhook
-  const [secretRef, setSecretRef] = useState('')
-  const [secretKey, setSecretKey] = useState(DEFAULT_SECRET_KEY)
-  const [authMethods, setAuthMethods] = useState<WebhookAuthMethod[]>([...AUTH_METHODS])
-  const [dedupeHeader, setDedupeHeader] = useState(DEFAULT_DEDUPE_HEADER)
-  const [filterRows, setFilterRows] = useState<FilterRow[]>([])
+  const [secretRef, setSecretRef] = useState(initialForm.secretRef)
+  const [secretKey, setSecretKey] = useState(initialForm.secretKey)
+  const [authMethods, setAuthMethods] = useState<WebhookAuthMethod[]>(initialForm.authMethods)
+  const [dedupeHeader, setDedupeHeader] = useState(initialForm.dedupeHeader)
+  const [filterRows, setFilterRows] = useState<FilterRow[]>(initialForm.filterRows)
 
   const agentsQuery = useQuery({
     queryKey: ['agents', scope.key, 'for-trigger'],
@@ -220,68 +352,24 @@ export function CreateTriggerDialog({ open, onOpenChange, trigger }: CreateTrigg
     [],
   )
 
-  // Seed form when opening (create defaults or edit values).
-  useEffect(() => {
-    if (!open) return
-    if (trigger) {
-      setType(trigger.type === 'webhook' ? 'webhook' : 'cron')
-      setName(trigger.name)
-      setDescription(trigger.description ?? '')
-      setAgentId(apiResourceId(trigger.agent_id))
-      setEnvironmentRef(trigger.environment_ref ?? '')
-      setPrompt(trigger.prompt_template)
-      setTimeoutSec(trigger.timeout_sec)
-      setMaxRetries(trigger.max_retries)
-      setEnabled(trigger.enabled)
-      setSessionMode(trigger.session_mode || 'fresh')
-      setPinnedSessionId(trigger.pinned_session_id ? apiResourceId(trigger.pinned_session_id) : '')
-      setSessionKey(trigger.session_key ?? '')
-      // cron
-      setScheduleMode(trigger.run_at ? 'once' : 'repeats')
-      setCron(trigger.cron_expr || '0 9 * * *')
-      setTz(trigger.timezone || 'UTC')
-      setRunAt(isoToLocalInput(trigger.run_at))
-      setPolicy((trigger.concurrency_policy ?? 'allow') as TriggerConcurrencyPolicy)
-      // webhook
-      setSecretRef(trigger.secret_ref ?? '')
-      setSecretKey(trigger.secret_key ?? DEFAULT_SECRET_KEY)
-      const cfgAuth = (trigger.config?.auth_methods as WebhookAuthMethod[]) ?? [...AUTH_METHODS]
-      setAuthMethods(cfgAuth.length ? cfgAuth : [...AUTH_METHODS])
-      setDedupeHeader((trigger.config?.dedupe_header as string) ?? DEFAULT_DEDUPE_HEADER)
-      setFilterRows(filterToRows(trigger.filter))
-    } else {
-      setType('cron')
-      setName('')
-      setDescription('')
-      setAgentId('')
-      setEnvironmentRef('')
-      setPrompt('')
-      setTimeoutSec(7200)
-      setMaxRetries(2)
-      setEnabled(true)
-      setSessionMode('fresh')
-      setPinnedSessionId('')
-      setSessionKey('')
-      setScheduleMode('repeats')
-      setCron('0 9 * * *')
-      setTz(detectBrowserTimezone())
-      setRunAt('')
-      setPolicy('allow')
-      setSecretRef('')
-      setSecretKey(DEFAULT_SECRET_KEY)
-      setAuthMethods([...AUTH_METHODS])
-      setDedupeHeader(DEFAULT_DEDUPE_HEADER)
-      setFilterRows([])
-    }
-    setAgentSearch('')
-    setEnvSearch('')
-  }, [open, trigger])
-
+  const nowMs = useNowMs(open && type === 'cron' && scheduleMode === 'once')
   const runAtIsFuture = useMemo(() => {
     if (!runAt) return false
     const d = new Date(runAt)
-    return !Number.isNaN(d.getTime()) && d.getTime() > Date.now()
-  }, [runAt])
+    return !Number.isNaN(d.getTime()) && d.getTime() > nowMs
+  }, [nowMs, runAt])
+
+  const isUnchangedCompletedOneOff = useMemo(
+    () =>
+      isEdit &&
+      trigger?.type === 'cron' &&
+      scheduleMode === 'once' &&
+      !!trigger.run_at &&
+      !!trigger.last_fired_slot &&
+      !trigger.next_run_at &&
+      runAt === isoToLocalInput(trigger.run_at),
+    [isEdit, runAt, scheduleMode, trigger],
+  )
 
   const filterRowsValid = filterRows.every(
     (row) => Boolean(row.path.trim()) === Boolean(row.value.trim()),
@@ -299,7 +387,7 @@ export function CreateTriggerDialog({ open, onOpenChange, trigger }: CreateTrigg
     maxRetries >= 0 &&
     (type === 'cron'
       ? scheduleMode === 'once'
-        ? runAtIsFuture
+        ? runAtIsFuture || isUnchangedCompletedOneOff
         : isValidCron(cron)
       : !!secretRef && authMethods.length > 0 && filterRowsValid)
 
@@ -333,12 +421,14 @@ export function CreateTriggerDialog({ open, onOpenChange, trigger }: CreateTrigg
     const typeBody =
       type === 'cron'
         ? scheduleMode === 'once'
-          ? {
-              cron_expr: null,
-              run_at: new Date(runAt).toISOString(),
-              timezone: tz,
-              concurrency_policy: policy,
-            }
+          ? isUnchangedCompletedOneOff
+            ? {}
+            : {
+                cron_expr: null,
+                run_at: new Date(runAt).toISOString(),
+                timezone: tz,
+                concurrency_policy: policy,
+              }
           : {
               cron_expr: cron,
               run_at: null,
@@ -711,7 +801,6 @@ export function CreateTriggerDialog({ open, onOpenChange, trigger }: CreateTrigg
                     </p>
                   ) : (
                     filterRows.map((row, index) => (
-                      // eslint-disable-next-line react/no-array-index-key
                       <div key={index} className="flex items-center gap-2">
                         <Input
                           value={row.path}

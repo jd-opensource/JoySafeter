@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
-
-from app.joysafeter_domain.triggers.definition import CronTriggerConfig, WebhookTriggerConfig
 
 
 def _strip_required(value: str) -> str:
@@ -24,14 +22,14 @@ def _strip_optional(value: Optional[str]) -> Optional[str]:
 
 class TriggerCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    type: Literal["cron", "webhook"] = "webhook"
+    type: str = "webhook"
     agent_id: uuid.UUID
     prompt_template: str = Field(min_length=1)
     system_prompt: Optional[str] = None
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: bool = True
-    session_mode: Literal["fresh", "reuse", "pinned", "keyed"] = "fresh"
+    session_mode: str = "fresh"
     pinned_session_id: Optional[uuid.UUID] = None
     session_key: Optional[str] = None
     filter: dict[str, Any] = Field(default_factory=dict)
@@ -41,11 +39,11 @@ class TriggerCreateRequest(BaseModel):
     cron_expr: Optional[str] = None
     timezone: str = "UTC"
     run_at: Optional[datetime] = None
-    concurrency_policy: Literal["allow", "forbid", "replace"] = "allow"
+    concurrency_policy: str = "allow"
 
     secret_ref: Optional[str] = None
-    secret_key: str = "WEBHOOK_SECRET"
-    auth_methods: list[Literal["hmac", "bearer", "token"]] = Field(default_factory=lambda: ["hmac", "bearer", "token"])
+    secret_key: Optional[str] = "WEBHOOK_SECRET"
+    auth_methods: list[str] = Field(default_factory=lambda: ["hmac", "bearer", "token"])
     dedupe_header: Optional[str] = "x-joysafeter-delivery"
 
     @field_validator("name", "type", "prompt_template", "session_mode", "timezone", "concurrency_policy", mode="before")
@@ -62,44 +60,6 @@ class TriggerCreateRequest(BaseModel):
             return _strip_optional(value)
         return value
 
-    @model_validator(mode="after")
-    def _valid_trigger(self) -> "TriggerCreateRequest":
-        if self.session_mode == "pinned" and self.pinned_session_id is None:
-            raise ValueError("pinned_session_id is required when session_mode is pinned")
-        if self.session_mode == "keyed" and not (self.session_key or "").strip():
-            raise ValueError("session_key is required when session_mode is keyed")
-        if self.type == "cron":
-            has_cron = bool(self.cron_expr)
-            has_run_at = self.run_at is not None
-            if has_cron == has_run_at:
-                raise ValueError("cron trigger requires exactly one of cron_expr or run_at")
-            if has_cron:
-                CronTriggerConfig.model_validate(
-                    {
-                        "cron_expr": self.cron_expr,
-                        "timezone": self.timezone,
-                        "concurrency_policy": self.concurrency_policy,
-                    }
-                )
-            if self.run_at is not None:
-                run_at = self.run_at if self.run_at.tzinfo else self.run_at.replace(tzinfo=timezone.utc)
-                if run_at <= datetime.now(timezone.utc):
-                    raise ValueError("run_at must be in the future")
-        elif self.run_at is not None:
-            raise ValueError("run_at is only valid for cron triggers")
-        if self.type == "webhook":
-            if not self.secret_ref:
-                raise ValueError("secret_ref is required when type is webhook")
-            WebhookTriggerConfig.model_validate(
-                {
-                    "secret_ref": self.secret_ref,
-                    "secret_key": self.secret_key,
-                    "auth_methods": self.auth_methods,
-                    "dedupe_header": self.dedupe_header,
-                }
-            )
-        return self
-
 
 class TriggerUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
@@ -108,7 +68,7 @@ class TriggerUpdateRequest(BaseModel):
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: Optional[bool] = None
-    session_mode: Optional[Literal["fresh", "reuse", "pinned", "keyed"]] = None
+    session_mode: Optional[str] = None
     pinned_session_id: Optional[uuid.UUID] = None
     session_key: Optional[str] = None
     filter: Optional[dict[str, Any]] = None
@@ -118,11 +78,11 @@ class TriggerUpdateRequest(BaseModel):
     cron_expr: Optional[str] = None
     timezone: Optional[str] = None
     run_at: Optional[datetime] = None
-    concurrency_policy: Optional[Literal["allow", "forbid", "replace"]] = None
+    concurrency_policy: Optional[str] = None
 
     secret_ref: Optional[str] = None
     secret_key: Optional[str] = None
-    auth_methods: Optional[list[Literal["hmac", "bearer", "token"]]] = None
+    auth_methods: Optional[list[str]] = None
     dedupe_header: Optional[str] = None
 
     @field_validator("name", "prompt_template", "session_mode", "timezone", "concurrency_policy", mode="before")
@@ -151,8 +111,6 @@ class TriggerUpdateRequest(BaseModel):
             "max_retries",
             "timezone",
             "concurrency_policy",
-            "secret_ref",
-            "secret_key",
             "auth_methods",
         }
         for field in non_nullable & self.model_fields_set:

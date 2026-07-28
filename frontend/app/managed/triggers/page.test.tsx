@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
-import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const hoisted = vi.hoisted(() => ({
@@ -23,6 +22,7 @@ interface TriggerRecord {
   run_at: string | null
   secret_ref: string | null
   next_run_at: string | null
+  last_fired_slot: string | null
   webhook_url: string | null
   created_at: string
 }
@@ -101,8 +101,21 @@ function cronTrigger(): TriggerRecord {
     run_at: null,
     secret_ref: null,
     next_run_at: null,
+    last_fired_slot: null,
     webhook_url: null,
     created_at: '2026-01-01T00:00:00Z',
+  }
+}
+
+function completedOneOffTrigger(): TriggerRecord {
+  return {
+    ...cronTrigger(),
+    id: 'trig_once_done',
+    name: 'One-off import',
+    cron_expr: null,
+    run_at: '2026-01-02T00:00:00Z',
+    next_run_at: null,
+    last_fired_slot: '2026-01-02T00:00:00Z',
   }
 }
 
@@ -145,5 +158,13 @@ describe('TriggerListPage capability gate', () => {
     const { queryByText } = renderPage()
     expect(queryByText('managed.triggers.new')).toBeNull()
     expect(queryByText('Daily report')).toBeTruthy()
+  })
+
+  it('labels completed one-off triggers distinctly from active recurring triggers', () => {
+    hoisted.state.triggers = [completedOneOffTrigger()]
+    setProject('write')
+    const { getByText } = renderPage()
+    expect(getByText('One-off import')).toBeTruthy()
+    expect(getByText('common.completed')).toBeTruthy()
   })
 })

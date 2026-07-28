@@ -1037,6 +1037,7 @@ const en = {
         filterAll: 'All',
         filterEnabled: 'Enabled',
         filterDisabled: 'Disabled',
+        filterCompleted: 'Completed',
         filterAutoDisabled: 'Auto-disabled',
         // Shared form fields
         name: 'Name',
