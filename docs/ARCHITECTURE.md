@@ -198,7 +198,7 @@ Core ownership rules:
    scheduler still finds the pending row.
 
 2. **Task submission has one owner.** API routes, follow-up chat messages, manual
-   schedule triggers, and worker-fired schedules submit through
+   trigger runs, and worker-fired cron triggers submit through
    `TaskSubmissionService`. That service owns idempotency replay, admission control,
    task creation, session running/idle transitions, enqueue, and enqueue-failure
    compensation. Routes may validate request-specific inputs, but they should not
@@ -219,7 +219,7 @@ Core ownership rules:
 5. **Project lifecycle has one owner.** Project create/list/default/restore/archive
    state transitions go through `ProjectService`. Project archive owns the full
    closed loop: default-project guard, active-task gate, session sandbox destroy
-   relay, sandbox state sync, session archival, schedule pause, and the final
+   relay, sandbox state sync, session archival, trigger pause, and the final
    project archive timestamp. Routes should not recreate that chain inline.
 
 6. **Organization membership has one owner.** Organization creation/deletion and
