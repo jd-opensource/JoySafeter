@@ -456,9 +456,9 @@ class JoySafeterAgentService:
 
         now = utc_now()
         await self._archive_session_ids_if_no_active_tasks(session_ids, now)
-        from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
+        from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 
-        await JoySafeterScheduleService(self.db).pause_for_agent_archive(agent_id)
+        await JoySafeterTriggerService(self.db).pause_for_agent_archive(agent_id)
         agent.archived_at = now
         agent.updated_at = now
         await self.db.commit()

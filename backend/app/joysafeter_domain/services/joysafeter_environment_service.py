@@ -7,9 +7,9 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
-from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
@@ -254,15 +254,21 @@ class EnvironmentService:
         env_id: uuid.UUID,
         project_id: Optional[str] = None,
     ) -> Optional[str]:
-        conditions: list[ColumnElement[bool]] = [JoySafeterSchedule.environment_ref.is_not(None)]
+        # Cron triggers are surfaced to users as "schedules"; scope to type='cron'
+        # so the "referenced by schedule '<name>'" message stays accurate (a
+        # webhook trigger is not a schedule).
+        conditions: list[ColumnElement[bool]] = [
+            JoySafeterTrigger.environment_ref.is_not(None),
+            JoySafeterTrigger.type == "cron",
+        ]
         if project_id is not None:
-            conditions.append(JoySafeterSchedule.project_id == project_id)
+            conditions.append(JoySafeterTrigger.project_id == project_id)
         result = await self.db.execute(
-            select(JoySafeterSchedule.name, JoySafeterSchedule.environment_ref).where(and_(*conditions))
+            select(JoySafeterTrigger.name, JoySafeterTrigger.environment_ref).where(and_(*conditions))
         )
-        for schedule_name, environment_ref in result.all():
+        for trigger_name, environment_ref in result.all():
             if _environment_ref_matches(environment_ref, env_name, env_id):
-                return str(schedule_name)
+                return str(trigger_name)
         return None
 
     async def active_task_environment_dependency(

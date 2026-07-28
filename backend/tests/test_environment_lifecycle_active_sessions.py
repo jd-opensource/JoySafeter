@@ -15,9 +15,9 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     EnvironmentConfig,
@@ -471,15 +471,19 @@ async def test_archive_environment_rejects_schedule_reference_without_active_tas
     await db_session.refresh(agent)
     env_id = env.id
 
-    schedule = JoySafeterSchedule(
+    schedule = JoySafeterTrigger(
         name=f"env-schedule-{uuid.uuid4()}",
+        type="cron",
         agent_id=agent.id,
-        prompt="run later",
+        prompt_template="run later",
         cron_expr="*/5 * * * *",
         timezone="UTC",
         enabled=True,
         next_run_at=utc_now(),
         environment_ref=f"env_{env.id}",
+        filter={},
+        config={},
+        last_payload={},
     )
     db_session.add(schedule)
     await db_session.commit()
@@ -513,15 +517,19 @@ async def test_delete_environment_rejects_schedule_reference_without_active_task
     await db_session.refresh(agent)
     env_id = env.id
 
-    schedule = JoySafeterSchedule(
+    schedule = JoySafeterTrigger(
         name=f"delete-env-schedule-{uuid.uuid4()}",
+        type="cron",
         agent_id=agent.id,
-        prompt="run later",
+        prompt_template="run later",
         cron_expr="*/5 * * * *",
         timezone="UTC",
         enabled=False,
         next_run_at=None,
         environment_ref=env.name,
+        filter={},
+        config={},
+        last_payload={},
     )
     db_session.add(schedule)
     await db_session.commit()
@@ -635,15 +643,19 @@ async def test_update_environment_name_rejects_schedule_reference_without_active
     env_id = env.id
     original_name = env.name
 
-    schedule = JoySafeterSchedule(
+    schedule = JoySafeterTrigger(
         name=f"update-env-schedule-{uuid.uuid4()}",
+        type="cron",
         agent_id=agent.id,
-        prompt="run later",
+        prompt_template="run later",
         cron_expr="*/5 * * * *",
         timezone="UTC",
         enabled=True,
         next_run_at=utc_now(),
         environment_ref=env.name,
+        filter={},
+        config={},
+        last_payload={},
     )
     db_session.add(schedule)
     await db_session.commit()

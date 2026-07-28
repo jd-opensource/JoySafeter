@@ -980,8 +980,8 @@ class SkillService(BaseService[JoySafeterSkill]):
 
         from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
         from app.joysafeter_domain.models.joysafeter_project import Project
-        from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
         from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+        from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 
         project_filter: Any
         if self._active_org_id:
@@ -1009,8 +1009,8 @@ class SkillService(BaseService[JoySafeterSkill]):
         task_rows = []
         if current_agent_ids:
             schedule_result = await self.db.execute(
-                select(JoySafeterSchedule.id, JoySafeterSchedule.name, JoySafeterSchedule.enabled)
-                .where(JoySafeterSchedule.agent_id.in_(current_agent_ids))
+                select(JoySafeterTrigger.id, JoySafeterTrigger.name, JoySafeterTrigger.enabled)
+                .where(JoySafeterTrigger.agent_id.in_(current_agent_ids), JoySafeterTrigger.type == "cron")
                 .limit(1000)
             )
             schedule_rows = list(schedule_result.all())

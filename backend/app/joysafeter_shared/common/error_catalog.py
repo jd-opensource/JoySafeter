@@ -811,25 +811,15 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ServiceUnavailableError,
         default_message="Session sandbox is not available",
     ),
-    "SCHEDULE_ENVIRONMENT_NOT_FOUND": CatalogEntry(
-        code="SCHEDULE_ENVIRONMENT_NOT_FOUND",
+    "TRIGGER_ENVIRONMENT_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_ENVIRONMENT_NOT_FOUND",
         error_class=RequestValidationAppError,
-        default_message="Schedule environment not found",
+        default_message="Trigger environment not found",
     ),
-    "SCHEDULE_AGENT_NOT_FOUND": CatalogEntry(
-        code="SCHEDULE_AGENT_NOT_FOUND",
+    "TRIGGER_AGENT_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_AGENT_NOT_FOUND",
         error_class=NotFoundError,
-        default_message="Schedule agent not found",
-    ),
-    "SCHEDULE_NAME_EXISTS": CatalogEntry(
-        code="SCHEDULE_NAME_EXISTS",
-        error_class=ResourceConflictError,
-        default_message="A schedule with this name already exists in this project",
-    ),
-    "SCHEDULE_NOT_FOUND": CatalogEntry(
-        code="SCHEDULE_NOT_FOUND",
-        error_class=NotFoundError,
-        default_message="Schedule not found",
+        default_message="Trigger agent not found",
     ),
     "SKILL_ACCESS_DENIED": CatalogEntry(
         code="SKILL_ACCESS_DENIED",
@@ -1120,6 +1110,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=NotFoundError,
         default_message="Trigger not found",
     ),
+    "TRIGGER_NOT_WEBHOOK": CatalogEntry(
+        code="TRIGGER_NOT_WEBHOOK",
+        error_class=RequestValidationAppError,
+        default_message="Operation is only available for webhook triggers",
+    ),
     "TRIGGER_PINNED_SESSION_AGENT_MISMATCH": CatalogEntry(
         code="TRIGGER_PINNED_SESSION_AGENT_MISMATCH",
         error_class=RequestValidationAppError,
@@ -1149,6 +1144,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="TRIGGER_SECRET_REF_REQUIRED",
         error_class=RequestValidationAppError,
         default_message="Webhook trigger requires secret_ref",
+    ),
+    "TRIGGER_TYPE_UNSUPPORTED": CatalogEntry(
+        code="TRIGGER_TYPE_UNSUPPORTED",
+        error_class=RequestValidationAppError,
+        default_message="Unsupported trigger type",
     ),
     "TRIGGER_WEBHOOK_UNAUTHORIZED": CatalogEntry(
         code="TRIGGER_WEBHOOK_UNAUTHORIZED",
