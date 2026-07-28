@@ -22,6 +22,15 @@ class TriggerSessionMode(str, enum.Enum):
     FRESH = "fresh"
     REUSE = "reuse"
     PINNED = "pinned"
+    KEYED = "keyed"  # reuse bucketed by a payload-rendered session_key
+
+
+class TriggerConcurrencyPolicy(str, enum.Enum):
+    """What to do when a cron fire is due but a prior run is still active."""
+
+    ALLOW = "allow"  # fire anyway (fresh session per fire makes this safe)
+    FORBID = "forbid"  # skip this fire, log it, wait for the next slot
+    REPLACE = "replace"  # cancel the still-active task(s), then fire
 
 
 class JoySafeterTrigger(JoySafeterBaseModel):
@@ -46,6 +55,7 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     environment_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     session_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fresh", server_default="fresh")
+    session_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     pinned_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
@@ -61,9 +71,20 @@ class JoySafeterTrigger(JoySafeterBaseModel):
 
     cron_expr: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     timezone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     concurrency_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="allow", server_default="allow")
     next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_fired_slot: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Slot retry / dead-letter state (cron control plane). ``pending_slot_at`` is
+    # the slot instant currently being attempted so a backoff retry can reuse the
+    # same logical slot (and its idempotency key); ``slot_attempts`` counts those
+    # attempts. ``auto_disabled_at`` / ``disabled_reason`` record a dead-letter
+    # (auto-disable) after the consecutive-failure threshold is crossed.
+    pending_slot_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    slot_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    auto_disabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    disabled_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     locked_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
