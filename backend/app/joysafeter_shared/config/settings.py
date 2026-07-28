@@ -217,6 +217,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RATE_LIMIT_RPH", "RATE_LIMIT_PER_HOUR"),
         description="Rate limit: requests per hour",
     )
+    trust_forwarded_headers: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("TRUST_FORWARDED_HEADERS", "TRUST_PROXY_HEADERS"),
+        description="Trust X-Forwarded-For / X-Real-IP headers from an upstream proxy. Disabled by default because clients can spoof these headers.",
+    )
 
     # concurrency control
     max_concurrent_llm_calls: int = Field(

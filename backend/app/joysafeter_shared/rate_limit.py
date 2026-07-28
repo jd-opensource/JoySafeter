@@ -69,15 +69,16 @@ _rate_limiter = RateLimiter()
 
 def get_client_ip(request: Request) -> str:
     """Return the client IP address."""
-    # prefer X-Forwarded-For (behind proxy / load balancer)
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return str(forwarded).split(",")[0].strip()
+    from app.joysafeter_shared.config.settings import settings
 
-    # try X-Real-IP
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return str(real_ip)
+    if settings.trust_forwarded_headers:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return str(forwarded).split(",")[0].strip()
+
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return str(real_ip)
 
     # fall back to direct client address
     if request.client:
