@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from .base import register
+from .base import cron_block, register
 
 # When no explicit Idempotency-Key header is supplied, collapse rapid repeat
 # clicks (e.g. a double-click or an impatient retry) within this window into one
@@ -40,14 +40,7 @@ class ManualTriggerProvider:
                 "source_type": trigger.type,
                 "fired_at": fired_at,
             },
-            "schedule": {
-                "id": str(trigger.id),
-                "name": trigger.name,
-                "cron_expr": trigger.cron_expr,
-                "timezone": trigger.timezone,
-                "fired_at": fired_at,
-                "last_fired_slot": trigger.last_fired_slot.isoformat() if trigger.last_fired_slot else None,
-            },
+            "cron": cron_block(trigger, fired_at),
         }
 
 

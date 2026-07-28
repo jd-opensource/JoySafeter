@@ -1,9 +1,4 @@
-"""Unified agent trigger config models for cron and webhook validation.
-
-The trigger *kind* / *session mode* / *concurrency policy* enums are the model
-enums (single source of truth); they are re-exported here under their historical
-``AgentTrigger*`` names for callers that import them from this module.
-"""
+"""Unified agent trigger config models for cron and webhook validation."""
 
 from __future__ import annotations
 
@@ -12,21 +7,9 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.joysafeter_domain.models.joysafeter_trigger import (
-    TriggerConcurrencyPolicy as AgentTriggerConcurrencyPolicy,
-)
-from app.joysafeter_domain.models.joysafeter_trigger import (
-    TriggerSessionMode as AgentTriggerSessionMode,
-)
-from app.joysafeter_domain.models.joysafeter_trigger import (
-    TriggerType as AgentTriggerKind,
-)
 from app.joysafeter_shared.utils.cron import validate_cron, validate_timezone
 
 __all__ = [
-    "AgentTriggerConcurrencyPolicy",
-    "AgentTriggerKind",
-    "AgentTriggerSessionMode",
     "CronTriggerConfig",
     "WebhookTriggerConfig",
 ]

@@ -82,5 +82,5 @@ def test_cron_build_payload_shape():
     slot = datetime(2026, 7, 27, 12, 0, tzinfo=timezone.utc)
     payload = get_provider("cron").build_payload(_trigger(), fired_slot=slot)
     assert payload["trigger"] == {"type": "cron", "source": "cron"}
-    assert payload["schedule"]["cron_expr"] == "0 0 * * *"
-    assert payload["schedule"]["fired_at"] == slot.isoformat()
+    assert payload["cron"]["cron_expr"] == "0 0 * * *"
+    assert payload["cron"]["fired_at"] == slot.isoformat()

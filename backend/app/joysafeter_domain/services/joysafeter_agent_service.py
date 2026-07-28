@@ -420,6 +420,9 @@ class JoySafeterAgentService:
             if await self._count_active_tasks_for_agent(agent_id, project_id=project_id) > 0:
                 raise ValueError("Agent has active tasks. Use force=true to delete.")
 
+        from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+
+        await JoySafeterTriggerService(self.db).pause_for_agent_triggers(agent_id)
         agent.deleted_at = utc_now()
         await self.db.commit()
         return True

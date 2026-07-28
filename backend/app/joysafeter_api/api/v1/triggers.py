@@ -184,11 +184,17 @@ async def run_trigger_now(
     idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key"),
 ) -> TriggerFireResponse:
     trigger = await _get_or_404(db, trigger_id, auth_ctx.project_id)
-    result = await JoySafeterTriggerService(db).fire_manual(
+    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db).fire_manual(
         trigger,
         idempotency_header=idempotency_key_header,
     )
-    return TriggerFireResponse(status=result.task.status, task_id=f"task_{result.task.id}", session_id=f"sess_{result.session.id}")
+    return TriggerFireResponse(
+        status=status,
+        task_id=f"task_{task.id}" if task is not None else None,
+        session_id=f"sess_{session_id}" if session_id is not None else None,
+        deduped=deduped,
+        reason=reason,
+    )
 
 
 @router.get("/{trigger_id}/runs", response_model=List[TriggerRunResponse])

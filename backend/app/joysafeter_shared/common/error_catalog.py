@@ -162,10 +162,10 @@ CATALOG: dict[str, CatalogEntry] = {
     "ENVIRONMENT_CONFLICT": CatalogEntry(
         code="ENVIRONMENT_CONFLICT", error_class=ResourceConflictError, default_message="Environment conflict"
     ),
-    "ENVIRONMENT_SCHEDULE_REFERENCE": CatalogEntry(
-        code="ENVIRONMENT_SCHEDULE_REFERENCE",
+    "ENVIRONMENT_TRIGGER_REFERENCE": CatalogEntry(
+        code="ENVIRONMENT_TRIGGER_REFERENCE",
         error_class=ResourceConflictError,
-        default_message="Environment schedule reference",
+        default_message="Environment cron trigger reference",
     ),
     "ENVIRONMENT_IMAGE_BUILD_FAILED": CatalogEntry(
         code="ENVIRONMENT_IMAGE_BUILD_FAILED",
@@ -1019,7 +1019,7 @@ CATALOG: dict[str, CatalogEntry] = {
     "SKILL_DELETE_HAS_REFERENCES": CatalogEntry(
         code="SKILL_DELETE_HAS_REFERENCES",
         error_class=ResourceConflictError,
-        default_message="Skill is still referenced by agents, schedules, or active tasks. Remove references before deleting.",
+        default_message="Skill is still referenced by agents, cron triggers, or active tasks. Remove references before deleting.",
     ),
     "SKILL_LIFECYCLE_NOT_RUNTIME_READY": CatalogEntry(
         code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",

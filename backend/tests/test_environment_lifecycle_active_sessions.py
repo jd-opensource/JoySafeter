@@ -462,7 +462,7 @@ async def test_delete_environment_rejects_agent_reference_without_active_task(db
 
 
 @pytest.mark.asyncio
-async def test_archive_environment_rejects_schedule_reference_without_active_task(db_session):
+async def test_archive_environment_rejects_cron_trigger_reference_without_active_task(db_session):
     env = JoySafeterEnvironment(name=f"schedule-env-ref-{uuid.uuid4()}", description="")
     agent = JoySafeterAgent(name=f"schedule-env-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
@@ -487,15 +487,15 @@ async def test_archive_environment_rejects_schedule_reference_without_active_tas
     )
     db_session.add(schedule)
     await db_session.commit()
-    schedule_name = schedule.name
+    trigger_name = schedule.name
 
     with pytest.raises(AppError) as exc_info:
         await archive_environment(env_id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-        "code": "ENVIRONMENT_SCHEDULE_REFERENCE",
-        "message": f"Environment is referenced by schedule '{schedule_name}'.",
-        "data": {"environment_id": str(env_id), "schedule_name": schedule_name},
+        "code": "ENVIRONMENT_TRIGGER_REFERENCE",
+        "message": f"Environment is referenced by cron trigger '{trigger_name}'.",
+        "data": {"environment_id": str(env_id), "trigger_name": trigger_name},
         "source": "api",
         "retryable": False,
     }
@@ -508,7 +508,7 @@ async def test_archive_environment_rejects_schedule_reference_without_active_tas
 
 
 @pytest.mark.asyncio
-async def test_delete_environment_rejects_schedule_reference_without_active_task(db_session):
+async def test_delete_environment_rejects_cron_trigger_reference_without_active_task(db_session):
     env = JoySafeterEnvironment(name=f"delete-schedule-env-ref-{uuid.uuid4()}", description="")
     agent = JoySafeterAgent(name=f"delete-schedule-env-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
@@ -533,15 +533,15 @@ async def test_delete_environment_rejects_schedule_reference_without_active_task
     )
     db_session.add(schedule)
     await db_session.commit()
-    schedule_name = schedule.name
+    trigger_name = schedule.name
 
     with pytest.raises(AppError) as exc_info:
         await delete_environment(env_id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-        "code": "ENVIRONMENT_SCHEDULE_REFERENCE",
-        "message": f"Environment is referenced by schedule '{schedule_name}'.",
-        "data": {"environment_id": str(env_id), "schedule_name": schedule_name},
+        "code": "ENVIRONMENT_TRIGGER_REFERENCE",
+        "message": f"Environment is referenced by cron trigger '{trigger_name}'.",
+        "data": {"environment_id": str(env_id), "trigger_name": trigger_name},
         "source": "api",
         "retryable": False,
     }
@@ -633,7 +633,7 @@ async def test_update_environment_name_rejects_agent_reference_without_active_ta
 
 
 @pytest.mark.asyncio
-async def test_update_environment_name_rejects_schedule_reference_without_active_task(db_session):
+async def test_update_environment_name_rejects_cron_trigger_reference_without_active_task(db_session):
     env = JoySafeterEnvironment(name=f"update-schedule-env-{uuid.uuid4()}", description="")
     agent = JoySafeterAgent(name=f"update-schedule-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
@@ -659,16 +659,16 @@ async def test_update_environment_name_rejects_schedule_reference_without_active
     )
     db_session.add(schedule)
     await db_session.commit()
-    schedule_name = schedule.name
+    trigger_name = schedule.name
 
     req = UpdateEnvironmentRequest(name=f"renamed-env-{uuid.uuid4()}")
     with pytest.raises(AppError) as exc_info:
         await update_environment(req, env_id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-        "code": "ENVIRONMENT_SCHEDULE_REFERENCE",
-        "message": f"Environment is referenced by schedule '{schedule_name}'.",
-        "data": {"environment_id": str(env_id), "schedule_name": schedule_name},
+        "code": "ENVIRONMENT_TRIGGER_REFERENCE",
+        "message": f"Environment is referenced by cron trigger '{trigger_name}'.",
+        "data": {"environment_id": str(env_id), "trigger_name": trigger_name},
         "source": "api",
         "retryable": False,
     }

@@ -37,6 +37,18 @@ class TriggerProvider(Protocol):
         ...
 
 
+def cron_block(trigger: Any, fired_at: str) -> dict[str, Any]:
+    """The ``cron`` payload block (schedule timing) shared by the cron and manual providers."""
+    return {
+        "id": str(trigger.id),
+        "name": trigger.name,
+        "cron_expr": trigger.cron_expr,
+        "timezone": trigger.timezone,
+        "fired_at": fired_at,
+        "last_fired_slot": trigger.last_fired_slot.isoformat() if trigger.last_fired_slot else None,
+    }
+
+
 _REGISTRY: dict[str, TriggerProvider] = {}
 
 

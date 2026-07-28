@@ -36,8 +36,6 @@ from .joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from .joysafeter_trigger import (  # noqa: F401 — alembic discovery
     JoySafeterTrigger,
     TriggerConcurrencyPolicy,
-    TriggerSessionMode,
-    TriggerType,
 )
 from .joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential  # noqa: F401 — alembic discovery
 

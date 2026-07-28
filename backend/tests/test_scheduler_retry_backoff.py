@@ -23,8 +23,9 @@ _FUTURE = datetime(2999, 1, 1, tzinfo=timezone.utc)
 
 
 class _StubService(JoySafeterTriggerService):
-    def __init__(self, trigger) -> None:
+    def __init__(self, trigger, *, runtime_block_reason=None) -> None:
         self._trigger = trigger
+        self._runtime_block_reason = runtime_block_reason
         self.committed = 0
         self.db = SimpleNamespace(commit=self._commit)
 
@@ -36,6 +37,9 @@ class _StubService(JoySafeterTriggerService):
 
     async def _next_run_or_pause(self, trigger):
         return _FUTURE
+
+    async def trigger_runtime_block_reason(self, trigger):
+        return self._runtime_block_reason
 
     def _sync_config(self, trigger) -> None:
         pass
@@ -103,6 +107,22 @@ async def test_backoff_is_capped():
     await svc.record_fire_failure(trigger.id, slot, error="temp", transient=True)
     delta = (trigger.next_run_at - datetime.now(timezone.utc)).total_seconds()
     assert abs(delta - monkeypatch_cap) < 2
+
+
+@pytest.mark.asyncio
+async def test_transient_failure_abandons_retry_when_runtime_target_blocked():
+    trigger = _trigger()
+    svc = _StubService(trigger, runtime_block_reason="triggers are paused for this project")
+    slot = datetime(2026, 7, 27, 12, 0, tzinfo=timezone.utc)
+
+    dead = await svc.record_fire_failure(trigger.id, slot, error="temp", transient=True)
+
+    assert dead is False
+    assert trigger.slot_attempts == 0
+    assert trigger.pending_slot_at is None
+    assert trigger.next_run_at is None
+    assert trigger.consecutive_failures == 0
+    assert trigger.locked_by is None and trigger.locked_at is None
 
 
 @pytest.mark.asyncio

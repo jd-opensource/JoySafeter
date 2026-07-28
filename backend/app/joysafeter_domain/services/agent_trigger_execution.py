@@ -1,4 +1,4 @@
-"""Shared execution helpers for schedule/webhook agent triggers."""
+"""Shared execution helpers for cron/webhook agent triggers."""
 
 from __future__ import annotations
 
@@ -52,6 +52,13 @@ def render_prompt_template(template: str, payload: dict[str, Any]) -> str:
         return _template_value(value)
 
     return _TOKEN_RE.sub(replace, template)
+
+
+def render_session_key(session_key: Optional[str], payload: dict[str, Any]) -> Optional[str]:
+    """Render a keyed-session-mode key template, or None when the trigger isn't keyed."""
+    if not session_key:
+        return None
+    return render_prompt_template(session_key, payload)
 
 
 def payload_filter_matches(filter_config: dict[str, Any] | None, payload: dict[str, Any]) -> bool:

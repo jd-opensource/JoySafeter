@@ -12,19 +12,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .base import JoySafeterBaseModel
 
 
-class TriggerType(str, enum.Enum):
-    CRON = "cron"
-    WEBHOOK = "webhook"
-    MANUAL = "manual"
-
-
-class TriggerSessionMode(str, enum.Enum):
-    FRESH = "fresh"
-    REUSE = "reuse"
-    PINNED = "pinned"
-    KEYED = "keyed"  # reuse bucketed by a payload-rendered session_key
-
-
 class TriggerConcurrencyPolicy(str, enum.Enum):
     """What to do when a cron fire is due but a prior run is still active."""
 
@@ -48,7 +35,7 @@ class JoySafeterTrigger(JoySafeterBaseModel):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    type: Mapped[str] = mapped_column(String(16), nullable=False, default=TriggerType.WEBHOOK.value)
+    type: Mapped[str] = mapped_column(String(16), nullable=False, default="webhook")
     agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("joysafeter_agents.id"), nullable=False)
     prompt_template: Mapped[str] = mapped_column(Text, nullable=False)
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

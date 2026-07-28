@@ -24,6 +24,7 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafe
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_trigger import TriggerCreateRequest, TriggerUpdateRequest
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
+from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
@@ -234,6 +235,178 @@ async def test_scheduler_claim_preserves_global_trigger_support(db_session):
 
 
 @pytest.mark.asyncio
+async def test_scheduler_claim_skips_deleted_or_archived_agent_triggers_without_mutating_rows(db_session):
+    _, active_project, active_agent = await _create_project_with_agent(db_session, name="ActiveAgentClaim")
+    _, deleted_project, deleted_agent = await _create_project_with_agent(db_session, name="DeletedAgentClaim")
+    _, archived_project, archived_agent = await _create_project_with_agent(db_session, name="ArchivedAgentClaim")
+    active_trigger = await _create_due_trigger(db_session, project=active_project, agent=active_agent, name="active-agent")
+    deleted_trigger = await _create_due_trigger(db_session, project=deleted_project, agent=deleted_agent, name="deleted-agent")
+    archived_trigger = await _create_due_trigger(
+        db_session,
+        project=archived_project,
+        agent=archived_agent,
+        name="archived-agent",
+    )
+    active_trigger_id = active_trigger.id
+    deleted_trigger_id = deleted_trigger.id
+    archived_trigger_id = archived_trigger.id
+    deleted_agent.deleted_at = utc_now()
+    archived_agent.archived_at = utc_now()
+    await db_session.commit()
+
+    assert await JoySafeterTriggerService(db_session).earliest_next_run() == active_trigger.next_run_at
+
+    claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+        worker_id="worker-agent-gate",
+        limit=10,
+        lock_grace_sec=120,
+    )
+
+    assert [trigger.id for trigger in claimed] == [active_trigger_id]
+    assert await JoySafeterTriggerService(db_session).earliest_next_run() is None
+
+    db_session.expire_all()
+    deleted_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == deleted_trigger_id))
+    ).scalar_one()
+    archived_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == archived_trigger_id))
+    ).scalar_one()
+    assert deleted_row.next_run_at is not None
+    assert deleted_row.locked_by is None
+    assert deleted_row.locked_at is None
+    assert archived_row.next_run_at is not None
+    assert archived_row.locked_by is None
+    assert archived_row.locked_at is None
+
+
+@pytest.mark.asyncio
+async def test_earliest_next_run_ignores_fresh_claim_locks(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="EarliestLock")
+    locked_trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="locked-earliest")
+    future_trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="future-earliest")
+    future_run_at = utc_now() + timedelta(hours=1)
+    locked_trigger.locked_by = "worker-already-processing"
+    locked_trigger.locked_at = utc_now()
+    future_trigger.next_run_at = future_run_at
+    await db_session.commit()
+
+    earliest = await JoySafeterTriggerService(db_session).earliest_next_run(lock_grace_sec=120)
+
+    assert earliest == future_run_at
+
+
+@pytest.mark.asyncio
+async def test_scheduler_claim_skips_trigger_environment_refs_that_are_not_live(db_session):
+    _, active_project, active_agent = await _create_project_with_agent(db_session, name="ActiveTriggerEnvClaim")
+    _, archived_project, archived_agent = await _create_project_with_agent(db_session, name="ArchivedTriggerEnvClaim")
+    _, deleted_project, deleted_agent = await _create_project_with_agent(db_session, name="DeletedTriggerEnvClaim")
+    live_env = await _create_environment(db_session, project=active_project)
+    archived_env = await _create_environment(db_session, project=archived_project)
+    deleted_env = await _create_environment(db_session, project=deleted_project)
+    active_trigger = await _create_due_trigger(db_session, project=active_project, agent=active_agent, name="active-env")
+    archived_trigger = await _create_due_trigger(
+        db_session,
+        project=archived_project,
+        agent=archived_agent,
+        name="archived-env",
+    )
+    deleted_trigger = await _create_due_trigger(
+        db_session,
+        project=deleted_project,
+        agent=deleted_agent,
+        name="deleted-env",
+    )
+    active_trigger_id = active_trigger.id
+    archived_trigger_id = archived_trigger.id
+    deleted_trigger_id = deleted_trigger.id
+    active_trigger.environment_ref = live_env.name
+    archived_trigger.environment_ref = archived_env.name
+    deleted_trigger.environment_ref = f"env_{deleted_env.id}"
+    archived_env.archived_at = utc_now()
+    deleted_env.deleted_at = utc_now()
+    await db_session.commit()
+
+    claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+        worker_id="worker-trigger-env-gate",
+        limit=10,
+        lock_grace_sec=120,
+    )
+
+    assert [trigger.id for trigger in claimed] == [active_trigger_id]
+    assert await JoySafeterTriggerService(db_session).earliest_next_run() is None
+
+    db_session.expire_all()
+    archived_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == archived_trigger_id))
+    ).scalar_one()
+    deleted_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == deleted_trigger_id))
+    ).scalar_one()
+    assert archived_row.locked_by is None
+    assert archived_row.locked_at is None
+    assert archived_row.next_run_at is not None
+    assert deleted_row.locked_by is None
+    assert deleted_row.locked_at is None
+    assert deleted_row.next_run_at is not None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_claim_skips_agent_environment_refs_that_are_not_live(db_session):
+    _, active_project, active_agent = await _create_project_with_agent(db_session, name="ActiveAgentEnvClaim")
+    _, archived_project, archived_agent = await _create_project_with_agent(db_session, name="ArchivedAgentEnvClaim")
+    _, deleted_project, deleted_agent = await _create_project_with_agent(db_session, name="DeletedAgentEnvClaim")
+    live_env = await _create_environment(db_session, project=active_project)
+    archived_env = await _create_environment(db_session, project=archived_project)
+    deleted_env = await _create_environment(db_session, project=deleted_project)
+    active_agent.environment_ref = live_env.name
+    archived_agent.environment_ref = f"env_{archived_env.id}"
+    deleted_agent.environment_ref = str(deleted_env.id)
+    archived_env.archived_at = utc_now()
+    deleted_env.deleted_at = utc_now()
+    active_trigger = await _create_due_trigger(db_session, project=active_project, agent=active_agent, name="active-agent-env")
+    archived_trigger = await _create_due_trigger(
+        db_session,
+        project=archived_project,
+        agent=archived_agent,
+        name="archived-agent-env",
+    )
+    deleted_trigger = await _create_due_trigger(
+        db_session,
+        project=deleted_project,
+        agent=deleted_agent,
+        name="deleted-agent-env",
+    )
+    active_trigger_id = active_trigger.id
+    archived_trigger_id = archived_trigger.id
+    deleted_trigger_id = deleted_trigger.id
+    await db_session.commit()
+
+    claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+        worker_id="worker-agent-env-gate",
+        limit=10,
+        lock_grace_sec=120,
+    )
+
+    assert [trigger.id for trigger in claimed] == [active_trigger_id]
+    assert await JoySafeterTriggerService(db_session).earliest_next_run() is None
+
+    db_session.expire_all()
+    archived_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == archived_trigger_id))
+    ).scalar_one()
+    deleted_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == deleted_trigger_id))
+    ).scalar_one()
+    assert archived_row.locked_by is None
+    assert archived_row.locked_at is None
+    assert archived_row.next_run_at is not None
+    assert deleted_row.locked_by is None
+    assert deleted_row.locked_at is None
+    assert deleted_row.next_run_at is not None
+
+
+@pytest.mark.asyncio
 async def test_project_archive_pauses_triggers_and_restore_resumes_from_future_slot(db_session):
     org, project, agent = await _create_project_with_agent(db_session, name="Lifecycle")
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="lifecycle")
@@ -330,6 +503,35 @@ async def test_agent_archive_pauses_target_triggers_without_disabling_user_inten
 
 
 @pytest.mark.asyncio
+async def test_agent_soft_delete_pauses_target_triggers_without_disabling_user_intent(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="AgentSoftDelete")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="agent-soft-delete")
+    trigger_id = trigger.id
+    trigger.locked_by = "stale-delete-worker"
+    trigger.locked_at = utc_now() - timedelta(minutes=20)
+    trigger.pending_slot_at = utc_now() - timedelta(minutes=5)
+    trigger.slot_attempts = 1
+    await db_session.commit()
+
+    deleted = await JoySafeterAgentService(db_session).delete_agent(
+        agent.id,
+        project_id=project.id,
+    )
+
+    assert deleted is True
+    db_session.expire_all()
+    deleted_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert deleted_trigger.enabled is True
+    assert deleted_trigger.next_run_at is None
+    assert deleted_trigger.locked_by is None
+    assert deleted_trigger.locked_at is None
+    assert deleted_trigger.pending_slot_at is None
+    assert deleted_trigger.slot_attempts == 0
+
+
+@pytest.mark.asyncio
 async def test_scheduler_advance_does_not_rearm_trigger_after_agent_archived_race(db_session):
     _, project, agent = await _create_project_with_agent(db_session, name="AgentAdvanceRace")
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="agent-advance-race")
@@ -359,6 +561,38 @@ async def test_scheduler_advance_does_not_rearm_trigger_after_agent_archived_rac
     assert archived_trigger.locked_by is None
     assert archived_trigger.locked_at is None
     assert archived_trigger.last_fired_slot == fired_slot
+
+
+@pytest.mark.asyncio
+async def test_scheduler_advance_does_not_rearm_trigger_after_agent_soft_deleted_race(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="AgentDeleteAdvanceRace")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="agent-delete-advance-race")
+    trigger_id = trigger.id
+    agent_id = agent.id
+
+    claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+        worker_id="worker-before-agent-delete",
+        limit=1,
+        lock_grace_sec=120,
+    )
+    assert [row.id for row in claimed] == [trigger_id]
+    fired_slot = claimed[0].next_run_at
+    assert fired_slot is not None
+
+    agent.deleted_at = utc_now()
+    await db_session.commit()
+    await JoySafeterTriggerService(db_session).advance_after_fire(trigger_id, fired_slot, record_attempt=False)
+
+    db_session.expire_all()
+    deleted_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert deleted_trigger.agent_id == agent_id
+    assert deleted_trigger.enabled is True
+    assert deleted_trigger.next_run_at is None
+    assert deleted_trigger.locked_by is None
+    assert deleted_trigger.locked_at is None
+    assert deleted_trigger.last_fired_slot == fired_slot
 
 
 @pytest.mark.asyncio
@@ -420,6 +654,70 @@ async def test_create_trigger_rejects_archived_agent_without_creating_trigger(db
 
 
 @pytest.mark.asyncio
+async def test_create_cron_trigger_in_paused_project_does_not_arm_next_run(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="PausedProjectCreate")
+    project.triggers_paused = True
+    await db_session.commit()
+
+    response = await create_trigger(
+        _fake_request(),
+        TriggerCreateRequest(
+            name=f"paused-create-{uuid.uuid4()}",
+            type="cron",
+            agent_id=agent.id,
+            prompt_template="should stay parked while project is paused",
+            cron_expr="*/5 * * * *",
+            timezone="UTC",
+        ),
+        db_session,
+        _admin_ctx(project.id, org.id),
+    )
+
+    assert response.next_run_at is None
+    created_id = uuid.UUID(str(response.id).removeprefix("trig_"))
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == created_id))).scalar_one()
+    assert row.next_run_at is None
+    assert row.config["next_run_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_trigger_rejects_archived_project_without_creating_trigger(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="ArchivedProjectCreate")
+    project.archived_at = utc_now()
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await create_trigger(
+            _fake_request(),
+            TriggerCreateRequest(
+                name=f"archived-project-create-{uuid.uuid4()}",
+                type="cron",
+                agent_id=agent.id,
+                prompt_template="should not create in archived project",
+                cron_expr="*/5 * * * *",
+                timezone="UTC",
+            ),
+            db_session,
+            _admin_ctx(project.id, org.id),
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "PROJECT_ARCHIVED",
+        "message": "Project is archived and cannot create new triggered runs.",
+        "data": {"project_id": project.id},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    count = (
+        (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.agent_id == agent.id)))
+        .scalars()
+        .all()
+    )
+    assert count == []
+
+
+@pytest.mark.asyncio
 async def test_manual_trigger_run_rejects_archived_agent_without_creating_task(db_session):
     org, project, agent = await _create_project_with_agent(db_session, name="ArchivedAgentTrigger")
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="archived-agent-trigger")
@@ -439,6 +737,64 @@ async def test_manual_trigger_run_rejects_archived_agent_without_creating_task(d
         "retryable": False,
         "user_action": "refresh",
     }
+    tasks = (
+        (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id)))
+        .scalars()
+        .all()
+    )
+    assert tasks == []
+
+
+@pytest.mark.asyncio
+async def test_manual_trigger_run_skips_when_project_archived(db_session, monkeypatch):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    org, project, agent = await _create_project_with_agent(db_session, name="ArchivedManualTrigger")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="archived-manual")
+    trigger_id = trigger.id
+    project.archived_at = utc_now()
+    await db_session.commit()
+
+    response = await run_trigger_now(trigger_id, db_session, _admin_ctx(project.id, org.id))
+
+    assert response.status == "skipped"
+    assert response.task_id is None
+    assert response.session_id is None
+    assert response.deduped is False
+    assert response.reason == "project is archived"
+    assert redis.rpushed == []
+    tasks = (
+        (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id)))
+        .scalars()
+        .all()
+    )
+    assert tasks == []
+
+
+@pytest.mark.asyncio
+async def test_manual_trigger_run_skips_when_project_triggers_paused(db_session, monkeypatch):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    org, project, agent = await _create_project_with_agent(db_session, name="PausedManualTrigger")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="paused-manual")
+    trigger_id = trigger.id
+    project.triggers_paused = True
+    await db_session.commit()
+
+    response = await run_trigger_now(trigger_id, db_session, _admin_ctx(project.id, org.id))
+
+    assert response.status == "skipped"
+    assert response.task_id is None
+    assert response.session_id is None
+    assert response.deduped is False
+    assert response.reason == "triggers are paused for this project"
+    assert redis.rpushed == []
     tasks = (
         (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id)))
         .scalars()
@@ -964,6 +1320,169 @@ async def test_advance_after_fire_catches_up_once_from_now_not_backfilling_misse
     assert row.next_run_at.second == 0
     assert row.next_run_at.minute % 5 == 0
     assert row.last_fired_slot == fired_slot
+
+
+@pytest.mark.asyncio
+async def test_project_trigger_pause_clears_due_slots_and_resume_rearms_future(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="ProjectTriggerPause")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="paused-cron")
+    org_id = org.id
+    project_id = project.id
+    trigger_id = trigger.id
+
+    await ProjectService(db_session).update_project(
+        project_id,
+        org_id,
+        triggers_paused=True,
+    )
+    db_session.expire_all()
+    paused_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert paused_trigger.next_run_at is None
+    assert paused_trigger.locked_by is None
+    assert paused_trigger.locked_at is None
+    assert paused_trigger.config["next_run_at"] is None
+
+    claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(worker_id="paused-worker", limit=10)
+    assert [row.id for row in claimed] == []
+    assert await JoySafeterTriggerService(db_session).earliest_next_run() is None
+
+    await ProjectService(db_session).update_project(
+        project_id,
+        org_id,
+        triggers_paused=False,
+    )
+    db_session.expire_all()
+    resumed_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert resumed_trigger.next_run_at is not None
+    assert resumed_trigger.next_run_at > utc_now()
+    assert resumed_trigger.config["next_run_at"] == resumed_trigger.next_run_at.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_project_trigger_pause_abandons_pending_retry_slot_before_resume(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="ProjectTriggerPauseRetry")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="paused-retry-cron")
+    org_id = org.id
+    project_id = project.id
+    trigger_id = trigger.id
+    failed_slot = utc_now() - timedelta(minutes=15)
+    trigger.pending_slot_at = failed_slot
+    trigger.slot_attempts = 2
+    trigger.next_run_at = utc_now() + timedelta(seconds=30)
+    trigger.locked_by = "retry-worker"
+    trigger.locked_at = utc_now()
+    await db_session.commit()
+
+    await ProjectService(db_session).update_project(
+        project_id,
+        org_id,
+        triggers_paused=True,
+    )
+    db_session.expire_all()
+    paused_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert paused_trigger.next_run_at is None
+    assert paused_trigger.pending_slot_at is None
+    assert paused_trigger.slot_attempts == 0
+    assert paused_trigger.locked_by is None
+    assert paused_trigger.locked_at is None
+
+    before_resume = utc_now()
+    await ProjectService(db_session).update_project(
+        project_id,
+        org_id,
+        triggers_paused=False,
+    )
+    db_session.expire_all()
+    resumed_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert resumed_trigger.pending_slot_at is None
+    assert resumed_trigger.slot_attempts == 0
+    assert resumed_trigger.next_run_at is not None
+    assert resumed_trigger.next_run_at > before_resume
+    assert resumed_trigger.next_run_at != failed_slot
+
+
+@pytest.mark.asyncio
+async def test_project_trigger_pause_resume_rearms_future_one_off_run_at(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="ProjectTriggerPauseOneOff")
+    org_id = org.id
+    project_id = project.id
+    run_at = utc_now() + timedelta(hours=1)
+    trigger = JoySafeterTrigger(
+        name=f"paused-one-off-{uuid.uuid4()}",
+        type="cron",
+        agent_id=agent.id,
+        prompt_template="run once",
+        cron_expr=None,
+        run_at=run_at,
+        timezone="UTC",
+        enabled=True,
+        next_run_at=run_at,
+        project_id=project_id,
+        user_id="trigger-owner",
+        org_id=org_id,
+        concurrency_policy="allow",
+        filter={},
+        config={},
+        last_payload={},
+    )
+    db_session.add(trigger)
+    await db_session.commit()
+    trigger_id = trigger.id
+
+    await ProjectService(db_session).update_project(
+        project_id,
+        org_id,
+        triggers_paused=True,
+    )
+    db_session.expire_all()
+    paused_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert paused_trigger.next_run_at is None
+    assert paused_trigger.config["next_run_at"] is None
+
+    await ProjectService(db_session).update_project(
+        project_id,
+        org_id,
+        triggers_paused=False,
+    )
+    db_session.expire_all()
+    resumed_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert resumed_trigger.next_run_at == run_at
+    assert resumed_trigger.config["next_run_at"] == run_at.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_updating_trigger_in_paused_project_does_not_rearm_next_run(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="PausedProjectTriggerUpdate")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="paused-update")
+    trigger_id = trigger.id
+
+    await ProjectService(db_session).update_project(
+        project.id,
+        org.id,
+        triggers_paused=True,
+    )
+
+    updated = await JoySafeterTriggerService(db_session).update(
+        trigger_id,
+        project_id=project.id,
+        cron_expr="*/2 * * * *",
+    )
+
+    assert updated is not None
+    assert updated.next_run_at is None
+    assert updated.config["next_run_at"] is None
 
 
 @pytest.mark.asyncio

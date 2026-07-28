@@ -1005,15 +1005,15 @@ class SkillService(BaseService[JoySafeterSkill]):
         )
         version_rows = [row for row in version_result.all() if self._agent_refs_skill(row.snapshot.get("skills"), skill.id)]
 
-        schedule_rows = []
+        cron_trigger_rows = []
         task_rows = []
         if current_agent_ids:
-            schedule_result = await self.db.execute(
+            cron_trigger_result = await self.db.execute(
                 select(JoySafeterTrigger.id, JoySafeterTrigger.name, JoySafeterTrigger.enabled)
                 .where(JoySafeterTrigger.agent_id.in_(current_agent_ids), JoySafeterTrigger.type == "cron")
                 .limit(1000)
             )
-            schedule_rows = list(schedule_result.all())
+            cron_trigger_rows = list(cron_trigger_result.all())
 
             task_result = await self.db.execute(
                 select(JoySafeterTask.id, JoySafeterTask.status)
@@ -1029,17 +1029,17 @@ class SkillService(BaseService[JoySafeterSkill]):
         for row in current_agents[:sample_limit]:
             references.append({"type": "agent", "id": f"agent_{row.id}", "name": row.name, "version": str(row.version)})
         remaining = max(0, sample_limit - len(references))
-        for row in schedule_rows[:remaining]:
+        for row in cron_trigger_rows[:remaining]:
             references.append(
                 {
-                    "type": "schedule",
-                    "id": f"schedule_{row.id}",
+                    "type": "trigger",
+                    "id": f"trig_{row.id}",
                     "name": row.name,
                     "status": "enabled" if row.enabled else "disabled",
                 }
             )
 
-        total = len(current_agents) + len(version_rows) + len(schedule_rows) + len(task_rows)
+        total = len(current_agents) + len(version_rows) + len(cron_trigger_rows) + len(task_rows)
         setattr(
             skill,
             "impact",
@@ -1047,7 +1047,7 @@ class SkillService(BaseService[JoySafeterSkill]):
                 "counts": {
                     "agents": len(current_agents),
                     "agent_versions": len(version_rows),
-                    "schedules": len(schedule_rows),
+                    "triggers": len(cron_trigger_rows),
                     "active_tasks": len(task_rows),
                     "total": total,
                 },
@@ -1648,7 +1648,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             await self._annotate_skill_impact(skill)
             impact = getattr(skill, "impact", None) or {}
             raise ResourceConflictError(
-                "Skill is still referenced by agents, schedules, or active tasks. Remove references before deleting.",
+                "Skill is still referenced by agents, cron triggers, or active tasks. Remove references before deleting.",
                 code="SKILL_DELETE_HAS_REFERENCES",
                 data={"skill_id": str(skill_id), "impact": impact},
                 retryable=False,

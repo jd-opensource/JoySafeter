@@ -27,8 +27,20 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column("joysafeter_triggers", sa.Column("session_key", sa.Text(), nullable=True))
     op.add_column("joysafeter_triggers", sa.Column("run_at", sa.DateTime(timezone=True), nullable=True))
+    # Keyed session mode looks up "newest idle session for this agent + rendered
+    # key" on every keyed fire. Without an expression index that JSONB ->> match
+    # is a seq scan over sessions; index it partially (only keyed sessions carry
+    # the metadata key) so the lookup stays an index scan as sessions grow.
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_csess_trigger_session_key
+        ON joysafeter_sessions (agent_id, ((metadata->>'trigger_session_key')))
+        WHERE metadata ? 'trigger_session_key'
+        """
+    )
 
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS idx_csess_trigger_session_key")
     op.drop_column("joysafeter_triggers", "run_at")
     op.drop_column("joysafeter_triggers", "session_key")

@@ -137,9 +137,9 @@ class EnvironmentService:
             agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
             if agent_name:
                 raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
-            schedule_name = await self.environment_is_referenced_by_schedule(env.name, env.id, project_id=project_id)
-            if schedule_name:
-                raise ValueError(f"Environment is referenced by schedule '{schedule_name}'.")
+            blocking_trigger = await self.environment_is_referenced_by_trigger(env.name, env.id, project_id=project_id)
+            if blocking_trigger:
+                raise ValueError(f"Environment is referenced by cron trigger '{blocking_trigger}'.")
             if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
                 raise ValueError("Environment is referenced by one or more active sessions.")
         if req.name is not None:
@@ -172,9 +172,9 @@ class EnvironmentService:
         agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
         if agent_name:
             raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
-        schedule_name = await self.environment_is_referenced_by_schedule(env.name, env.id, project_id=project_id)
-        if schedule_name:
-            raise ValueError(f"Environment is referenced by schedule '{schedule_name}'.")
+        blocking_trigger = await self.environment_is_referenced_by_trigger(env.name, env.id, project_id=project_id)
+        if blocking_trigger:
+            raise ValueError(f"Environment is referenced by cron trigger '{blocking_trigger}'.")
         if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
             raise ValueError("Environment is referenced by one or more active sessions.")
         env.deleted_at = utc_now()
@@ -197,9 +197,9 @@ class EnvironmentService:
         agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
         if agent_name:
             raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
-        schedule_name = await self.environment_is_referenced_by_schedule(env.name, env.id, project_id=project_id)
-        if schedule_name:
-            raise ValueError(f"Environment is referenced by schedule '{schedule_name}'.")
+        blocking_trigger = await self.environment_is_referenced_by_trigger(env.name, env.id, project_id=project_id)
+        if blocking_trigger:
+            raise ValueError(f"Environment is referenced by cron trigger '{blocking_trigger}'.")
         if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
             raise ValueError("Environment is referenced by one or more active sessions.")
         env.archived_at = utc_now()
@@ -248,15 +248,15 @@ class EnvironmentService:
                 return str(agent_name)
         return None
 
-    async def environment_is_referenced_by_schedule(
+    async def environment_is_referenced_by_trigger(
         self,
         env_name: str,
         env_id: uuid.UUID,
         project_id: Optional[str] = None,
     ) -> Optional[str]:
-        # Cron triggers are surfaced to users as "schedules"; scope to type='cron'
-        # so the "referenced by schedule '<name>'" message stays accurate (a
-        # webhook trigger is not a schedule).
+        # Scope to type='cron' so the "referenced by cron trigger '<name>'" message
+        # stays accurate (a webhook trigger does not pin a runtime environment the
+        # same way a scheduled cron trigger does).
         conditions: list[ColumnElement[bool]] = [
             JoySafeterTrigger.environment_ref.is_not(None),
             JoySafeterTrigger.type == "cron",

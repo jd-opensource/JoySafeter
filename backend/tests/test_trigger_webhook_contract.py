@@ -12,6 +12,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+from app.joysafeter_shared.utils.datetime import utc_now
 
 
 class _FakeQueueRedis:
@@ -40,12 +41,17 @@ def _request_with_headers(headers: dict[str, str]) -> Request:
     )
 
 
-async def _seed_webhook_trigger(db_session) -> JoySafeterTrigger:
+async def _seed_webhook_trigger(db_session, *, triggers_paused: bool = False) -> JoySafeterTrigger:
     org = Organization(name=f"Webhook Org {uuid.uuid4()}", slug=f"webhook-org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
 
-    project = Project(org_id=org.id, name="Webhook Project", slug=f"webhook-project-{uuid.uuid4()}")
+    project = Project(
+        org_id=org.id,
+        name="Webhook Project",
+        slug=f"webhook-project-{uuid.uuid4()}",
+        triggers_paused=triggers_paused,
+    )
     db_session.add(project)
     await db_session.flush()
 
@@ -145,3 +151,44 @@ async def test_fire_webhook_stamps_trigger_id_for_run_history(db_session, monkey
     runs = await JoySafeterTriggerService(db_session).list_runs(trigger_id, project_id=project_id)
     assert runs is not None
     assert [run.id for run in runs] == [task_id]
+
+
+@pytest.mark.asyncio
+async def test_fire_webhook_skips_when_project_triggers_paused(db_session):
+    trigger = await _seed_webhook_trigger(db_session, triggers_paused=True)
+
+    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+        trigger,
+        raw_body=b'{"kind":"wanted"}',
+        payload={"body": {"kind": "wanted"}},
+        delivery_id="delivery-paused",
+        auth_fingerprint="signature-1",
+    )
+
+    assert status == "skipped"
+    assert task is None
+    assert session_id is None
+    assert deduped is False
+    assert reason == "triggers are paused for this project"
+
+
+@pytest.mark.asyncio
+async def test_fire_webhook_skips_when_project_archived(db_session):
+    trigger = await _seed_webhook_trigger(db_session)
+    project = (await db_session.execute(select(Project).where(Project.id == trigger.project_id))).scalar_one()
+    project.archived_at = utc_now()
+    await db_session.commit()
+
+    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+        trigger,
+        raw_body=b'{"kind":"wanted"}',
+        payload={"body": {"kind": "wanted"}},
+        delivery_id="delivery-archived",
+        auth_fingerprint="signature-1",
+    )
+
+    assert status == "skipped"
+    assert task is None
+    assert session_id is None
+    assert deduped is False
+    assert reason == "project is archived"

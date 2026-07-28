@@ -45,6 +45,7 @@ from app.joysafeter_domain.services.agent_trigger_execution import (
     AgentTriggerExecutor,
     AgentTriggerRunConfig,
     render_prompt_template,
+    render_session_key,
 )
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
@@ -204,7 +205,7 @@ class SchedulerLoop:
         """
         try:
             async with AsyncSessionLocal() as db:
-                nxt = await JoySafeterTriggerService(db).earliest_next_run()
+                nxt = await JoySafeterTriggerService(db).earliest_next_run(lock_grace_sec=self._lock_grace)
         except Exception:
             nxt = None
         if nxt is None:
@@ -359,6 +360,38 @@ class SchedulerLoop:
             submission = TaskSubmissionService(db)
             trigger_svc = JoySafeterTriggerService(db)
 
+            block_reason = await trigger_svc.trigger_runtime_block_reason(trigger)
+            if block_reason is not None:
+                logger.info("Trigger %s skipped before fire: %s", trigger.id, block_reason)
+                return _FireOutcome(status="skipped")
+
+            # Exactly-once firing per (slot, attempt): the idempotency key encodes
+            # the slot instant; a retry (slot_attempts > 0) gets an attempt-suffixed
+            # key so it re-fires instead of deduping against the prior FAILED task.
+            # The INSERT unique constraint in create_task remains the race-proof
+            # arbiter; this pre-check makes crash replay idempotent before
+            # concurrency/admission gates can misclassify the already-created run.
+            provider = get_provider("cron")
+            attempt = getattr(trigger, "slot_attempts", 0) or 0
+            idempotency_key = provider.idempotency_key(trigger, fired_slot=fired_slot, attempt=attempt)
+            existing_task = await submission.tasks.get_by_idempotency_key(
+                idempotency_key,
+                project_id=trigger.project_id,
+            )
+            if existing_task is not None:
+                logger.info(
+                    "Trigger %s slot %s already fired as task %s; no duplicate session",
+                    trigger.id,
+                    fired_slot.isoformat(),
+                    existing_task.id,
+                )
+                return _FireOutcome(
+                    status="deduped",
+                    task_id=existing_task.id,
+                    session_id=getattr(existing_task, "chat_session_id", None),
+                    payload={"deduped": True, "cron": {"fired_at": fired_slot.isoformat()}},
+                )
+
             # Concurrency policy: decide whether this fire may proceed.
             policy = trigger.concurrency_policy
             if policy in (TriggerConcurrencyPolicy.FORBID.value, TriggerConcurrencyPolicy.REPLACE.value):
@@ -413,32 +446,6 @@ class SchedulerLoop:
                     logger.warning("Trigger %s targets archived environment %s; skipping", trigger.id, environment_ref)
                     return _FireOutcome(status="skipped")
 
-            # Exactly-once firing per (slot, attempt): the idempotency key encodes
-            # the slot instant; a retry (slot_attempts > 0) gets an attempt-suffixed
-            # key so it re-fires instead of deduping against the prior FAILED task.
-            # The INSERT unique constraint in create_task remains the race-proof
-            # arbiter; this pre-check just avoids orphan-prone compensation.
-            provider = get_provider("cron")
-            attempt = getattr(trigger, "slot_attempts", 0) or 0
-            idempotency_key = provider.idempotency_key(trigger, fired_slot=fired_slot, attempt=attempt)
-            existing_task = await submission.tasks.get_by_idempotency_key(
-                idempotency_key,
-                project_id=trigger.project_id,
-            )
-            if existing_task is not None:
-                logger.info(
-                    "Trigger %s slot %s already fired as task %s; no duplicate session",
-                    trigger.id,
-                    fired_slot.isoformat(),
-                    existing_task.id,
-                )
-                return _FireOutcome(
-                    status="deduped",
-                    task_id=existing_task.id,
-                    session_id=getattr(existing_task, "chat_session_id", None),
-                    payload={"deduped": True, "cron": {"fired_at": fired_slot.isoformat()}},
-                )
-
             payload = provider.build_payload(trigger, fired_slot=fired_slot)
             rendered_prompt = render_prompt_template(trigger.prompt_template, payload)
             result = await AgentTriggerExecutor(db).run(
@@ -458,7 +465,7 @@ class SchedulerLoop:
                     session_mode=getattr(trigger, "session_mode", "fresh"),
                     pinned_session_id=getattr(trigger, "pinned_session_id", None),
                     reusable_session_id=getattr(trigger, "reusable_session_id", None),
-                    session_key=render_prompt_template(trigger.session_key, payload) if getattr(trigger, "session_key", None) else None,
+                    session_key=render_session_key(getattr(trigger, "session_key", None), payload),
                     trigger_id=trigger.id,
                     metadata={"trigger_id": str(trigger.id), "trigger_type": "cron"},
                 ),

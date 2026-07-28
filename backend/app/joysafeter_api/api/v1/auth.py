@@ -93,6 +93,7 @@ class ProjectResponse(BaseModel):
     name: str
     slug: str
     is_default: bool
+    triggers_paused: bool = False
     archived_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -141,6 +142,7 @@ def _project_to_response(project: Project) -> ProjectResponse:
         name=project.name,
         slug=project.slug,
         is_default=project.is_default,
+        triggers_paused=bool(getattr(project, "triggers_paused", False)),
         archived_at=str(project.archived_at) if project.archived_at else None,
         created_at=str(project.created_at) if project.created_at else None,
         updated_at=str(project.updated_at) if project.updated_at else None,
@@ -1061,6 +1063,7 @@ async def get_project(
 class UpdateProjectRequest(BaseModel):
     name: Optional[str] = None
     slug: Optional[str] = None
+    triggers_paused: Optional[bool] = None
 
 
 @router.patch("/projects/{project_id}")
@@ -1076,6 +1079,7 @@ async def update_project(
             auth_ctx.org_id,
             name=req.name,
             slug=req.slug,
+            triggers_paused=req.triggers_paused,
         )
     except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)

@@ -45,6 +45,16 @@ class _FakeSubmission:
         return None
 
 
+class _ExplodingSubmission(_FakeSubmission):
+    async def enforce_admission(self, **kwargs):
+        raise AssertionError("paused project must skip before task admission")
+
+
+class _QuotaFullSubmission(_FakeSubmission):
+    async def enforce_admission(self, **kwargs):
+        raise AssertionError("idempotent same-slot replay must not be blocked by admission quota")
+
+
 class _FakeAgentService:
     def __init__(self, db):
         pass
@@ -179,5 +189,139 @@ async def test_idempotent_slot_precheck_skips_auto_session_creation(monkeypatch)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.EnvironmentService", _FakeEnvironmentService)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.SessionService", _ExplodingSessionService)
 
+    async def trigger_runtime_block_reason(self, trigger_arg):
+        return None
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
+        trigger_runtime_block_reason,
+    )
+
     outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
     assert outcome.status == "deduped"
+
+
+@pytest.mark.parametrize("policy", ["forbid", "replace"])
+@pytest.mark.asyncio
+async def test_idempotent_slot_replay_precedes_concurrency_policy(monkeypatch, policy):
+    trigger = SimpleNamespace(
+        id=uuid4(),
+        agent_id=uuid4(),
+        project_id="project-a",
+        user_id="user-a",
+        org_id="org-a",
+        name="Daily",
+        prompt_template="summarize",
+        system_prompt=None,
+        environment_ref=None,
+        concurrency_policy=policy,
+        timeout_sec=7200,
+        max_retries=2,
+        slot_attempts=0,
+        cron_expr="0 0 * * *",
+        timezone="UTC",
+        last_fired_slot=None,
+        session_mode="fresh",
+        pinned_session_id=None,
+        reusable_session_id=None,
+    )
+
+    async def trigger_runtime_block_reason(self, trigger_arg):
+        return None
+
+    async def get_active_tasks(self, trigger_id):
+        raise AssertionError("same-slot idempotent replay must be resolved before concurrency policy")
+
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _FakeSubmission)
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
+        trigger_runtime_block_reason,
+    )
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.get_active_tasks",
+        get_active_tasks,
+    )
+
+    outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
+
+    assert outcome.status == "deduped"
+
+
+@pytest.mark.asyncio
+async def test_idempotent_slot_replay_precedes_admission_quota(monkeypatch):
+    trigger = SimpleNamespace(
+        id=uuid4(),
+        agent_id=uuid4(),
+        project_id="project-at-quota",
+        user_id="user-a",
+        org_id="org-a",
+        name="Daily",
+        prompt_template="summarize",
+        system_prompt=None,
+        environment_ref=None,
+        concurrency_policy="allow",
+        timeout_sec=7200,
+        max_retries=2,
+        slot_attempts=0,
+        cron_expr="0 0 * * *",
+        timezone="UTC",
+        last_fired_slot=None,
+        session_mode="fresh",
+        pinned_session_id=None,
+        reusable_session_id=None,
+    )
+
+    async def trigger_runtime_block_reason(self, trigger_arg):
+        return None
+
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _QuotaFullSubmission)
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
+        trigger_runtime_block_reason,
+    )
+
+    outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
+
+    assert outcome.status == "deduped"
+
+
+@pytest.mark.asyncio
+async def test_fire_rechecks_project_pause_after_claim_before_admission(monkeypatch):
+    trigger = SimpleNamespace(
+        id=uuid4(),
+        agent_id=uuid4(),
+        project_id="project-paused-after-claim",
+        user_id="user-a",
+        org_id="org-a",
+        name="Daily",
+        prompt_template="summarize",
+        system_prompt=None,
+        environment_ref=None,
+        concurrency_policy="allow",
+        timeout_sec=7200,
+        max_retries=2,
+        slot_attempts=0,
+        cron_expr="0 0 * * *",
+        timezone="UTC",
+        last_fired_slot=None,
+        session_mode="fresh",
+        pinned_session_id=None,
+        reusable_session_id=None,
+    )
+
+    async def trigger_runtime_block_reason(self, trigger_arg):
+        assert trigger_arg.project_id == "project-paused-after-claim"
+        return "triggers are paused for this project"
+
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _ExplodingSubmission)
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
+        trigger_runtime_block_reason,
+    )
+
+    outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
+
+    assert outcome.status == "skipped"

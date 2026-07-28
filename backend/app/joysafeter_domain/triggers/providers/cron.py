@@ -1,11 +1,11 @@
-"""Cron (schedule) trigger provider."""
+"""Cron trigger provider."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 
-from .base import register
+from .base import cron_block, register
 
 
 class CronTriggerProvider:
@@ -34,14 +34,7 @@ class CronTriggerProvider:
     def build_payload(self, trigger: Any, **context: Any) -> dict[str, Any]:
         fired_slot: datetime = context["fired_slot"]
         return {
-            "schedule": {
-                "id": str(trigger.id),
-                "name": trigger.name,
-                "cron_expr": trigger.cron_expr,
-                "timezone": trigger.timezone,
-                "fired_at": fired_slot.isoformat(),
-                "last_fired_slot": trigger.last_fired_slot.isoformat() if trigger.last_fired_slot else None,
-            },
+            "cron": cron_block(trigger, fired_slot.isoformat()),
             "trigger": {"type": "cron", "source": "cron"},
         }
 

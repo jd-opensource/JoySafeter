@@ -349,6 +349,7 @@ class ProjectService:
         *,
         name: str | None = None,
         slug: str | None = None,
+        triggers_paused: bool | None = None,
     ) -> Project:
         project = await self.get_project(project_id, org_id)
         if project is None:
@@ -372,6 +373,13 @@ class ProjectService:
             ):
                 raise self._slug_conflict_error(org_id, project_slug)
             project.slug = project_slug
+        if triggers_paused is not None:
+            was_paused = bool(project.triggers_paused)
+            project.triggers_paused = triggers_paused
+            if triggers_paused and not was_paused:
+                await JoySafeterTriggerService(self.db).pause_for_project_triggers(project_id)
+            elif not triggers_paused and was_paused:
+                await JoySafeterTriggerService(self.db).resume_after_project_triggers_unpaused(project_id)
 
         try:
             await self.db.commit()
