@@ -1,17 +1,20 @@
 from .definition import (
     AgentTriggerConcurrencyPolicy,
-    AgentTriggerDefinition,
     AgentTriggerKind,
     AgentTriggerSessionMode,
     CronTriggerConfig,
     WebhookTriggerConfig,
 )
+from .providers import TriggerProvider, get_provider, register, supported_kinds
 
 __all__ = [
     "AgentTriggerConcurrencyPolicy",
-    "AgentTriggerDefinition",
     "AgentTriggerKind",
     "AgentTriggerSessionMode",
     "CronTriggerConfig",
     "WebhookTriggerConfig",
+    "TriggerProvider",
+    "get_provider",
+    "register",
+    "supported_kinds",
 ]
