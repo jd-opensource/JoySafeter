@@ -11,8 +11,8 @@ from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMemb
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
-from app.joysafeter_domain.services.joysafeter_schedule_service import JoySafeterScheduleService
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
+from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, ResourceConflictError, ServiceUnavailableError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth.context import (
@@ -349,6 +349,7 @@ class ProjectService:
         *,
         name: str | None = None,
         slug: str | None = None,
+        triggers_paused: bool | None = None,
     ) -> Project:
         project = await self.get_project(project_id, org_id)
         if project is None:
@@ -372,6 +373,13 @@ class ProjectService:
             ):
                 raise self._slug_conflict_error(org_id, project_slug)
             project.slug = project_slug
+        if triggers_paused is not None:
+            was_paused = bool(project.triggers_paused)
+            project.triggers_paused = triggers_paused
+            if triggers_paused and not was_paused:
+                await JoySafeterTriggerService(self.db).pause_for_project_triggers(project_id)
+            elif not triggers_paused and was_paused:
+                await JoySafeterTriggerService(self.db).resume_after_project_triggers_unpaused(project_id)
 
         try:
             await self.db.commit()
@@ -557,7 +565,7 @@ class ProjectService:
                 user_action="retry",
             )
 
-        await JoySafeterScheduleService(self.db).pause_for_project_archive(project_id)
+        await JoySafeterTriggerService(self.db).pause_for_project_archive(project_id)
         project.archived_at = archived_at
         await self.db.commit()
 
@@ -610,7 +618,7 @@ class ProjectService:
                 target.is_default = False
 
         target.archived_at = None
-        await JoySafeterScheduleService(self.db).resume_after_project_restore(project_id)
+        await JoySafeterTriggerService(self.db).resume_after_project_restore(project_id)
         await self.db.commit()
         await self.db.refresh(target)
         return target

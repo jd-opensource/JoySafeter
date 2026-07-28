@@ -93,7 +93,7 @@ class SkillRuntimeEligibility(BaseModel):
 class SkillReferenceSummary(BaseModel):
     agents: int = 0
     agent_versions: int = 0
-    schedules: int = 0
+    triggers: int = 0
     active_tasks: int = 0
     total: int = 0
 

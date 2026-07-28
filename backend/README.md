@@ -128,6 +128,67 @@ app/
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
+## Triggers 触发器
+
+触发器让 Agent **自动运行**：按 cron 周期或一次性时间（`type=cron`），或被入站签名 webhook（`type=webhook`）触发。所有触发器统一走 `/api/v1/triggers`（旧的 `/schedules` 已下线）。cron 触发由 worker 内的 scheduler 以 `FOR UPDATE SKIP LOCKED` 认领执行，内置重试/退避，连续失败达到阈值会自动禁用（dead-letter）。
+
+### 端点一览
+
+| 方法 & 路径 | 说明 |
+|---|---|
+| `POST /api/v1/triggers` | 创建（`type` = `cron` \| `webhook`） |
+| `GET /api/v1/triggers?type=cron` | 列出（可按 `type` 过滤） |
+| `GET /api/v1/triggers/{id}` | 详情 |
+| `PATCH /api/v1/triggers/{id}` | 更新（改 `enabled` 即启停；重新启用会清除 dead-letter 并重算下次运行） |
+| `DELETE /api/v1/triggers/{id}` | 删除 |
+| `POST /api/v1/triggers/{id}/run` | 手动“立即运行”（用 `Idempotency-Key` 头去重） |
+| `GET /api/v1/triggers/{id}/runs` | 运行历史 |
+| `POST /api/v1/triggers/{id}/webhook` | 入站签名 webhook 触发（限流 60/min） |
+| `POST /api/v1/triggers/{id}/test` | Owner 测试触发（禁用状态也能验证） |
+| `GET /api/v1/triggers/{id}/webhook-sample` | 返回带正确 HMAC 签名的 cURL 示例 |
+
+### 创建 cron 触发器
+
+```bash
+curl -X POST http://localhost:8000/api/v1/triggers \
+  -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{
+    "name": "daily-report",
+    "type": "cron",
+    "agent_id": "<agent-uuid>",
+    "prompt_template": "生成今天的巡检报告",
+    "cron_expr": "0 9 * * *",
+    "timezone": "Asia/Shanghai",
+    "concurrency_policy": "forbid",
+    "session_mode": "fresh"
+  }'
+```
+
+- cron 触发必须提供 `cron_expr`（标准 5 字段）**或** 一次性 `run_at`（未来时间），二选一。
+- `concurrency_policy`：`allow`（默认）/ `forbid`（上次还在跑就跳过）/ `replace`（取消旧的再跑）。
+- `session_mode`：`fresh`（每次新会话）/ `reuse`（空闲则复用）/ `pinned`（投递到指定 `pinned_session_id`）/ `keyed`（按渲染出的 `session_key` 分桶，每键一个会话）。
+
+### 创建 webhook 触发器
+
+```bash
+curl -X POST http://localhost:8000/api/v1/triggers \
+  -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{
+    "name": "on-alert",
+    "type": "webhook",
+    "agent_id": "<agent-uuid>",
+    "prompt_template": "处理告警：{{ body.alert.name }}",
+    "secret_ref": "<vault-key>",
+    "auth_methods": ["hmac"]
+  }'
+```
+
+- 外部系统 `POST /api/v1/triggers/{id}/webhook`，用 `secret_ref` 指向的密钥做 HMAC-SHA256 签名（头 `X-JoySafeter-Signature`）；也支持 `bearer` / `token`。
+- 用 `GET /api/v1/triggers/{id}/webhook-sample` 拿到可直接跑的带签名 cURL 示例；上线前用 `POST /{id}/test` 验证。
+- prompt 模板可引用载荷变量，如 `{{ body.alert.name }}`、`{{ fired_at }}`、`{{ cron.cron_expr }}`。
+
+> 前端在 `/managed/triggers` 提供统一的 Cron / Webhook 标签页界面。
+
 ## 常用命令
 
 ### 数据库迁移

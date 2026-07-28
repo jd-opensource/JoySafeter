@@ -4,7 +4,7 @@ import { apiCollectionPath, apiResourceId, apiResourcePath, apiResourceSubpath }
 
 describe('managed API path helpers', () => {
   it('normalizes prefixed UI ids before building API paths', () => {
-    expect(apiResourceId('sched_task_123')).toBe('123')
+    expect(apiResourceId('trig_task_123')).toBe('123')
     expect(apiResourceId('memstore_abc')).toBe('abc')
     expect(apiResourceId('sklfile_def')).toBe('def')
     expect(apiResourcePath('memory_stores', 'memstore_abc', 'archive')).toBe(

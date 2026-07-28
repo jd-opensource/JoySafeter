@@ -259,6 +259,50 @@ class Settings(BaseSettings):
         description="Seconds after which a claimed-but-unreleased schedule lock is considered stale "
         "and reclaimable by another worker (crash recovery).",
     )
+    scheduler_slot_max_retries: int = Field(
+        default=3,
+        validation_alias=AliasChoices("SCHEDULER_SLOT_MAX_RETRIES"),
+        description="Max backoff retries for a single cron slot on transient fire failure before the "
+        "slot is abandoned (advanced) and a consecutive-failure is recorded.",
+    )
+    scheduler_retry_backoff_base_sec: int = Field(
+        default=10,
+        validation_alias=AliasChoices("SCHEDULER_RETRY_BACKOFF_BASE_SEC"),
+        description="Base seconds for exponential slot-retry backoff (base * 2**(attempt-1)).",
+    )
+    scheduler_retry_backoff_cap_sec: int = Field(
+        default=300,
+        validation_alias=AliasChoices("SCHEDULER_RETRY_BACKOFF_CAP_SEC"),
+        description="Upper bound (seconds) for slot-retry backoff.",
+    )
+    scheduler_failure_threshold: int = Field(
+        default=5,
+        validation_alias=AliasChoices("SCHEDULER_FAILURE_THRESHOLD"),
+        description="Consecutive fire failures after which the scheduler auto-disables (dead-letters) "
+        "the trigger and emits an alert. Reset when the trigger is re-enabled.",
+    )
+    scheduler_fire_timeout_sec: int = Field(
+        default=45,
+        validation_alias=AliasChoices("SCHEDULER_FIRE_TIMEOUT_SEC"),
+        description="Per-fire timeout; a fire that exceeds this is treated as a transient failure so "
+        "one hung fire can never wedge the sweep.",
+    )
+    scheduler_min_sleep_sec: int = Field(
+        default=1,
+        validation_alias=AliasChoices("SCHEDULER_MIN_SLEEP_SEC"),
+        description="Floor for the adaptive scheduler sleep between ticks.",
+    )
+    scheduler_notify_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SCHEDULER_NOTIFY_ENABLED"),
+        description="Whether trigger create/update emits a Postgres NOTIFY so the scheduler wakes "
+        "immediately instead of waiting for the next poll tick.",
+    )
+    scheduler_notify_channel: str = Field(
+        default="joysafeter_trigger_wake",
+        validation_alias=AliasChoices("SCHEDULER_NOTIFY_CHANNEL"),
+        description="Postgres LISTEN/NOTIFY channel used to wake the scheduler loop.",
+    )
 
     # Auth
 

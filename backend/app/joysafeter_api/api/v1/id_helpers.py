@@ -49,10 +49,6 @@ def parse_secret_id(secret_id: str = Path(...)) -> uuid.UUID:
     return _strip_prefix(secret_id, "secret_", "secret_id")
 
 
-def parse_schedule_id(schedule_id: str = Path(...)) -> uuid.UUID:
-    return _strip_prefix(schedule_id, "sched_", "schedule_id")
-
-
 def parse_trigger_id(trigger_id: str = Path(...)) -> uuid.UUID:
     return _strip_prefix(trigger_id, "trig_", "trigger_id")
 

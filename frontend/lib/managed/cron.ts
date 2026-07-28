@@ -25,14 +25,14 @@ export interface CronPreset {
 
 /** Curated presets surfaced in the editor's "Presets" tab. */
 export const CRON_PRESETS: CronPreset[] = [
-  { labelKey: 'managed.schedules.cron.presets.everyMinute', expr: '* * * * *' },
-  { labelKey: 'managed.schedules.cron.presets.every5Minutes', expr: '*/5 * * * *' },
-  { labelKey: 'managed.schedules.cron.presets.every15Minutes', expr: '*/15 * * * *' },
-  { labelKey: 'managed.schedules.cron.presets.hourly', expr: '0 * * * *' },
-  { labelKey: 'managed.schedules.cron.presets.daily9am', expr: '0 9 * * *' },
-  { labelKey: 'managed.schedules.cron.presets.weekdays9am', expr: '0 9 * * 1-5' },
-  { labelKey: 'managed.schedules.cron.presets.weeklyMon', expr: '0 9 * * 1' },
-  { labelKey: 'managed.schedules.cron.presets.monthly1st', expr: '0 0 1 * *' },
+  { labelKey: 'managed.triggers.cron.presets.everyMinute', expr: '* * * * *' },
+  { labelKey: 'managed.triggers.cron.presets.every5Minutes', expr: '*/5 * * * *' },
+  { labelKey: 'managed.triggers.cron.presets.every15Minutes', expr: '*/15 * * * *' },
+  { labelKey: 'managed.triggers.cron.presets.hourly', expr: '0 * * * *' },
+  { labelKey: 'managed.triggers.cron.presets.daily9am', expr: '0 9 * * *' },
+  { labelKey: 'managed.triggers.cron.presets.weekdays9am', expr: '0 9 * * 1-5' },
+  { labelKey: 'managed.triggers.cron.presets.weeklyMon', expr: '0 9 * * 1' },
+  { labelKey: 'managed.triggers.cron.presets.monthly1st', expr: '0 0 1 * *' },
 ]
 
 /** True if `expr` is a valid 5-field cron expression. */

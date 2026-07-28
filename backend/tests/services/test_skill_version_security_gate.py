@@ -23,6 +23,7 @@ from app.joysafeter_domain.services.joysafeter_skill_service import (
     SkillVersionService,
 )
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
+from app.joysafeter_shared.config import settings as app_settings
 
 
 pytestmark = pytest.mark.no_db
@@ -46,6 +47,10 @@ def _make_service(skill, *, monkeypatch):
     svc = SkillVersionService.__new__(SkillVersionService)
     svc.db = _FakeDB()
     svc._active_org_id = None
+
+    # The publish security gate only runs when scanning is enabled; the
+    # global default is off, so turn it on to exercise the gate itself.
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
 
     async def _get_skill(_skill_id):
         return skill

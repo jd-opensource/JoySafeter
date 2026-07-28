@@ -140,4 +140,4 @@ ignore_missing_imports = true
 disable_error_code = ["annotation-unchecked"]
 
 [tool.uv]
-index-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"

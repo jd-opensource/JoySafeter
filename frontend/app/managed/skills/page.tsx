@@ -3480,7 +3480,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                   {t('managed.skills.impactAgents')}: {impactCounts.agents}
                 </span>
                 <span className="rounded-full border bg-background px-2 py-0.5 text-muted-foreground">
-                  {t('managed.skills.impactSchedules')}: {impactCounts.schedules}
+                  {t('managed.skills.impactTriggers')}: {impactCounts.triggers}
                 </span>
                 <span className="rounded-full border bg-background px-2 py-0.5 text-muted-foreground">
                   {t('managed.skills.impactActiveTasks')}: {impactCounts.active_tasks}
@@ -3623,9 +3623,9 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                   </div>
                 </div>
                 <div className="rounded-md border bg-background p-2">
-                  <div className="text-muted-foreground">{t('managed.skills.impactSchedules')}</div>
+                  <div className="text-muted-foreground">{t('managed.skills.impactTriggers')}</div>
                   <div className="mt-1 text-base font-semibold text-foreground">
-                    {impactCounts?.schedules || 0}
+                    {impactCounts?.triggers || 0}
                   </div>
                 </div>
                 <div className="rounded-md border bg-background p-2">

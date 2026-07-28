@@ -142,7 +142,7 @@ class TaskSubmissionService:
         user_id: Optional[str],
         org_id: Optional[str],
         idempotency_key: Optional[str],
-        schedule_id: Optional[uuid.UUID] = None,
+        trigger_id: Optional[uuid.UUID] = None,
         auto_created_session_id: Optional[uuid.UUID] = None,
         enforce_admission: bool = True,
         enforce_user_quota: bool = True,
@@ -182,7 +182,7 @@ class TaskSubmissionService:
             idempotency_key=idempotency_key,
             user_id=user_id,
             org_id=org_id,
-            schedule_id=schedule_id,
+            trigger_id=trigger_id,
         )
 
         created = bool(getattr(task, "_created_by_create_task", True))

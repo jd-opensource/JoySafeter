@@ -35,6 +35,7 @@ from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
     NotFoundError,
 )
+from app.joysafeter_shared.config import settings as app_settings
 
 
 pytestmark = pytest.mark.no_db
@@ -54,12 +55,16 @@ class _FakeDB:
 
 class _FakeSkillRepo:
     """Returns a single pre-seeded skill (or ``None``) — enough for the
-    transition flow, which only calls ``get(skill_id)`` once per call."""
+    transition flow, which loads the skill (with files) once per call via
+    ``get_with_files(skill_id)``."""
 
     def __init__(self, skill):
         self.skill = skill
 
     async def get(self, _skill_id):
+        return self.skill
+
+    async def get_with_files(self, _skill_id):
         return self.skill
 
 
@@ -112,6 +117,9 @@ async def test_allowed_transitions(from_status, to_status, method_name, monkeypa
     skill = _skill(from_status)
     svc = _make_service(skill, monkeypatch=monkeypatch)
     if to_status == "approved":
+        # The approve/unarchive edges run the runtime-readiness scan gate,
+        # which is only active when security scanning is enabled.
+        monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
         monkeypatch.setattr(
             "app.joysafeter_domain.services.joysafeter_skill_security.scan_ok",
             lambda _skill: (True, None),
@@ -173,6 +181,7 @@ async def test_missing_skill_raises_not_found(monkeypatch):
 async def test_approved_state_requires_scan_ready(from_status, method_name, monkeypatch):
     skill = _skill(from_status)
     svc = _make_service(skill, monkeypatch=monkeypatch)
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
     monkeypatch.setattr(
         "app.joysafeter_domain.services.joysafeter_skill_security.scan_ok",
         lambda _skill: (False, "security_not_scanned"),

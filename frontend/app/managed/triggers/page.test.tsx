@@ -5,52 +5,56 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const hoisted = vi.hoisted(() => ({
-  createMutate: vi.fn(),
-  deleteMutate: vi.fn(),
   state: { triggers: [] as TriggerRecord[] },
 }))
 
 interface TriggerRecord {
   id: string
   name: string
+  description: string | null
+  type: 'cron' | 'webhook' | 'manual'
+  agent_id: string
   enabled: boolean
+  auto_disabled_at: string | null
+  disabled_reason: string | null
   session_mode: string
-  webhook_url: string
-  last_error: string | null
+  cron_expr: string | null
+  timezone: string | null
+  run_at: string | null
+  secret_ref: string | null
+  next_run_at: string | null
+  webhook_url: string | null
+  created_at: string
 }
 
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }))
 
-vi.mock('@/lib/api-client', () => ({
-  managedGet: () => Promise.resolve([]),
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }))
 
 vi.mock('@/lib/managed/request-scope', () => ({
   useManagedRequestScope: () => ({ orgId: 'org-a', projectId: 'project-a', key: 'org-a:project-a' }),
-  managedRequestOptions: () => ({}),
+  managedRequestOptions: () => ({ headers: {} }),
+  managedScopeKey: (o: string | null, p: string | null) => `${o ?? ''}:${p ?? ''}`,
 }))
 
 vi.mock('@/lib/managed/triggers', () => ({
-  useAgentTriggers: () => ({ data: hoisted.state.triggers }),
-  useCreateAgentTrigger: () => ({ mutateAsync: hoisted.createMutate, isPending: false }),
-  useDeleteAgentTrigger: () => ({ mutate: hoisted.deleteMutate, isPending: false }),
+  useAgentTriggers: () => ({ data: hoisted.state.triggers, isLoading: false, isFetching: false, isError: false }),
+  useToggleAgentTrigger: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRunTrigger: () => ({ mutateAsync: vi.fn().mockResolvedValue({ status: 'fired' }), isPending: false }),
+  useDeleteAgentTrigger: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
-vi.mock('@/lib/utils/toast', () => ({
-  toastSuccess: vi.fn(),
-  toastError: vi.fn(),
+// The create dialog pulls in heavy child components; stub it out — this test
+// only exercises the list page's capability gating + rendering.
+vi.mock('@/components/managed/triggers/create-trigger-dialog', () => ({
+  CreateTriggerDialog: () => null,
 }))
 
-vi.mock('@/components/ui/button', () => ({
-  Button: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => (
-    <button disabled={disabled} onClick={onClick}>{children}</button>
-  ),
-}))
-vi.mock('@/components/ui/input', () => ({ Input: () => <input /> }))
-vi.mock('@/components/ui/label', () => ({ Label: ({ children }: { children: ReactNode }) => <label>{children}</label> }))
-vi.mock('@/components/ui/textarea', () => ({ Textarea: () => <textarea /> }))
+vi.mock('@/lib/utils/toast', () => ({ toastSuccess: vi.fn(), toastError: vi.fn() }))
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' })
 globalThis.window = dom.window as unknown as Window & typeof globalThis
@@ -61,7 +65,7 @@ globalThis.localStorage = dom.window.localStorage
 
 import { useProjectStore } from '@/stores/managed/project-store'
 
-import AgentTriggersPage from './page'
+import TriggerListPage from './page'
 
 function setProject(capability?: 'read' | 'write' | 'admin') {
   useProjectStore.setState({
@@ -81,14 +85,24 @@ function setProject(capability?: 'read' | 'write' | 'admin') {
   })
 }
 
-function trigger(): TriggerRecord {
+function cronTrigger(): TriggerRecord {
   return {
-    id: 'trg-1',
-    name: 'Alert hook',
+    id: 'trig_1',
+    name: 'Daily report',
+    description: null,
+    type: 'cron',
+    agent_id: 'agt_1',
     enabled: true,
+    auto_disabled_at: null,
+    disabled_reason: null,
     session_mode: 'fresh',
-    webhook_url: 'https://example.com/hook/trg-1',
-    last_error: null,
+    cron_expr: '0 9 * * *',
+    timezone: 'UTC',
+    run_at: null,
+    secret_ref: null,
+    next_run_at: null,
+    webhook_url: null,
+    created_at: '2026-01-01T00:00:00Z',
   }
 }
 
@@ -96,44 +110,40 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <AgentTriggersPage />
+      <TriggerListPage />
     </QueryClientProvider>,
   )
 }
 
-describe('AgentTriggersPage capability gate', () => {
+describe('TriggerListPage capability gate', () => {
   beforeEach(() => {
-    hoisted.createMutate.mockReset().mockResolvedValue({})
-    hoisted.deleteMutate.mockReset()
-    hoisted.state.triggers = [trigger()]
+    hoisted.state.triggers = [cronTrigger()]
   })
 
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
-    useProjectStore.setState({ currentOrgId: null, currentProjectId: null, currentProject: null, organizations: [], projects: [] })
+    useProjectStore.setState({
+      currentOrgId: null,
+      currentProjectId: null,
+      currentProject: null,
+      organizations: [],
+      projects: [],
+    })
     localStorage.clear()
   })
 
-  it('shows the New Trigger button for a write-capable project', () => {
+  it('shows the New Trigger button for a write-capable project and renders the row', () => {
     setProject('write')
     const { getByText } = renderPage()
     expect(getByText('managed.triggers.new')).toBeTruthy()
+    expect(getByText('Daily report')).toBeTruthy()
   })
 
-  it('renders the trigger row and localizes its session mode', () => {
-    setProject('write')
-    const { getByText } = renderPage()
-    expect(getByText('Alert hook')).toBeTruthy()
-    // enabled label + session_mode both resolve to i18n keys (no raw code leaks)
-    expect(getByText(/managed\.triggers\.enabled.*managed\.schedules\.sessionModeOption\.fresh/)).toBeTruthy()
-  })
-
-  it('hides New Trigger and delete controls for a read-only project', () => {
+  it('hides the New Trigger button for a read-only project', () => {
     setProject('read')
     const { queryByText } = renderPage()
     expect(queryByText('managed.triggers.new')).toBeNull()
-    // the read-only viewer still sees the row + copy button, but no destructive control
-    expect(queryByText('Alert hook')).toBeTruthy()
+    expect(queryByText('Daily report')).toBeTruthy()
   })
 })

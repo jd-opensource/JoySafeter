@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
@@ -31,14 +31,16 @@ class TriggerCreateRequest(BaseModel):
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: bool = True
-    session_mode: Literal["fresh", "reuse", "pinned"] = "fresh"
+    session_mode: Literal["fresh", "reuse", "pinned", "keyed"] = "fresh"
     pinned_session_id: Optional[uuid.UUID] = None
+    session_key: Optional[str] = None
     filter: dict[str, Any] = Field(default_factory=dict)
     timeout_sec: int = Field(default=7200, ge=1)
     max_retries: int = Field(default=2, ge=0)
 
     cron_expr: Optional[str] = None
     timezone: str = "UTC"
+    run_at: Optional[datetime] = None
     concurrency_policy: Literal["allow", "forbid", "replace"] = "allow"
 
     secret_ref: Optional[str] = None
@@ -53,7 +55,7 @@ class TriggerCreateRequest(BaseModel):
             return _strip_required(value)
         return value
 
-    @field_validator("system_prompt", "environment_ref", "description", "cron_expr", "secret_ref", "secret_key", "dedupe_header", mode="before")
+    @field_validator("system_prompt", "environment_ref", "description", "cron_expr", "secret_ref", "secret_key", "dedupe_header", "session_key", mode="before")
     @classmethod
     def _strip_optional_string(cls, value: object) -> object:
         if isinstance(value, str):
@@ -64,16 +66,27 @@ class TriggerCreateRequest(BaseModel):
     def _valid_trigger(self) -> "TriggerCreateRequest":
         if self.session_mode == "pinned" and self.pinned_session_id is None:
             raise ValueError("pinned_session_id is required when session_mode is pinned")
+        if self.session_mode == "keyed" and not (self.session_key or "").strip():
+            raise ValueError("session_key is required when session_mode is keyed")
         if self.type == "cron":
-            if not self.cron_expr:
-                raise ValueError("cron_expr is required when type is cron")
-            CronTriggerConfig.model_validate(
-                {
-                    "cron_expr": self.cron_expr,
-                    "timezone": self.timezone,
-                    "concurrency_policy": self.concurrency_policy,
-                }
-            )
+            has_cron = bool(self.cron_expr)
+            has_run_at = self.run_at is not None
+            if has_cron == has_run_at:
+                raise ValueError("cron trigger requires exactly one of cron_expr or run_at")
+            if has_cron:
+                CronTriggerConfig.model_validate(
+                    {
+                        "cron_expr": self.cron_expr,
+                        "timezone": self.timezone,
+                        "concurrency_policy": self.concurrency_policy,
+                    }
+                )
+            if self.run_at is not None:
+                run_at = self.run_at if self.run_at.tzinfo else self.run_at.replace(tzinfo=timezone.utc)
+                if run_at <= datetime.now(timezone.utc):
+                    raise ValueError("run_at must be in the future")
+        elif self.run_at is not None:
+            raise ValueError("run_at is only valid for cron triggers")
         if self.type == "webhook":
             if not self.secret_ref:
                 raise ValueError("secret_ref is required when type is webhook")
@@ -95,14 +108,16 @@ class TriggerUpdateRequest(BaseModel):
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: Optional[bool] = None
-    session_mode: Optional[Literal["fresh", "reuse", "pinned"]] = None
+    session_mode: Optional[Literal["fresh", "reuse", "pinned", "keyed"]] = None
     pinned_session_id: Optional[uuid.UUID] = None
+    session_key: Optional[str] = None
     filter: Optional[dict[str, Any]] = None
     timeout_sec: Optional[int] = Field(default=None, ge=1)
     max_retries: Optional[int] = Field(default=None, ge=0)
 
     cron_expr: Optional[str] = None
     timezone: Optional[str] = None
+    run_at: Optional[datetime] = None
     concurrency_policy: Optional[Literal["allow", "forbid", "replace"]] = None
 
     secret_ref: Optional[str] = None
@@ -117,7 +132,7 @@ class TriggerUpdateRequest(BaseModel):
             return _strip_required(value)
         return value
 
-    @field_validator("system_prompt", "environment_ref", "description", "cron_expr", "secret_ref", "secret_key", "dedupe_header", mode="before")
+    @field_validator("system_prompt", "environment_ref", "description", "cron_expr", "secret_ref", "secret_key", "dedupe_header", "session_key", mode="before")
     @classmethod
     def _strip_optional_string(cls, value: object) -> object:
         if isinstance(value, str):
@@ -161,12 +176,14 @@ class TriggerResponse(BaseModel):
     session_mode: str
     pinned_session_id: Optional[uuid.UUID]
     reusable_session_id: Optional[uuid.UUID]
+    session_key: Optional[str] = None
     filter: dict[str, Any]
     config: dict[str, Any]
     timeout_sec: int
     max_retries: int
     cron_expr: Optional[str] = None
     timezone: Optional[str] = None
+    run_at: Optional[datetime] = None
     concurrency_policy: Optional[str] = None
     next_run_at: Optional[datetime] = None
     last_fired_slot: Optional[datetime] = None
@@ -178,6 +195,8 @@ class TriggerResponse(BaseModel):
     last_success_at: Optional[datetime]
     last_error: Optional[str]
     consecutive_failures: int
+    auto_disabled_at: Optional[datetime] = None
+    disabled_reason: Optional[str] = None
     last_task_id: Optional[uuid.UUID]
     last_session_id: Optional[uuid.UUID]
     last_payload: dict[str, Any]
@@ -201,3 +220,32 @@ class TriggerFireResponse(BaseModel):
     session_id: Optional[str] = None
     deduped: bool = False
     reason: Optional[str] = None
+
+
+class TriggerRunResponse(BaseModel):
+    """One execution (task) fired by a trigger, for the /runs history view."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    trigger_id: Optional[uuid.UUID]
+    status: str
+    retry_count: int
+    max_retries: int
+    chat_session_id: Optional[uuid.UUID]
+    error: Optional[str]
+    created_at: datetime
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+
+    @field_serializer("id")
+    def _serialize_id(self, value: uuid.UUID) -> str:
+        return f"task_{value}"
+
+    @field_serializer("trigger_id")
+    def _serialize_trigger_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
+        return f"trig_{value}" if value is not None else None
+
+    @field_serializer("chat_session_id")
+    def _serialize_chat_session_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
+        return f"sess_{value}" if value is not None else None

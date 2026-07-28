@@ -100,3 +100,15 @@ async def stop_worker_loops(tasks: list[asyncio.Task]) -> None:
 
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def scheduler_health() -> dict:
+    """Scheduler liveness/throughput snapshot for the worker health check.
+
+    Returns the process-wide scheduler heartbeat (last tick time, claimed/fired/
+    failed counts, max fire lag) so a health endpoint can tell whether the cron
+    loop is alive and keeping up.
+    """
+    from app.joysafeter_worker.scheduler import scheduler_heartbeat
+
+    return scheduler_heartbeat().snapshot()

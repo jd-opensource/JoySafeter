@@ -72,7 +72,6 @@ const buildItems: NavItem[] = [
 ]
 
 const automationItems: NavItem[] = [
-  { to: '/managed/schedules', labelKey: 'nav.schedules', icon: CalendarClock },
   { to: '/managed/triggers', labelKey: 'nav.triggers', icon: Webhook },
 ]
 

@@ -14,11 +14,11 @@ from app.joysafeter_domain.models.joysafeter_memory import JoySafeterMemoryStore
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-from app.joysafeter_domain.models.joysafeter_schedule import JoySafeterSchedule
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
@@ -30,11 +30,11 @@ PROJECT_RESOURCE_BLOCKERS = (
     ("files", JoySafeterFile),
     ("memory_stores", JoySafeterMemoryStore),
     ("sandboxes", JoySafeterSandbox),
-    ("schedules", JoySafeterSchedule),
     ("secrets", JoySafeterSecret),
     ("sessions", JoySafeterSession),
     ("skills", JoySafeterSkill),
     ("tasks", JoySafeterTask),
+    ("triggers", JoySafeterTrigger),
     ("vaults", JoySafeterVault),
 )
 

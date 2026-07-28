@@ -26,28 +26,19 @@ depends_on = None
 
 def upgrade() -> None:
     # Drop the wrong FK (points to triggers)
-    op.execute(
-        "ALTER TABLE joysafeter_tasks "
-        "DROP CONSTRAINT IF EXISTS fk_joysafeter_tasks_schedule_id_joysafeter_triggers"
+    op.drop_constraint(
+        op.f("fk_joysafeter_tasks_schedule_id_joysafeter_triggers"),
+        "joysafeter_tasks",
+        type_="foreignkey",
     )
-    # Recreate FK pointing to the correct table if it is missing.
-    op.execute(
-        """
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1
-                FROM pg_constraint
-                WHERE conname = 'fk_joysafeter_tasks_schedule_id_joysafeter_schedules'
-                  AND conrelid = 'joysafeter_tasks'::regclass
-            ) THEN
-                ALTER TABLE joysafeter_tasks
-                ADD CONSTRAINT fk_joysafeter_tasks_schedule_id_joysafeter_schedules
-                FOREIGN KEY (schedule_id) REFERENCES joysafeter_schedules (id)
-                ON DELETE SET NULL;
-            END IF;
-        END $$;
-        """
+    # Recreate FK pointing to the correct table
+    op.create_foreign_key(
+        op.f("fk_joysafeter_tasks_schedule_id_joysafeter_schedules"),
+        "joysafeter_tasks",
+        "joysafeter_schedules",
+        ["schedule_id"],
+        ["id"],
+        ondelete="SET NULL",
     )
 
 

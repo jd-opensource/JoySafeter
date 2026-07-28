@@ -784,22 +784,20 @@ def test_memory_child_resources_keep_parent_project_boundary_in_service_calls():
     assert "store = await self.get_store(store_id, project_id=project_id" in service_text
 
 
-def test_schedule_target_project_boundary_lives_in_domain_service():
-    route_text = Path("backend/app/joysafeter_api/api/v1/schedules.py").read_text()
-    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_schedule_service.py").read_text()
+def test_trigger_target_project_boundary_lives_in_domain_service():
+    route_text = Path("backend/app/joysafeter_api/api/v1/triggers.py").read_text()
+    service_text = Path("backend/app/joysafeter_domain/services/joysafeter_trigger_service.py").read_text()
 
     assert "async def resolve_runnable_target(" in service_text
     assert "JoySafeterAgent.project_id == project_id" in service_text
     assert "get_environment_by_ref(" in service_text
     assert "project_id=project_id" in service_text
     assert "await self.resolve_runnable_target(" in service_text
-    assert "updated = await JoySafeterScheduleService(db).update(" in route_text
     assert "resolve_runnable_target(" in route_text
     assert "JoySafeterAgentService" not in route_text
     assert "EnvironmentService" not in route_text
     assert "async def list_runs(" in service_text
-    assert "not await self.get(schedule_id, project_id=project_id)" in service_text
-    assert "JoySafeterTask.schedule_id == schedule_id" in service_text
+    assert "JoySafeterTask.trigger_id == trigger_id" in service_text
     assert "JoySafeterTask" not in route_text
     assert "list_runs(" in route_text
 

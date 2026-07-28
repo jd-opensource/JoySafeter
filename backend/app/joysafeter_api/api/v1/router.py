@@ -11,7 +11,6 @@ from app.joysafeter_api.api.v1.oauth import router as oauth_router
 from app.joysafeter_api.api.v1.organizations import router as organizations_router
 from app.joysafeter_api.api.v1.quickstart import router as quickstart_router
 from app.joysafeter_api.api.v1.sandboxes import router as sandboxes_router
-from app.joysafeter_api.api.v1.schedules import router as schedules_router
 from app.joysafeter_api.api.v1.secrets import router as secrets_router
 from app.joysafeter_api.api.v1.sessions import router as sessions_router
 from app.joysafeter_api.api.v1.skills import router as skills_router
@@ -27,7 +26,6 @@ joysafeter_router.include_router(auth_router, prefix="/auth")
 joysafeter_router.include_router(oauth_router, prefix="/auth/oauth")
 joysafeter_router.include_router(agents_router, prefix="/agents")
 joysafeter_router.include_router(tasks_router, prefix="/tasks")
-joysafeter_router.include_router(schedules_router, prefix="/schedules")
 joysafeter_router.include_router(triggers_router, prefix="/triggers")
 joysafeter_router.include_router(sessions_router, prefix="/sessions")
 joysafeter_router.include_router(environments_router, prefix="/environments")

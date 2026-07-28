@@ -36,7 +36,7 @@ router = APIRouter(tags=["joysafeter-environments"])
 
 _ACTIVE_TASK_ENV_RE = re.compile(r"^Environment is required by active task '([^']+)' via ([^.]+)\. (.+)$")
 _AGENT_ENV_RE = re.compile(r"^Environment is referenced by agent '([^']+)'\.$")
-_SCHEDULE_ENV_RE = re.compile(r"^Environment is referenced by schedule '([^']+)'\.$")
+_TRIGGER_ENV_RE = re.compile(r"^Environment is referenced by cron trigger '([^']+)'\.$")
 
 
 class _EnvironmentImageUpdate(NamedTuple):
@@ -65,12 +65,12 @@ def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
             data={"environment_id": str(env_id), "agent_name": agent_match.group(1)},
         )
 
-    schedule_match = _SCHEDULE_ENV_RE.match(message)
-    if schedule_match:
+    trigger_match = _TRIGGER_ENV_RE.match(message)
+    if trigger_match:
         return ResourceConflictError(
-            code="ENVIRONMENT_SCHEDULE_REFERENCE",
+            code="ENVIRONMENT_TRIGGER_REFERENCE",
             message=message,
-            data={"environment_id": str(env_id), "schedule_name": schedule_match.group(1)},
+            data={"environment_id": str(env_id), "trigger_name": trigger_match.group(1)},
         )
 
     if message.startswith("Environment is referenced by one or more active sessions"):
