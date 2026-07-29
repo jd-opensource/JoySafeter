@@ -25,7 +25,13 @@ class TriggerCreateRequest(BaseModel):
     type: str = "webhook"
     agent_id: uuid.UUID
     prompt_template: str = Field(min_length=1)
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description=(
+            "Deprecated. Trigger-specific instructions should live in prompt_template; "
+            "the agent's system_prompt remains the base behavior. Retained for API compatibility."
+        ),
+    )
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: bool = True
@@ -64,7 +70,13 @@ class TriggerCreateRequest(BaseModel):
 class TriggerUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     prompt_template: Optional[str] = Field(default=None, min_length=1)
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = Field(
+        default=None,
+        description=(
+            "Deprecated. Trigger-specific instructions should live in prompt_template; "
+            "the agent's system_prompt remains the base behavior. Retained for API compatibility."
+        ),
+    )
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: Optional[bool] = None
@@ -170,6 +182,17 @@ class TriggerResponse(BaseModel):
         if value is None:
             return None
         return str(value)
+
+
+class TriggerVariable(BaseModel):
+    path: str
+    token: str
+    description: str
+    sample: Optional[Any] = None
+
+
+class TriggerVariableCatalogResponse(BaseModel):
+    variables: dict[Literal["cron", "webhook", "manual"], list[TriggerVariable]]
 
 
 class TriggerFireResponse(BaseModel):

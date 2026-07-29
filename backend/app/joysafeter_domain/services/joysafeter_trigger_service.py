@@ -183,6 +183,9 @@ class JoySafeterTriggerService:
         agent_id: uuid.UUID,
         prompt_template: str,
         type: str = "webhook",
+        # Deprecated: kept for API compatibility only. The managed UI should put
+        # trigger-specific instructions in prompt_template and leave the agent's
+        # system_prompt as the base behavior.
         system_prompt: Optional[str] = None,
         environment_ref: Optional[str] = None,
         description: Optional[str] = None,
