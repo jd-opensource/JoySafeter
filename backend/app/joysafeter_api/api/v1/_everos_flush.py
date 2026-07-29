@@ -28,11 +28,12 @@ def _everos_base_url() -> str:
 
 
 async def _resolve_everos_project_id(db: AsyncSession, project_id: str) -> str:
+    stable = everos_path_safe_id(project_id or "default_project", "default_project")
     result = await db.execute(select(Project.slug).where(Project.id == project_id).limit(1))
     slug = result.scalar_one_or_none()
     if not slug:
-        return project_id
-    return compose_everos_project_id(project_slug=slug, project_id=project_id)
+        return stable
+    return compose_everos_project_id(project_slug=slug, project_id=stable)
 
 
 async def flush_everos_session(
@@ -42,7 +43,7 @@ async def flush_everos_session(
     try:
         everos_project_id = await _resolve_everos_project_id(db, project_id)
         everos_session_id = everos_path_safe_id(str(session_id), "default_session")
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
             resp = await client.post(
                 f"{_everos_base_url()}/api/v1/memory/flush",
                 json={

@@ -45,3 +45,44 @@ async def test_scan_and_flush_idle_flushes_only_idle_unextracted(tmp_path, monke
 
     assert count == 1
     assert ("joysafeter", "p1", "sess-idle") in flushed
+
+
+@pytest.mark.asyncio
+async def test_scan_and_flush_idle_swallows_per_session_errors(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVEROS_ROOT", str(tmp_path))
+    MemoryRoot(tmp_path).ensure()
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    from app.everos.service import idle_flush
+
+    flushed: list[str] = []
+
+    async def _fake_memorize(payload, *, is_final=False):
+        # One candidate raises; scan_and_flush_idle must swallow it and keep
+        # going, so the failed session is excluded from the returned count.
+        if payload["session_id"] == "sess-bad":
+            raise RuntimeError("boom")
+        flushed.append(payload["session_id"])
+        class _R:
+            message_count = 0
+            status = "extracted"
+        return _R()
+
+    monkeypatch.setattr(idle_flush, "memorize", _fake_memorize)
+
+    old = dt.datetime(2026, 7, 29, 10, 0, tzinfo=dt.UTC)
+    now = dt.datetime(2026, 7, 29, 12, 0, tzinfo=dt.UTC)  # 2h later
+    await conversation_status_repo.touch_last_message_ts(
+        "sess-bad", "memorize", old, app_id="joysafeter", project_id="p1"
+    )
+    await conversation_status_repo.touch_last_message_ts(
+        "sess-good", "memorize", old, app_id="joysafeter", project_id="p1"
+    )
+
+    # Does not propagate the RuntimeError; count excludes the failed session.
+    count = await idle_flush.scan_and_flush_idle(now=now, threshold_seconds=1800)
+
+    assert count == 1
+    assert flushed == ["sess-good"]

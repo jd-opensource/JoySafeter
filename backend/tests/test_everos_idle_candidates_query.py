@@ -41,3 +41,36 @@ async def test_list_idle_candidates_filters_by_time_and_unextracted(tmp_path, mo
     keys = {(a, p, s) for (a, p, s) in result}
     assert ("joysafeter", "p1", "sess-idle") in keys
     assert ("joysafeter", "p1", "sess-done") not in keys
+
+
+@pytest.mark.asyncio
+async def test_list_idle_candidates_excludes_recent_and_other_track(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVEROS_ROOT", str(tmp_path))
+    MemoryRoot(tmp_path).ensure()
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    old = dt.datetime(2026, 7, 29, 10, 0, tzinfo=dt.UTC)
+    recent = dt.datetime(2026, 7, 29, 12, 30, tzinfo=dt.UTC)  # >= cutoff
+    cutoff = dt.datetime(2026, 7, 29, 12, 0, tzinfo=dt.UTC)
+
+    # (i) too recent: last_message_ts >= cutoff → excluded.
+    await conversation_status_repo.touch_last_message_ts(
+        "sess-recent", "memorize", recent, app_id="joysafeter", project_id="p1"
+    )
+    # (ii) different track: unextracted + old, but track != "memorize" → excluded.
+    await conversation_status_repo.touch_last_message_ts(
+        "sess-other-track", "other", old, app_id="joysafeter", project_id="p1"
+    )
+    # control: a real candidate so we know the query returns something.
+    await conversation_status_repo.touch_last_message_ts(
+        "sess-idle", "memorize", old, app_id="joysafeter", project_id="p1"
+    )
+
+    result = await conversation_status_repo.list_idle_candidates(cutoff)
+
+    keys = {(a, p, s) for (a, p, s) in result}
+    assert ("joysafeter", "p1", "sess-idle") in keys
+    assert ("joysafeter", "p1", "sess-recent") not in keys
+    assert ("joysafeter", "p1", "sess-other-track") not in keys
