@@ -38,12 +38,7 @@ use tracing::debug;
 #[async_trait]
 pub trait StorageBackend: Send + Sync {
     /// Write full content to storage.
-    async fn put(
-        &self,
-        key: &str,
-        data: &[u8],
-        content_type: &str,
-    ) -> anyhow::Result<()>;
+    async fn put(&self, key: &str, data: &[u8], content_type: &str) -> anyhow::Result<()>;
 
     /// Read the full content of a file by storage key.
     async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>>;
@@ -101,11 +96,7 @@ pub async fn read_file(storage_key: &str) -> anyhow::Result<Vec<u8>> {
     backend.get(storage_key).await
 }
 
-pub async fn write_file(
-    storage_key: &str,
-    data: &[u8],
-    content_type: &str,
-) -> anyhow::Result<()> {
+pub async fn write_file(storage_key: &str, data: &[u8], content_type: &str) -> anyhow::Result<()> {
     validate_storage_key(storage_key)?;
     let backend = get_backend().await?;
     backend.put(storage_key, data, content_type).await
@@ -147,12 +138,7 @@ impl LocalBackend {
 
 #[async_trait]
 impl StorageBackend for LocalBackend {
-    async fn put(
-        &self,
-        key: &str,
-        data: &[u8],
-        _content_type: &str,
-    ) -> anyhow::Result<()> {
+    async fn put(&self, key: &str, data: &[u8], _content_type: &str) -> anyhow::Result<()> {
         validate_storage_key(key)?;
         let candidate = self.base.join(key);
         let parent = candidate
@@ -316,12 +302,7 @@ impl S3Backend {
 
 #[async_trait]
 impl StorageBackend for S3Backend {
-    async fn put(
-        &self,
-        key: &str,
-        data: &[u8],
-        content_type: &str,
-    ) -> anyhow::Result<()> {
+    async fn put(&self, key: &str, data: &[u8], content_type: &str) -> anyhow::Result<()> {
         let client = self.client().await;
         client
             .put_object()

@@ -983,13 +983,11 @@ mod tests {
         let result = handle_setup(setup, runner_tx).await;
 
         assert!(result.is_err());
-        assert!(
-            result
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("clone setup repos")
-        );
+        assert!(result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("clone setup repos"));
         assert!(!dir.path().join("repo/.git").exists());
     }
 

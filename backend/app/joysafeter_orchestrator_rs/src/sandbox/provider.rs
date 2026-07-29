@@ -52,6 +52,10 @@ pub struct SandboxCreateConfig {
     pub cpu_limit: Option<f64>,
     pub memory_limit_mb: Option<u64>,
     pub network: Option<String>,
+    /// Whether the provider should start the sandbox immediately after
+    /// creating it. Docker/Envoy restricted networking sets this to false so
+    /// the per-sandbox sockets can be created before the runner process starts.
+    pub start_immediately: bool,
     pub workspace_path: Option<String>,
     /// Memory store mounts: (host_path, container_mount_path).
     /// Each entry maps a host directory to a container path like `/mnt/memory/<mount_name>`.

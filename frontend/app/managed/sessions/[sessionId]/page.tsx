@@ -282,7 +282,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     queryKey: ['session-network-policy', sessionScope],
     queryFn: () =>
       managedGet<NetworkPolicyStatus | null>(
-        apiResourcePath('network-policies', 'sessions', id),
+        apiResourceSubpath('network-policies', 'sessions', [apiResourceId(id)]),
         managedRequestOptions(managedScope),
       ),
     enabled: !!id && hasManagedRequestScope(managedScope),

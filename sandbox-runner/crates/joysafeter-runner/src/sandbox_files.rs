@@ -25,7 +25,9 @@ pub async fn handle_request(request: proto::SandboxFileRequest) -> proto::Sandbo
     }
 }
 
-fn handle_request_blocking(request: proto::SandboxFileRequest) -> anyhow::Result<proto::SandboxFileResponse> {
+fn handle_request_blocking(
+    request: proto::SandboxFileRequest,
+) -> anyhow::Result<proto::SandboxFileResponse> {
     let (root, path) = resolve_workspace_path(&request.path)?;
     let max_bytes = if request.max_bytes == 0 {
         match request.operation.as_str() {
@@ -120,7 +122,12 @@ fn entry_for(root: &Path, path: &Path) -> anyhow::Result<proto::SandboxFileEntry
             .unwrap_or("workspace")
             .to_string(),
         path: workspace_path(root, path),
-        file_type: if metadata.is_dir() { "directory" } else { "file" }.to_string(),
+        file_type: if metadata.is_dir() {
+            "directory"
+        } else {
+            "file"
+        }
+        .to_string(),
         size: metadata.len(),
         mtime: file_mtime(&metadata),
     })
@@ -132,7 +139,11 @@ fn is_hidden_entry(path: &Path) -> bool {
         .is_some_and(|name| name.starts_with('.'))
 }
 
-fn list_path(request_id: &str, root: &Path, path: &Path) -> anyhow::Result<proto::SandboxFileResponse> {
+fn list_path(
+    request_id: &str,
+    root: &Path,
+    path: &Path,
+) -> anyhow::Result<proto::SandboxFileResponse> {
     let metadata = fs::metadata(path)?;
     let mut entries = Vec::new();
     if metadata.is_dir() {
@@ -165,13 +176,26 @@ fn list_path(request_id: &str, root: &Path, path: &Path) -> anyhow::Result<proto
     })
 }
 
-fn read_raw(request_id: &str, root: &Path, path: &Path, max_bytes: u64) -> anyhow::Result<proto::SandboxFileResponse> {
+fn read_raw(
+    request_id: &str,
+    root: &Path,
+    path: &Path,
+    max_bytes: u64,
+) -> anyhow::Result<proto::SandboxFileResponse> {
     let metadata = fs::metadata(path)?;
     if !metadata.is_file() {
-        return Ok(error_response(request_id.to_string(), "NOT_FILE", "path is not a file"));
+        return Ok(error_response(
+            request_id.to_string(),
+            "NOT_FILE",
+            "path is not a file",
+        ));
     }
     if metadata.len() > max_bytes {
-        return Ok(error_response(request_id.to_string(), "FILE_TOO_LARGE", "file exceeds download size limit"));
+        return Ok(error_response(
+            request_id.to_string(),
+            "FILE_TOO_LARGE",
+            "file exceeds download size limit",
+        ));
     }
     let data = fs::read(path)?;
     Ok(proto::SandboxFileResponse {
@@ -179,20 +203,36 @@ fn read_raw(request_id: &str, root: &Path, path: &Path, max_bytes: u64) -> anyho
         ok: true,
         path: workspace_path(root, path),
         content_bytes: data,
-        filename: path.file_name().and_then(|value| value.to_str()).unwrap_or("download").to_string(),
+        filename: path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("download")
+            .to_string(),
         content_type: "application/octet-stream".to_string(),
         size: metadata.len(),
         ..Default::default()
     })
 }
 
-fn read_content(request_id: &str, root: &Path, path: &Path) -> anyhow::Result<proto::SandboxFileResponse> {
+fn read_content(
+    request_id: &str,
+    root: &Path,
+    path: &Path,
+) -> anyhow::Result<proto::SandboxFileResponse> {
     let metadata = fs::metadata(path)?;
     if !metadata.is_file() {
-        return Ok(error_response(request_id.to_string(), "NOT_FILE", "path is not a file"));
+        return Ok(error_response(
+            request_id.to_string(),
+            "NOT_FILE",
+            "path is not a file",
+        ));
     }
     if metadata.len() > MAX_TEXT_BYTES {
-        return Ok(error_response(request_id.to_string(), "FILE_TOO_LARGE", "file exceeds preview size limit"));
+        return Ok(error_response(
+            request_id.to_string(),
+            "FILE_TOO_LARGE",
+            "file exceeds preview size limit",
+        ));
     }
     let data = fs::read(path)?;
     match String::from_utf8(data.clone()) {
@@ -217,30 +257,64 @@ fn read_content(request_id: &str, root: &Path, path: &Path) -> anyhow::Result<pr
     }
 }
 
-fn archive_path(request_id: &str, root: &Path, path: &Path, max_bytes: u64) -> anyhow::Result<proto::SandboxFileResponse> {
+fn archive_path(
+    request_id: &str,
+    root: &Path,
+    path: &Path,
+    max_bytes: u64,
+) -> anyhow::Result<proto::SandboxFileResponse> {
     let metadata = fs::metadata(path)?;
     if !(metadata.is_file() || metadata.is_dir()) {
-        return Ok(error_response(request_id.to_string(), "INVALID_FILE_TYPE", "unsupported file type"));
+        return Ok(error_response(
+            request_id.to_string(),
+            "INVALID_FILE_TYPE",
+            "unsupported file type",
+        ));
     }
 
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let mut stats = ArchiveStats::default();
     if metadata.is_file() {
-        add_file(root, path, path.file_name().and_then(|value| value.to_str()).unwrap_or("download"), &mut zip, &mut stats)?;
+        add_file(
+            root,
+            path,
+            path.file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("download"),
+            &mut zip,
+            &mut stats,
+        )?;
     } else {
-        let base_name = path.file_name().and_then(|value| value.to_str()).unwrap_or("workspace").to_string();
+        let base_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("workspace")
+            .to_string();
         walk_archive(root, path, &base_name, &mut zip, &mut stats)?;
     }
     let cursor = zip.finish()?;
     let data = cursor.into_inner();
     let data_len = data.len() as u64;
     if data.is_empty() {
-        return Ok(error_response(request_id.to_string(), "ARCHIVE_EMPTY", "archive is empty"));
+        return Ok(error_response(
+            request_id.to_string(),
+            "ARCHIVE_EMPTY",
+            "archive is empty",
+        ));
     }
     if data.len() as u64 > max_bytes {
-        return Ok(error_response(request_id.to_string(), "ARCHIVE_TOO_LARGE", "archive exceeds size limit"));
+        return Ok(error_response(
+            request_id.to_string(),
+            "ARCHIVE_TOO_LARGE",
+            "archive exceeds size limit",
+        ));
     }
-    let filename = format!("{}.zip", path.file_name().and_then(|value| value.to_str()).unwrap_or("workspace"));
+    let filename = format!(
+        "{}.zip",
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("workspace")
+    );
     Ok(proto::SandboxFileResponse {
         request_id: request_id.to_string(),
         ok: true,
@@ -312,7 +386,11 @@ fn add_file(
     Ok(())
 }
 
-fn error_response(request_id: String, code: &str, error: impl Into<String>) -> proto::SandboxFileResponse {
+fn error_response(
+    request_id: String,
+    code: &str,
+    error: impl Into<String>,
+) -> proto::SandboxFileResponse {
     proto::SandboxFileResponse {
         request_id,
         ok: false,
@@ -334,10 +412,13 @@ mod tests {
         fs::write(temp.path().join("hello.txt"), b"hello artifact").expect("write file");
         fs::write(temp.path().join(".claude.json"), b"hidden config").expect("write hidden file");
         fs::create_dir(temp.path().join(".cache")).expect("mkdir hidden dir");
-        fs::write(temp.path().join(".cache/token.txt"), b"hidden cache").expect("write hidden cache");
+        fs::write(temp.path().join(".cache/token.txt"), b"hidden cache")
+            .expect("write hidden cache");
         fs::create_dir(temp.path().join("artifacts")).expect("mkdir artifacts");
-        fs::write(temp.path().join("artifacts/result.txt"), b"artifact-result").expect("write artifact");
-        fs::write(temp.path().join("artifacts/.secret"), b"hidden artifact").expect("write hidden artifact");
+        fs::write(temp.path().join("artifacts/result.txt"), b"artifact-result")
+            .expect("write artifact");
+        fs::write(temp.path().join("artifacts/.secret"), b"hidden artifact")
+            .expect("write hidden artifact");
 
         let list = handle_request(proto::SandboxFileRequest {
             request_id: "list-1".to_string(),
@@ -348,7 +429,10 @@ mod tests {
         .await;
         assert!(list.ok, "list failed: {}", list.error);
         assert!(list.entries.iter().any(|entry| entry.name == "hello.txt"));
-        assert!(list.entries.iter().any(|entry| entry.name == "artifacts" && entry.file_type == "directory"));
+        assert!(list
+            .entries
+            .iter()
+            .any(|entry| entry.name == "artifacts" && entry.file_type == "directory"));
         assert!(!list.entries.iter().any(|entry| entry.name.starts_with('.')));
 
         let raw = handle_request(proto::SandboxFileRequest {

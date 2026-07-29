@@ -11,11 +11,11 @@ use crate::db::queries;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::redis_coordinator::RedisCoordinator;
-use crate::kernel::sandbox_resolver::{allowed_hosts_from_networking, rebuild_sandbox_credentials};
 use crate::kernel::sandbox_bridge::BridgeRegistry;
-use crate::sandbox::lds_backend;
+use crate::kernel::sandbox_resolver::{allowed_hosts_from_networking, rebuild_sandbox_credentials};
 use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::image_builder::{EnvironmentPackages, ImageBuilder};
+use crate::sandbox::lds_backend;
 use crate::sandbox::provider::SandboxProvider;
 
 const SANDBOX_DESTROY_BROADCAST_CHANNEL: &str = "joysafeter:cmd:destroy";
@@ -285,18 +285,18 @@ impl CommandListener {
             .as_ref()
             .and_then(|config| config.get("fingerprint"))
             .and_then(|fingerprint| fingerprint.get("networking"));
-        if networking.and_then(|value| value.get("type")).and_then(|value| value.as_str())
+        if networking
+            .and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str())
             != Some("limited")
         {
-            return Ok(serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}));
+            return Ok(
+                serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}),
+            );
         }
 
-        let credentials = rebuild_sandbox_credentials(
-            &self.pool,
-            &sandbox,
-            &self.llm_egress_allowed_hosts,
-        )
-        .await;
+        let credentials =
+            rebuild_sandbox_credentials(&self.pool, &sandbox, &self.llm_egress_allowed_hosts).await;
         let policy = credentials.to_policy(&sandbox_id, allowed_hosts_from_networking(networking));
         lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
         let summary = lds_backend::egress_policy_summary(&sandbox_id, &policy);
@@ -578,7 +578,10 @@ impl CommandListener {
     }
 }
 
-fn network_policy_hash(networking: Option<&serde_json::Value>, summary: &serde_json::Value) -> String {
+fn network_policy_hash(
+    networking: Option<&serde_json::Value>,
+    summary: &serde_json::Value,
+) -> String {
     let material = serde_json::json!({
         "networking": networking.cloned().unwrap_or_else(|| serde_json::json!({})),
         "summary": summary,
@@ -617,10 +620,16 @@ fn sandbox_file_response_to_json(response: proto::SandboxFileResponse) -> serde_
             );
         }
         if !response.encoding.is_empty() {
-            obj.insert("encoding".to_string(), serde_json::Value::String(response.encoding));
+            obj.insert(
+                "encoding".to_string(),
+                serde_json::Value::String(response.encoding),
+            );
         }
         if !response.content.is_empty() {
-            obj.insert("content".to_string(), serde_json::Value::String(response.content));
+            obj.insert(
+                "content".to_string(),
+                serde_json::Value::String(response.content),
+            );
         }
         if !response.content_bytes.is_empty() {
             obj.insert(
@@ -631,10 +640,16 @@ fn sandbox_file_response_to_json(response: proto::SandboxFileResponse) -> serde_
             );
         }
         if !response.filename.is_empty() {
-            obj.insert("filename".to_string(), serde_json::Value::String(response.filename));
+            obj.insert(
+                "filename".to_string(),
+                serde_json::Value::String(response.filename),
+            );
         }
         if !response.content_type.is_empty() {
-            obj.insert("content_type".to_string(), serde_json::Value::String(response.content_type));
+            obj.insert(
+                "content_type".to_string(),
+                serde_json::Value::String(response.content_type),
+            );
         }
         if response.size > 0 {
             obj.insert("size".to_string(), serde_json::Value::from(response.size));

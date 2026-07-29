@@ -258,7 +258,10 @@ impl std::fmt::Debug for SandboxEgressPolicy {
         f.debug_struct("SandboxEgressPolicy")
             .field("allowlist_hosts", &self.allowlist_hosts)
             .field("credential_routes", &self.credential_routes)
-            .field("proxy_auth_token", &self.proxy_auth_token.as_ref().map(|_| "<redacted>"))
+            .field(
+                "proxy_auth_token",
+                &self.proxy_auth_token.as_ref().map(|_| "<redacted>"),
+            )
             .finish()
     }
 }
@@ -856,14 +859,12 @@ fn render_cluster_json(spec: &ClusterSpec) -> Value {
 fn render_listener_json(spec: &ListenerSpec) -> Value {
     match spec.kind {
         ListenerKind::Grpc => build_grpc_listener_json(&spec.sandbox_id),
-        ListenerKind::Http => {
-            build_http_listener_json(
-                &spec.sandbox_id,
-                &spec.allowed_hosts,
-                &spec.credentials,
-                spec.proxy_auth_token.as_deref(),
-            )
-        }
+        ListenerKind::Http => build_http_listener_json(
+            &spec.sandbox_id,
+            &spec.allowed_hosts,
+            &spec.credentials,
+            spec.proxy_auth_token.as_deref(),
+        ),
     }
 }
 
@@ -1797,8 +1798,8 @@ impl XdsStatusHandle {
             return;
         };
         for sandbox_id in acked_sandboxes {
-            if let Err(e) = crate::db::queries::mark_sandbox_network_policy_acked(&pool, sandbox_id)
-                .await
+            if let Err(e) =
+                crate::db::queries::mark_sandbox_network_policy_acked(&pool, sandbox_id).await
             {
                 warn!(sandbox_id = %sandbox_id, error = %e, "Failed to persist xDS ACK status");
             }
@@ -1828,12 +1829,8 @@ impl XdsStatusHandle {
             return;
         };
         for sandbox_id in nacked_sandboxes {
-            if let Err(e) = crate::db::queries::record_network_policy_failure(
-                &pool,
-                sandbox_id,
-                &reason,
-            )
-            .await
+            if let Err(e) =
+                crate::db::queries::record_network_policy_failure(&pool, sandbox_id, &reason).await
             {
                 warn!(sandbox_id = %sandbox_id, error = %e, "Failed to persist xDS NACK status");
             }
@@ -2994,15 +2991,11 @@ mod tests {
             Some("runner-secret"),
         );
 
-        let credential_headers = vh[0]["routes"][0]["match"]["headers"]
-            .as_array()
-            .unwrap();
+        let credential_headers = vh[0]["routes"][0]["match"]["headers"].as_array().unwrap();
         assert_eq!(credential_headers[0]["name"], "proxy-authorization");
         assert_eq!(credential_headers[0]["string_match"]["exact"], expected);
 
-        let allowlist_headers = vh[1]["routes"][0]["match"]["headers"]
-            .as_array()
-            .unwrap();
+        let allowlist_headers = vh[1]["routes"][0]["match"]["headers"].as_array().unwrap();
         assert_eq!(allowlist_headers[0]["name"], "proxy-authorization");
         assert_eq!(allowlist_headers[0]["string_match"]["exact"], expected);
     }
@@ -3031,14 +3024,22 @@ mod tests {
             Some(http_connection_manager::RouteSpecifier::RouteConfig(rc)) => rc,
             _ => panic!("expected route config"),
         };
-        let credential_header = &rc.virtual_hosts[0].routes[0].r#match.as_ref().unwrap().headers[0];
+        let credential_header = &rc.virtual_hosts[0].routes[0]
+            .r#match
+            .as_ref()
+            .unwrap()
+            .headers[0];
         assert_eq!(credential_header.name, "proxy-authorization");
         assert!(matches!(
             credential_header.header_match_specifier.as_ref(),
             Some(header_matcher::HeaderMatchSpecifier::ExactMatch(value)) if value == &expected
         ));
 
-        let allowed_header = &rc.virtual_hosts[1].routes[0].r#match.as_ref().unwrap().headers[0];
+        let allowed_header = &rc.virtual_hosts[1].routes[0]
+            .r#match
+            .as_ref()
+            .unwrap()
+            .headers[0];
         assert_eq!(allowed_header.name, "proxy-authorization");
         assert!(matches!(
             allowed_header.header_match_specifier.as_ref(),

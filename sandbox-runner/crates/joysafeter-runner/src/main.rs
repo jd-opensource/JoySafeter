@@ -14,6 +14,8 @@ use proto::agent_bridge_client::AgentBridgeClient;
 use proto::{RunnerHarnessResult, RunnerHeartbeat, RunnerIdle, RunnerMessage};
 
 use joysafeter_runtime::AdapterRegistry;
+use std::os::unix::fs::FileTypeExt;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
@@ -86,6 +88,33 @@ fn get_heartbeat_runtime_state(state: &Arc<Mutex<HeartbeatRuntimeState>>) -> Hea
     }
 }
 
+async fn wait_for_unix_socket(path: &Path, purpose: &str) -> bool {
+    let mut last_status = "not checked".to_string();
+    for _ in 0..50 {
+        match tokio::fs::metadata(path).await {
+            Ok(metadata) if metadata.file_type().is_socket() => return true,
+            Ok(metadata) => {
+                last_status = format!(
+                    "path exists but is not a socket: {:?}",
+                    metadata.file_type()
+                );
+            }
+            Err(error) => {
+                last_status = error.to_string();
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    warn!(
+        path = %path.display(),
+        purpose = %purpose,
+        status = %last_status,
+        "Unix socket was not ready before startup; connection retry loop will continue"
+    );
+    false
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -115,26 +144,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
     });
 
-    // Derive http.sock path from orchestrator URL (e.g. unix:///sockets/{id}/grpc.sock → http.sock)
-    let http_sock_path = if orch_url.starts_with("unix://") {
+    let grpc_sock_path = if orch_url.starts_with("unix://") {
         let grpc_path = orch_url.strip_prefix("unix://").unwrap();
-        let parent = std::path::Path::new(grpc_path)
-            .parent()
-            .unwrap_or(std::path::Path::new("/tmp/proxy"));
-        Some(parent.join("http.sock"))
+        Some(PathBuf::from(grpc_path))
     } else {
         None
     };
 
+    // Derive http.sock path from orchestrator URL (e.g. unix:///sockets/{id}/grpc.sock → http.sock)
+    let http_sock_path = grpc_sock_path.as_ref().map(|grpc_path| {
+        let parent = grpc_path.parent().unwrap_or(Path::new("/tmp/proxy"));
+        parent.join("http.sock")
+    });
+
+    if let Some(ref grpc_sock) = grpc_sock_path {
+        wait_for_unix_socket(grpc_sock, "orchestrator gRPC").await;
+    }
+
     if let Some(ref http_sock) = http_sock_path {
-        let mut socket_ready = http_sock.exists();
-        for _ in 0..50 {
-            if socket_ready {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            socket_ready = http_sock.exists();
-        }
+        let socket_ready = wait_for_unix_socket(http_sock, "restricted HTTP proxy").await;
 
         if socket_ready {
             info!("Restricted networking detected, starting socat HTTP proxy bridge");
@@ -148,9 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(_child) => {
                     let proxy = runner_token
                         .as_ref()
-                        .map(|token| {
-                            format!("http://sandbox:{}@127.0.0.1:3128", url_escape(token))
-                        })
+                        .map(|token| format!("http://sandbox:{}@127.0.0.1:3128", url_escape(token)))
                         .unwrap_or_else(|| "http://127.0.0.1:3128".to_string());
                     std::env::set_var("HTTP_PROXY", &proxy);
                     std::env::set_var("HTTPS_PROXY", &proxy);
@@ -189,8 +215,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
                     let path = path.clone();
                     async move {
-                        let stream = tokio::net::UnixStream::connect(&path).await?;
-                        Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream))
+                        match tokio::net::UnixStream::connect(&path).await {
+                            Ok(stream) => Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream)),
+                            Err(error) => {
+                                warn!(path = %path, error = %error, "Unix socket connect attempt failed");
+                                Err(error)
+                            }
+                        }
                     }
                 }))
                 .await

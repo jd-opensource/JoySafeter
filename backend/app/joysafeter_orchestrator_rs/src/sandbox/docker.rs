@@ -619,31 +619,40 @@ impl SandboxProvider for DockerProvider {
 
         let container_id = response.id;
 
-        // Start container; clean up on failure (Python L118-125)
-        if let Err(e) = self
-            .docker
-            .start_container(&container_id, None::<StartContainerOptions<String>>)
-            .await
-        {
-            let _ = self
+        if config.start_immediately {
+            // Start container; clean up on failure (Python L118-125)
+            if let Err(e) = self
                 .docker
-                .remove_container(
-                    &container_id,
-                    Some(RemoveContainerOptions {
-                        force: true,
-                        ..Default::default()
-                    }),
-                )
-                .await;
-            return Err(e.into());
-        }
+                .start_container(&container_id, None::<StartContainerOptions<String>>)
+                .await
+            {
+                let _ = self
+                    .docker
+                    .remove_container(
+                        &container_id,
+                        Some(RemoveContainerOptions {
+                            force: true,
+                            ..Default::default()
+                        }),
+                    )
+                    .await;
+                return Err(e.into());
+            }
 
-        info!(
-            sandbox_id = %config.sandbox_id,
-            container_name = %container_name,
-            image = %config.image,
-            "Docker container created and started"
-        );
+            info!(
+                sandbox_id = %config.sandbox_id,
+                container_name = %container_name,
+                image = %config.image,
+                "Docker container created and started"
+            );
+        } else {
+            info!(
+                sandbox_id = %config.sandbox_id,
+                container_name = %container_name,
+                image = %config.image,
+                "Docker container created but not started"
+            );
+        }
 
         // Return container_name (not container_id) — matches Python L127
         Ok(container_name)
@@ -876,10 +885,9 @@ impl SandboxProvider for DockerProvider {
             {
                 warn!("EnvoyManager LDS recovery from DB failed: {e}");
             }
-            manager.clone().spawn_health_monitor(
-                pool.clone(),
-                self.config.llm_egress_allowed_hosts.clone(),
-            );
+            manager
+                .clone()
+                .spawn_health_monitor(pool.clone(), self.config.llm_egress_allowed_hosts.clone());
             info!(
                 xds_mode = %self.config.envoy_xds_mode,
                 "EnvoyManager initialized"

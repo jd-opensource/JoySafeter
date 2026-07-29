@@ -58,7 +58,6 @@ pub struct JoySafeterConfig {
     /// "use the image's default USER" (less safe).
     pub sandbox_run_as_user: String,
 
-
     // Multi-image map
     pub image_claude: String,
     pub image_codex: String,
@@ -254,10 +253,7 @@ impl JoySafeterConfig {
                 "JOYSAFETER_ENVOY_HEALTH_CHECK_INTERVAL_SEC",
                 30,
             ),
-            envoy_health_failure_threshold: env_u64(
-                "JOYSAFETER_ENVOY_HEALTH_FAILURE_THRESHOLD",
-                3,
-            ),
+            envoy_health_failure_threshold: env_u64("JOYSAFETER_ENVOY_HEALTH_FAILURE_THRESHOLD", 3),
             llm_egress_allowed_hosts: env_list("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS"),
 
             image_builder_enabled: env_bool("JOYSAFETER_IMAGE_BUILDER_ENABLED", false),

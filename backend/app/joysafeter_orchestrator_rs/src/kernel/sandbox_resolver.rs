@@ -471,6 +471,7 @@ impl SandboxResolver {
             cpu_limit: self.config.sandbox_cpu,
             memory_limit_mb: self.config.sandbox_memory_mb,
             network: context.network.clone(),
+            start_immediately: context.network.as_deref() != Some("none"),
             // Use session_id for workspace path (Python L332-333: workspace_root/session_id)
             workspace_path: self.config.sandbox_workspace_root.as_ref().map(|root| {
                 if let Some(sid) = context.session_id {
@@ -552,6 +553,8 @@ impl SandboxResolver {
 
         if create_config.network.as_deref() == Some("none") {
             if !self.provider.capabilities().has_egress_management {
+                let _ = self.provider.destroy(&external_id).await;
+                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
                 anyhow::bail!(
                     "limited sandbox networking requires egress management, but provider does not support it"
                 );
@@ -592,6 +595,15 @@ impl SandboxResolver {
                 let _ = self.teardown_networking(sandbox_db_id).await;
                 let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
                 return Err(e);
+            }
+            if let Err(e) = self.provider.start(&external_id).await {
+                self.network_policy_ready.remove(&sandbox_db_id);
+                let _ = self.provider.destroy(&external_id).await;
+                let _ = self.teardown_networking(sandbox_db_id).await;
+                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
+                return Err(
+                    e.context("failed to start sandbox after Envoy networking became ready")
+                );
             }
             self.network_policy_ready
                 .insert(sandbox_db_id, context.expected.egress_policy_hash.clone());
@@ -822,9 +834,7 @@ impl SandboxResolver {
                     .with_proxy_auth_token(sandbox_runner_token(sandbox)),
             )
             .await
-            .with_context(|| {
-                format!("failed to refresh Envoy policy for sandbox {}", sandbox.id)
-            })
+            .with_context(|| format!("failed to refresh Envoy policy for sandbox {}", sandbox.id))
         {
             self.network_policy_ready.remove(&sandbox.id);
             let _ = self
@@ -1774,6 +1784,7 @@ impl SandboxResolver {
             cpu_limit: self.config.sandbox_cpu,
             memory_limit_mb: self.config.sandbox_memory_mb,
             network: None,
+            start_immediately: true,
             // Warm-pool sandboxes are not bound to a session yet. Mounting the
             // workspace root here would expose every persisted session
             // workspace under /workspace inside an otherwise idle pooled

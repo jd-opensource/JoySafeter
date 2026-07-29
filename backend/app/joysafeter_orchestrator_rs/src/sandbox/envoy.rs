@@ -74,7 +74,7 @@ impl EnvoyManager {
             "mkdir -p {socket_dir} && chown {} {socket_dir} && chmod 700 {socket_dir}",
             shell_escape(&self.config.socket_owner)
         ))
-            .await?;
+        .await?;
         Ok(())
     }
 
@@ -119,7 +119,10 @@ impl EnvoyManager {
                         );
                         if failures >= threshold {
                             failures = 0;
-                            if let Err(recover_err) = self.restart_and_recover(&pool, &llm_egress_allowed_hosts).await {
+                            if let Err(recover_err) = self
+                                .restart_and_recover(&pool, &llm_egress_allowed_hosts)
+                                .await
+                            {
                                 warn!(error = %recover_err, "Envoy restart/recovery failed");
                             }
                         }
@@ -130,10 +133,33 @@ impl EnvoyManager {
     }
 
     async fn health_check(&self) -> anyhow::Result<()> {
-        let output = self
-            .exec_in_envoy("wget -q -T 2 -O - http://127.0.0.1:9901/ready 2>/dev/null || true")
+        let info = self
+            .docker
+            .inspect_container(&self.config.container_name, None)
             .await?;
-        if output.contains("LIVE") || output.contains("ready") {
+        let state = info.state.as_ref();
+        let running = state.and_then(|s| s.running).unwrap_or(false);
+        if !running {
+            let status = state
+                .and_then(|s| s.status.as_ref())
+                .map(|s| format!("{s:?}"))
+                .unwrap_or_else(|| "unknown".to_string());
+            anyhow::bail!("Envoy container is not running: {status}");
+        }
+
+        let output = self
+            .exec_in_envoy(
+                r#"if command -v wget >/dev/null 2>&1; then
+  wget -q -T 2 -O - http://127.0.0.1:9901/ready 2>/dev/null
+elif command -v curl >/dev/null 2>&1; then
+  curl -fsS --max-time 2 http://127.0.0.1:9901/ready 2>/dev/null
+else
+  awk 'NR > 1 && $2 ~ /:26AD$/ && $4 == "0A" { found = 1 } END { if (found) { print "admin_listening"; exit 0 } exit 1 }' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+fi"#,
+            )
+            .await?;
+        if output.contains("LIVE") || output.contains("ready") || output.contains("admin_listening")
+        {
             Ok(())
         } else {
             anyhow::bail!("Envoy admin /ready did not report ready: {output}")
@@ -152,7 +178,8 @@ impl EnvoyManager {
                 Some(RestartContainerOptions { t: 10 }),
             )
             .await?;
-        self.wait_until_ready(std::time::Duration::from_secs(15)).await?;
+        self.wait_until_ready(std::time::Duration::from_secs(15))
+            .await?;
         self.init().await?;
         self.recover_from_db(pool, llm_egress_allowed_hosts).await
     }
@@ -271,12 +298,9 @@ impl EnvoyManager {
                         .map(ToOwned::to_owned)
                 })
                 .unwrap_or_else(|| "recovered-unknown".to_string());
-            let _ = crate::db::queries::prepare_sandbox_network_policy_push(
-                pool,
-                sb.id,
-                &policy_hash,
-            )
-            .await;
+            let _ =
+                crate::db::queries::prepare_sandbox_network_policy_push(pool, sb.id, &policy_hash)
+                    .await;
 
             specs.push(ListenerSpec {
                 sandbox_id: sb.id,
