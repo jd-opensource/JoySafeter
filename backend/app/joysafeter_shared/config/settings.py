@@ -222,6 +222,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TRUST_FORWARDED_HEADERS", "TRUST_PROXY_HEADERS"),
         description="Trust X-Forwarded-For / X-Real-IP headers from an upstream proxy. Disabled by default because clients can spoof these headers.",
     )
+    trusted_proxy_cidrs: str = Field(
+        default="",
+        validation_alias=AliasChoices("TRUSTED_PROXY_CIDRS", "TRUSTED_PROXY_CIDR"),
+        description="Comma-separated CIDRs allowed to supply trusted forwarding headers when TRUST_FORWARDED_HEADERS is enabled.",
+    )
 
     # concurrency control
     max_concurrent_llm_calls: int = Field(
