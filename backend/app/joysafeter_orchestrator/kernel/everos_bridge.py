@@ -264,15 +264,8 @@ async def _post_to_everos(payload: dict[str, Any]) -> None:
     async with httpx.AsyncClient(timeout=timeout) as client:
         add_resp = await client.post(f"{base_url}/api/v1/memory/add", json=payload)
         add_resp.raise_for_status()
-        flush_resp = await client.post(
-            f"{base_url}/api/v1/memory/flush",
-            json={
-                "session_id": payload["session_id"],
-                "app_id": payload["app_id"],
-                "project_id": payload["project_id"],
-            },
-        )
-        flush_resp.raise_for_status()
+        # per-turn flush removed — 由 EverOS 空闲自动 flush + 归档 flush 负责清尾。
+        # 每轮只 add，让 EverOS 的边界检测跨轮累积、按自然语义边界提取。
 
 
 def _timestamp_ms(value: Any) -> int:
