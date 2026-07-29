@@ -2039,7 +2039,13 @@ fn build_grpc_listener_proto(
         address: Some(Address {
             address: Some(address::Address::Pipe(Pipe {
                 path: format!("/sockets/{sandbox_id}/grpc.sock"),
-                mode: 384,
+                // Envoy creates Unix listener sockets as its own process user
+                // (root in the stock container). The sandbox runner executes as
+                // the unprivileged sandbox user, so the socket must be
+                // connectable even before the orchestrator's post-create chown
+                // runs. Isolation comes from mounting only this sandbox's socket
+                // subdirectory into the sandbox.
+                mode: 438,
             })),
         }),
         filter_chains: vec![FilterChain {
@@ -2132,7 +2138,10 @@ fn build_http_listener_proto(
         address: Some(Address {
             address: Some(address::Address::Pipe(Pipe {
                 path: format!("/sockets/{sandbox_id}/http.sock"),
-                mode: 384,
+                // See the gRPC listener pipe above for why this is 0666 at
+                // creation time. The HTTP proxy still requires the per-sandbox
+                // proxy auth token before credential-bearing routes are usable.
+                mode: 438,
             })),
         }),
         filter_chains: vec![FilterChain {

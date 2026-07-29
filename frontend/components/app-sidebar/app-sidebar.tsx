@@ -152,7 +152,7 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
         }))
       } else {
         try {
-          const data = await managedGet<ProjectInfo[] | { data: ProjectInfo[] }>('/auth/projects?include_archived=false&limit=500', {
+          const data = await managedGet<ProjectInfo[] | { data: ProjectInfo[] }>('/auth/projects?include_archived=false&limit=200', {
             skipManagedContext: true,
             headers: { 'X-Org-Id': org.id },
           })

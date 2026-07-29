@@ -395,11 +395,11 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   })
   const projectsQuery = useQuery({
     queryKey: ['storage-volumes-projects', requestScope.key],
-    queryFn: () => managedGet<{ data: ProjectRecord[] }>('/auth/projects?limit=500'),
+    queryFn: () => managedGet<{ data: ProjectRecord[] }>('/auth/projects?limit=200'),
   })
   const organizationsQuery = useQuery({
     queryKey: ['platform-organizations', requestScope.key],
-    queryFn: () => managedGet<{ data: PlatformOrganization[] }>('/auth/platform/organizations?limit=500'),
+    queryFn: () => managedGet<{ data: PlatformOrganization[] }>('/auth/platform/organizations?limit=200'),
     enabled: platformMode && isPlatformAdmin,
   })
 

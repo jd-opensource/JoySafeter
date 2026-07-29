@@ -605,6 +605,11 @@ impl SandboxResolver {
                     e.context("failed to start sandbox after Envoy networking became ready")
                 );
             }
+            info!(
+                sandbox_id = %sandbox_db_id,
+                external_id = %external_id,
+                "Started sandbox after Envoy networking became ready"
+            );
             self.network_policy_ready
                 .insert(sandbox_db_id, context.expected.egress_policy_hash.clone());
             if self.config.envoy_xds_mode != "grpc" {
