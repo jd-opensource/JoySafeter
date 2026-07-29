@@ -187,6 +187,14 @@ async def prepare_cells(
 
     tail_canonical = _slice_tail(merged, tail)
     await _replace_buffer(ingested.session_id, tail_canonical, app_id, project_id)
+    if tail_canonical:
+        # Re-arm idle detection: an extract that leaves a non-empty tail must
+        # advance last_message_ts past the extracted cells, otherwise the
+        # idle-flush candidate rule (last_message_ts > last_memcell_ts) treats
+        # the session as fully-extracted and never flushes the buffered tail.
+        await _touch_last_message_ts(
+            ingested.session_id, tail_canonical, app_id, project_id
+        )
 
     return BoundaryOutcome(
         cells=cells,
