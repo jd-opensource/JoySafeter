@@ -76,3 +76,13 @@ class ManualTick(BaseEvent):
     """Engine-emitted event for `engine.trigger_manual(name, event=None)`."""
 
     strategy_name: str
+
+
+class ScopedManualTick(ManualTick):
+    """Manual strategy trigger carrying caller-selected lifecycle scope."""
+
+    scope_mode: str = "active_only"
+    app_id: str = "default"
+    project_id: str = "default"
+    active_agent_ids: tuple[str, ...] = ()
+    active_session_ids: tuple[str, ...] = ()

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from everalgo.user_memory import AtomicFactExtractor
 
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import get_project_llm_client
 from app.everos.component.utils.datetime import from_timestamp, to_iso_format
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MemoryRoot
@@ -44,7 +44,7 @@ def _get_writer() -> AtomicFactWriter:
 async def extract_atomic_facts(event: EpisodeExtracted, ctx: StrategyContext) -> None:
     """Extract atomic facts from an episode and persist as markdown entries."""
     # 1. Run LLM extractor on episode text.
-    extractor = AtomicFactExtractor(llm=get_llm_client())
+    extractor = AtomicFactExtractor(llm=await get_project_llm_client(event.project_id))
     algo_facts = await extractor.aextract_from_text(
         event.episode_text, timestamp=event.episode_timestamp_ms
     )
@@ -65,6 +65,7 @@ async def extract_atomic_facts(event: EpisodeExtracted, ctx: StrategyContext) ->
             owner_id=event.owner_id,
             session_id=event.session_id,
             parent_id=event.episode_entry_id,
+            source_timestamp_ms=event.episode_timestamp_ms,
         )
         for af in algo_facts
     ]

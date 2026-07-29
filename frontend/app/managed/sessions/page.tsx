@@ -8,6 +8,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedPost } from '@/lib/api-client'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { primeSessionDetailCache } from '@/lib/managed/session-cache'
 import type { Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/managed/shared'
@@ -155,7 +156,10 @@ export default function SessionListPage() {
         data={sessions}
         loading={isLoading}
         fetching={isFetching}
-        onRowClick={(s) => router.push(`/managed/sessions/${s.id}`)}
+        onRowClick={(s) => {
+          primeSessionDetailCache(queryClient, s)
+          router.push(`/managed/sessions/${s.id}`)
+        }}
         actionMenu={(s) => s.archived_at ? [] : [
           {
             label: t('managed.sessions.archiveSession'),

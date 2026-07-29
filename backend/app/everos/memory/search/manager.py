@@ -67,6 +67,7 @@ from .shaper import (
     shape_episode_from_candidate,
 )
 from .skill_hybrid import search_agent_skills_hybrid
+from .vector_filters import exclude_fallback_vectors
 
 if TYPE_CHECKING:
     from everalgo.llm.protocols import LLMClient
@@ -247,10 +248,11 @@ class SearchManager:
         self, req: SearchRequest, where: str
     ) -> list[SearchEpisodeItem]:
         if req.method == SearchMethod.AGENTIC:
+            dense_where = exclude_fallback_vectors(where)
             return await search_episodes_agentic(
                 req.query,
                 owner_id=req.owner_id,
-                where=where,
+                where=dense_where,
                 episode_recaller=self._ep,
                 atomic_fact_recaller=self._fact,
                 embed_query_fn=self._embedding.embed,  # type: ignore[union-attr]
@@ -274,7 +276,9 @@ class SearchManager:
             else:
                 vector = await self._embed_query(req.query)
                 cands = await self._ep.dense_recall(
-                    vector, where, limit=self._recall_limit(req.top_k)
+                    vector,
+                    exclude_fallback_vectors(where),
+                    limit=self._recall_limit(req.top_k),
                 )
                 cands = self._apply_radius(cands, _effective_radius(req))
             # ``atomic_facts`` stays empty: facts come back only when the HYBRID
@@ -336,9 +340,10 @@ class SearchManager:
         self, req: SearchRequest, where: str
     ) -> list[SearchAgentCaseItem]:
         if req.method == SearchMethod.AGENTIC:
+            dense_where = exclude_fallback_vectors(where)
             return await search_agent_cases_agentic(
                 req.query,
-                where=where,
+                where=dense_where,
                 case_recaller=self._case,
                 embed_query_fn=self._embedding.embed,  # type: ignore[union-attr]
                 reranker=self._reranker,  # type: ignore[arg-type]
@@ -393,9 +398,10 @@ class SearchManager:
         ``None`` everywhere else.
         """
         if req.method == SearchMethod.AGENTIC:
+            dense_where = exclude_fallback_vectors(where)
             return await search_agent_skills_agentic(
                 req.query,
-                where=where,
+                where=dense_where,
                 skill_recaller=self._skill,
                 embed_query_fn=self._embedding.embed,  # type: ignore[union-attr]
                 reranker=self._reranker,  # type: ignore[arg-type]
@@ -460,7 +466,11 @@ class SearchManager:
     async def _fetch_profile(self, req: SearchRequest) -> list[SearchProfileItem]:
         if not req.include_profile or req.owner_type != "user":
             return []
-        return await self._profile.fetch(req.owner_id)
+        return await self._profile.fetch(
+            req.owner_id,
+            app_id=req.app_id,
+            project_id=req.project_id,
+        )
 
     # ── Recall helpers ──────────────────────────────────────────────
 
@@ -479,7 +489,9 @@ class SearchManager:
             )
         vector = await self._embed_query(req.query)
         cands = await recaller.dense_recall(
-            vector, where, limit=self._recall_limit(req.top_k, cap=cap)
+            vector,
+            exclude_fallback_vectors(where),
+            limit=self._recall_limit(req.top_k, cap=cap),
         )
         return self._apply_radius(cands, _effective_radius(req))
 
@@ -504,7 +516,7 @@ class SearchManager:
         limit = self._recall_limit(req.top_k, cap=cap)
         sparse, dense = await asyncio.gather(
             recaller.sparse_recall(req.query, where, limit=limit),
-            recaller.dense_recall(vector, where, limit=limit)
+            recaller.dense_recall(vector, exclude_fallback_vectors(where), limit=limit)
             if vector
             else _empty_candidates(),
         )
@@ -526,7 +538,11 @@ class SearchManager:
         if not vector:
             return []
         fact_limit = min(top_k * _MAXSIM_FACT_MULTIPLIER, _MAXSIM_FACT_POOL_CAP)
-        fact_cands = await self._fact.dense_recall(vector, where, limit=fact_limit)
+        fact_cands = await self._fact.dense_recall(
+            vector,
+            exclude_fallback_vectors(where),
+            limit=fact_limit,
+        )
         # Max-pool fact scores by parent episode entry_id.
         ep_score: dict[str, float] = {}
         for fc in fact_cands:

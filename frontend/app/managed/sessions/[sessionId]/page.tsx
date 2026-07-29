@@ -9,6 +9,7 @@ import { Copy, Search, Package, Globe, KeyRound, Timer, MessageSquare, Clock, X,
 import { managedGet, managedPost, managedDelete, managedPatch } from '@/lib/api-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
+import { findCachedSessionForDetail } from '@/lib/managed/session-cache'
 import { useSessionStream } from '@/lib/managed/sse'
 import type { Agent, Environment, Vault, VaultCredential, Session, SessionEvent, AgentTool, McpServer, SessionFileResource, SessionRepoResource, SessionResource, FileRecord } from '@/types/managed'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,8 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+
+export { findCachedSessionForDetail, primeSessionDetailCache } from '@/lib/managed/session-cache'
 
 const TRANSCRIPT_TYPES = new Set([
   'user.message',
@@ -186,6 +189,45 @@ function isRequiresActionIdle(event: SessionEvent) {
     && (event.stop_reason as { type?: string }).type === 'requires_action'
 }
 
+type MessageInputKeyEvent = {
+  key: string
+  shiftKey: boolean
+  nativeEvent?: {
+    isComposing?: boolean
+    keyCode?: number
+  }
+}
+
+export function shouldSendMessageFromKeyDown(event: MessageInputKeyEvent) {
+  if (event.key !== 'Enter' || event.shiftKey) return false
+  if (event.nativeEvent?.isComposing) return false
+  return event.nativeEvent?.keyCode !== 229
+}
+
+type MutableFlagRef = {
+  current: boolean
+}
+
+export function refreshSessionEventsAfterMutation(
+  eventsLoadedRef: MutableFlagRef,
+  loadEvents: () => void,
+) {
+  eventsLoadedRef.current = false
+  loadEvents()
+}
+
+type MessageInputPlaceholderState = {
+  isArchived: boolean
+  isRunning: boolean
+  streamForced: boolean
+}
+
+export function getMessageInputPlaceholderKey(state: MessageInputPlaceholderState) {
+  if (state.isArchived) return 'archived' as const
+  if (state.isRunning || state.streamForced) return 'running' as const
+  return 'send' as const
+}
+
 function getLatestSessionStatusEvent(events: SessionEvent[]) {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
@@ -222,6 +264,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     queryKey: ['session', id],
     queryFn: () => managedGet<Session>(`/sessions/${stripIdPrefix(id)}`),
     enabled: !!id,
+    initialData: () => findCachedSessionForDetail(queryClient, id),
     retry: shouldRetryManagedResourceError,
     refetchInterval: (query) => {
       const status = query.state.data?.status
@@ -311,9 +354,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const isRunning = session?.status === 'running'
   const isIdle = session?.status === 'idle'
   const isArchived = !!session?.archived_at
-  const canEditMessage = !isArchived && !isSending
+  const canEditMessage = !isArchived
   const canSendMessage = isIdle && !isArchived && !isSending
   const wasRunningRef = useRef(false)
+  const messageInputPlaceholderKey = getMessageInputPlaceholderKey({
+    isArchived,
+    isRunning,
+    streamForced,
+  })
 
   // Update session status from live SSE events only. Initial SSE replay can contain
   // legacy/out-of-order status events, while the session query is DB-authoritative.
@@ -337,7 +385,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     if (streamForced && wasRunningRef.current && !isRunning) {
       setStreamForced(false)
       wasRunningRef.current = false
-      eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+      refreshSessionEventsAfterMutation(eventsLoadedRef, loadEvents)
     }
   }, [isRunning, streamForced, id, queryClient])
 
@@ -352,7 +400,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
       })
       queryClient.invalidateQueries({ queryKey: ['session', id] })
-      eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+      refreshSessionEventsAfterMutation(eventsLoadedRef, loadEvents)
     } catch (e) {
       toastOperationError(t, e, 'common.operationFailed')
       setStreamForced(false)
@@ -380,7 +428,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           events: [payload],
         })
         queryClient.invalidateQueries({ queryKey: ['session', id] })
-        eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+        refreshSessionEventsAfterMutation(eventsLoadedRef, loadEvents)
       } catch (e) {
         toastOperationError(t, e, 'common.operationFailed')
       } finally {
@@ -405,7 +453,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     try {
       await managedPost(`/sessions/${stripIdPrefix(id)}/stop`, {})
       queryClient.invalidateQueries({ queryKey: ['session', id] })
-      eventsLoadedRef.current = false; setLoadedEvents([]); loadEvents()
+      refreshSessionEventsAfterMutation(eventsLoadedRef, loadEvents)
     } catch (e) {
       toastOperationError(t, e, 'common.operationFailed')
     }
@@ -741,7 +789,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   }
 
   if (isLoading || !session) {
-    return <div className="text-muted-foreground p-8">{t('common.loading')}</div>
+    return <SessionDetailSkeleton />
   }
 
   const sessionStart = session.created_at
@@ -1073,12 +1121,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground"
             value={msgInput}
             onChange={(e) => setMsgInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
+            onKeyDown={(e) => {
+              if (shouldSendMessageFromKeyDown(e)) {
+                e.preventDefault()
+                handleSendMessage()
+              }
+            }}
             disabled={!canEditMessage}
             placeholder={
-              isArchived
+              messageInputPlaceholderKey === 'archived'
                 ? t('managed.sessions.archivedReadOnly')
-                : isRunning
+                : messageInputPlaceholderKey === 'running'
                   ? t('managed.sessions.agentRunning')
                   : t('managed.sessions.sendPlaceholder')
             }
@@ -1086,7 +1139,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-7 w-7 disabled:opacity-100"
             onClick={handleSendMessage}
             disabled={!msgInput.trim() || !canSendMessage}
           >
@@ -1139,6 +1192,43 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           onChanged={() => queryClient.invalidateQueries({ queryKey: ['session-resources', id] })}
         />
       )}
+    </div>
+  )
+}
+
+function SessionDetailSkeleton() {
+  return (
+    <div className="h-[calc(100vh-4rem)] flex flex-col">
+      <div className="shrink-0 space-y-3">
+        <div className="h-4 w-48 rounded bg-muted" />
+        <div className="flex items-center gap-3">
+          <div className="h-7 w-80 rounded bg-muted" />
+          <div className="h-6 w-16 rounded bg-muted" />
+        </div>
+        <div className="h-4 w-[520px] max-w-full rounded bg-muted" />
+      </div>
+      <div className="mt-5 shrink-0 flex items-center justify-between border-b border-border pb-2">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-28 rounded bg-muted" />
+          <div className="h-8 w-24 rounded bg-muted" />
+        </div>
+        <div className="h-7 w-24 rounded bg-muted" />
+      </div>
+      <div className="shrink-0 mt-3 pt-7">
+        <div className="h-8 rounded-md border border-border bg-muted" />
+      </div>
+      <div className="mt-3 flex-1 overflow-hidden rounded-lg border border-border">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div key={index} className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0">
+            <div className="h-5 w-10 rounded bg-muted" />
+            <div className="h-4 flex-1 rounded bg-muted" />
+            <div className="h-4 w-16 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+      <div className="shrink-0 border-t border-border px-1 py-3">
+        <div className="h-11 rounded-lg border border-border bg-background" />
+      </div>
     </div>
   )
 }

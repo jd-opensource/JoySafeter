@@ -19,7 +19,7 @@ from collections.abc import Mapping
 
 from everalgo.user_memory import ForesightExtractor
 
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import get_project_llm_client
 from app.everos.component.utils.datetime import from_timestamp, to_iso_format
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MemoryRoot
@@ -52,7 +52,11 @@ async def extract_foresight(event: UserPipelineStarted, ctx: StrategyContext) ->
     # 1. List the user senders in this memcell.
     memcell = event.memcell
     sender_ids = sorted({m.sender_id for m in memcell.items if m.role == "user"})
-    extractor = ForesightExtractor(llm=get_llm_client()) if sender_ids else None
+    extractor = (
+        ForesightExtractor(llm=await get_project_llm_client(event.project_id))
+        if sender_ids
+        else None
+    )
 
     # 2. Run the LLM extractor once per sender (prompt is per-sender).
     foresights: list[Foresight] = []
@@ -63,6 +67,7 @@ async def extract_foresight(event: UserPipelineStarted, ctx: StrategyContext) ->
                 algo_fs,
                 session_id=event.session_id,
                 parent_id=event.memcell_id,
+                source_timestamp_ms=memcell.timestamp,
             )
             for algo_fs in algo_foresights
         )

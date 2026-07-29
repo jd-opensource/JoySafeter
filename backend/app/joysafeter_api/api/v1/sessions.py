@@ -12,6 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_session_id as _parse_session_id
+from app.joysafeter_api.api.v1.session_metadata import (
+    merge_current_user_session_metadata,
+)
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
 from app.joysafeter_api.services import SessionService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
@@ -196,10 +199,15 @@ async def create_session(
                 raise HTTPException(404, f"Vault not found: {vid_raw}")
 
     svc = SessionService(db)
+    session_metadata = await merge_current_user_session_metadata(
+        req.metadata,
+        db=db,
+        auth_ctx=auth_ctx,
+    )
     session = await svc.create_session(
         agent_id=agent.id,
         title=req.title,
-        metadata=req.metadata,
+        metadata=session_metadata,
         vault_ids=req.vault_ids,
         environment_ref=environment_ref,
         agent_version=agent_version,

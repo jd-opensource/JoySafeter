@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from everalgo.agent_memory import AgentCaseExtractor
 
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import get_project_llm_client
 from app.everos.component.utils.datetime import from_timestamp, to_iso_format
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MemoryRoot
@@ -66,7 +66,7 @@ async def extract_agent_case(event: AgentPipelineStarted, ctx: StrategyContext) 
         return
 
     # 2. Run the LLM extractor once; algo returns [] or [single case].
-    extractor = AgentCaseExtractor(llm=get_llm_client())
+    extractor = AgentCaseExtractor(llm=await get_project_llm_client(event.project_id))
     algo_cases = await extractor.aextract(event.memcell)
     if not algo_cases:
         logger.info(
@@ -86,6 +86,7 @@ async def extract_agent_case(event: AgentPipelineStarted, ctx: StrategyContext) 
             owner_id=agent_id,
             session_id=event.session_id,
             parent_id=event.memcell_id,
+            source_timestamp_ms=event.memcell.timestamp,
         )
         inline, sections = _agent_case_to_entry_body(case)
         eid = await writer.append_entry(

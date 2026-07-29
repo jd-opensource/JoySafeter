@@ -30,7 +30,7 @@ def _q(value: str) -> str:
     LanceDB has no parameterised query API; predicates are strings.
     Doubling the quote (``'`` → ``''``) is the SQL-standard way to keep
     a literal single quote inside a single-quoted string. everos's PK
-    convention (``<owner_id>_<entry_id>``) never carries quotes — this
+    convention (``<md_path>#<entry_id>``) normally never carries quotes — this
     is defensive.
     """
     return value.replace("'", "''")
@@ -163,12 +163,13 @@ class LanceRepoBase[T: BaseLanceTable]:
         updates its existing row.
         """
         table = await self._table()
+        deduped = _dedupe_by_key(records, by)
         async with self._write_lock(self.table_name):
             await (
                 table.merge_insert(by)
                 .when_matched_update_all()
                 .when_not_matched_insert_all()
-                .execute(list(records))
+                .execute(deduped)
             )
 
     # ── Maintenance ────────────────────────────────────────────────────────
@@ -288,7 +289,7 @@ class LanceRepoBase[T: BaseLanceTable]:
 
         Uses LanceDB scalar filter ``<id_field> = '<id_value>'``. Single
         quotes in ``id_value`` are doubled to avoid breaking the SQL-like
-        predicate; everos's PK convention is ``<owner_id>_<entry_id>``
+        predicate; everos's daily-log PK convention is ``<md_path>#<entry_id>``
         which never contains quotes, so the escape is defensive.
         """
         table = await self._table()
@@ -551,3 +552,38 @@ class LanceDailyLogRepoBase[T: BaseLanceTable](LanceRepoBase[T]):
             f"parent_type = '{_q(parent_type)}' AND parent_id = '{_q(parent_id)}'",
             limit=limit,
         )
+
+
+def _dedupe_by_key[T](records: Sequence[T], key: str) -> list[T]:
+    """Collapse duplicate merge keys before LanceDB ``merge_insert``.
+
+    LanceDB rejects ambiguous merge source batches. Keeping the last record
+    preserves the common "later edit wins" behavior while avoiding logging
+    user memory content.
+    """
+    seen: set[Any] = set()
+    deduped_reversed: list[T] = []
+    duplicate_count = 0
+    for record in reversed(records):
+        value = _record_key(record, key)
+        if value in seen:
+            duplicate_count += 1
+            continue
+        seen.add(value)
+        deduped_reversed.append(record)
+    deduped = list(reversed(deduped_reversed))
+    if duplicate_count:
+        logger.warning(
+            "lancedb_upsert_duplicate_merge_keys_deduped",
+            key=key,
+            original_count=len(records),
+            deduped_count=len(deduped),
+            duplicate_count=duplicate_count,
+        )
+    return deduped
+
+
+def _record_key(record: Any, key: str) -> Any:
+    if isinstance(record, dict):
+        return record[key]
+    return getattr(record, key)

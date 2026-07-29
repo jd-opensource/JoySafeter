@@ -206,6 +206,10 @@ function TranscriptContent({ event }: { event: SessionEvent }) {
 function extractText(event: SessionEvent): string | null {
   // Background sub-agent — render a structured markdown card with all known fields
   const eventTypeForBg = event.type || event.event_type || ""
+  if (eventTypeForBg === "session.error") {
+    return renderSessionErrorMarkdown(event)
+  }
+
   if (eventTypeForBg === "agent.bg_task_started"
       || eventTypeForBg === "agent.bg_task_progress"
       || eventTypeForBg === "agent.bg_task_finished") {
@@ -262,6 +266,82 @@ function extractText(event: SessionEvent): string | null {
     return "```json\n" + JSON.stringify(event.output, null, 2) + "\n```"
   }
   return null
+}
+
+function renderSessionErrorMarkdown(event: SessionEvent): string | null {
+  const rawError = event.error ?? (
+    event.payload && typeof event.payload === "object"
+      ? (event.payload as Record<string, unknown>).error
+      : undefined
+  )
+
+  if (typeof rawError === "string") {
+    return rawError
+  }
+  if (!rawError || typeof rawError !== "object") {
+    return null
+  }
+
+  const error = rawError as Record<string, unknown>
+  const lines: string[] = []
+  const message = stringValue(error.message)
+  const type = stringValue(error.type)
+  const code = stringValue(error.code)
+  const status = stringValue(error.status_code ?? error.status ?? error.http_status)
+  const retryStatus = error.retry_status && typeof error.retry_status === "object"
+    ? stringValue((error.retry_status as Record<string, unknown>).type)
+    : null
+
+  if (message) lines.push(message)
+  else if (type) lines.push(`模型调用失败: ${type}`)
+
+  const details: string[] = []
+  if (type) details.push(`- type: \`${type}\``)
+  if (status) details.push(`- status: \`${status}\``)
+  if (code) details.push(`- code: \`${code}\``)
+  if (retryStatus) details.push(`- retry: \`${retryStatus}\``)
+  if (details.length > 0) {
+    if (lines.length > 0) lines.push("")
+    lines.push(...details)
+  }
+
+  const upstream = error.upstream_body ?? error.upstream_response ?? error.details
+  const upstreamText = formatUnknownDiagnostic(upstream)
+  if (upstreamText) {
+    lines.push("")
+    lines.push("### Upstream response")
+    lines.push("")
+    lines.push("```json")
+    lines.push(upstreamText)
+    lines.push("```")
+  }
+
+  return lines.length > 0 ? lines.join("\n") : null
+}
+
+function stringValue(value: unknown): string | null {
+  if (value == null) return null
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  return null
+}
+
+function formatUnknownDiagnostic(value: unknown): string | null {
+  if (value == null) return null
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2)
+    } catch {
+      return trimmed
+    }
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }
 
 /**

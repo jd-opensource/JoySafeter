@@ -28,13 +28,14 @@ from __future__ import annotations
 
 from app.everos.infra.persistence.lancedb import Foresight, ParentType, foresight_repo
 
+from ..vector_embedding import embed_text_for_index
 from ._common import (
     optional_int,
     optional_iso_timestamp,
     parse_inline_list,
     require_iso_timestamp,
 )
-from ._daily_log_base import BaseDailyLogHandler, ParsedEntry
+from ._daily_log_base import BaseDailyLogHandler, ParsedEntry, daily_log_row_id
 
 
 class ForesightHandler(BaseDailyLogHandler):
@@ -68,12 +69,16 @@ class ForesightHandler(BaseDailyLogHandler):
         text = s.sections.get("Foresight", "").strip()
         evidence = (s.sections.get("Evidence") or "").strip() or None
         tokens = self._deps.tokenizer.tokenize(text)
-        vector = await self._deps.embedder.embed(text)
+        indexed = await embed_text_for_index(
+            self._deps.embedder,
+            text,
+            embedding_model=getattr(self._deps.embedder, "_model", None),
+        )
         evidence_tokens = (
             " ".join(self._deps.tokenizer.tokenize(evidence)) if evidence else None
         )
         return Foresight(
-            id=f"{owner_id}_{entry.entry_id}",
+            id=daily_log_row_id(md_path, entry.entry_id),
             entry_id=entry.entry_id,
             owner_id=owner_id,
             owner_type=owner_type,
@@ -93,5 +98,8 @@ class ForesightHandler(BaseDailyLogHandler):
             evidence_tokens=evidence_tokens,
             md_path=md_path,
             content_sha256=entry.content_sha256,
-            vector=vector,
+            vector=indexed.vector,
+            vector_status=indexed.vector_status,
+            vector_updated_at=indexed.vector_updated_at,
+            embedding_model=indexed.embedding_model,
         )

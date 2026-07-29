@@ -356,8 +356,15 @@ class SandboxResolver:
             else None
         )
 
-        # Preload memory files into the workspace before container start
-        memory_mounts = await self._preload_memory(session_id, workspace_path) if workspace_path else []
+        # Legacy JoySafeter file-backed memory is disabled by default; EverOS is
+        # the default long-term memory runtime for sandboxes.
+        from app.joysafeter_orchestrator.kernel.legacy_memory import legacy_sandbox_memory_enabled
+
+        memory_mounts = (
+            await self._preload_memory(session_id, workspace_path)
+            if workspace_path and legacy_sandbox_memory_enabled()
+            else []
+        )
 
         # Preload uploaded files into the workspace
         if workspace_path:

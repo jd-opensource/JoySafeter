@@ -16,6 +16,7 @@ External usage::
         SqliteLifespanProvider,
         LanceDBLifespanProvider,
         CascadeLifespanProvider,
+        VectorRebuildLifespanProvider,
         OmeLifespanProvider,
     )
 """
@@ -25,6 +26,9 @@ from .lancedb import LanceDBLifespanProvider as LanceDBLifespanProvider
 from .llm import LLMLifespanProvider as LLMLifespanProvider
 from .ome import OmeLifespanProvider as OmeLifespanProvider
 from .sqlite import SqliteLifespanProvider as SqliteLifespanProvider
+from .vector_rebuild import (
+    VectorRebuildLifespanProvider as VectorRebuildLifespanProvider,
+)
 
 __all__ = [
     "CascadeLifespanProvider",
@@ -32,4 +36,5 @@ __all__ = [
     "LanceDBLifespanProvider",
     "OmeLifespanProvider",
     "SqliteLifespanProvider",
+    "VectorRebuildLifespanProvider",
 ]

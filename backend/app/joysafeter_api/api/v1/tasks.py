@@ -17,6 +17,9 @@ from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRe
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
 from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+from app.joysafeter_api.api.v1.session_metadata import (
+    merge_current_user_session_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +62,15 @@ async def create_task(
     if not chat_session_id:
         from app.joysafeter_api.services import SessionService
         session_svc = SessionService(db)
+        session_metadata = await merge_current_user_session_metadata(
+            None,
+            db=db,
+            auth_ctx=auth_ctx,
+        )
         session = await session_svc.create_session(
             agent_id=agent.id,
             title=f"Task: {req.prompt[:80]}",
+            metadata=session_metadata,
             environment_ref=environment_ref,
             agent_version=getattr(agent, "version", None),
             agent_snapshot={"name": agent.name, "model": getattr(agent, "model", None)},

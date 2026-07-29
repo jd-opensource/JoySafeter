@@ -56,8 +56,11 @@ class AgentSkillFrontmatter(SkillPathMixin, AgentScopedFrontmatter):
     source_case_ids: list[str] = []
     """AgentCase ids that fed into this skill's synthesis (lineage)."""
 
-    cluster_id: str | None = None
-    """Optional MemScene clustering tag; may be unset early on."""
+    cluster_id: str
+    """MemScene clustering tag injected by EverOS before persistence."""
 
-    created_at: _dt.datetime | None = None
-    updated_at: _dt.datetime | None = None
+    created_at: _dt.datetime
+    """First time EverOS created this skill file."""
+
+    updated_at: _dt.datetime
+    """Last time EverOS updated this skill file."""

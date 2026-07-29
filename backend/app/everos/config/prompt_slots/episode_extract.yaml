@@ -19,5 +19,29 @@
 # When ``enabled: false`` or ``template`` is empty, the pipeline sends
 # ``prompt=None`` and the algo default is used (zero override cost).
 
-enabled: false
-template: ""
+enabled: true
+template: |
+  You are an episodic memory generation expert. Convert the following conversation into one episodic memory.
+
+  Conversation start time: {conversation_start_time}
+  Conversation content:
+  {conversation}
+
+  Custom instructions:
+  {custom_instructions}
+
+  Return only one JSON object with exactly these fields:
+  {{
+    "title": "A concise, searchable subject for the episode.",
+    "summary": "A concise independent summary of the content. It must summarize the content and must not copy the opening sentence, first paragraph, or any prefix of the content.",
+    "content": "The full episode narrative in third person, preserving important facts, participants, timestamps, decisions, outcomes, entities, quantities, and reasoning."
+  }}
+
+  Requirements:
+  1. Output in the same language as the conversation.
+  2. The title is the Subject: short, specific, and searchable.
+  3. The summary is the Summary: a true abstract of the content, not a truncation, copy, or lightly edited first sentence.
+  4. The content is the Content: a complete narrative record of the episode.
+  5. Resolve non-absolute time references using the timestamp of the message that contains them.
+  6. Preserve concrete names, paths, tools, repositories, vulnerability names, dates, IDs, decisions, and outcomes when present.
+  7. Return only JSON. Do not wrap it in Markdown.

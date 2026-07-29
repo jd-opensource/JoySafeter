@@ -24,7 +24,7 @@ from everalgo.clustering import Cluster as AlgoCluster
 from everalgo.clustering import cluster_by_llm
 
 from app.everos.component.embedding import get_embedder
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import get_project_llm_client
 from app.everos.core.observability.logging import get_logger
 from app.everos.infra.ome.context import StrategyContext
 from app.everos.infra.ome.decorator import offline_strategy
@@ -89,7 +89,11 @@ async def trigger_skill_clustering(
         )
 
         # 5. Ask the LLM to merge it into an existing cluster (or keep as-is).
-        merged = await cluster_by_llm(new_cluster, existing, llm=get_llm_client())
+        merged = await cluster_by_llm(
+            new_cluster,
+            existing,
+            llm=await get_project_llm_client(event.project_id),
+        )
         to_save = merged if merged is not None else new_cluster
 
         # 6. Persist the (possibly-merged) cluster back to SQLite.

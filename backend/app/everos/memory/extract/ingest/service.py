@@ -59,6 +59,7 @@ async def process(payload: dict[str, Any]) -> IngestResult:
             await enrich_content_items(
                 content_items,
                 max_concurrency=load_settings().multimodal.max_concurrency,
+                project_id=project_id,
             )
         text, non_text = derive_text(content_items)
         non_text_total += non_text

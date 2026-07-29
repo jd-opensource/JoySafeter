@@ -7,23 +7,35 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_agent_id
+from app.joysafeter_api.services import (
+    JoySafeterAgentService as AgentService,
+)
+from app.joysafeter_api.services import (
+    SecretService,
+    SessionService,
+    _split_packed_items,
+)
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_domain.schemas.joysafeter_agent import (
+    AgentVersionResponse,
+)
+from app.joysafeter_domain.schemas.joysafeter_agent import (
+    JoySafeterAgentResponse as AgentResponse,
+)
+from app.joysafeter_domain.schemas.joysafeter_agent import (
+    JoySafeterCreateAgentRequest as CreateAgentRequest,
+)
+from app.joysafeter_domain.schemas.joysafeter_agent import (
+    JoySafeterUpdateAgentRequest as UpdateAgentRequest,
+)
+from app.joysafeter_domain.schemas.joysafeter_session import SessionResponse
+from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_domain.schemas.joysafeter_agent import (
-    JoySafeterAgentResponse as AgentResponse,
-    AgentVersionResponse,
-    JoySafeterCreateAgentRequest as CreateAgentRequest,
-    JoySafeterUpdateAgentRequest as UpdateAgentRequest,
-)
-from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
-from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
-from app.joysafeter_domain.schemas.joysafeter_session import SessionResponse
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService, SecretService, _split_packed_items
-from app.joysafeter_api.services import SessionService
 
 logger = logging.getLogger(__name__)
 
@@ -419,7 +431,6 @@ async def _cancel_active_tasks_for_agent(
     try:
         archived_session_ids = await svc.archive_sessions_for_agent(agent_id)
         if archived_session_ids and session_broadcaster:
-            session_svc = SessionService(db)
             for sid in archived_session_ids:
                 stop_reason_event = {
                     "type": "session.status_terminated",

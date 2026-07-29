@@ -11,16 +11,12 @@ from __future__ import annotations
 
 import datetime as _dt
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
-
-import anyio
 
 from app.everos.component.utils.datetime import (
     get_now_with_timezone,
     to_iso_format,
 )
-from app.everos.core.persistence import MarkdownReader
 
 from ..mds import AgentCaseDailyFrontmatter
 from .base import BaseDailyWriter
@@ -55,9 +51,3 @@ class AgentCaseWriter(BaseDailyWriter):
             "entry_count": next_count,
             "last_appended_at": to_iso_format(get_now_with_timezone()),
         }
-
-    async def _current_count(self, path: Path) -> int:
-        if not await anyio.Path(path).is_file():
-            return 0
-        parsed = await MarkdownReader.read(path)
-        return parsed.frontmatter.get("entry_count", 0)

@@ -526,7 +526,7 @@ class Settings(BaseSettings):
         description="Max combined uncompressed size of all files in a skill-import ZIP (bytes).",
     )
     max_upload_file_bytes: int = Field(
-        default=50 * 1024 * 1024,
+        default=100 * 1024 * 1024,
         validation_alias=AliasChoices(
             "JOYSAFETER_MAX_UPLOAD_FILE_BYTES",
             "MAX_UPLOAD_FILE_BYTES",

@@ -23,8 +23,10 @@ def create_api_app(*, lifespan) -> FastAPI:
 
 def register_api_routes(app: FastAPI) -> None:
     app.add_middleware(ApiV1ResponseWrapperMiddleware)
-    # All API routes live under /api/v1/*.
+    # Canonical API routes live under /api/v1/*.
     app.include_router(joysafeter_router, prefix="/api/v1")
+    # Compatibility for stale frontend bundles that still call /api/v2/*.
+    app.include_router(joysafeter_router, prefix="/api/v2")
 
 
 def register_websocket_routes(app: FastAPI) -> None:

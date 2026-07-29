@@ -26,12 +26,14 @@ from __future__ import annotations
 import abc
 import asyncio
 import dataclasses
+from collections import Counter
 from typing import Any, ClassVar
 
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MarkdownReader, StructuredEntry
 
 from ..types import HandlerOutcome
+from ..vector_embedding import FALLBACK_VECTOR_STATUS, READY_VECTOR_STATUS
 from ._common import content_sha256 as compute_content_sha256
 from ._common import resolve_owner, resolve_scope
 from .base import Handler
@@ -106,6 +108,7 @@ class BaseDailyLogHandler(Handler):
             )
             for entry in parsed.entries
         ]
+        new_entries = self._dedupe_duplicate_entry_ids(new_entries, md_path)
 
         existing = await self.lance_repo.find_where(
             f"md_path = '{_q(md_path)}'",
@@ -114,7 +117,7 @@ class BaseDailyLogHandler(Handler):
         owner_id, owner_type = resolve_owner(parsed.frontmatter, md_path)
         app_id, project_id = resolve_scope(md_path)
 
-        to_build, skipped = self._diff_entries(new_entries, existing)
+        to_build, skipped = self._diff_entries(new_entries, existing, md_path)
         to_upsert = await self._embed_entries(
             to_build,
             owner_id,
@@ -127,8 +130,19 @@ class BaseDailyLogHandler(Handler):
         to_delete_ids = [
             row.entry_id for row in existing if row.entry_id not in new_by_id
         ]
+        stale_row_ids = [
+            row.id
+            for row in existing
+            if row.entry_id in new_by_id
+            and row.id != daily_log_row_id(md_path, row.entry_id)
+        ]
 
-        await self._apply_lance_changes(to_upsert, to_delete_ids, md_path)
+        await self._apply_lance_changes(
+            to_upsert,
+            to_delete_ids,
+            stale_row_ids,
+            md_path,
+        )
         await self._propagate_deprecations(
             parsed.frontmatter,
             owner_id,
@@ -143,10 +157,47 @@ class BaseDailyLogHandler(Handler):
             skipped=skipped,
         )
 
+    def _dedupe_duplicate_entry_ids(
+        self,
+        entries: list[ParsedEntry],
+        md_path: str,
+    ) -> list[ParsedEntry]:
+        """Collapse repeated md entry ids before diff/upsert.
+
+        LanceDB ``merge_insert`` rejects a source batch containing multiple
+        rows for the same merge key. Duplicate marker ids are invalid md-side
+        state, but cascade must still be able to reconcile dirty historical
+        files. Last occurrence wins because it matches how a later manual
+        block should override an earlier stale duplicate.
+        """
+        counts = Counter(entry.entry_id for entry in entries)
+        duplicates = {entry_id: count for entry_id, count in counts.items() if count > 1}
+        if not duplicates:
+            return entries
+
+        seen: set[str] = set()
+        deduped_reversed: list[ParsedEntry] = []
+        for entry in reversed(entries):
+            if entry.entry_id in seen:
+                continue
+            seen.add(entry.entry_id)
+            deduped_reversed.append(entry)
+        deduped = list(reversed(deduped_reversed))
+        logger.warning(
+            "cascade_duplicate_entry_ids_deduped",
+            kind=self.kind,
+            md_path=md_path,
+            duplicates=duplicates,
+            original_count=len(entries),
+            deduped_count=len(deduped),
+        )
+        return deduped
+
     @staticmethod
     def _diff_entries(
         new_entries: list[ParsedEntry],
         existing: list[Any],
+        md_path: str,
     ) -> tuple[list[ParsedEntry], int]:
         """Compare new entries against existing rows, return changed + skip count."""
         existing_by_entry = {row.entry_id: row for row in existing}
@@ -154,7 +205,12 @@ class BaseDailyLogHandler(Handler):
         skipped = 0
         for entry in new_entries:
             prior = existing_by_entry.get(entry.entry_id)
-            if prior is not None and prior.content_sha256 == entry.content_sha256:
+            if (
+                prior is not None
+                and prior.id == daily_log_row_id(md_path, entry.entry_id)
+                and prior.content_sha256 == entry.content_sha256
+                and _has_index_vector_status(prior)
+            ):
                 skipped += 1
                 continue
             to_build.append(entry)
@@ -192,11 +248,17 @@ class BaseDailyLogHandler(Handler):
         self,
         to_upsert: list[Any],
         to_delete_ids: list[str],
+        stale_row_ids: list[str],
         md_path: str,
     ) -> None:
         """Flush upserts and deletes to LanceDB."""
         if to_upsert:
             await self.lance_repo.upsert(to_upsert)
+        if stale_row_ids:
+            in_list = ", ".join(f"'{_q(row_id)}'" for row_id in stale_row_ids)
+            await self.lance_repo.delete(
+                f"md_path = '{_q(md_path)}' AND id IN ({in_list})"
+            )
         if to_delete_ids:
             in_list = ", ".join(f"'{eid}'" for eid in to_delete_ids)
             await self.lance_repo.delete(
@@ -295,3 +357,13 @@ class BaseDailyLogHandler(Handler):
 def _q(text: str) -> str:
     """Defensive SQL-quote escape (mirrors lancedb chassis convention)."""
     return text.replace("'", "''")
+
+
+def daily_log_row_id(md_path: str, entry_id: str) -> str:
+    """Return the globally unique LanceDB row id for a daily-log entry."""
+    return f"{md_path}#{entry_id}"
+
+
+def _has_index_vector_status(row: Any) -> bool:
+    status = getattr(row, "vector_status", None)
+    return status in {READY_VECTOR_STATUS, FALLBACK_VECTOR_STATUS}

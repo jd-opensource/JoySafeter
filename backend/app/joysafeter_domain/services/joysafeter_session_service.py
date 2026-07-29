@@ -108,7 +108,10 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
         SessionStatus.RESCHEDULING.value,
         SessionStatus.RUNNING.value,
     },
-    SessionStatus.IDLE.value: {SessionStatus.RUNNING.value},
+    SessionStatus.IDLE.value: {
+        SessionStatus.RUNNING.value,
+        SessionStatus.RESCHEDULING.value,
+    },
     SessionStatus.TERMINATED.value: {
         SessionStatus.IDLE.value,
         SessionStatus.RUNNING.value,
@@ -260,7 +263,7 @@ from app.joysafeter_shared.utils.datetime import utc_now
 # State machine: maps target status -> set of allowed source statuses
 _VALID_TRANSITIONS: dict[str, set[str]] = {
     SessionStatus.RUNNING.value: {SessionStatus.IDLE.value, SessionStatus.RESCHEDULING.value, SessionStatus.RUNNING.value},
-    SessionStatus.IDLE.value: {SessionStatus.RUNNING.value},
+    SessionStatus.IDLE.value: {SessionStatus.RUNNING.value, SessionStatus.RESCHEDULING.value},
     SessionStatus.TERMINATED.value: {
         SessionStatus.IDLE.value,
         SessionStatus.RUNNING.value,

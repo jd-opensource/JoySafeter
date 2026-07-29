@@ -5,6 +5,7 @@ from app.joysafeter_api.api.v1.auth import router as auth_router
 from app.joysafeter_api.api.v1.tasks import router as tasks_router
 from app.joysafeter_api.api.v1.sessions import router as sessions_router
 from app.joysafeter_api.api.v1.environments import router as environments_router
+from app.joysafeter_api.api.v1.everos_memory import router as everos_memory_router
 from app.joysafeter_api.api.v1.secrets import router as secrets_router
 from app.joysafeter_api.api.v1.skills import router as skills_router
 from app.joysafeter_api.api.v1.sandboxes import router as sandboxes_router
@@ -28,6 +29,7 @@ joysafeter_router.include_router(secrets_router, prefix="/secrets")
 joysafeter_router.include_router(skills_router, prefix="/skills")
 joysafeter_router.include_router(sandboxes_router, prefix="/sandboxes")
 joysafeter_router.include_router(memory_stores_router, prefix="/memory_stores")
+joysafeter_router.include_router(everos_memory_router, prefix="/everos_memory")
 joysafeter_router.include_router(vaults_router, prefix="/vaults")
 joysafeter_router.include_router(files_router, prefix="/files")
 joysafeter_router.include_router(health_router, prefix="/health")

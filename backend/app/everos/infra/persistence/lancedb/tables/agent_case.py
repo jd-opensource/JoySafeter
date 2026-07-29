@@ -25,7 +25,7 @@ class AgentCase(BaseLanceTable):
     BM25_FIELDS: ClassVar[list[str]] = ["task_intent_tokens", "approach_tokens"]
 
     id: str
-    """PK = ``<owner_id>_<entry_id>``."""
+    """PK = ``<md_path>#<entry_id>``."""
 
     entry_id: str
     """md-side seq id ``ac_<YYYYMMDD>_<NNNN>``."""
@@ -80,5 +80,12 @@ class AgentCase(BaseLanceTable):
     the ``quality_score`` inline. Audit inline (owner_id /
     session_id / timestamp / parent_id) is NOT in the hash. See
     :attr:`AgentCaseHandler.content_change_keys`."""
+
+    vector_status: str | None = "ready"
+    """``ready`` for real embeddings; ``fallback_zero`` for keyword-only fallback."""
+
+    vector_updated_at: _dt.datetime | None = None
+
+    embedding_model: str | None = None
 
     vector: Vector(_DIM)  # type: ignore[valid-type]

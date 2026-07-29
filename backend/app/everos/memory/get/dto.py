@@ -6,10 +6,10 @@ ranked retrieval):
 
 * ``owner_type`` × ``memory_type`` are strictly paired:
 
-  - ``user`` → ``episode`` | ``profile``
+  - ``user`` → ``episode`` | ``atomic_fact`` | ``profile``
   - ``agent`` → ``agent_case`` | ``agent_skill``
 
-* ``GetData`` always contains four kind arrays for symmetry with
+* ``GetData`` always contains five kind arrays for symmetry with
   ``/search``; only the requested kind is populated. ``total_count``
   is the predicate's true match count; ``count`` is the page size
   actually returned.
@@ -33,18 +33,19 @@ from app.everos.memory.search import FilterNode
 
 
 class GetMemoryType(StrEnum):
-    """The four kinds enumerated by ``/get``.
+    """The five kinds enumerated by ``/get``.
 
-    ``episode`` and ``profile`` are user-owned; ``agent_case`` and
-    ``agent_skill`` are agent-owned. Cross-pairs are rejected by
+    ``episode``, ``atomic_fact``, and ``profile`` are user-owned;
+    ``agent_case`` and ``agent_skill`` are agent-owned. Cross-pairs are rejected by
     :meth:`GetRequest._validate_owner_memory_type_pair`.
 
-    Naming note: all four values use the bare kind name (no
+    Naming note: all five values use the bare kind name (no
     ``_memory`` suffix) and match the LanceDB table name + everalgo
     type name for that kind.
     """
 
     EPISODE = "episode"
+    ATOMIC_FACT = "atomic_fact"
     PROFILE = "profile"
     AGENT_CASE = "agent_case"
     AGENT_SKILL = "agent_skill"
@@ -96,7 +97,7 @@ class GetRequest(BaseModel):
     def _validate_owner_memory_type_pair(self) -> Self:
         # Runs after the xor validator (declaration order), so ``owner_type``
         # is well-defined here.
-        user_kinds = {GetMemoryType.EPISODE, GetMemoryType.PROFILE}
+        user_kinds = {GetMemoryType.EPISODE, GetMemoryType.ATOMIC_FACT, GetMemoryType.PROFILE}
         agent_kinds = {GetMemoryType.AGENT_CASE, GetMemoryType.AGENT_SKILL}
         if self.owner_type == "user" and self.memory_type not in user_kinds:
             raise ValueError(
@@ -130,12 +131,18 @@ class GetEpisodeItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    entry_id: str
     user_id: str | None
     app_id: str = "default"
     project_id: str = "default"
     session_id: str
+    parent_type: str
+    parent_id: str
     timestamp: _dt.datetime
     sender_ids: list[str] = Field(default_factory=list)
+    source_entry_ids: list[str] = Field(default_factory=list)
+    source_session_ids: list[str] = Field(default_factory=list)
+    source_agent_ids: list[str] = Field(default_factory=list)
     summary: str
     subject: str
     episode: str
@@ -152,6 +159,24 @@ class GetProfileItem(BaseModel):
     app_id: str = "default"
     project_id: str = "default"
     profile_data: dict[str, object]
+
+
+class GetAtomicFactItem(BaseModel):
+    """Atomic fact listing item — always user-scoped and episode-derived."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    entry_id: str
+    user_id: str | None
+    app_id: str = "default"
+    project_id: str = "default"
+    session_id: str | None = None
+    timestamp: _dt.datetime
+    parent_type: str
+    parent_id: str
+    sender_ids: list[str] = Field(default_factory=list)
+    fact: str
 
 
 class GetAgentCaseItem(BaseModel):
@@ -194,7 +219,7 @@ class GetAgentSkillItem(BaseModel):
 class GetData(BaseModel):
     """Body of ``response.data``.
 
-    All four arrays are always present so client code can iterate
+    All five arrays are always present so client code can iterate
     without branching on ``memory_type``; the route populates exactly
     one.
     """
@@ -202,6 +227,7 @@ class GetData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     episodes: list[GetEpisodeItem] = Field(default_factory=list)
+    atomic_facts: list[GetAtomicFactItem] = Field(default_factory=list)
     profiles: list[GetProfileItem] = Field(default_factory=list)
     agent_cases: list[GetAgentCaseItem] = Field(default_factory=list)
     agent_skills: list[GetAgentSkillItem] = Field(default_factory=list)

@@ -34,7 +34,7 @@ class UserProfileFrontmatter(ProfilePathMixin, UserScopedFrontmatter):
     """Algo-side ``implicit_traits`` bucket (LLM-inferred preferences)."""
 
     profile_timestamp_ms: int = 0
-    """Algo-emitted profile timestamp (ms epoch); equals the timestamp of
-    the most recent MemCell that fed into the synthesis. Compared with
+    """EverOS-computed profile timestamp (ms epoch); equals the timestamp
+    of the most recent MemCell that fed into the synthesis. Compared with
     :attr:`everos.infra.persistence.sqlite.Cluster.last_ts_ms` to decide
     whether a cluster is fresh enough to drive a profile re-extraction."""

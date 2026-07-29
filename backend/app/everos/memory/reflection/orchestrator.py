@@ -22,10 +22,15 @@ if TYPE_CHECKING:
     from everalgo.user_memory import EpisodeReflector
 
     from app.everos.component.embedding import EmbeddingProvider
+    from app.everos.component.llm.protocol import LLMClient
     from app.everos.infra.persistence.markdown import EpisodeWriter
 
 import numpy as np
 
+from app.everos.component.embedding import (
+    EmbeddingNotConfiguredError,
+    EmbeddingServiceError,
+)
 from app.everos.component.utils.datetime import from_timestamp, to_iso_format
 from app.everos.core.errors import AppError
 from app.everos.core.observability.logging import get_logger
@@ -33,11 +38,18 @@ from app.everos.core.persistence import MemoryRoot
 from app.everos.infra.ome.context import StrategyContext
 from app.everos.memory._partition_locks import get_partition_lock
 from app.everos.memory.events import EpisodeExtracted
+from app.everos.memory.extract.pipeline.user_memory import (
+    _limit_episode_summary,
+    _summarize_episode_content,
+    _summary_is_valid,
+    _truncate_episode_summary,
+)
 
 logger = get_logger(__name__)
 
 _MAX_CLUSTERS_PER_RUN = 10
 _WAIT_TIMEOUT_SECONDS = 120.0
+_AGGREGATED_SUBJECT_PREFIX = "[Aggregated Memory]"
 
 
 def _escape_sql(value: str) -> str:
@@ -81,6 +93,7 @@ class ReflectionOrchestrator:
         report_repo: Any,
         reflector: EpisodeReflector,
         embedder: EmbeddingProvider,
+        llm_client: LLMClient | None = None,
     ) -> None:
         self._cluster_repo = cluster_repo
         self._episode_store = episode_store
@@ -89,6 +102,7 @@ class ReflectionOrchestrator:
         self._report_repo = report_repo
         self._reflector = reflector
         self._embedder = embedder
+        self._llm_client = llm_client
 
     async def run(
         self,
@@ -99,6 +113,7 @@ class ReflectionOrchestrator:
         kind: str = "user_memory",
         app_id: str = "default",
         project_id: str = "default",
+        active_session_ids: set[str] | None = None,
     ) -> list[object]:
         """Run one Reflection cycle for a single owner scope.
 
@@ -138,6 +153,7 @@ class ReflectionOrchestrator:
                 owner_type=owner_type,
                 app_id=app_id,
                 project_id=project_id,
+                active_session_ids=active_session_ids,
             )
             if report is not None:
                 reports.append(report)
@@ -161,6 +177,7 @@ class ReflectionOrchestrator:
         owner_type: str,
         app_id: str,
         project_id: str,
+        active_session_ids: set[str] | None = None,
     ) -> object | None:
         """Process one cluster, catching errors to allow the cycle to continue.
 
@@ -183,6 +200,7 @@ class ReflectionOrchestrator:
                 owner_type=owner_type,
                 app_id=app_id,
                 project_id=project_id,
+                active_session_ids=active_session_ids,
             )
         except AppError:
             logger.warning(
@@ -247,6 +265,7 @@ class ReflectionOrchestrator:
         owner_type: str,
         app_id: str,
         project_id: str,
+        active_session_ids: set[str] | None = None,
     ) -> object | None:
         """Full flow for one cluster: merge, write, re-extract, deprecate.
 
@@ -265,9 +284,11 @@ class ReflectionOrchestrator:
 
         scope = dict(owner_id=owner_id, app_id=app_id, project_id=project_id)
         members, episodes = await self._load_cluster_episodes(
-            cluster_id=cluster_id, **scope
+            cluster_id=cluster_id,
+            active_session_ids=active_session_ids,
+            **scope,
         )
-        if not members or not episodes:
+        if not members or len(episodes) < 2:
             return None
 
         mode, algo_result = await self._reflect_cluster(
@@ -335,6 +356,7 @@ class ReflectionOrchestrator:
         owner_id: str,
         app_id: str,
         project_id: str,
+        active_session_ids: set[str] | None = None,
     ) -> tuple[list[tuple[str, str]], list[Any]]:
         """Read cluster members and fetch their episode rows from LanceDB.
 
@@ -358,7 +380,26 @@ class ReflectionOrchestrator:
             app_id=app_id,
             project_id=project_id,
         )
+        if active_session_ids is not None:
+            episodes = [
+                ep for ep in episodes
+                if self._episode_in_active_scope(ep, active_session_ids)
+            ]
+            active_entry_ids = {ep.entry_id for ep in episodes}
+            members = [
+                (mid, member_type)
+                for mid, member_type in members
+                if mid in active_entry_ids
+            ]
         return members, episodes
+
+    @staticmethod
+    def _episode_in_active_scope(episode: Any, active_session_ids: set[str]) -> bool:
+        """Return whether an episode participates in active-session reflection."""
+        if getattr(episode, "parent_type", None) == "cluster":
+            return True
+        session_id = getattr(episode, "session_id", None)
+        return isinstance(session_id, str) and session_id in active_session_ids
 
     async def _write_and_reextract(
         self,
@@ -397,6 +438,7 @@ class ReflectionOrchestrator:
             project_id=project_id,
             algo_result=algo_result,
             last_ts=last_ts,
+            episodes=episodes,
         )
         logger.info(
             "reflection_merged",
@@ -425,6 +467,7 @@ class ReflectionOrchestrator:
         project_id: str,
         algo_result: AlgoEpisode,
         last_ts: object,
+        episodes: list[Any] | None = None,
     ) -> str:
         """Write the merged episode entry to markdown.
 
@@ -442,8 +485,16 @@ class ReflectionOrchestrator:
         last_ts_iso = to_iso_format(from_timestamp(_ts_to_ms(last_ts)))
         if last_ts_iso is None:
             raise ValueError("to_iso_format returned None for valid timestamp")
+        algo_result = await _ensure_merged_episode_summary(
+            algo_result,
+            self._llm_client,
+        )
         inline, sections = _merged_episode_to_entry_body(
-            algo_result, cluster_id, owner_id, last_ts_iso
+            algo_result,
+            cluster_id,
+            owner_id,
+            last_ts_iso,
+            episodes=episodes,
         )
         entry_ids = await self._episode_writer.append_entries(
             owner_id,
@@ -917,8 +968,11 @@ class ReflectionOrchestrator:
         await self._cluster_repo.remove_members(cluster_id, to_deprecate)
         await self._cluster_repo.add_member(cluster_id, merged_entry_id, "episode")
 
-        centroid = await self._embedder.embed(algo_result.episode)
-        centroid_blob = np.asarray(centroid, dtype=np.float32).tobytes()
+        centroid_blob = await self._compute_cluster_centroid_blob(
+            cluster_id=cluster_id,
+            merged_entry_id=merged_entry_id,
+            episode_text=algo_result.episode,
+        )
         last_ts_ms = _ts_to_ms(max(ep.timestamp for ep in episodes))
         await self._cluster_repo.update_metadata(
             cluster_id,
@@ -927,6 +981,34 @@ class ReflectionOrchestrator:
             last_ts_ms=last_ts_ms,
             preview_json=json.dumps([algo_result.episode[:200]], ensure_ascii=False),
         )
+
+    async def _compute_cluster_centroid_blob(
+        self,
+        *,
+        cluster_id: str,
+        merged_entry_id: str,
+        episode_text: str,
+    ) -> bytes:
+        """Return a centroid blob for the merged cluster.
+
+        Embedding is an index-quality concern. If the provider is unavailable
+        or in arrears, keep the previous centroid so reflection can still
+        finish deprecation, membership update, and report creation.
+        """
+        try:
+            centroid = await self._embedder.embed(episode_text)
+        except (EmbeddingNotConfiguredError, EmbeddingServiceError) as exc:
+            logger.warning(
+                "reflection_cluster_centroid_embed_failed",
+                cluster_id=cluster_id,
+                merged_entry_id=merged_entry_id,
+                error=str(exc),
+            )
+            existing = await self._cluster_repo.get_with_members(cluster_id)
+            if existing is None:
+                raise
+            return np.asarray(existing.centroid, dtype=np.float32).tobytes()
+        return np.asarray(centroid, dtype=np.float32).tobytes()
 
     async def _create_reflection_report(
         self,
@@ -1042,6 +1124,8 @@ def _merged_episode_to_entry_body(
     cluster_id: str,
     owner_id: str,
     timestamp_iso: str,
+    *,
+    episodes: list[Any] | None = None,
 ) -> tuple[dict[str, object], dict[str, str]]:
     """Build ``(inline, sections)`` for a merged episode md entry.
 
@@ -1057,18 +1141,130 @@ def _merged_episode_to_entry_body(
     Returns:
         ``(inline, sections)`` tuple ready for ``append_entries``.
     """
+    subject, summary, content = _normalise_merged_episode_fields(
+        algo_result,
+        cluster_id=cluster_id,
+    )
     inline: dict[str, object] = {
         "owner_id": owner_id,
         "timestamp": timestamp_iso,
         "parent_type": "cluster",
         "parent_id": cluster_id,
     }
+    lineage = _source_lineage_from_episodes(episodes or [])
+    inline.update(lineage)
     sections: dict[str, str] = {
-        "Subject": algo_result.subject or "",
-        "Content": algo_result.episode,
+        "Subject": subject,
+        "Summary": summary,
+        "Content": content,
     }
     return inline, sections
 
+
+def _source_lineage_from_episodes(episodes: list[Any]) -> dict[str, list[str]]:
+    source_entry_ids: list[str] = []
+    source_session_ids: list[str] = []
+    source_agent_ids: list[str] = []
+    for episode in episodes:
+        entry_id = getattr(episode, "entry_id", None)
+        if isinstance(entry_id, str) and entry_id and entry_id not in source_entry_ids:
+            source_entry_ids.append(entry_id)
+        session_id = getattr(episode, "session_id", None)
+        if isinstance(session_id, str) and session_id and session_id not in source_session_ids:
+            source_session_ids.append(session_id)
+        agent_id = getattr(episode, "agent_id", None)
+        if isinstance(agent_id, str) and agent_id and agent_id not in source_agent_ids:
+            source_agent_ids.append(agent_id)
+
+    lineage: dict[str, list[str]] = {}
+    if source_entry_ids:
+        lineage["source_entry_ids"] = source_entry_ids
+    if source_session_ids:
+        lineage["source_session_ids"] = source_session_ids
+    if source_agent_ids:
+        lineage["source_agent_ids"] = source_agent_ids
+    return lineage
+
+
+async def _ensure_merged_episode_summary(
+    algo_result: AlgoEpisode,
+    llm_client: LLMClient | None,
+) -> AlgoEpisode:
+    """Guarantee a usable independent summary for a merged episode."""
+    content = str(getattr(algo_result, "episode", "") or "").strip()
+    if not content:
+        raise ValueError("merged episode content is empty")
+
+    summary = getattr(algo_result, "summary", None)
+    if _summary_is_valid(summary, content):
+        limited = _limit_episode_summary(summary)
+        if limited == summary.strip():
+            return algo_result
+        return _copy_algo_result_with_summary(algo_result, limited)
+
+    generated = await _summarize_episode_content(content, llm_client)
+    if _summary_is_valid(generated, content):
+        return _copy_algo_result_with_summary(
+            algo_result,
+            _limit_episode_summary(generated),
+        )
+
+    return _copy_algo_result_with_summary(
+        algo_result,
+        _truncate_episode_summary(content),
+    )
+
+
+def _copy_algo_result_with_summary(algo_result: AlgoEpisode, summary: str) -> AlgoEpisode:
+    if hasattr(algo_result, "model_copy"):
+        return algo_result.model_copy(update={"summary": summary})
+
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        episode=getattr(algo_result, "episode", ""),
+        subject=getattr(algo_result, "subject", ""),
+        summary=summary,
+    )
+
+
+def _normalise_merged_episode_fields(
+    algo_result: AlgoEpisode,
+    *,
+    cluster_id: str,
+) -> tuple[str, str, str]:
+    """Return non-empty ``(subject, summary, content)`` for a merged episode."""
+    content = str(getattr(algo_result, "episode", "") or "").strip()
+    if not content:
+        raise ValueError("merged episode content is empty")
+
+    raw_subject = str(getattr(algo_result, "subject", "") or "").strip()
+    base_subject = raw_subject or _first_content_line(content) or f"Cluster {cluster_id}"
+    subject = _prefixed_aggregated_subject(base_subject)
+
+    raw_summary = str(getattr(algo_result, "summary", "") or "").strip()
+    summary = (
+        _limit_episode_summary(raw_summary)
+        if _summary_is_valid(raw_summary, content)
+        else _truncate_episode_summary(content)
+    )
+
+    return subject, summary, content
+
+
+def _prefixed_aggregated_subject(subject: str) -> str:
+    text = subject.strip()
+    if text.lower().startswith(_AGGREGATED_SUBJECT_PREFIX.lower()):
+        return text
+    return f"{_AGGREGATED_SUBJECT_PREFIX} {text}"
+
+
+def _first_content_line(content: str) -> str:
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return ""
 
 def _ts_to_ms(ts: object) -> int:
     """Coerce a timestamp to milliseconds.

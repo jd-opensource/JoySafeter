@@ -21,8 +21,9 @@ from __future__ import annotations
 
 from app.everos.infra.persistence.lancedb import AtomicFact, ParentType, atomic_fact_repo
 
+from ..vector_embedding import embed_text_for_index
 from ._common import parse_inline_list, require_iso_timestamp
-from ._daily_log_base import BaseDailyLogHandler, ParsedEntry
+from ._daily_log_base import BaseDailyLogHandler, ParsedEntry, daily_log_row_id
 
 
 class AtomicFactHandler(BaseDailyLogHandler):
@@ -47,9 +48,13 @@ class AtomicFactHandler(BaseDailyLogHandler):
         s = entry.structured
         text = s.sections.get("Fact", "").strip()
         tokens = self._deps.tokenizer.tokenize(text)
-        vector = await self._deps.embedder.embed(text)
+        indexed = await embed_text_for_index(
+            self._deps.embedder,
+            text,
+            embedding_model=getattr(self._deps.embedder, "_model", None),
+        )
         return AtomicFact(
-            id=f"{owner_id}_{entry.entry_id}",
+            id=daily_log_row_id(md_path, entry.entry_id),
             entry_id=entry.entry_id,
             owner_id=owner_id,
             owner_type=owner_type,
@@ -64,5 +69,8 @@ class AtomicFactHandler(BaseDailyLogHandler):
             fact_tokens=" ".join(tokens),
             md_path=md_path,
             content_sha256=entry.content_sha256,
-            vector=vector,
+            vector=indexed.vector,
+            vector_status=indexed.vector_status,
+            vector_updated_at=indexed.vector_updated_at,
+            embedding_model=indexed.embedding_model,
         )

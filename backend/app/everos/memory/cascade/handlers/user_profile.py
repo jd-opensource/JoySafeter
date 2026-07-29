@@ -80,8 +80,12 @@ class UserProfileHandler(Handler):
             }
         )
 
-        row_id = owner_id
-        prior = await user_profile_repo.get_by_id(row_id)
+        row_id = _profile_row_id(app_id, project_id, owner_id)
+        prior = await user_profile_repo.find_by_owner_scope(
+            owner_id,
+            app_id=app_id,
+            project_id=project_id,
+        )
         if prior is not None and prior.content_sha256 == digest:
             return HandlerOutcome(
                 md_path=md_path,
@@ -132,3 +136,7 @@ def _dump_json(value: Any) -> str:
     that inspects the column without re-decoding.
     """
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+
+def _profile_row_id(app_id: str, project_id: str, owner_id: str) -> str:
+    return f"{app_id}:{project_id}:{owner_id}"

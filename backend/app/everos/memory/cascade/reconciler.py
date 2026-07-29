@@ -27,7 +27,7 @@ quiet sweeps.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Set
 
 from .types import ReconcileDecision, ScanInput
 
@@ -51,6 +51,8 @@ class PriorState:
 def reconcile(
     scan: Iterable[ScanInput],
     state: Mapping[str, PriorState],
+    *,
+    missing_projections: Set[str] | None = None,
 ) -> list[ReconcileDecision]:
     """Compute the UPSERT plan for one scanner sweep.
 
@@ -59,6 +61,8 @@ def reconcile(
             kind (scanner output).
         state: ``{md_path: PriorState}`` — the current
             ``md_change_state`` snapshot keyed by path.
+        missing_projections: Done md paths whose derived projection row
+            is missing from the downstream index.
 
     Returns:
         Ordered :class:`ReconcileDecision` list — ``added`` /
@@ -67,6 +71,7 @@ def reconcile(
     """
     decisions: list[ReconcileDecision] = []
     seen: set[str] = set()
+    missing_projections = missing_projections or set()
 
     for item in scan:
         seen.add(item.md_path)
@@ -83,6 +88,15 @@ def reconcile(
             continue
         # Skip when the row is already done and mtime hasn't moved.
         if prior.status == "done" and prior.mtime == item.mtime:
+            if item.md_path in missing_projections:
+                decisions.append(
+                    ReconcileDecision(
+                        md_path=item.md_path,
+                        kind=item.kind,
+                        change_type="modified",
+                        mtime=item.mtime,
+                    )
+                )
             continue
         decisions.append(
             ReconcileDecision(

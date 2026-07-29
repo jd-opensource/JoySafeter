@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import os
 import time
@@ -7,13 +8,28 @@ from typing import Any, Optional
 
 import httpx
 
+from app.joysafeter_orchestrator.kernel.everos_identity import (
+    resolve_everos_user_identity_for_session,
+)
 from app.joysafeter_orchestrator.kernel.vault_cipher import VaultCipher
 from app.joysafeter_orchestrator.runtime.adapter import HarnessInput, SkillArchive
+from app.joysafeter_shared.everos_scope import (
+    compose_everos_project_id,
+    compose_everos_user_id,
+    everos_path_safe_id,
+)
 
 logger = logging.getLogger(__name__)
 
 CONVERSATION_HISTORY_EVENT_LIMIT = 100
 CONVERSATION_HISTORY_MAX_CHARS = 24_000
+GRPC_INLINE_FILE_MOUNT_MAX_BYTES = 24 * 1024 * 1024
+EVEROS_BOOTSTRAP_EPISODE_LIMIT = 5
+EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT = 5
+EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT = 5
+EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT = 5
+EVEROS_BOOTSTRAP_MAX_CHARS = 12_000
+EVEROS_BOOTSTRAP_TIMEOUT_SECONDS = 5.0
 
 # ------------------------------------------------------------------
 # Builder helpers — Rust parity (harness_input_builder.rs)
@@ -77,22 +93,451 @@ def _session_container_work_dir(last_work_dir: Optional[str]) -> str:
     return "/workspace"
 
 
+def _should_inline_session_file_mounts(session_files: list[Any], workspace_path: Optional[str]) -> bool:
+    if workspace_path:
+        return False
+    total_size = sum(int(getattr(sf, "size_bytes", 0) or 0) for sf in session_files)
+    return total_size <= GRPC_INLINE_FILE_MOUNT_MAX_BYTES
+
+
+def _agent_model_id(agent_model: Any) -> Optional[str]:
+    if not agent_model:
+        return None
+    return (
+        agent_model.get("id")
+        if isinstance(agent_model, dict)
+        else str(agent_model)
+    )
+
+
+def _resolve_harness_model(
+    *,
+    agent_model: Any,
+    engine_kind: str,
+    secrets: dict[str, str],
+) -> Optional[str]:
+    explicit_model = _agent_model_id(agent_model)
+    if explicit_model:
+        return explicit_model
+    if engine_kind == "codex":
+        return secrets.get("OPENAI_MODEL") or secrets.get("MODEL")
+    # Claude Code should read provider-selected Anthropic models from
+    # ANTHROPIC_MODEL in the container environment. Passing that same value as
+    # `claude --model ...` breaks some Anthropic-compatible gateways.
+    return None
+
+
 def _resolve_everos_base_url() -> str:
-    return os.getenv("EVEROS_BASE_URL", "http://everos:8003").rstrip("/")
+    return os.getenv(
+        "EVEROS_MEMORY_PROXY_BASE_URL",
+        "http://host.docker.internal:8000/api/v1/everos_memory",
+    ).rstrip("/")
+
+
+def _everos_path_safe_id(value: Any, fallback: str) -> str:
+    """Return an EverOS API path-safe id.
+
+    EverOS persists ``app_id`` / ``project_id`` / owner ids as directory
+    segments, so JoySafeter ids that flow into the service must match the
+    EverOS route allow-list and avoid traversal tokens.
+    """
+    return everos_path_safe_id(value, fallback)
+
+
+def _build_everos_identity_env(
+    *,
+    project_id: Any = None,
+    project_slug: Any = None,
+    session_id: Any = None,
+    user_id: Any = None,
+    user_name: Any = None,
+    agent_id: Any = None,
+) -> dict[str, str]:
+    session = _everos_path_safe_id(session_id, "session")
+    user = compose_everos_user_id(user_name=user_name, user_id=user_id)
+    agent = _everos_path_safe_id(agent_id, "agent")
+    everos_project_id = (
+        compose_everos_project_id(project_slug=project_slug, project_id=project_id)
+        if project_id and project_slug
+        else _everos_path_safe_id(project_id, "default")
+    )
+    return {
+        "EVEROS_APP_ID": "joysafeter",
+        "EVEROS_PROJECT_ID": everos_project_id,
+        "EVEROS_SESSION_ID": session,
+        "EVEROS_USER_ID": user,
+        "EVEROS_AGENT_ID": agent,
+    }
 
 
 def _append_everos_system_prompt(
-    base_system: Optional[str], everos_base_url: str
+    base_system: Optional[str],
+    everos_base_url: str,
+    identity: dict[str, str] | None = None,
+    *,
+    active_session_ids: list[str] | None = None,
 ) -> str:
+    identity = identity or _build_everos_identity_env()
+    active_session_note = ""
+    if active_session_ids is not None:
+        active_session_note = (
+            "\n"
+            "Archived JoySafeter sessions are inactive for memory. For "
+            "`episode`, `atomic_fact`, and `agent_case` `/get` or "
+            "`/search` requests, include a `filters.session_id` "
+            "constraint using `EVEROS_ACTIVE_SESSION_IDS`; do not retrieve "
+            "or use memories from sessions outside that list.\n"
+        )
     note = (
         "# EverOS Memory Service\n"
         "The EverOS memory service is available inside this sandbox at "
         f"`{everos_base_url}`. Use it for long-term memory operations when "
-        "the task explicitly requires memory search or memory writes."
+        "the task explicitly requires memory search or memory writes.\n\n"
+        "Use the JoySafeter identity mapping below for every EverOS request:\n"
+        f"- `app_id`: `{identity['EVEROS_APP_ID']}` from `EVEROS_APP_ID`\n"
+        f"- `project_id`: `{identity['EVEROS_PROJECT_ID']}` from `EVEROS_PROJECT_ID`\n"
+        f"- `session_id`: `{identity['EVEROS_SESSION_ID']}` from `EVEROS_SESSION_ID`\n"
+        f"- user memory owner `user_id`: `{identity['EVEROS_USER_ID']}` from `EVEROS_USER_ID`\n"
+        f"- agent memory owner `agent_id`: `{identity['EVEROS_AGENT_ID']}` from `EVEROS_AGENT_ID`\n\n"
+        "For `/search` or `/get`, include `app_id` and `project_id`; set "
+        "`user_id` for user memories and `agent_id` for agent memories."
+        f"{active_session_note}"
     )
     if base_system:
         return f"{base_system}\n\n{note}"
     return note
+
+
+async def _fetch_everos_bootstrap_memories(
+    everos_base_url: str,
+    identity: dict[str, str],
+    *,
+    active_session_ids: list[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Fetch lightweight startup memories from EverOS.
+
+    This is intentionally best-effort at the caller boundary. The fetched
+    records are used only to build a compact prompt preview; full records stay
+    available through EverOS /get and /search during the session.
+    """
+    base_payload = {
+        "app_id": identity["EVEROS_APP_ID"],
+        "project_id": identity["EVEROS_PROJECT_ID"],
+        "sort_order": "desc",
+    }
+    session_filter = _active_session_filter(active_session_ids)
+    requests = [
+        (
+            "profiles",
+            {
+                **base_payload,
+                "user_id": identity["EVEROS_USER_ID"],
+                "memory_type": "profile",
+                "page": 1,
+                "page_size": 1,
+            },
+        ),
+        (
+            "episodes",
+            {
+                **base_payload,
+                "user_id": identity["EVEROS_USER_ID"],
+                "memory_type": "episode",
+                "page": 1,
+                "page_size": EVEROS_BOOTSTRAP_EPISODE_LIMIT,
+                "sort_by": "timestamp",
+                **({"filters": session_filter} if session_filter else {}),
+            },
+        ),
+    ]
+    memories: dict[str, list[dict[str, Any]]] = {
+        "profiles": [],
+        "episodes": [],
+        "atomic_facts": [],
+        "agent_cases": [],
+        "agent_skills": [],
+    }
+    timeout = httpx.Timeout(EVEROS_BOOTSTRAP_TIMEOUT_SECONDS, connect=2.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for key, payload in requests:
+            response = await client.post(
+                f"{everos_base_url.rstrip('/')}/get",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json().get("data") or {}
+            values = data.get(key) or []
+            if isinstance(values, list):
+                memories[key] = [v for v in values if isinstance(v, dict)]
+
+        fact_parent_ids = _episode_fact_parent_ids(memories["episodes"])
+        if fact_parent_ids:
+            fact_filter = _merge_bootstrap_filters(
+                {"parent_id": {"in": fact_parent_ids}},
+                session_filter,
+            )
+            response = await client.post(
+                f"{everos_base_url.rstrip('/')}/get",
+                json={
+                    **base_payload,
+                    "user_id": identity["EVEROS_USER_ID"],
+                    "memory_type": "atomic_fact",
+                    "page": 1,
+                    "page_size": EVEROS_BOOTSTRAP_EPISODE_LIMIT
+                    * EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT,
+                    "sort_by": "timestamp",
+                    "filters": fact_filter,
+                },
+            )
+            response.raise_for_status()
+            data = response.json().get("data") or {}
+            values = data.get("atomic_facts") or []
+            if isinstance(values, list):
+                memories["atomic_facts"] = [v for v in values if isinstance(v, dict)]
+                _attach_atomic_facts_to_episodes(
+                    memories["episodes"],
+                    memories["atomic_facts"],
+                    per_episode=EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT,
+                )
+
+        requests = [
+            (
+                "agent_cases",
+                {
+                    **base_payload,
+                    "agent_id": identity["EVEROS_AGENT_ID"],
+                    "memory_type": "agent_case",
+                    "page": 1,
+                    "page_size": EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT,
+                    "sort_by": "timestamp",
+                    **({"filters": session_filter} if session_filter else {}),
+                },
+            ),
+            (
+                "agent_skills",
+                {
+                    **base_payload,
+                    "agent_id": identity["EVEROS_AGENT_ID"],
+                    "memory_type": "agent_skill",
+                    "page": 1,
+                    "page_size": EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT,
+                    "sort_by": "updated_at",
+                },
+            ),
+        ]
+        for key, payload in requests:
+            response = await client.post(
+                f"{everos_base_url.rstrip('/')}/get",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json().get("data") or {}
+            values = data.get(key) or []
+            if isinstance(values, list):
+                memories[key] = [v for v in values if isinstance(v, dict)]
+    return memories
+
+
+def _episode_fact_parent_ids(episodes: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    parent_ids: list[str] = []
+    for episode in episodes:
+        for key in ("entry_id", "parent_id"):
+            value = episode.get(key)
+            if isinstance(value, str) and value and value not in seen:
+                seen.add(value)
+                parent_ids.append(value)
+    return parent_ids
+
+
+def _attach_atomic_facts_to_episodes(
+    episodes: list[dict[str, Any]],
+    facts: list[dict[str, Any]],
+    *,
+    per_episode: int,
+) -> None:
+    parent_to_episode_indexes: dict[str, list[int]] = {}
+    for index, episode in enumerate(episodes):
+        episode["atomic_facts"] = []
+        for parent_id in _episode_fact_parent_ids([episode]):
+            parent_to_episode_indexes.setdefault(parent_id, []).append(index)
+
+    for fact in facts:
+        parent_id = fact.get("parent_id")
+        if not isinstance(parent_id, str):
+            continue
+        for index in parent_to_episode_indexes.get(parent_id, []):
+            bucket = episodes[index].setdefault("atomic_facts", [])
+            if isinstance(bucket, list) and len(bucket) < per_episode:
+                bucket.append(fact)
+
+
+def _merge_bootstrap_filters(
+    primary_filter: dict[str, Any],
+    session_filter: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not session_filter:
+        return primary_filter
+    return {"AND": [primary_filter, session_filter]}
+
+
+def _active_session_filter(active_session_ids: list[str] | None) -> dict[str, Any] | None:
+    if active_session_ids is None:
+        return None
+    if not active_session_ids:
+        return {"session_id": "__no_active_sessions__"}
+    if len(active_session_ids) == 1:
+        return {"session_id": active_session_ids[0]}
+    return {"session_id": {"in": active_session_ids}}
+
+
+async def _list_active_everos_session_ids(
+    db_session,
+    *,
+    project_id: str | None,
+    fallback_session_id: uuid.UUID | None,
+) -> list[str]:
+    from sqlalchemy import select
+
+    from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+
+    if project_id:
+        result = await db_session.execute(
+            select(JoySafeterSession.id)
+            .where(
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.archived_at.is_(None),
+            )
+            .order_by(JoySafeterSession.created_at.desc())
+            .limit(1000)
+        )
+        return [
+            _everos_path_safe_id(str(session_id), "default_session")
+            for session_id in result.scalars().all()
+        ]
+    if fallback_session_id is None:
+        return []
+    return [_everos_path_safe_id(str(fallback_session_id), "default_session")]
+
+
+async def _build_everos_bootstrap_prompt(
+    everos_base_url: str,
+    identity: dict[str, str],
+    *,
+    active_session_ids: list[str] | None = None,
+) -> str | None:
+    try:
+        memories = await _fetch_everos_bootstrap_memories(
+            everos_base_url,
+            identity,
+            active_session_ids=active_session_ids,
+        )
+    except Exception as exc:
+        logger.warning("Failed to fetch EverOS bootstrap memories: %s", exc)
+        return None
+    return _format_everos_bootstrap_prompt(identity, memories)
+
+
+def _format_everos_bootstrap_prompt(
+    identity: dict[str, str],
+    memories: dict[str, list[dict[str, Any]]],
+) -> str | None:
+    profiles = memories.get("profiles") or []
+    episodes = memories.get("episodes") or []
+    agent_cases = memories.get("agent_cases") or []
+    agent_skills = memories.get("agent_skills") or []
+    if not (profiles or episodes or agent_cases or agent_skills):
+        return None
+
+    lines = [
+        "# EverOS Memory Bootstrap",
+        "The following startup memories were loaded for this session as compact context. Treat them as hints, not as exhaustive evidence.",
+        f"- app_id: {identity['EVEROS_APP_ID']}",
+        f"- project_id: {identity['EVEROS_PROJECT_ID']}",
+        f"- session_id: {identity['EVEROS_SESSION_ID']}",
+        f"- user_id: {identity['EVEROS_USER_ID']}",
+        f"- agent_id: {identity['EVEROS_AGENT_ID']}",
+        "",
+        "When more detail is needed, load the full memory through the EverOS service instead of guessing from this preview:",
+        "- Full user episode/profile/fact records: POST `${EVEROS_BASE_URL}/get` with `app_id`, `project_id`, `user_id`, and `memory_type` set to `episode`, `profile`, or `atomic_fact`.",
+        "- Full agent case/skill records: POST `${EVEROS_BASE_URL}/get` with `app_id`, `project_id`, `agent_id`, and `memory_type` set to `agent_case` or `agent_skill`.",
+        "- For relevance-based lookup, POST `${EVEROS_BASE_URL}/search` with the same ids and a task-specific query, then use `/get` if a full listing is needed.",
+        "- Current `/get` is owner/type paginated; when you already know an id, request a page for that owner/type and match the id in the returned items.",
+        f"- Agent skills are loaded progressively: this bootstrap includes up to {EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT}; use `/get` or `/search` for more.",
+        "",
+        "Example `/get` bodies:",
+        f"- Episode: {json.dumps({'app_id': identity['EVEROS_APP_ID'], 'project_id': identity['EVEROS_PROJECT_ID'], 'user_id': identity['EVEROS_USER_ID'], 'memory_type': 'episode', 'page': 1, 'page_size': 5, 'sort_by': 'timestamp', 'sort_order': 'desc'}, ensure_ascii=False)}",
+        f"- Atomic facts: {json.dumps({'app_id': identity['EVEROS_APP_ID'], 'project_id': identity['EVEROS_PROJECT_ID'], 'user_id': identity['EVEROS_USER_ID'], 'memory_type': 'atomic_fact', 'page': 1, 'page_size': 25, 'sort_by': 'timestamp', 'sort_order': 'desc', 'filters': {'parent_id': 'episode_entry_id'}}, ensure_ascii=False)}",
+        f"- Agent case: {json.dumps({'app_id': identity['EVEROS_APP_ID'], 'project_id': identity['EVEROS_PROJECT_ID'], 'agent_id': identity['EVEROS_AGENT_ID'], 'memory_type': 'agent_case', 'page': 1, 'page_size': 5, 'sort_by': 'timestamp', 'sort_order': 'desc'}, ensure_ascii=False)}",
+        f"- Agent skill: {json.dumps({'app_id': identity['EVEROS_APP_ID'], 'project_id': identity['EVEROS_PROJECT_ID'], 'agent_id': identity['EVEROS_AGENT_ID'], 'memory_type': 'agent_skill', 'page': 1, 'page_size': 5, 'sort_by': 'updated_at', 'sort_order': 'desc'}, ensure_ascii=False)}",
+    ]
+
+    if profiles:
+        lines.extend(["", "## User Profiles"])
+        for profile in profiles:
+            profile_data = profile.get("profile_data") or {}
+            lines.append(f"- id: {_text(profile.get('id'))}")
+            if isinstance(profile_data, dict):
+                for key in ("summary", "explicit_info", "implicit_traits"):
+                    if key in profile_data:
+                        lines.append(f"  - {key}: {_compact_value(profile_data[key])}")
+            else:
+                lines.append(f"  - profile_data: {_compact_value(profile_data)}")
+
+    if episodes:
+        lines.extend(["", f"## Latest User Episodes (up to {EVEROS_BOOTSTRAP_EPISODE_LIMIT})"])
+        for episode in episodes[:EVEROS_BOOTSTRAP_EPISODE_LIMIT]:
+            lines.append(f"- id: {_text(episode.get('id'))}")
+            lines.append(f"  - timestamp: {_text(episode.get('timestamp'))}")
+            lines.append(f"  - subject: {_text(episode.get('subject'))}")
+            lines.append(f"  - summary: {_text(episode.get('summary'))}")
+            facts = episode.get("atomic_facts") or []
+            if isinstance(facts, list) and facts:
+                lines.append("  - Related Facts:")
+                for fact in facts[:EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT]:
+                    if isinstance(fact, dict):
+                        lines.append(f"    - {_text(fact.get('fact'))}")
+
+    if agent_cases:
+        lines.extend(["", f"## Agent Case Metadata (up to {EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT})"])
+        for case in agent_cases[:EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT]:
+            lines.append(f"- id: {_text(case.get('id'))}")
+            lines.append(f"  - session_id: {_text(case.get('session_id'))}")
+            lines.append(f"  - timestamp: {_text(case.get('timestamp'))}")
+            lines.append(f"  - task_intent: {_text(case.get('task_intent'))}")
+            lines.append(f"  - approach: {_text(case.get('approach'))}")
+            lines.append(f"  - key_insight: {_text(case.get('key_insight'))}")
+            lines.append(f"  - quality_score: {_text(case.get('quality_score'))}")
+
+    if agent_skills:
+        lines.extend(["", f"## Agent Skill Metadata (progressive, up to {EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT})"])
+        for skill in agent_skills[:EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT]:
+            lines.append(f"- id: {_text(skill.get('id'))}")
+            lines.append(f"  - name: {_text(skill.get('name'))}")
+            lines.append(f"  - description: {_text(skill.get('description'))}")
+            lines.append(f"  - confidence: {_text(skill.get('confidence'))}")
+            lines.append(f"  - maturity_score: {_text(skill.get('maturity_score'))}")
+            lines.append(f"  - source_case_ids: {_compact_value(skill.get('source_case_ids') or [])}")
+
+    prompt = "\n".join(lines)
+    if len(prompt) > EVEROS_BOOTSTRAP_MAX_CHARS:
+        return prompt[:EVEROS_BOOTSTRAP_MAX_CHARS].rstrip() + "\n[EverOS bootstrap truncated]"
+    return prompt
+
+
+def _compact_value(value: Any) -> str:
+    if isinstance(value, str):
+        return _text(value)
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _text(value: Any, limit: int = 600) -> str:
+    if value is None:
+        return ""
+    text = str(value).replace("\r", " ").replace("\n", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
 
 
 def _policy_type(cfg: dict, default_cfg: dict) -> str:
@@ -275,20 +720,11 @@ async def build_harness_input(
     sandbox_db_id: uuid.UUID,
     provider_name: Optional[str] = None,
 ) -> HarnessInput:
+    from app.joysafeter_orchestrator.services import MemoryService, SecretService, SessionService, VaultService
     from app.joysafeter_shared.database import AsyncSessionLocal
-    from app.joysafeter_orchestrator.services import SecretService
-    from app.joysafeter_orchestrator.services import VaultService
-    from app.joysafeter_orchestrator.services import SessionService
-    from app.joysafeter_orchestrator.services import MemoryService
 
     env: dict[str, str] = {}
-    model = None
-    if agent.model:
-        model = (
-            agent.model.get("id")
-            if isinstance(agent.model, dict)
-            else str(agent.model)
-        )
+    model = _agent_model_id(agent.model)
 
     secrets: dict[str, str] = {}
     custom_tools: list[dict[str, Any]] = []
@@ -311,6 +747,10 @@ async def build_harness_input(
         if getattr(agent, "project_id", None) is not None
         else None
     )
+    project_slug: Optional[str] = None
+    everos_user_id: Optional[str] = None
+    everos_user_name: Optional[str] = None
+    active_everos_session_ids: Optional[list[str]] = None
 
     # Resolve environment for setup commands
     environment = None
@@ -339,6 +779,16 @@ async def build_harness_input(
     max_turns = _extract_max_turns(agent)
 
     async with AsyncSessionLocal() as db:
+        if project_id:
+            from sqlalchemy import select as _sa_select
+
+            from app.joysafeter_domain.models.joysafeter_project import Project
+
+            project_result = await db.execute(
+                _sa_select(Project.slug).where(Project.id == project_id).limit(1)
+            )
+            project_slug = project_result.scalar_one_or_none()
+
         secret_svc = SecretService(db)
         secret_refs = environment_config.get("secret_refs")
         if isinstance(secret_refs, list):
@@ -350,18 +800,12 @@ async def build_harness_input(
             secrets = await secret_svc.merge_secret_refs_into_env(
                 secrets, [agent.secret_ref], project_id=project_id, override=True
             )
-        if secrets and not model:
-            if engine_kind == "codex":
-                model = secrets.get("OPENAI_MODEL")
-            else:
-                # claude / native: prefer Anthropic model, but fall back to
-                # OPENAI_MODEL so a native agent configured with an OpenAI-
-                # compatible secret (OPENAI_API_KEY/BASE_URL) still resolves a model.
-                model = (
-                    secrets.get("ANTHROPIC_MODEL")
-                    or secrets.get("OPENAI_MODEL")
-                    or secrets.get("MODEL")
-                )
+        if secrets:
+            model = _resolve_harness_model(
+                agent_model=agent.model,
+                engine_kind=engine_kind,
+                secrets=secrets,
+            )
         # Don't merge secrets into env for gRPC. Docker sandboxes receive them
         # via container env; local runtime adapters merge HarnessInput.secrets.
 
@@ -373,6 +817,19 @@ async def build_harness_input(
                 work_dir = _session_container_work_dir(
                     getattr(session, "last_work_dir", None)
                 )
+                everos_identity_user = await resolve_everos_user_identity_for_session(
+                    db,
+                    session_id,
+                    session=session,
+                    project_id=getattr(session, "project_id", None) or project_id,
+                )
+                everos_user_id = everos_identity_user.joysafeter_user_id
+                everos_user_name = everos_identity_user.joysafeter_user_name
+            active_everos_session_ids = await _list_active_everos_session_ids(
+                db,
+                project_id=project_id,
+                fallback_session_id=session_id,
+            )
             vault_ids = (
                 session.vault_ids if session and hasattr(session, "vault_ids") else []
             )
@@ -392,7 +849,9 @@ async def build_harness_input(
                     }
                 )
 
-        if session_id:
+        from app.joysafeter_orchestrator.kernel.legacy_memory import legacy_sandbox_memory_enabled
+
+        if session_id and legacy_sandbox_memory_enabled():
             session_svc = SessionService(db)
             mem_svc = MemoryService(db)
             mem_stores = await session_svc.list_session_memory_stores(session_id)
@@ -436,14 +895,23 @@ async def build_harness_input(
                 memory_system_prompt = "\n".join(prompt_lines)
 
     env.update({str(k): str(v) for k, v in (agent.env or {}).items()})
-    everos_base_url = env.setdefault(
-        "EVEROS_BASE_URL", _resolve_everos_base_url()
-    ).rstrip("/")
+    everos_base_url = _resolve_everos_base_url()
     env["EVEROS_BASE_URL"] = everos_base_url
+    everos_identity = _build_everos_identity_env(
+        project_id=project_id,
+        project_slug=project_slug,
+        session_id=session_id or sandbox_external_id,
+        user_id=everos_user_id,
+        user_name=everos_user_name,
+        agent_id=getattr(agent, "id", None) or engine_kind,
+    )
+    env.update(everos_identity)
+    if active_everos_session_ids is not None:
+        env["EVEROS_ACTIVE_SESSION_IDS"] = json.dumps(active_everos_session_ids, ensure_ascii=False)
 
     if memory_mounts and session_id:
-        from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
         from app.joysafeter_orchestrator.kernel.memory_sync import MemorySessionEntry
+        from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
 
         subs = get_memory_subscribers()
         if subs:
@@ -510,8 +978,18 @@ async def build_harness_input(
         combined_system = base_system or None
 
     combined_system = _append_everos_system_prompt(
-        combined_system, everos_base_url
+        combined_system,
+        everos_base_url,
+        everos_identity,
+        active_session_ids=active_everos_session_ids,
     )
+    everos_bootstrap_prompt = await _build_everos_bootstrap_prompt(
+        everos_base_url,
+        everos_identity,
+        active_session_ids=active_everos_session_ids,
+    )
+    if everos_bootstrap_prompt:
+        combined_system = f"{combined_system}\n\n{everos_bootstrap_prompt}"
 
     prompt = task.prompt
     has_harness_resume = bool(harness_session_id and harness_session_id.strip())
@@ -531,16 +1009,20 @@ async def build_harness_input(
         if session_files:
             from app.joysafeter_shared.storage import get_storage
             storage = get_storage()
+            inline_file_mounts = _should_inline_session_file_mounts(
+                session_files, workspace_path
+            )
             for sf in session_files:
-                try:
-                    data = await storage.get(sf.storage_key)
-                    file_mounts.append(FileMount(
-                        path=sf.mount_path,
-                        content=data,
-                        filename=sf.filename,
-                    ))
-                except Exception as e:
-                    logger.warning("Failed to load file %s: %s", sf.filename, e)
+                if inline_file_mounts:
+                    try:
+                        data = await storage.get(sf.storage_key)
+                        file_mounts.append(FileMount(
+                            path=sf.mount_path,
+                            content=data,
+                            filename=sf.filename,
+                        ))
+                    except Exception as e:
+                        logger.warning("Failed to load file %s: %s", sf.filename, e)
                 # Generate presigned URL if storage supports it
                 try:
                     url = await storage.presign_url(sf.storage_key, expires=3600)
@@ -558,10 +1040,11 @@ async def build_harness_input(
     # Tokens are decrypted here and never logged.
     repos: list[dict[str, Any]] = []
     if session_id:
+        from sqlalchemy import select as _sa_select
+
         from app.joysafeter_domain.models.joysafeter_session_repo import (
             JoySafeterSessionRepo,
         )
-        from sqlalchemy import select as _sa_select
 
         async with AsyncSessionLocal() as repo_db:
             secret_svc = SecretService(repo_db)

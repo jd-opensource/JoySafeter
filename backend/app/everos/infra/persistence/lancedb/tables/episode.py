@@ -10,6 +10,8 @@ from __future__ import annotations
 import datetime as _dt
 from typing import ClassVar
 
+from pydantic import Field, field_validator
+
 from app.everos.core.persistence.lancedb import BaseLanceTable, Vector
 
 from ._parent_type import ParentType
@@ -26,7 +28,7 @@ class Episode(BaseLanceTable):
     BM25_FIELDS: ClassVar[list[str]] = ["episode_tokens"]
 
     id: str
-    """PK = ``<owner_id>_<entry_id>`` (scalar PK)."""
+    """PK = ``<md_path>#<entry_id>`` (scalar PK)."""
 
     entry_id: str
     """md-side seq id ``ep_<YYYYMMDD>_<NNNN>`` (cascade reverse-lookup)."""
@@ -51,6 +53,25 @@ class Episode(BaseLanceTable):
 
     sender_ids: list[str]
     """Distinct ``role=user|assistant`` senders behind the episode."""
+
+    source_entry_ids: list[str] = Field(default_factory=list)
+    """Entry IDs that fed a Reflection aggregate episode."""
+
+    source_session_ids: list[str] = Field(default_factory=list)
+    """Session IDs that fed a Reflection aggregate episode."""
+
+    source_agent_ids: list[str] = Field(default_factory=list)
+    """Agent IDs that fed a Reflection aggregate episode when known."""
+
+    @field_validator(
+        "source_entry_ids",
+        "source_session_ids",
+        "source_agent_ids",
+        mode="before",
+    )
+    @classmethod
+    def _none_lineage_lists_to_empty(cls, value: object) -> object:
+        return [] if value is None else value
 
     subject: str | None = None
     summary: str | None = None
@@ -79,5 +100,12 @@ class Episode(BaseLanceTable):
     """Soft-delete marker set by Reflection when this episode is
     consolidated into a cluster. Value is the cluster entry_id that
     supersedes this row. ``NULL`` means the row is still active."""
+
+    vector_status: str | None = "ready"
+    """``ready`` for real embeddings; ``fallback_zero`` for keyword-only fallback."""
+
+    vector_updated_at: _dt.datetime | None = None
+
+    embedding_model: str | None = None
 
     vector: Vector(_DIM)  # type: ignore[valid-type]

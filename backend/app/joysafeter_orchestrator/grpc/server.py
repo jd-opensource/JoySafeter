@@ -64,6 +64,18 @@ def _get_heartbeat_timeout() -> int:
     return _HEARTBEAT_TIMEOUT_DEFAULT
 
 
+def _should_close_session_on_runner_idle(
+    *, task_done: bool, requires_action_pending: bool
+) -> bool:
+    """Only a post-result idle closes the session's running state.
+
+    Some runners emit an early idle/ready signal after setup or process start
+    while the task is still producing agent events. Treating that as task idle
+    makes the UI show "idle" while tool calls continue.
+    """
+    return task_done and not requires_action_pending
+
+
 class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
     def __init__(
         self,
@@ -92,25 +104,21 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         - Per task: send StartTask, enter inner loop reading events until Result+Idle
         - On disconnect: cleanup
         """
-        # Connection-level rate limiting (atomic try-acquire, no TOCTOU race)
+        # Connection-level rate limiting.
+        acquired_connection_slot = False
         if self._connection_semaphore.locked():
             await context.abort(
                 grpc.StatusCode.RESOURCE_EXHAUSTED,
                 "Too many concurrent connections",
             )
             return
-        try:
-            self._connection_semaphore.acquire_nowait()
-        except ValueError:
-            await context.abort(
-                grpc.StatusCode.RESOURCE_EXHAUSTED,
-                "Too many concurrent connections",
-            )
-            return
+        await self._connection_semaphore.acquire()
+        acquired_connection_slot = True
         try:
             await self._session_impl(request_iterator, context)
         finally:
-            self._connection_semaphore.release()
+            if acquired_connection_slot:
+                self._connection_semaphore.release()
 
     async def _session_impl(self, request_iterator, context):
         await context.send_initial_metadata(())
@@ -280,24 +288,26 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
             # Register memory subscribers for this session
             if linked_session_id:
-                from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
-                from app.joysafeter_orchestrator.kernel.memory_sync import MemorySessionEntry
-                mem_subs = get_memory_subscribers()
-                if mem_subs:
-                    from app.joysafeter_orchestrator.services import SessionService as _SessSvc
-                    async with _ASL_init() as _db_mem:
-                        _sess_svc = _SessSvc(_db_mem)
-                        _mounts = await _sess_svc.list_session_memory_stores(linked_session_id)
-                        for _sms in _mounts:
-                            store_id = _sms.store_id
-                            await mem_subs.register(
-                                store_id,
-                                MemorySessionEntry(
-                                    session_id=linked_session_id,
-                                    sandbox_db_id=sandbox_id,
-                                    mount_name=_sms.mount_name,
-                                ),
-                            )
+                from app.joysafeter_orchestrator.kernel.legacy_memory import legacy_sandbox_memory_enabled
+                if legacy_sandbox_memory_enabled():
+                    from app.joysafeter_orchestrator.lifespan import get_memory_subscribers
+                    from app.joysafeter_orchestrator.kernel.memory_sync import MemorySessionEntry
+                    mem_subs = get_memory_subscribers()
+                    if mem_subs:
+                        from app.joysafeter_orchestrator.services import SessionService as _SessSvc
+                        async with _ASL_init() as _db_mem:
+                            _sess_svc = _SessSvc(_db_mem)
+                            _mounts = await _sess_svc.list_session_memory_stores(linked_session_id)
+                            for _sms in _mounts:
+                                store_id = _sms.store_id
+                                await mem_subs.register(
+                                    store_id,
+                                    MemorySessionEntry(
+                                        session_id=linked_session_id,
+                                        sandbox_db_id=sandbox_id,
+                                        mount_name=_sms.mount_name,
+                                    ),
+                                )
 
             # --- Handle reconnection with active_task_id (AFTER session resolution, matching Rust line 479) ---
             if ready.HasField("active_task_id") and ready.active_task_id:
@@ -819,6 +829,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                 elif payload_type == "idle":
                     idle_msg = msg.idle
+                    if not _should_close_session_on_runner_idle(
+                        task_done=task_done,
+                        requires_action_pending=requires_action_pending,
+                    ):
+                        logger.info(
+                            "Runner idle ignored during resumed task: sandbox=%s task_done=%s requires_action_pending=%s",
+                            sandbox_id,
+                            task_done,
+                            requires_action_pending,
+                        )
+                        continue
                     bridge.status = SandboxBridgeStatus.IDLE
                     bridge.current_task_id = None
                     logger.info("Runner idle after resumed task: sandbox=%s", sandbox_id)
@@ -1808,6 +1829,17 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
             elif payload_type == "idle":
                 idle = msg.idle
+                if not _should_close_session_on_runner_idle(
+                    task_done=task_done,
+                    requires_action_pending=bridge._requires_action_pending,
+                ):
+                    logger.info(
+                        "Runner idle ignored during active task: sandbox=%s task_done=%s requires_action_pending=%s",
+                        sandbox_id,
+                        task_done,
+                        bridge._requires_action_pending,
+                    )
+                    continue
                 bridge.status = SandboxBridgeStatus.IDLE
                 bridge.current_task_id = None
                 logger.info("Runner idle received: sandbox=%s task_done=%s", sandbox_id, task_done)
@@ -1837,7 +1869,7 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                 # This ensures all agent events are in PG when clients see session.status_idle
                 await self._event_buffer.flush()
 
-                if session_id and not bridge._requires_action_pending:
+                if session_id:
                     final_status = getattr(bridge, "_last_result_status", None)
                     last_error = getattr(bridge, "_last_result_error", None)
                     stop_reason = self._stop_reason_from_result(final_status, last_error) if final_status else {"type": "end_turn"}
@@ -2089,6 +2121,29 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
         bridge._last_result_status = final_status
         bridge._last_result_error = error
 
+        if cas_ok and session_id and final_status == TaskStatus.COMPLETED:
+            await self._event_buffer.flush()
+            if self._event_bus:
+                await self._event_bus.flush()
+            try:
+                from app.joysafeter_orchestrator.kernel.everos_bridge import (
+                    sync_task_to_everos_agent_memory,
+                )
+
+                async with AsyncSessionLocal() as bridge_db:
+                    await sync_task_to_everos_agent_memory(
+                        bridge_db,
+                        task_id=task_id,
+                        session_id=session_id,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "EverOS agent memory bridge failed for task %s: %s",
+                    task_id,
+                    exc,
+                    exc_info=True,
+                )
+
         logger.info("Task %s completed: status=%s", task_id, result.status)
 
     @staticmethod
@@ -2243,6 +2298,29 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
                             {"type": "session.status_idle", "stop_reason": stop_reason},
                         )
 
+            if cas_ok and final_status == TaskStatus.COMPLETED:
+                await self._event_buffer.flush()
+                if self._event_bus:
+                    await self._event_bus.flush()
+                try:
+                    from app.joysafeter_orchestrator.kernel.everos_bridge import (
+                        sync_task_to_everos_agent_memory,
+                    )
+
+                    async with AsyncSessionLocal() as bridge_db:
+                        await sync_task_to_everos_agent_memory(
+                            bridge_db,
+                            task_id=task_id,
+                            session_id=session_id,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "EverOS agent memory bridge failed for reconnect task %s: %s",
+                        task_id,
+                        exc,
+                        exc_info=True,
+                    )
+
             if usage:
                 async with AsyncSessionLocal() as db:
                     session_svc = SessionService(db)
@@ -2288,12 +2366,10 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 
                 from app.joysafeter_orchestrator.kernel.harness_input_builder import build_harness_input
 
-                class _FakeTask:
-                    prompt = ""
-                    system_prompt = agent.system_prompt
-
                 harness_input = await build_harness_input(
-                    _FakeTask(), agent, sandbox.chat_session_id,
+                    _build_setup_harness_task(agent, sandbox.chat_session_id),
+                    agent,
+                    sandbox.chat_session_id,
                     bridge.external_id, sandbox_id,
                 )
 
@@ -2602,6 +2678,11 @@ class AgentBridgeServicer(joysafeter_pb2_grpc.AgentBridgeServicer):
 async def _handle_memory_sync_standalone(
     session_id: Optional[uuid.UUID], payload: dict
 ) -> None:
+    from app.joysafeter_orchestrator.kernel.legacy_memory import legacy_sandbox_memory_enabled
+
+    if not legacy_sandbox_memory_enabled():
+        logger.info("Ignoring legacy memory_sync because EverOS memory is active")
+        return
     if not session_id:
         return
 
@@ -2707,6 +2788,9 @@ def _build_repo_configs(harness_input) -> list:
 def _build_setup_sandbox(
     harness_input, agent, environment=None, work_dir=None,
 ) -> joysafeter_pb2.SetupSandbox:
+    from app.joysafeter_orchestrator.kernel.legacy_memory import legacy_sandbox_memory_enabled
+
+    legacy_memory_active = legacy_sandbox_memory_enabled()
     skills = []
     for sa in harness_input.skill_archives:
         skills.append(joysafeter_pb2.SkillArchive(
@@ -2741,7 +2825,7 @@ def _build_setup_sandbox(
         ))
 
     memory_mounts = []
-    for mm in harness_input.memory_mounts:
+    for mm in harness_input.memory_mounts if legacy_memory_active else []:
         files = []
         for f in mm.get("files", []):
             content = f.get("content", "")
@@ -2783,11 +2867,14 @@ def _build_setup_sandbox(
         custom_tools=custom_tools,
         setup_commands=[],
         env=harness_input.env,
-        secrets={},  # secrets injected via container env, not gRPC
+        secrets=harness_input.secrets,
         permission_mode=harness_input.permission_mode,
         provider=str(agent.engine_kind) if agent else "",
-        model=harness_input.model or "",
-        memory_system_prompt=harness_input.memory_system_prompt or "",
+        memory_system_prompt=(
+            harness_input.memory_system_prompt or ""
+            if legacy_memory_active
+            else ""
+        ),
         memory_mounts=memory_mounts,
         files=file_mounts,
         file_refs=file_refs,
@@ -2799,7 +2886,18 @@ def _build_setup_sandbox(
         kwargs["repos"] = repos
     if work_dir:
         kwargs["work_dir"] = work_dir
+    if harness_input.model:
+        kwargs["model"] = harness_input.model
     return joysafeter_pb2.SetupSandbox(**kwargs)
+
+
+def _build_setup_harness_task(agent, session_id):
+    class _SetupHarnessTask:
+        id = session_id
+        prompt = ""
+        system_prompt = getattr(agent, "system_prompt", None)
+
+    return _SetupHarnessTask()
 
 
 def _build_start_task(
@@ -2859,10 +2957,9 @@ def _build_start_task(
         provider=engine_kind,
         prompt=harness_input.prompt,
         system_prompt=harness_input.system_prompt or "",
-        model=harness_input.model or "",
         timeout_seconds=timeout,
         env=harness_input.env,
-        secrets={},  # secrets injected via container env, not gRPC
+        secrets=harness_input.secrets,
         mcp_servers=mcp_servers,
         skills=skills,
         allowed_tools=allowed,
@@ -2872,6 +2969,8 @@ def _build_start_task(
     )
     if harness_input.session_id:
         kwargs["session_id"] = harness_input.session_id
+    if harness_input.model:
+        kwargs["model"] = harness_input.model
 
     max_turns = 100
     if agent and getattr(agent, "metadata_", None):

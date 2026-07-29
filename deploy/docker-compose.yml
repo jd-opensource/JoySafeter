@@ -50,7 +50,7 @@ x-backend-common-env: &backend-common-env
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
   REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-50}
   FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-  CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
+  CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
   JOYSAFETER_EVENT_STREAM_ENABLED: ${JOYSAFETER_EVENT_STREAM_ENABLED:-true}
   JOYSAFETER_EVENT_STREAM_KEY: ${JOYSAFETER_EVENT_STREAM_KEY:-joysafeter:orchestrator:events}
   JOYSAFETER_EVENT_STREAM_GROUP: ${JOYSAFETER_EVENT_STREAM_GROUP:-joysafeter-orchestrator-event-workers}
@@ -60,7 +60,7 @@ x-backend-common-env: &backend-common-env
   JOYSAFETER_IMAGE_CODEX: ${JOYSAFETER_IMAGE_CODEX:-joysafeter-codex:latest}
   JOYSAFETER_IMAGE_NATIVE: ${JOYSAFETER_IMAGE_NATIVE:-joysafeter-native:latest}
   JOYSAFETER_SANDBOX_WORKSPACE_ROOT: ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
-  JOYSAFETER_ENVOY_ENABLED: ${JOYSAFETER_ENVOY_ENABLED:-true}
+  JOYSAFETER_ENVOY_ENABLED: ${JOYSAFETER_ENVOY_ENABLED:-false}
   JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
   JOYSAFETER_ENVOY_SOCKET_VOLUME: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
   JOYSAFETER_ENVOY_CONFIG_DIR: ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
@@ -68,13 +68,13 @@ x-backend-common-env: &backend-common-env
   JOYSAFETER_ENVOY_GRPC_HOST: ${JOYSAFETER_ENVOY_GRPC_HOST:-host.docker.internal}
   JOYSAFETER_ENVOY_GRPC_PORT: ${JOYSAFETER_ENVOY_GRPC_PORT:-9090}
   JOYSAFETER_ENVOY_CONTAINER_NAME: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
-  SKILL_SECURITY_SCAN_ENABLED: ${SKILL_SECURITY_SCAN_ENABLED:-true}
+  SKILL_SECURITY_SCAN_ENABLED: ${SKILL_SECURITY_SCAN_ENABLED:-false}
   SKILL_SECURITY_SCANNER_URL: ${SKILL_SECURITY_SCANNER_URL:-http://skillspector:8010}
   SKILL_SECURITY_TIMEOUT_SECONDS: ${SKILL_SECURITY_TIMEOUT_SECONDS:-30}
   SKILL_SECURITY_FAIL_CLOSED: ${SKILL_SECURITY_FAIL_CLOSED:-true}
   SKILL_SECURITY_NO_LLM: ${SKILL_SECURITY_NO_LLM:-true}
   SKILL_SECURITY_BLOCK_RECOMMENDATIONS: ${SKILL_SECURITY_BLOCK_RECOMMENDATIONS:-DO_NOT_INSTALL}
-  JOYSAFETER_MAX_UPLOAD_FILE_BYTES: ${JOYSAFETER_MAX_UPLOAD_FILE_BYTES:-52428800}
+  JOYSAFETER_MAX_UPLOAD_FILE_BYTES: ${JOYSAFETER_MAX_UPLOAD_FILE_BYTES:-104857600}
 
 x-backend-volumes: &backend-volumes
   - backend-logs:/app/app/logs
@@ -83,8 +83,6 @@ x-backend-volumes: &backend-volumes
 
 x-backend-depends: &backend-depends
   db:
-    condition: service_healthy
-  skillspector:
     condition: service_healthy
 
 x-backend-health-common: &backend-health-common
@@ -95,6 +93,7 @@ x-backend-health-common: &backend-health-common
 
 services:
   joysafeter-envoy:
+    profiles: ["envoy"]
     image: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
     container_name: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
     restart: unless-stopped
@@ -118,6 +117,7 @@ services:
       - joysafeter-network
 
   skillspector:
+    profiles: ["skillspector"]
     image: ${SKILLSPECTOR_FULL_IMAGE:-joysafeter-skillspector:latest}
     build: *skillspector-build
     container_name: joysafeter-skillspector
@@ -231,13 +231,12 @@ services:
       JOYSAFETER_GRPC_HOST: 0.0.0.0
       JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
       JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
+      DOCKER_HOST: unix:///var/run/docker.sock
     ports:
       - "${ORCHESTRATOR_HEALTH_BIND_HOST:-127.0.0.1}:${ORCHESTRATOR_HEALTH_PORT_HOST:-8001}:8001"
       - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
     depends_on:
       <<: *backend-depends
-      joysafeter-envoy:
-        condition: service_started
     volumes:
       - backend-logs:/app/app/logs
       - backend-files:/app/data/files
@@ -264,12 +263,11 @@ services:
       JOYSAFETER_GRPC_HOST: 0.0.0.0
       JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
       JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
+      DOCKER_HOST: unix:///var/run/docker.sock
     ports:
       - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
     depends_on:
       <<: *backend-depends
-      joysafeter-envoy:
-        condition: service_started
     volumes:
       - backend-logs:/app/app/logs
       - backend-files:/app/data/files
@@ -300,6 +298,10 @@ services:
       - -c
       - |
         set -eu
+        export EVEROS_RERANK__PROVIDER="$${EVEROS_RERANK__PROVIDER:-dashscope_compatible}"
+        export EVEROS_RERANK__MODEL="$${EVEROS_RERANK__MODEL:-qwen3-rerank}"
+        export EVEROS_RERANK__BASE_URL="$${EVEROS_RERANK__BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
+        export EVEROS_RERANK__API_KEY="$${EVEROS_RERANK__API_KEY:-$${EVEROS_EMBEDDING__API_KEY:-}}"
         python -m app.everos.entrypoints.cli.main init --root "$${EVEROS_ROOT:-/data/everos}" || true
         exec python -m gunicorn "$${BACKEND_APP_MODULE:-app.everos.entrypoints.api.app:create_app}" -w "$${WORKERS:-1}" -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:"$${BACKEND_PORT:-8003}" --timeout 120
     ports:
@@ -356,7 +358,7 @@ services:
       NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA: ${NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA:-}
       NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA: ${NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA:-}
       NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: ${NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED:-}
-      NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: ${NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES:-52428800}
+      NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: ${NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES:-104857600}
       SSO_DEFAULT_PROVIDER: ${SSO_DEFAULT_PROVIDER:-}
     ports:
       - "${FRONTEND_BIND_HOST:-0.0.0.0}:${FRONTEND_PORT_HOST:-3000}:3000"

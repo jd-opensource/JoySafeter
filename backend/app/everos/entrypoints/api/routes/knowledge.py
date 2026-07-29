@@ -29,7 +29,7 @@ from fastapi import APIRouter, Path, Query, Request, Response, UploadFile
 from fastapi.params import Form
 from pydantic import BaseModel, Field
 
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import get_project_llm_client
 from app.everos.component.utils.datetime import to_display_tz
 from app.everos.config import load_settings
 from app.everos.core.errors import (
@@ -249,7 +249,7 @@ class DocumentPatchRequest(BaseModel):
 # ── Extractor builder ───────────────────────────────────────────────────────
 
 
-def _build_extractor() -> KnowledgeExtractor:
+async def _build_extractor(project_id: str) -> KnowledgeExtractor:
     """Lazily import and build the knowledge extractor from ``everalgo``.
 
     Returns an object satisfying the ``KnowledgeExtractor`` protocol
@@ -258,7 +258,7 @@ def _build_extractor() -> KnowledgeExtractor:
     # Deferred: heavy everalgo import; only needed on document creation.
     from everalgo.knowledge import KnowledgeExtractor as AlgoKnowledgeExtractor
 
-    return AlgoKnowledgeExtractor(llm=get_llm_client())
+    return AlgoKnowledgeExtractor(llm=await get_project_llm_client(project_id))
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -277,13 +277,18 @@ def _reject_oversized_upload(file: UploadFile) -> None:
 
 
 async def _parse_upload(
-    file: UploadFile, *, raw_bytes: bytes | None = None
+    file: UploadFile,
+    *,
+    raw_bytes: bytes | None = None,
+    project_id: str | None = None,
 ) -> ParsedContent:
     """Parse an uploaded file via component.parser, or fall back to UTF-8.
 
     Args:
         file: FastAPI upload file handle.
         raw_bytes: Pre-read bytes; when provided, skips ``file.read()``.
+        project_id: JoySafeter project whose default secret should drive the
+            parser LLM.
 
     Raises:
         UnsupportedModalityError: When the file cannot be parsed.
@@ -307,7 +312,8 @@ async def _parse_upload(
                 content=raw_bytes,
                 mime=file.content_type or "",
                 extension=extension,
-            )
+            ),
+            project_id=project_id,
         )
         if not parsed.text or not parsed.text.strip():
             raise InvalidInputError("Uploaded file has no valid content.")
@@ -447,11 +453,11 @@ async def create_document_route(
     rid = extract_request_id(request)
     _reject_oversized_upload(file)
     file_content = await file.read()
-    parsed = await _parse_upload(file, raw_bytes=file_content)
+    parsed = await _parse_upload(file, raw_bytes=file_content, project_id=project_id)
     source_name = file.filename
 
     knowledge_dir = MemoryRoot.default().knowledge_dir(app_id, project_id)
-    extractor = _build_extractor()
+    extractor = await _build_extractor(project_id)
 
     result = await create_document(
         extractor=extractor,
@@ -482,10 +488,10 @@ async def replace_document_route(
     rid = extract_request_id(request)
     _reject_oversized_upload(file)
     file_content = await file.read()
-    parsed = await _parse_upload(file, raw_bytes=file_content)
+    parsed = await _parse_upload(file, raw_bytes=file_content, project_id=project_id)
 
     knowledge_dir = MemoryRoot.default().knowledge_dir(app_id, project_id)
-    extractor = _build_extractor()
+    extractor = await _build_extractor(project_id)
 
     result = await replace_document(
         extractor=extractor,

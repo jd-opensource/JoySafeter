@@ -102,6 +102,9 @@ class Episode(BaseModel):
     ``<scope_id>_<entry_id_in_md>`` — algo no longer mints an id of its
     own.
 
+    ``timestamp`` is the source MemCell / context timestamp supplied by
+    EverOS, not the LLM-emitted value.
+
     ``parent_id`` is the source memcell id. The new everalgo types no
     longer carry ``parent_id`` on Episode / Foresight / AtomicFact, so
     everos fills it from the memcell currently being processed (the
@@ -128,6 +131,7 @@ class Episode(BaseModel):
         session_id: str | None,
         sender_ids: list[str],
         parent_id: str,
+        source_timestamp_ms: int,
     ) -> Episode:
         """Build a domain Episode from an algo Episode plus engineering context.
 
@@ -144,11 +148,12 @@ class Episode(BaseModel):
         knows the source memcell id. Anything algo's model carries via
         ``extra='allow'`` is dropped in favour of the caller-supplied value.
         """
-        data = algo_episode.model_dump(exclude={"parent_id", "owner_id"})
+        data = algo_episode.model_dump(exclude={"parent_id", "owner_id", "timestamp"})
         data["owner_id"] = owner_id
         data["session_id"] = session_id
         data["sender_ids"] = list(sender_ids)
         data["parent_id"] = parent_id
+        data["timestamp"] = source_timestamp_ms
         return cls.model_validate(data)
 
 
@@ -157,9 +162,10 @@ class AtomicFact(BaseModel):
 
     Composed (not inherited) from :class:`everalgo.types.AtomicFact`. Mirrors
     :class:`Episode`: everos keeps the *semantic* fields algo emits
-    (``owner_id`` / ``fact`` / ``timestamp``) and adds engineering context
+    (``owner_id`` / ``fact``) and adds engineering context
     (``session_id`` / ``parent_id``) so md writer + cascade can audit-link
-    back to the source episode.
+    back to the source episode. ``timestamp`` is inherited from the source
+    Episode timestamp supplied by EverOS, not the LLM-emitted value.
 
     No ``sender_ids``: an atomic fact is a statement about its ``owner_id``;
     the surrounding participants are not part of the fact itself. (Episode
@@ -188,6 +194,7 @@ class AtomicFact(BaseModel):
         owner_id: str,
         session_id: str | None,
         parent_id: str,
+        source_timestamp_ms: int,
     ) -> AtomicFact:
         """Build a domain AtomicFact from an algo AtomicFact plus context.
 
@@ -204,11 +211,12 @@ class AtomicFact(BaseModel):
         bridged (mirrors how :meth:`Episode.from_algo` adapts algo fields
         into everos's vocabulary).
         """
-        data = algo_fact.model_dump(exclude={"parent_id", "owner_id"})
+        data = algo_fact.model_dump(exclude={"parent_id", "owner_id", "timestamp"})
         data["fact"] = data.pop("content")
         data["owner_id"] = owner_id
         data["session_id"] = session_id
         data["parent_id"] = parent_id
+        data["timestamp"] = source_timestamp_ms
         return cls.model_validate(data)
 
 
@@ -217,9 +225,10 @@ class Foresight(BaseModel):
 
     Composed (not inherited) from :class:`everalgo.types.Foresight`. Mirrors
     :class:`Episode`: everos keeps the semantic fields algo emits
-    (``owner_id`` / ``foresight`` / ``evidence`` / ``timestamp`` plus the
-    optional time-window trio) and adds engineering context
-    (``session_id`` / ``parent_id``).
+    (``owner_id`` / ``foresight`` / ``evidence`` plus the optional
+    time-window trio) and adds engineering context (``session_id`` /
+    ``parent_id``). ``timestamp`` is the source MemCell / extraction context
+    timestamp supplied by EverOS, not the LLM-emitted value.
 
     Extraction is per-sender (like Episode, unlike AtomicFact's
     subject-agnostic fan-out): a foresight is a forward-looking statement
@@ -253,6 +262,7 @@ class Foresight(BaseModel):
         *,
         session_id: str | None,
         parent_id: str,
+        source_timestamp_ms: int,
     ) -> Foresight:
         """Build a domain Foresight from an algo Foresight plus context.
 
@@ -261,9 +271,10 @@ class Foresight(BaseModel):
         metadata is injected here. Any algo-side ``parent_id`` smuggled
         through ``extra='allow'`` is dropped in favour of the caller's.
         """
-        data = algo_foresight.model_dump(exclude={"parent_id"})
+        data = algo_foresight.model_dump(exclude={"parent_id", "timestamp"})
         data["session_id"] = session_id
         data["parent_id"] = parent_id
+        data["timestamp"] = source_timestamp_ms
         return cls.model_validate(data)
 
 
@@ -273,9 +284,10 @@ class AgentCase(BaseModel):
     Composed (not inherited) from :class:`everalgo.types.AgentCase`. Mirrors
     :class:`Episode` / :class:`AtomicFact` / :class:`Foresight`: everos
     keeps the semantic fields algo emits (``task_intent`` / ``approach`` /
-    ``quality_score`` / ``key_insight`` / ``timestamp``) and adds
-    engineering context (``owner_id`` = agent_id, ``session_id`` /
-    ``parent_id``).
+    ``quality_score`` / ``key_insight``) and adds engineering context
+    (``owner_id`` = agent_id, ``session_id`` / ``parent_id``). ``timestamp``
+    is the source Agent MemCell / trajectory timestamp supplied by EverOS,
+    not the LLM-emitted value.
 
     ``owner_id`` is supplied by the caller because algo's AgentCase has no
     ``owner_id`` field — the strategy infers the agent identity from the
@@ -306,6 +318,7 @@ class AgentCase(BaseModel):
         owner_id: str,
         session_id: str,
         parent_id: str,
+        source_timestamp_ms: int,
     ) -> AgentCase:
         """Build a domain AgentCase from an algo AgentCase plus context.
 
@@ -315,10 +328,13 @@ class AgentCase(BaseModel):
         normalises algo's ``""`` to ``None`` so the optional KeyInsight
         section is omitted in md when there's nothing to record.
         """
-        data = algo_case.model_dump(exclude={"id", "parent_id", "owner_id"})
+        data = algo_case.model_dump(
+            exclude={"id", "parent_id", "owner_id", "timestamp"}
+        )
         data["owner_id"] = owner_id
         data["session_id"] = session_id
         data["parent_id"] = parent_id
+        data["timestamp"] = source_timestamp_ms
         if not data.get("key_insight"):
             data["key_insight"] = None
         return cls.model_validate(data)

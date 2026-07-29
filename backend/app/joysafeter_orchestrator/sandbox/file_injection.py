@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Protocol
 
-from app.joysafeter_orchestrator.sandbox.archive_utils import auto_extract_archive
 from app.joysafeter_shared.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
@@ -70,10 +69,11 @@ class FileInjectionStrategy(Protocol):
 
 
 async def load_session_files(session_id: uuid.UUID) -> list[SessionFileRecord]:
-    from app.joysafeter_shared.database import AsyncSessionLocal
-    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
-    from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
     from sqlalchemy import select
+
+    from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
+    from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
+    from app.joysafeter_shared.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -162,10 +162,6 @@ class HostMountStrategy:
                 data = await ctx.storage.get(f.storage_key)
                 with open(host_file_path, "wb") as fh:
                     fh.write(data)
-                try:
-                    auto_extract_archive(host_file_path)
-                except Exception as e:
-                    logger.warning("HostMount: failed to auto-extract %s: %s", f.filename, e)
                 count += 1
             except Exception as e:
                 logger.warning("HostMount: failed to write %s: %s", f.filename, e)

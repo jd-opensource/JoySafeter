@@ -1,4 +1,9 @@
 use async_trait::async_trait;
+use axum::body::{Body, Bytes};
+use axum::extract::{OriginalUri, State};
+use axum::http::{HeaderMap, Method, Response};
+use axum::routing::any;
+use axum::Router;
 use joysafeter_types::harness::{
     HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult, HarnessResultStatus,
     RunningHarness,
@@ -7,16 +12,19 @@ use joysafeter_types::token_usage::{ModelUsage, TokenUsage};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpListener;
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{info, warn};
 
 type SharedStdin = Arc<Mutex<Option<tokio::process::ChildStdin>>>;
 const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
+const BASIC_CLAUDE_TOOLS: &str = "Bash,Read,Edit,Write";
 
 // ---------------------------------------------------------------------------
 // Per-turn state (analogous to codex.rs TurnState)
@@ -39,10 +47,235 @@ struct PersistentClaude {
     stdin: SharedStdin,
     #[allow(dead_code)]
     reader_handle: tokio::task::JoinHandle<()>,
+    compat_proxy_handle: Option<tokio::task::JoinHandle<()>>,
     current_turn: Arc<Mutex<Option<TurnState>>>,
     child: tokio::process::Child,
     config_fingerprint: u64,
     last_session_id: Arc<std::sync::Mutex<Option<String>>>,
+}
+
+#[derive(Clone)]
+struct AnthropicCompatProxyState {
+    client: reqwest::Client,
+    upstream_base_url: String,
+}
+
+fn merged_command_env(input: &HarnessInput) -> HashMap<String, String> {
+    let mut env = input.env.clone();
+    for (k, v) in &input.secrets {
+        env.insert(k.clone(), v.clone());
+    }
+    env
+}
+
+fn anthropic_base_url(input: &HarnessInput) -> Option<String> {
+    input
+        .secrets
+        .get("ANTHROPIC_BASE_URL")
+        .or_else(|| input.env.get("ANTHROPIC_BASE_URL"))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+fn anthropic_compat_mode_enabled(input: &HarnessInput) -> bool {
+    let explicit = input
+        .secrets
+        .get("ANTHROPIC_CLAUDE_CODE_COMPAT")
+        .or_else(|| input.env.get("ANTHROPIC_CLAUDE_CODE_COMPAT"))
+        .map(|v| v.trim().to_ascii_lowercase());
+    if let Some(value) = explicit {
+        return !matches!(value.as_str(), "0" | "false" | "no" | "off" | "disabled");
+    }
+
+    anthropic_base_url(input)
+        .map(|url| {
+            let url = url.to_ascii_lowercase();
+            url.contains("ai-api.jdcloud.com/anthropic") || url.contains("jdcloud.com/anthropic")
+        })
+        .unwrap_or(false)
+}
+
+fn truncate_for_diagnostics(value: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for (idx, ch) in value.chars().enumerate() {
+        if idx >= max_chars {
+            out.push_str("...");
+            return out;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn format_anthropic_compat_error_body(status: u16, body: &[u8]) -> String {
+    let upstream_body = String::from_utf8_lossy(body).trim().to_string();
+    let upstream_body = if upstream_body.is_empty() {
+        "<empty response body>".to_string()
+    } else {
+        truncate_for_diagnostics(&upstream_body, 4000)
+    };
+    let message = format!(
+        "API Error: {status} 模型服务调用失败\n\nHTTP {status}\n\nUpstream response:\n{upstream_body}"
+    );
+    serde_json::json!({
+        "type": "error",
+        "error": {
+            "type": "model_service_error",
+            "message": message,
+            "status_code": status,
+            "upstream_body": upstream_body,
+        }
+    })
+    .to_string()
+}
+
+fn sanitize_anthropic_compat_request_body(body: Bytes) -> Bytes {
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return body;
+    };
+    let Some(object) = value.as_object_mut() else {
+        return body;
+    };
+    if object.remove("context_management").is_none() {
+        return body;
+    }
+    serde_json::to_vec(&value).map(Bytes::from).unwrap_or(body)
+}
+
+fn build_claude_args(
+    input: &HarnessInput,
+    resume_session_id: Option<&String>,
+    system_prompt: Option<&String>,
+    compat_mode: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        "-p".to_string(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--input-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+        "--permission-mode".to_string(),
+        input.permission_mode.clone(),
+        "--permission-prompt-tool".to_string(),
+        "stdio".to_string(),
+    ];
+
+    if compat_mode {
+        args.extend([
+            "--bare".to_string(),
+            "--tools".to_string(),
+            BASIC_CLAUDE_TOOLS.to_string(),
+        ]);
+    }
+    if let Some(model) = &input.model {
+        args.extend(["--model".to_string(), model.clone()]);
+    }
+    if let Some(session_id) = resume_session_id {
+        args.extend(["--resume".to_string(), session_id.clone()]);
+    }
+    if let Some(system_prompt) = system_prompt {
+        args.extend(["--append-system-prompt".to_string(), system_prompt.clone()]);
+    }
+    args
+}
+
+async fn start_anthropic_compat_proxy(
+    upstream_base_url: String,
+) -> Result<(String, tokio::task::JoinHandle<()>), HarnessError> {
+    let state = AnthropicCompatProxyState {
+        client: reqwest::Client::new(),
+        upstream_base_url: upstream_base_url.trim_end_matches('/').to_string(),
+    };
+    let app = Router::new()
+        .fallback(any(anthropic_compat_proxy_handler))
+        .with_state(state);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    let addr: SocketAddr = listener.local_addr()?;
+    let proxy_base_url = format!("http://{addr}/anthropic");
+    let handle = tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, app).await {
+            warn!(error = %error, "Anthropic compatibility proxy stopped");
+        }
+    });
+    Ok((proxy_base_url, handle))
+}
+
+async fn anthropic_compat_proxy_handler(
+    State(state): State<AnthropicCompatProxyState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let path_and_query = uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+    let upstream_path = path_and_query
+        .strip_prefix("/anthropic")
+        .filter(|path| !path.is_empty())
+        .unwrap_or("/");
+    let upstream_url = format!("{}{}", state.upstream_base_url, upstream_path);
+
+    let mut request = state.client.request(method.clone(), upstream_url);
+    for (name, value) in headers.iter() {
+        let header_name = name.as_str();
+        if header_name.eq_ignore_ascii_case("host")
+            || header_name.eq_ignore_ascii_case("content-length")
+            || header_name.eq_ignore_ascii_case("anthropic-beta")
+        {
+            continue;
+        }
+        request = request.header(name, value);
+    }
+    if method != Method::HEAD {
+        request = request.body(sanitize_anthropic_compat_request_body(body));
+    }
+
+    match request.send().await {
+        Ok(upstream) => {
+            let status = upstream.status();
+            let headers = upstream.headers().clone();
+            match upstream.bytes().await {
+                Ok(bytes) => {
+                    let mut builder = Response::builder().status(status);
+                    for (name, value) in headers.iter() {
+                        let header_name = name.as_str();
+                        if header_name.eq_ignore_ascii_case("content-length")
+                            || header_name.eq_ignore_ascii_case("transfer-encoding")
+                        {
+                            continue;
+                        }
+                        builder = builder.header(name, value);
+                    }
+                    if !status.is_success() {
+                        let detail = format_anthropic_compat_error_body(status.as_u16(), &bytes);
+                        warn!(
+                            status = status.as_u16(),
+                            upstream_body = %truncate_for_diagnostics(&String::from_utf8_lossy(&bytes), 2000),
+                            "Anthropic compatibility proxy upstream request failed"
+                        );
+                        builder = builder.header("content-type", "application/json");
+                        return builder
+                            .body(Body::from(detail))
+                            .unwrap_or_else(|_| Response::new(Body::from("proxy response build failed")));
+                    }
+                    builder
+                        .body(Body::from(bytes))
+                        .unwrap_or_else(|_| Response::new(Body::from("proxy response build failed")))
+                }
+                Err(error) => Response::builder()
+                    .status(502)
+                    .body(Body::from(format!("proxy upstream read failed: {error}")))
+                    .unwrap_or_else(|_| Response::new(Body::from("proxy upstream read failed"))),
+            }
+        }
+        Err(error) => Response::builder()
+            .status(502)
+            .body(Body::from(format!("proxy upstream request failed: {error}")))
+            .unwrap_or_else(|_| Response::new(Body::from("proxy upstream request failed"))),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +349,9 @@ impl ClaudeAdapter {
 
         // Kill old process if it exists
         if let Some(ref mut old) = guard.take() {
+            if let Some(handle) = old.compat_proxy_handle.take() {
+                handle.abort();
+            }
             let _ = old.child.start_kill();
             let _ = old.child.wait().await;
         }
@@ -123,28 +359,22 @@ impl ClaudeAdapter {
         // Determine session_id for --resume: prefer input.session_id (from orchestrator DB),
         // fall back to last_session_id from previous turn (for crash recovery within same adapter).
         let resume_session_id = input.session_id.clone();
-
-        let mut args = vec![
-            "-p".to_string(),
-            "--output-format".to_string(),
-            "stream-json".to_string(),
-            "--input-format".to_string(),
-            "stream-json".to_string(),
-            "--verbose".to_string(),
-            "--permission-mode".to_string(),
-            input.permission_mode.clone(),
-            "--permission-prompt-tool".to_string(),
-            "stdio".to_string(),
-        ];
-
-        if let Some(model) = &input.model {
-            args.extend(["--model".to_string(), model.clone()]);
-        }
-        if let Some(session_id) = &resume_session_id {
-            args.extend(["--resume".to_string(), session_id.clone()]);
-        }
-        if let Some(system_prompt) = &input.system_prompt {
-            args.extend(["--append-system-prompt".to_string(), system_prompt.clone()]);
+        let compat_mode = anthropic_compat_mode_enabled(input);
+        let args = build_claude_args(
+            input,
+            resume_session_id.as_ref(),
+            input.system_prompt.as_ref(),
+            compat_mode,
+        );
+        let mut command_env = merged_command_env(input);
+        let mut compat_proxy_handle = None;
+        if compat_mode {
+            if let Some(base_url) = anthropic_base_url(input) {
+                let (proxy_base_url, proxy_handle) = start_anthropic_compat_proxy(base_url).await?;
+                command_env.insert("ANTHROPIC_BASE_URL".to_string(), proxy_base_url);
+                compat_proxy_handle = Some(proxy_handle);
+                info!("Started Anthropic compatibility proxy for Claude Code");
+            }
         }
 
         let mut cmd = Command::new("claude");
@@ -155,16 +385,19 @@ impl ClaudeAdapter {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        for (k, v) in &input.env {
-            cmd.env(k, v);
-        }
-        for (k, v) in &input.secrets {
+        for (k, v) in &command_env {
             cmd.env(k, v);
         }
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| HarnessError::StartFailed(e.to_string()))?;
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                if let Some(handle) = compat_proxy_handle {
+                    handle.abort();
+                }
+                return Err(HarnessError::StartFailed(error.to_string()));
+            }
+        };
 
         let stdin = child
             .stdin
@@ -192,6 +425,7 @@ impl ClaudeAdapter {
         *guard = Some(PersistentClaude {
             stdin: shared_stdin,
             reader_handle,
+            compat_proxy_handle,
             current_turn,
             child,
             config_fingerprint: fp,
@@ -208,6 +442,9 @@ impl Drop for ClaudeAdapter {
         tokio::spawn(async move {
             let mut guard = session.lock().await;
             if let Some(ref mut s) = *guard {
+                if let Some(handle) = s.compat_proxy_handle.take() {
+                    handle.abort();
+                }
                 // Try graceful end_session, then force kill
                 let msg = serde_json::json!({
                     "type": "control_request",
@@ -1100,5 +1337,84 @@ mod tests {
             ClaudeAdapter::compute_fingerprint(&input1),
             ClaudeAdapter::compute_fingerprint(&input2)
         );
+    }
+
+    #[test]
+    fn jd_anthropic_base_url_uses_compat_cli_args() {
+        let input = HarnessInput {
+            prompt: "hello".into(),
+            system_prompt: None,
+            session_id: None,
+            model: None,
+            max_turns: None,
+            timeout: Duration::from_secs(60),
+            env: HashMap::new(),
+            secrets: HashMap::from([(
+                "ANTHROPIC_BASE_URL".into(),
+                "http://ai-api.jdcloud.com/anthropic".into(),
+            )]),
+            mcp_configs: vec![],
+            permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec![],
+            ask_tools: vec![],
+        };
+
+        let args = build_claude_args(&input, None, None, true);
+
+        assert!(args.contains(&"--bare".to_string()));
+        assert!(args.contains(&"--tools".to_string()));
+        assert!(args.contains(&"Bash,Read,Edit,Write".to_string()));
+    }
+
+    #[test]
+    fn compat_cli_args_can_be_disabled() {
+        let input = HarnessInput {
+            prompt: "hello".into(),
+            system_prompt: None,
+            session_id: None,
+            model: None,
+            max_turns: None,
+            timeout: Duration::from_secs(60),
+            env: HashMap::new(),
+            secrets: HashMap::from([
+                (
+                    "ANTHROPIC_BASE_URL".into(),
+                    "http://ai-api.jdcloud.com/anthropic".into(),
+                ),
+                ("ANTHROPIC_CLAUDE_CODE_COMPAT".into(), "false".into()),
+            ]),
+            mcp_configs: vec![],
+            permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec![],
+            ask_tools: vec![],
+        };
+
+        assert!(!anthropic_compat_mode_enabled(&input));
+    }
+
+    #[test]
+    fn compat_proxy_error_body_includes_upstream_detail() {
+        let body = br#"{"error":{"message":"invalid model: claude-4","type":"invalid_request_error"}}"#;
+
+        let formatted = format_anthropic_compat_error_body(400, body);
+
+        assert!(formatted.contains("HTTP 400"));
+        assert!(formatted.contains("模型服务调用失败"));
+        assert!(formatted.contains("invalid model: claude-4"));
+        assert!(formatted.contains("invalid_request_error"));
+    }
+
+    #[test]
+    fn compat_proxy_request_body_removes_unsupported_context_management() {
+        let body = Bytes::from_static(
+            br#"{"model":"claude","messages":[],"context_management":{"context_id":"ctx_123"}}"#,
+        );
+
+        let sanitized = sanitize_anthropic_compat_request_body(body);
+        let value: serde_json::Value = serde_json::from_slice(&sanitized).unwrap();
+
+        assert_eq!(value["model"], "claude");
+        assert_eq!(value["messages"], serde_json::json!([]));
+        assert!(value.get("context_management").is_none());
     }
 }

@@ -126,6 +126,7 @@ export interface SessionEvent {
   tool_use_id?: string;
   input?: unknown;
   output?: unknown;
+  error?: unknown;
   is_error?: boolean;
   duration_ms?: number;
   input_tokens?: number;

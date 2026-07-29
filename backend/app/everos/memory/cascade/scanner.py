@@ -26,7 +26,7 @@ from pathlib import Path
 from sqlmodel import select
 
 from app.everos.core.observability.logging import get_logger
-from app.everos.core.persistence import MemoryRoot
+from app.everos.core.persistence import MarkdownReader, MemoryRoot
 from app.everos.core.persistence.sqlite import session_scope
 from app.everos.infra.persistence.sqlite import (
     MdChangeState,
@@ -34,11 +34,15 @@ from app.everos.infra.persistence.sqlite import (
     md_change_state_repo,
 )
 
+from .handlers._common import content_sha256 as compute_content_sha256
+from .handlers.user_profile import _dump_json as dump_profile_json
 from .reconciler import PriorState, reconcile
 from .registry import KIND_REGISTRY
 from .types import ReconcileDecision, ScanInput
 
 logger = get_logger(__name__)
+
+PROJECTION_AUDITED_KINDS = {"agent_skill", "atomic_fact", "user_profile"}
 
 
 class CascadeScanner:
@@ -83,7 +87,16 @@ class CascadeScanner:
             _collect_scan_inputs, self._memory_root.root
         )
         state = await _load_state_snapshot()
-        decisions = reconcile(scan_inputs, state)
+        stale_or_missing_projections = await _find_stale_or_missing_done_projections(
+            scan_inputs,
+            state,
+            self._memory_root.root,
+        )
+        decisions = reconcile(
+            scan_inputs,
+            state,
+            missing_projections=stale_or_missing_projections,
+        )
         for decision in decisions:
             await md_change_state_repo.upsert(
                 decision.md_path,
@@ -155,8 +168,116 @@ def _collect_scan_inputs(root: Path) -> list[ScanInput]:
                 rel = absolute.relative_to(root).as_posix()
             except ValueError:
                 continue
+            if _is_ignored_scan_path(rel):
+                continue
             inputs.append(ScanInput(md_path=rel, mtime=mtime, kind=spec.name))
     return inputs
+
+
+def _is_ignored_scan_path(md_path: str) -> bool:
+    return Path(md_path).parts[:1] == (".tmp",)
+
+
+async def _find_stale_or_missing_done_projections(
+    scan_inputs: list[ScanInput],
+    state: dict[str, PriorState],
+    root: Path,
+) -> set[str]:
+    """Find done md files whose LanceDB projection is missing or stale.
+
+    The normal reconciler only compares md mtime against md_change_state.
+    That misses rebuild/migration failures where the md file still exists
+    and the state row is done, but the derived LanceDB row disappeared or
+    still carries an older ``content_sha256`` than the md source of truth.
+    """
+    specs_by_kind = {spec.name: spec for spec in KIND_REGISTRY}
+    dirty: set[str] = set()
+    for item in scan_inputs:
+        if item.kind not in PROJECTION_AUDITED_KINDS:
+            continue
+        prior = state.get(item.md_path)
+        if (
+            prior is None
+            or prior.status != "done"
+            or prior.change_type == "deleted"
+            or prior.mtime != item.mtime
+        ):
+            continue
+        spec = specs_by_kind.get(item.kind)
+        repo = spec.lance_repo if spec is not None else None
+        find_by_md_path = getattr(repo, "find_by_md_path", None)
+        if find_by_md_path is None:
+            continue
+        try:
+            projection = await find_by_md_path(item.md_path)
+        except Exception as exc:  # noqa: BLE001 - scan should retry next interval.
+            logger.warning(
+                "cascade_projection_audit_failed",
+                md_path=item.md_path,
+                kind=item.kind,
+                error=str(exc),
+            )
+            continue
+        if projection is None:
+            dirty.add(item.md_path)
+            continue
+
+        expected_digest = await _expected_projection_content_sha256(
+            item.kind,
+            item.md_path,
+            root,
+        )
+        current_digest = getattr(projection, "content_sha256", None)
+        if expected_digest is not None and current_digest != expected_digest:
+            dirty.add(item.md_path)
+    if dirty:
+        logger.warning(
+            "cascade_dirty_done_projections",
+            count=len(dirty),
+            kinds=sorted({state[path].kind for path in dirty if path in state}),
+        )
+    return dirty
+
+
+async def _expected_projection_content_sha256(
+    kind: str,
+    md_path: str,
+    root: Path,
+) -> str | None:
+    """Compute the md-side projection digest for single-file audited kinds.
+
+    Daily-log kinds can contain multiple rows per md file, so the scanner
+    currently only computes stale-projection digests for single-file kinds
+    whose md path maps to one LanceDB row.
+    """
+    if kind != "user_profile":
+        return None
+
+    parsed = await MarkdownReader.read(root / md_path)
+    fm = parsed.frontmatter
+    return compute_content_sha256(
+        {
+            "frontmatter:summary": str(fm.get("summary", "")),
+            "frontmatter:explicit_info_json": dump_profile_json(
+                fm.get("explicit_info", [])
+            ),
+            "frontmatter:implicit_traits_json": dump_profile_json(
+                fm.get("implicit_traits", [])
+            ),
+        }
+    )
+
+
+async def _find_missing_done_projections(
+    scan_inputs: list[ScanInput],
+    state: dict[str, PriorState],
+) -> set[str]:
+    """Backward-compatible wrapper for tests and older callers."""
+    return await _find_stale_or_missing_done_projections(
+        scan_inputs,
+        state,
+        MemoryRoot.default().root,
+    )
 
 
 async def _load_state_snapshot() -> dict[str, PriorState]:

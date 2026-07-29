@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -601,7 +602,7 @@ class OfflineEngine:
         *,
         event: BaseEvent | None = None,
         force: bool = False,
-    ) -> None:
+    ) -> list[str]:
         """Manually trigger one strategy.
 
         - ``event=None`` → engine self-emits ``ManualTick(strategy_name=name)``
@@ -611,6 +612,10 @@ class OfflineEngine:
         Routes through :meth:`EventDispatcher.dispatch` with
         ``strategy_filter=name`` so the same three-gate logic is applied
         as for engine-driven dispatch.
+
+        Returns:
+            The run ids enqueued for matching routes. An empty list means the
+            strategy existed but dispatch gates did not schedule a run.
         """
         if not self._started:
             raise OMEError("trigger_manual: engine not started")
@@ -623,6 +628,7 @@ class OfflineEngine:
         )
         for meta, run_id in routes:
             self._enqueue_run(meta, event, run_id)
+        return [run_id for _meta, run_id in routes]
 
     def _enqueue_run(self, meta: StrategyMeta, event: BaseEvent, run_id: str) -> None:
         """Add a one-shot APScheduler job that hands the event to Runner.
@@ -795,6 +801,67 @@ class OfflineEngine:
         )
 
     @_refuse_inside_strategy
+    async def list_dead_letters(
+        self,
+        *,
+        strategy_name: str | None = None,
+        project_id: str | None = None,
+        session_id: str | None = None,
+        user_id: str | None = None,
+        limit: int = 100,
+    ) -> list[RunRecord]:
+        """Return DEAD_LETTER records, optionally narrowed by event payload ids.
+
+        ``project_id`` / ``session_id`` / ``user_id`` are matched against JSON
+        fields in the persisted event payload. Missing fields simply do not
+        match the corresponding filter.
+        """
+        if not self._started:
+            raise OMEError("list_dead_letters: engine not started")
+        limit = max(1, min(limit, 1000))
+        fetch_limit = limit if not (project_id or session_id or user_id) else 1000
+        records = await self._run_record_store.list_runs(
+            strategy_name=strategy_name,
+            status=RunStatus.DEAD_LETTER,
+            limit=fetch_limit,
+        )
+        filtered = [
+            record
+            for record in records
+            if _event_payload_matches(
+                record.event_payload,
+                project_id=project_id,
+                session_id=session_id,
+                user_id=user_id,
+            )
+        ]
+        return filtered[:limit]
+
+    @_refuse_inside_strategy
+    async def replay_dead_letter(self, run_id: str) -> str:
+        """Re-enqueue a DEAD_LETTER run's original event for the same strategy.
+
+        Returns the new run id. The replay preserves the original event payload,
+        including ``event_id``, so downstream audit queries can correlate the
+        original failure and replay attempt.
+        """
+        if not self._started:
+            raise OMEError("replay_dead_letter: engine not started")
+        record = await self._run_record_store.get(run_id)
+        if record is None:
+            raise KeyError(run_id)
+        if record.status != RunStatus.DEAD_LETTER:
+            raise ValueError(
+                f"run {run_id!r} is {record.status}, not {RunStatus.DEAD_LETTER}"
+            )
+        cls = resolve_topic(record.event_topic)
+        event = cls.model_validate_json(record.event_payload)
+        meta = self._registry.get(record.strategy_name)
+        new_run_id = uuid4().hex
+        self._enqueue_run(meta, event, new_run_id)
+        return new_run_id
+
+    @_refuse_inside_strategy
     async def get_run_status(self, run_id: str) -> RunRecord | None:
         """Fetch a single run record by ``run_id``.
 
@@ -882,3 +949,27 @@ class OfflineEngine:
                     f"for event_id={event_id!r}"
                 )
             await asyncio.sleep(min(poll_interval, remaining))
+
+
+def _event_payload_matches(
+    event_payload: str,
+    *,
+    project_id: str | None,
+    session_id: str | None,
+    user_id: str | None,
+) -> bool:
+    filters = {
+        "project_id": project_id,
+        "session_id": session_id,
+        "user_id": user_id,
+    }
+    active_filters = {key: value for key, value in filters.items() if value is not None}
+    if not active_filters:
+        return True
+    try:
+        payload = json.loads(event_payload)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    return all(payload.get(key) == value for key, value in active_filters.items())

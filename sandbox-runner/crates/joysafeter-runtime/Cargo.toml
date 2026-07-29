@@ -14,3 +14,5 @@ thiserror = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
 which = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }

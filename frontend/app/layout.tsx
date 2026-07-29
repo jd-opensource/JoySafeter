@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
 import { headers } from 'next/headers'
 import { PublicEnvScript } from 'next-runtime-env'
 
@@ -14,16 +13,6 @@ import { ProjectProvider } from '@/providers/project-provider'
 import { ThemeProvider } from '@/providers/theme-provider'
 import '@/styles/globals.css'
 import { ZoomPrevention } from '@/providers/zoom-prevention'
-
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-})
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-})
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -54,7 +43,7 @@ export default async function RootLayout({
         <PublicEnvScript nonce={nonce} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
+        className="font-sans antialiased"
         suppressHydrationWarning
       >
         <ThemeProvider nonce={nonce}>

@@ -469,6 +469,11 @@ class TaskRunner:
     async def _handle_memory_sync(
         self, session_id: Optional[uuid.UUID], payload: dict
     ) -> None:
+        from app.joysafeter_orchestrator.kernel.legacy_memory import legacy_sandbox_memory_enabled
+
+        if not legacy_sandbox_memory_enabled():
+            logger.info("Ignoring legacy memory_sync because EverOS memory is active")
+            return
         if not session_id:
             return
 

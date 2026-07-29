@@ -36,11 +36,16 @@ def require_parser() -> None:
         )
 
 
-async def aparse_file(raw_file: RawFile) -> ParsedContent:
+async def aparse_file(
+    raw_file: RawFile, *, project_id: str | None = None
+) -> ParsedContent:
     """Parse a file via everalgo-parser with the multimodal LLM client.
 
     Args:
         raw_file: Hydrated ``RawFile`` with ``content`` bytes or ``uri``.
+        project_id: JoySafeter project whose default secret should drive the
+            parser LLM. Falls back to process-level multimodal config when no
+            project secret is selected.
 
     Returns:
         Parsed text content with modality metadata.
@@ -52,11 +57,14 @@ async def aparse_file(raw_file: RawFile) -> ParsedContent:
     from everalgo.llm import LLMError
     from everalgo.parser import aparse  # Deferred: optional dep
 
-    from app.everos.component.llm import get_multimodal_llm_client
+    from app.everos.component.llm import get_project_multimodal_llm_client
     from app.everos.core.errors import LLMServiceError
 
     try:
-        return await aparse(raw_file, llm=get_multimodal_llm_client())
+        return await aparse(
+            raw_file,
+            llm=await get_project_multimodal_llm_client(project_id),
+        )
     except NotImplementedError as exc:
         raise UnsupportedModalityError(f"modality not supported: {exc}") from exc
     except LLMError as exc:

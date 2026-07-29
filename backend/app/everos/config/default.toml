@@ -95,10 +95,14 @@ max_concurrent  = 5
 #   - "dashscope" -> POST {base_url}/api/v1/services/rerank/text-rerank/text-rerank
 #                    (Aliyun Bailian native text-rerank; currently
 #                     "gte-rerank-v2", base_url "https://dashscope.aliyuncs.com")
+#   - "dashscope_compatible" -> POST {base_url}/reranks
+#                    (Aliyun Bailian compatible mode; e.g. "qwen3-rerank",
+#                     base_url "https://dashscope.aliyuncs.com/compatible-mode/v1")
 # Left unset, the factory infers the provider from the base_url host
-# (dashscope.aliyuncs.com -> dashscope, *.deepinfra.com -> deepinfra) and
-# falls back to "deepinfra" for unknown hosts. Set it explicitly to
-# override — required for self-hosted "vllm" on an arbitrary host.
+# (dashscope.aliyuncs.com -> dashscope or dashscope_compatible when
+# compatible-mode/qwen3-rerank is detected, *.deepinfra.com -> deepinfra) and
+# falls back to "deepinfra" for unknown hosts. Set it explicitly to override —
+# required for self-hosted "vllm" on an arbitrary host.
 # provider = "deepinfra"
 # model     = "Qwen/Qwen3-Reranker-4B"
 # api_key   = ""
@@ -114,6 +118,10 @@ hard_token_limit = 65536
 hard_msg_limit = 500
 
 [search]
+# Global memory search mode. Keyword mode does not need embeddings, so the
+# automatic zero-vector rebuild worker stays disabled while this is "keyword".
+# Override via EVEROS_SEARCH__MODE.
+mode = "keyword"
 # Vector retrieval strategy when SearchMethod.VECTOR is selected.
 #   "maxsim_atomic" (default): ANN over atomic_fact.vector (pool=top_k*20),
 #       max-pool the per-fact cosine by parent memcell, then reverse-resolve
@@ -122,6 +130,14 @@ hard_msg_limit = 500
 #   "episode": single-vector ANN over episode.vector (legacy path).
 # Override via EVEROS_SEARCH__VECTOR_STRATEGY.
 vector_strategy = "maxsim_atomic"
+# Automatically retry rows written with zero-vector fallback after embedding
+# recovers. Runs in the background; search requests never wait on rebuild.
+# Override via EVEROS_SEARCH__VECTOR_AUTO_REBUILD_*.
+vector_auto_rebuild_enabled = true
+vector_auto_rebuild_interval_seconds = 300.0
+vector_auto_rebuild_initial_delay_seconds = 30.0
+vector_auto_rebuild_batch_size = 100
+vector_auto_rebuild_failure_cooldown_seconds = 600.0
 
 [memorize]
 # Conversation mode. Selects the boundary detector and which pipelines run:

@@ -7,6 +7,8 @@ implementation to build:
     - ``"vllm"``      → :class:`VllmRerankProvider`
     - ``"dashscope"`` → :class:`DashScopeRerankProvider`
       (Aliyun Bailian ``gte-rerank-v2``)
+    - ``"dashscope_compatible"`` → :class:`DashScopeCompatibleRerankProvider`
+      (Aliyun Bailian compatible-mode ``qwen3-rerank``)
 
 Adding a new provider = one match arm here + one new file under
 :mod:`everos.component.rerank`.
@@ -19,6 +21,7 @@ from urllib.parse import urlparse
 from app.everos.config import RerankSettings
 from app.everos.core.observability.logging import get_logger
 
+from .dashscope_compatible_provider import DashScopeCompatibleRerankProvider
 from .dashscope_provider import DashScopeRerankProvider
 from .deepinfra_provider import DeepInfraRerankProvider
 from .protocol import RerankProvider
@@ -30,7 +33,6 @@ logger = get_logger(__name__)
 # the ``base_url`` host so a Bailian / DeepInfra URL routes to the right
 # request-shape without the operator also having to set ``provider``.
 _PROVIDER_HOST_HINTS: tuple[tuple[str, str], ...] = (
-    ("dashscope.aliyuncs.com", "dashscope"),
     ("deepinfra.com", "deepinfra"),
 )
 
@@ -40,11 +42,17 @@ _PROVIDER_HOST_HINTS: tuple[tuple[str, str], ...] = (
 _DEFAULT_PROVIDER = "deepinfra"
 
 
-def _infer_provider(base_url: str) -> str | None:
+def _infer_provider(base_url: str, model: str | None = None) -> str | None:
     """Infer the rerank provider from the ``base_url`` host, or ``None``."""
-    host = (urlparse(base_url).hostname or "").lower()
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").lower()
     if not host:
         return None
+    if host == "dashscope.aliyuncs.com" or host.endswith(".dashscope.aliyuncs.com"):
+        path = parsed.path.lower()
+        if "/compatible-mode/" in path or (model or "").startswith("qwen3-rerank"):
+            return "dashscope_compatible"
+        return "dashscope"
     for needle, provider in _PROVIDER_HOST_HINTS:
         if host == needle or host.endswith(f".{needle}"):
             return provider
@@ -64,9 +72,10 @@ def build_rerank_provider(settings: RerankSettings) -> RerankProvider:
     Raises:
         ValueError: If ``model`` or ``base_url`` is unset, or if
             ``provider`` does not match a known implementation.
-            ``api_key`` is required for ``deepinfra`` and ``dashscope``;
-            optional (empty string) for ``vllm`` self-hosted endpoints.
-            ``dashscope`` currently supports ``gte-rerank-v2`` only.
+            ``api_key`` is required for ``deepinfra``, ``dashscope``, and
+            ``dashscope_compatible``; optional (empty string) for ``vllm``
+            self-hosted endpoints. ``dashscope`` currently supports
+            ``gte-rerank-v2`` only.
 
     Notes:
         When ``settings.provider`` is ``None`` the provider is inferred
@@ -86,7 +95,7 @@ def build_rerank_provider(settings: RerankSettings) -> RerankProvider:
 
     provider = settings.provider
     if provider is None:
-        inferred = _infer_provider(settings.base_url)
+        inferred = _infer_provider(settings.base_url, settings.model)
         provider = inferred or _DEFAULT_PROVIDER
         logger.info(
             "rerank_provider_inferred",
@@ -127,6 +136,21 @@ def build_rerank_provider(settings: RerankSettings) -> RerankProvider:
                 "(set EVEROS_RERANK__API_KEY)"
             )
         return DashScopeRerankProvider(
+            model=settings.model,
+            api_key=api_key,
+            base_url=settings.base_url,
+            timeout=settings.timeout_seconds,
+            max_retries=settings.max_retries,
+            batch_size=settings.batch_size,
+            max_concurrent=settings.max_concurrent,
+        )
+    if provider == "dashscope_compatible":
+        if not api_key:
+            raise ValueError(
+                "DashScope compatible rerank api_key is not configured "
+                "(set EVEROS_RERANK__API_KEY)"
+            )
+        return DashScopeCompatibleRerankProvider(
             model=settings.model,
             api_key=api_key,
             base_url=settings.base_url,

@@ -249,16 +249,26 @@ class BaseDailyWriter:
     # ── Hooks (subclass override) ─────────────────────────────────────────
 
     async def _current_count(self, path: Path) -> int:
-        """Return the current entry count for the file.
+        """Return the current sequence watermark for the file.
 
-        Default: number of ``<!-- entry:... -->`` blocks already present.
-        Subclasses may override to read a frontmatter field (e.g.
-        ``entry_count``) when they trust that field over a marker scan.
+        The markdown markers are the durable identity source. Frontmatter
+        ``entry_count`` is only derived metadata and may lag after manual
+        edits or older writer bugs, so allocation scans existing marker ids
+        and continues after the maximum matching sequence.
         """
         if not await anyio.Path(path).is_file():
             return 0
         parsed = await MarkdownReader.read(path)
-        return len(parsed.entries)
+        max_seq = 0
+        for entry in parsed.entries:
+            try:
+                eid = EntryId.parse(entry.id)
+            except ValueError:
+                continue
+            if eid.prefix != self.schema.ENTRY_ID_PREFIX:
+                continue
+            max_seq = max(max_seq, eid.seq)
+        return max_seq
 
     def _frontmatter_updates(
         self,

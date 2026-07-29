@@ -120,16 +120,22 @@ class RunRecordStore:
     async def list_runs(
         self,
         *,
-        strategy_name: str,
+        strategy_name: str | None = None,
         status: RunStatus | None = None,
         limit: int = 100,
     ) -> list[RunRecord]:
-        """Return ``strategy_name``'s records, newest first; optional status filter."""
-        sql = _SELECT_COLUMNS + " WHERE strategy_name = ?"
-        args: list[Any] = [strategy_name]
+        """Return run records, newest first; optional strategy/status filters."""
+        sql = _SELECT_COLUMNS
+        clauses: list[str] = []
+        args: list[Any] = []
+        if strategy_name is not None:
+            clauses.append("strategy_name = ?")
+            args.append(strategy_name)
         if status is not None:
-            sql += " AND status = ?"
+            clauses.append("status = ?")
             args.append(status.value)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY started_at DESC LIMIT ?"
         args.append(limit)
         async with self._storage.connect() as conn:

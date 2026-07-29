@@ -21,7 +21,10 @@ logger = get_logger(__name__)
 
 
 async def enrich_content_items(
-    items: list[dict[str, Any]], *, max_concurrency: int = 4
+    items: list[dict[str, Any]],
+    *,
+    max_concurrency: int = 4,
+    project_id: str | None = None,
 ) -> None:
     """Parse each non-text item and backfill ``parsed_content`` in place.
 
@@ -33,6 +36,8 @@ async def enrich_content_items(
     Args:
         items: ContentItem dicts (mutated in place).
         max_concurrency: Upper bound on concurrent parse calls.
+        project_id: JoySafeter project whose default secret should drive the
+            parser LLM.
     """
     from app.everos.component.parser import aparse_file  # Deferred: optional dep
 
@@ -53,7 +58,7 @@ async def enrich_content_items(
             except ValueError as exc:
                 raise UnsupportedModalityError(str(exc)) from exc
             try:
-                parsed = await aparse_file(raw)
+                parsed = await aparse_file(raw, project_id=project_id)
             except LLMError:
                 item["parse_status"] = "failed"
                 item["parse_error"] = "LLMError"

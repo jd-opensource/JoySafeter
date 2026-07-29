@@ -16,6 +16,8 @@ from everalgo.llm.protocols import LLMClient
 from app.everos.config import load_settings
 from app.everos.core.observability.logging import get_logger
 
+from .structured import ensure_json_repairing_llm
+
 logger = get_logger(__name__)
 
 
@@ -46,11 +48,13 @@ def get_llm_client() -> LLMClient:
         raise LLMNotConfiguredError(
             "LLM is required; set EVEROS_LLM__API_KEY + EVEROS_LLM__BASE_URL"
         )
-    _llm_client = build_client(
-        LLMConfig(
-            model=llm_cfg.model,
-            api_key=api_key,
-            base_url=llm_cfg.base_url,
+    _llm_client = ensure_json_repairing_llm(
+        build_client(
+            LLMConfig(
+                model=llm_cfg.model,
+                api_key=api_key,
+                base_url=llm_cfg.base_url,
+            )
         )
     )
     logger.info("llm_client_built", model=llm_cfg.model)

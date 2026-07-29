@@ -17,11 +17,13 @@ from app.everos.config import LLMSettings
 from app.everos.core.errors import ConfigurationError
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.database import AsyncSessionLocal
+from app.joysafeter_shared.everos_scope import extract_joysafeter_project_id
 
 from .anthropic_provider import AnthropicProvider
-from .client import get_llm_client
+from .client import get_llm_client, get_multimodal_llm_client
 from .factory import build_llm_provider
 from .protocol import LLMClient
+from .structured import ensure_json_repairing_llm
 
 
 class IncompatibleProjectLLMSecretError(ConfigurationError):
@@ -41,11 +43,13 @@ class ProjectLLMCredential:
 
 
 _project_llm_clients: dict[tuple[str, str, datetime | None], LLMClient] = {}
+_project_multimodal_llm_clients: dict[tuple[str, str, datetime | None], LLMClient] = {}
 
 
 def clear_project_llm_client_cache() -> None:
     """Clear the per-project LLM cache. Intended for tests and reload hooks."""
     _project_llm_clients.clear()
+    _project_multimodal_llm_clients.clear()
 
 
 async def get_project_llm_client(project_id: str | None) -> LLMClient:
@@ -69,30 +73,59 @@ async def get_project_llm_client(project_id: str | None) -> LLMClient:
     if cached is not None:
         return cached
 
+    client = ensure_json_repairing_llm(_build_client_from_credential(credential))
+    _project_llm_clients[cache_key] = client
+    return client
+
+
+async def get_project_multimodal_llm_client(project_id: str | None) -> LLMClient:
+    """Return the multimodal parser LLM client for a JoySafeter project.
+
+    Project secrets are the source of truth when present. If no project secret
+    is selected, fall back to the legacy process-level multimodal settings so
+    older non-project callers keep working.
+    """
+    credential = await _resolve_project_llm_credential(project_id)
+    if credential is None:
+        return get_multimodal_llm_client()
+
+    cache_key = (
+        str(project_id or "default"),
+        credential.secret_id,
+        credential.updated_at,
+    )
+    cached = _project_multimodal_llm_clients.get(cache_key)
+    if cached is not None:
+        return cached
+
+    client = _build_client_from_credential(credential)
+    _project_multimodal_llm_clients[cache_key] = client
+    return client
+
+
+def _build_client_from_credential(credential: ProjectLLMCredential) -> LLMClient:
     if credential.provider == "anthropic":
-        client = AnthropicProvider(
+        return AnthropicProvider(
             model=credential.model,
             api_key=credential.api_key,
             base_url=credential.base_url,
         )
-    else:
-        client = build_llm_provider(
-            LLMSettings(
-                model=credential.model,
-                api_key=SecretStr(credential.api_key),
-                base_url=credential.base_url,
-            )
+    return build_llm_provider(
+        LLMSettings(
+            model=credential.model,
+            api_key=SecretStr(credential.api_key),
+            base_url=credential.base_url,
         )
-    _project_llm_clients[cache_key] = client
-    return client
+    )
 
 
 async def _resolve_project_llm_credential(
     project_id: str | None,
 ) -> ProjectLLMCredential | None:
+    joysafeter_project_id = extract_joysafeter_project_id(project_id)
     async with AsyncSessionLocal() as db:
         secret_svc = SecretService(db)
-        secret = await secret_svc.get_default_secret(project_id=project_id)
+        secret = await secret_svc.get_default_secret(project_id=joysafeter_project_id)
         if secret is None:
             return None
         data = secret_svc.get_secret_data(secret)

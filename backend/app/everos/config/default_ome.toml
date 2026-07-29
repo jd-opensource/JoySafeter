@@ -49,14 +49,14 @@
 
 # ── Reflection ──────────────────────────────────────────────────────────
 
-# Offline memory consolidation. Disabled by default — uncomment to enable.
-# Once enabled, runs on the default schedule: weekly, Monday 02:00.
+# Offline memory consolidation. Enabled by default and runs weekly,
+# Sunday 00:00. Uncomment this block to disable it or tune its schedule.
 # Run Reflection sparingly — at most once a week. Triggering it too
 # often degrades quality, since each run is a lossy LLM re-merge.
 # The cron expression can be overridden without restarting the server.
 # [strategies.reflect_episodes]
-# enabled = true
-# cron = "0 2 * * 1"
+# enabled = false
+# cron = "0 0 * * sun"
 
 # ── Agent-memory pipeline ───────────────────────────────────────────────
 

@@ -37,19 +37,17 @@ class AnthropicProvider:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-        response_format: Mapping[str, Any] | None = None,
+        response_format: Any | None = None,
         **extra: Any,
     ) -> ChatResponse:
         """Send a Messages API request and return the parsed response."""
-        if response_format is not None:
+        if isinstance(response_format, Mapping):
             extra = {**extra, "response_format": dict(response_format)}
         system, anthropic_messages = _normalise_messages(messages)
         request: dict[str, Any] = {
             "model": model or self._model,
             "messages": anthropic_messages,
-            "temperature": (
-                temperature if temperature is not None else self._temperature
-            ),
+            "temperature": (temperature if temperature is not None else self._temperature),
             "max_tokens": max_tokens if max_tokens is not None else self._max_tokens,
         }
         if system:

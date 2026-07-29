@@ -34,16 +34,20 @@ short-circuits low-quality cases internally via its own
 
 from __future__ import annotations
 
+import asyncio
+
 from everalgo.agent_memory import AgentSkillExtractor
 from everalgo.types import AgentCase as AlgoAgentCase
 from everalgo.types import AgentSkill as AlgoAgentSkill
+from pydantic import ValidationError
 
 from app.everos.component.embedding import (
     EmbeddingNotConfiguredError,
     EmbeddingServiceError,
     get_embedder,
 )
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import bind_json_schema, get_project_llm_client
+from app.everos.component.utils.datetime import get_now_with_timezone
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MemoryRoot
 from app.everos.infra.ome.context import StrategyContext
@@ -61,6 +65,7 @@ from app.everos.infra.persistence.lancedb import (
 )
 from app.everos.infra.persistence.markdown import (
     AgentSkillFrontmatter,
+    AgentSkillReader,
     AgentSkillWriter,
 )
 from app.everos.infra.persistence.sqlite import cluster_repo
@@ -87,6 +92,9 @@ when many top-K skills each carry a distinct ``source_case_ids`` list.
 Ranking is ``(quality_score desc, timestamp desc)`` — same ordering
 opensource ``AgentSkillExtractor._load_case_history`` applies."""
 
+CASE_INDEX_WAIT_ATTEMPTS = 20
+CASE_INDEX_WAIT_SECONDS = 0.5
+
 
 class _ClusterMissingError(RuntimeError):
     """Race with the cluster strategy; OME retry will catch up."""
@@ -97,6 +105,7 @@ class _CaseNotYetIndexedError(RuntimeError):
 
 
 _writer: AgentSkillWriter | None = None
+_reader: AgentSkillReader | None = None
 
 
 def _get_writer() -> AgentSkillWriter:
@@ -104,6 +113,13 @@ def _get_writer() -> AgentSkillWriter:
     if _writer is None:
         _writer = AgentSkillWriter(root=MemoryRoot.default())
     return _writer
+
+
+def _get_reader() -> AgentSkillReader:
+    global _reader
+    if _reader is None:
+        _reader = AgentSkillReader(root=MemoryRoot.default())
+    return _reader
 
 
 @offline_strategy(
@@ -151,11 +167,17 @@ async def extract_agent_skill(event: SkillClusterUpdated, ctx: StrategyContext) 
         )
 
         # 5. Run the LLM extractor → add / update / retire skill operations.
-        extractor = AgentSkillExtractor(llm=get_llm_client())
+        extractor = AgentSkillExtractor(
+            llm=bind_json_schema(
+                await get_project_llm_client(event.project_id),
+                "agent_skill_extract",
+            )
+        )
         emitted_skills = await extractor.aextract(
             _to_algo_case(target_lance),
             existing_relevant_skills=[_to_algo_skill(s) for s in existing_lance],
             supporting_cases=[_to_algo_case(c) for c in supporting_lance],
+            skip_maturity_scoring=False,
         )
 
         # 6. Write each emitted skill back to its SKILL.md.
@@ -199,15 +221,20 @@ async def _load_target_case(
     project_id: str,
 ) -> LanceAgentCase:
     """Pull the target case row, raising a retry-class error on cascade lag."""
-    target = await agent_case_repo.find_by_owner_entry(
-        agent_id, case_entry_id, app_id=app_id, project_id=project_id
-    )
-    if target is None:
-        # Cascade hasn't indexed the freshly-written md yet.
-        raise _CaseNotYetIndexedError(
-            f"AgentCase entry_id={case_entry_id} not in LanceDB yet; retrying"
+    for attempt in range(CASE_INDEX_WAIT_ATTEMPTS):
+        target = await agent_case_repo.find_by_owner_entry(
+            agent_id, case_entry_id, app_id=app_id, project_id=project_id
         )
-    return target
+        if target is not None:
+            return target
+        if attempt < CASE_INDEX_WAIT_ATTEMPTS - 1:
+            await asyncio.sleep(CASE_INDEX_WAIT_SECONDS)
+
+    # Cascade hasn't indexed the freshly-written md yet.
+    raise _CaseNotYetIndexedError(
+        f"AgentCase entry_id={case_entry_id} not in LanceDB yet after "
+        f"{CASE_INDEX_WAIT_ATTEMPTS} checks; retrying"
+    )
 
 
 async def _select_existing_skills(
@@ -372,7 +399,28 @@ async def _persist_skill(
     app_id: str,
     project_id: str,
 ) -> None:
-    """Write one ``SKILL.md`` with the post-stamped ``cluster_id``."""
+    """Write one ``SKILL.md`` with EverOS-managed metadata stamped in."""
+    now = get_now_with_timezone()
+    created_at = now
+    try:
+        existing = await _get_reader().read_main(
+            agent_id,
+            skill.name,
+            schema=AgentSkillFrontmatter,
+            app_id=app_id,
+            project_id=project_id,
+        )
+    except ValidationError as exc:
+        logger.warning(
+            "agent_skill_existing_frontmatter_invalid",
+            agent_id=agent_id,
+            skill_name=skill.name,
+            error=str(exc),
+        )
+        existing = None
+    if existing is not None:
+        created_at = existing[0].created_at
+
     frontmatter = AgentSkillFrontmatter(
         id=f"{agent_id}_{skill.name}",
         agent_id=agent_id,
@@ -382,6 +430,8 @@ async def _persist_skill(
         maturity_score=skill.maturity_score,
         source_case_ids=list(skill.source_case_ids),
         cluster_id=cluster_id,
+        created_at=created_at,
+        updated_at=now,
     )
     await writer.write_main(
         agent_id,

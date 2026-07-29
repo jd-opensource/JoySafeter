@@ -34,6 +34,7 @@ from .lifespans import (
     LLMLifespanProvider,
     OmeLifespanProvider,
     SqliteLifespanProvider,
+    VectorRebuildLifespanProvider,
 )
 from .routes import (
     get,
@@ -42,6 +43,7 @@ from .routes import (
     memorize,
     metrics,
     ome,
+    overview,
     search,
 )
 
@@ -51,6 +53,18 @@ logger = get_logger(__name__)
 def _docs_enabled() -> bool:
     """Enable docs endpoints (/docs, /redoc, /openapi.json) only in dev."""
     return os.environ.get("ENV", "prod").upper() == "DEV"
+
+
+def _default_lifespan_providers() -> list[LifespanProvider]:
+    return [
+        MetricsLifespanProvider(),
+        LLMLifespanProvider(),
+        SqliteLifespanProvider(),
+        LanceDBLifespanProvider(),
+        CascadeLifespanProvider(),
+        VectorRebuildLifespanProvider(),
+        OmeLifespanProvider(),
+    ]
 
 
 def create_app(
@@ -79,14 +93,7 @@ def create_app(
     enable_docs = _docs_enabled()
 
     if lifespan_providers is None:
-        lifespan_providers = [
-            MetricsLifespanProvider(),
-            LLMLifespanProvider(),
-            SqliteLifespanProvider(),
-            LanceDBLifespanProvider(),
-            CascadeLifespanProvider(),
-            OmeLifespanProvider(),
-        ]
+        lifespan_providers = _default_lifespan_providers()
 
     app = FastAPI(
         title="everos",
@@ -119,6 +126,7 @@ def create_app(
     app.include_router(memorize.router)
     app.include_router(search.router)
     app.include_router(get.router)
+    app.include_router(overview.router)
     app.include_router(ome.router)
     app.include_router(knowledge.router)
 

@@ -46,6 +46,11 @@ from app.everos.infra.persistence.sqlite import (
     md_change_state_repo,
 )
 from app.everos.memory.cascade import CascadeOrchestrator, match_kind
+from app.everos.memory.cascade.duplicate_entries import scan_duplicate_entry_files
+from app.everos.memory.vector_rebuild import (
+    default_vector_rebuild_specs,
+    rebuild_fallback_rows,
+)
 
 app = typer.Typer(
     name="cascade",
@@ -178,6 +183,61 @@ def status() -> None:
     asyncio.run(_run())
 
 
+# ── vector rebuild ───────────────────────────────────────────────────────
+
+
+@app.command("vector-rebuild")
+def vector_rebuild(
+    kind: Annotated[
+        str,
+        typer.Option(
+            "--kind",
+            help=(
+                "Memory kind to rebuild: all, episode, atomic_fact, foresight, "
+                "agent_case, or agent_skill."
+            ),
+        ),
+    ] = "all",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", min=1, help="Maximum fallback rows per kind."),
+    ] = 1000,
+) -> None:
+    """Rebuild rows whose vectors were written with the zero-vector fallback."""
+
+    async def _run() -> None:
+        async with _runtime():
+            settings = load_settings()
+            embedder = build_embedding_provider(settings.embedding)
+            specs = {spec.kind: spec for spec in default_vector_rebuild_specs()}
+            selected = specs.keys() if kind == "all" else [kind]
+            total = 0
+            for selected_kind in selected:
+                spec = specs.get(selected_kind)
+                if spec is None:
+                    typer.echo(f"error: unsupported kind {selected_kind!r}", err=True)
+                    raise typer.Exit(code=1)
+                try:
+                    count = await rebuild_fallback_rows(
+                        spec.repo,
+                        text_getter=spec.text_getter,
+                        embedder=embedder,
+                        embedding_model=settings.embedding.model,
+                        limit=limit,
+                    )
+                except Exception as exc:  # noqa: BLE001 - CLI should stay readable.
+                    typer.echo(
+                        f"{selected_kind}: vector rebuild failed: {exc}",
+                        err=True,
+                    )
+                    raise typer.Exit(code=1) from exc
+                total += count
+                typer.echo(f"{selected_kind}: rebuilt {count} row(s)")
+            typer.echo(f"vector rebuild complete — rebuilt {total} row(s)")
+
+    asyncio.run(_run())
+
+
 # ── fix ──────────────────────────────────────────────────────────────────
 
 
@@ -232,6 +292,57 @@ def fix(
                     typer.echo(f"  {r.md_path}")
 
     asyncio.run(_run())
+
+
+@app.command("repair-duplicates")
+def repair_duplicates(
+    kind: Annotated[
+        str,
+        typer.Option(
+            "--kind",
+            help="Daily-log kind to scan: all, episode, atomic_fact, foresight, agent_case.",
+        ),
+    ] = "all",
+    apply: Annotated[
+        bool,
+        typer.Option(
+            "--apply",
+            help="Rewrite files, keeping the last duplicate entry block for each id.",
+        ),
+    ] = False,
+) -> None:
+    """Report or repair duplicate daily-log entry ids in markdown files."""
+    memory_root = MemoryRoot.default()
+    try:
+        reports = scan_duplicate_entry_files(memory_root.root, apply=apply, kind=kind)
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if not reports:
+        typer.echo("no duplicate daily-log entry ids found")
+        return
+
+    action = "repaired" if apply else "found"
+    typer.echo(f"{action} {len(reports)} file(s) with duplicate entry ids:")
+    for report in reports:
+        try:
+            display_path = report.path.relative_to(memory_root.root)
+        except ValueError:
+            display_path = report.path
+        duplicates = ", ".join(
+            f"{entry_id} x{count}"
+            for entry_id, count in sorted(report.duplicate_counts.items())
+        )
+        typer.echo(
+            f"  {display_path}: {duplicates} "
+            f"({report.original_count} entries -> {report.unique_count})"
+        )
+
+    if not apply:
+        typer.echo("run `everos cascade repair-duplicates --apply` to rewrite files.")
+    else:
+        typer.echo("duplicate repair complete; run `everos cascade sync` if needed.")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────

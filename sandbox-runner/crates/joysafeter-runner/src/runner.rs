@@ -82,9 +82,6 @@ pub async fn handle_task(
     } else {
         &session_config.provider
     };
-    let adapter = adapters
-        .get(provider)
-        .ok_or_else(|| format!("No adapter for provider: {}", provider))?;
 
     let work_dir = session_config
         .work_dir
@@ -150,6 +147,9 @@ pub async fn handle_task(
     } else {
         session_config.secrets.clone()
     };
+    let adapter = adapters
+        .get(provider)
+        .ok_or_else(|| format!("No adapter for provider: {}", provider))?;
     let model = session_config.model.clone().or(task.model.clone());
     let permission_mode = if session_config.permission_mode.is_empty() {
         task.permission_mode

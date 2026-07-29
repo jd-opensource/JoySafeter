@@ -1,8 +1,8 @@
 """LanceDB ``user_profile`` table schema.
 
 Profile is a single-file kind: one ``users/<user_id>/user.md`` per
-user, replaced wholesale on edit (mirrors ``AgentSkill`` for the
-upsert/single-row contract). The LanceDB row is a typed projection
+user per app/project, replaced wholesale on edit (mirrors ``AgentSkill``
+for the upsert/single-row contract). The LanceDB row is a typed projection
 of the md frontmatter that the cascade keeps in sync; it carries no
 vector / no BM25 because the recall surface is pure KV-by-owner
 (``fetch(owner_id)``) — when query-aware profile lookup ships later
@@ -28,7 +28,7 @@ class UserProfile(BaseLanceTable):
     # No BM25 columns: profile recall is KV-by-owner today.
 
     id: str
-    """PK = ``owner_id`` (one row per user)."""
+    """PK = ``app_id:project_id:owner_id`` (one row per user per project)."""
 
     owner_id: str
     owner_type: str
@@ -54,7 +54,7 @@ class UserProfile(BaseLanceTable):
     preference bucket."""
 
     profile_timestamp_ms: int
-    """Algo-emitted profile timestamp (ms epoch) — pinned to the
+    """EverOS-computed profile timestamp (ms epoch) — pinned to the
     timestamp of the freshest MemCell that fed into the synthesis.
     Mirrored from :attr:`UserProfileFrontmatter.profile_timestamp_ms`
     so downstream code can compare freshness without re-reading md."""

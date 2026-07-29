@@ -67,21 +67,19 @@ class OpenAIProvider:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-        response_format: Mapping[str, Any] | None = None,
+        response_format: Any | None = None,
         **extra: Any,
     ) -> ChatResponse:
         """Send a chat completion request and return the parsed response."""
         request: dict[str, Any] = {
             "model": model or self._model,
             "messages": [m.model_dump() for m in messages],
-            "temperature": (
-                temperature if temperature is not None else self._temperature
-            ),
+            "temperature": (temperature if temperature is not None else self._temperature),
         }
         effective_max = max_tokens if max_tokens is not None else self._max_tokens
         if effective_max is not None:
             request["max_tokens"] = effective_max
-        if response_format is not None:
+        if isinstance(response_format, Mapping):
             request["response_format"] = dict(response_format)
         request.update(extra)
 

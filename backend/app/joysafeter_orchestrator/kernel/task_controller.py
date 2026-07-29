@@ -29,13 +29,13 @@ class TaskController:
                 logger.warning("Pending task scanner failed: %s", e)
 
     async def recover_on_startup(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
+
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, TaskService
         from app.joysafeter_orchestrator.services import SandboxRecordService as SandboxService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             result = await db.execute(text("SELECT pg_try_advisory_lock(hashtext('task_recovery'))"))
@@ -99,11 +99,16 @@ class TaskController:
 
                 session_lifecycle = JoySafeterSessionLifecycleService(db)
 
-                # Reset sessions stuck in 'rescheduling'
+                # Reset sessions stuck in 'rescheduling' after all retryable work reached a terminal state.
                 stale_rescheduling_result = await db.execute(text(
                     "SELECT id FROM joysafeter_sessions"
                     " WHERE status = 'rescheduling'"
                     " AND updated_at < NOW() - INTERVAL '5 minutes'"
+                    " AND NOT EXISTS ("
+                    "     SELECT 1 FROM joysafeter_tasks"
+                    "     WHERE joysafeter_tasks.chat_session_id = joysafeter_sessions.id"
+                    "     AND joysafeter_tasks.status IN ('pending', 'scheduling', 'running')"
+                    " )"
                 ))
                 stale_rescheduling_sessions = stale_rescheduling_result.all()
 
@@ -111,8 +116,8 @@ class TaskController:
                     sid = row[0]
                     await session_lifecycle.transition_and_emit(
                         sid,
-                        SessionStatus.TERMINATED.value,
-                        "session.status_terminated",
+                        SessionStatus.IDLE.value,
+                        "session.status_idle",
                         {"stop_reason": {"type": "retries_exhausted"}},
                         stop_reason={"type": "retries_exhausted"},
                     )
@@ -157,12 +162,12 @@ class TaskController:
                 await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_recovery'))"))
 
     async def _check_overdue_tasks(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
-        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+
         from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
-        from app.joysafeter_orchestrator.services import TaskService
+        from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             locked = False
@@ -214,10 +219,12 @@ class TaskController:
                     await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_watchdog'))"))
 
     async def _check_stuck_scheduling(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
-        from app.joysafeter_orchestrator.services import TaskService
+
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             locked = False
@@ -228,7 +235,7 @@ class TaskController:
                     return
 
                 result = await db.execute(text(
-                    "SELECT id, retry_count, max_retries FROM joysafeter_tasks"
+                    "SELECT id, retry_count, max_retries, chat_session_id FROM joysafeter_tasks"
                     " WHERE status = 'scheduling'"
                     " AND updated_at < NOW() - INTERVAL '2 minutes'"
                 ))
@@ -239,6 +246,7 @@ class TaskController:
                     task_id = row[0]
                     retry_count = row[1] or 0
                     max_retries = row[2] or 3
+                    session_id = row[3]
                     if retry_count >= max_retries:
                         logger.warning(
                             "Task %s stuck in scheduling >2min and retries exhausted (%d/%d), marking failed",
@@ -249,6 +257,13 @@ class TaskController:
                             "Retries exhausted while stuck in scheduling",
                             TaskStatus.FAILED,
                         )
+                        if session_id is not None:
+                            await TaskController._settle_session_if_no_active_tasks(
+                                db,
+                                session_id,
+                                SessionStatus.IDLE.value,
+                                {"type": "retries_exhausted"},
+                            )
                     else:
                         await task_svc.increment_retry(task_id)
                         requeue_ids.append(task_id)
@@ -261,8 +276,9 @@ class TaskController:
                     await db.execute(text("SELECT pg_advisory_unlock(hashtext('task_scheduling_watchdog'))"))
 
     async def _scan_pending_tasks(self) -> None:
-        from app.joysafeter_shared.database import AsyncSessionLocal
         from sqlalchemy import text
+
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             locked = False
@@ -289,11 +305,10 @@ class TaskController:
     @staticmethod
     async def failover_or_fail_task(task_id: uuid.UUID, reason: str) -> "int | None":
         """Attempt to retry the task. Returns the retry_count (pre-increment) if retried, None if terminal/failed."""
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_orchestrator.services import TaskService
-        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
-        from app.joysafeter_orchestrator.services import SessionService
+        from app.joysafeter_domain.models.joysafeter_session import SessionStatus
         from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus as TaskStatus
+        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService, SessionService, TaskService
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             svc = TaskService(db)
@@ -348,9 +363,55 @@ class TaskController:
 
             try:
                 await svc.update_task_error(task_id, reason, TaskStatus.FAILED)
+                if task.chat_session_id:
+                    await TaskController._settle_session_if_no_active_tasks(
+                        db,
+                        task.chat_session_id,
+                        SessionStatus.IDLE.value,
+                        {"type": "sandbox_failed", "message": reason},
+                    )
             except Exception as e:
                 logger.error("Failed to mark task %s as failed: %s", task_id, e)
             return None
+
+    @staticmethod
+    async def _settle_session_if_no_active_tasks(
+        db,
+        session_id: uuid.UUID,
+        final_status: str,
+        stop_reason: dict,
+    ) -> None:
+        from sqlalchemy import text
+
+        from app.joysafeter_orchestrator.services import JoySafeterSessionLifecycleService
+
+        active_result = await db.execute(
+            text(
+                "SELECT EXISTS("
+                " SELECT 1 FROM joysafeter_tasks"
+                " WHERE chat_session_id = :sid"
+                " AND status IN ('pending', 'scheduling', 'running')"
+                ")"
+            ),
+            {"sid": session_id},
+        )
+        if active_result.scalar():
+            return
+
+        try:
+            await JoySafeterSessionLifecycleService(db).transition_and_emit(
+                session_id,
+                final_status,
+                f"session.status_{final_status}",
+                {"stop_reason": stop_reason},
+                stop_reason=stop_reason,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to settle session %s after terminal task: %s",
+                session_id,
+                e,
+            )
 
     @staticmethod
     def compute_retry_delay(retry_count: int, task_id: uuid.UUID) -> float:

@@ -7,6 +7,8 @@ Public surface:
 - :class:`RerankError` — backward-compat alias for :class:`RerankServiceError`.
 - :class:`DeepInfraRerankProvider` — DeepInfra inference-API rerank.
 - :class:`DashScopeRerankProvider` — Aliyun Bailian / DashScope rerank.
+- :class:`DashScopeCompatibleRerankProvider` — Aliyun Bailian compatible-mode
+  rerank for models such as ``qwen3-rerank``.
 - :class:`VllmRerankProvider` — OpenAI-compat ``/v1/rerank`` (vLLM,
   self-hosted, other compatible servers).
 - :func:`build_rerank_provider` — settings-driven factory that picks
@@ -21,6 +23,9 @@ External usage::
 
 from app.everos.core.errors import RerankServiceError as RerankServiceError
 
+from .dashscope_compatible_provider import (
+    DashScopeCompatibleRerankProvider as DashScopeCompatibleRerankProvider,
+)
 from .dashscope_provider import DashScopeRerankProvider as DashScopeRerankProvider
 from .deepinfra_provider import DeepInfraRerankProvider as DeepInfraRerankProvider
 from .factory import build_rerank_provider as build_rerank_provider
@@ -31,6 +36,7 @@ from .vllm_provider import VllmRerankProvider as VllmRerankProvider
 
 __all__ = [
     "DashScopeRerankProvider",
+    "DashScopeCompatibleRerankProvider",
     "DeepInfraRerankProvider",
     "RerankError",
     "RerankProvider",

@@ -29,7 +29,13 @@ logger = get_logger(__name__)
 class ProfileRecaller:
     """Fetch the owner's profile row from LanceDB, return at most one item."""
 
-    async def fetch(self, owner_id: str) -> list[SearchProfileItem]:
+    async def fetch(
+        self,
+        owner_id: str,
+        *,
+        app_id: str = "default",
+        project_id: str = "default",
+    ) -> list[SearchProfileItem]:
         """Return ``[item]`` if a profile row exists, otherwise ``[]``.
 
         Empty list (rather than 404) lets the caller emit a normal
@@ -38,9 +44,18 @@ class ProfileRecaller:
         """
         if not owner_id:
             return []
-        row = await user_profile_repo.get_by_id(owner_id)
+        row = await user_profile_repo.find_by_owner_scope(
+            owner_id,
+            app_id=app_id,
+            project_id=project_id,
+        )
         if row is None:
-            logger.debug("profile_fetch_miss", owner_id=owner_id)
+            logger.debug(
+                "profile_fetch_miss",
+                owner_id=owner_id,
+                app_id=app_id,
+                project_id=project_id,
+            )
             return []
         profile_data: dict[str, Any] = {
             "summary": row.summary,

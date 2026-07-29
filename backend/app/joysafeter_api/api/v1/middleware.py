@@ -1,6 +1,6 @@
 """API response wrapper middleware.
 
-Wraps all /api/v1 JSON responses in the standard envelope:
+Wraps all /api/v1 and /api/v2 JSON responses in the standard envelope:
 
 List:   {"success": true, "code": 200, "message": "OK", "data": [...], "has_more": true, ...}
 Single: {"success": true, "code": 200, "message": "OK", "data": {...}}
@@ -41,7 +41,7 @@ class ApiV1ResponseWrapperMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
 
-        if not request.url.path.startswith("/api/v1"):
+        if not request.url.path.startswith(("/api/v1", "/api/v2")):
             return response
 
         # Skip SSE / streaming endpoints — BaseHTTPMiddleware breaks long-lived streams

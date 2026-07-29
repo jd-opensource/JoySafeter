@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useRef, useState } from "react"
+
 import type { SessionEvent } from "@/types/managed"
 
 interface EventTimelineProps {
@@ -41,6 +42,14 @@ export function EventTimeline({ events, sessionStart, selectedId, onSelect }: Ev
     () => (selectedId ? events.findIndex(e => e.id === selectedId) : -1),
     [events, selectedId],
   )
+  const hoverPosition = hoverIndex !== null ? positions[hoverIndex] : null
+  const hoverTooltipTransform = hoverPosition == null
+    ? "translateX(-50%)"
+    : hoverPosition < 8
+      ? "translateX(0)"
+      : hoverPosition > 92
+        ? "translateX(-100%)"
+        : "translateX(-50%)"
 
   const findClosest = useCallback((clientX: number) => {
     if (!containerRef.current || positions.length === 0) return -1
@@ -73,7 +82,7 @@ export function EventTimeline({ events, sessionStart, selectedId, onSelect }: Ev
   if (events.length === 0) return null
 
   return (
-    <div className="relative">
+    <div className="relative pt-7">
       <div
         ref={containerRef}
         className="relative h-8 bg-secondary dark:bg-[#1e1e1e] rounded-md overflow-hidden cursor-pointer border border-border"
@@ -109,10 +118,10 @@ export function EventTimeline({ events, sessionStart, selectedId, onSelect }: Ev
 
       {hoverIndex !== null && events[hoverIndex] && (
         <div
-          className="absolute -top-7 pointer-events-none text-[10px] bg-popover text-popover-foreground border border-border rounded px-1.5 py-0.5 whitespace-nowrap shadow-sm z-20"
+          className="absolute top-0 pointer-events-none max-w-full overflow-hidden text-ellipsis text-[10px] bg-popover text-popover-foreground border border-border rounded px-1.5 py-0.5 whitespace-nowrap shadow-sm z-20"
           style={{
             left: `${positions[hoverIndex]}%`,
-            transform: "translateX(-50%)",
+            transform: hoverTooltipTransform,
           }}
         >
           {events[hoverIndex].type || events[hoverIndex].event_type || "event"}

@@ -26,6 +26,8 @@ first access; row population is the cascade daemon's job (see
 
 # Importing ``tables`` registers every business :class:`BaseLanceTable`
 # schema so callers can rely on the package alone to surface every schema.
+import pyarrow as pa
+
 from . import tables as tables  # noqa: F401
 from .lancedb_manager import dispose_connection as dispose_connection
 from .lancedb_manager import get_connection as get_connection
@@ -55,6 +57,18 @@ _BUSINESS_SCHEMAS = (
     UserProfile,
     KnowledgeTopic,
 )
+
+_VECTOR_METADATA_FIELDS = {
+    "vector_status": pa.string(),
+    "vector_updated_at": pa.timestamp("us", tz="UTC"),
+    "embedding_model": pa.string(),
+}
+
+_EPISODE_LINEAGE_FIELDS = {
+    "source_entry_ids": pa.list_(pa.string()),
+    "source_session_ids": pa.list_(pa.string()),
+    "source_agent_ids": pa.list_(pa.string()),
+}
 
 
 class LanceDBSchemaMismatchError(RuntimeError):
@@ -104,6 +118,21 @@ async def verify_business_schemas() -> None:
         actual = set(arrow_schema.names)
         expected = set(schema.model_fields.keys())
         missing = expected - actual
+        migratable_fields = dict(_VECTOR_METADATA_FIELDS)
+        if schema is Episode:
+            migratable_fields.update(_EPISODE_LINEAGE_FIELDS)
+        migratable = {
+            name: arrow_type
+            for name, arrow_type in migratable_fields.items()
+            if name in missing
+        }
+        if migratable and set(missing) <= set(migratable):
+            await table.add_columns(
+                [pa.field(name, arrow_type) for name, arrow_type in migratable.items()]
+            )
+            arrow_schema = await table.schema()
+            actual = set(arrow_schema.names)
+            missing = expected - actual
         extra = actual - expected
         if missing or extra:
             raise LanceDBSchemaMismatchError(

@@ -71,6 +71,9 @@ ALLOWED_FIELDS: Final[dict[str, _FieldSpec]] = {
     "parent_id": _FieldSpec("parent_id", "str"),
     "timestamp": _FieldSpec("timestamp", "ts"),
     "sender_id": _FieldSpec("sender_ids", "array_str"),
+    "source_session_id": _FieldSpec("source_session_ids", "array_str"),
+    "source_agent_id": _FieldSpec("source_agent_ids", "array_str"),
+    "source_entry_id": _FieldSpec("source_entry_ids", "array_str"),
 }
 
 # Fields the caller is explicitly **not** allowed to place inside

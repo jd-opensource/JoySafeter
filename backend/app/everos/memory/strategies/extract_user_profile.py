@@ -31,7 +31,7 @@ from everalgo.types import MemCell as AlgoMemCell
 from everalgo.types import Profile as AlgoProfile
 from everalgo.user_memory import ProfileExtractor
 
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import bind_json_schema, get_project_llm_client
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MemoryRoot
 from app.everos.infra.ome.context import StrategyContext
@@ -165,7 +165,13 @@ async def extract_user_profile(
 
         # 5. Run the LLM extractor — INIT (no prior) or UPDATE (existing).
         old_profile = _to_algo_profile(existing[0]) if existing else None
-        extractor = ProfileExtractor(llm=get_llm_client())
+        schema_name = "profile_update" if old_profile is not None else "profile_snapshot"
+        extractor = ProfileExtractor(
+            llm=bind_json_schema(
+                await get_project_llm_client(event.project_id),
+                schema_name,
+            )
+        )
         new_profile = await extractor.aextract(
             algo_memcells, sender_id=event.owner_id, old_profile=old_profile
         )
@@ -176,6 +182,7 @@ async def extract_user_profile(
             owner_id=event.owner_id,
             app_id=event.app_id,
             project_id=event.project_id,
+            profile_timestamp_ms=max(mc.timestamp for mc in algo_memcells),
         )
     logger.info(
         "user_profile_extracted",
@@ -204,7 +211,12 @@ def _to_algo_profile(fm: UserProfileFrontmatter) -> AlgoProfile:
 
 
 async def _persist_profile(
-    profile: AlgoProfile, *, owner_id: str, app_id: str, project_id: str
+    profile: AlgoProfile,
+    *,
+    owner_id: str,
+    app_id: str,
+    project_id: str,
+    profile_timestamp_ms: int,
 ) -> None:
     """Write the freshly extracted profile to ``users/<user_id>/user.md``."""
     extras = profile.model_dump(exclude={"owner_id", "summary", "timestamp"})
@@ -216,7 +228,7 @@ async def _persist_profile(
         summary=profile.summary,
         explicit_info=list(explicit_info),
         implicit_traits=list(implicit_traits),
-        profile_timestamp_ms=profile.timestamp,
+        profile_timestamp_ms=profile_timestamp_ms,
     )
     await _get_writer().write(
         owner_id,
