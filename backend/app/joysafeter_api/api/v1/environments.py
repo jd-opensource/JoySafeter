@@ -1,62 +1,160 @@
 import logging
+import re
 import uuid
-from typing import Optional
+from typing import NamedTuple, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_env_id
+from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_domain.schemas.joysafeter_environment import (
+    CreateEnvironmentRequest,
+    EnvironmentResponse,
+    UpdateEnvironmentRequest,
+)
+from app.joysafeter_shared.common.app_errors import (
+    AppError,
+    InternalServiceError,
+    InvalidRequestError,
+    NotFoundError,
+    ResourceConflictError,
+    ServiceUnavailableError,
+)
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_domain.schemas.joysafeter_environment import (
-    CreateEnvironmentRequest,
-    EnvironmentResponse,
-    UpdateEnvironmentRequest,
-)
-from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
+from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["joysafeter-environments"])
 
+_ACTIVE_TASK_ENV_RE = re.compile(r"^Environment is required by active task '([^']+)' via ([^.]+)\. (.+)$")
+_AGENT_ENV_RE = re.compile(r"^Environment is referenced by agent '([^']+)'\.$")
+_TRIGGER_ENV_RE = re.compile(r"^Environment is referenced by cron trigger '([^']+)'\.$")
 
-async def _validate_and_build_image(env) -> None:
-    """Validate packages by building the Docker image synchronously.
 
-    Raises HTTPException(400) if the build fails so the caller can propagate
-    the error to the client.
+class _EnvironmentImageUpdate(NamedTuple):
+    image_tag: Optional[str]
+    image_version: int
+
+
+def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
+    message = str(exc)
+    active_task_match = _ACTIVE_TASK_ENV_RE.match(message)
+    if active_task_match:
+        task_id, source, _rest = active_task_match.groups()
+        return ResourceConflictError(
+            code="ENVIRONMENT_ACTIVE_TASK",
+            message=message,
+            data={"environment_id": str(env_id), "task_id": task_id, "source": source},
+            retryable=True,
+            user_action="retry",
+        )
+
+    agent_match = _AGENT_ENV_RE.match(message)
+    if agent_match:
+        return ResourceConflictError(
+            code="ENVIRONMENT_AGENT_REFERENCE",
+            message=message,
+            data={"environment_id": str(env_id), "agent_name": agent_match.group(1)},
+        )
+
+    trigger_match = _TRIGGER_ENV_RE.match(message)
+    if trigger_match:
+        return ResourceConflictError(
+            code="ENVIRONMENT_TRIGGER_REFERENCE",
+            message=message,
+            data={"environment_id": str(env_id), "trigger_name": trigger_match.group(1)},
+        )
+
+    if message.startswith("Environment is referenced by one or more active sessions"):
+        return ResourceConflictError(
+            code="ENVIRONMENT_ACTIVE_SESSION_REFERENCE",
+            message=message,
+            data={"environment_id": str(env_id)},
+            retryable=True,
+            user_action="retry",
+        )
+
+    return ResourceConflictError(
+        code="ENVIRONMENT_CONFLICT",
+        message=message,
+        data={"environment_id": str(env_id)},
+    )
+
+
+def _environment_not_found_error(env_id: uuid.UUID) -> AppError:
+    return NotFoundError(
+        code="ENVIRONMENT_NOT_FOUND",
+        message="Environment not found",
+        data={"environment_id": str(env_id)},
+        user_action="refresh",
+    )
+
+
+def _environment_image_build_error(env_id: uuid.UUID, *, operation: str, exc: Exception) -> AppError:
+    return InternalServiceError(
+        code="ENVIRONMENT_IMAGE_BUILD_FAILED",
+        message=f"Image build failed: {exc}",
+        data={"environment_id": str(env_id), "operation": operation},
+        source="runtime",
+        retryable=True,
+        user_action="retry",
+    )
+
+
+def _environment_image_builder_unavailable_error(env_id: uuid.UUID) -> AppError:
+    return ServiceUnavailableError(
+        code="ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE",
+        message="Image builder is unavailable; cannot provision environment packages right now",
+        data={"environment_id": str(env_id)},
+    )
+
+
+def _apply_image_update(env, update: _EnvironmentImageUpdate) -> None:
+    env.image_tag = update.image_tag
+    env.image_version = update.image_version
+
+
+def _is_packages_empty(packages: dict) -> bool:
+    return not any(packages.get(key) for key in ("apt", "pip", "npm", "cargo", "gem", "go"))
+
+
+async def _build_image_update(env) -> _EnvironmentImageUpdate:
+    """Validate packages by asking the Rust runtime to build the Docker image.
+
+    Raises an AppError if the build fails so the caller can propagate the
+    error to the client.
     """
-    from app.joysafeter_orchestrator.lifespan import get_image_builder
+    from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_environment_image_build_via_redis
 
-    builder = get_image_builder()
     config = env.config or {}
     packages = config.get("packages", {}) if isinstance(config, dict) else {}
-    if not packages:
-        return
-
-    if not builder:
-        logger.info("Image builder unavailable; skipping environment image build for %s", env.id)
-        return
+    if not isinstance(packages, dict) or not packages or _is_packages_empty(packages):
+        return _EnvironmentImageUpdate(image_tag=None, image_version=0)
 
     version = getattr(env, "image_version", 0) or 0
-    tag = await builder.build_environment_image(env.id, version + 1, packages)
+    tag = await relay_environment_image_build_via_redis(
+        env.id,
+        version=version + 1,
+        packages=packages,
+        boundary="environment_api",
+        operation="build_environment_image",
+        failure_code="ENVIRONMENT_IMAGE_BUILD_RELAY_FAILED",
+        failure_message="Redis environment image build relay failed",
+    )
     if tag:
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_api.services import JoySafeterEnvironmentService as ES
-
-        async with AsyncSessionLocal() as db:
-            svc = ES(db)
-            e = await svc.get_environment(env.id, project_id=getattr(env, "project_id", None))
-            if e:
-                e.image_tag = tag
-                e.image_version = version + 1
-                await db.commit()
         logger.info("Built environment image %s for env %s", tag, env.id)
+        return _EnvironmentImageUpdate(image_tag=tag, image_version=version + 1)
+
+    logger.warning("Image builder unavailable; refusing to persist environment %s with packages", env.id)
+    raise _environment_image_builder_unavailable_error(env.id)
 
 
 def _env_to_response(env) -> EnvironmentResponse:
@@ -91,7 +189,20 @@ async def _validate_secret_refs(
             continue
         secret = await secret_svc.get_secret_by_name(ref, project_id=project_id)
         if not secret:
-            raise HTTPException(400, f"Secret not found: {ref}")
+            raise InvalidRequestError(
+                code="ENVIRONMENT_SECRET_NOT_FOUND",
+                message=f"Secret not found: {ref}",
+                data={"secret_ref": ref},
+                user_action="fix_input",
+            )
+
+
+@router.get("/mount-catalog/storage")
+async def get_storage_mount_catalog(
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> dict:
+    return {"data": await StorageMountService(db).catalog_for_project(auth_ctx.project_id)}
 
 
 @router.post("", status_code=201)
@@ -101,20 +212,25 @@ async def create_environment(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
     await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+    await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     svc = EnvironmentService(db)
     env = await svc.create_environment(req, project_id=auth_ctx.project_id)
 
     # Validate packages synchronously -- fail the request on build error
     try:
-        await _validate_and_build_image(env)
+        _apply_image_update(env, await _build_image_update(env))
+        await db.commit()
+        await db.refresh(env)
+    except AppError:
+        # Builder-unavailable (or any structured error) rolls back the created
+        # environment while preserving its distinct error code for the client.
+        await svc.delete_environment(env.id, project_id=auth_ctx.project_id)
+        raise
     except Exception as exc:
         # Roll back the created environment on build failure
         await svc.delete_environment(env.id, project_id=auth_ctx.project_id)
-        raise HTTPException(
-            500,
-            f"Image build failed: {exc}",
-        )
+        raise _environment_image_build_error(env.id, operation="create", exc=exc) from exc
 
     return _env_to_response(env)
 
@@ -147,7 +263,7 @@ async def get_environment(
     svc = EnvironmentService(db)
     env = await svc.get_environment(env_id, project_id=auth_ctx.project_id)
     if not env:
-        raise HTTPException(404, "Environment not found")
+        raise _environment_not_found_error(env_id)
     return _env_to_response(env)
 
 
@@ -161,27 +277,43 @@ async def update_environment(
     svc = EnvironmentService(db)
     env = await svc.get_environment(env_id, project_id=auth_ctx.project_id)
     if not env:
-        raise HTTPException(404, "Environment not found")
+        raise _environment_not_found_error(env_id)
 
     if env.archived_at is not None:
-        raise HTTPException(409, "Cannot update an archived environment")
+        raise ResourceConflictError(
+            code="ENVIRONMENT_ARCHIVED",
+            message="Cannot update an archived environment",
+            data={"environment_id": str(env_id)},
+            user_action="refresh",
+        )
 
     if req.config is not None:
         await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+        await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
-    env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id)
-    if not env:
-        raise HTTPException(404, "Environment not found")
-
-    # Validate packages synchronously if config changed
-    if req.config is not None:
+    try:
         try:
-            await _validate_and_build_image(env)
-        except Exception as exc:
-            raise HTTPException(
-                500,
-                f"Image build failed: {exc}",
-            )
+            env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id, commit=False)
+        except ValueError as exc:
+            raise _environment_conflict_error(env_id, exc) from exc
+        if not env:
+            raise _environment_not_found_error(env_id)
+
+        # Validate packages synchronously if config changed. Config and image
+        # fields commit together so failed builds do not leave a half-updated
+        # environment pointing at the previous image.
+        if req.config is not None:
+            _apply_image_update(env, await _build_image_update(env))
+        await db.commit()
+        await db.refresh(env)
+    except AppError:
+        await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        if req.config is not None:
+            raise _environment_image_build_error(env_id, operation="update", exc=exc) from exc
+        raise
 
     return _env_to_response(env)
 
@@ -195,20 +327,23 @@ async def delete_environment(
     svc = EnvironmentService(db)
     env = await svc.get_environment(env_id, project_id=auth_ctx.project_id)
     if not env:
-        raise HTTPException(404, "Environment not found")
+        raise _environment_not_found_error(env_id)
 
-    if await svc.environment_is_referenced_by_sessions(
-        env.name, env.id, project_id=auth_ctx.project_id
-    ):
-        raise HTTPException(
-            409,
-            "Environment is referenced by one or more active sessions. "
-            "Archive or remove those sessions first.",
+    if await svc.environment_is_referenced_by_sessions(env.name, env.id, project_id=auth_ctx.project_id):
+        raise ResourceConflictError(
+            code="ENVIRONMENT_ACTIVE_SESSION_REFERENCE",
+            message="Environment is referenced by one or more active sessions. Archive or remove those sessions first.",
+            data={"environment_id": str(env_id)},
+            retryable=True,
+            user_action="retry",
         )
 
-    ok = await svc.delete_environment(env_id, project_id=auth_ctx.project_id)
+    try:
+        ok = await svc.delete_environment(env_id, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise _environment_conflict_error(env_id, exc) from exc
     if not ok:
-        raise HTTPException(404, "Environment not found")
+        raise _environment_not_found_error(env_id)
 
 
 @router.post("/{env_id}/archive")
@@ -220,10 +355,18 @@ async def archive_environment(
     svc = EnvironmentService(db)
     env = await svc.get_environment(env_id, project_id=auth_ctx.project_id)
     if not env:
-        raise HTTPException(404, "Environment not found")
+        raise _environment_not_found_error(env_id)
 
     if env.archived_at is not None:
-        raise HTTPException(409, "Environment is already archived")
+        raise ResourceConflictError(
+            code="ENVIRONMENT_ARCHIVED",
+            message="Environment is already archived",
+            data={"environment_id": str(env_id)},
+            user_action="refresh",
+        )
 
-    await svc.archive_environment(env_id, project_id=auth_ctx.project_id)
+    try:
+        await svc.archive_environment(env_id, project_id=auth_ctx.project_id)
+    except ValueError as exc:
+        raise _environment_conflict_error(env_id, exc) from exc
     return {"status": "archived"}

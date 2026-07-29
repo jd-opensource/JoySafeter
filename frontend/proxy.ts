@@ -61,7 +61,10 @@ function validateCallbackUrl(url: string | null): boolean {
     }
 
     // Check if in whitelist
-    const isAllowed = ALLOWED_REDIRECT_PATHS.some((path) => url.startsWith(path))
+    const pathname = url.split(/[?#]/, 1)[0]
+    const isAllowed = ALLOWED_REDIRECT_PATHS.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`),
+    )
     if (!isAllowed) {
       logger.warn('Invalid callback URL: not in whitelist', { url })
       return false
@@ -283,11 +286,12 @@ export async function proxy(request: NextRequest) {
     requestHeaders.set('x-nonce', nonce)
   }
 
-  const createNextResponse = () => NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
-  })
+  const createNextResponse = () =>
+    NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    })
 
   const secureResponse = (response: NextResponse) => {
     if (enableCSP && nonce && cspHeader) {

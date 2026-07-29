@@ -35,9 +35,9 @@ This project and everyone participating in it is governed by our [Code of Conduc
 ### Prerequisites
 
 - Python 3.12+
-- Node.js 20+
+- Node.js 20+ with Bun 1.2+
 - PostgreSQL 15+
-- Redis (optional)
+- Redis
 - Git
 
 ### Backend Setup
@@ -69,7 +69,7 @@ pytest
 cd frontend
 
 # Install dependencies
-bun install  # or npm install
+bun install
 
 # Copy and configure environment
 cp env.example .env.local
@@ -124,7 +124,7 @@ Unsure where to begin? Look for issues labeled:
    cd backend && pytest
 
    # Frontend
-   cd frontend && npm run test
+   cd frontend && bun run test
    ```
 
 5. **Run linters**:

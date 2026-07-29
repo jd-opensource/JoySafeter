@@ -1,4 +1,5 @@
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/ubuntu:22.04-linuxarm64 AS base
+ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
+FROM ${BASE_IMAGE_REGISTRY}ubuntu:22.04 AS base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -25,7 +26,7 @@ RUN add-apt-repository -y ppa:deadsnakes/ppa \
     && pip install -i https://pypi.tuna.tsinghua.edu.cn/simple --no-cache-dir uv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm config set registry https://registry.npmmirror.com \
     && npm install -g yarn pnpm \
@@ -39,10 +40,12 @@ WORKDIR /workspace
 
 FROM base AS claudecode
 
-RUN npm install -g @anthropic-ai/claude-code@latest
+RUN npm install -g @anthropic-ai/claude-code@latest --registry=https://registry.npmmirror.com --no-audit --no-fund
 
-COPY target/aarch64-unknown-linux-musl/release/joysafeter-runner /usr/local/bin/joysafeter-runner
+COPY target/aarch64-unknown-linux-gnu/release/joysafeter-runner /usr/local/bin/joysafeter-runner
 RUN chmod +x /usr/local/bin/joysafeter-runner
+COPY deploy/docker/runner-entrypoint.sh /usr/local/bin/runner-entrypoint.sh
+RUN chmod +x /usr/local/bin/runner-entrypoint.sh
 
 USER agent
-ENTRYPOINT ["joysafeter-runner"]
+ENTRYPOINT ["runner-entrypoint.sh"]

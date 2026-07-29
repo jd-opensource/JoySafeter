@@ -1,17 +1,17 @@
 'use client'
 
-import { useRef, useCallback, useState } from "react"
-import type { SessionEvent } from "@/types/managed"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
-import { X, Copy, Check } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { useTranslation } from "@/lib/i18n"
-import { RoleBadge } from "./role-badge"
+import { useRef, useCallback, useEffect, useState } from 'react'
+import type { SessionEvent } from '@/types/managed'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { X, Copy, Check } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/lib/i18n'
+import { RoleBadge } from './role-badge'
 
 interface EventDetailProps {
   event: SessionEvent
-  mode: "transcript" | "debug"
+  mode: 'transcript' | 'debug'
   sessionStart?: string
   onClose: () => void
 }
@@ -19,11 +19,34 @@ interface EventDetailProps {
 export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailProps) {
   const { t } = useTranslation()
   const contentRef = useRef<HTMLDivElement>(null)
+  const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [copied, setCopied] = useState(false)
-  const eventType = event.type || event.event_type || ""
+  const eventType = event.type || event.event_type || ''
   const typeLabel = getTypeLabel(eventType, t)
-  const elapsed = sessionStart ? getElapsedTime(sessionStart, event.created_at || event.id || "") : null
-  const shortId = event.id ? event.id.slice(0, 16) : ""
+  const elapsed = sessionStart
+    ? getElapsedTime(sessionStart, event.created_at || event.id || '')
+    : null
+  const shortId = event.id ? event.id.slice(0, 16) : ''
+
+  useEffect(
+    () => () => {
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const showCopiedFeedback = useCallback(() => {
+    if (copiedResetTimerRef.current) {
+      clearTimeout(copiedResetTimerRef.current)
+    }
+    setCopied(true)
+    copiedResetTimerRef.current = setTimeout(() => {
+      setCopied(false)
+      copiedResetTimerRef.current = null
+    }, 2000)
+  }, [])
 
   const handleCopyRichText = useCallback(async () => {
     if (!contentRef.current) return
@@ -31,64 +54,60 @@ export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailP
       // Get the rendered HTML for rich text copy
       const html = contentRef.current.innerHTML
       // Also get plain text fallback
-      const plainText = contentRef.current.innerText || contentRef.current.textContent || ""
+      const plainText = contentRef.current.innerText || contentRef.current.textContent || ''
 
       // Use Clipboard API with both HTML and plain text MIME types
-      const blob = new Blob([html], { type: "text/html" })
-      const textBlob = new Blob([plainText], { type: "text/plain" })
+      const blob = new Blob([html], { type: 'text/html' })
+      const textBlob = new Blob([plainText], { type: 'text/plain' })
       await navigator.clipboard.write([
         new ClipboardItem({
-          "text/html": blob,
-          "text/plain": textBlob,
+          'text/html': blob,
+          'text/plain': textBlob,
         }),
       ])
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      showCopiedFeedback()
     } catch {
       // Fallback: copy plain text
-      const text = contentRef.current.innerText || contentRef.current.textContent || ""
+      const text = contentRef.current.innerText || contentRef.current.textContent || ''
       await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      showCopiedFeedback()
     }
-  }, [])
+  }, [showCopiedFeedback])
 
   return (
-    <div className="h-full flex flex-col border-l border-border bg-card">
+    <div className="flex h-full flex-col border-l border-border bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <div>
           <div className="flex items-center gap-2">
             <RoleBadge eventType={eventType} />
-            <span className="text-sm font-medium text-foreground">
-              {typeLabel}
-            </span>
+            <span className="text-sm font-medium text-foreground">{typeLabel}</span>
           </div>
-          <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
+          <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
             {elapsed && <div>{elapsed}</div>}
-            {mode === "debug" && shortId && (
-              <div className="font-mono">{shortId}</div>
-            )}
+            {mode === 'debug' && shortId && <div className="font-mono">{shortId}</div>}
           </div>
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
-          <X className="w-4 h-4 text-muted-foreground" />
+          <X className="h-4 w-4 text-muted-foreground" />
         </Button>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {mode === "debug" ? (
+        {mode === 'debug' ? (
           <div>
-            <div className="text-xs text-muted-foreground mb-3 font-mono">{eventType}</div>
-            <pre className="text-xs font-mono bg-muted p-3 rounded-lg overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+            <div className="mb-3 font-mono text-xs text-muted-foreground">{eventType}</div>
+            <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed">
               <JsonHighlight json={event} />
             </pre>
           </div>
         ) : (
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t("managed.sessions.events.content")}</h4>
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t('managed.sessions.events.content')}
+              </h4>
               <Button
                 variant="ghost"
                 size="sm"
@@ -97,18 +116,18 @@ export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailP
               >
                 {copied ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-green-500" />
-                    <span className="text-green-500">{t("common.copied")}</span>
+                    <Check className="h-3.5 w-3.5 text-green-500" />
+                    <span className="text-green-500">{t('common.copied')}</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>{t("common.copy")}</span>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>{t('common.copy')}</span>
                   </>
                 )}
               </Button>
             </div>
-            <div ref={contentRef} className="prose prose-sm dark:prose-invert max-w-none">
+            <div ref={contentRef} className="prose prose-sm max-w-none dark:prose-invert">
               <TranscriptContent event={event} />
             </div>
           </div>
@@ -127,9 +146,11 @@ function JsonHighlight({ json }: { json: unknown }) {
     if (i % 2 === 1) {
       // This is a key
       elements.push(
-        <span key={i} className="text-blue-400">{parts[i]}</span>
+        <span key={i} className="text-blue-400">
+          {parts[i]}
+        </span>,
       )
-      elements.push(":")
+      elements.push(':')
     } else {
       // Value part — highlight string values
       const valuePart = parts[i].replace(/"(?:[^"\\]|\\.)*"/g, (match) => {
@@ -139,17 +160,24 @@ function JsonHighlight({ json }: { json: unknown }) {
       for (let j = 0; j < subParts.length; j++) {
         if (j % 2 === 1) {
           elements.push(
-            <span key={`${i}-${j}`} className="text-green-400">{subParts[j]}</span>
+            <span key={`${i}-${j}`} className="text-green-400">
+              {subParts[j]}
+            </span>,
           )
         } else {
           // numbers, booleans, null
-          const highlighted = subParts[j].replace(/\b(true|false|null)\b/g, '\x00BOOL\x00$1\x00ENDBOOL\x00')
+          const highlighted = subParts[j]
+            .replace(/\b(true|false|null)\b/g, '\x00BOOL\x00$1\x00ENDBOOL\x00')
             .replace(/:\s*(\d+(?:\.\d+)?)/g, ': \x00NUM\x00$1\x00ENDNUM\x00')
-          const boolParts = highlighted.split(/\x00BOOL\x00|\x00ENDBOOL\x00|\x00NUM\x00|\x00ENDNUM\x00/)
+          const boolParts = highlighted.split(
+            /\x00BOOL\x00|\x00ENDBOOL\x00|\x00NUM\x00|\x00ENDNUM\x00/,
+          )
           for (let k = 0; k < boolParts.length; k++) {
             if (k % 2 === 1) {
               elements.push(
-                <span key={`${i}-${j}-${k}`} className="text-amber-400">{boolParts[k]}</span>
+                <span key={`${i}-${j}-${k}`} className="text-amber-400">
+                  {boolParts[k]}
+                </span>,
               )
             } else {
               elements.push(boolParts[k])
@@ -163,8 +191,11 @@ function JsonHighlight({ json }: { json: unknown }) {
   return <>{elements}</>
 }
 
-function getTypeLabel(eventType: string, t: (key: string, options?: Record<string, unknown>) => string): string {
-  const key = eventType.replace(/\./g, "_")
+function getTypeLabel(
+  eventType: string,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const key = eventType.replace(/\./g, '_')
   const translated = t(`managed.sessions.eventTypes.${key}`)
   if (translated !== `managed.sessions.eventTypes.${key}`) return translated
 
@@ -176,7 +207,7 @@ function TranscriptContent({ event }: { event: SessionEvent }) {
 
   if (!text) {
     return (
-      <pre className="text-xs font-mono bg-muted p-3 rounded-lg overflow-x-auto">
+      <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs">
         {JSON.stringify(event, null, 2)}
       </pre>
     )
@@ -192,7 +223,13 @@ function TranscriptContent({ event }: { event: SessionEvent }) {
           </pre>
         ),
         code: ({ children, className }) => (
-          <code className={className ? "font-mono text-foreground" : "rounded bg-muted px-1 py-0.5 font-mono text-foreground"}>
+          <code
+            className={
+              className
+                ? 'font-mono text-foreground'
+                : 'rounded bg-muted px-1 py-0.5 font-mono text-foreground'
+            }
+          >
             {children}
           </code>
         ),
@@ -205,10 +242,12 @@ function TranscriptContent({ event }: { event: SessionEvent }) {
 
 function extractText(event: SessionEvent): string | null {
   // Background sub-agent — render a structured markdown card with all known fields
-  const eventTypeForBg = event.type || event.event_type || ""
-  if (eventTypeForBg === "agent.bg_task_started"
-      || eventTypeForBg === "agent.bg_task_progress"
-      || eventTypeForBg === "agent.bg_task_finished") {
+  const eventTypeForBg = event.type || event.event_type || ''
+  if (
+    eventTypeForBg === 'agent.bg_task_started' ||
+    eventTypeForBg === 'agent.bg_task_progress' ||
+    eventTypeForBg === 'agent.bg_task_finished'
+  ) {
     const ev = event as unknown as {
       phase?: string
       description?: string
@@ -226,7 +265,7 @@ function extractText(event: SessionEvent): string | null {
     const lines: string[] = []
     if (ev.summary) lines.push(`**${ev.summary}**`)
     else if (ev.description) lines.push(`**${ev.description}**`)
-    lines.push("")
+    lines.push('')
     if (ev.phase) lines.push(`- phase: \`${ev.phase}\``)
     if (ev.status) lines.push(`- status: \`${ev.status}\``)
     if (ev.task_id) lines.push(`- task_id: \`${ev.task_id}\``)
@@ -237,29 +276,29 @@ function extractText(event: SessionEvent): string | null {
     if (ev.tool_uses != null) lines.push(`- tool_uses: ${ev.tool_uses}`)
     if (ev.duration_ms != null) lines.push(`- duration: ${ev.duration_ms} ms`)
     if (ev.result) {
-      lines.push("")
-      lines.push("### Result")
-      lines.push("")
+      lines.push('')
+      lines.push('### Result')
+      lines.push('')
       lines.push(ev.result)
     }
-    return lines.join("\n")
+    return lines.join('\n')
   }
 
   if (event.content && Array.isArray(event.content)) {
     return event.content
-      .filter((c) => c.type === "text")
+      .filter((c) => c.type === 'text')
       .map((c) => c.text)
-      .join("\n")
+      .join('\n')
   }
-  if (typeof event.content === "string") {
+  if (typeof event.content === 'string') {
     return event.content
   }
-  const eventType = event.type || event.event_type || ""
-  if (eventType.includes("tool") && event.input) {
+  const eventType = event.type || event.event_type || ''
+  if (eventType.includes('tool') && event.input) {
     return renderToolInputMarkdown(event)
   }
-  if (eventType.includes("tool") && event.output) {
-    return "```json\n" + JSON.stringify(event.output, null, 2) + "\n```"
+  if (eventType.includes('tool') && event.output) {
+    return '```json\n' + JSON.stringify(event.output, null, 2) + '\n```'
   }
   return null
 }
@@ -284,33 +323,33 @@ function extractText(event: SessionEvent): string | null {
  */
 function renderToolInputMarkdown(event: SessionEvent): string {
   let raw = event.input as unknown
-  if (typeof raw === "string") {
+  if (typeof raw === 'string') {
     try {
       raw = JSON.parse(raw)
     } catch {
-      return "```\n" + (raw as string) + "\n```"
+      return '```\n' + (raw as string) + '\n```'
     }
   }
-  if (!raw || typeof raw !== "object") {
-    return "```json\n" + JSON.stringify(event.input, null, 2) + "\n```"
+  if (!raw || typeof raw !== 'object') {
+    return '```json\n' + JSON.stringify(event.input, null, 2) + '\n```'
   }
   const input = raw as Record<string, unknown>
-  const toolName = String(event.tool || event.tool_name || event.name || "")
+  const toolName = String(event.tool || event.tool_name || event.name || '')
 
   // Bash — claude-code shows the command text plain. Use a bash fence
   // for monospaced syntax highlighting; description (if present, e.g.
   // from a `# label` comment) goes underneath as italic.
-  if (toolName === "Bash" && typeof input.command === "string") {
+  if (toolName === 'Bash' && typeof input.command === 'string') {
     const command = input.command as string
-    const out = ["```bash", command, "```"]
-    if (typeof input.description === "string" && input.description) {
-      out.push("", `_${input.description}_`)
+    const out = ['```bash', command, '```']
+    if (typeof input.description === 'string' && input.description) {
+      out.push('', `_${input.description}_`)
     }
-    return out.join("\n")
+    return out.join('\n')
   }
 
   // Grep — cc renders: pattern: "...", path: "..."
-  if (toolName === "Grep") {
+  if (toolName === 'Grep') {
     const parts: string[] = []
     if (input.pattern) parts.push(`pattern: "${String(input.pattern)}"`)
     if (input.path) parts.push(`path: "${String(input.path)}"`)
@@ -318,12 +357,12 @@ function renderToolInputMarkdown(event: SessionEvent): string {
     if (input.output_mode) parts.push(`mode: ${String(input.output_mode)}`)
     if (input.type) parts.push(`type: ${String(input.type)}`)
     return parts.length > 0
-      ? parts.join(", ")
-      : "```json\n" + JSON.stringify(input, null, 2) + "\n```"
+      ? parts.join(', ')
+      : '```json\n' + JSON.stringify(input, null, 2) + '\n```'
   }
 
   // Read — cc renders: path  · lines X-Y  · pages 1-3
-  if (toolName === "Read" && typeof input.file_path === "string") {
+  if (toolName === 'Read' && typeof input.file_path === 'string') {
     const segs: string[] = [`\`${input.file_path as string}\``]
     if (input.pages) segs.push(`pages ${String(input.pages)}`)
     if (input.offset != null || input.limit != null) {
@@ -331,95 +370,116 @@ function renderToolInputMarkdown(event: SessionEvent): string {
       const end = input.limit != null ? start + (input.limit as number) - 1 : null
       segs.push(end ? `lines ${start}-${end}` : `from line ${start}`)
     }
-    return segs.join(" · ")
+    return segs.join(' · ')
   }
 
   // Write — file path + content fence
-  if (toolName === "Write" && typeof input.file_path === "string") {
+  if (toolName === 'Write' && typeof input.file_path === 'string') {
     const lang = guessFenceLang(input.file_path as string)
     return [
       `\`${input.file_path as string}\``,
-      "",
-      "```" + lang,
-      String(input.content ?? ""),
-      "```",
-    ].join("\n")
+      '',
+      '```' + lang,
+      String(input.content ?? ''),
+      '```',
+    ].join('\n')
   }
 
   // Edit — file path + old/new fences (cc shows them as a colored diff in TUI)
-  if (toolName === "Edit" && typeof input.file_path === "string") {
+  if (toolName === 'Edit' && typeof input.file_path === 'string') {
     const lang = guessFenceLang(input.file_path as string)
     const out: string[] = [`\`${input.file_path as string}\``]
     if (input.old_string) {
-      out.push("", "_— old —_", "```" + lang, String(input.old_string), "```")
+      out.push('', '_— old —_', '```' + lang, String(input.old_string), '```')
     }
     if (input.new_string) {
-      out.push("", "_+ new +_", "```" + lang, String(input.new_string), "```")
+      out.push('', '_+ new +_', '```' + lang, String(input.new_string), '```')
     }
-    if (input.replace_all) out.push("", "_replace_all_")
-    return out.join("\n")
+    if (input.replace_all) out.push('', '_replace_all_')
+    return out.join('\n')
   }
 
   // Glob — pattern: "...", path: "..."
-  if (toolName === "Glob") {
+  if (toolName === 'Glob') {
     const parts: string[] = []
     if (input.pattern) parts.push(`pattern: "${String(input.pattern)}"`)
     if (input.path) parts.push(`path: "${String(input.path)}"`)
     return parts.length > 0
-      ? parts.join(", ")
-      : "```json\n" + JSON.stringify(input, null, 2) + "\n```"
+      ? parts.join(', ')
+      : '```json\n' + JSON.stringify(input, null, 2) + '\n```'
   }
 
   // WebFetch — url + prompt
-  if (toolName === "WebFetch") {
+  if (toolName === 'WebFetch') {
     const parts: string[] = []
     if (input.url) parts.push(`${String(input.url)}`)
-    if (input.prompt) parts.push("", `_${String(input.prompt)}_`)
-    return parts.join("\n")
+    if (input.prompt) parts.push('', `_${String(input.prompt)}_`)
+    return parts.join('\n')
   }
-  if (toolName === "WebSearch" && input.query) {
+  if (toolName === 'WebSearch' && input.query) {
     return `"${String(input.query)}"`
   }
 
   // Task / Agent — sub-agent dispatch
-  if (toolName === "Task" || toolName === "Agent") {
+  if (toolName === 'Task' || toolName === 'Agent') {
     const out: string[] = []
     if (input.description) out.push(String(input.description))
     const meta: string[] = []
     if (input.subagent_type) meta.push(`subagent: \`${String(input.subagent_type)}\``)
     if (input.model) meta.push(`model: \`${String(input.model)}\``)
-    if (input.run_in_background) meta.push("background")
-    if (meta.length) out.push(meta.join(" · "))
-    if (input.prompt) out.push("", String(input.prompt))
-    return out.join("\n")
+    if (input.run_in_background) meta.push('background')
+    if (meta.length) out.push(meta.join(' · '))
+    if (input.prompt) out.push('', String(input.prompt))
+    return out.join('\n')
   }
 
   // TodoWrite — list
-  if (toolName === "TodoWrite" && Array.isArray(input.todos)) {
+  if (toolName === 'TodoWrite' && Array.isArray(input.todos)) {
     return (input.todos as Array<Record<string, unknown>>)
       .map((t) => {
-        const status = String(t.status || "")
-        const icon = status === "completed" ? "✅" : status === "in_progress" ? "🔵" : "⏳"
-        return `${icon} ${String(t.content || t.subject || "")}`
+        const status = String(t.status || '')
+        const icon = status === 'completed' ? '✅' : status === 'in_progress' ? '🔵' : '⏳'
+        return `${icon} ${String(t.content || t.subject || '')}`
       })
-      .join("\n")
+      .join('\n')
   }
 
-  return "```json\n" + JSON.stringify(input, null, 2) + "\n```"
+  return '```json\n' + JSON.stringify(input, null, 2) + '\n```'
 }
 
 function guessFenceLang(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? ""
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
   const map: Record<string, string> = {
-    ts: "ts", tsx: "tsx", js: "js", jsx: "jsx",
-    py: "python", go: "go", rs: "rust", java: "java",
-    c: "c", cpp: "cpp", h: "c", hpp: "cpp",
-    sh: "bash", bash: "bash", zsh: "bash",
-    yml: "yaml", yaml: "yaml", json: "json", md: "markdown",
-    toml: "toml", sql: "sql", html: "html", css: "css", scss: "scss",
-    rb: "ruby", php: "php", kt: "kotlin", swift: "swift",
+    ts: 'ts',
+    tsx: 'tsx',
+    js: 'js',
+    jsx: 'jsx',
+    py: 'python',
+    go: 'go',
+    rs: 'rust',
+    java: 'java',
+    c: 'c',
+    cpp: 'cpp',
+    h: 'c',
+    hpp: 'cpp',
+    sh: 'bash',
+    bash: 'bash',
+    zsh: 'bash',
+    yml: 'yaml',
+    yaml: 'yaml',
+    json: 'json',
+    md: 'markdown',
+    toml: 'toml',
+    sql: 'sql',
+    html: 'html',
+    css: 'css',
+    scss: 'scss',
+    rb: 'ruby',
+    php: 'php',
+    kt: 'kotlin',
+    swift: 'swift',
   }
-  return map[ext] || ""
+  return map[ext] || ''
 }
 
 function getElapsedTime(start: string, current: string): string | null {
@@ -427,18 +487,18 @@ function getElapsedTime(start: string, current: string): string | null {
   const currentMs = parseEventTime(current)
   if (isNaN(startMs) || isNaN(currentMs)) return null
   const ms = currentMs - startMs
-  if (ms < 0) return "0:00:00"
+  if (ms < 0) return '0:00:00'
   const secs = Math.floor(ms / 1000)
   const mins = Math.floor(secs / 60)
   const hrs = Math.floor(mins / 60)
-  return `${hrs}:${String(mins % 60).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`
+  return `${hrs}:${String(mins % 60).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`
 }
 
 function parseEventTime(value: string): number {
   if (!value) return NaN
   const d = new Date(value).getTime()
   if (!isNaN(d)) return d
-  const hex = value.replace(/^evt_/, "").replace(/-/g, "")
+  const hex = value.replace(/^evt_/, '').replace(/-/g, '')
   if (hex.length >= 12) {
     const ts = parseInt(hex.slice(0, 12), 16)
     if (ts > 1_000_000_000_000 && ts < 2_000_000_000_000) return ts

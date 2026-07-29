@@ -2,11 +2,18 @@
 Data models
 """
 
-from .joysafeter_auth import AuthSession, AuthUser
-from .joysafeter_auth import AuthUser as User
 from .base import BaseModel, SoftDeleteMixin, TimestampMixin
 from .joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from .joysafeter_api_key import JoySafeterApiKey
+from .joysafeter_auth import AuthSession, AuthUser
+from .joysafeter_auth import AuthUser as User
+from .joysafeter_storage_mount import (  # noqa: F401 — alembic discovery
+    JoySafeterStorageMountAudit,
+    JoySafeterStorageOrganizationGrant,
+    JoySafeterStorageProjectGrant,
+    JoySafeterStorageVolume,
+    JoySafeterSessionStorageMount,
+)
 from .joysafeter_environment import JoySafeterEnvironment  # noqa: F401 — alembic discovery
 from .joysafeter_file import JoySafeterFile  # noqa: F401 — alembic discovery
 from .joysafeter_memory import (  # noqa: F401 — alembic discovery
@@ -25,9 +32,7 @@ from .joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from .joysafeter_session_file import JoySafeterSessionFile  # noqa: F401 — alembic discovery
 from .joysafeter_session_repo import JoySafeterSessionRepo  # noqa: F401 — alembic discovery
 from .joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkill,
-    JoySafeterSkillCollaborator,
     JoySafeterSkillFile,
     JoySafeterSkillSecurityScan,
     JoySafeterSkillUsageLog,
@@ -35,6 +40,10 @@ from .joysafeter_skill import (
     JoySafeterSkillVersionFile,
 )
 from .joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from .joysafeter_trigger import (  # noqa: F401 — alembic discovery
+    JoySafeterTrigger,
+    TriggerConcurrencyPolicy,
+)
 from .joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential  # noqa: F401 — alembic discovery
 
 __all__ = [
@@ -57,8 +66,6 @@ __all__ = [
     "JoySafeterSkillSecurityScan",
     "JoySafeterSkillUsageLog",
     "SecurityAuditLog",
-    "JoySafeterCollaboratorRole",
-    "JoySafeterSkillCollaborator",
     "JoySafeterSkillVersion",
     "JoySafeterSkillVersionFile",
     "JoySafeterTask",

@@ -13,40 +13,51 @@ Covers two surfaces under a single `/api/v1/auth` prefix:
     in via the identity flow above.
 """
 
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Literal, Optional, cast
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, Query, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.app_errors import AppError, AuthenticationError
+from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
+from app.joysafeter_api.services import ApiKeyService, AuthService, AuthSessionService, ProjectService
+from app.joysafeter_domain.models.joysafeter_auth import AuthUser
+from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
+from app.joysafeter_domain.services.joysafeter_organization_service import OrganizationService
+from app.joysafeter_shared.common.app_errors import (
+    AccessDeniedError,
+    AppError,
+    AuthenticationError,
+    InvalidRequestError,
+    NotFoundError,
+)
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     JoySafeterRole,
-    get_joysafeter_auth_context,
-    require_joysafeter_admin,
-    require_joysafeter_write,
+    require_joysafeter_platform_admin,
+    require_joysafeter_project_admin,
+    require_joysafeter_user_admin,
+    require_joysafeter_user_context,
+    require_joysafeter_user_write,
+)
+from app.joysafeter_shared.common.joysafeter_auth.context import (
+    ProjectRole,
+    effective_project_capability,
 )
 from app.joysafeter_shared.common.response import success_response
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.rate_limit import auth_rate_limit, strict_rate_limit
 from app.joysafeter_shared.security import Token, create_access_token, decode_token
-from app.joysafeter_domain.models.joysafeter_auth import AuthUser
-from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
-from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_api.services import ApiKeyService
-from app.joysafeter_api.services import AuthService
-from app.joysafeter_api.services import AuthSessionService
-from app.joysafeter_api.services import ProjectService
-from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
 
 router = APIRouter(tags=["joysafeter-auth"])
 
@@ -83,6 +94,7 @@ class ProjectResponse(BaseModel):
     name: str
     slug: str
     is_default: bool
+    triggers_paused: bool = False
     archived_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -105,6 +117,7 @@ class ApiKeyResponse(BaseModel):
 
 class ApiKeyCreateResponse(BaseModel):
     """Response for API key creation — includes the raw key (shown only once)."""
+
     id: str
     project_id: str
     name: str
@@ -115,7 +128,7 @@ class ApiKeyCreateResponse(BaseModel):
 
 class CreateApiKeyRequest(BaseModel):
     name: str
-    role: str = "developer"
+    role: str = "viewer"
 
 
 # ---------------------------------------------------------------------------
@@ -130,10 +143,45 @@ def _project_to_response(project: Project) -> ProjectResponse:
         name=project.name,
         slug=project.slug,
         is_default=project.is_default,
+        triggers_paused=bool(getattr(project, "triggers_paused", False)),
         archived_at=str(project.archived_at) if project.archived_at else None,
         created_at=str(project.created_at) if project.created_at else None,
         updated_at=str(project.updated_at) if project.updated_at else None,
     )
+
+
+def _project_context_payload(project: Project) -> dict[str, object]:
+    return {
+        "id": project.id,
+        "org_id": project.org_id,
+        "name": project.name,
+        "slug": project.slug,
+        "is_default": project.is_default,
+        "archived_at": project.archived_at.isoformat() if project.archived_at else None,
+    }
+
+
+def _active_project_payload(
+    project: Project | None, *, project_id: str, org_id: str, org_role: JoySafeterRole, project_role: str | None
+) -> dict[str, object]:
+    """Project-context payload enriched with the caller's effective capability.
+
+    The frontend gates per-project write/admin UI on `capability`.
+    """
+    if project is not None:
+        payload = _project_context_payload(project)
+    else:
+        payload = {
+            "id": project_id,
+            "org_id": org_id,
+            "name": "",
+            "slug": "",
+            "is_default": True,
+            "archived_at": None,
+        }
+    payload["project_role"] = project_role
+    payload["capability"] = effective_project_capability(org_role, project_role).name.lower()
+    return payload
 
 
 def _api_key_to_response(key) -> ApiKeyResponse:
@@ -148,29 +196,74 @@ def _api_key_to_response(key) -> ApiKeyResponse:
     )
 
 
-def _normalize_assignable_role(role: str) -> JoySafeterRole:
-    normalized = (role or "").strip().lower()
-    if normalized == "member":
-        normalized = "developer"
-    if normalized not in {JoySafeterRole.ADMIN.value, JoySafeterRole.DEVELOPER.value, JoySafeterRole.VIEWER.value}:
-        raise HTTPException(
-            400,
-            "无效角色，必须为以下之一 / Invalid role. Must be one of: admin, developer, viewer",
+def _auth_permission_error(
+    *,
+    code: str,
+    message: str,
+    organization_id: str | None = None,
+    actor_role: str | None = None,
+    target_role: str | None = None,
+    current_role: str | None = None,
+) -> AppError:
+    data: dict[str, object] = {}
+    if organization_id is not None:
+        data["organization_id"] = organization_id
+    if actor_role is not None:
+        data["actor_role"] = actor_role
+    if target_role is not None:
+        data["target_role"] = target_role
+    if current_role is not None:
+        data["current_role"] = current_role
+    return AccessDeniedError(
+        code=code,
+        message=message,
+        data=data,
+        source="auth",
+        user_action="request_access",
+    )
+
+
+def _normalize_api_key_role(role: str) -> ProjectRole:
+    """Validate an API-key role against the project capability vocabulary.
+
+    An API key is pinned to one project and authenticates as a non-super-user
+    whose capability is its stored role, so its role uses the project vocabulary
+    (admin / editor / viewer). Legacy values are folded in by ProjectRole; a
+    truly unrecognized value is rejected.
+    """
+    try:
+        return ProjectRole.parse_strict(role)
+    except ValueError:
+        raise InvalidRequestError(
+            code="AUTH_INVALID_ASSIGNABLE_ROLE",
+            message="Invalid role. Must be one of: admin, editor, viewer",
+            data={"role": role, "allowed": [r.value for r in ProjectRole]},
+            source="auth",
+            user_action="correct_request",
         )
-    return JoySafeterRole(normalized)
 
 
-def _ensure_can_assign_role(actor_role: JoySafeterRole, target_role: JoySafeterRole) -> None:
-    if not actor_role.can_grant(target_role):
-        raise HTTPException(403, "不能授予高于自身权限的角色 / Cannot grant a role higher than your own")
+def _ensure_key_capability_within_creator(
+    creator_role: JoySafeterRole,
+    creator_project_role: str | None,
+    requested_role: ProjectRole,
+) -> None:
+    """Cap a new API key's project capability at the creator's own.
 
-
-def _ensure_can_modify_member(actor_role: JoySafeterRole, current_role: str, new_role: JoySafeterRole) -> None:
-    current = JoySafeterRole.normalize(current_role)
-    if current == JoySafeterRole.OWNER:
-        raise HTTPException(403, "无法修改所有者的角色 / Cannot change the owner's role")
-    if not actor_role.can_grant(current) or not actor_role.can_grant(new_role):
-        raise HTTPException(403, "不能修改或授予高于自身权限的角色 / Cannot modify or grant a role higher than your own")
+    A project-scoped key authenticates as a non-super-user whose ``project_role``
+    is its stored role (see ``_auth_via_api_key``), so its capability is computed
+    the same way here. Comparing against the creator's org-role rank would be the
+    wrong axis now that org role and project capability are decoupled.
+    """
+    creator_cap = effective_project_capability(creator_role, creator_project_role)
+    key_cap = effective_project_capability(JoySafeterRole.MEMBER, requested_role.value)
+    if key_cap > creator_cap:
+        raise _auth_permission_error(
+            code="AUTH_API_KEY_CAPABILITY_EXCEEDED",
+            message="Cannot create an API key with higher capability than your own in this project",
+            actor_role=creator_role.value,
+            target_role=requested_role.value,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +373,40 @@ class UserResponse(BaseModel):
     is_super_user: bool
 
 
+class PlatformUserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    image: Optional[str] = None
+    email_verified: bool
+    is_active: bool
+    is_super_user: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PaginatedPlatformUsersResponse(BaseModel):
+    data: list[PlatformUserResponse]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
+
+
+class PlatformOrganizationResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    logo: Optional[str] = None
+    member_count: int = 0
+    project_count: int = 0
+    member_emails: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class UpdatePlatformUserRequest(BaseModel):
+    is_super_user: bool
+
+
 # --- Identity-flow helpers --------------------------------------------------
 
 
@@ -351,6 +478,20 @@ def _user_to_response(user: AuthUser) -> UserResponse:
         image=user.image,
         email_verified=user.email_verified,
         is_super_user=user.is_super_user,
+    )
+
+
+def _platform_user_to_response(user: AuthUser) -> PlatformUserResponse:
+    return PlatformUserResponse(
+        id=user.id,
+        email=user.email,
+        name=user.name or "",
+        image=user.image,
+        email_verified=user.email_verified,
+        is_active=user.is_active,
+        is_super_user=user.is_super_user,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
     )
 
 
@@ -477,9 +618,7 @@ async def forgot_password(
     """Request a password reset email (silent even if email is unknown)."""
     service = AuthService(db)
     await service.request_password_reset(body.email)
-    return success_response(
-        message="If your email is registered, you will receive a password reset link shortly."
-    )
+    return success_response(message="If your email is registered, you will receive a password reset link shortly.")
 
 
 @router.post("/reset-password")
@@ -625,9 +764,7 @@ async def refresh_token(
                         "refresh_token": new_refresh_token,
                         "csrf_token": csrf_token,
                         "token_type": "bearer",
-                        "expires_in": int(
-                            (access_expires - datetime.now(timezone.utc)).total_seconds()
-                        ),
+                        "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
                     }
                     _set_auth_cookies(response, result)
                     return success_response(
@@ -668,26 +805,25 @@ async def refresh_token(
 @router.get("/me")
 async def get_me(
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ):
     """Return current user + org + project info in the format expected by the frontend."""
     # Look up user
-    user_result = await db.execute(
-        select(AuthUser).where(AuthUser.id == auth_ctx.user_id).limit(1)
-    )
+    user_result = await db.execute(select(AuthUser).where(AuthUser.id == auth_ctx.user_id).limit(1))
     user = user_result.scalar_one_or_none()
 
     # Look up current org
-    org_result = await db.execute(
-        select(Organization).where(Organization.id == auth_ctx.org_id).limit(1)
-    )
+    org_result = await db.execute(select(Organization).where(Organization.id == auth_ctx.org_id).limit(1))
     org = org_result.scalar_one_or_none()
 
-    # Look up current project
-    proj_result = await db.execute(
-        select(Project).where(Project.id == auth_ctx.project_id).limit(1)
+    project_svc = ProjectService(db)
+    proj = await project_svc.get_accessible_project(
+        project_id=auth_ctx.project_id,
+        org_id=auth_ctx.org_id,
+        user_id=auth_ctx.user_id,
+        org_role=auth_ctx.role,
+        allow_archived=True,
     )
-    proj = proj_result.scalar_one_or_none()
 
     # List all orgs user belongs to
     all_members_result = await db.execute(
@@ -697,19 +833,23 @@ async def get_me(
     )
     all_memberships = all_members_result.all()
     organizations = [
-        {"id": o.id, "name": o.name, "slug": o.slug, "role": m.role, "created_at": o.created_at.isoformat() if o.created_at else None}
+        {
+            "id": o.id,
+            "name": o.name,
+            "slug": o.slug,
+            "role": m.role,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        }
         for m, o in all_memberships
     ]
 
-    # List all projects in current org
-    all_projects_result = await db.execute(
-        select(Project).where(Project.org_id == auth_ctx.org_id, Project.archived_at.is_(None))
+    # List projects accessible in current org
+    all_projects = await project_svc.list_accessible_projects(
+        org_id=auth_ctx.org_id,
+        user_id=auth_ctx.user_id,
+        org_role=auth_ctx.role,
     )
-    all_projects = all_projects_result.scalars().all()
-    projects = [
-        {"id": p.id, "org_id": p.org_id, "name": p.name, "slug": p.slug, "is_default": p.is_default}
-        for p in all_projects
-    ]
+    projects = [_project_context_payload(p) for p in all_projects]
 
     return {
         "user": {
@@ -723,13 +863,13 @@ async def get_me(
             "slug": org.slug if org else "",
             "role": auth_ctx.role.value,
         },
-        "project": {
-            "id": proj.id if proj else auth_ctx.project_id,
-            "org_id": proj.org_id if proj else auth_ctx.org_id,
-            "name": proj.name if proj else "",
-            "slug": proj.slug if proj else "",
-            "is_default": proj.is_default if proj else True,
-        },
+        "project": _active_project_payload(
+            proj,
+            project_id=auth_ctx.project_id,
+            org_id=auth_ctx.org_id,
+            org_role=auth_ctx.role,
+            project_role=auth_ctx.project_role,
+        ),
         "organizations": organizations,
         "projects": projects,
     }
@@ -739,55 +879,81 @@ async def get_me(
 async def switch_context(
     req: SwitchContextRequest,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ):
     """Switch the user's active org/project context. Validates membership."""
     target_org_id = req.org_id or auth_ctx.org_id
 
     # Validate user is a member of the target org
     member_result = await db.execute(
-        select(Member).where(
+        select(Member)
+        .where(
             Member.user_id == auth_ctx.user_id,
             Member.organization_id == target_org_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
     member = member_result.scalar_one_or_none()
     if not member:
-        raise HTTPException(403, "User is not a member of the target organization")
+        raise _auth_permission_error(
+            code="AUTH_ORGANIZATION_MEMBERSHIP_REQUIRED",
+            message="User is not a member of the target organization",
+            organization_id=target_org_id,
+        )
+
+    project_svc = ProjectService(db)
 
     # Resolve project
     target_project_id = req.project_id
     if not target_project_id:
-        proj_svc = ProjectService(db)
-        default_proj = await proj_svc.get_default_project(target_org_id)
+        accessible_projects = await project_svc.list_accessible_projects(
+            org_id=target_org_id,
+            user_id=auth_ctx.user_id,
+            org_role=JoySafeterRole.normalize(member.role),
+        )
+        default_proj = next((project for project in accessible_projects if project.is_default), None)
+        if default_proj is None and accessible_projects:
+            default_proj = accessible_projects[0]
         if not default_proj:
-            raise HTTPException(404, "No default project found for the organization")
+            raise NotFoundError(
+                code="DEFAULT_PROJECT_NOT_FOUND",
+                message="No default project found for the organization",
+                data={"organization_id": target_org_id},
+                user_action="refresh",
+            )
         target_project_id = default_proj.id
     else:
-        proj_result = await db.execute(
-            select(Project).where(
-                Project.id == target_project_id,
-                Project.org_id == target_org_id,
-            ).limit(1)
+        proj = await project_svc.get_accessible_project(
+            project_id=target_project_id,
+            org_id=target_org_id,
+            user_id=auth_ctx.user_id,
+            org_role=JoySafeterRole.normalize(member.role),
+            allow_archived=True,
         )
-        proj = proj_result.scalar_one_or_none()
         if not proj:
-            raise HTTPException(404, "Project not found in the target organization")
+            raise _project_not_found_error(
+                target_project_id,
+                organization_id=target_org_id,
+                message="Project not found in the target organization",
+            )
 
-    # Fetch resolved project details
-    proj_result = await db.execute(
-        select(Project).where(Project.id == target_project_id).limit(1)
+    # Fetch resolved project details and accessible project list
+    resolved_project = await project_svc.get_accessible_project(
+        project_id=target_project_id,
+        org_id=target_org_id,
+        user_id=auth_ctx.user_id,
+        org_role=JoySafeterRole.normalize(member.role),
+        allow_archived=True,
     )
-    resolved_project = proj_result.scalar_one_or_none()
-
-    # List all projects in target org
-    all_projects_result = await db.execute(
-        select(Project).where(Project.org_id == target_org_id, Project.archived_at.is_(None))
+    all_projects = await project_svc.list_accessible_projects(
+        org_id=target_org_id,
+        user_id=auth_ctx.user_id,
+        org_role=JoySafeterRole.normalize(member.role),
     )
-    all_projects = all_projects_result.scalars().all()
 
     # Issue new JWT with updated org/project context
     from app.joysafeter_shared.security import create_access_token
+
     new_access_token = create_access_token(
         subject=auth_ctx.user_id,
         org_id=target_org_id,
@@ -795,20 +961,19 @@ async def switch_context(
         role=JoySafeterRole.normalize(member.role).value,
     )
 
+    target_project_role = await project_svc.get_project_member_role(target_project_id, auth_ctx.user_id)
     return {
         "org_id": target_org_id,
+        "project_id": target_project_id,
         "access_token": new_access_token,
-        "project": {
-            "id": resolved_project.id if resolved_project else target_project_id,
-            "org_id": resolved_project.org_id if resolved_project else target_org_id,
-            "name": resolved_project.name if resolved_project else "",
-            "slug": resolved_project.slug if resolved_project else "",
-            "is_default": resolved_project.is_default if resolved_project else False,
-        },
-        "projects": [
-            {"id": p.id, "org_id": p.org_id, "name": p.name, "slug": p.slug, "is_default": p.is_default}
-            for p in all_projects
-        ],
+        "project": _active_project_payload(
+            resolved_project,
+            project_id=target_project_id,
+            org_id=target_org_id,
+            org_role=JoySafeterRole.normalize(member.role),
+            project_role=target_project_role,
+        ),
+        "projects": [_project_context_payload(p) for p in all_projects],
     }
 
 
@@ -816,11 +981,16 @@ async def switch_context(
 async def list_projects(
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> list[ProjectResponse]:
     """List projects for the current org."""
     svc = ProjectService(db)
-    projects = await svc.list_projects(auth_ctx.org_id, include_archived=include_archived)
+    projects = await svc.list_accessible_projects(
+        org_id=auth_ctx.org_id,
+        user_id=auth_ctx.user_id,
+        org_role=auth_ctx.role,
+        include_archived=include_archived,
+    )
     return [_project_to_response(p) for p in projects]
 
 
@@ -828,7 +998,7 @@ async def list_projects(
 async def create_project(
     req: CreateProjectRequest,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
     """Create a new project (requires admin role)."""
     svc = ProjectService(db)
@@ -836,6 +1006,7 @@ async def create_project(
         org_id=auth_ctx.org_id,
         name=req.name,
         slug=req.slug,
+        created_by_user_id=auth_ctx.user_id,
     )
     return _project_to_response(project)
 
@@ -843,7 +1014,7 @@ async def create_project(
 @router.get("/api-keys")
 async def list_api_keys(
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> list[ApiKeyResponse]:
     """List API keys for the current project."""
     svc = ApiKeyService(db)
@@ -856,11 +1027,11 @@ async def create_api_key(
     req: CreateApiKeyRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_write),
 ) -> ApiKeyCreateResponse:
     """Create a new API key. Returns the raw key once."""
-    role = _normalize_assignable_role(req.role)
-    _ensure_can_assign_role(auth_ctx.role, role)
+    role = _normalize_api_key_role(req.role)
+    _ensure_key_capability_within_creator(auth_ctx.role, auth_ctx.project_role, role)
     svc = ApiKeyService(db)
     api_key, raw_key = await svc.create_api_key(
         project_id=auth_ctx.project_id,
@@ -893,14 +1064,18 @@ async def revoke_api_key(
     key_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_write),
 ) -> None:
     """Revoke an API key."""
     svc = ApiKeyService(db)
-    try:
-        await svc.revoke_key(key_id, auth_ctx.project_id)
-    except ValueError:
-        raise HTTPException(404, "API key not found")
+    revoked = await svc.revoke_key(key_id, auth_ctx.project_id)
+    if not revoked:
+        raise NotFoundError(
+            code="API_KEY_NOT_FOUND",
+            message="API key not found",
+            data={"key_id": str(key_id)},
+            user_action="refresh",
+        )
     await audit_joysafeter_event(
         db,
         request,
@@ -920,20 +1095,24 @@ async def revoke_api_key(
 async def get_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> ProjectResponse:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id)
+    project = await ProjectService(db).get_accessible_project(
+        project_id=project_id,
+        org_id=auth_ctx.org_id,
+        user_id=auth_ctx.user_id,
+        org_role=auth_ctx.role,
+        allow_archived=True,
     )
-    project = result.scalar_one_or_none()
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     return _project_to_response(project)
 
 
 class UpdateProjectRequest(BaseModel):
     name: Optional[str] = None
     slug: Optional[str] = None
+    triggers_paused: Optional[bool] = None
 
 
 @router.patch("/projects/{project_id}")
@@ -941,20 +1120,18 @@ async def update_project(
     project_id: str,
     req: UpdateProjectRequest,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(404, "Project not found")
-    if req.name is not None:
-        project.name = req.name
-    if req.slug is not None:
-        project.slug = req.slug
-    await db.commit()
-    await db.refresh(project)
+    try:
+        project = await ProjectService(db).update_project(
+            project_id,
+            auth_ctx.org_id,
+            name=req.name,
+            slug=req.slug,
+            triggers_paused=req.triggers_paused,
+        )
+    except ValueError:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     return _project_to_response(project)
 
 
@@ -962,19 +1139,12 @@ async def update_project(
 async def archive_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> dict:
-    from datetime import datetime, timezone
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(404, "Project not found")
-    if project.is_default:
-        raise HTTPException(400, "Cannot archive the default project")
-    project.archived_at = datetime.now(timezone.utc)
-    await db.commit()
+    try:
+        await ProjectService(db).archive_project(project_id, auth_ctx.org_id)
+    except ValueError:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     return {"status": "archived"}
 
 
@@ -982,24 +1152,178 @@ async def archive_project(
 async def set_default_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
-    result = await db.execute(
-        select(Project).where(Project.id == project_id, Project.org_id == auth_ctx.org_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(404, "Project not found")
-    # Unset current default
-    all_projects_result = await db.execute(
-        select(Project).where(Project.org_id == auth_ctx.org_id, Project.is_default.is_(True))
-    )
-    for p in all_projects_result.scalars().all():
-        p.is_default = False
-    project.is_default = True
-    await db.commit()
-    await db.refresh(project)
+    try:
+        project = await ProjectService(db).set_default_project(project_id, auth_ctx.org_id)
+    except ValueError:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
     return _project_to_response(project)
+
+
+@router.post("/projects/{project_id}/restore")
+async def restore_project(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
+) -> ProjectResponse:
+    try:
+        project = await ProjectService(db).restore_project(project_id, auth_ctx.org_id)
+    except ValueError:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    return _project_to_response(project)
+
+
+# ---------------------------------------------------------------------------
+# Project member management routes
+# ---------------------------------------------------------------------------
+
+
+class ProjectAccess(str, Enum):
+    """A member's effective access to a project."""
+
+    # owner/admin reach every project regardless of ProjectMember rows
+    ORG_WIDE = "org_wide"
+    # has an explicit ProjectMember row for this project
+    EXPLICIT = "explicit"
+    # ordinary member without a row — cannot access
+    NONE = "none"
+
+
+class ProjectMemberResponse(BaseModel):
+    user_id: str
+    email: str
+    display_name: str
+    org_role: str
+    access: ProjectAccess
+    project_role: Optional[str] = None
+
+
+class AddProjectMemberRequest(BaseModel):
+    user_id: str
+    # Project role: admin / editor / viewer. Normalized on grant; drives the
+    # member's effective capability in this project. Defaults to viewer (least
+    # privilege); the management UI always sends an explicit role.
+    role: str = "viewer"
+
+
+def _project_member_access(org_role: str, *, has_explicit_row: bool) -> ProjectAccess:
+    if ProjectService.role_has_org_wide_project_access(org_role):
+        return ProjectAccess.ORG_WIDE
+    return ProjectAccess.EXPLICIT if has_explicit_row else ProjectAccess.NONE
+
+
+@router.get("/projects/{project_id}/members")
+async def list_project_members(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
+) -> list[ProjectMemberResponse]:
+    """List organization members with their access status for a project (requires admin role)."""
+    svc = ProjectService(db)
+    project = await svc.get_project(project_id, auth_ctx.org_id)
+    if project is None:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+
+    explicit_role_by_user = {row.user_id: row.role for row in await svc.list_project_members(project_id)}
+
+    return [
+        ProjectMemberResponse(
+            user_id=member.user_id,
+            email=user.email,
+            display_name=user.name,
+            org_role=member.role,
+            access=_project_member_access(member.role, has_explicit_row=member.user_id in explicit_role_by_user),
+            project_role=explicit_role_by_user.get(member.user_id),
+        )
+        for member, user in await OrganizationMemberService(db).list_members_with_users(auth_ctx.org_id)
+    ]
+
+
+@router.post("/projects/{project_id}/members", status_code=201)
+async def add_project_member(
+    project_id: str,
+    req: AddProjectMemberRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
+) -> ProjectMemberResponse:
+    """Grant an organization member access to a project (requires admin role)."""
+    svc = ProjectService(db)
+    project = await svc.get_project(project_id, auth_ctx.org_id)
+    if project is None:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+
+    member = await OrganizationMemberService(db).get_member_by_user_id(auth_ctx.org_id, req.user_id)
+    if member is None:
+        raise NotFoundError(
+            code="ORGANIZATION_MEMBER_NOT_FOUND",
+            message="User is not a member of this organization",
+            data={"organization_id": auth_ctx.org_id, "user_id": req.user_id},
+            user_action="fix_input",
+        )
+    user = await AuthService(db).get_user_by_id(req.user_id)
+
+    await svc.grant_project_membership(project_id=project_id, user_id=req.user_id, role=req.role, commit=True)
+
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="project_member.added",
+        target_type="project_member",
+        target_id=req.user_id,
+        details={"project_id": project_id, "assigned_role": req.role},
+    )
+    return ProjectMemberResponse(
+        user_id=req.user_id,
+        email=user.email if user else "",
+        display_name=user.name if user else "",
+        org_role=member.role,
+        access=_project_member_access(member.role, has_explicit_row=True),
+        project_role=req.role,
+    )
+
+
+@router.delete("/projects/{project_id}/members/{user_id}", status_code=204)
+async def remove_project_member(
+    project_id: str,
+    user_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
+) -> None:
+    """Revoke an org member's explicit access to a project (requires project admin)."""
+    svc = ProjectService(db)
+    project = await svc.get_project(project_id, auth_ctx.org_id)
+    if project is None:
+        raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    if project.is_default:
+        raise InvalidRequestError(
+            code="PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN",
+            message="Cannot remove a member from the default project. Remove them from the organization instead.",
+            data={"project_id": project_id, "user_id": user_id},
+            user_action="fix_input",
+        )
+
+    revoked = await svc.revoke_project_membership(project_id=project_id, user_id=user_id, commit=True)
+    if not revoked:
+        raise NotFoundError(
+            code="PROJECT_MEMBER_NOT_FOUND",
+            message="User has no explicit membership in this project",
+            data={"project_id": project_id, "user_id": user_id},
+            user_action="refresh",
+        )
+
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="project_member.removed",
+        target_type="project_member",
+        target_id=user_id,
+        details={"project_id": project_id},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1007,12 +1331,128 @@ async def set_default_project(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/platform/users")
+async def list_platform_users(
+    q: str = Query("", max_length=100),
+    limit: int = Query(50, ge=1, le=200),
+    after_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
+) -> PaginatedPlatformUsersResponse:
+    """List platform users for platform-level administration."""
+    from sqlalchemy import and_, or_
+
+    query = select(AuthUser)
+    if q.strip():
+        search = f"%{q.strip()}%"
+        query = query.where(or_(AuthUser.email.ilike(search), AuthUser.name.ilike(search)))
+
+    if after_id:
+        cursor_result = await db.execute(select(AuthUser).where(AuthUser.id == after_id))
+        cursor_user = cursor_result.scalar_one_or_none()
+        if cursor_user is not None:
+            query = query.where(
+                or_(
+                    AuthUser.created_at < cursor_user.created_at,
+                    and_(AuthUser.created_at == cursor_user.created_at, AuthUser.id < cursor_user.id),
+                )
+            )
+
+    query = query.order_by(AuthUser.created_at.desc(), AuthUser.id.desc()).limit(limit + 1)
+    result = await db.execute(query)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
+    return PaginatedPlatformUsersResponse(
+        data=[_platform_user_to_response(user) for user in page_rows],
+        has_more=has_more,
+        first_id=page_rows[0].id if page_rows else None,
+        last_id=page_rows[-1].id if page_rows else None,
+    )
+
+
+@router.get("/platform/organizations")
+async def list_platform_organizations(
+    q: str = Query("", max_length=100),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
+) -> list[PlatformOrganizationResponse]:
+    """List organizations for platform-level resource grants."""
+    from sqlalchemy import or_
+    from sqlalchemy.orm import selectinload
+
+    query = (
+        select(Organization)
+        .options(selectinload(Organization.members).selectinload(Member.user), selectinload(Organization.projects))
+        .order_by(Organization.created_at.desc())
+        .limit(limit)
+    )
+    if q.strip():
+        search = f"%{q.strip()}%"
+        query = (
+            select(Organization)
+            .options(selectinload(Organization.members).selectinload(Member.user), selectinload(Organization.projects))
+            .where(or_(Organization.name.ilike(search), Organization.slug.ilike(search)))
+            .order_by(Organization.created_at.desc())
+            .limit(limit)
+        )
+    result = await db.execute(query)
+    return [
+        PlatformOrganizationResponse(
+            id=org.id,
+            name=org.name,
+            slug=org.slug,
+            logo=org.logo,
+            member_count=len(org.members or []),
+            project_count=len(org.projects or []),
+            member_emails=[member.user.email for member in (org.members or []) if member.user and member.user.email],
+            created_at=org.created_at,
+        )
+        for org in result.scalars().all()
+    ]
+
+
+@router.put("/platform/users/{user_id}")
+async def update_platform_user(
+    user_id: str,
+    req: UpdatePlatformUserRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
+) -> PlatformUserResponse:
+    """Grant or revoke platform super-user privileges."""
+    result = await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise NotFoundError(code="PLATFORM_USER_NOT_FOUND", message="User not found")
+    if user.id == auth_ctx.user_id and not req.is_super_user:
+        raise InvalidRequestError(
+            code="PLATFORM_ADMIN_SELF_REVOKE_DENIED",
+            message="You cannot revoke your own platform admin role",
+            user_action="fix_input",
+        )
+    user.is_super_user = req.is_super_user
+    await db.commit()
+    await db.refresh(user)
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="platform_user.updated",
+        target_type="user",
+        target_id=user.id,
+        details={"is_super_user": user.is_super_user},
+    )
+    return _platform_user_to_response(user)
+
+
 @router.get("/search-users")
 async def search_users(
     q: str = Query("", min_length=1, max_length=100),
     limit: int = Query(10, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ):
     """Search users by email or name for member invitation."""
     from sqlalchemy import or_
@@ -1030,9 +1470,7 @@ async def search_users(
     )
     users = result.scalars().all()
 
-    existing_result = await db.execute(
-        select(Member.user_id).where(Member.organization_id == auth_ctx.org_id)
-    )
+    existing_result = await db.execute(select(Member.user_id).where(Member.organization_id == auth_ctx.org_id))
     existing_ids = {row[0] for row in existing_result.all()}
 
     return [
@@ -1060,6 +1498,7 @@ class OrganizationResponse(BaseModel):
     id: str
     name: str
     slug: str
+    project_id: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -1080,60 +1519,41 @@ class UpdateMemberRoleRequest(BaseModel):
     role: str
 
 
-def _slugify(name: str) -> str:
-    """Generate a URL-friendly slug from a name."""
-    slug = name.lower().strip()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug).strip("-")
-    if not slug:
-        slug = "org"
-    # Append short unique suffix to avoid collisions
-    slug = f"{slug}-{uuid.uuid4().hex[:6]}"
-    return slug
+def _project_not_found_error(
+    project_id: str,
+    *,
+    organization_id: str | None = None,
+    message: str = "Project not found",
+) -> AppError:
+    data = {"project_id": project_id}
+    if organization_id is not None:
+        data["organization_id"] = organization_id
+    return NotFoundError(
+        code="PROJECT_NOT_FOUND",
+        message=message,
+        data=data,
+        user_action="refresh",
+    )
 
 
 @router.post("/organizations", status_code=201)
 async def create_organization(
     req: CreateOrganizationRequest,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> OrganizationResponse:
     """Create a new organization. The current user becomes the owner."""
-    if not req.name or not req.name.strip():
-        raise HTTPException(400, "Organization name is required")
-
-    slug = _slugify(req.name)
-
-    # Create organization
-    org = Organization(name=req.name.strip(), slug=slug)
-    db.add(org)
-    await db.flush()
-
-    # Create owner membership
-    member = Member(
-        user_id=auth_ctx.user_id,
-        organization_id=org.id,
-        role="owner",
+    created = await OrganizationService(db).create_with_owner_and_default_project(
+        name=req.name,
+        owner_user_id=auth_ctx.user_id,
     )
-    db.add(member)
-
-    # Create default project
-    project = Project(
-        org_id=org.id,
-        name="Default",
-        slug="default",
-        is_default=True,
-    )
-    db.add(project)
-
-    await db.commit()
-    await db.refresh(org)
+    org = created.organization
 
     return OrganizationResponse(
         id=org.id,
         name=org.name,
         slug=org.slug,
+        project_id=created.default_project.id,
         created_at=str(org.created_at) if org.created_at else None,
     )
 
@@ -1141,15 +1561,10 @@ async def create_organization(
 @router.get("/members")
 async def list_members(
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> list[MemberResponse]:
     """List members of the current organization."""
-    result = await db.execute(
-        select(Member, AuthUser)
-        .join(AuthUser, Member.user_id == AuthUser.id)
-        .where(Member.organization_id == auth_ctx.org_id)
-    )
-    rows = result.all()
+    rows = await OrganizationMemberService(db).list_members_with_users(auth_ctx.org_id)
     return [
         MemberResponse(
             user_id=member.user_id,
@@ -1167,38 +1582,15 @@ async def invite_member(
     req: InviteMemberRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> MemberResponse:
     """Invite a user to the current organization by email. Requires admin role."""
-    # Look up user by email
-    user_result = await db.execute(
-        select(AuthUser).where(AuthUser.email == req.email.strip()).limit(1)
-    )
-    user = user_result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(404, "未找到该邮箱对应的用户 / User not found with the given email")
-
-    # Check if already a member
-    existing = await db.execute(
-        select(Member).where(
-            Member.user_id == user.id,
-            Member.organization_id == auth_ctx.org_id,
-        ).limit(1)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(409, "该用户已是组织成员 / User is already a member of this organization")
-
-    role = _normalize_assignable_role(req.role)
-    _ensure_can_assign_role(auth_ctx.role, role)
-
-    member = Member(
-        user_id=user.id,
+    member, user = await OrganizationMemberService(db).invite_member_by_email(
         organization_id=auth_ctx.org_id,
-        role=role.value,
+        actor_role=auth_ctx.role,
+        email=req.email,
+        role=req.role,
     )
-    db.add(member)
-    await db.commit()
-    await db.refresh(member)
     await audit_joysafeter_event(
         db,
         request,
@@ -1223,30 +1615,15 @@ async def remove_member(
     user_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> None:
     """Remove a member from the current organization. Cannot remove the owner."""
-    # Find the member
-    result = await db.execute(
-        select(Member).where(
-            Member.user_id == user_id,
-            Member.organization_id == auth_ctx.org_id,
-        ).limit(1)
+    member = await OrganizationMemberService(db).remove_member_by_user_id(
+        organization_id=auth_ctx.org_id,
+        user_id=user_id,
+        actor_role=auth_ctx.role,
     )
-    member = result.scalar_one_or_none()
-    if not member:
-        raise HTTPException(404, "Member not found")
-
     previous_role = member.role
-    _ensure_can_modify_member(auth_ctx.role, member.role, JoySafeterRole.VIEWER)
-
-    await db.execute(
-        sa_delete(Member).where(
-            Member.user_id == user_id,
-            Member.organization_id == auth_ctx.org_id,
-        )
-    )
-    await db.commit()
     await audit_joysafeter_event(
         db,
         request,
@@ -1264,27 +1641,17 @@ async def update_member_role(
     req: UpdateMemberRoleRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> MemberResponse:
     """Update a member's role. Cannot change the owner's role."""
-    # Find the member
-    result = await db.execute(
-        select(Member).where(
-            Member.user_id == user_id,
-            Member.organization_id == auth_ctx.org_id,
-        ).limit(1)
+    existing_member = await OrganizationMemberService(db).get_member_by_user_id(auth_ctx.org_id, user_id)
+    previous_role = existing_member.role if existing_member is not None else None
+    member = await OrganizationMemberService(db).update_member_role_by_user_id(
+        organization_id=auth_ctx.org_id,
+        user_id=user_id,
+        actor_role=auth_ctx.role,
+        role=req.role,
     )
-    member = result.scalar_one_or_none()
-    if not member:
-        raise HTTPException(404, "Member not found")
-
-    new_role = _normalize_assignable_role(req.role)
-    _ensure_can_modify_member(auth_ctx.role, member.role, new_role)
-
-    previous_role = member.role
-    member.role = new_role.value
-    await db.commit()
-    await db.refresh(member)
     await audit_joysafeter_event(
         db,
         request,
@@ -1296,9 +1663,7 @@ async def update_member_role(
     )
 
     # Fetch user info
-    user_result = await db.execute(
-        select(AuthUser).where(AuthUser.id == user_id).limit(1)
-    )
+    user_result = await db.execute(select(AuthUser).where(AuthUser.id == user_id).limit(1))
     user = user_result.scalar_one_or_none()
 
     return MemberResponse(

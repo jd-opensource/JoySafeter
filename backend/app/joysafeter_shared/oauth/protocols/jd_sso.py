@@ -22,6 +22,7 @@ from loguru import logger
 
 from app.joysafeter_shared.oauth.config import OAuthProviderConfig
 from app.joysafeter_shared.oauth.protocols.base import BaseProtocolHandler, UserInfo
+from app.joysafeter_shared.oauth.security import validate_oauth_endpoint_url
 
 LOG_PREFIX = "[JDSSOHandler]"
 
@@ -142,7 +143,11 @@ class JDSSOHandler(BaseProtocolHandler):
             logger.warning(f"{LOG_PREFIX} Missing user_info_url in provider config")
             return None
 
-        verify_url = user_info_url
+        try:
+            verify_url = validate_oauth_endpoint_url(user_info_url, endpoint_type="userinfo")
+        except ValueError as e:
+            logger.error(f"{LOG_PREFIX} Invalid verifyTicket URL: {e}")
+            return None
         # 1) Read ticket from Cookie
         ticket = request.cookies.get("sso.jd.com")
         if not ticket:

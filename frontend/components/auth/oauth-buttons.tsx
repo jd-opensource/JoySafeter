@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Chrome, Github, Globe, Key, Shield } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -71,6 +72,16 @@ export function OAuthButtons({
   showDivider = true,
 }: OAuthButtonsProps) {
   const { t } = useTranslation()
+  const requestRunRef = useRef(0)
+  const mountedRef = useRef(true)
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false
+      requestRunRef.current += 1
+    },
+    [],
+  )
 
   const {
     data: providers,
@@ -141,6 +152,10 @@ export function OAuthButtons({
   }
 
   const handleOAuthLogin = async (providerId: string) => {
+    const runId = requestRunRef.current + 1
+    requestRunRef.current = runId
+    const isCurrentRequest = () => mountedRef.current && requestRunRef.current === runId
+
     try {
       const params = new URLSearchParams()
       if (callbackUrl) {
@@ -154,8 +169,10 @@ export function OAuthButtons({
         withAuth: false,
         skipManagedContext: true,
       })
+      if (!isCurrentRequest()) return
       window.location.href = response.authorization_url
     } catch (error) {
+      if (!isCurrentRequest()) return
       logger.error('Failed to initiate OAuth login:', { providerId, error })
       toastError(getOAuthErrorMessage(error))
     }

@@ -8,8 +8,10 @@ skill_packer.py, and skill_async_scan.py (v1 cleanup consolidation):
   - SkillPacker — pack approved skills into tar.gz bundles
   - scan_input_bytes / run_scan_in_background — async scan dispatch
 """
+
 from __future__ import annotations
 
+# ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
 
 # ============================================================================
 # skill_security_service.py
@@ -30,14 +32,30 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkill,
+    JoySafeterSkillLifecycleStatus,
     JoySafeterSkillSecurityScan,
+    JoySafeterSkillSecurityStatus,
+)
+from app.joysafeter_domain.models.joysafeter_skill import (
+    recompute_visibility_from_pointers as _recompute_visibility_from_pointers,
 )
 from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository, SkillSecurityScanRepository
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
+from app.joysafeter_shared.common.app_errors import (
+    AccessDeniedError,
+    InvalidRequestError,
+    NotFoundError,
+    ResourceConflictError,
+)
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
+from app.joysafeter_shared.common.joysafeter_auth.context import (
+    JoySafeterRole,
+    ProjectCapability,
+)
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.security.ssrf_guard import validate_url
 from app.joysafeter_shared.skill.yaml_parser import is_system_file
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -65,6 +83,17 @@ class SkillSecurityPolicyDecision:
     # detect drift. Lifting them to the module avoids ``__new__`` tricks at
     # the call site and keeps the canonical definition in one place — the
     # service still wraps them so existing call sites stay unchanged.
+
+
+def _ensure_scan_target_mutable(skill: JoySafeterSkill) -> None:
+    if getattr(skill, "lifecycle_status", None) == JoySafeterSkillLifecycleStatus.ARCHIVED.value:
+        raise ResourceConflictError(
+            "Skill is archived and read-only. Unarchive before rescanning.",
+            code="SKILL_ARCHIVED",
+            data={"skill_id": str(skill.id)},
+            retryable=False,
+            user_action="refresh",
+        )
 
 
 def _coerce_content(value: Any) -> str:
@@ -252,6 +281,7 @@ class SkillSecurityScannerClient:
                 for file in files
             ],
         }
+        validate_url(self.base_url, context="Skill security scanner URL")
         async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=False) as client:
             response = await client.post(f"{self.base_url}/scan", json=payload)
         response.raise_for_status()
@@ -263,10 +293,26 @@ class SkillSecurityScannerClient:
         raise ValueError("Skill security scanner returned an invalid response")
 
 
+# Scan verdicts that trigger the fail-closed rescan auto-demote: a served
+# org/public version whose fresh verdict lands here is no longer trusted, so
+# ``apply_latest_scan`` clears the tier pointers and lowers visibility.
+_AUTO_DEMOTE_SCAN_STATUSES = frozenset(
+    {JoySafeterSkillSecurityStatus.FAILED.value, JoySafeterSkillSecurityStatus.BLOCKED.value}
+)
+
+
 class SkillSecurityService:
     """Coordinates SkillSpector scans, persistence, and write policy."""
 
-    def __init__(self, db: AsyncSession, *, active_org_id: Optional[str] = None):
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
         self.db = db
         self.repo = SkillSecurityScanRepository(db)
         self.skill_repo = SkillRepository(db)
@@ -279,6 +325,9 @@ class SkillSecurityService:
         # scan-history reads / rescan triggers also respect the strict
         # cross-org isolation rule.
         self._active_org_id = active_org_id
+        # Single-axis redesign: caller's org role, threaded into
+        # ``check_skill_access`` so org super-users resolve to ADMIN.
+        self._caller_org_role = caller_org_role
 
     async def scan_for_write(
         self,
@@ -361,7 +410,20 @@ class SkillSecurityService:
                 target_hash=target_hash,
             )
         except Exception as exc:
-            logger.exception("Skill security scan failed")
+            log_boundary_failure_loguru(
+                logger,
+                boundary="skill_security",
+                code="SKILL_SECURITY_SCAN_FAILED",
+                message="Skill security scan failed",
+                operation="scan_skill",
+                error=exc,
+                data={
+                    "skill_id": str(skill_id) if skill_id else "",
+                    "project_id": str(project_id) if project_id else "",
+                    "trigger": trigger,
+                    "target_hash": target_hash,
+                },
+            )
             scan = JoySafeterSkillSecurityScan(
                 skill_id=skill_id,
                 project_id=project_id,
@@ -372,7 +434,7 @@ class SkillSecurityService:
                 target_hash=target_hash,
                 scanner="skillspector",
                 scanner_version=None,
-                status="failed",
+                status=JoySafeterSkillSecurityStatus.FAILED.value,
                 score=None,
                 severity=None,
                 recommendation=None,
@@ -427,8 +489,14 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.editor, active_org_id=self._active_org_id
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
         )
+        _ensure_scan_target_mutable(skill)
 
         scan = await self.scan_for_write(
             enforce_write_policy=False,
@@ -468,7 +536,7 @@ class SkillSecurityService:
                     ),
                 ),
                 scanner="skillspector",
-                status="not_scanned",
+                status=JoySafeterSkillSecurityStatus.NOT_SCANNED.value,
                 score=None,
                 severity=None,
                 recommendation=None,
@@ -492,7 +560,12 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.viewer, active_org_id=self._active_org_id
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
         )
         return await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
 
@@ -501,7 +574,12 @@ class SkillSecurityService:
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.viewer, active_org_id=self._active_org_id
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
         )
         scan = await self.repo.get_latest_by_skill(skill_id)
         if not scan:
@@ -525,7 +603,12 @@ class SkillSecurityService:
             if not skill:
                 raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(scan.skill_id)})
             await check_skill_access(
-                self.db, skill, current_user_id, JoySafeterCollaboratorRole.viewer, active_org_id=self._active_org_id
+                self.db,
+                skill,
+                current_user_id,
+                ProjectCapability.READ,
+                caller_org_role=self._caller_org_role,
+                active_org_id=self._active_org_id,
             )
         elif scan.created_by_id != current_user_id and scan.owner_id != current_user_id:
             raise AccessDeniedError(
@@ -536,6 +619,12 @@ class SkillSecurityService:
 
     def apply_latest_scan(self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan) -> None:
         """Copy the latest scan summary onto the skill row for list/detail APIs."""
+        if (
+            skill.security_scanned_at is not None
+            and isinstance(scan.created_at, datetime)
+            and scan.created_at < skill.security_scanned_at
+        ):
+            return
         skill.security_status = scan.status
         skill.security_score = scan.score
         skill.security_severity = scan.severity
@@ -548,6 +637,30 @@ class SkillSecurityService:
         skill.security_high_count = scan.high_count
         skill.security_medium_count = scan.medium_count
         skill.security_low_count = scan.low_count
+        # Fail-closed rescan auto-demote. When a fresh verdict lands
+        # failed/blocked on a skill that is currently served at the org / public
+        # tier, the exposed snapshot can no longer be trusted — clear those
+        # pointers and lower the visibility to the highest tier still backed by
+        # a pointer (floor ``project``). This
+        # rides the single verdict-writeback path so every scan completion
+        # (sync ``scan_for_write`` and the async BG task) inherits it.
+        self._auto_demote_if_scan_unsafe(skill, scan)
+
+    def _auto_demote_if_scan_unsafe(self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan) -> None:
+        """Clear tier pointers + lower visibility when ``scan`` is unsafe."""
+        if scan.status not in _AUTO_DEMOTE_SCAN_STATUSES:
+            return
+        changed = False
+        if getattr(skill, "public_version_id", None) is not None:
+            skill.public_version_id = None
+            changed = True
+        if getattr(skill, "org_version_id", None) is not None:
+            skill.org_version_id = None
+            changed = True
+        if changed:
+            skill.visibility = _recompute_visibility_from_pointers(skill)
+        if skill.lifecycle_status == JoySafeterSkillLifecycleStatus.APPROVED.value:
+            skill.lifecycle_status = JoySafeterSkillLifecycleStatus.DRAFT.value
 
     def files_from_skill(self, skill: JoySafeterSkill) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -639,7 +752,8 @@ class SkillSecurityService:
         target_name: str,
         target_hash: str,
     ) -> JoySafeterSkillSecurityScan:
-        risk = report.get("risk_assessment") if isinstance(report.get("risk_assessment"), dict) else {}
+        raw_risk = report.get("risk_assessment")
+        risk: dict[str, Any] = raw_risk if isinstance(raw_risk, dict) else {}
         scanner_score = self._coerce_int(risk.get("score"))
         scanner_severity = self._coerce_upper(risk.get("severity"))
         scanner_recommendation = self._coerce_upper(risk.get("recommendation"))
@@ -698,29 +812,29 @@ class SkillSecurityService:
         """
         if counts["critical"] > 0:
             score = min(100, 90 + (counts["critical"] - 1) * 5 + counts["high"] * 3 + counts["medium"])
-            return SkillSecurityPolicyDecision("blocked", score, "CRITICAL", "DO_NOT_INSTALL", "critical_issue")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.BLOCKED.value, score, "CRITICAL", "DO_NOT_INSTALL", "critical_issue")
 
         if counts["high"] > 0:
             score = min(89, 70 + (counts["high"] - 1) * 5 + counts["medium"] * 2 + min(counts["low"], 10))
-            return SkillSecurityPolicyDecision("blocked", score, "HIGH", "DO_NOT_INSTALL", "high_issue")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.BLOCKED.value, score, "HIGH", "DO_NOT_INSTALL", "high_issue")
 
         if counts["medium"] > 0:
             score = min(69, 30 + (counts["medium"] - 1) * 5 + min(counts["low"], 10))
-            return SkillSecurityPolicyDecision("warning", score, "MEDIUM", "CAUTION", "medium_issue")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "MEDIUM", "CAUTION", "medium_issue")
 
         if counts["low"] > 0:
             score = min(29, 5 + min(counts["low"] * 2, 24))
-            return SkillSecurityPolicyDecision("warning", score, "LOW", "CAUTION", "low_issue")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "LOW", "CAUTION", "low_issue")
 
         if counts["issues"] > 0:
             score = min(49, max(1, scanner_score or counts["issues"]))
-            return SkillSecurityPolicyDecision("warning", score, "LOW", "CAUTION", "unknown_issue_severity")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "LOW", "CAUTION", "unknown_issue_severity")
 
         if self._scanner_aggregate_blocks(scanner_recommendation, scanner_severity, scanner_score):
             score = min(100, max(70, scanner_score or 70))
             severity = scanner_severity if scanner_severity in {"HIGH", "CRITICAL"} else "HIGH"
             return SkillSecurityPolicyDecision(
-                "blocked",
+                JoySafeterSkillSecurityStatus.BLOCKED.value,
                 score,
                 severity,
                 "DO_NOT_INSTALL",
@@ -730,9 +844,9 @@ class SkillSecurityService:
         if scanner_recommendation == "CAUTION" or (scanner_score is not None and scanner_score > 0):
             score = min(49, max(1, scanner_score or 1))
             severity = scanner_severity if scanner_severity in {"MEDIUM", "LOW"} else "LOW"
-            return SkillSecurityPolicyDecision("warning", score, severity, "CAUTION", "scanner_caution_without_issues")
+            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, severity, "CAUTION", "scanner_caution_without_issues")
 
-        return SkillSecurityPolicyDecision("passed", 0, "LOW", "SAFE", "no_issues")
+        return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.PASSED.value, 0, "LOW", "SAFE", "no_issues")
 
     def _scanner_aggregate_blocks(
         self,
@@ -770,7 +884,9 @@ class SkillSecurityService:
         return enriched
 
     def _is_blocked(self, scan: JoySafeterSkillSecurityScan) -> bool:
-        return scan.status == "blocked" or (scan.status == "failed" and settings.skill_security_fail_closed)
+        return scan.status == JoySafeterSkillSecurityStatus.BLOCKED.value or (
+            scan.status == JoySafeterSkillSecurityStatus.FAILED.value and settings.skill_security_fail_closed
+        )
 
     def _error_data(self, scan: JoySafeterSkillSecurityScan) -> dict[str, Any]:
         report = scan.report if isinstance(scan.report, dict) else {}
@@ -893,9 +1009,10 @@ class SkillSecurityService:
         skill = await self.db.get(JoySafeterSkill, skill_id)
         if skill is None:
             return
-        if skill.security_status != "scanning":
-            skill.security_status = "scanning"
+        if skill.security_status != JoySafeterSkillSecurityStatus.SCANNING.value:
+            skill.security_status = JoySafeterSkillSecurityStatus.SCANNING.value
             await self.db.flush()
+
 
 # ============================================================================
 # skill_runtime_policy.py
@@ -929,10 +1046,6 @@ treated as "no scan completed" until SkillSpector returns.
 """
 
 
-from typing import Optional
-
-from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
-
 # Severities that are allowed at runtime. ``passed`` is the normal good
 # verdict; ``warning`` lets a skill with non-critical findings still run
 # (the writer flow already surfaced the warning to the owner). Other
@@ -940,15 +1053,20 @@ from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 # are runtime-fatal. ``scanning`` is the P2 async-scan intermediate
 # state; runtime treats it the same as ``not_scanned`` so an in-flight
 # rescan never accidentally loads stale content.
-_RUNTIME_ALLOWED_SECURITY_STATUSES = frozenset({"passed", "warning"})
+_RUNTIME_ALLOWED_SECURITY_STATUSES = frozenset(
+    {JoySafeterSkillSecurityStatus.PASSED.value, JoySafeterSkillSecurityStatus.WARNING.value}
+)
 
 
-def is_skill_usable(skill: JoySafeterSkill) -> tuple[bool, Optional[str]]:
+def is_skill_usable(skill: JoySafeterSkill, *, check_drift: bool = True) -> tuple[bool, Optional[str]]:
     """Return whether a skill row may be packed into a running session.
 
     :param skill: A ``Skill`` row already loaded with its ``files``
         relationship (the drift check needs the file contents to recompute
         ``target_hash``).
+    :param check_drift: When ``False``, skip the content-drift gate. Use
+        this when validating references to frozen published versions whose
+        content cannot drift.
     :returns: ``(True, None)`` when every gate passes, otherwise
         ``(False, reason)`` where ``reason`` is a stable machine code the
         loader can log or surface to the caller. Codes:
@@ -967,16 +1085,40 @@ def is_skill_usable(skill: JoySafeterSkill) -> tuple[bool, Optional[str]]:
     if skill.lifecycle_status != "approved":
         return False, "skill_not_approved"
 
+    return scan_ok(skill, check_drift=check_drift)
+
+
+def scan_ok(skill: JoySafeterSkill, *, check_drift: bool = True) -> tuple[bool, Optional[str]]:
+    """Whether a skill's security verdict is clean and non-drifted.
+
+    This is :func:`is_skill_usable` MINUS its ``lifecycle_status == 'approved'``
+    check — i.e. exactly the "has this content passed a fresh security scan?"
+    predicate. Factored out for the single-axis promotion flow, whose
+    ``submit_promotion`` / ``approve_promotion`` gates require a PASSED scan on
+    the version being promoted but must NOT couple that decision to the skill's
+    lifecycle status (a project-level version can be ``approved`` at the project
+    tier yet still need scan re-verification before being exposed org/public).
+
+    Returns ``(True, None)`` when the scan gate passes, else ``(False, reason)``
+    with the same machine codes ``is_skill_usable`` uses:
+
+      * ``security_<status>`` — verdict not in the runtime allowlist
+      * ``no_security_scan_hash`` — no scan hash recorded (treated as drift)
+      * ``content_changed_after_scan`` — current content hashes differently
+    """
     if skill.security_status not in _RUNTIME_ALLOWED_SECURITY_STATUSES:
         return False, f"security_{skill.security_status}"
 
     if not skill.security_scan_hash:
         return False, "no_security_scan_hash"
 
-        # Drift gate: recompute the canonical hash from the skill's current
-        # content and compare to whatever the last scan locked in. ``build_scan_files``
-        # and ``target_hash`` are the canonical implementations used by
-        # ``scan_for_write`` — calling them here keeps the two paths byte-identical.
+    if not check_drift:
+        return True, None
+
+    # Drift gate: recompute the canonical hash from the skill's current
+    # content and compare to whatever the last scan locked in. ``build_scan_files``
+    # and ``target_hash`` are the canonical implementations used by
+    # ``scan_for_write`` — calling them here keeps the two paths byte-identical.
     files_payload = _files_payload(skill)
     scan_files = build_scan_files(
         name=skill.name,
@@ -1021,6 +1163,7 @@ def _files_payload(skill: JoySafeterSkill) -> list[dict]:
         )
     return result
 
+
 # ============================================================================
 # skill_packer.py
 # ============================================================================
@@ -1035,21 +1178,13 @@ Supports two formats:
 
 import base64
 import io
-import logging
 import os
 import tarfile
-import uuid
-from typing import Optional
 
-logger = logging.getLogger(__name__)
-
-from loguru import logger
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
-from app.joysafeter_orchestrator.runtime.adapter import SkillArchive
+from app.joysafeter_shared.orchestrator_bridge.types import SkillArchive
 
 
 class SkillPacker:
@@ -1100,7 +1235,17 @@ class SkillPacker:
                     target=target,
                 )
             except Exception as e:
-                logger.warning("Failed to decode packed skill %s: %s", item.get("name"), e)
+                log_boundary_failure_loguru(
+                    logger,
+                    boundary="skill_security",
+                    code="SKILL_PACKED_ARCHIVE_DECODE_FAILED",
+                    message="Failed to decode packed skill archive",
+                    operation="decode_packed_skill",
+                    error=e,
+                    data={"skill_name": str(item.get("name") or "unknown")},
+                    retryable=False,
+                    user_action="correct_request",
+                )
                 return None
 
                 # New format: skill reference
@@ -1185,7 +1330,17 @@ class SkillPacker:
             return None
 
         tar_data = self._create_targz(skill.files, root_dir=skill.name)
-        await self._record_usage(skill_id=skill.id, skill_version="draft")
+        await self._record_usage(
+            skill_id=skill.id,
+            skill_name=skill.name,
+            skill_source_type=skill.source_type,
+            skill_version="draft",
+            skill_version_id=None,
+            security_scan_id=skill.security_scan_id,
+            target_hash=skill.security_scan_hash,
+            artifact_hash=hashlib.sha256(tar_data).hexdigest(),
+            target=target,
+        )
         return SkillArchive(name=skill.name, data=tar_data, target=target)
 
     async def _pack_version(self, skill_id: uuid.UUID, version: str, target: str) -> Optional[SkillArchive]:
@@ -1203,7 +1358,7 @@ class SkillPacker:
         owner_query = sa_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id)
         if self._project_id:
             owner_query = owner_query.where(JoySafeterSkill.project_id == self._project_id)
-        owner_check = await self.db.execute(owner_query.options(selectinload(JoySafeterSkill.files)))
+        owner_check = await self.db.execute(owner_query)
         parent_skill = owner_check.scalar_one_or_none()
         if not parent_skill:
             if self._project_id:
@@ -1212,8 +1367,7 @@ class SkillPacker:
                 logger.warning("Skill %s not found", skill_id)
             return None
 
-
-        usable, reason = is_skill_usable(parent_skill)
+        usable, reason = is_skill_usable(parent_skill, check_drift=False)
         if not usable:
             logger.warning(
                 "Skill %s (%s) version %s refused by runtime gate: %s",
@@ -1239,7 +1393,17 @@ class SkillPacker:
             return None
 
         tar_data = self._create_targz(sv.files, root_dir=parent_skill.name)
-        await self._record_usage(skill_id=skill_id, skill_version=version)
+        await self._record_usage(
+            skill_id=skill_id,
+            skill_name=parent_skill.name,
+            skill_source_type=parent_skill.source_type,
+            skill_version=version,
+            skill_version_id=sv.id,
+            security_scan_id=sv.security_scan_id or parent_skill.security_scan_id,
+            target_hash=sv.target_hash or parent_skill.security_scan_hash,
+            artifact_hash=hashlib.sha256(tar_data).hexdigest(),
+            target=target,
+        )
         return SkillArchive(name=parent_skill.name, data=tar_data, target=target)
 
     async def _record_usage(
@@ -1247,6 +1411,13 @@ class SkillPacker:
         *,
         skill_id: uuid.UUID,
         skill_version: Optional[str],
+        skill_name: Optional[str] = None,
+        skill_source_type: Optional[str] = None,
+        skill_version_id: Optional[uuid.UUID] = None,
+        security_scan_id: Optional[uuid.UUID] = None,
+        target_hash: Optional[str] = None,
+        artifact_hash: Optional[str] = None,
+        target: Optional[str] = None,
     ) -> None:
         """Append a row to ``joysafeter_skill_usage_log``.
 
@@ -1264,7 +1435,14 @@ class SkillPacker:
             self.db.add(
                 JoySafeterSkillUsageLog(
                     skill_id=skill_id,
+                    skill_name=skill_name,
+                    skill_source_type=skill_source_type,
                     skill_version=skill_version,
+                    skill_version_id=skill_version_id,
+                    target=target,
+                    security_scan_id=security_scan_id,
+                    target_hash=target_hash,
+                    artifact_hash=artifact_hash,
                     session_id=self._session_id,
                     agent_id=self._agent_id,
                     project_id=self._project_id,
@@ -1273,11 +1451,21 @@ class SkillPacker:
             )
             await self.db.flush()
         except Exception as exc:  # noqa: BLE001 — never fail a pack on logging
-            logger.warning(
-                "Failed to write skill usage log skill=%s version=%s: %s",
-                skill_id,
-                skill_version,
-                exc,
+            log_boundary_failure_loguru(
+                logger,
+                boundary="skill_security",
+                code="SKILL_USAGE_LOG_WRITE_FAILED",
+                message="Failed to write skill usage log",
+                operation="write_skill_usage_log",
+                error=exc,
+                data={
+                    "skill_id": str(skill_id),
+                    "skill_version": str(skill_version) if skill_version is not None else None,
+                    "session_id": str(self._session_id) if self._session_id is not None else None,
+                    "agent_id": str(self._agent_id) if self._agent_id is not None else None,
+                    "project_id": str(self._project_id) if self._project_id is not None else None,
+                    "user_id": self._user_id,
+                },
             )
 
     def _create_targz(self, files, root_dir: Optional[str] = None) -> bytes:
@@ -1335,6 +1523,7 @@ class SkillPacker:
             return None
         return safe_path
 
+
 # ============================================================================
 # skill_async_scan.py
 # ============================================================================
@@ -1362,13 +1551,6 @@ The runtime gate (``skill_runtime_policy.is_skill_usable``) treats
 ``scanning`` like ``not_scanned`` — no agent loads a skill while its
 scan is in flight.
 """
-
-
-import logging
-import uuid
-from typing import Any, Optional
-
-logger = logging.getLogger(__name__)
 
 
 def scan_input_bytes(
@@ -1416,11 +1598,11 @@ async def run_scan_in_background(
     write the verdict back. Designed to be wired into FastAPI's
     ``BackgroundTasks.add_task(...)``.
 
-    Failure handling: any exception is logged and the skill row is left
-    with ``security_status='scanning'`` until the next manual rescan.
-    We deliberately do NOT auto-flip to ``failed`` here — a transient
-    SkillSpector outage shouldn't trap the skill in a runtime-blocked
-    state; the next user-triggered scan will resolve it.
+    Failure handling: scanner failures normally return a ``failed`` scan via
+    ``scan_for_write(..., failure_mode='fail_open')``. If the background task
+    itself fails outside that scanner path, record a synthetic ``failed`` scan
+    with a structured error payload and apply it to the skill row. This avoids
+    leaving the runtime gate stuck on the transient ``scanning`` state.
 
     The function lives in this module (not inside the service) because
     it needs to open a fresh DB session — the request's session has
@@ -1429,6 +1611,8 @@ async def run_scan_in_background(
     # Lazy imports keep the orchestrator import graph clean: this
     # module is loaded by the FastAPI request path, but the BG task
     # only needs the session factory and the service when invoked.
+    from sqlalchemy import select as _bg_select
+
     from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
     from app.joysafeter_shared.database import AsyncSessionLocal
 
@@ -1455,22 +1639,107 @@ async def run_scan_in_background(
                 # ``scanning`` placeholder so the runtime gate stops
                 # treating the row as in-flight.
                 skill = await db.get(JoySafeterSkill, skill_id)
-                if skill and skill.security_status == "scanning":
-                    skill.security_status = "not_scanned"
+                if skill and skill.security_status == JoySafeterSkillSecurityStatus.SCANNING.value:
+                    skill.security_status = JoySafeterSkillSecurityStatus.NOT_SCANNED.value
                     await db.commit()
                 return
                 # Refresh the skill row with the latest verdict.
-            skill = await db.get(JoySafeterSkill, skill_id)
+            _bg_result = await db.execute(
+                _bg_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id).with_for_update()
+            )
+            skill = _bg_result.scalar_one_or_none()
             if skill is None:
-                logger.warning(
-                    "Skill %s vanished before async scan finished; verdict dropped",
-                    skill_id,
+                log_boundary_failure_loguru(
+                    logger,
+                    boundary="skill_security",
+                    code="SKILL_SECURITY_ASYNC_SCAN_TARGET_MISSING",
+                    message="Skill vanished before async scan finished; verdict dropped",
+                    operation="apply_async_scan_verdict",
+                    data={"skill_id": str(skill_id), "trigger": trigger, "project_id": project_id},
+                    retryable=False,
+                    user_action=None,
                 )
                 return
             svc.apply_latest_scan(skill, scan)
             await db.commit()
-        except Exception:  # noqa: BLE001 — see docstring
+        except Exception as exc:  # noqa: BLE001 — see docstring
+            error_payload = async_boundary_error_payload(
+                code="SKILL_SECURITY_BACKGROUND_SCAN_FAILED",
+                message="Background skill security scan failed",
+                boundary="skill_security",
+                operation="run_background_scan",
+                data={
+                    "skill_id": str(skill_id),
+                    "trigger": trigger,
+                    "project_id": project_id,
+                    "owner_id": owner_id,
+                },
+                source="runtime",
+                retryable=True,
+                user_action="retry",
+                detail=exc.__class__.__name__,
+            )
             logger.exception(
                 "Background skill security scan failed for skill_id=%s",
                 skill_id,
+                extra={"error": error_payload},
             )
+            try:
+                await db.rollback()
+            except Exception:
+                logger.debug("Failed to rollback after background skill scan failure", exc_info=True)
+            try:
+                svc = SkillSecurityService(db)
+                scan_files = svc._build_scan_files(
+                    name=name,
+                    description=description,
+                    content=content,
+                    tags=tags or [],
+                    license=license,
+                    files=files,
+                )
+                target_hash = svc._target_hash(
+                    name=name,
+                    description=description,
+                    content=content,
+                    tags=tags or [],
+                    license=license,
+                    files=scan_files,
+                )
+                failed_scan = JoySafeterSkillSecurityScan(
+                    skill_id=skill_id,
+                    project_id=project_id,
+                    owner_id=owner_id,
+                    created_by_id=created_by_id,
+                    trigger=trigger,
+                    target_name=name,
+                    target_hash=target_hash,
+                    scanner="skillspector",
+                    scanner_version=None,
+                    status=JoySafeterSkillSecurityStatus.FAILED.value,
+                    score=None,
+                    severity=None,
+                    recommendation=None,
+                    issues_count=0,
+                    critical_count=0,
+                    high_count=0,
+                    medium_count=0,
+                    low_count=0,
+                    report={"error": error_payload},
+                    error_message=error_payload["message"],
+                )
+                db.add(failed_scan)
+                await db.flush()
+                _fail_result = await db.execute(
+                    _bg_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id).with_for_update()
+                )
+                skill = _fail_result.scalar_one_or_none()
+                if skill and skill.security_status == JoySafeterSkillSecurityStatus.SCANNING.value:
+                    svc.apply_latest_scan(skill, failed_scan)
+                await db.commit()
+            except Exception:
+                logger.exception(
+                    "Failed to record background skill security scan failure for skill_id=%s",
+                    skill_id,
+                    extra={"error": error_payload},
+                )

@@ -11,9 +11,9 @@ from fastapi import FastAPI
 
 os.environ.setdefault("JOYSAFETER_SERVICE_ROLE", "api")
 
+from app.joysafeter_api.app import create_api_app
 from app.joysafeter_shared.common.logging import setup_logging
 from app.joysafeter_shared.config.settings import ENV_FILE, settings
-from app.joysafeter_api.app import create_api_app
 from app.joysafeter_shared.runtime.lifecycle import _run_common_shutdown, _run_common_startup
 
 load_dotenv(ENV_FILE, override=False)

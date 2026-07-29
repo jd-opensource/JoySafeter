@@ -1,4 +1,5 @@
 use crate::client::JoysafeterClient;
+use crate::editor::open_in_editor;
 use crate::CreateResource;
 use anyhow::bail;
 use dialoguer::{Confirm, Input, Select};
@@ -210,11 +211,12 @@ async fn create_agent(client: &JoysafeterClient) -> anyhow::Result<()> {
     let description = input_optional("Description (optional)")?;
 
     let system_prompt = {
-        let editor_result = dialoguer::Editor::new()
-            .require_save(true)
-            .edit("# Enter system prompt (save and close to continue)\n");
+        let editor_result = open_in_editor(
+            "# Enter system prompt (save and close to continue)\n",
+            "system-prompt.md",
+        );
         match editor_result {
-            Ok(Some(text)) => {
+            Ok(text) => {
                 let trimmed = text.trim().to_string();
                 if trimmed.is_empty() || trimmed.starts_with('#') {
                     input_optional("System prompt (optional)")?
@@ -544,11 +546,12 @@ async fn create_memory(client: &JoysafeterClient) -> anyhow::Result<()> {
     let path = input_required("Memory path (e.g. /preferences/formatting.md)")?;
 
     let content = {
-        let editor_result = dialoguer::Editor::new()
-            .require_save(true)
-            .edit("# Enter memory content (save and close to continue)\n");
+        let editor_result = open_in_editor(
+            "# Enter memory content (save and close to continue)\n",
+            "memory-content.md",
+        );
         match editor_result {
-            Ok(Some(text)) => {
+            Ok(text) => {
                 let trimmed = text.trim().to_string();
                 if trimmed.is_empty()
                     || trimmed == "# Enter memory content (save and close to continue)"

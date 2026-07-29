@@ -1,4 +1,4 @@
-"""Helpers for running JoySafeter as separate service roles."""
+"""Helpers for running JoySafeter Python service roles."""
 
 from __future__ import annotations
 
@@ -8,14 +8,12 @@ from app.joysafeter_shared.config.settings import settings
 
 
 class ServiceRole(StrEnum):
-    ALL = "all"
     API = "api"
-    ORCHESTRATOR = "orchestrator"
     WORKER = "worker"
 
 
 def current_role() -> ServiceRole:
-    raw_role = (settings.service_role or ServiceRole.ALL.value).strip().lower()
+    raw_role = (settings.service_role or ServiceRole.API.value).strip().lower()
     try:
         return ServiceRole(raw_role)
     except ValueError:
@@ -23,17 +21,9 @@ def current_role() -> ServiceRole:
         raise RuntimeError(f"Invalid JOYSAFETER_SERVICE_ROLE={raw_role!r}; expected one of: {allowed}")
 
 
-def is_all_role() -> bool:
-    return current_role() == ServiceRole.ALL
-
-
 def is_api_role() -> bool:
-    return current_role() in {ServiceRole.ALL, ServiceRole.API}
-
-
-def is_orchestrator_role() -> bool:
-    return current_role() in {ServiceRole.ALL, ServiceRole.ORCHESTRATOR}
+    return current_role() == ServiceRole.API
 
 
 def is_worker_role() -> bool:
-    return current_role() in {ServiceRole.ALL, ServiceRole.WORKER}
+    return current_role() == ServiceRole.WORKER

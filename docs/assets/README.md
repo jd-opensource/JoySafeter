@@ -6,19 +6,30 @@ This directory contains images and assets for documentation.
 
 | File | Description | Used In |
 |------|-------------|---------|
-| `joysafter.png` | Platform architecture diagram | README.md Architecture section |
+| `joysafter.png` | JoySafeter logo mark used in the README hero | README.md / README_CN.md |
+| `APK-case.gif` | APK vulnerability detection demo | README.md / README_CN.md Real-World Cases |
+| `pentest-case.gif` | Penetration testing agent demo | README.md / README_CN.md Real-World Cases |
 | `wechat-group-3.png`, `wechat-group-4.png` | WeChat user group QR codes | README.md Community section |
+| `web-chat-group-2.jpg` | Additional community QR code asset | Reserved for community docs |
+
+Additional architecture assets live in `docs/`:
+
+| File | Description | Used In |
+|------|-------------|---------|
+| `docs/architecture-diagram.png` | Static architecture overview image | README.md / README_CN.md Architecture section |
+| `docs/architecture-diagram.html` | Interactive architecture diagram | README.md / README_CN.md Architecture section |
+| `docs/architecture-diagram.mmd` | Mermaid source for architecture diagram | Architecture maintenance |
+| `docs/architecture-unified-event-model.mmd` | Mermaid source for event model | Architecture maintenance |
 
 ## Missing Assets (TODO)
 
-These images would significantly improve the README first impression:
+These optional images would improve product walkthrough material:
 
 | File | Description | Recommended Size | Priority |
 |------|-------------|------------------|----------|
-| `logo.png` | Project logo (or SVG) | 256x256 px | **High** — README hero section is blank without it |
-| `screenshot-builder.png` | Agent Builder interface screenshot or GIF | 1200x800 px | **High** — hero demo area is commented out |
-| `screenshot-chat.png` | Chat / Copilot interface screenshot | 1200x800 px | Medium |
-| `screenshot-workspace.png` | Workspace management screenshot | 1200x800 px | Medium |
+| `screenshot-agent-editor.png` | Current `/managed/agents/[agentId]/edit` interface screenshot or GIF | 1200x800 px | Medium |
+| `screenshot-session-events.png` | Current `/managed/sessions/[sessionId]` event stream screenshot or GIF | 1200x800 px | Medium |
+| `screenshot-quickstart.png` | Current `/managed/quickstart` flow screenshot or GIF | 1200x800 px | Medium |
 
 ## Image Guidelines
 
@@ -29,4 +40,4 @@ These images would significantly improve the README first impression:
 
 ## Placeholder
 
-If you don't have the actual screenshots yet, the README will still render correctly - the image elements will simply not display.
+The README currently references only committed assets. New screenshots should be added only when they match the current `/managed/**` UI.

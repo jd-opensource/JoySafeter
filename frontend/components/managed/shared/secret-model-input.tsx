@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,10 +12,52 @@ interface SecretModelInputProps {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  disabled?: boolean
 }
 
-export function SecretModelInput({ value, onChange, placeholder, className }: SecretModelInputProps) {
+export function SecretModelInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+  disabled = false,
+}: SecretModelInputProps) {
   const [open, setOpen] = useState(false)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const cancelPendingClose = () => {
+    if (!closeTimerRef.current) return
+    clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
+  }
+
+  const openDropdown = () => {
+    if (disabled) return
+    cancelPendingClose()
+    setOpen(true)
+  }
+
+  const closeDropdown = () => {
+    cancelPendingClose()
+    setOpen(false)
+  }
+
+  const scheduleCloseDropdown = () => {
+    cancelPendingClose()
+    closeTimerRef.current = setTimeout(() => {
+      setOpen(false)
+      closeTimerRef.current = null
+    }, 120)
+  }
 
   const filteredOptions = useMemo(() => {
     const keyword = value.trim().toLowerCase()
@@ -26,8 +68,9 @@ export function SecretModelInput({ value, onChange, placeholder, className }: Se
   const showCustomValue = value.trim() && !MODEL_OPTIONS.includes(value.trim())
 
   const selectModel = (model: string) => {
+    if (disabled) return
     onChange(model)
-    setOpen(false)
+    closeDropdown()
   }
 
   return (
@@ -35,18 +78,20 @@ export function SecretModelInput({ value, onChange, placeholder, className }: Se
       <Input
         value={value}
         onChange={(event) => {
+          if (disabled) return
           onChange(event.target.value)
-          setOpen(true)
+          openDropdown()
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={openDropdown}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') setOpen(false)
+          if (event.key === 'Escape') closeDropdown()
         }}
-        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        onBlur={scheduleCloseDropdown}
         placeholder={placeholder}
         className="pr-16 font-mono text-sm"
+        disabled={disabled}
       />
-      {value ? (
+      {value && !disabled ? (
         <Button
           type="button"
           variant="ghost"
@@ -55,7 +100,7 @@ export function SecretModelInput({ value, onChange, placeholder, className }: Se
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
             onChange('')
-            setOpen(true)
+            openDropdown()
           }}
         >
           <X className="h-3.5 w-3.5" />
@@ -66,8 +111,13 @@ export function SecretModelInput({ value, onChange, placeholder, className }: Se
         variant="ghost"
         size="icon"
         className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => setOpen((nextOpen) => !nextOpen)}
+        onClick={() => {
+          if (disabled) return
+          cancelPendingClose()
+          setOpen((nextOpen) => !nextOpen)
+        }}
       >
         <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
       </Button>
@@ -95,7 +145,12 @@ export function SecretModelInput({ value, onChange, placeholder, className }: Se
                 onClick={() => selectModel(model)}
               >
                 <span className="truncate">{model}</span>
-                <Check className={cn('ml-auto h-4 w-4 shrink-0', value === model ? 'opacity-100' : 'opacity-0')} />
+                <Check
+                  className={cn(
+                    'ml-auto h-4 w-4 shrink-0',
+                    value === model ? 'opacity-100' : 'opacity-0',
+                  )}
+                />
               </button>
             ))
           ) : !showCustomValue ? (

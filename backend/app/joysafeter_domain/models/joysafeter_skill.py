@@ -2,12 +2,11 @@
 Skill subsystem models.
 
 Consolidated here from the former ``skill_version.py`` /
-``skill_collaborator.py`` / ``skill_usage_log.py`` modules — one file for
+``skill_usage_log.py`` modules — one file for
 the whole managed-agent skill subsystem:
 
   - Skill / SkillFile / SkillSecurityScan        (core skill + content + scans)
   - SkillVersion / SkillVersionFile              (immutable published snapshots)
-  - SkillCollaborator (+ CollaboratorRole)       (per-skill RBAC)
   - SkillUsageLog                                (append-only pack/load audit)
 """
 
@@ -16,9 +15,9 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, List, Optional
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,15 +32,41 @@ if TYPE_CHECKING:
 class JoySafeterSkillVisibility(str, enum.Enum):
     """Where a skill is reachable from.
 
-    The states deliberately escalate: ``private`` is the most restrictive
-    and ``public`` is the most permissive. ``check_skill_access`` walks them
-    in that order and short-circuits on the first match.
+    The tiers escalate: ``project`` is the floor (every skill starts here as a
+    project resource) and ``public`` is the most permissive. ``check_skill_access``
+    walks them in that order and short-circuits on the first match. Exposure
+    beyond ``project`` is only ever set through the version-level promotion
+    approval flow, never written directly.
     """
 
-    PRIVATE = "private"
     PROJECT = "project"
     ORGANIZATION = "organization"
     PUBLIC = "public"
+
+
+# Total order over the shareable tiers, used by the promotion flow to compare
+# and raise/lower a skill's exposure. ``project`` is the fail-closed floor.
+VISIBILITY_RANK: dict[str, int] = {
+    JoySafeterSkillVisibility.PROJECT.value: 0,
+    JoySafeterSkillVisibility.ORGANIZATION.value: 1,
+    JoySafeterSkillVisibility.PUBLIC.value: 2,
+}
+
+
+def recompute_visibility_from_pointers(skill: "JoySafeterSkill") -> str:
+    """Derive a skill's visibility from its tier pointers (fail-closed).
+
+    Returns the highest tier still backed by a non-null version pointer:
+    ``public`` when ``public_version_id`` is set, else ``organization`` when
+    ``org_version_id`` is set, else ``project`` (the floor). Used by the
+    promotion takedown path and the rescan auto-demote so a cleared pointer
+    always drops the exposed visibility rather than leaving it stale.
+    """
+    if getattr(skill, "public_version_id", None) is not None:
+        return JoySafeterSkillVisibility.PUBLIC.value
+    if getattr(skill, "org_version_id", None) is not None:
+        return JoySafeterSkillVisibility.ORGANIZATION.value
+    return JoySafeterSkillVisibility.PROJECT.value
 
 
 class JoySafeterSkillLifecycleStatus(str, enum.Enum):
@@ -67,6 +92,28 @@ class JoySafeterSkillLifecycleStatus(str, enum.Enum):
     ARCHIVED = "archived"
 
 
+class JoySafeterSkillSecurityStatus(str, enum.Enum):
+    """Result of the most recent security scan on a skill.
+
+    Single source of the security-status vocabulary (previously scattered as
+    string literals across the scan service, the runtime gate, and the worker).
+    Orthogonal to ``JoySafeterSkillLifecycleStatus`` — a skill can be
+    ``approved`` (lifecycle) yet ``blocked`` (security), or vice versa.
+
+      not_scanned -> scanning -> {passed | warning | failed | blocked}
+
+    The runtime gate (``is_skill_usable``) admits only ``passed``/``warning``;
+    ``failed``/``blocked`` auto-demote the skill.
+    """
+
+    NOT_SCANNED = "not_scanned"
+    SCANNING = "scanning"
+    PASSED = "passed"
+    WARNING = "warning"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+
+
 class JoySafeterSkill(BaseModel):
     """Skill table."""
 
@@ -78,7 +125,6 @@ class JoySafeterSkill(BaseModel):
     tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="local")
     source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
-    root_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     owner_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
@@ -89,23 +135,21 @@ class JoySafeterSkill(BaseModel):
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # DEPRECATED — replaced by ``visibility``. Kept for one release cycle
-    # so any external code that still reads ``is_public`` keeps working.
-    # The service writer dual-writes both fields; readers prefer
-    # ``visibility``. Slated for removal in P1+1.
-    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # P1: four-tier sharing surface. ``private`` is the conservative
-    # default for new rows; the service derives the right value from the
-    # caller's input (project_id + explicit visibility override).
-    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default=JoySafeterSkillVisibility.PRIVATE.value)
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="SET NULL"), nullable=True
+    # Single source of truth for a skill's sharing surface. Defaults to
+    # ``project`` (a skill is always a project resource first); ``organization``
+    # and ``public`` are only ever set through the version-level promotion
+    # approval flow.
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default=JoySafeterSkillVisibility.PROJECT.value)
+    project_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"), nullable=False
     )
     license: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     compatibility: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     meta_data: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     allowed_tools: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
-    security_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_scanned")
+    security_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=JoySafeterSkillSecurityStatus.NOT_SCANNED.value
+    )
     security_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     security_severity: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     security_recommendation: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
@@ -124,6 +168,20 @@ class JoySafeterSkill(BaseModel):
     # 20260625_000004_promote_legacy_skills_approved.
     lifecycle_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=JoySafeterSkillLifecycleStatus.DRAFT.value
+    )
+    # Single-axis redesign (P1): pointers to the last version approved for the
+    # org / public tiers. Nullable FKs onto joysafeter_skill_versions with
+    # ondelete SET NULL so deleting a version clears the pointer rather than
+    # cascading into the skill. Populated by later phases; NULL for now.
+    org_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    public_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     # relationships
@@ -144,11 +202,23 @@ class JoySafeterSkill(BaseModel):
         lazy="selectin",
     )
 
+    # Non-mapped, request-scoped annotation. The service layer sets this to
+    # the latest published version string (or leaves it None) before the row
+    # is serialized by ``SkillResponse``. Declaring it as a ClassVar keeps it
+    # off the ORM mapper while making ``getattr(skill, "latest_version")``
+    # safe even on rows that were never passed through the attach step.
+    latest_version: ClassVar[Optional[str]] = None
+    runtime_eligibility: ClassVar[Optional[dict[str, Any]]] = None
+    impact: ClassVar[Optional[dict[str, Any]]] = None
+
     __table_args__ = (
-        UniqueConstraint("owner_id", "name", name="skills_owner_name_unique"),
+        # Skill names are unique per PROJECT (single-axis model), matching how
+        # agents/environments/secrets/vaults are already scoped. ``owner_id`` is
+        # no longer part of the identity key — it only records attribution and
+        # the ownership-transfer principal.
+        UniqueConstraint("project_id", "name", name="skills_project_name_unique"),
         Index("skills_owner_idx", "owner_id"),
         Index("skills_created_by_idx", "created_by_id"),
-        Index("skills_public_idx", "is_public"),
         Index("skills_project_idx", "project_id"),
         Index("skills_tags_idx", "tags", postgresql_using="gin"),
         Index("skills_security_status_idx", "security_status"),
@@ -326,9 +396,13 @@ class JoySafeterSkillVersion(BaseModel):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Single-axis redesign (P1): which visibility tier a pending review
+    # targets (e.g. "organization" / "public"). NULL when no review is
+    # pending or for versions predating the redesign.
+    review_target_visibility: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, default=None)
 
     # Relationships
-    skill: Mapped["JoySafeterSkill"] = relationship("JoySafeterSkill", lazy="selectin")
+    skill: Mapped["JoySafeterSkill"] = relationship("JoySafeterSkill", foreign_keys=[skill_id], lazy="selectin")
     published_by: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[published_by_id], lazy="selectin")
     approved_by: Mapped[Optional["AuthUser"]] = relationship("AuthUser", foreign_keys=[approved_by_id], lazy="selectin")
     files: Mapped[List["JoySafeterSkillVersionFile"]] = relationship(
@@ -373,80 +447,6 @@ class JoySafeterSkillVersionFile(BaseModel):
     __table_args__ = (Index("skill_version_files_version_idx", "version_id"),)
 
     # ---------------------------------------------------------------------------
-    # Skill collaborators — per-skill role-based access control
-    # ---------------------------------------------------------------------------
-
-
-class JoySafeterCollaboratorRole(str, enum.Enum):
-    """Roles ordered by privilege: viewer < editor < publisher < admin."""
-
-    viewer = "viewer"
-    editor = "editor"
-    publisher = "publisher"
-    admin = "admin"
-
-    @classmethod
-    def rank(cls, role: "JoySafeterCollaboratorRole") -> int:
-        _order = [cls.viewer, cls.editor, cls.publisher, cls.admin]
-        return _order.index(role)
-
-    def __ge__(self, other):
-        if not isinstance(other, JoySafeterCollaboratorRole):
-            return NotImplemented
-        return JoySafeterCollaboratorRole.rank(self) >= JoySafeterCollaboratorRole.rank(other)
-
-    def __gt__(self, other):
-        if not isinstance(other, JoySafeterCollaboratorRole):
-            return NotImplemented
-        return JoySafeterCollaboratorRole.rank(self) > JoySafeterCollaboratorRole.rank(other)
-
-    def __le__(self, other):
-        if not isinstance(other, JoySafeterCollaboratorRole):
-            return NotImplemented
-        return JoySafeterCollaboratorRole.rank(self) <= JoySafeterCollaboratorRole.rank(other)
-
-    def __lt__(self, other):
-        if not isinstance(other, JoySafeterCollaboratorRole):
-            return NotImplemented
-        return JoySafeterCollaboratorRole.rank(self) < JoySafeterCollaboratorRole.rank(other)
-
-
-class JoySafeterSkillCollaborator(BaseModel):
-    """Per-skill collaborator with role."""
-
-    __tablename__ = "joysafeter_skill_collaborators"
-
-    skill_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("joysafeter_skills.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(255),
-        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    role: Mapped[JoySafeterCollaboratorRole] = mapped_column(
-        Enum(JoySafeterCollaboratorRole, name="collaborator_role", create_constraint=True),
-        nullable=False,
-    )
-    invited_by: Mapped[str] = mapped_column(
-        String(255),
-        ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-
-    # Relationships
-    skill: Mapped["JoySafeterSkill"] = relationship("JoySafeterSkill", lazy="selectin")
-    user: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[user_id], lazy="selectin")
-    inviter: Mapped["AuthUser"] = relationship("AuthUser", foreign_keys=[invited_by], lazy="selectin")
-
-    __table_args__ = (
-        UniqueConstraint("skill_id", "user_id", name="skill_collaborators_skill_user_unique"),
-        Index("skill_collaborators_user_skill_idx", "user_id", "skill_id"),
-    )
-
-    # ---------------------------------------------------------------------------
     # Skill usage log — append-only pack/load audit trail
     #
     # Append-only event log: one row per time a SkillPacker successfully packs
@@ -484,6 +484,20 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
     # Nullable for legacy ``tar_gz_b64`` direct-packed sessions where
     # there is no DB-side skill version.
     skill_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    skill_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Immutable runtime snapshot fields. The FK above may be SET NULL on
+    # deletion and the Skill row may be renamed later; these fields preserve
+    # what the sandbox actually loaded at the time of execution.
+    skill_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    skill_source_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    target: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    security_scan_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    target_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    artifact_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # Which session loaded this skill. String not UUID because session
     # ids in v2 are JoySafeter-managed strings.
@@ -512,6 +526,27 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
         Index(
             "skill_usage_log_skill_created_idx",
             "skill_id",
+            "created_at",
+        ),
+        Index("skill_usage_log_artifact_hash_idx", "artifact_hash"),
+        Index("skill_usage_log_target_hash_idx", "target_hash"),
+        Index("skill_usage_log_security_scan_idx", "security_scan_id"),
+        Index(
+            "skill_usage_log_project_artifact_created_idx",
+            "project_id",
+            "artifact_hash",
+            "created_at",
+        ),
+        Index(
+            "skill_usage_log_project_target_created_idx",
+            "project_id",
+            "target_hash",
+            "created_at",
+        ),
+        Index(
+            "skill_usage_log_project_scan_created_idx",
+            "project_id",
+            "security_scan_id",
             "created_at",
         ),
         # Less hot: project-level audit roll-ups.

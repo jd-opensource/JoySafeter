@@ -7,10 +7,11 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models import User
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.database import AsyncSessionLocal
 from app.joysafeter_shared.security import decode_token
-from app.joysafeter_domain.models import User
 
 
 class WebSocketCloseCode:
@@ -32,7 +33,16 @@ async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[s
     try:
         token = extract_token_from_cookies(websocket.cookies)
     except Exception as e:
-        logger.warning(f"WebSocket cookie extraction failed: {e}")
+        log_boundary_failure_loguru(
+            logger,
+            boundary="websocket_auth",
+            code="WEBSOCKET_COOKIE_EXTRACTION_FAILED",
+            message="WebSocket cookie extraction failed",
+            operation="extract_cookie_token",
+            error=e,
+            retryable=False,
+            user_action="retry_login",
+        )
 
     if not token:
         token = websocket.query_params.get("token")
@@ -85,4 +95,12 @@ async def reject_websocket(
         await websocket.accept()
         await websocket.close(code=code, reason=reason)
     except Exception as e:
-        logger.warning(f"WebSocket rejection failed: {e}")
+        log_boundary_failure_loguru(
+            logger,
+            boundary="websocket_auth",
+            code="WEBSOCKET_REJECTION_FAILED",
+            message="WebSocket rejection failed",
+            operation="reject_websocket",
+            error=e,
+            data={"close_code": code},
+        )

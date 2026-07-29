@@ -1,4 +1,4 @@
-ARG BASE_IMAGE_REGISTRY="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
+ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
 ARG PYTHON_VERSION=3.12-slim-bookworm
 FROM ${BASE_IMAGE_REGISTRY}python:${PYTHON_VERSION}
 
@@ -30,8 +30,10 @@ EXPOSE 8010
 #   SKILLSPECTOR_LIMIT_CONCURRENCY — max in-flight requests before uvicorn
 #                                    returns 503. Keep it a touch above
 #                                    workers so a small queue is allowed but
-#                                    overload sheds fast (backend treats a
-#                                    failed scan as fail-open). Default 4.
+#                                    overload sheds fast. Draft-save paths may
+#                                    record failed/scanning and continue, but
+#                                    runtime packing remains fail-closed.
+#                                    Default 4.
 ENV SKILLSPECTOR_WORKERS=2 \
     SKILLSPECTOR_LIMIT_CONCURRENCY=4
 

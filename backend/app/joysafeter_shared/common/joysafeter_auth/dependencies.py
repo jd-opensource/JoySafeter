@@ -13,23 +13,30 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError
-from app.joysafeter_shared.common.dependencies import get_current_user
-from app.joysafeter_shared.database import get_db
 from app.joysafeter_domain.models.joysafeter_api_key import JoySafeterApiKey
+from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
+from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError, ResourceConflictError
+from app.joysafeter_shared.common.dependencies import get_current_user
+from app.joysafeter_shared.database import get_db
 
-from .context import JoySafeterAuthContext, JoySafeterRole
+from .context import (
+    JoySafeterAuthContext,
+    JoySafeterRole,
+    ProjectCapability,
+    effective_project_capability,
+)
 
 # ---------------------------------------------------------------------------
 # Mapping helpers
 # ---------------------------------------------------------------------------
 
-# Map OrgRole string values (from the member table) to JoySafeterRole.
-# OrgRole has: owner, admin, member.  "member" maps to "developer" in joysafeter.
+
+# Map a stored org-member role string (from the member table) to JoySafeterRole.
 def _map_org_role(role_value: str) -> JoySafeterRole:
-    """Convert an OrgRole string to a JoySafeterRole, defaulting to VIEWER."""
+    """Convert a stored org-member role string to a JoySafeterRole."""
     return JoySafeterRole.normalize(role_value)
 
 
@@ -134,7 +141,7 @@ async def _auth_via_jwt_claims(request: Request, db: AsyncSession) -> JoySafeter
     if preferred_project_id:
         target_project_id = preferred_project_id
     elif target_org_id != str(payload.org_id):
-        target_project_id = await _resolve_default_project_id(db, target_org_id)
+        target_project_id = await _resolve_default_project_id(db, target_org_id, user_id=str(payload.sub))
 
     return await _verify_joysafeter_context(
         db,
@@ -145,28 +152,33 @@ async def _auth_via_jwt_claims(request: Request, db: AsyncSession) -> JoySafeter
     )
 
 
-async def _resolve_default_project_id(db: AsyncSession, org_id: str) -> str:
+async def _resolve_default_project_id(db: AsyncSession, org_id: str, *, user_id: str) -> str:
     """Resolve a usable project when the request switches org via header."""
-    result = await db.execute(
-        select(Project).where(
-            Project.org_id == org_id,
-            Project.is_default.is_(True),
-            Project.archived_at.is_(None),
-        ).limit(1)
+    member_result = await db.execute(
+        select(Member)
+        .where(
+            Member.user_id == user_id,
+            Member.organization_id == org_id,
+        )
+        .limit(1)
     )
-    project = result.scalar_one_or_none()
-    if project:
-        return project.id
+    member = member_result.scalar_one_or_none()
+    if member is None:
+        raise AuthenticationError(
+            "User is not a member of the requested organization",
+            code="NOT_ORG_MEMBER",
+        )
 
-    result = await db.execute(
-        select(Project).where(
-            Project.org_id == org_id,
-            Project.archived_at.is_(None),
-        ).limit(1)
+    projects = await ProjectService(db).list_accessible_projects(
+        org_id=org_id,
+        user_id=user_id,
+        org_role=_map_org_role(member.role),
     )
-    project = result.scalar_one_or_none()
-    if project:
-        return project.id
+    default_project = next((project for project in projects if project.is_default), None)
+    if default_project is None and projects:
+        default_project = projects[0]
+    if default_project is not None:
+        return default_project.id
 
     raise AuthenticationError(
         "No project found for organization",
@@ -184,10 +196,12 @@ async def _verify_joysafeter_context(
 ) -> JoySafeterAuthContext:
     """Verify current org membership and project ownership against the DB."""
     result = await db.execute(
-        select(Member).where(
+        select(Member)
+        .where(
             Member.user_id == user_id,
             Member.organization_id == org_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
     member = result.scalar_one_or_none()
     if not member:
@@ -196,30 +210,42 @@ async def _verify_joysafeter_context(
             code="MEMBERSHIP_EXPIRED",
         )
 
-    result = await db.execute(
-        select(Project).where(
-            Project.id == project_id,
-            Project.org_id == org_id,
-        ).limit(1)
+    role = _map_org_role(member.role)
+    project_service = ProjectService(db)
+    project = await project_service.get_accessible_project(
+        project_id=project_id,
+        org_id=org_id,
+        user_id=user_id,
+        org_role=role,
+        allow_archived=True,
     )
-    project = result.scalar_one_or_none()
     if not project:
         raise AuthenticationError(
             "Project not found or access denied",
             code="PROJECT_ACCESS_DENIED",
         )
     if project.archived_at is not None and not allow_archived_project:
-        raise AccessDeniedError(
+        raise ResourceConflictError(
             "项目已归档，仅支持只读操作 / Project is archived and read-only",
             code="PROJECT_ARCHIVED",
+            user_action="refresh",
         )
 
+    project_role = await project_service.get_project_member_role(project_id, user_id)
+    is_super_user = await _is_platform_super_user(db, user_id)
     return JoySafeterAuthContext(
         user_id=user_id,
         org_id=org_id,
         project_id=project_id,
-        role=_map_org_role(member.role),
+        role=role,
+        project_role=project_role,
+        is_super_user=is_super_user,
     )
+
+
+async def _is_platform_super_user(db: AsyncSession, user_id: str) -> bool:
+    result = await db.execute(select(AuthUser.is_super_user).where(AuthUser.id == user_id).limit(1))
+    return bool(result.scalar_one_or_none())
 
 
 # ---------------------------------------------------------------------------
@@ -235,9 +261,7 @@ async def _auth_via_api_key(
 
     key_hash = _hash_api_key(raw_key)
 
-    result = await db.execute(
-        select(JoySafeterApiKey).where(JoySafeterApiKey.key_hash == key_hash)
-    )
+    result = await db.execute(select(JoySafeterApiKey).where(JoySafeterApiKey.key_hash == key_hash))
     api_key = result.scalar_one_or_none()
     if api_key is None:
         return None
@@ -251,6 +275,34 @@ async def _auth_via_api_key(
     if api_key.expires_at is not None and api_key.expires_at < now:
         return None
 
+    # The key delegates its creator's authority, so it is only valid while the
+    # creator still has access to the key's project. Verify that on every request
+    # (the read path never re-verifies context otherwise), WITHOUT rebuilding the
+    # context from the creator — the key stays capped at its own stored role. A
+    # removed or project-revoked creator makes the key stop authenticating.
+    creator_member = (
+        await db.execute(
+            select(Member)
+            .where(Member.user_id == api_key.created_by, Member.organization_id == api_key.org_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    creator_has_access = creator_member is not None and (
+        await ProjectService(db).get_accessible_project(
+            project_id=api_key.project_id,
+            org_id=api_key.org_id,
+            user_id=api_key.created_by,
+            org_role=JoySafeterRole.normalize(creator_member.role),
+            allow_archived=True,
+        )
+        is not None
+    )
+    if not creator_has_access:
+        raise AccessDeniedError(
+            "API key creator no longer has access to the project",
+            code="AUTH_API_KEY_ACCESS_REVOKED",
+        )
+
     # Best-effort update last_used_at (non-blocking; failures are swallowed)
     try:
         api_key.last_used_at = now
@@ -262,13 +314,18 @@ async def _auth_via_api_key(
         except Exception:
             pass
 
-    role = JoySafeterRole.normalize(api_key.role)
-
+    # A project-scoped API key is NOT an org super-user: its stored role is the
+    # key's capability WITHIN its own project. Carry it as project_role and keep
+    # the org role at the non-super-user baseline so effective_project_capability
+    # scopes it to this project only.
     return JoySafeterAuthContext(
         user_id=api_key.created_by,
         org_id=api_key.org_id,
         project_id=api_key.project_id,
-        role=role,
+        role=JoySafeterRole.MEMBER,
+        principal_type="api_key",
+        project_role=api_key.role,
+        is_super_user=False,
     )
 
 
@@ -306,15 +363,15 @@ async def _auth_via_user_session(
     preferred_org_id = request.headers.get("X-Org-Id")
     if preferred_org_id:
         result = await db.execute(
-            select(Member).where(
+            select(Member)
+            .where(
                 Member.user_id == user.id,
                 Member.organization_id == preferred_org_id,
-            ).limit(1)
+            )
+            .limit(1)
         )
     else:
-        result = await db.execute(
-            select(Member).where(Member.user_id == user.id).limit(1)
-        )
+        result = await db.execute(select(Member).where(Member.user_id == user.id).limit(1))
     membership = result.scalar_one_or_none()
     if membership is None and preferred_org_id:
         # User explicitly requested an org they don't belong to
@@ -325,6 +382,7 @@ async def _auth_via_user_session(
     if membership is None:
         # Auto-create a default organization and project for the user
         import uuid as _uuid
+
         from app.joysafeter_domain.models.joysafeter_organization import Organization
 
         org_id = str(_uuid.uuid4())
@@ -337,14 +395,19 @@ async def _auth_via_user_session(
             role="owner",
         )
         db.add(membership)
-        default_project = Project(
+        new_default_project = Project(
             id=str(_uuid.uuid4()),
             org_id=org_id,
             name="Default",
             slug="default",
             is_default=True,
         )
-        db.add(default_project)
+        db.add(new_default_project)
+        await ProjectService(db).grant_project_membership(
+            project_id=new_default_project.id,
+            user_id=user.id,
+            role="admin",
+        )
         await db.commit()
         await db.refresh(membership)
 
@@ -352,35 +415,31 @@ async def _auth_via_user_session(
     role = _map_org_role(membership.role)
 
     # Resolve project_id: prefer explicit header, otherwise default project.
+    project_svc = ProjectService(db)
     project_id = request.headers.get("X-Project-Id")
     if project_id:
-        # SECURITY: Verify the project belongs to the user's organization
-        proj_result = await db.execute(
-            select(Project).where(
-                Project.id == project_id,
-                Project.org_id == org_id,
-            ).limit(1)
+        verified_project = await project_svc.get_accessible_project(
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user.id,
+            org_role=role,
+            allow_archived=True,
         )
-        verified_project = proj_result.scalar_one_or_none()
         if not verified_project:
-            project_id = None
-        elif verified_project.archived_at is not None:
-            project_id = None
+            raise AuthenticationError(
+                "Project not found or access denied",
+                code="PROJECT_ACCESS_DENIED",
+            )
 
     if not project_id:
-        proj_result = await db.execute(
-            select(Project).where(
-                Project.org_id == org_id,
-                Project.is_default.is_(True),
-            ).limit(1)
+        projects = await project_svc.list_accessible_projects(
+            org_id=org_id,
+            user_id=user.id,
+            org_role=role,
         )
-        default_project = proj_result.scalar_one_or_none()
-        if default_project is None:
-            # Fall back to *any* project in the org
-            proj_result = await db.execute(
-                select(Project).where(Project.org_id == org_id).limit(1)
-            )
-            default_project = proj_result.scalar_one_or_none()
+        default_project = next((project for project in projects if project.is_default), None)
+        if default_project is None and projects:
+            default_project = projects[0]
         if default_project is None:
             raise AuthenticationError(
                 "No project found for organization",
@@ -388,11 +447,14 @@ async def _auth_via_user_session(
             )
         project_id = default_project.id
 
+    project_role = await project_svc.get_project_member_role(project_id, user.id)
     return JoySafeterAuthContext(
         user_id=user.id,
         org_id=org_id,
         project_id=project_id,
         role=role,
+        project_role=project_role,
+        is_super_user=bool(user.is_super_user),
     )
 
 
@@ -406,32 +468,13 @@ async def require_joysafeter_write(
     db: AsyncSession = Depends(get_db),
     ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> JoySafeterAuthContext:
-    """Require at least write-level access (owner / admin / developer).
+    """Require at least write-level access.
 
     Performs a real-time DB check to verify the user still has membership
     and the project still belongs to their org. This prevents stale JWT
     claims from authorizing writes after the user has been removed.
     """
-    if not ctx.role.can_write():
-        raise AccessDeniedError(
-            "Write access required",
-            code="JOYSAFETER_WRITE_REQUIRED",
-        )
-
-    ctx = await _verify_joysafeter_context(
-        db,
-        user_id=ctx.user_id,
-        org_id=ctx.org_id,
-        project_id=ctx.project_id,
-        allow_archived_project=False,
-    )
-    if not ctx.role.can_write():
-        raise AccessDeniedError(
-            "Write access required",
-            code="JOYSAFETER_WRITE_REQUIRED",
-        )
-
-    return ctx
+    return await _require_write_context(db, ctx)
 
 
 async def require_joysafeter_admin(
@@ -443,6 +486,60 @@ async def require_joysafeter_admin(
 
     Always verifies against DB for sensitive operations.
     """
+    return await _require_admin_context(db, ctx)
+
+
+async def require_joysafeter_read(
+    ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> JoySafeterAuthContext:
+    """Require at least read access (any authenticated role including viewer)."""
+    return ctx
+
+
+def _require_user_principal(ctx: JoySafeterAuthContext) -> JoySafeterAuthContext:
+    if ctx.principal_type != "user":
+        raise AccessDeniedError(
+            "User session required",
+            code="JOYSAFETER_USER_SESSION_REQUIRED",
+        )
+    return ctx
+
+
+async def _require_write_context(db: AsyncSession, ctx: JoySafeterAuthContext) -> JoySafeterAuthContext:
+    verified = await _verify_joysafeter_context(
+        db,
+        user_id=ctx.user_id,
+        org_id=ctx.org_id,
+        project_id=ctx.project_id,
+        allow_archived_project=False,
+    )
+    creator_capability = effective_project_capability(verified.role, verified.project_role)
+
+    if ctx.principal_type == "api_key":
+        # A service key must never exceed the capability it was minted with, even
+        # if its creator is (or has since become) an org super-user. The re-verify
+        # above still runs so a removed/downgraded creator revokes the key's write
+        # access, but the effective capability is capped at min(key, creator) and
+        # the returned context keeps the key's own (non-super-user) identity so
+        # downstream quota accounting still treats it as a service principal.
+        key_capability = effective_project_capability(JoySafeterRole.MEMBER, ctx.project_role)
+        if min(creator_capability, key_capability) < ProjectCapability.WRITE:
+            raise AccessDeniedError(
+                "Write access required",
+                code="JOYSAFETER_WRITE_REQUIRED",
+            )
+        return ctx
+
+    if creator_capability < ProjectCapability.WRITE:
+        raise AccessDeniedError(
+            "Write access required",
+            code="JOYSAFETER_WRITE_REQUIRED",
+        )
+
+    return verified
+
+
+async def _require_admin_context(db: AsyncSession, ctx: JoySafeterAuthContext) -> JoySafeterAuthContext:
     if not ctx.role.can_manage_members():
         raise AccessDeniedError(
             "Admin access required",
@@ -465,8 +562,65 @@ async def require_joysafeter_admin(
     return ctx
 
 
-async def require_joysafeter_read(
+async def require_joysafeter_user_context(
     ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> JoySafeterAuthContext:
-    """Require at least read access (any authenticated role including viewer)."""
+    """Require a browser/user principal rather than a project-scoped API key."""
+    return _require_user_principal(ctx)
+
+
+async def require_joysafeter_user_write(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> JoySafeterAuthContext:
+    """Require a user principal with write access to the active project."""
+    ctx = _require_user_principal(ctx)
+    return await _require_write_context(db, ctx)
+
+
+async def require_joysafeter_user_admin(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> JoySafeterAuthContext:
+    """Require a user principal with organization admin privileges."""
+    ctx = _require_user_principal(ctx)
+    return await _require_admin_context(db, ctx)
+
+
+async def require_joysafeter_platform_admin(
+    ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> JoySafeterAuthContext:
+    """Require a platform super-user for infrastructure-level operations."""
+    ctx = _require_user_principal(ctx)
+    if not ctx.is_super_user:
+        raise AccessDeniedError(
+            "Platform admin access required",
+            code="JOYSAFETER_PLATFORM_ADMIN_REQUIRED",
+        )
+    return ctx
+
+
+async def require_joysafeter_project_admin(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> JoySafeterAuthContext:
+    """Require the caller to be admin OF THE PATH ``project_id`` (org super-users
+    included).
+
+    Declarative counterpart of the inline project-admin check that guards project
+    -member management. Scoped to the path project (not the caller's active-context
+    project), so a project admin manages members of exactly the project they
+    administer. Being a dependency, a new member-management route cannot silently
+    ship with only a read-level guard.
+    """
+    ctx = _require_user_principal(ctx)
+    actor_role = await ProjectService(db).get_project_member_role(project_id, ctx.user_id)
+    if effective_project_capability(ctx.role, actor_role) < ProjectCapability.ADMIN:
+        raise AccessDeniedError(
+            "Project admin access required",
+            code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
+        )
     return ctx

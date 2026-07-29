@@ -1,12 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedPost } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
+import {
+  managedRequestOptions,
+  managedScopeKey,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import type { MemoryStore } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,27 +29,57 @@ import {
 import { CreateMemoryStoreDialog } from './components/create-memory-store-dialog'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 export default function MemoryStoreListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const managedScope = useManagedRequestScope()
+  const projectReadOnly = useCurrentProjectReadOnly()
+  const actionRunRef = useRef(0)
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef(managedScope)
   const [showArchived, setShowArchived] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<MemoryStore>({
-      queryKey: 'memory-stores',
-      path: '/memory_stores',
-      includeArchived: showArchived,
-    })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<MemoryStore>({
+    queryKey: 'memory-stores',
+    path: '/memory_stores',
+    includeArchived: showArchived,
+  })
 
-  const stores = data.filter((s) =>
-    (showArchived || !s.archived_at) &&
-    filterByCreatedTime(s.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [s.id, s.name, s.description, s.archived_at ? 'archived' : 'active']),
+  const stores = data.filter(
+    (s) =>
+      (showArchived || !s.archived_at) &&
+      filterByCreatedTime(s.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [
+        s.id,
+        s.name,
+        s.description,
+        s.archived_at ? 'archived' : 'active',
+      ]),
   )
 
   const filters: FilterDef[] = [
@@ -54,13 +90,63 @@ export default function MemoryStoreListPage() {
     },
   ]
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['memory-stores'] })
+  const invalidate = (scope = managedScopeRef.current) =>
+    queryClient.invalidateQueries({ queryKey: ['memory-stores', scope] })
+
+  useEffect(() => {
+    if (managedScopeRef.current !== managedScope.key) {
+      actionRunRef.current += 1
+    }
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
+  }, [managedScope.key])
+
+  useEffect(
+    () => () => {
+      actionRunRef.current += 1
+    },
+    [],
+  )
+
+  const getCurrentManagedScope = () => {
+    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
+    return managedScopeKey(orgId, projectId)
+  }
+
+  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
+    getCurrentManagedScope() === scope
+
+  const currentManagedScopeAllowsWrite = (scope = managedScopeRef.current) =>
+    currentManagedScopeIsActive(scope) && currentProjectAllowsWrite()
+
+  const isCurrentAction = (runId: number, scope: string) =>
+    actionRunRef.current === runId &&
+    managedScopeRef.current === scope &&
+    currentManagedScopeAllowsWrite(scope)
 
   const handleArchive = async (store: MemoryStore) => {
+    const actionScope = managedScopeRef.current
+    const requestScope = managedRequestScopeRef.current
+    if (!currentManagedScopeAllowsWrite(actionScope)) return
+    const storeStillCurrent = queryClient
+      .getQueriesData<{ data?: MemoryStore[] }>({
+        queryKey: ['memory-stores', actionScope, '/memory_stores'],
+      })
+      .some(([, page]) => page?.data?.some((currentStore) => currentStore.id === store.id))
+    if (!storeStillCurrent) return
+
+    const runId = actionRunRef.current + 1
+    actionRunRef.current = runId
     try {
-      await managedPost(`memory_stores/${store.id.replace('memstore_', '')}/archive`)
-      invalidate()
+      await managedPost(
+        apiResourcePath('memory_stores', store.id, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentAction(runId, actionScope)) return
+      invalidate(actionScope)
     } catch (e) {
+      if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
@@ -74,29 +160,23 @@ export default function MemoryStoreListPage() {
     {
       key: 'name',
       header: t('managed.table.name'),
-      render: (s) => (
-        <span className="font-medium text-foreground">{s.name}</span>
-      ),
+      render: (s) => <span className="font-medium text-foreground">{s.name}</span>,
     },
     {
       key: 'description',
       header: t('managed.memoryStores.descriptionLabel'),
-      render: (s) => (
-        <span className="text-muted-foreground text-sm">{s.description || '-'}</span>
-      ),
+      render: (s) => <span className="text-sm text-muted-foreground">{s.description || '-'}</span>,
     },
     {
       key: 'status',
       header: t('managed.table.status'),
-      render: (s) => (
-        <StatusBadge status={s.archived_at ? 'archived' : 'active'} />
-      ),
+      render: (s) => <StatusBadge status={s.archived_at ? 'archived' : 'active'} />,
     },
     {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (s) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={s.created_at} />
         </span>
       ),
@@ -113,10 +193,12 @@ export default function MemoryStoreListPage() {
         title={t('managed.memoryStores.title')}
         subtitle={t('managed.memoryStores.subtitle')}
         action={
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="w-4 h-4" />
-            {t('managed.memoryStores.new')}
-          </Button>
+          projectReadOnly ? null : (
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              {t('managed.memoryStores.new')}
+            </Button>
+          )
         }
       />
 
@@ -135,9 +217,11 @@ export default function MemoryStoreListPage() {
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(s) => router.push(`/managed/memory-stores/${s.id}`)}
-        actionMenu={(s) => s.archived_at ? [] : [
-          { label: t('managed.memoryStores.archiveStore'), onClick: () => handleArchive(s) },
-        ]}
+        actionMenu={(s) =>
+          s.archived_at || projectReadOnly
+            ? []
+            : [{ label: t('managed.memoryStores.archiveStore'), onClick: () => handleArchive(s) }]
+        }
         pagination={{
           hasNext,
           hasPrev,
@@ -153,8 +237,11 @@ export default function MemoryStoreListPage() {
       />
 
       <CreateMemoryStoreDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
+        open={!projectReadOnly && createOpen}
+        onOpenChange={(open) => {
+          if (open && !currentProjectAllowsWrite()) return
+          setCreateOpen(open)
+        }}
         onCreated={() => invalidate()}
       />
     </div>

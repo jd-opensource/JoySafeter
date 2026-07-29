@@ -90,9 +90,9 @@ class Settings(BaseSettings):
         default=1, validation_alias=AliasChoices("WORKERS", "UVICORN_WORKERS"), description="Number of worker processes"
     )
     service_role: str = Field(
-        default="all",
+        default="api",
         validation_alias=AliasChoices("JOYSAFETER_SERVICE_ROLE", "SERVICE_ROLE", "APP_SERVICE_ROLE"),
-        description="Service role to start: all, api, orchestrator, or worker",
+        description="Python service role to start: api or worker. The orchestrator is the Rust binary.",
     )
     run_runtime_instance_id: str = Field(
         default=socket.gethostname(),
@@ -217,6 +217,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RATE_LIMIT_RPH", "RATE_LIMIT_PER_HOUR"),
         description="Rate limit: requests per hour",
     )
+    trust_forwarded_headers: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("TRUST_FORWARDED_HEADERS", "TRUST_PROXY_HEADERS"),
+        description="Trust X-Forwarded-For / X-Real-IP headers from an upstream proxy. Disabled by default because clients can spoof these headers.",
+    )
+    trusted_proxy_cidrs: str = Field(
+        default="",
+        validation_alias=AliasChoices("TRUSTED_PROXY_CIDRS", "TRUSTED_PROXY_CIDR"),
+        description="Comma-separated CIDRs allowed to supply trusted forwarding headers when TRUST_FORWARDED_HEADERS is enabled.",
+    )
 
     # concurrency control
     max_concurrent_llm_calls: int = Field(
@@ -228,6 +238,80 @@ class Settings(BaseSettings):
         default=5,
         validation_alias=AliasChoices("MAX_CONCURRENT_PER_USER", "MAX_USER_CONCURRENCY"),
         description="Maximum concurrent requests per user",
+    )
+    max_concurrent_per_project: int = Field(
+        default=5,
+        validation_alias=AliasChoices("MAX_CONCURRENT_PER_PROJECT", "MAX_PROJECT_CONCURRENCY"),
+        description="Default maximum concurrent (non-terminal) tasks per project (tenant). "
+        "A project may override this via its max_concurrent_tasks column.",
+    )
+
+    # Scheduler (cron-driven task trigger; runs inside the worker service)
+
+    scheduler_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SCHEDULER_ENABLED"),
+        description="Whether the worker runs the cron scheduler poll loop.",
+    )
+    scheduler_poll_interval_sec: int = Field(
+        default=15,
+        validation_alias=AliasChoices("SCHEDULER_POLL_INTERVAL_SEC"),
+        description="Seconds between scheduler poll ticks.",
+    )
+    scheduler_claim_batch: int = Field(
+        default=50,
+        validation_alias=AliasChoices("SCHEDULER_CLAIM_BATCH"),
+        description="Max due schedules claimed per tick (FOR UPDATE SKIP LOCKED batch size).",
+    )
+    scheduler_lock_grace_sec: int = Field(
+        default=120,
+        validation_alias=AliasChoices("SCHEDULER_LOCK_GRACE_SEC"),
+        description="Seconds after which a claimed-but-unreleased schedule lock is considered stale "
+        "and reclaimable by another worker (crash recovery).",
+    )
+    scheduler_slot_max_retries: int = Field(
+        default=3,
+        validation_alias=AliasChoices("SCHEDULER_SLOT_MAX_RETRIES"),
+        description="Max backoff retries for a single cron slot on transient fire failure before the "
+        "slot is abandoned (advanced) and a consecutive-failure is recorded.",
+    )
+    scheduler_retry_backoff_base_sec: int = Field(
+        default=10,
+        validation_alias=AliasChoices("SCHEDULER_RETRY_BACKOFF_BASE_SEC"),
+        description="Base seconds for exponential slot-retry backoff (base * 2**(attempt-1)).",
+    )
+    scheduler_retry_backoff_cap_sec: int = Field(
+        default=300,
+        validation_alias=AliasChoices("SCHEDULER_RETRY_BACKOFF_CAP_SEC"),
+        description="Upper bound (seconds) for slot-retry backoff.",
+    )
+    scheduler_failure_threshold: int = Field(
+        default=5,
+        validation_alias=AliasChoices("SCHEDULER_FAILURE_THRESHOLD"),
+        description="Consecutive fire failures after which the scheduler auto-disables (dead-letters) "
+        "the trigger and emits an alert. Reset when the trigger is re-enabled.",
+    )
+    scheduler_fire_timeout_sec: int = Field(
+        default=45,
+        validation_alias=AliasChoices("SCHEDULER_FIRE_TIMEOUT_SEC"),
+        description="Per-fire timeout; a fire that exceeds this is treated as a transient failure so "
+        "one hung fire can never wedge the sweep.",
+    )
+    scheduler_min_sleep_sec: int = Field(
+        default=1,
+        validation_alias=AliasChoices("SCHEDULER_MIN_SLEEP_SEC"),
+        description="Floor for the adaptive scheduler sleep between ticks.",
+    )
+    scheduler_notify_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SCHEDULER_NOTIFY_ENABLED"),
+        description="Whether trigger create/update emits a Postgres NOTIFY so the scheduler wakes "
+        "immediately instead of waiting for the next poll tick.",
+    )
+    scheduler_notify_channel: str = Field(
+        default="joysafeter_trigger_wake",
+        validation_alias=AliasChoices("SCHEDULER_NOTIFY_CHANNEL"),
+        description="Postgres LISTEN/NOTIFY channel used to wake the scheduler loop.",
     )
 
     # Auth
@@ -398,7 +482,11 @@ class Settings(BaseSettings):
         default=None,
         description="Root directory for DeepAgents artifacts",
     )
-
+    storage_volume_host_path_roots: str = Field(
+        default="/mnt/joysafeter/storage",
+        validation_alias=AliasChoices("JOYSAFETER_STORAGE_VOLUME_HOST_PATH_ROOTS", "STORAGE_VOLUME_HOST_PATH_ROOTS"),
+        description="Comma-separated host path roots allowed for platform storage volumes",
+    )
 
     # UV Package Manager Configuration
     uv_index_url: str = Field(
@@ -533,6 +621,19 @@ class Settings(BaseSettings):
         ),
         description="Max size accepted by the user file upload APIs (bytes).",
     )
+    max_request_body_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        validation_alias=AliasChoices(
+            "JOYSAFETER_MAX_REQUEST_BODY_BYTES",
+            "MAX_REQUEST_BODY_BYTES",
+        ),
+        description=(
+            "Hard cap on any single HTTP request body (bytes). Coarse per-worker "
+            "OOM guard applied before the body is buffered; must stay above "
+            "max_upload_file_bytes so legitimate uploads are not rejected. "
+            "Per-field content limits (prompt/message) are enforced separately."
+        ),
+    )
 
     # OAuth Configuration
     oauth_config_path: Optional[str] = Field(
@@ -552,10 +653,6 @@ settings = Settings()  # type: ignore[call-arg]
 
 class JoySafeterConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="JOYSAFETER_", extra="ignore")
-
-    enabled: bool = True
-
-    api_prefix: str = "/api/v1"
 
     redis_queue_prefix: str = "joysafeter"
 
@@ -583,9 +680,20 @@ class JoySafeterConfig(BaseSettings):
     event_stream_block_ms: int = 1000
     event_stream_fallback_to_db: bool = True
     event_stream_pending_idle_ms: int = 60000
+    # A message reclaimed this many times without being acked is a poison
+    # message; it is moved to the dead-letter stream so it can't loop forever.
+    event_stream_max_deliveries: int = 5
+    event_stream_dead_letter_suffix: str = ":dead"
+    # When the stream length reaches this, an xadd would trim un-consumed
+    # entries; producers route events to the DB fallback instead of losing them.
+    # <= 0 auto-derives 90% of event_stream_max_len.
+    event_stream_high_water_mark: int = 0
 
     # Sandbox - Docker (default)
     sandbox_provider: str = "docker"
+    # Minimum provider isolation accepted by the runtime:
+    # shared_container=docker, remote_workspace=daytona+, isolated_vm=e2b only.
+    sandbox_min_isolation_class: str = "shared_container"
     sandbox_image: str = "joysafeter-claudecode:latest"
     sandbox_idle_timeout: int = 300
     sandbox_stopped_ttl: int = 600
@@ -603,8 +711,14 @@ class JoySafeterConfig(BaseSettings):
     sandbox_pool_images: list[str] = []
     sandbox_workspace_root: Optional[str] = None
     sandbox_failure_threshold: int = 3
-    sandbox_cpu: Optional[float] = None
-    sandbox_memory_mb: Optional[int] = None
+    # Per-container resource limits, applied to every Docker sandbox via the
+    # provider (NanoCpus / Memory). Enforced-by-default so a single tenant's
+    # agent cannot exhaust host CPU/RAM on the shared fleet (noisy-neighbor /
+    # resource-exhaustion DoS). Override per-deployment via env
+    # (JOYSAFETER_SANDBOX_CPU / _MEMORY_MB) or per-project via the Project
+    # max_cpu / max_memory_mb columns. Set to None to disable the limit.
+    sandbox_cpu: Optional[float] = 2.0
+    sandbox_memory_mb: Optional[int] = 4096
     sandbox_disk_mb: Optional[int] = None
 
     # -- Sandbox container hardening (P0.1) ------------------------------------
@@ -649,6 +763,12 @@ class JoySafeterConfig(BaseSettings):
     e2b_api_key: str = ""
     e2b_template_id: str = ""
 
+    # Sandbox - Kubernetes. Kubernetes itself owns Storage mounting through CSI
+    # PVCs; the sandbox pod only receives volumeMounts and never Storage secrets.
+    k8s_namespace: str = "joysafeter-sandboxes"
+    k8s_kubectl_path: str = "kubectl"
+    k8s_orchestrator_url: Optional[str] = None
+
     # gRPC server
     grpc_port: int = 9090
     grpc_host: str = "0.0.0.0"
@@ -676,6 +796,15 @@ class JoySafeterConfig(BaseSettings):
     heartbeat_interval: int = 15
     heartbeat_ttl: int = 30
 
+    # Running-task lease (fast reclaim of tasks orphaned by a crashed instance).
+    # The owning instance renews its running tasks' leases every
+    # task_lease_renew_interval_sec; a lease older than task_lease_ttl_sec is
+    # considered abandoned and reclaimed in seconds instead of waiting for the
+    # ~2h timeout_sec upper bound. TTL must be a comfortable multiple of the
+    # renew interval so a live owner never lets its own lease lapse.
+    task_lease_ttl_sec: int = 45
+    task_lease_renew_interval_sec: int = 10
+
     def image_for_provider(self, engine_kind: str) -> str:
         """Return the sandbox image for the given engine kind (matches Rust)."""
         if engine_kind == "codex" and self.image_codex:
@@ -683,7 +812,11 @@ class JoySafeterConfig(BaseSettings):
         if engine_kind == "claude" and self.image_claude:
             return self.image_claude
         if engine_kind == "native":
-            return self.image_native if self.image_native else (self.image_claude if self.image_claude else self.sandbox_image)
+            return (
+                self.image_native
+                if self.image_native
+                else (self.image_claude if self.image_claude else self.sandbox_image)
+            )
         return self.sandbox_image
 
 

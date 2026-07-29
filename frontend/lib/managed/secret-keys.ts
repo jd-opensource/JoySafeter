@@ -30,6 +30,10 @@ export function getSecretProviderLabel(provider?: string) {
   return 'Custom'
 }
 
+export function isCustomSecretProvider(provider?: string) {
+  return normalizeSecretProvider(provider) === 'custom'
+}
+
 export const SECRET_PROTOCOL_OPTIONS = [
   { value: 'anthropic_messages', label: 'Anthropic Messages API' },
   { value: 'openai_responses', label: 'OpenAI Responses API' },
@@ -52,12 +56,7 @@ export const SECRET_KEY_GROUPS: SecretKeyGroup[] = [
     labelKey: 'managed.secrets.keyGroups.claude',
     icon: 'C',
     bgColor: '#f97316',
-    keys: [
-      'ANTHROPIC_API_KEY',
-      'ANTHROPIC_AUTH_TOKEN',
-      'ANTHROPIC_MODEL',
-      'ANTHROPIC_BASE_URL',
-    ],
+    keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_BASE_URL'],
   },
   {
     id: 'codex',
@@ -65,12 +64,7 @@ export const SECRET_KEY_GROUPS: SecretKeyGroup[] = [
     labelKey: 'managed.secrets.keyGroups.codex',
     icon: 'C',
     bgColor: '#111827',
-    keys: [
-      'OPENAI_API_KEY',
-      'OPENAI_MODEL',
-      'OPENAI_BASE_URL',
-      'OPENAI_REASONING_EFFORT',
-    ],
+    keys: ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_BASE_URL', 'OPENAI_REASONING_EFFORT'],
   },
   {
     id: 'native',
@@ -78,12 +72,7 @@ export const SECRET_KEY_GROUPS: SecretKeyGroup[] = [
     labelKey: 'managed.secrets.keyGroups.native',
     icon: 'N',
     bgColor: '#2563eb',
-    keys: [
-      'ANTHROPIC_API_KEY',
-      'ANTHROPIC_AUTH_TOKEN',
-      'ANTHROPIC_MODEL',
-      'ANTHROPIC_BASE_URL',
-    ],
+    keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_BASE_URL'],
   },
   {
     id: 'native_openai',
@@ -91,12 +80,7 @@ export const SECRET_KEY_GROUPS: SecretKeyGroup[] = [
     labelKey: 'managed.secrets.keyGroups.nativeOpenai',
     icon: 'N',
     bgColor: '#2563eb',
-    keys: [
-      'OPENAI_API_KEY',
-      'OPENAI_MODEL',
-      'OPENAI_BASE_URL',
-      'OPENAI_REASONING_EFFORT',
-    ],
+    keys: ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_BASE_URL', 'OPENAI_REASONING_EFFORT'],
   },
 ]
 
@@ -147,7 +131,8 @@ export function getSecretKeyGroups(provider?: string, protocol?: string) {
 }
 
 export function getDefaultProtocol(provider: string) {
-  if (provider === 'claude' || provider === 'anthropic' || provider === 'native') return 'anthropic_messages'
+  if (provider === 'claude' || provider === 'anthropic' || provider === 'native')
+    return 'anthropic_messages'
   if (provider === 'codex') return 'openai_responses'
   return 'chat_completions'
 }
@@ -155,10 +140,15 @@ export function getDefaultProtocol(provider: string) {
 export function getDefaultSecretPairs(provider: string, protocol: string) {
   const isOpenAIProtocol = protocol === 'openai_responses' || protocol === 'chat_completions'
 
-  if ((provider === 'claude' || provider === 'anthropic') || (provider === 'native' && !isOpenAIProtocol)) {
+  if (
+    provider === 'claude' ||
+    provider === 'anthropic' ||
+    (provider === 'native' && !isOpenAIProtocol)
+  ) {
     return [
       { key: 'ANTHROPIC_API_KEY', value: '' },
-      { key: 'ANTHROPIC_MODEL', value: 'claude-opus-4-20250514' },
+      { key: 'ANTHROPIC_MODEL', value: 'Claude-Opus-4.6' },
+      { key: 'ANTHROPIC_BASE_URL', value: '' },
     ]
   }
   if (provider === 'codex' || (provider === 'native' && isOpenAIProtocol)) {
@@ -173,6 +163,33 @@ export function getDefaultSecretPairs(provider: string, protocol: string) {
 
 export function isModelKey(key: string) {
   return key === 'ANTHROPIC_MODEL' || key === 'OPENAI_MODEL'
+}
+
+function normalizeSecretKey(key: string) {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase()
+}
+
+export function isSecretValueMaskedKey(key: string) {
+  const normalized = normalizeSecretKey(key)
+  if (!normalized) return true
+  return (
+    normalized === 'API_KEY' ||
+    normalized === 'AUTH_TOKEN' ||
+    normalized === 'TOKEN' ||
+    normalized === 'SECRET' ||
+    normalized === 'PASSWORD' ||
+    normalized === 'CLIENT_SECRET' ||
+    normalized === 'REFRESH_TOKEN' ||
+    normalized.endsWith('_API_KEY') ||
+    normalized.endsWith('_AUTH_TOKEN') ||
+    normalized.endsWith('_TOKEN') ||
+    normalized.endsWith('_SECRET') ||
+    normalized.endsWith('_PASSWORD')
+  )
 }
 
 export const MODEL_OPTIONS = [

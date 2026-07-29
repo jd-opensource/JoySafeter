@@ -23,18 +23,22 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 # Cloud provider metadata IPs — these are ALWAYS blocked
-_METADATA_IPS = frozenset({
-    "169.254.169.254",  # AWS, GCP, Azure instance metadata
-    "169.254.170.2",    # AWS ECS task metadata
-    "100.100.100.200",  # Alibaba Cloud metadata
-    "fd00:ec2::254",    # AWS IPv6 metadata
-})
+_METADATA_IPS = frozenset(
+    {
+        "169.254.169.254",  # AWS, GCP, Azure instance metadata
+        "169.254.170.2",  # AWS ECS task metadata
+        "100.100.100.200",  # Alibaba Cloud metadata
+        "fd00:ec2::254",  # AWS IPv6 metadata
+    }
+)
 
 # Blocked hostnames — these are ALWAYS blocked
-_BLOCKED_HOSTNAMES = frozenset({
-    "metadata.google.internal",
-    "metadata.goog",
-})
+_BLOCKED_HOSTNAMES = frozenset(
+    {
+        "metadata.google.internal",
+        "metadata.goog",
+    }
+)
 
 # Blocked scheme — file://, ftp://, gopher:// etc.
 _ALLOWED_SCHEMES = {"http", "https"}
@@ -48,6 +52,7 @@ _HTTPS_ONLY = os.getenv("JOYSAFETER_SSRF_HTTPS_ONLY", "").lower() in ("1", "true
 
 class SSRFError(ValueError):
     """Raised when a URL fails SSRF validation."""
+
     pass
 
 
@@ -92,9 +97,7 @@ def validate_url(
 
     allowed = {"https", "http"} if allow_http else {"https"}
     if parsed.scheme not in allowed:
-        raise SSRFError(
-            f"URL scheme '{parsed.scheme}' not allowed{_ctx(context)}"
-        )
+        raise SSRFError(f"URL scheme '{parsed.scheme}' not allowed{_ctx(context)}")
 
     # 2. Hostname validation
     hostname = parsed.hostname
@@ -126,13 +129,9 @@ def validate_url(
             try:
                 ip = ipaddress.ip_address(ip_str)
                 if _is_metadata_ip(ip):
-                    raise SSRFError(
-                        f"URL hostname '{hostname}' resolves to metadata IP: {ip}{_ctx(context)}"
-                    )
+                    raise SSRFError(f"URL hostname '{hostname}' resolves to metadata IP: {ip}{_ctx(context)}")
                 if not allow_private and ip.is_private:
-                    raise SSRFError(
-                        f"URL hostname '{hostname}' resolves to private IP: {ip}{_ctx(context)}"
-                    )
+                    raise SSRFError(f"URL hostname '{hostname}' resolves to private IP: {ip}{_ctx(context)}")
             except ValueError:
                 continue
     except socket.gaierror:
@@ -188,9 +187,7 @@ def validate_url_scheme(url: str | None) -> str | None:
         return url
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(
-            f"URL must use http:// or https:// scheme, got '{parsed.scheme}://'"
-        )
+        raise ValueError(f"URL must use http:// or https:// scheme, got '{parsed.scheme}://'")
     if not parsed.hostname:
         raise ValueError("URL must have a valid hostname")
     return url

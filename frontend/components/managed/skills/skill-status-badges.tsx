@@ -11,12 +11,10 @@
 
 'use client'
 
+import { Loader2, ShieldCheck } from 'lucide-react'
+
 import { useTranslation } from '@/lib/i18n'
-import type {
-  SkillLifecycleStatus,
-  SkillRecord,
-  SkillVisibility,
-} from '@/types/managed'
+import type { SkillLifecycleStatus, SkillRecord, SkillVisibility } from '@/types/managed'
 
 // Tailwind-friendly tone tuples — each maps to (bg, text, border).
 // Kept inline so a single review covers every status's colour at once.
@@ -29,7 +27,6 @@ const LIFECYCLE_TONE: Record<SkillLifecycleStatus, string> = {
 }
 
 const VISIBILITY_TONE: Record<SkillVisibility, string> = {
-  private: 'bg-slate-100 text-slate-700 border-slate-200',
   project: 'bg-sky-50 text-sky-700 border-sky-200',
   organization: 'bg-violet-50 text-violet-700 border-violet-200',
   public: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -57,7 +54,7 @@ function Pill({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-medium ${tone}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded border px-2 py-0.5 text-xs font-medium ${tone}`}
       title={title}
     >
       {children}
@@ -75,9 +72,7 @@ export function SkillLifecycleBadge({
   // lifecycle_status field on the response) render normally rather
   // than as an empty pill.
   const value: SkillLifecycleStatus =
-    status && status in LIFECYCLE_TONE
-      ? (status as SkillLifecycleStatus)
-      : 'approved'
+    status && status in LIFECYCLE_TONE ? (status as SkillLifecycleStatus) : 'approved'
   const labelKey = `managed.skills.lifecycle.${
     value === 'pending_review' ? 'pendingReview' : value
   }` as const
@@ -86,43 +81,52 @@ export function SkillLifecycleBadge({
 
 export function SkillVisibilityBadge({
   visibility,
-  isPublic,
 }: {
   visibility: SkillVisibility | string | undefined
-  isPublic?: boolean
 }) {
   const { t } = useTranslation()
-  // Read visibility first; fall back to is_public for legacy rows.
-  let value: SkillVisibility = 'private'
-  if (visibility && visibility in VISIBILITY_TONE) {
-    value = visibility as SkillVisibility
-  } else if (isPublic) {
-    value = 'public'
-  }
+  const value: SkillVisibility =
+    visibility && visibility in VISIBILITY_TONE ? (visibility as SkillVisibility) : 'project'
   const labelKey = `managed.skills.visibility.${value}` as const
   return <Pill tone={VISIBILITY_TONE[value]}>{t(labelKey)}</Pill>
 }
 
-export function SkillSecurityBadge({
-  status,
-}: {
-  status: string | undefined
-}) {
+export function SkillSecurityBadge({ status }: { status: string | undefined }) {
   const { t } = useTranslation()
   const value = status && status in SECURITY_TONE ? status : 'not_scanned'
   // Convert snake_case to the i18n key shape used in the locales file
-  const key =
-    value === 'not_scanned'
-      ? 'notScanned'
-      : value === 'scanning'
-        ? 'scanning'
-        : value
+  const key = value === 'not_scanned' ? 'notScanned' : value === 'scanning' ? 'scanning' : value
   // Show a tooltip on ``scanning`` so users understand the constraint
   // — agents won't load the skill until the BG scan lands.
   const title = value === 'scanning' ? t('managed.skills.security.scanningHint') : undefined
   return (
     <Pill tone={SECURITY_TONE[value]} title={title}>
+      {value === 'scanning' && <Loader2 className="h-3 w-3 animate-spin" />}
       {t(`managed.skills.security.${key}`)}
+    </Pill>
+  )
+}
+
+/**
+ * Risk score pill.
+ *
+ * The score is a *risk* score: higher = more dangerous (0 = clean/SAFE,
+ * ≥70 = HIGH/CRITICAL → blocked). Colour therefore runs the opposite way
+ * from a "grade" — red for high risk, green for zero risk. Thresholds mirror
+ * the backend write-admission policy in ``joysafeter_skill_security.py``.
+ */
+export function SkillRiskScoreBadge({ score }: { score: number }) {
+  const { t } = useTranslation()
+  const tone =
+    score >= 70
+      ? 'bg-rose-50 text-rose-700 border-rose-200'
+      : score > 0
+        ? 'bg-amber-50 text-amber-700 border-amber-200'
+        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  return (
+    <Pill tone={tone} title={t('managed.skills.riskScoreHint')}>
+      <ShieldCheck className="h-3 w-3" />
+      <span className="tabular-nums">{t('managed.skills.riskScore', { score })}</span>
     </Pill>
   )
 }
@@ -133,15 +137,22 @@ export function SkillSecurityBadge({
  * Useful in the list view and the detail header — anywhere the operator
  * wants a quick "is this skill usable / where is it shared / what's its
  * review state" snapshot.
+ *
+ * ``showVisibility`` lets callers suppress the visibility pill when a
+ * dedicated visibility control (e.g. the detail-header dropdown) already
+ * shows and edits the same value — avoids showing "组织内" twice.
  */
-export function SkillStatusBadges({ skill }: { skill: SkillRecord }) {
+export function SkillStatusBadges({
+  skill,
+  showVisibility = true,
+}: {
+  skill: SkillRecord
+  showVisibility?: boolean
+}) {
   return (
     <div className="inline-flex flex-wrap items-center gap-1.5">
       <SkillLifecycleBadge status={skill.lifecycle_status} />
-      <SkillVisibilityBadge
-        visibility={skill.visibility}
-        isPublic={skill.is_public}
-      />
+      {showVisibility && <SkillVisibilityBadge visibility={skill.visibility} />}
       <SkillSecurityBadge status={skill.security_scan?.status} />
     </div>
   )

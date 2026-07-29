@@ -6,26 +6,69 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
-from sqlalchemy import select, desc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid_utils import uuid7
 
 from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
+from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.storage.base import StorageBackend
 
 MAX_FILENAME_LENGTH = 255
 
 ALLOWED_EXTENSIONS = {
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".txt", ".csv", ".md", ".html", ".xml", ".json", ".yaml", ".yml", ".toml",
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".c", ".cpp", ".h",
-    ".go", ".rs", ".rb", ".php", ".swift", ".kt", ".scala", ".sh", ".sql",
-    ".css", ".vue", ".svelte",
-    ".jpeg", ".jpg", ".png", ".gif", ".webp",
-    ".zip", ".tar", ".gz", ".7z", ".rar",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".txt",
+    ".csv",
+    ".md",
+    ".html",
+    ".xml",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".go",
+    ".rs",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".sh",
+    ".sql",
+    ".css",
+    ".vue",
+    ".svelte",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".7z",
+    ".rar",
     ".apk",
 }
 
@@ -38,7 +81,7 @@ def _sanitize_filename(name: str) -> str:
     if len(name) > MAX_FILENAME_LENGTH:
         ext = ""
         if "." in name:
-            ext = name[name.rfind("."):]
+            ext = name[name.rfind(".") :]
         name = name[: MAX_FILENAME_LENGTH - len(ext)] + ext
     return name or "unnamed"
 
@@ -46,15 +89,15 @@ def _sanitize_filename(name: str) -> str:
 def _validate_extension(filename: str) -> None:
     ext = ""
     if "." in filename:
-        ext = filename[filename.rfind("."):].lower()
+        ext = filename[filename.rfind(".") :].lower()
     if ext and ext not in ALLOWED_EXTENSIONS:
         raise ValueError(f"File type {ext} is not supported")
 
 
-def _make_storage_key(file_id: uuid.UUID, filename: str) -> str:
+def _make_storage_key(project_id: str, file_id: uuid.UUID, filename: str) -> str:
     shard = str(file_id)[:2]
     safe = _sanitize_filename(filename)
-    return f"files/{shard}/{file_id}_{safe}"
+    return f"files/{project_id}/{shard}/{file_id}_{safe}"
 
 
 class FileService:
@@ -82,13 +125,18 @@ class FileService:
         if not content_type:
             content_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
         else:
-            _DANGEROUS_CONTENT_TYPES = {"text/html", "application/javascript", "text/javascript", "application/x-httpd-php"}
+            _DANGEROUS_CONTENT_TYPES = {
+                "text/html",
+                "application/javascript",
+                "text/javascript",
+                "application/x-httpd-php",
+            }
             if content_type.lower() in _DANGEROUS_CONTENT_TYPES:
                 content_type = "application/octet-stream"
 
-        file_id = uuid7()
+        file_id = uuid.UUID(str(uuid7()))
         sha = hashlib.sha256(data).hexdigest()
-        storage_key = _make_storage_key(file_id, safe_name)
+        storage_key = _make_storage_key(project_id, file_id, safe_name)
 
         await self._storage.put(storage_key, data, content_type)
 
@@ -108,9 +156,7 @@ class FileService:
         await db.refresh(record)
         return record
 
-    async def get_metadata(
-        self, db: AsyncSession, file_id: uuid.UUID, project_id: str
-    ) -> JoySafeterFile | None:
+    async def get_metadata(self, db: AsyncSession, file_id: uuid.UUID, project_id: str | None) -> JoySafeterFile | None:
         result = await db.execute(
             select(JoySafeterFile).where(
                 JoySafeterFile.id == file_id,
@@ -128,19 +174,21 @@ class FileService:
         after_id: uuid.UUID | None = None,
         session_id: uuid.UUID | None = None,
     ) -> tuple[list[JoySafeterFile], bool]:
-        q = (
-            select(JoySafeterFile)
-            .where(
-                JoySafeterFile.project_id == project_id,
-                JoySafeterFile.deleted_at.is_(None),
-            )
-            .order_by(desc(JoySafeterFile.created_at))
+        q = select(JoySafeterFile).where(
+            JoySafeterFile.project_id == project_id,
+            JoySafeterFile.deleted_at.is_(None),
         )
         if session_id:
-            q = q.where(JoySafeterFile.session_id == session_id)
-        if after_id:
-            q = q.where(JoySafeterFile.id < after_id)
-        q = q.limit(limit + 1)
+            q = q.where(
+                JoySafeterFile.session_id == session_id,
+                select(JoySafeterSession.id)
+                .where(
+                    JoySafeterSession.id == session_id,
+                    JoySafeterSession.project_id == project_id,
+                )
+                .exists(),
+            )
+        q = apply_created_at_desc_cursor(q, JoySafeterFile, after_id).limit(limit + 1)
 
         result = await db.execute(q)
         rows = list(result.scalars().all())
@@ -149,9 +197,7 @@ class FileService:
             rows = rows[:limit]
         return rows, has_more
 
-    async def download(
-        self, db: AsyncSession, file_id: uuid.UUID, project_id: str
-    ) -> tuple[bytes, JoySafeterFile]:
+    async def download(self, db: AsyncSession, file_id: uuid.UUID, project_id: str) -> tuple[bytes, JoySafeterFile]:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             raise FileNotFoundError("File not found")
@@ -169,12 +215,34 @@ class FileService:
         url = await self._storage.presign_url(record.storage_key)
         return url, record
 
-    async def delete(
-        self, db: AsyncSession, file_id: uuid.UUID, project_id: str
-    ) -> bool:
+    async def delete(self, db: AsyncSession, file_id: uuid.UUID, project_id: str) -> bool:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             return False
+
+        blocking_result = await db.execute(
+            select(JoySafeterSession.id)
+            .join(JoySafeterSessionFile, JoySafeterSessionFile.session_id == JoySafeterSession.id)
+            .where(
+                JoySafeterSessionFile.file_id == file_id,
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.archived_at.is_(None),
+                JoySafeterSession.status != "terminated",
+            )
+            .order_by(JoySafeterSession.created_at.desc())
+            .limit(20)
+        )
+        blocking_session_ids = [str(session_id) for session_id in blocking_result.scalars().all()]
+        if blocking_session_ids:
+            raise ResourceConflictError(
+                code="FILE_IN_USE_BY_SESSION_RESOURCE",
+                message="File is attached to active session resources",
+                data={
+                    "file_id": f"file_{file_id}",
+                    "session_ids": blocking_session_ids,
+                },
+                user_action="remove_resource",
+            )
 
         record.deleted_at = datetime.now(timezone.utc)
         await db.commit()

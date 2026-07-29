@@ -1,14 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
 import type { Agent } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import {
@@ -25,6 +26,8 @@ import {
 } from '@/components/managed/shared'
 import { CreateAgentDialog } from './components/create-agent-dialog'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 
 interface DeletePreview {
   sessions: number
@@ -36,6 +39,21 @@ export default function AgentListPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const {
+    scopeRef: managedScopeRef,
+    scope: managedScope,
+    readOnly,
+    beginAction,
+    isCurrentAction,
+    scopeIsActive,
+    bumpRun,
+  } = useScopedActions({
+    onReset: () => {
+      setDeleteTarget(null)
+      setDeletePreview(null)
+      setShowCreateDialog(false)
+    },
+  })
   const [showArchived, setShowArchived] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
@@ -43,8 +61,26 @@ export default function AgentListPage() {
   const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<Agent>({ queryKey: 'agents', path: '/agents', includeArchived: showArchived })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<Agent>({
+    queryKey: 'agents',
+    path: '/agents',
+    includeArchived: showArchived,
+  })
 
   const getEngineKindLabel = (engineKind?: string | null) => {
     switch (engineKind) {
@@ -60,16 +96,17 @@ export default function AgentListPage() {
     }
   }
 
-  const agents = data.filter((a) =>
-    filterByCreatedTime(a.created_at, createdFilter) &&
-    matchesSearch(searchQuery, [
-      a.id,
-      a.name,
-      a.model?.id,
-      a.engine_kind,
-      getEngineKindLabel(a.engine_kind),
-      a.archived_at ? 'archived' : 'active',
-    ]),
+  const agents = data.filter(
+    (a) =>
+      filterByCreatedTime(a.created_at, createdFilter) &&
+      matchesSearch(searchQuery, [
+        a.id,
+        a.name,
+        a.model?.id,
+        a.engine_kind,
+        getEngineKindLabel(a.engine_kind),
+        a.archived_at ? 'archived' : 'active',
+      ]),
   )
 
   const filters: FilterDef[] = [
@@ -80,28 +117,92 @@ export default function AgentListPage() {
     },
   ]
 
+  const currentAgentIsActive = (agent: Agent, scope: string) =>
+    currentProjectAllowsWrite() &&
+    queryClient
+      .getQueriesData<{ data?: Agent[] }>({ queryKey: ['agents', scope, '/agents'] })
+      .some(([, page]) =>
+        page?.data?.some(
+          (currentAgent) => currentAgent.id === agent.id && !currentAgent.archived_at,
+        ),
+      )
+
   const handleDeleteClick = async (agent: Agent) => {
+    if (!currentProjectAllowsWrite()) return
+    if (!scopeIsActive()) return
+    if (!currentAgentIsActive(agent, managedScopeRef.current)) return
+
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
     try {
-      const rawId = stripIdPrefix(agent.id)
-      const preview = await managedGet<DeletePreview>(`/agents/${rawId}/delete_preview`)
+      const preview = await managedGet<DeletePreview>(
+        apiResourcePath('agents', agent.id, 'delete_preview'),
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentAction(runId, scope)) return
       setDeletePreview(preview)
       setDeleteTarget(agent)
     } catch (e) {
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
   }
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return
-    try {
-      const rawId = stripIdPrefix(deleteTarget.id)
-      await managedDelete(`/agents/${rawId}`)
-      queryClient.invalidateQueries({ queryKey: ['agents'] })
-    } catch (e) {
-      toastOperationError(t, e, 'common.operationFailed')
-    } finally {
+    if (!currentProjectAllowsWrite()) {
       setDeleteTarget(null)
       setDeletePreview(null)
+      return
+    }
+    if (!scopeIsActive()) return
+    if (!currentAgentIsActive(deleteTarget, managedScopeRef.current)) {
+      setDeleteTarget(null)
+      setDeletePreview(null)
+      return
+    }
+
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
+    try {
+      await managedDelete(
+        apiResourcePath('agents', deleteTarget.id),
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['agents', scope] })
+    } catch (e) {
+      if (!isCurrentAction(runId, scope)) return
+      toastOperationError(t, e, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(runId, scope)) {
+        setDeleteTarget(null)
+        setDeletePreview(null)
+      }
+    }
+  }
+
+  const handleArchive = async (agent: Agent) => {
+    if (!currentProjectAllowsWrite()) return
+    if (!scopeIsActive()) return
+    if (!currentAgentIsActive(agent, managedScopeRef.current)) return
+
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
+    try {
+      await managedPost(
+        apiResourcePath('agents', agent.id, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['agents', scope] })
+    } catch (e) {
+      if (!isCurrentAction(runId, scope)) return
+      toastOperationError(t, e, 'common.operationFailed')
     }
   }
 
@@ -124,7 +225,11 @@ export default function AgentListPage() {
     {
       key: 'engine_kind',
       header: t('managed.table.engineKind'),
-      render: (a) => <span className="text-muted-foreground whitespace-nowrap">{getEngineKindLabel(a.engine_kind)}</span>,
+      render: (a) => (
+        <span className="whitespace-nowrap text-muted-foreground">
+          {getEngineKindLabel(a.engine_kind)}
+        </span>
+      ),
     },
     {
       key: 'status',
@@ -135,7 +240,7 @@ export default function AgentListPage() {
       key: 'created_at',
       header: t('managed.table.created'),
       render: (a) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={a.created_at} />
         </span>
       ),
@@ -144,7 +249,7 @@ export default function AgentListPage() {
       key: 'updated_at',
       header: t('managed.table.lastUpdated'),
       render: (a) => (
-        <span className="text-muted-foreground text-xs">
+        <span className="text-xs text-muted-foreground">
           <RelativeTime date={a.updated_at} />
         </span>
       ),
@@ -170,7 +275,13 @@ export default function AgentListPage() {
   }
 
   if (isError) {
-    return <ResourceErrorState error={error} resource="agent" onRetry={() => queryClient.invalidateQueries({ queryKey: ['agents'] })} />
+    return (
+      <ResourceErrorState
+        error={error}
+        resource="agent"
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['agents', managedScope.key] })}
+      />
+    )
   }
 
   return (
@@ -179,10 +290,19 @@ export default function AgentListPage() {
         title={t('managed.agents.title')}
         subtitle={t('managed.agents.subtitle')}
         action={
-          <Button size="sm" onClick={() => setShowCreateDialog(true)}>
-            <Plus className="w-4 h-4" />
-            {t('managed.agents.new')}
-          </Button>
+          readOnly ? null : (
+            <Button
+              size="sm"
+              onClick={() => {
+                if (!currentProjectAllowsWrite()) return
+                if (!scopeIsActive()) return
+                setShowCreateDialog(true)
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              {t('managed.agents.new')}
+            </Button>
+          )
         }
       />
       <FilterBar
@@ -201,19 +321,21 @@ export default function AgentListPage() {
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(a) => router.push(`/managed/agents/${a.id}`)}
-        actionMenu={(a) => a.archived_at
-          ? []
-          : [{
-              label: t('managed.agents.archiveAgent'),
-              onClick: async () => {
-                try {
-                  await managedPost(`/agents/${stripIdPrefix(a.id)}/archive`, {})
-                  queryClient.invalidateQueries({ queryKey: ['agents'] })
-                } catch (e) {
-                  toastOperationError(t, e, 'common.operationFailed')
-                }
-              },
-            }]
+        actionMenu={(a) =>
+          readOnly || a.archived_at
+            ? []
+            : [
+                {
+                  label: t('managed.agents.archiveAgent'),
+                  onClick: () => handleArchive(a),
+                },
+                {
+                  label: t('common.delete'),
+                  destructive: true,
+                  icon: <Trash2 className="h-3.5 w-3.5" />,
+                  onClick: () => handleDeleteClick(a),
+                },
+              ]
         }
         pagination={{
           hasNext,
@@ -230,20 +352,29 @@ export default function AgentListPage() {
       />
 
       <ConfirmDialog
-        open={!!deleteTarget}
+        open={!readOnly && !!deleteTarget}
         title={t('managed.agents.deleteTitle', { name: deleteTarget?.name })}
         description={buildDeleteDescription()}
         confirmLabel={t('managed.agents.permanentlyDelete')}
         destructive
         onConfirm={handleDeleteConfirm}
-        onCancel={() => { setDeleteTarget(null); setDeletePreview(null) }}
+        onCancel={() => {
+          setDeleteTarget(null)
+          setDeletePreview(null)
+        }}
       />
 
       <CreateAgentDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
+        open={!readOnly && showCreateDialog}
+        onOpenChange={(open) => {
+          if (open && !currentProjectAllowsWrite()) return
+          if (open && !scopeIsActive()) return
+          setShowCreateDialog(open)
+        }}
         onCreated={(id) => {
-          queryClient.invalidateQueries({ queryKey: ['agents'] })
+          const scope = managedScopeRef.current
+          if (!scopeIsActive(scope)) return
+          queryClient.invalidateQueries({ queryKey: ['agents', scope] })
           router.push(`/managed/agents/${id}`)
         }}
       />

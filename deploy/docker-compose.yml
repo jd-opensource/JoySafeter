@@ -3,15 +3,16 @@
 # =============================================================================
 # 用法：
 #   cd deploy
-#   Python orchestrator: docker compose --profile python-orchestrator up -d --build
-#   Rust orchestrator:   docker compose --profile rust-orchestrator up -d --build
+#   Supported local stack:
+#     ./deploy.sh local
+#     docker compose --profile local-redis --profile rust-orchestrator up -d --no-build
 # =============================================================================
 
 x-backend-build: &backend-build
   context: ../backend
   dockerfile: ../deploy/docker/backend.Dockerfile
   args:
-    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-mirror.gcr.io/library/}
+    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
     UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
     GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
@@ -20,61 +21,27 @@ x-orchestrator-rs-build: &orchestrator-rs-build
   context: ..
   dockerfile: deploy/docker/orchestrator-rs.Dockerfile
   args:
-    RUST_IMAGE: ${RUST_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1.85-bookworm}
-    RUNTIME_IMAGE: ${RUNTIME_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/debian:bookworm-slim}
+    RUST_IMAGE: ${RUST_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}
+    RUNTIME_IMAGE: ${RUNTIME_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}
 
 x-skillspector-build: &skillspector-build
   context: ../backend/joysafeter_skillspector
   dockerfile: ../../deploy/docker/skillspector-service.Dockerfile
   additional_contexts:
-    skillspector: ${SKILLSPECTOR_SOURCE_PATH:-../../SkillSpector}
+    skillspector: ${SKILLSPECTOR_SOURCE_PATH:-../.deps/SkillSpector}
   args:
+    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
 
 x-backend-env-files: &backend-env-files
-  - ../backend/.env
-  - ../frontend/.env
+  - path: ../backend/.env
+    required: false
+  - path: .env
+    required: false
 
 x-backend-common-env: &backend-common-env
-  POSTGRES_USER: ${POSTGRES_USER:-postgres}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-  POSTGRES_DB: ${POSTGRES_DB:-joysafeter}
-  POSTGRES_HOST: ${POSTGRES_HOST:-db}
-  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-  POSTGRES_MIN_POOL_SIZE: ${POSTGRES_MIN_POOL_SIZE:-10}
-  POSTGRES_MAX_POOL_SIZE: ${POSTGRES_MAX_POOL_SIZE:-500}
-  POSTGRES_SSL: ${POSTGRES_SSL:-disable}
-  DATABASE_ECHO: ${DATABASE_ECHO:-false}
-  DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
-  DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-20}
-  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-  REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-50}
-  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
   CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
-  JOYSAFETER_EVENT_STREAM_ENABLED: ${JOYSAFETER_EVENT_STREAM_ENABLED:-true}
-  JOYSAFETER_EVENT_STREAM_KEY: ${JOYSAFETER_EVENT_STREAM_KEY:-joysafeter:orchestrator:events}
-  JOYSAFETER_EVENT_STREAM_GROUP: ${JOYSAFETER_EVENT_STREAM_GROUP:-joysafeter-orchestrator-event-workers}
-  JOYSAFETER_SANDBOX_PROVIDER: ${JOYSAFETER_SANDBOX_PROVIDER:-docker}
-  JOYSAFETER_SANDBOX_IMAGE: ${JOYSAFETER_SANDBOX_IMAGE:-joysafeter-claudecode:latest}
-  JOYSAFETER_IMAGE_CLAUDE: ${JOYSAFETER_IMAGE_CLAUDE:-joysafeter-claudecode:latest}
-  JOYSAFETER_IMAGE_CODEX: ${JOYSAFETER_IMAGE_CODEX:-joysafeter-codex:latest}
-  JOYSAFETER_IMAGE_NATIVE: ${JOYSAFETER_IMAGE_NATIVE:-joysafeter-native:latest}
-  JOYSAFETER_SANDBOX_WORKSPACE_ROOT: ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
-  JOYSAFETER_ENVOY_ENABLED: ${JOYSAFETER_ENVOY_ENABLED:-true}
-  JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
-  JOYSAFETER_ENVOY_SOCKET_VOLUME: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
-  JOYSAFETER_ENVOY_CONFIG_DIR: ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
-  JOYSAFETER_ENVOY_NETWORK: ${JOYSAFETER_ENVOY_NETWORK:-joysafeter-network}
-  JOYSAFETER_ENVOY_GRPC_HOST: ${JOYSAFETER_ENVOY_GRPC_HOST:-host.docker.internal}
-  JOYSAFETER_ENVOY_GRPC_PORT: ${JOYSAFETER_ENVOY_GRPC_PORT:-9090}
-  JOYSAFETER_ENVOY_CONTAINER_NAME: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
-  SKILL_SECURITY_SCAN_ENABLED: ${SKILL_SECURITY_SCAN_ENABLED:-true}
-  SKILL_SECURITY_SCANNER_URL: ${SKILL_SECURITY_SCANNER_URL:-http://skillspector:8010}
-  SKILL_SECURITY_TIMEOUT_SECONDS: ${SKILL_SECURITY_TIMEOUT_SECONDS:-30}
-  SKILL_SECURITY_FAIL_CLOSED: ${SKILL_SECURITY_FAIL_CLOSED:-true}
-  SKILL_SECURITY_NO_LLM: ${SKILL_SECURITY_NO_LLM:-true}
-  SKILL_SECURITY_BLOCK_RECOMMENDATIONS: ${SKILL_SECURITY_BLOCK_RECOMMENDATIONS:-DO_NOT_INSTALL}
-  JOYSAFETER_MAX_UPLOAD_FILE_BYTES: ${JOYSAFETER_MAX_UPLOAD_FILE_BYTES:-52428800}
+  JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
 
 x-backend-volumes: &backend-volumes
   - backend-logs:/app/app/logs
@@ -82,7 +49,7 @@ x-backend-volumes: &backend-volumes
   - ../skills:/app/skills:ro
 
 x-backend-depends: &backend-depends
-  db:
+  postgres:
     condition: service_healthy
   skillspector:
     condition: service_healthy
@@ -95,20 +62,23 @@ x-backend-health-common: &backend-health-common
 
 services:
   joysafeter-envoy:
-    image: ${JOYSAFETER_ENVOY_IMAGE:-envoyproxy/envoy:v1.37.1}
+    image: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
     container_name: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
     restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     entrypoint: ["/bin/sh"]
     command:
       - -c
       - |
         set -eu
         mkdir -p /sockets /envoy-config/sandboxes
-        printf 'resources: []\n' > /envoy-config/lds.yaml
-        while [ ! -s /envoy-config/bootstrap.yaml ]; do
+        printf '{"version_info":"0","resources":[]}\n' > /envoy-config/lds.json
+        printf '{"version_info":"0","resources":[]}\n' > /envoy-config/cds.json
+        while [ ! -s /envoy-config/bootstrap.json ]; do
           sleep 0.2
         done
-        exec envoy -c /envoy-config/bootstrap.yaml --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}
+        exec envoy -c /envoy-config/bootstrap.json --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}
     volumes:
       - joysafeter-sockets:/sockets
       - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:/envoy-config
@@ -123,6 +93,7 @@ services:
     container_name: joysafeter-skillspector
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       SKILLSPECTOR_VERSION: ${SKILLSPECTOR_VERSION:-local}
       SKILLSPECTOR_SERVICE_SCAN_TIMEOUT: ${SKILLSPECTOR_SERVICE_SCAN_TIMEOUT:-120}
       SKILLSPECTOR_SERVICE_MAX_FILES: ${SKILLSPECTOR_SERVICE_MAX_FILES:-100}
@@ -130,7 +101,8 @@ services:
       SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES: ${SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES:-5242880}
       # Concurrency: scans are CPU-bound (semgrep), so worker count should
       # track the CPU limit below. limit-concurrency sheds load past a small
-      # queue (backend treats a failed scan as fail-open).
+      # queue. Draft-save paths may record failed/scanning and continue, but
+      # runtime packing remains fail-closed for failed/scanning skills.
       SKILLSPECTOR_WORKERS: ${SKILLSPECTOR_WORKERS:-2}
       SKILLSPECTOR_LIMIT_CONCURRENCY: ${SKILLSPECTOR_LIMIT_CONCURRENCY:-4}
     expose:
@@ -150,11 +122,12 @@ services:
     networks:
       - joysafeter-network
 
-  db:
-    image: ${DB_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/postgres:15}
+  postgres:
+    image: ${DB_IMAGE:-public.ecr.aws/docker/library/postgres:15}
     container_name: joysafeter-db
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-joysafeter}
@@ -174,7 +147,7 @@ services:
 
   redis:
     profiles: ["local-redis"]
-    image: ${REDIS_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/redis:alpine3.22}
+    image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis:alpine3.22}
     container_name: joysafeter-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
@@ -213,44 +186,6 @@ services:
     networks:
       - joysafeter-network
 
-  orchestrator:
-    profiles: ["python-orchestrator"]
-    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
-    build: *backend-build
-    container_name: joysafeter-orchestrator
-    restart: unless-stopped
-    env_file: *backend-env-files
-    environment:
-      <<: *backend-common-env
-      JOYSAFETER_SERVICE_ROLE: orchestrator
-      BACKEND_APP_MODULE: app.joysafeter_orchestrator.main:app
-      BACKEND_PORT: 8001
-      ORCHESTRATOR_HTTP_HOST: 0.0.0.0
-      WORKERS: 1
-      JOYSAFETER_INSTANCE_ID: ${JOYSAFETER_INSTANCE_ID:-orchestrator-001}
-      JOYSAFETER_GRPC_HOST: 0.0.0.0
-      JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
-      JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
-    ports:
-      - "${ORCHESTRATOR_HEALTH_BIND_HOST:-127.0.0.1}:${ORCHESTRATOR_HEALTH_PORT_HOST:-8001}:8001"
-      - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
-    depends_on:
-      <<: *backend-depends
-      joysafeter-envoy:
-        condition: service_started
-    volumes:
-      - backend-logs:/app/app/logs
-      - backend-files:/app/data/files
-      - ../skills:/app/skills:ro
-      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
-      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker:ro
-      - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
-    healthcheck:
-      <<: *backend-health-common
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
-    networks:
-      - joysafeter-network
-
   orchestrator-rs:
     profiles: ["rust-orchestrator"]
     image: ${ORCHESTRATOR_RS_FULL_IMAGE:-joysafeter-orchestrator-rs:latest}
@@ -275,8 +210,18 @@ services:
       - backend-files:/app/data/files
       - ../skills:/app/skills:ro
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
-      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker:ro
       - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
+    # Liveness only: the orchestrator speaks gRPC (no HTTP/gRPC-health service),
+    # so probe that the gRPC listener is accepting TCP. A crash-looping
+    # orchestrator stops listening and turns unhealthy instead of the stack
+    # reporting fully healthy. Relies on bash /dev/tcp, present and enabled in
+    # the default debian:bookworm-slim RUNTIME_IMAGE.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9090"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     networks:
       - joysafeter-network
 
@@ -319,7 +264,13 @@ services:
   worker:
     image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
-    container_name: joysafeter-worker
+    # No container_name: the worker hosts the cron scheduler, which is
+    # multi-instance-safe (FOR UPDATE SKIP LOCKED claim + stale-lock reclaim +
+    # hostname-derived worker_id) and the event-stream consumer (Redis consumer
+    # group + per-instance consumer name). Omitting container_name lets it scale:
+    #   docker compose ... up -d --scale worker=3
+    # See deploy/HA.md. WORKERS stays 1 (one scheduler loop per container);
+    # scale by adding container replicas, not uvicorn workers.
     restart: unless-stopped
     env_file: *backend-env-files
     environment:
@@ -329,8 +280,12 @@ services:
       BACKEND_PORT: 8002
       WORKER_HTTP_HOST: 0.0.0.0
       WORKERS: 1
-    ports:
-      - "${WORKER_HEALTH_BIND_HOST:-127.0.0.1}:${WORKER_HEALTH_PORT_HOST:-8002}:8002"
+    # Health port is exposed on the compose network (not published to a fixed
+    # host port) so N replicas don't collide on one host. Reach it via
+    # `docker compose exec worker curl localhost:8002/health` or the compose
+    # healthcheck below.
+    expose:
+      - "8002"
     depends_on: *backend-depends
     volumes: *backend-volumes
     healthcheck:
@@ -345,19 +300,20 @@ services:
       context: ../frontend
       dockerfile: ../deploy/docker/frontend.Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${BACKEND_URL:-http://localhost:8000}
+        BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
     container_name: joysafeter-frontend
     restart: unless-stopped
+    env_file:
+      - path: ../frontend/.env
+        required: false
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${BACKEND_URL:-http://localhost:8000}
       NEXT_PUBLIC_APP_URL: ${FRONTEND_URL:-http://localhost:3000}
       NEXT_PUBLIC_CSP_NECESSARY_DOMAIN: ${NEXT_PUBLIC_CSP_NECESSARY_DOMAIN:-http://localhost:* http://127.0.0.1:*}
-      NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA: ${NEXT_PUBLIC_CSP_CONNECT_SRC_EXTRA:-}
-      NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA: ${NEXT_PUBLIC_CSP_FRAME_SRC_EXTRA:-}
-      NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: ${NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED:-}
+      NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: ${NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED:-true}
       NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: ${NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES:-52428800}
-      SSO_DEFAULT_PROVIDER: ${SSO_DEFAULT_PROVIDER:-}
     ports:
       - "${FRONTEND_BIND_HOST:-0.0.0.0}:${FRONTEND_PORT_HOST:-3000}:3000"
     depends_on:

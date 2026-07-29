@@ -1,0 +1,84 @@
+"""Trigger-type provider registry.
+
+Each trigger *type* (cron / webhook / manual, and future event/queue types)
+implements one ``TriggerProvider`` and registers it here. This is the single
+dispatch seam the control plane uses instead of ``if type == "cron" ...``
+string branches scattered across the service, scheduler and API. Adding a new
+type is: drop a new module implementing the protocol and import it in
+``__init__``. Nothing else needs to know the concrete types.
+
+A provider owns three pure operations:
+  - ``build_config``      the persisted JSONB ``config`` snapshot for the type.
+  - ``idempotency_key``   the exactly-once key for one fire occurrence.
+  - ``build_payload``     the payload dict fed to the prompt template.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from typing import Any, Protocol, runtime_checkable
+
+from app.joysafeter_shared.common.app_errors import RequestValidationAppError
+
+_MAX_INLINE_EXTERNAL_COMPONENT_CHARS = 128
+_SAFE_EXTERNAL_COMPONENT_RE = re.compile(r"^[A-Za-z0-9._:@/+=-]+$")
+
+
+@runtime_checkable
+class TriggerProvider(Protocol):
+    kind: str
+
+    def build_config(self, **fields: Any) -> dict[str, Any]:
+        """Return the persisted ``config`` JSONB snapshot for this type."""
+        ...
+
+    def idempotency_key(self, trigger: Any, **context: Any) -> str:
+        """Return the exactly-once key identifying one fire occurrence."""
+        ...
+
+    def build_payload(self, trigger: Any, **context: Any) -> dict[str, Any]:
+        """Return the payload dict rendered into the prompt template."""
+        ...
+
+
+def cron_block(trigger: Any, fired_at: str) -> dict[str, Any]:
+    """The ``cron`` payload block (schedule timing) shared by the cron and manual providers."""
+    return {
+        "id": str(trigger.id),
+        "name": trigger.name,
+        "cron_expr": trigger.cron_expr,
+        "timezone": trigger.timezone,
+        "fired_at": fired_at,
+        "last_fired_slot": trigger.last_fired_slot.isoformat() if trigger.last_fired_slot else None,
+    }
+
+
+def stable_external_idempotency_component(value: Any) -> str:
+    raw = str(value)
+    if len(raw) <= _MAX_INLINE_EXTERNAL_COMPONENT_CHARS and _SAFE_EXTERNAL_COMPONENT_RE.fullmatch(raw):
+        return raw
+    return f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+
+
+_REGISTRY: dict[str, TriggerProvider] = {}
+
+
+def register(provider: TriggerProvider) -> None:
+    _REGISTRY[provider.kind] = provider
+
+
+def get_provider(kind: str) -> TriggerProvider:
+    provider = _REGISTRY.get(kind)
+    if provider is None:
+        raise RequestValidationAppError(
+            code="TRIGGER_TYPE_UNSUPPORTED",
+            message=f"Unsupported trigger type: {kind}",
+            data={"type": kind, "supported": sorted(_REGISTRY)},
+            user_action="fix_input",
+        )
+    return provider
+
+
+def supported_kinds() -> list[str]:
+    return sorted(_REGISTRY)

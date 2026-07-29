@@ -1,14 +1,15 @@
 import base64
 import logging
-import os
 import secrets
 from typing import Optional
+
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 
 logger = logging.getLogger(__name__)
 
 _AES_KEY_SIZE = 32  # 256 bits
-_NONCE_SIZE = 12    # 96 bits for GCM
-_TAG_SIZE = 16      # 128 bits
+_NONCE_SIZE = 12  # 96 bits for GCM
+_TAG_SIZE = 16  # 128 bits
 
 
 class VaultCipher:
@@ -29,13 +30,28 @@ class VaultCipher:
                     key_bytes = base64.b64decode(key_str)
                 self._key = key_bytes
                 if len(self._key) != _AES_KEY_SIZE:
-                    logger.error(
-                        "Vault encryption key must be %d bytes, got %d",
-                        _AES_KEY_SIZE, len(self._key),
+                    log_boundary_failure(
+                        logger,
+                        boundary="vault_cipher",
+                        code="VAULT_ENCRYPTION_KEY_SIZE_INVALID",
+                        message="Vault encryption key has invalid size",
+                        operation="initialize_vault_cipher",
+                        data={"expected_bytes": _AES_KEY_SIZE, "actual_bytes": len(self._key)},
+                        retryable=False,
+                        user_action="check_configuration",
                     )
                     self._key = None
             except Exception as e:
-                logger.error("Invalid vault encryption key: %s", e)
+                log_boundary_failure(
+                    logger,
+                    boundary="vault_cipher",
+                    code="VAULT_ENCRYPTION_KEY_INVALID",
+                    message="Invalid vault encryption key",
+                    operation="initialize_vault_cipher",
+                    error=e,
+                    retryable=False,
+                    user_action="check_configuration",
+                )
 
     @property
     def is_enabled(self) -> bool:
@@ -69,7 +85,16 @@ class VaultCipher:
             plaintext = aes.decrypt(nonce, ciphertext, None)
             return plaintext.decode("utf-8")
         except Exception as e:
-            logger.error("Vault decryption failed: %s", e)
+            log_boundary_failure(
+                logger,
+                boundary="vault_cipher",
+                code="VAULT_DECRYPTION_FAILED",
+                message="Vault decryption failed",
+                operation="decrypt_credential",
+                error=e,
+                retryable=False,
+                user_action="check_configuration",
+            )
             raise ValueError("Failed to decrypt vault credential") from e
 
     @staticmethod

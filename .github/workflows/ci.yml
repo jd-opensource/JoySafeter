@@ -99,6 +99,11 @@ jobs:
         run: |
           uv run mypy app --ignore-missing-imports
 
+      - name: Error-code catalog guard
+        working-directory: backend
+        run: |
+          uv run pytest tests/test_error_code_catalog_guard.py -q
+
 #      - name: Run tests
 #        working-directory: backend
 #        env:

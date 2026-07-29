@@ -22,7 +22,7 @@ export interface UseNotificationWebSocketOptions {
 }
 
 export function useNotificationWebSocket(options: UseNotificationWebSocketOptions) {
-  const { userId, onNotification } = options
+  const { userId, onNotification, autoReconnect = true } = options
   const clientRef = useRef<NotificationWsClient | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [lastNotification, setLastNotification] = useState<NotificationMessage | null>(null)
@@ -45,10 +45,12 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
     unsubRef.current?.()
     unsubRef.current = null
     if (clientRef.current) {
+      clientRef.current.setNotificationHandler(null)
       clientRef.current.disconnect()
       clientRef.current = null
     }
     setIsConnected(false)
+    setLastNotification(null)
   }, [])
 
   const connect = useCallback(() => {
@@ -70,17 +72,17 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
   }, [userId, getClient])
 
   useEffect(() => {
-    if (userId) {
+    if (userId && autoReconnect) {
       connect()
     } else {
       cleanup()
     }
     return () => cleanup()
-  }, [userId, connect, cleanup])
+  }, [userId, autoReconnect, connect, cleanup])
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && userId) {
+      if (document.visibilityState === 'visible' && userId && autoReconnect) {
         const client = clientRef.current
         if (!client || !client.getConnectionState().isConnected) {
           connect()
@@ -90,7 +92,7 @@ export function useNotificationWebSocket(options: UseNotificationWebSocketOption
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [userId, connect])
+  }, [userId, autoReconnect, connect])
 
   return {
     isConnected,

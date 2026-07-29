@@ -8,13 +8,15 @@ import CryptoJS from 'crypto-js'
 import {
   ApiError,
   createApiError,
+  isUnauthorizedApiError,
   managedGet,
   managedPost,
   refreshAccessTokenOrRelogin,
 } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 
-import { setCsrfToken, getCsrfToken, clearCsrfToken } from './csrf'
+import { setCsrfToken, clearCsrfToken } from './csrf'
+import { notifySessionChange, onSessionChange, type SessionChangeType } from './session-events'
 
 const logger = createLogger('AuthAPI')
 
@@ -64,47 +66,7 @@ export interface SessionResponse {
 export { ApiError as AuthError }
 
 // ==================== Session Management ====================
-const SESSION_CHANGE_KEY = 'auth_session_change'
-type SessionChangeType = 'signin' | 'logout' | 'refresh'
-const sessionChangeListeners = new Set<(type: SessionChangeType) => void>()
-
-function notifySessionChange(type: SessionChangeType): void {
-  if (typeof window === 'undefined') return
-  sessionChangeListeners.forEach((listener) => {
-    listener(type)
-  })
-  try {
-    const event = { type, timestamp: Date.now() }
-    localStorage.setItem(SESSION_CHANGE_KEY, JSON.stringify(event))
-    setTimeout(() => localStorage.removeItem(SESSION_CHANGE_KEY), 100)
-  } catch (e) {
-    console.warn('Failed to notify session change:', e)
-  }
-}
-
-export function onSessionChange(
-  callback: (type: SessionChangeType) => void,
-): () => void {
-  if (typeof window === 'undefined') return () => {}
-  sessionChangeListeners.add(callback)
-
-  const handler = (e: StorageEvent) => {
-    if (e.key === SESSION_CHANGE_KEY && e.newValue) {
-      try {
-        const event = JSON.parse(e.newValue)
-        callback(event.type)
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  window.addEventListener('storage', handler)
-  return () => {
-    sessionChangeListeners.delete(callback)
-    window.removeEventListener('storage', handler)
-  }
-}
+export { onSessionChange, type SessionChangeType }
 
 // ==================== Utility Functions ====================
 function hashPassword(password: string): string {
@@ -172,7 +134,7 @@ export const authApi = {
   },
 
   async getSession(): Promise<SessionResponse | null> {
-    try {
+    const fetchSession = async (): Promise<SessionResponse | null> => {
       const response = await managedGet<{
         user: {
           id: string
@@ -196,9 +158,27 @@ export const authApi = {
           isSuperUser: response.user.is_super_user,
         },
       }
+    }
+
+    try {
+      return await fetchSession()
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        return null
+      if (isUnauthorizedApiError(error)) {
+        // The access-token cookie expired (common after switching tabs, when
+        // refetchOnWindowFocus re-checks the session). Try a one-shot refresh
+        // using the long-lived HttpOnly refresh-token cookie before concluding
+        // the user is logged out — otherwise a still-valid session would be
+        // torn down and the AuthGuard would bounce to /signin.
+        try {
+          await refreshAccessTokenOrRelogin()
+          return await fetchSession()
+        } catch (refreshError) {
+          if (isUnauthorizedApiError(refreshError)) {
+            // Refresh token is also invalid/expired — genuinely logged out.
+            return null
+          }
+          throw refreshError
+        }
       }
       logger.warn('Failed to get session', { error })
       throw error
@@ -207,7 +187,6 @@ export const authApi = {
 
   async refreshToken(): Promise<void> {
     await refreshAccessTokenOrRelogin()
-    notifySessionChange('refresh')
   },
 
   async forgetPassword(params: { email: string; redirectTo?: string }): Promise<void> {

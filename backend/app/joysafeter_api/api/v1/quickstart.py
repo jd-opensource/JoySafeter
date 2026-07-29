@@ -5,19 +5,25 @@ tool calls, streaming text deltas and config updates back to the frontend.
 """
 
 import json
-from typing import Literal, Optional
+import logging
+from typing import Literal, Optional, cast
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
-from app.joysafeter_shared.database import get_db
 from app.joysafeter_api.services import SecretService
+from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
+from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
+from app.joysafeter_shared.common.stream_errors import async_error_payload
+from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 router = APIRouter(tags=["joysafeter-quickstart"])
+logger = logging.getLogger(__name__)
 
 
 class QuickstartMessage(BaseModel):
@@ -27,6 +33,7 @@ class QuickstartMessage(BaseModel):
 
 class QuickstartAgentContext(BaseModel):
     """Validated agent context — only known fields, values truncated."""
+
     name: str = Field(default="", max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
     model: Optional[str] = Field(default=None, max_length=100)
@@ -117,56 +124,62 @@ Rules:
 
 def _build_tools(step: int) -> list[dict]:
     if step == 2:
-        return [{
-            "name": "generate_agent_config",
-            "description": "Generate agent configuration based on user requirements",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "model": {"type": "string"},
-                    "system_prompt": {"type": "string"},
-                    "tools": {"type": "array", "items": {"type": "object"}},
-                    "metadata": {"type": "object"},
-                },
-                "required": ["name", "description", "system_prompt"],
-            },
-        }]
-    elif step == 3:
-        return [{
-            "name": "generate_environment_config",
-            "description": "Generate environment configuration for the agent",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "networking": {
-                        "type": "object",
-                        "properties": {
-                            "type": {"type": "string", "enum": ["limited", "unrestricted"]},
-                            "allowed_hosts": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": ["type"],
+        return [
+            {
+                "name": "generate_agent_config",
+                "description": "Generate agent configuration based on user requirements",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "model": {"type": "string"},
+                        "system_prompt": {"type": "string"},
+                        "tools": {"type": "array", "items": {"type": "object"}},
+                        "metadata": {"type": "object"},
                     },
+                    "required": ["name", "description", "system_prompt"],
                 },
-                "required": ["name", "description", "networking"],
-            },
-        }]
+            }
+        ]
+    elif step == 3:
+        return [
+            {
+                "name": "generate_environment_config",
+                "description": "Generate environment configuration for the agent",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "networking": {
+                            "type": "object",
+                            "properties": {
+                                "type": {"type": "string", "enum": ["limited", "unrestricted"]},
+                                "allowed_hosts": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["type"],
+                        },
+                    },
+                    "required": ["name", "description", "networking"],
+                },
+            }
+        ]
     elif step == 4:
-        return [{
-            "name": "generate_vault_config",
-            "description": "Generate credential vault configuration for MCP server secrets",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Descriptive name for the vault"},
-                    "description": {"type": "string", "description": "What credentials this vault stores"},
+        return [
+            {
+                "name": "generate_vault_config",
+                "description": "Generate credential vault configuration for MCP server secrets",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Descriptive name for the vault"},
+                        "description": {"type": "string", "description": "What credentials this vault stores"},
+                    },
+                    "required": ["name"],
                 },
-                "required": ["name"],
-            },
-        }]
+            }
+        ]
     return []
 
 
@@ -212,7 +225,7 @@ def _generate_curl(tool_name: str, config: dict) -> str:
 
 def _try_parse_partial_json(input_str: str) -> Optional[dict]:
     try:
-        return json.loads(input_str)
+        return cast(Optional[dict], json.loads(input_str))
     except json.JSONDecodeError:
         pass
 
@@ -256,7 +269,7 @@ def _try_parse_partial_json(input_str: str) -> Optional[dict]:
         result += closer
 
     try:
-        return json.loads(result)
+        return cast(Optional[dict], json.loads(result))
     except json.JSONDecodeError:
         return None
 
@@ -279,8 +292,69 @@ def _upstream_error_message(status: int) -> str:
     return f"Upstream API error ({status})."
 
 
+def _upstream_error_code(status: int) -> str:
+    if status == 401:
+        return "UPSTREAM_AUTH_FAILED"
+    if status == 429:
+        return "UPSTREAM_RATE_LIMITED"
+    if status == 400:
+        return "UPSTREAM_INVALID_REQUEST"
+    if status == 403:
+        return "UPSTREAM_ACCESS_DENIED"
+    if status >= 500:
+        return "UPSTREAM_UNAVAILABLE"
+    return "UPSTREAM_ERROR"
+
+
+def _upstream_error_event(status: int) -> dict:
+    return async_error_payload(
+        code=_upstream_error_code(status),
+        message=_upstream_error_message(status),
+        source="upstream",
+        retryable=status == 429 or status >= 500,
+        status=status,
+    )
+
+
+def _upstream_connection_error_event(exc: httpx.HTTPError) -> dict:
+    return async_error_payload(
+        code="UPSTREAM_CONNECTION_FAILED",
+        message=f"Failed to connect to upstream API ({exc.__class__.__name__}).",
+        source="upstream",
+        retryable=True,
+    )
+
+
+def _upstream_stream_error_event(message: str) -> dict:
+    return async_error_payload(
+        code="UPSTREAM_STREAM_ERROR",
+        message=message or "Upstream API failed.",
+        source="upstream",
+        retryable=False,
+    )
+
+
 def _url_join(base_url: str, path: str) -> str:
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _quickstart_base_url_error(exc: LLMBaseUrlError, *, provider: str) -> InvalidRequestError:
+    data = {"provider": provider, "key": exc.key, "base_url": exc.base_url}
+    if exc.host:
+        data["host"] = exc.host
+    if exc.reason == "not_allowed":
+        return InvalidRequestError(
+            code="QUICKSTART_BASE_URL_NOT_ALLOWED",
+            message=f"{exc.key} host is not allowlisted.",
+            data=data,
+            user_action="fix_input",
+        )
+    return InvalidRequestError(
+        code="QUICKSTART_BASE_URL_INVALID",
+        message=f"Invalid {exc.key}",
+        data=data,
+        user_action="fix_input",
+    )
 
 
 def _messages_to_transcript(messages: list[dict]) -> str:
@@ -312,7 +386,7 @@ async def _stream_anthropic(
                 json=body,
             ) as response:
                 if response.status_code != 200:
-                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    yield _sse_event(_upstream_error_event(response.status_code))
                     return
 
                 buffer = ""
@@ -367,16 +441,27 @@ async def _stream_anthropic(
                                 yield _sse_event({"type": "config_update", "step": current_step, "config": config})
 
                                 curl = _generate_curl(tool_name, config)
-                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                                yield _sse_event(
+                                    {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
+                                )
                                 in_tool_use = False
 
                         elif evt_type == "error":
                             error = evt.get("error", {})
                             msg = error.get("message", "Unknown error")
-                            yield _sse_event({"type": "error", "message": msg})
+                            yield _sse_event(_upstream_stream_error_event(msg))
 
-        except httpx.HTTPError:
-            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+        except httpx.HTTPError as exc:
+            log_boundary_failure(
+                logger,
+                boundary="quickstart_api",
+                code="QUICKSTART_ANTHROPIC_STREAM_FAILED",
+                message="Quickstart upstream stream failed",
+                operation="stream_anthropic_messages",
+                error=exc,
+                data={"step": current_step},
+            )
+            yield _sse_event(_upstream_connection_error_event(exc))
 
 
 async def _stream_openai_chat_completions(
@@ -402,7 +487,7 @@ async def _stream_openai_chat_completions(
                 json=body,
             ) as response:
                 if response.status_code != 200:
-                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    yield _sse_event(_upstream_error_event(response.status_code))
                     return
 
                 buffer = ""
@@ -456,10 +541,21 @@ async def _stream_openai_chat_completions(
                                 config = {}
                             yield _sse_event({"type": "config_update", "step": current_step, "config": config})
                             curl = _generate_curl(state["name"], config)
-                            yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                            yield _sse_event(
+                                {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
+                            )
 
-        except httpx.HTTPError:
-            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+        except httpx.HTTPError as exc:
+            log_boundary_failure(
+                logger,
+                boundary="quickstart_api",
+                code="QUICKSTART_OPENAI_CHAT_STREAM_FAILED",
+                message="Quickstart upstream stream failed",
+                operation="stream_openai_chat_completions",
+                error=exc,
+                data={"step": current_step},
+            )
+            yield _sse_event(_upstream_connection_error_event(exc))
 
 
 async def _stream_openai_responses(
@@ -488,7 +584,7 @@ async def _stream_openai_responses(
                 json=body,
             ) as response:
                 if response.status_code != 200:
-                    yield _sse_event({"type": "error", "message": _upstream_error_message(response.status_code)})
+                    yield _sse_event(_upstream_error_event(response.status_code))
                     return
 
                 buffer = ""
@@ -528,7 +624,9 @@ async def _stream_openai_responses(
                                     state["json"] = item["arguments"]
                                     config = _try_parse_partial_json(state["json"])
                                     if config:
-                                        yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+                                        yield _sse_event(
+                                            {"type": "config_update", "step": current_step, "config": config}
+                                        )
 
                         elif evt_type == "response.function_call_arguments.delta":
                             key = tool_key(evt)
@@ -551,7 +649,9 @@ async def _stream_openai_responses(
                                     config = {}
                                 yield _sse_event({"type": "config_update", "step": current_step, "config": config})
                                 curl = _generate_curl(state["name"], config)
-                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                                yield _sse_event(
+                                    {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
+                                )
 
                         elif evt_type == "response.completed" and completed_tool_key is None:
                             response_obj = evt.get("response") or {}
@@ -571,16 +671,27 @@ async def _stream_openai_responses(
                                     config = {}
                                 yield _sse_event({"type": "config_update", "step": current_step, "config": config})
                                 curl = _generate_curl(state["name"], config)
-                                yield _sse_event({"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl})
+                                yield _sse_event(
+                                    {"type": "step_complete", "step": current_step, "resource_id": None, "curl": curl}
+                                )
                                 break
 
                         elif evt_type == "response.failed":
                             response_obj = evt.get("response") or {}
                             error = response_obj.get("error") or evt.get("error") or {}
-                            yield _sse_event({"type": "error", "message": error.get("message", "Upstream API failed.")})
+                            yield _sse_event(_upstream_stream_error_event(error.get("message", "Upstream API failed.")))
 
-        except httpx.HTTPError:
-            yield _sse_event({"type": "error", "message": "Failed to connect to upstream API."})
+        except httpx.HTTPError as exc:
+            log_boundary_failure(
+                logger,
+                boundary="quickstart_api",
+                code="QUICKSTART_OPENAI_RESPONSES_STREAM_FAILED",
+                message="Quickstart upstream stream failed",
+                operation="stream_openai_responses",
+                error=exc,
+                data={"step": current_step},
+            )
+            yield _sse_event(_upstream_connection_error_event(exc))
 
 
 @router.post("/chat")
@@ -592,13 +703,15 @@ async def quickstart_chat(
     svc = SecretService(db)
     secret = await svc.get_secret_by_name(req.secret_ref, project_id=auth_ctx.project_id)
     if not secret:
-        raise HTTPException(404, "Secret not found or missing required keys")
+        raise NotFoundError(
+            code="QUICKSTART_SECRET_NOT_FOUND",
+            message="Secret not found or missing required keys",
+            data={"secret_ref": req.secret_ref, "provider": req.provider},
+            user_action="fix_input",
+        )
 
     data = svc.get_secret_data(secret)
     provider = "codex" if req.provider == "codex" else "claude"
-
-    # SSRF protection: block cloud metadata endpoints, allow internal network
-    from app.joysafeter_shared.security.ssrf_guard import validate_url, SSRFError
 
     system_prompt = _build_system_prompt(req.current_step, req.agent_context)
     tools = _build_tools(req.current_step)
@@ -610,14 +723,18 @@ async def quickstart_chat(
 
     if provider == "claude":
         api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""
+        if not api_key:
+            raise InvalidRequestError(
+                code="QUICKSTART_SECRET_MISSING_KEY",
+                message="Secret not found or missing required keys",
+                data={"secret_ref": req.secret_ref, "provider": provider, "required_key": "ANTHROPIC_API_KEY"},
+                user_action="fix_input",
+            )
         base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
         try:
-            validate_url(base_url, allow_http=True, allow_private=True, context="ANTHROPIC_BASE_URL")
-        except SSRFError:
-            raise HTTPException(400, "Invalid ANTHROPIC_BASE_URL")
-
-        if not api_key:
-            raise HTTPException(404, "Secret not found or missing required keys")
+            base_url = validate_llm_base_url(base_url, key="ANTHROPIC_BASE_URL")
+        except LLMBaseUrlError as exc:
+            raise _quickstart_base_url_error(exc, provider=provider) from None
 
         model = data.get("MODEL") or data.get("ANTHROPIC_MODEL") or "claude-sonnet-4-20250514"
         claude_body = {
@@ -636,14 +753,18 @@ async def quickstart_chat(
 
     else:
         api_key = data.get("OPENAI_API_KEY") or ""
+        if not api_key:
+            raise InvalidRequestError(
+                code="QUICKSTART_SECRET_MISSING_KEY",
+                message="Secret not found or missing required keys",
+                data={"secret_ref": req.secret_ref, "provider": provider, "required_key": "OPENAI_API_KEY"},
+                user_action="fix_input",
+            )
         base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         try:
-            validate_url(base_url, allow_http=True, allow_private=True, context="OPENAI_BASE_URL")
-        except SSRFError:
-            raise HTTPException(400, "Invalid OPENAI_BASE_URL")
-
-        if not api_key:
-            raise HTTPException(404, "Secret not found or missing required keys")
+            base_url = validate_llm_base_url(base_url, key="OPENAI_BASE_URL")
+        except LLMBaseUrlError as exc:
+            raise _quickstart_base_url_error(exc, provider=provider) from None
 
         model = data.get("OPENAI_MODEL") or "gpt-5.3-codex"
         protocol = getattr(secret, "protocol", "") or ""

@@ -8,8 +8,9 @@ from fastapi import Request
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext
 from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext
 
 
 async def audit_joysafeter_event(
@@ -49,5 +50,24 @@ async def audit_joysafeter_event(
             user_agent=request.headers.get("user-agent"),
             details=payload,
         )
-    except Exception:
-        logger.warning("Failed to write JoySafeter audit event", exc_info=True)
+    except Exception as exc:
+        error_payload = async_boundary_error_payload(
+            code="AUDIT_EVENT_WRITE_FAILED",
+            message="Failed to write JoySafeter audit event",
+            boundary="audit",
+            operation="write_event",
+            data={
+                "event_type": event_type,
+                "event_status": event_status,
+                "target_type": target_type,
+                "target_id": target_id,
+                "user_id": auth_ctx.user_id,
+                "org_id": auth_ctx.org_id,
+                "project_id": auth_ctx.project_id,
+            },
+            source="api",
+            retryable=True,
+            user_action="retry",
+            detail=exc.__class__.__name__,
+        )
+        logger.bind(error=error_payload).exception("Failed to write JoySafeter audit event")

@@ -150,9 +150,7 @@ function stripCommonImportRoot<T extends { path: string; file_name: string }>(fi
     return files
   }
 
-  const firstSegments = files
-    .map((file) => file.path.split('/').filter(Boolean)[0])
-    .filter(Boolean)
+  const firstSegments = files.map((file) => file.path.split('/').filter(Boolean)[0]).filter(Boolean)
 
   if (firstSegments.length !== files.length) {
     return files
@@ -182,7 +180,9 @@ export function getManagedSkillImportValidationMessage(
     const skillMdPath = findSkillMdPath(fileList)
     return skillMdPath
       ? t('managed.skills.importValidationUnknownWithSkillMd', { path: skillMdPath })
-      : t('managed.skills.importSkillMdRequiredWithRoot', { folder: getSelectedRootName(fileList) || '-' })
+      : t('managed.skills.importSkillMdRequiredWithRoot', {
+          folder: getSelectedRootName(fileList) || '-',
+        })
   }
 
   const selectedRoot = getSelectedRootName(fileList)
@@ -221,7 +221,8 @@ export function getManagedSkillImportApiErrorMessage(
   const code = apiError?.code || ''
   const message = apiError?.message || apiError?.payload?.message || ''
   const data = apiError?.data || apiError?.payload?.data || null
-  const validationError = apiError?.data?.validation_error || apiError?.payload?.data?.validation_error || ''
+  const validationError =
+    apiError?.data?.validation_error || apiError?.payload?.data?.validation_error || ''
 
   if (code === 'SKILL_SECURITY_SCAN_REJECTED') {
     return t('managed.errors.skillSecurityRejected', {
@@ -254,7 +255,9 @@ export function getManagedSkillImportApiErrorMessage(
   }
 
   if (code === 'SKILL_IMPORT_ZIP_EMPTY' && data) {
-    const samples = Array.isArray(data.sample_members) ? data.sample_members.filter(Boolean).join(', ') : ''
+    const samples = Array.isArray(data.sample_members)
+      ? data.sample_members.filter(Boolean).join(', ')
+      : ''
     const skippedSystemSamples = Array.isArray(data.sample_skipped_system_files)
       ? data.sample_skipped_system_files.filter(Boolean).join(', ')
       : ''
@@ -269,7 +272,11 @@ export function getManagedSkillImportApiErrorMessage(
     })
   }
 
-  if (code === 'SKILL_IMPORT_SKILL_MD_REQUIRED' && Array.isArray(data?.files) && data.files.length > 0) {
+  if (
+    code === 'SKILL_IMPORT_SKILL_MD_REQUIRED' &&
+    Array.isArray(data?.files) &&
+    data.files.length > 0
+  ) {
     return t('managed.skills.zipErrors.skillMdRequiredWithFiles', {
       files: data.files.join(', '),
     })

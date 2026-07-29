@@ -12,9 +12,5 @@ export function RelativeTime({ date }: { date: string }) {
     hour: '2-digit',
     minute: '2-digit',
   })
-  return (
-    <time dateTime={date}>
-      {formatted}
-    </time>
-  )
+  return <time dateTime={date}>{formatted}</time>
 }

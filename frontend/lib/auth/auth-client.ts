@@ -2,10 +2,10 @@
  * Auth client export (enhanced security version)
  * Uses JWT + HttpOnly Cookie authentication
  */
-import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
-import { ApiError } from '@/lib/api-client'
+import { ApiError, isUnauthorizedApiError } from '@/lib/api-client'
 
 import {
   authApi,
@@ -16,6 +16,8 @@ import {
   type AuthUser,
   type AuthSession,
 } from './api-client'
+import { clearAuthenticatedClientState } from './auth-lifecycle'
+import { startSilentSessionRefresh } from './session-refresh'
 
 // ==================== Type Exports ====================
 export type { AuthUser, AuthSession }
@@ -27,66 +29,6 @@ export type SessionHookResult = {
   isPending: boolean
   error: Error | null
   refetch: () => Promise<void>
-}
-
-const SESSION_REFRESH_INTERVAL_MS = 10 * 60 * 1000
-const SESSION_REFRESH_THROTTLE_MS = 60 * 1000
-
-let sessionRefreshRefCount = 0
-let sessionRefreshTimer: number | null = null
-let sessionRefreshQueryClient: QueryClient | null = null
-let lastSessionRefreshAttemptAt = 0
-
-async function runSilentSessionRefresh(queryClient: QueryClient): Promise<void> {
-  const now = Date.now()
-  if (now - lastSessionRefreshAttemptAt < SESSION_REFRESH_THROTTLE_MS) {
-    return
-  }
-  lastSessionRefreshAttemptAt = now
-
-  try {
-    await authApi.refreshToken()
-    await queryClient.invalidateQueries({ queryKey: ['session'] })
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      queryClient.setQueryData(['session'], null)
-    }
-  }
-}
-
-function runVisibleSilentSessionRefresh(): void {
-  if (!sessionRefreshQueryClient) return
-  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-  void runSilentSessionRefresh(sessionRefreshQueryClient)
-}
-
-function startSilentSessionRefresh(queryClient: QueryClient): () => void {
-  if (typeof window === 'undefined') return () => {}
-
-  sessionRefreshQueryClient = queryClient
-  sessionRefreshRefCount += 1
-
-  if (!sessionRefreshTimer) {
-    sessionRefreshTimer = window.setInterval(
-      runVisibleSilentSessionRefresh,
-      SESSION_REFRESH_INTERVAL_MS,
-    )
-    window.addEventListener('focus', runVisibleSilentSessionRefresh)
-    document.addEventListener('visibilitychange', runVisibleSilentSessionRefresh)
-  }
-
-  return () => {
-    sessionRefreshRefCount = Math.max(0, sessionRefreshRefCount - 1)
-    if (sessionRefreshRefCount > 0) return
-
-    if (sessionRefreshTimer) {
-      window.clearInterval(sessionRefreshTimer)
-      sessionRefreshTimer = null
-    }
-    window.removeEventListener('focus', runVisibleSilentSessionRefresh)
-    document.removeEventListener('visibilitychange', runVisibleSilentSessionRefresh)
-    sessionRefreshQueryClient = null
-  }
 }
 
 /**
@@ -102,8 +44,7 @@ export function useSession(): SessionHookResult {
       return response?.user ? { user: response.user } : null
     },
     staleTime: 5 * 60 * 1000,
-    retry: (failureCount, error) =>
-      !(error instanceof ApiError && error.status === 401) && failureCount < 2,
+    retry: (failureCount, error) => !isUnauthorizedApiError(error) && failureCount < 2,
     retryDelay: 1000,
     refetchOnReconnect: true,
     refetchOnWindowFocus: true,
@@ -112,7 +53,11 @@ export function useSession(): SessionHookResult {
   useEffect(() => {
     const unsubscribe = onSessionChange((type) => {
       if (type === 'logout') {
+        clearAuthenticatedClientState(queryClient)
         queryClient.setQueryData(['session'], null)
+      } else if (type === 'signin') {
+        clearAuthenticatedClientState(queryClient)
+        refetch()
       } else {
         refetch()
       }

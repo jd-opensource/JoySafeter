@@ -25,20 +25,36 @@ cd "$PROJECT_ROOT"
 REGISTRY="${DOCKER_REGISTRY:-}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-joysafeter-backend}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-joysafeter-frontend}"
+ORCHESTRATOR_RS_IMAGE="${ORCHESTRATOR_RS_IMAGE:-joysafeter-orchestrator-rs}"
+SKILLSPECTOR_IMAGE="${SKILLSPECTOR_IMAGE:-joysafeter-skillspector}"
 CLAUDECODE_IMAGE="${CLAUDECODE_IMAGE:-joysafeter-claudecode}"
 CODEX_IMAGE="${CODEX_IMAGE:-joysafeter-codex}"
+NATIVE_IMAGE="${NATIVE_IMAGE:-joysafeter-native}"
 TAG="${IMAGE_TAG:-latest}"
-# 获取主机架构
-get_host_platform() {
-    local arch=$(uname -m)
+# 构建溯源：烘进 backend 镜像的 GIT_COMMIT_SHA（docker inspect / printenv 可读，供可审计发布）。
+# CI 传 github.sha；脚本自建时默认取 git 短 SHA，脏工作树追加 -dirty，取不到则 unknown。
+# 允许外部环境变量覆盖（与 CI 一致）。
+GIT_COMMIT_SHA="${GIT_COMMIT_SHA:-$(
+    if git -C "$PROJECT_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+        sha="$(git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+        if [ -n "$(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null)" ]; then
+            sha="${sha}-dirty"
+        fi
+        printf '%s' "$sha"
+    else
+        printf 'unknown'
+    fi
+)}"
+platform_from_arch() {
+    local arch="$1"
     case "$arch" in
-        x86_64)
+        x86_64|amd64)
             echo "linux/amd64"
             ;;
         arm64|aarch64)
             echo "linux/arm64"
             ;;
-        armv7l)
+        armv7l|arm/v7)
             echo "linux/arm/v7"
             ;;
         *)
@@ -47,18 +63,41 @@ get_host_platform() {
     esac
 }
 
+get_host_platform() {
+    platform_from_arch "$(uname -m)"
+}
+
+get_docker_platform() {
+    local arch
+    arch=$(docker info --format '{{.Architecture}}' 2>/dev/null || true)
+    if [ -n "$arch" ]; then
+        platform_from_arch "$arch"
+        return
+    fi
+    get_host_platform
+}
+
 # 默认多平台构建：amd64 + arm64
 DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
 PLATFORMS="" # 初始为空，稍后根据命令和系统动态设置
 USE_BUILDX="${USE_BUILDX:-true}"
-BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-}"
-FRONTEND_API_URL="${NEXT_PUBLIC_API_URL:-${BACKEND_URL:-http://localhost:8000}}"
+# 镜像源配置（两个变量控制所有拉取）：
+#   BASE_IMAGE_REGISTRY — 官方库镜像前缀（python/node/rust/debian/postgres/redis）
+#                         默认 public.ecr.aws/docker/library/ （国内直连可达）
+#   DOCKER_MIRROR       — 第三方镜像代理前缀（envoy 等非官方库镜像）
+#                         默认 docker.m.daocloud.io （DaoCloud 国内 CDN）
+BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}"
+DOCKER_MIRROR="${DOCKER_MIRROR:-docker.m.daocloud.io}"
 # 是否禁用 Docker 构建缓存（默认使用缓存）
 NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
-RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1-bookworm}"
+# Rust 镜像从 BASE_IMAGE_REGISTRY 派生
+RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1-bookworm}"
+RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
+SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-https://github.com/NVIDIA/SkillSpector.git}"
+DEFAULT_SKILLSPECTOR_SOURCE_PATH="$PROJECT_ROOT/.deps/SkillSpector"
 
 # 规范化镜像仓库地址
 normalize_registry() {
@@ -82,11 +121,11 @@ log_success() {
 }
 
 log_warning() {
-    printf "${YELLOW}⚠️  %s${NC}\n" "$1"
+    printf "${YELLOW}⚠️  %s${NC}\n" "$1" >&2
 }
 
 log_error() {
-    printf "${RED}❌ %s${NC}\n" "$1"
+    printf "${RED}❌ %s${NC}\n" "$1" >&2
 }
 
 # 显示使用说明
@@ -95,9 +134,15 @@ show_usage() {
 使用方法: $0 [命令] [选项]
 
 命令:
-  build              构建多架构镜像（默认构建前后端，支持 linux/amd64,linux/arm64）
+  doctor             本地部署环境预检（不启动容器）
+  local              本地 Docker Compose 一键部署（自动按 Docker CPU 架构选择平台）
+  build              构建核心部署镜像（backend, frontend, orchestrator-rs, skillspector）
   push               构建并推送多架构镜像到仓库
-  pull               拉取镜像（从仓库拉取最新镜像）
+  pull               拉取镜像，并把拉取到的镜像名同步到 deploy/.env
+  down               停止并移除本地 Compose 服务（保留数据卷）
+  logs               跟随查看服务日志（可跟服务名，如 logs api worker）
+  restart            重启本地 Compose 服务（可跟服务名）
+  status             查看本地 Compose 服务状态
 
 选项:
   -h, --help             显示帮助信息
@@ -106,34 +151,53 @@ show_usage() {
   --platform PLATFORMS   目标平台架构，多个用逗号分隔（默认: linux/amd64,linux/arm64）
   --arch ARCH            简化的架构选项，可多次使用
                          支持: amd64, arm64, armv7
-  --api-url URL          前端连接后端的API地址（构建时注入）
-  --backend-only         只构建后端镜像
-  --frontend-only        只构建前端镜像
-  --runtime-only         只构建 agent 运行镜像（claudecode, codex）
-  --claudecode-only      只构建 Claude Code 运行镜像
-  --codex-only           只构建 Codex 运行镜像
-  --all                  构建所有镜像（backend, frontend, claudecode, codex）
+  --api-url URL          （已废弃）前端 API 地址现在通过容器环境变量运行时注入
+  --backend-only         只处理后端镜像
+  --frontend-only        只处理前端镜像
+  --orchestrator-only    只处理 Rust orchestrator 镜像
+  --skillspector-only    只处理 SkillSpector 镜像
+  --runtime-only         只处理 agent 运行镜像（claudecode, codex, native）
+  --claudecode-only      只处理 Claude Code 运行镜像
+  --codex-only           只处理 Codex 运行镜像
+  --native-only          只处理 Native 运行镜像
+  --all                  构建所有镜像（核心部署镜像 + agent runtime 镜像）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
-  --mirror MIRROR        使用国内镜像源加速基础镜像（aliyun, tencent, huawei, docker-cn）
+  --mirror MIRROR        使用国内镜像源加速（aliyun, tencent, huawei, daocloud）
+                         同时设置 BASE_IMAGE_REGISTRY 和 DOCKER_MIRROR
   --pip-mirror MIRROR    使用国内 pip 镜像源（aliyun, tencent, huawei, jd）
 
 环境变量:
   DOCKER_REGISTRY        镜像仓库地址（默认: 空，本地镜像）
   BACKEND_IMAGE          后端镜像名称（默认: joysafeter-backend）
   FRONTEND_IMAGE         前端镜像名称（默认: joysafeter-frontend）
+  ORCHESTRATOR_RS_IMAGE  Rust orchestrator 镜像名称（默认: joysafeter-orchestrator-rs）
+  SKILLSPECTOR_IMAGE     SkillSpector 镜像名称（默认: joysafeter-skillspector）
   CLAUDECODE_IMAGE       Claude Code 运行镜像名称（默认: joysafeter-claudecode）
   CODEX_IMAGE            Codex 运行镜像名称（默认: joysafeter-codex）
+  NATIVE_IMAGE           Native 运行镜像名称（默认: joysafeter-native）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
-  NEXT_PUBLIC_API_URL    前端API地址（默认优先使用 BACKEND_URL 或 http://localhost:8000）
   PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
-  RUST_BUILDER_IMAGE     runner 编译镜像（默认: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1-bookworm）
-  BASE_IMAGE_REGISTRY    基础镜像仓库前缀
+  RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
+  BASE_IMAGE_REGISTRY    官方库镜像前缀（默认: public.ecr.aws/docker/library/）
+  DOCKER_MIRROR          第三方镜像代理前缀（默认: docker.m.daocloud.io）
+  SKILLSPECTOR_SOURCE_PATH SkillSpector 源码路径（local 默认: ../.deps/SkillSpector）
+  SKILLSPECTOR_REPO_URL    SkillSpector 缺失时克隆的仓库地址
   NO_CACHE               是否禁用构建缓存（默认: false，使用缓存）
 
 示例:
-  # 构建前后端多架构镜像
+  # 只做本地部署环境预检
+  $0 doctor
+
+  # 按 Docker daemon CPU 架构自动部署本地完整栈
+  $0 local
+
+  # 强制按 amd64 或 arm64 部署
+  $0 local --arch amd64
+  $0 local --arch arm64
+
+  # 构建核心部署镜像
   $0 build
 
   # 只构建后端多架构镜像
@@ -142,10 +206,10 @@ show_usage() {
   # 只构建前端多架构镜像
   $0 build --frontend-only
 
-  # 构建所有镜像
+  # 构建核心部署镜像 + agent runtime 镜像
   $0 build --all
 
-  # 构建远程 amd64 服务器需要的四个镜像
+  # 构建远程 amd64 服务器需要的全部镜像
   $0 build --all --arch amd64
 
   # 构建并推送到仓库
@@ -154,8 +218,8 @@ show_usage() {
   # 构建指定架构并推送
   $0 push --arch amd64 --arch arm64
 
-  # 构建时指定前端API地址
-  $0 build --api-url http://api.example.com
+  # 构建时指定镜像源
+  $0 build --mirror aliyun
 
   # 使用国内镜像源加速构建
   $0 build --mirror huawei --pip-mirror aliyun
@@ -168,6 +232,20 @@ show_usage() {
 
   # 拉取指定标签的镜像
   $0 pull --tag v1.0.0
+
+  # 查看本地栈运行状态
+  $0 status
+
+  # 跟随全部服务日志 / 只看某几个服务
+  $0 logs
+  $0 logs api worker
+
+  # 重启全部服务 / 只重启某个服务
+  $0 restart
+  $0 restart frontend
+
+  # 停止并移除本地栈（保留数据卷）
+  $0 down
 EOF
 }
 
@@ -188,13 +266,606 @@ check_docker_running() {
     fi
 }
 
+compose() {
+    if docker compose version >/dev/null 2>&1; then
+        docker compose "$@"
+    elif command -v docker-compose >/dev/null 2>&1; then
+        docker-compose "$@"
+    else
+        log_error "docker compose / docker-compose 均不可用"
+        suggest_compose_install
+        exit 1
+    fi
+}
+
+suggest_compose_install() {
+    local host_os
+    host_os="$(uname -s 2>/dev/null || echo unknown)"
+
+    case "$host_os" in
+        Darwin)
+            log_error "macOS 安装方法:"
+            if command -v brew >/dev/null 2>&1; then
+                log_error "  brew install docker-compose"
+                local brew_prefix
+                brew_prefix="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+                log_error "  安装后需在 ~/.docker/config.json 中添加:"
+                log_error "    \"cliPluginsExtraDirs\": [\"${brew_prefix}/lib/docker/cli-plugins\"]"
+            else
+                log_error "  方式 1: 安装 Docker Desktop for Mac（自带 compose 插件）"
+                log_error "  方式 2: 手动安装插件:"
+                log_error "    mkdir -p ~/.docker/cli-plugins"
+                local arch_suffix
+                arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/arm64/aarch64/')"
+                log_error "    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-darwin-${arch_suffix} -o ~/.docker/cli-plugins/docker-compose"
+                log_error "    chmod +x ~/.docker/cli-plugins/docker-compose"
+            fi
+            ;;
+        Linux)
+            log_error "Linux 安装方法:"
+            if command -v apt-get >/dev/null 2>&1; then
+                log_error "  sudo apt-get update && sudo apt-get install -y docker-compose-plugin"
+            elif command -v dnf >/dev/null 2>&1; then
+                log_error "  sudo dnf install -y docker-compose-plugin"
+            elif command -v yum >/dev/null 2>&1; then
+                log_error "  sudo yum install -y docker-compose-plugin"
+            elif command -v pacman >/dev/null 2>&1; then
+                log_error "  sudo pacman -S docker-compose"
+            else
+                log_error "  通过包管理器安装 docker-compose-plugin，或手动安装:"
+            fi
+            log_error "  或手动安装插件:"
+            log_error "    mkdir -p ~/.docker/cli-plugins"
+            local arch_suffix
+            arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/aarch64/aarch64/; s/armv7l/armv7/')"
+            log_error "    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${arch_suffix} -o ~/.docker/cli-plugins/docker-compose"
+            log_error "    chmod +x ~/.docker/cli-plugins/docker-compose"
+            ;;
+        *)
+            log_error "请参考 https://docs.docker.com/compose/install/ 安装 Docker Compose"
+            ;;
+    esac
+}
+
+suggest_buildx_install() {
+    local host_os
+    host_os="$(uname -s 2>/dev/null || echo unknown)"
+
+    case "$host_os" in
+        Darwin)
+            log_error "macOS 安装方法:"
+            if command -v brew >/dev/null 2>&1; then
+                log_error "  brew install docker-buildx"
+                local brew_prefix
+                brew_prefix="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
+                log_error "  安装后需在 ~/.docker/config.json 中添加:"
+                log_error "    \"cliPluginsExtraDirs\": [\"${brew_prefix}/lib/docker/cli-plugins\"]"
+            else
+                log_error "  方式 1: 安装 Docker Desktop for Mac（自带 buildx 插件）"
+                log_error "  方式 2: 手动安装插件:"
+                log_error "    mkdir -p ~/.docker/cli-plugins"
+                local arch_suffix
+                arch_suffix="$(uname -m | sed 's/x86_64/amd64/; s/arm64/arm64/')"
+                log_error "    curl -SL https://github.com/docker/buildx/releases/latest/download/buildx-v\$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep tag_name | cut -d'\"' -f4 | tr -d v).darwin-${arch_suffix} -o ~/.docker/cli-plugins/docker-buildx"
+                log_error "    chmod +x ~/.docker/cli-plugins/docker-buildx"
+            fi
+            ;;
+        Linux)
+            log_error "Linux 安装方法:"
+            if command -v apt-get >/dev/null 2>&1; then
+                log_error "  sudo apt-get update && sudo apt-get install -y docker-buildx-plugin"
+            elif command -v dnf >/dev/null 2>&1; then
+                log_error "  sudo dnf install -y docker-buildx-plugin"
+            elif command -v yum >/dev/null 2>&1; then
+                log_error "  sudo yum install -y docker-buildx-plugin"
+            elif command -v pacman >/dev/null 2>&1; then
+                log_error "  sudo pacman -S docker-buildx"
+            else
+                log_error "  通过包管理器安装 docker-buildx-plugin，或手动安装:"
+            fi
+            log_error "  或手动安装插件:"
+            log_error "    mkdir -p ~/.docker/cli-plugins"
+            local arch_suffix
+            arch_suffix="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/; s/armv7l/arm-v7/')"
+            log_error "    curl -SL https://github.com/docker/buildx/releases/latest/download/buildx-v\$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep tag_name | cut -d'\"' -f4 | tr -d v).linux-${arch_suffix} -o ~/.docker/cli-plugins/docker-buildx"
+            log_error "    chmod +x ~/.docker/cli-plugins/docker-buildx"
+            ;;
+        *)
+            log_error "请参考 https://docs.docker.com/build/install-buildx/ 安装 Docker Buildx"
+            ;;
+    esac
+}
+
+ensure_env_file() {
+    local target="$1"
+    local source="$2"
+    if [ ! -f "$target" ]; then
+        cp "$source" "$target"
+        log_info "已创建 $target"
+    fi
+}
+
+set_env_value() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+    local tmp="${file}.tmp"
+
+    if grep -q "^${key}=" "$file" 2>/dev/null; then
+        awk -v key="$key" -v value="$value" '
+            BEGIN { done = 0 }
+            $0 ~ "^" key "=" {
+                print key "=" value
+                done = 1
+                next
+            }
+            { print }
+            END {
+                if (!done) {
+                    print key "=" value
+                }
+            }
+        ' "$file" > "$tmp"
+        mv "$tmp" "$file"
+    else
+        printf "\n%s=%s\n" "$key" "$value" >> "$file"
+    fi
+}
+
+read_env_value() {
+    local file="$1"
+    local key="$2"
+    if [ ! -f "$file" ]; then
+        return 0
+    fi
+    awk -v key="$key" '
+        $0 ~ "^" key "=" {
+            value = substr($0, index($0, "=") + 1)
+            sub(/[[:space:]]+#.*$/, "", value)
+            print value
+            exit
+        }
+    ' "$file"
+}
+
+# vault 密钥合法性校验：64 位 hex（Rust 兼容）或 base64 解码后为 32 字节。
+# 无 openssl 时无法校验，返回成功以避免误报。
+vault_key_is_valid() {
+    local key="$1"
+    if printf '%s' "$key" | grep -Eq '^[0-9a-fA-F]{64}$'; then
+        return 0
+    fi
+    if command -v openssl >/dev/null 2>&1; then
+        local decoded_bytes
+        decoded_bytes="$(printf '%s' "$key" | openssl base64 -d -A 2>/dev/null | wc -c | tr -d '[:space:]')"
+        [ "$decoded_bytes" = "32" ] && return 0
+        return 1
+    fi
+    return 0
+}
+
+# 确保 vault 加密密钥在 deploy/.env 与 backend/.env 中【存在且为同一把】。
+# compose 的 env_file 顺序是 [backend/.env, deploy/.env]，后者覆盖前者，故
+# deploy/.env 为权威真源。解析出唯一有效 key 后同步写入两个文件：
+#   - deploy/.env 已有合法真实 key -> 以它为准；
+#   - deploy/.env 为空/占位符：若 backend/.env 有合法真实 key 则提升为真源，否则 openssl 生成；
+#   - 已有的合法真实 key 绝不静默丢弃（覆盖会让已有 enc: 密文永久无法解密）。
+ensure_vault_encryption_key() {
+    local deploy_env="$1"
+    local backend_env="$2"
+    local placeholder="CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
+    local key_var="JOYSAFETER_VAULT_ENCRYPTION_KEY"
+
+    local deploy_key backend_key
+    deploy_key="$(read_env_value "$deploy_env" "$key_var")"
+    backend_key="$(read_env_value "$backend_env" "$key_var")"
+
+    local deploy_real=false backend_real=false
+    [ -n "$deploy_key" ] && [ "$deploy_key" != "$placeholder" ] && deploy_real=true
+    [ -n "$backend_key" ] && [ "$backend_key" != "$placeholder" ] && backend_real=true
+
+    local effective=""
+    if [ "$deploy_real" = true ]; then
+        if ! vault_key_is_valid "$deploy_key"; then
+            log_warning "deploy/.env 的 $key_var 已设置但不是合法 32 字节密钥（64 位 hex 或 base64）；托管密钥会失败，请修正后再部署（本次不改动 backend/.env）"
+            return 0
+        fi
+        effective="$deploy_key"
+    elif [ "$backend_real" = true ]; then
+        if vault_key_is_valid "$backend_key"; then
+            effective="$backend_key"
+            log_info "复用 backend/.env 中已有的 $key_var 作为 vault 密钥真源"
+        else
+            log_warning "backend/.env 的 $key_var 已设置但不是合法 32 字节密钥；将忽略它并生成新密钥"
+        fi
+    fi
+
+    if [ -z "$effective" ]; then
+        if ! command -v openssl >/dev/null 2>&1; then
+            log_warning "未检测到 openssl，无法自动生成 $key_var；托管密钥功能将不可用。请手动在 deploy/.env 与 backend/.env 设置同一把（openssl rand -base64 32）"
+            return 0
+        fi
+        effective="$(openssl rand -base64 32)"
+        log_success "已自动生成 $key_var（vault 凭证加密密钥）"
+        log_warning "该密钥一经启用请勿更改，否则已加密的托管密钥密文将无法解密"
+    fi
+
+    if [ "$deploy_key" != "$effective" ]; then
+        set_env_value "$deploy_env" "$key_var" "$effective"
+    fi
+    if [ "$backend_key" != "$effective" ]; then
+        if [ "$backend_real" = true ]; then
+            log_warning "backend/.env 原有一把不同的 $key_var，已同步为 deploy/.env 的权威密钥（compose 中 deploy/.env 本就覆盖 backend/.env）"
+        fi
+        set_env_value "$backend_env" "$key_var" "$effective"
+    fi
+}
+
+compose_path_exists() {
+    local path="$1"
+    case "$path" in
+        /*) [ -e "$path" ] ;;
+        *) [ -e "$SCRIPT_DIR/$path" ] ;;
+    esac
+}
+
+detect_docker_socket_path() {
+    # 输出要 bind-mount 进容器的 Docker socket 路径。
+    #
+    # 关键点：bind-mount 的“源路径”由 Docker DAEMON 解析，而不是当前这台机器。
+    # 对 VM 型运行时（macOS/Windows 上的 Docker Desktop / Colima / Lima / Rancher，
+    # 以及 Linux 上的 Docker Desktop / Colima），daemon 跑在虚拟机里，它自己的 socket
+    # 永远是虚拟机内的 /var/run/docker.sock —— 而不是宿主机侧的转发 socket
+    # （如 ~/.colima/<profile>/docker.sock）。宿主机侧的转发 socket 在虚拟机里只是
+    # virtiofs/9p 上的一个特殊文件，无法作为 unix socket 挂载，Docker 会退化成 mkdir
+    # 从而报 “operation not supported”。
+    local host_os endpoint sockpath ctx_name
+    host_os="$(uname -s 2>/dev/null || echo unknown)"
+    endpoint="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+    ctx_name="$(docker context inspect --format '{{.Name}}' 2>/dev/null || true)"
+    case "$endpoint" in
+        unix://*) sockpath="${endpoint#unix://}" ;;
+        *)        sockpath="" ;;  # tcp:// / ssh:// 远程 daemon，或未取到
+    esac
+
+    # macOS / Windows：dockerd 一定在虚拟机内，daemon 侧 socket 即 /var/run/docker.sock。
+    case "$host_os" in
+        Darwin|MINGW*|MSYS*|CYGWIN*)
+            printf '%s\n' "/var/run/docker.sock"
+            return
+            ;;
+    esac
+
+    # Linux 上的 VM 型运行时（Colima / Docker Desktop）：daemon 侧 socket 同样是
+    # 虚拟机内的 /var/run/docker.sock。用 context 名与转发 socket 路径识别。
+    case "$ctx_name" in
+        colima*|desktop*)
+            printf '%s\n' "/var/run/docker.sock"
+            return
+            ;;
+    esac
+    case "$sockpath" in
+        */.colima/*|*/.lima/*|*/.docker/*)
+            printf '%s\n' "/var/run/docker.sock"
+            return
+            ;;
+    esac
+
+    # 原生 Linux（root 或 rootless）：daemon 在宿主机，context 里的 socket 路径可直接挂载。
+    if [ -S "$sockpath" ]; then
+        printf '%s\n' "$sockpath"
+        return
+    fi
+    if [ -S "/var/run/docker.sock" ]; then
+        printf '%s\n' "/var/run/docker.sock"
+        return
+    fi
+    if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/docker.sock" ]; then
+        printf '%s\n' "$XDG_RUNTIME_DIR/docker.sock"
+        return
+    fi
+    # 未检测到本地 socket（例如远程 DOCKER_HOST）。不输出，由调用方给出告警。
+}
+
+skillspector_source_valid() {
+    local path="$1"
+    [ -d "$path" ] && [ -f "$path/pyproject.toml" ] && [ -d "$path/src" ]
+}
+
+clone_skillspector() {
+    local dest="$1"
+    check_command git || exit 1
+    if [ -d "$dest" ]; then
+        rm -rf "$dest"
+    fi
+    mkdir -p "$(dirname "$dest")"
+    log_info "克隆 SkillSpector: $SKILLSPECTOR_REPO_URL -> $dest"
+    git clone --depth 1 "$SKILLSPECTOR_REPO_URL" "$dest"
+}
+
+ensure_skillspector_source() {
+    local deploy_env="$1"
+    local configured_path="${SKILLSPECTOR_SOURCE_PATH:-$(read_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH")}"
+
+    if [ -n "$configured_path" ]; then
+        local resolved_path
+        case "$configured_path" in
+            /*) resolved_path="$configured_path" ;;
+            *)  resolved_path="$SCRIPT_DIR/$configured_path" ;;
+        esac
+        if skillspector_source_valid "$resolved_path"; then
+            set_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH" "$configured_path"
+            log_success "SkillSpector 源码: $configured_path"
+            return
+        fi
+        log_warning "配置的 SkillSpector 路径无效（缺少 pyproject.toml 或 src/）: $resolved_path"
+    fi
+
+    if ! skillspector_source_valid "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"; then
+        clone_skillspector "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
+    fi
+
+    set_env_value "$deploy_env" "SKILLSPECTOR_SOURCE_PATH" "../.deps/SkillSpector"
+    log_success "SkillSpector 源码: ../.deps/SkillSpector"
+}
+
+warn_if_port_busy() {
+    local name="$1"
+    local port="$2"
+    if [ -z "$port" ]; then
+        return
+    fi
+    if ! command -v lsof >/dev/null 2>&1; then
+        return
+    fi
+    if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+        log_warning "$name 端口 $port 已被监听；如果不是现有 JoySafeter 容器，启动可能失败"
+    fi
+}
+
+check_local_ports() {
+    local deploy_env="$1"
+    warn_if_port_busy "Frontend" "$(read_env_value "$deploy_env" "FRONTEND_PORT_HOST")"
+    warn_if_port_busy "Backend API" "$(read_env_value "$deploy_env" "BACKEND_PORT_HOST")"
+    warn_if_port_busy "PostgreSQL" "$(read_env_value "$deploy_env" "POSTGRES_PORT_HOST")"
+    warn_if_port_busy "Redis" "$(read_env_value "$deploy_env" "REDIS_PORT_HOST")"
+    warn_if_port_busy "Rust orchestrator gRPC" "$(read_env_value "$deploy_env" "JOYSAFETER_GRPC_PORT_HOST")"
+}
+
+warn_if_sandbox_runtime_image_missing() {
+    local deploy_env="$1"
+    local sandbox_image="${JOYSAFETER_SANDBOX_IMAGE:-$(read_env_value "$deploy_env" "JOYSAFETER_SANDBOX_IMAGE")}"
+    sandbox_image="${sandbox_image:-joysafeter-claudecode:latest}"
+
+    if docker image inspect "$sandbox_image" >/dev/null 2>&1; then
+        log_success "Sandbox runtime image: $sandbox_image"
+        return
+    fi
+
+    log_warning "Sandbox runtime image missing: $sandbox_image; agent task execution will fail until it is built/pulled"
+    log_warning "Build it with: ./deploy.sh build --claudecode-only --arch $(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+}
+
+validate_local_compose_config() {
+    (
+        cd "$SCRIPT_DIR"
+        DOCKER_DEFAULT_PLATFORM="$PLATFORMS" \
+        BASE_IMAGE_REGISTRY="$BASE_IMAGE_REGISTRY" \
+        RUST_IMAGE="$RUST_IMAGE" \
+        RUNTIME_IMAGE="$RUNTIME_IMAGE" \
+        compose --profile local-redis --profile rust-orchestrator config >/dev/null
+    )
+    log_success "Compose 配置预检通过"
+}
+
+compose_local_env() {
+    DOCKER_DEFAULT_PLATFORM="$PLATFORMS" \
+    BASE_IMAGE_REGISTRY="$BASE_IMAGE_REGISTRY" \
+    RUST_IMAGE="$RUST_IMAGE" \
+    RUNTIME_IMAGE="$RUNTIME_IMAGE" \
+    COMPOSE_BAKE="${COMPOSE_BAKE:-false}" \
+    compose "$@"
+}
+
+sync_local_core_image_env() {
+    local deploy_env="$1"
+    local normalized_registry
+    normalized_registry="$(normalize_registry "$REGISTRY")"
+
+    if [ -n "$normalized_registry" ]; then
+        set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "${normalized_registry}/${BACKEND_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "${normalized_registry}/${FRONTEND_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "${normalized_registry}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "${normalized_registry}/${SKILLSPECTOR_IMAGE}:${TAG}"
+    else
+        set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "${BACKEND_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "${FRONTEND_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "${SKILLSPECTOR_IMAGE}:${TAG}"
+    fi
+}
+
+build_local_compose_images() {
+    local deploy_env="$SCRIPT_DIR/.env"
+
+    log_info "构建本地 Compose 核心服务镜像..."
+    (
+        PUSH=false
+        BACKEND_ONLY=false
+        FRONTEND_ONLY=false
+        ORCHESTRATOR_ONLY=false
+        SKILLSPECTOR_ONLY=false
+        RUNTIME_ONLY=false
+        CLAUDECODE_ONLY=false
+        CODEX_ONLY=false
+        NATIVE_ONLY=false
+        BUILD_ALL=false
+        BUILD_BACKEND=true
+        BUILD_FRONTEND=true
+        BUILD_ORCHESTRATOR=true
+        BUILD_SKILLSPECTOR=true
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+        BUILD_NATIVE=false
+        build_all_images
+    )
+
+    sync_local_core_image_env "$deploy_env"
+}
+
+wait_for_local_redis() {
+    local timeout_seconds="${LOCAL_REDIS_READY_TIMEOUT_SECONDS:-60}"
+    local elapsed=0
+
+    log_info "等待本地 Redis 就绪..."
+    while [ "$elapsed" -lt "$timeout_seconds" ]; do
+        if compose_local_env --profile local-redis --profile rust-orchestrator exec -T redis redis-cli ping 2>/dev/null | grep -q '^PONG$'; then
+            log_success "本地 Redis 已就绪"
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    log_error "本地 Redis 在 ${timeout_seconds}s 内未就绪；请检查 docker compose logs redis"
+    exit 1
+}
+
+run_local_migrations() {
+    (
+        cd "$SCRIPT_DIR"
+        log_info "启动数据库、Redis、SkillSpector 基础服务..."
+        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build postgres redis skillspector
+
+        wait_for_local_redis
+
+        log_info "运行数据库迁移..."
+        compose_local_env --profile local-redis --profile rust-orchestrator --profile init run --rm db-init
+    )
+    log_success "数据库迁移完成"
+}
+
+require_single_platform() {
+    if echo "$PLATFORMS" | grep -q ","; then
+        log_error "本地 Compose 部署一次只能使用单一平台；请使用 --arch amd64 或 --arch arm64"
+        exit 1
+    fi
+}
+
+configure_local_compose_env() {
+    local deploy_env="$SCRIPT_DIR/.env"
+
+    ensure_env_file "$deploy_env" "$SCRIPT_DIR/.env.example"
+    ensure_env_file "$PROJECT_ROOT/backend/.env" "$PROJECT_ROOT/backend/env.example"
+    ensure_env_file "$PROJECT_ROOT/frontend/.env" "$PROJECT_ROOT/frontend/env.example"
+
+    ensure_vault_encryption_key "$deploy_env" "$PROJECT_ROOT/backend/.env"
+
+    set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$BASE_IMAGE_REGISTRY"
+    set_env_value "$deploy_env" "RUST_IMAGE" "$RUST_IMAGE"
+    set_env_value "$deploy_env" "RUNTIME_IMAGE" "$RUNTIME_IMAGE"
+    set_env_value "$deploy_env" "DB_IMAGE" "${DB_IMAGE:-${BASE_IMAGE_REGISTRY}postgres:15}"
+    set_env_value "$deploy_env" "REDIS_IMAGE" "${REDIS_IMAGE:-${BASE_IMAGE_REGISTRY}redis:alpine3.22}"
+    set_env_value "$deploy_env" "JOYSAFETER_ENVOY_IMAGE" "${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR}/envoyproxy/envoy:v1.37.1}"
+    set_env_value "$deploy_env" "DOCKER_DEFAULT_PLATFORM" "$PLATFORMS"
+
+    ensure_skillspector_source "$deploy_env"
+
+    # detect_docker_socket_path 返回的是“容器内挂载源”，即 daemon 侧路径。VM 型运行时
+    # 会返回虚拟机内的 /var/run/docker.sock，它在宿主机上并不存在，所以这里不能再用
+    # 宿主机 `[ -S ... ]` 去校验（那正是旧代码在 Colima/Docker Desktop 上失败的原因）。
+    local docker_socket="${DOCKER_SOCKET_PATH:-$(detect_docker_socket_path)}"
+    if [ -n "$docker_socket" ]; then
+        set_env_value "$deploy_env" "DOCKER_SOCKET_PATH" "$docker_socket"
+        log_success "Docker socket (容器内挂载源): $docker_socket"
+    else
+        log_warning "未能自动定位 Docker socket；如 orchestrator-rs 无法创建 sandbox，请设置 deploy/.env 的 DOCKER_SOCKET_PATH"
+    fi
+}
+
+run_local_compose() {
+    require_single_platform
+    configure_local_compose_env
+    check_local_ports "$SCRIPT_DIR/.env"
+    warn_if_sandbox_runtime_image_missing "$SCRIPT_DIR/.env"
+    validate_local_compose_config
+
+    log_info "Docker daemon 平台: $PLATFORMS"
+    log_info "基础镜像源: $BASE_IMAGE_REGISTRY"
+    log_info "第三方镜像代理: $DOCKER_MIRROR"
+
+    build_local_compose_images
+    run_local_migrations
+
+    (
+        cd "$SCRIPT_DIR"
+        log_info "启动本地 Compose 服务..."
+        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
+    )
+}
+
+run_local_doctor() {
+    require_single_platform
+    configure_local_compose_env
+    check_local_ports "$SCRIPT_DIR/.env"
+    warn_if_sandbox_runtime_image_missing "$SCRIPT_DIR/.env"
+    validate_local_compose_config
+
+    log_success "本地部署环境预检完成"
+    echo ""
+    echo "下一步:"
+    echo "  cd deploy"
+    echo "  ./deploy.sh local"
+}
+
+# ---- 生命周期管理命令 ----
+# 统一在 SCRIPT_DIR 下、带本地部署的 profile 集合执行 compose 子命令，
+# 保证 down/logs/restart/status 覆盖 redis 与 rust-orchestrator 等 profile 服务，
+# 并复用与 local 一致的 env（deploy/.env + LOCAL_* 镜像变量）。
+compose_lifecycle() {
+    (
+        cd "$SCRIPT_DIR"
+        compose_local_env --profile local-redis --profile rust-orchestrator "$@"
+    )
+}
+
+run_down() {
+    log_info "停止并移除 JoySafeter 本地 Compose 服务（保留数据卷）..."
+    compose_lifecycle down "$@"
+    log_success "服务已停止；命名数据卷已保留。如需连数据一起清除，请手动执行：cd deploy && docker compose down -v"
+}
+
+run_logs() {
+    if [ "$#" -gt 0 ]; then
+        log_info "跟随服务日志: $*（Ctrl-C 退出）"
+    else
+        log_info "跟随全部服务日志（Ctrl-C 退出）"
+    fi
+    compose_lifecycle logs -f "$@"
+}
+
+run_restart() {
+    if [ "$#" -gt 0 ]; then
+        log_info "重启服务: $*"
+    else
+        log_info "重启全部 JoySafeter 本地 Compose 服务..."
+    fi
+    compose_lifecycle restart "$@"
+    log_success "服务已重启"
+}
+
+run_status() {
+    compose_lifecycle ps "$@"
+}
+
 # 初始化 Docker Buildx
 init_buildx() {
     if [ "$USE_BUILDX" = true ]; then
         log_info "检查 Docker Buildx..."
 
         if ! docker buildx version &> /dev/null; then
-            log_warning "Docker Buildx 不可用，回退到传统构建方式"
+            log_warning "Docker Buildx 不可用，回退到传统构建方式（SkillSpector 等需要 Buildx 的镜像将无法构建）"
+            suggest_buildx_install
             USE_BUILDX=false
             return
         fi
@@ -274,6 +945,8 @@ build_image() {
     local dockerfile=$2
     local context=$3
     local image_name=$4
+    shift 4
+    local extra_build_args=("$@")
 
     log_info "构建 $service 镜像: $image_name"
     log_info "目标平台: $PLATFORMS"
@@ -295,13 +968,8 @@ build_image() {
         build_args+=("--build-arg" "UV_INDEX_URL=$UV_INDEX_URL")
     fi
 
-    # 前端镜像需要传递 NEXT_PUBLIC_API_URL
+    # 前端镜像：NEXT_PUBLIC_* 通过 next-runtime-env 在容器启动时注入，无需 build-arg
     if [ "$service" = "前端" ]; then
-        if [ -n "$FRONTEND_API_URL" ]; then
-            build_args+=("--build-arg" "NEXT_PUBLIC_API_URL=$FRONTEND_API_URL")
-            log_info "前端API地址: $FRONTEND_API_URL"
-        fi
-
         # 使用标准多架构 Node 镜像
         local node_version="20-alpine"
         build_args+=("--build-arg" "NODE_VERSION=${node_version}")
@@ -313,6 +981,15 @@ build_image() {
         local python_version="3.12-slim-bookworm"
         build_args+=("--build-arg" "PYTHON_VERSION=${python_version}")
         log_info "后端使用 Python 版本: ${python_version}"
+        build_args+=("--build-arg" "GIT_COMMIT_SHA=${GIT_COMMIT_SHA}")
+        log_info "后端构建溯源 GIT_COMMIT_SHA: ${GIT_COMMIT_SHA}"
+    fi
+
+    if [ "$service" = "Rust Orchestrator" ]; then
+        build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
+        build_args+=("--build-arg" "RUNTIME_IMAGE=${RUNTIME_IMAGE}")
+        log_info "Rust builder 镜像: ${RUST_IMAGE}"
+        log_info "Rust runtime 镜像: ${RUNTIME_IMAGE}"
     fi
 
     # 推送前再次检查 BuildKit 容器 DNS 连通性
@@ -374,6 +1051,7 @@ build_image() {
             --file "$dockerfile" \
             --tag "$image_name" \
             "${buildx_args[@]}" \
+            "${extra_build_args[@]}" \
             --push \
             "$context"
     elif [ "$USE_BUILDX" = true ]; then
@@ -394,6 +1072,7 @@ build_image() {
                 --file "$dockerfile" \
                 --tag "$image_name" \
                 "${buildx_args[@]}" \
+                "${extra_build_args[@]}" \
                 --load \
                 "$context"
         else
@@ -402,6 +1081,7 @@ build_image() {
                 --file "$dockerfile" \
                 --tag "$image_name" \
                 "${buildx_args[@]}" \
+                "${extra_build_args[@]}" \
                 --load \
                 "$context"
         fi
@@ -419,11 +1099,50 @@ build_image() {
             --platform "$PLATFORMS" \
             -f "$dockerfile" \
             "${build_args_final[@]}" \
+            "${extra_build_args[@]}" \
             -t "$image_name" \
             "$context"
     fi
 
     log_success "$service 镜像构建完成: $image_name"
+}
+
+resolve_skillspector_source_path() {
+    local configured="${SKILLSPECTOR_SOURCE_PATH:-}"
+    if [ -z "$configured" ] && [ -f "$SCRIPT_DIR/.env" ]; then
+        configured="$(read_env_value "$SCRIPT_DIR/.env" "SKILLSPECTOR_SOURCE_PATH")"
+    fi
+
+    if [ -n "$configured" ]; then
+        if [[ "$configured" = /* ]]; then
+            echo "$configured"
+        elif [ -d "$SCRIPT_DIR/$configured" ]; then
+            (cd "$SCRIPT_DIR" && cd "$configured" && pwd)
+        else
+            (cd "$PROJECT_ROOT" && cd "$configured" 2>/dev/null && pwd) || echo "$SCRIPT_DIR/$configured"
+        fi
+        return
+    fi
+
+    echo "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
+}
+
+ensure_skillspector_source_for_build() {
+    local source_path
+    source_path="$(resolve_skillspector_source_path)"
+
+    if skillspector_source_valid "$source_path"; then
+        echo "$source_path"
+        return
+    fi
+
+    if [ -n "${SKILLSPECTOR_SOURCE_PATH:-}" ]; then
+        log_error "SkillSpector 源码路径无效（缺少 pyproject.toml 或 src/）: $source_path"
+        exit 1
+    fi
+
+    clone_skillspector "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
+    echo "$DEFAULT_SKILLSPECTOR_SOURCE_PATH"
 }
 
 runtime_dockerfile_for() {
@@ -434,6 +1153,8 @@ runtime_dockerfile_for() {
         claudecode:linux/arm64) echo "$SCRIPT_DIR/docker/claudecode-arm64.Dockerfile" ;;
         codex:linux/amd64) echo "$SCRIPT_DIR/docker/codex-amd64.Dockerfile" ;;
         codex:linux/arm64) echo "$SCRIPT_DIR/docker/codex-arm64.Dockerfile" ;;
+        native:linux/amd64) echo "$SCRIPT_DIR/docker/native-amd64.Dockerfile" ;;
+        native:linux/arm64) echo "$SCRIPT_DIR/docker/native-arm64.Dockerfile" ;;
         *)
             log_error "未找到 $engine 在 $platform 的 Dockerfile"
             exit 1
@@ -483,7 +1204,7 @@ ensure_runtime_runner_binary() {
         --platform "$platform" \
         -v "$PROJECT_ROOT:/workspace" \
         -w /workspace/sandbox-runner \
-        "$RUST_BUILDER_IMAGE" \
+        "$RUST_IMAGE" \
         bash -lc "export PATH=/usr/local/cargo/bin:\$PATH && apt-get update && apt-get install -y --no-install-recommends protobuf-compiler pkg-config && if command -v rustup >/dev/null 2>&1; then rustup target add $target; fi && cargo build --release --target $target -p joysafeter-runner && mkdir -p /workspace/target/$target/release && cp target/$target/release/joysafeter-runner /workspace/target/$target/release/joysafeter-runner"
     chmod +x "$output"
     log_success "runner 二进制编译完成: $output"
@@ -514,40 +1235,87 @@ build_runtime_image() {
 build_all_images() {
     local BUILD_BACKEND=${BUILD_BACKEND:-true}
     local BUILD_FRONTEND=${BUILD_FRONTEND:-true}
+    local BUILD_ORCHESTRATOR=${BUILD_ORCHESTRATOR:-true}
+    local BUILD_SKILLSPECTOR=${BUILD_SKILLSPECTOR:-true}
     local BUILD_CLAUDECODE=${BUILD_CLAUDECODE:-false}
     local BUILD_CODEX=${BUILD_CODEX:-false}
+    local BUILD_NATIVE=${BUILD_NATIVE:-false}
     # 检查是否只构建特定服务
     if [ "$BACKEND_ONLY" = true ]; then
         BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
+        BUILD_NATIVE=false
     elif [ "$FRONTEND_ONLY" = true ]; then
         BUILD_BACKEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
+        BUILD_NATIVE=false
+    elif [ "$ORCHESTRATOR_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=true
+        BUILD_SKILLSPECTOR=false
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+        BUILD_NATIVE=false
+    elif [ "$SKILLSPECTOR_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=true
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+        BUILD_NATIVE=false
     elif [ "$RUNTIME_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
+        BUILD_NATIVE=true
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=false
+        BUILD_NATIVE=false
     elif [ "$CODEX_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=true
+        BUILD_NATIVE=false
+    elif [ "$NATIVE_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+        BUILD_NATIVE=true
     elif [ "$INIT_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
     elif [ "$BUILD_ALL" = true ]; then
         BUILD_BACKEND=true
         BUILD_FRONTEND=true
+        BUILD_ORCHESTRATOR=true
+        BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
+        BUILD_NATIVE=true
     fi
 
     # 规范化镜像仓库地址
@@ -557,13 +1325,30 @@ build_all_images() {
     if [ -n "$NORMALIZED_REGISTRY" ]; then
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
+        ORCHESTRATOR_RS_FULL_IMAGE="${NORMALIZED_REGISTRY}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        SKILLSPECTOR_FULL_IMAGE="${NORMALIZED_REGISTRY}/${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
+        NATIVE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${NATIVE_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
+        ORCHESTRATOR_RS_FULL_IMAGE="${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        SKILLSPECTOR_FULL_IMAGE="${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
+        NATIVE_FULL_IMAGE="${NATIVE_IMAGE}:${TAG}"
+    fi
+
+    if [ "$BUILD_CLAUDECODE" = true ] || [ "$BUILD_CODEX" = true ] || [ "$BUILD_NATIVE" = true ]; then
+        if echo "$PLATFORMS" | grep -q ","; then
+            if [ "$PUSH" = true ]; then
+                log_error "agent runtime 镜像暂不支持多架构 push；请分别使用 --arch amd64 / --arch arm64 构建发布，避免核心镜像先推送后才失败"
+            else
+                log_error "agent runtime 镜像本地构建一次只支持单架构；请指定 --arch amd64 或 --arch arm64"
+            fi
+            exit 1
+        fi
     fi
 
     # 初始化 Buildx（如果需要）
@@ -596,6 +1381,30 @@ build_all_images() {
         echo ""
     fi
 
+    if [ "$BUILD_ORCHESTRATOR" = true ]; then
+        build_image "Rust Orchestrator" \
+            "$SCRIPT_DIR/docker/orchestrator-rs.Dockerfile" \
+            "$PROJECT_ROOT" \
+            "$ORCHESTRATOR_RS_FULL_IMAGE"
+        echo ""
+    fi
+
+    if [ "$BUILD_SKILLSPECTOR" = true ]; then
+        if [ "$USE_BUILDX" != true ]; then
+            log_error "SkillSpector 镜像构建需要 Docker Buildx，以传入 skillspector named build context"
+            suggest_buildx_install
+            exit 1
+        fi
+        local skillspector_source_path
+        skillspector_source_path="$(ensure_skillspector_source_for_build)"
+        build_image "SkillSpector" \
+            "$SCRIPT_DIR/docker/skillspector-service.Dockerfile" \
+            "$PROJECT_ROOT/backend/joysafeter_skillspector" \
+            "$SKILLSPECTOR_FULL_IMAGE" \
+            "--build-context" "skillspector=$skillspector_source_path"
+        echo ""
+    fi
+
     if [ "$BUILD_CLAUDECODE" = true ]; then
         build_runtime_image "Claude Code 运行镜像" "claudecode" "$CLAUDECODE_FULL_IMAGE"
         echo ""
@@ -606,14 +1415,22 @@ build_all_images() {
         echo ""
     fi
 
+    if [ "$BUILD_NATIVE" = true ]; then
+        build_runtime_image "Native 运行镜像" "native" "$NATIVE_FULL_IMAGE"
+        echo ""
+    fi
+
 
     log_success "所有镜像构建完成！"
     echo ""
     echo "📦 镜像信息:"
     [ "$BUILD_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$BUILD_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
+    [ "$BUILD_ORCHESTRATOR" = true ] && echo "   Rust Orchestrator: $ORCHESTRATOR_RS_FULL_IMAGE"
+    [ "$BUILD_SKILLSPECTOR" = true ] && echo "   SkillSpector: $SKILLSPECTOR_FULL_IMAGE"
     [ "$BUILD_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$BUILD_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
+    [ "$BUILD_NATIVE" = true ] && echo "   Native 运行镜像: $NATIVE_FULL_IMAGE"
     echo ""
     echo "🏗️  构建平台: $PLATFORMS"
     echo ""
@@ -626,41 +1443,133 @@ build_all_images() {
             log_warning "注意：多架构构建需要 push 命令才能保存所有架构的镜像"
         fi
     fi
+
+    return 0
 }
 
 # 拉取镜像
 pull_images() {
     local NORMALIZED_REGISTRY=$(normalize_registry "$REGISTRY")
+    local PULL_BACKEND=true
+    local PULL_FRONTEND=true
+    local PULL_ORCHESTRATOR=true
+    local PULL_SKILLSPECTOR=true
+    local PULL_CLAUDECODE=false
+    local PULL_CODEX=false
+    local PULL_NATIVE=false
+
+    if [ "$BACKEND_ONLY" = true ]; then
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_SKILLSPECTOR=false
+    elif [ "$FRONTEND_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_SKILLSPECTOR=false
+    elif [ "$ORCHESTRATOR_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_SKILLSPECTOR=false
+    elif [ "$SKILLSPECTOR_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+    elif [ "$RUNTIME_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_SKILLSPECTOR=false
+        PULL_CLAUDECODE=true
+        PULL_CODEX=true
+        PULL_NATIVE=true
+    elif [ "$CLAUDECODE_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_SKILLSPECTOR=false
+        PULL_CLAUDECODE=true
+    elif [ "$CODEX_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_SKILLSPECTOR=false
+        PULL_CODEX=true
+    elif [ "$NATIVE_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_SKILLSPECTOR=false
+        PULL_NATIVE=true
+    elif [ "$BUILD_ALL" = true ]; then
+        PULL_CLAUDECODE=true
+        PULL_CODEX=true
+        PULL_NATIVE=true
+    fi
 
     if [ -n "$NORMALIZED_REGISTRY" ]; then
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
+        ORCHESTRATOR_RS_FULL_IMAGE="${NORMALIZED_REGISTRY}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        SKILLSPECTOR_FULL_IMAGE="${NORMALIZED_REGISTRY}/${SKILLSPECTOR_IMAGE}:${TAG}"
+        CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
+        CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
+        NATIVE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${NATIVE_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
+        ORCHESTRATOR_RS_FULL_IMAGE="${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        SKILLSPECTOR_FULL_IMAGE="${SKILLSPECTOR_IMAGE}:${TAG}"
+        CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
+        CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
+        NATIVE_FULL_IMAGE="${NATIVE_IMAGE}:${TAG}"
     fi
 
-    log_info "拉取后端镜像: $BACKEND_FULL_IMAGE"
-    if docker pull "$BACKEND_FULL_IMAGE"; then
-        log_success "后端镜像拉取成功"
-    else
-        log_error "后端镜像拉取失败"
-        exit 1
-    fi
+    pull_one_image() {
+        local label="$1"
+        local image="$2"
+        log_info "拉取${label}镜像: $image"
+        if docker pull "$image"; then
+            log_success "${label}镜像拉取成功"
+        else
+            log_error "${label}镜像拉取失败"
+            exit 1
+        fi
+    }
 
-    log_info "拉取前端镜像: $FRONTEND_FULL_IMAGE"
-    if docker pull "$FRONTEND_FULL_IMAGE"; then
-        log_success "前端镜像拉取成功"
-    else
-        log_error "前端镜像拉取失败"
-        exit 1
+    [ "$PULL_BACKEND" = true ] && pull_one_image "后端" "$BACKEND_FULL_IMAGE"
+    [ "$PULL_FRONTEND" = true ] && pull_one_image "前端" "$FRONTEND_FULL_IMAGE"
+    [ "$PULL_ORCHESTRATOR" = true ] && pull_one_image "Rust Orchestrator" "$ORCHESTRATOR_RS_FULL_IMAGE"
+    [ "$PULL_SKILLSPECTOR" = true ] && pull_one_image "SkillSpector" "$SKILLSPECTOR_FULL_IMAGE"
+    [ "$PULL_CLAUDECODE" = true ] && pull_one_image "Claude Code 运行" "$CLAUDECODE_FULL_IMAGE"
+    [ "$PULL_CODEX" = true ] && pull_one_image "Codex 运行" "$CODEX_FULL_IMAGE"
+    [ "$PULL_NATIVE" = true ] && pull_one_image "Native 运行" "$NATIVE_FULL_IMAGE"
+
+    local deploy_env="$SCRIPT_DIR/.env"
+    ensure_env_file "$deploy_env" "$SCRIPT_DIR/.env.example"
+    [ "$PULL_BACKEND" = true ] && set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "$BACKEND_FULL_IMAGE"
+    [ "$PULL_FRONTEND" = true ] && set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "$FRONTEND_FULL_IMAGE"
+    [ "$PULL_ORCHESTRATOR" = true ] && set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "$ORCHESTRATOR_RS_FULL_IMAGE"
+    [ "$PULL_SKILLSPECTOR" = true ] && set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "$SKILLSPECTOR_FULL_IMAGE"
+    if [ "$PULL_CLAUDECODE" = true ]; then
+        set_env_value "$deploy_env" "JOYSAFETER_SANDBOX_IMAGE" "$CLAUDECODE_FULL_IMAGE"
+        set_env_value "$deploy_env" "JOYSAFETER_IMAGE_CLAUDE" "$CLAUDECODE_FULL_IMAGE"
     fi
+    [ "$PULL_CODEX" = true ] && set_env_value "$deploy_env" "JOYSAFETER_IMAGE_CODEX" "$CODEX_FULL_IMAGE"
+    [ "$PULL_NATIVE" = true ] && set_env_value "$deploy_env" "JOYSAFETER_IMAGE_NATIVE" "$NATIVE_FULL_IMAGE"
 
     log_success "所有镜像拉取完成！"
+    log_info "已同步 deploy/.env 中的镜像变量，后续 compose up --no-build 会使用本次拉取的镜像"
     echo ""
     echo "📦 镜像信息:"
-    echo "   后端: $BACKEND_FULL_IMAGE"
-    echo "   前端: $FRONTEND_FULL_IMAGE"
+    [ "$PULL_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
+    [ "$PULL_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
+    [ "$PULL_ORCHESTRATOR" = true ] && echo "   Rust Orchestrator: $ORCHESTRATOR_RS_FULL_IMAGE"
+    [ "$PULL_SKILLSPECTOR" = true ] && echo "   SkillSpector: $SKILLSPECTOR_FULL_IMAGE"
+    [ "$PULL_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
+    [ "$PULL_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
+    [ "$PULL_NATIVE" = true ] && echo "   Native 运行镜像: $NATIVE_FULL_IMAGE"
+
+    return 0
 }
 
 # 主函数
@@ -669,11 +1578,15 @@ main() {
     local PUSH=false
     local BACKEND_ONLY=false
     local FRONTEND_ONLY=false
+    local ORCHESTRATOR_ONLY=false
+    local SKILLSPECTOR_ONLY=false
     local RUNTIME_ONLY=false
     local CLAUDECODE_ONLY=false
     local CODEX_ONLY=false
+    local NATIVE_ONLY=false
     local BUILD_ALL=false
     local ARCH_LIST_STR=""
+    local SERVICE_ARGS=()
 
     # 解析参数
     while [[ $# -gt 0 ]]; do
@@ -704,27 +1617,35 @@ main() {
                 shift 2
                 ;;
             --api-url)
-                FRONTEND_API_URL="$2"
+                # 已废弃：NEXT_PUBLIC_* 通过 next-runtime-env 运行时注入，不再需要 build-arg
+                log_info "警告: --api-url 已废弃，NEXT_PUBLIC_API_URL 现在通过容器环境变量运行时注入"
                 shift 2
                 ;;
             --mirror)
                 case "$2" in
                     aliyun)
                         BASE_IMAGE_REGISTRY="registry.cn-hangzhou.aliyuncs.com/library/"
+                        DOCKER_MIRROR="registry.cn-hangzhou.aliyuncs.com"
                         ;;
                     tencent)
                         BASE_IMAGE_REGISTRY="ccr.ccs.tencentyun.com/library/"
+                        DOCKER_MIRROR="ccr.ccs.tencentyun.com"
                         ;;
                     huawei)
                         BASE_IMAGE_REGISTRY="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
+                        DOCKER_MIRROR="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io"
                         ;;
-                    docker-cn)
-                        BASE_IMAGE_REGISTRY="docker.mirrors.ustc.edu.cn/library/"
+                    daocloud)
+                        BASE_IMAGE_REGISTRY="docker.m.daocloud.io/library/"
+                        DOCKER_MIRROR="docker.m.daocloud.io"
                         ;;
                     *)
                         BASE_IMAGE_REGISTRY="$2"
+                        DOCKER_MIRROR="${2%/}"
                         ;;
                 esac
+                RUST_IMAGE="${BASE_IMAGE_REGISTRY}rust:1-bookworm"
+                RUNTIME_IMAGE="${BASE_IMAGE_REGISTRY}debian:bookworm-slim"
                 shift 2
                 ;;
             --pip-mirror)
@@ -760,6 +1681,14 @@ main() {
                 FRONTEND_ONLY=true
                 shift
                 ;;
+            --orchestrator-only)
+                ORCHESTRATOR_ONLY=true
+                shift
+                ;;
+            --skillspector-only)
+                SKILLSPECTOR_ONLY=true
+                shift
+                ;;
             --runtime-only)
                 RUNTIME_ONLY=true
                 shift
@@ -772,6 +1701,10 @@ main() {
                 CODEX_ONLY=true
                 shift
                 ;;
+            --native-only)
+                NATIVE_ONLY=true
+                shift
+                ;;
             --all)
                 BUILD_ALL=true
                 shift
@@ -780,14 +1713,25 @@ main() {
                 NO_CACHE=true
                 shift
                 ;;
-            build|push|pull)
+            doctor|local|build|push|pull|down|logs|restart|status)
                 COMMAND="$1"
                 shift
                 ;;
             *)
-                log_error "未知选项: $1"
-                show_usage
-                exit 1
+                # 生命周期命令（down/logs/restart/status）后面可跟服务名或原生
+                # compose 选项（如 --tail=100），原样透传给 docker compose。
+                # COMMAND 为空（尚未识别命令）时落入下方 *)，保持未知选项报错。
+                case "$COMMAND" in
+                    down|logs|restart|status)
+                        SERVICE_ARGS+=("$1")
+                        shift
+                        ;;
+                    *)
+                        log_error "未知选项: $1"
+                        show_usage
+                        exit 1
+                        ;;
+                esac
                 ;;
         esac
     done
@@ -798,8 +1742,8 @@ main() {
             PLATFORMS="$DEFAULT_PLATFORMS"
             log_info "未指定架构，推送模式默认使用多架构: $PLATFORMS"
         else
-            PLATFORMS=$(get_host_platform)
-            log_info "自动检测主机架构: $PLATFORMS"
+            PLATFORMS=$(get_docker_platform)
+            log_info "自动检测 Docker 架构: $PLATFORMS"
         fi
     elif [ -z "$PLATFORMS" ]; then
         PLATFORMS="${BUILD_PLATFORMS:-$DEFAULT_PLATFORMS}"
@@ -845,12 +1789,30 @@ main() {
         (build)
             build_all_images
             ;;
+        (doctor)
+            run_local_doctor
+            ;;
+        (local)
+            run_local_compose
+            ;;
         (push)
             PUSH=true
             build_all_images
             ;;
         (pull)
             pull_images
+            ;;
+        (down)
+            run_down "${SERVICE_ARGS[@]}"
+            ;;
+        (logs)
+            run_logs "${SERVICE_ARGS[@]}"
+            ;;
+        (restart)
+            run_restart "${SERVICE_ARGS[@]}"
+            ;;
+        (status)
+            run_status "${SERVICE_ARGS[@]}"
             ;;
         (*)
             log_error "未知命令: $COMMAND"

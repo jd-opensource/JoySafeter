@@ -3,6 +3,7 @@ mod archive;
 mod memory_fuse;
 mod repos;
 mod runner;
+mod sandbox_files;
 mod stream;
 
 pub mod proto {
@@ -10,10 +11,10 @@ pub mod proto {
 }
 
 use proto::agent_bridge_client::AgentBridgeClient;
-use proto::{RunnerHeartbeat, RunnerIdle, RunnerMessage};
+use proto::{RunnerHarnessResult, RunnerHeartbeat, RunnerIdle, RunnerMessage};
 
 use joysafeter_runtime::AdapterRegistry;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -22,7 +23,7 @@ use tonic::Streaming;
 use tracing::{error, info, warn};
 
 const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
-const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
+const GRPC_MAX_SEND_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
 
 enum ConnectionResult {
     Shutdown,
@@ -31,13 +32,60 @@ enum ConnectionResult {
 
 struct SurvivingTask {
     task_id: String,
+    session_id: Option<String>,
+    work_dir: Option<String>,
     handle: JoinHandle<Result<runner::TaskMetadata, Box<dyn std::error::Error + Send + Sync>>>,
     cancel_tx: Option<oneshot::Sender<()>>,
+    control_tx: mpsc::Sender<runner::RunnerControl>,
     /// Channel where the runner sends events — outlives the gRPC connection.
     /// Events accumulate here when no forwarder is draining them.
     event_rx: mpsc::Receiver<RunnerMessage>,
     /// Event that was consumed from event_rx but failed to send to gRPC.
     unsent_event: Option<RunnerMessage>,
+}
+
+#[derive(Clone, Default)]
+struct HeartbeatRuntimeState {
+    runtime_state: String,
+    active_task_id: Option<String>,
+    session_id: Option<String>,
+}
+
+impl HeartbeatRuntimeState {
+    fn idle() -> Self {
+        Self {
+            runtime_state: "idle".to_string(),
+            active_task_id: None,
+            session_id: None,
+        }
+    }
+
+    fn busy(task_id: String, session_id: Option<String>) -> Self {
+        Self {
+            runtime_state: "busy".to_string(),
+            active_task_id: Some(task_id),
+            session_id,
+        }
+    }
+}
+
+fn set_heartbeat_runtime_state(
+    state: &Arc<Mutex<HeartbeatRuntimeState>>,
+    value: HeartbeatRuntimeState,
+) {
+    match state.lock() {
+        Ok(mut guard) => *guard = value,
+        Err(poisoned) => *poisoned.into_inner() = value,
+    }
+}
+
+fn get_heartbeat_runtime_state(
+    state: &Arc<Mutex<HeartbeatRuntimeState>>,
+) -> HeartbeatRuntimeState {
+    match state.lock() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    }
 }
 
 #[tokio::main]
@@ -51,7 +99,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orch_url = std::env::var("JOYSAFETER_ORCHESTRATOR_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:9090".into());
     let sandbox_id = std::env::var("JOYSAFETER_SANDBOX_ID").unwrap_or_default();
-    let runner_token = std::env::var("JOYSAFETER_RUNNER_TOKEN").ok();
+    // Read the runner token from env or from a file (the entrypoint may have
+    // moved it to a file and unset the env var to prevent leakage via
+    // `docker exec env`).
+    let runner_token = std::env::var("JOYSAFETER_RUNNER_TOKEN").ok().or_else(|| {
+        std::env::var("JOYSAFETER_RUNNER_TOKEN_FILE")
+            .ok()
+            .and_then(|path| {
+                let token = std::fs::read_to_string(&path).ok()?.trim().to_string();
+                // Delete the file after reading — one-shot.
+                let _ = std::fs::remove_file(&path);
+                if token.is_empty() { None } else { Some(token) }
+            })
+    });
 
     // Derive http.sock path from orchestrator URL (e.g. unix:///sockets/{id}/grpc.sock → http.sock)
     let http_sock_path = if orch_url.starts_with("unix://") {
@@ -75,8 +135,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .spawn()
             {
                 Ok(_child) => {
-                    std::env::set_var("HTTP_PROXY", "http://127.0.0.1:3128");
-                    std::env::set_var("HTTPS_PROXY", "http://127.0.0.1:3128");
+                    let proxy = "http://127.0.0.1:3128";
+                    std::env::set_var("HTTP_PROXY", proxy);
+                    std::env::set_var("HTTPS_PROXY", proxy);
+                    std::env::set_var("http_proxy", proxy);
+                    std::env::set_var("https_proxy", proxy);
+                    std::env::set_var("ALL_PROXY", proxy);
+                    std::env::set_var("all_proxy", proxy);
                     info!("socat HTTP proxy bridge started on 127.0.0.1:3128");
                 }
                 Err(e) => {
@@ -182,6 +247,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Connected successfully
         retry_count = 0;
+        if is_first_connect {
+            // Defense-in-depth: scrub the runner token from this process's env.
+            // The entrypoint wrapper already removed it from the container-level
+            // env (preventing `docker exec env` exposure), but this also covers
+            // legacy images that run joysafeter-runner directly as ENTRYPOINT.
+            std::env::remove_var("JOYSAFETER_RUNNER_TOKEN");
+            std::env::remove_var("JOYSAFETER_RUNNER_TOKEN_FILE");
+        }
         is_first_connect = false;
         info!(
             sandbox_id = %sandbox_id,
@@ -298,6 +371,45 @@ async fn drain_event_buffer(
     count
 }
 
+async fn send_setup_failure_result(
+    runner_tx: &mpsc::Sender<RunnerMessage>,
+    error: String,
+    work_dir: Option<String>,
+) -> Result<(), mpsc::error::SendError<RunnerMessage>> {
+    send_failure_result(runner_tx, error, None, work_dir).await
+}
+
+async fn send_task_failure_result(
+    runner_tx: &mpsc::Sender<RunnerMessage>,
+    error: String,
+    session_id: Option<String>,
+    work_dir: Option<String>,
+) -> Result<(), mpsc::error::SendError<RunnerMessage>> {
+    send_failure_result(runner_tx, error, session_id, work_dir).await
+}
+
+async fn send_failure_result(
+    runner_tx: &mpsc::Sender<RunnerMessage>,
+    error: String,
+    session_id: Option<String>,
+    work_dir: Option<String>,
+) -> Result<(), mpsc::error::SendError<RunnerMessage>> {
+    runner_tx
+        .send(RunnerMessage {
+            payload: Some(proto::runner_message::Payload::Result(
+                RunnerHarnessResult {
+                    status: "failed".to_string(),
+                    output: String::new(),
+                    error: Some(error),
+                    session_id,
+                    work_dir,
+                    ..Default::default()
+                },
+            )),
+        })
+        .await
+}
+
 async fn run_session(
     mut inbound: Streaming<proto::OrchestratorMessage>,
     runner_tx: mpsc::Sender<RunnerMessage>,
@@ -306,14 +418,20 @@ async fn run_session(
     session_config: &mut runner::SessionConfig,
     surviving_task: &mut Option<SurvivingTask>,
 ) -> ConnectionResult {
+    let heartbeat_state = Arc::new(Mutex::new(HeartbeatRuntimeState::idle()));
     let heartbeat_tx = runner_tx.clone();
+    let heartbeat_state_for_task = heartbeat_state.clone();
     let heartbeat_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         loop {
             interval.tick().await;
+            let state = get_heartbeat_runtime_state(&heartbeat_state_for_task);
             let hb = RunnerMessage {
                 payload: Some(proto::runner_message::Payload::Heartbeat(RunnerHeartbeat {
                     timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                    runtime_state: state.runtime_state,
+                    active_task_id: state.active_task_id,
+                    session_id: state.session_id,
                 })),
             };
             if heartbeat_tx.send(hb).await.is_err() {
@@ -326,6 +444,10 @@ async fn run_session(
     // through the new gRPC channel until it completes.
     if let Some(mut task) = surviving_task.take() {
         info!(task_id = %task.task_id, "Resuming surviving task on new connection");
+        set_heartbeat_runtime_state(
+            &heartbeat_state,
+            HeartbeatRuntimeState::busy(task.task_id.clone(), task.session_id.clone()),
+        );
 
         let metadata = loop {
             tokio::select! {
@@ -341,17 +463,43 @@ async fn run_session(
                         }
                         Ok(Err(e)) => {
                             error!(error = %e, "Surviving task execution failed");
+                            let error = format!("Task execution failed: {e}");
+                            if let Err(send_err) = send_task_failure_result(
+                                &runner_tx,
+                                error,
+                                task.session_id.clone(),
+                                task.work_dir.clone(),
+                            )
+                            .await
+                            {
+                                error!(error = %send_err, "Failed to send surviving task failure result");
+                                heartbeat_handle.abort();
+                                return ConnectionResult::Disconnected;
+                            }
                             break runner::TaskMetadata {
-                                work_dir: String::new(),
-                                session_id: None,
+                                work_dir: task.work_dir.clone().unwrap_or_default(),
+                                session_id: task.session_id.clone(),
                                 aborted: false,
                             };
                         }
                         Err(e) => {
                             error!(error = %e, "Surviving task join error");
+                            let error = format!("Task join error: {e}");
+                            if let Err(send_err) = send_task_failure_result(
+                                &runner_tx,
+                                error,
+                                task.session_id.clone(),
+                                task.work_dir.clone(),
+                            )
+                            .await
+                            {
+                                error!(error = %send_err, "Failed to send surviving task join failure result");
+                                heartbeat_handle.abort();
+                                return ConnectionResult::Disconnected;
+                            }
                             break runner::TaskMetadata {
-                                work_dir: String::new(),
-                                session_id: None,
+                                work_dir: task.work_dir.clone().unwrap_or_default(),
+                                session_id: task.session_id.clone(),
                                 aborted: false,
                             };
                         }
@@ -378,6 +526,15 @@ async fn run_session(
                                         let _ = tx.send(());
                                     }
                                 }
+                                Some(proto::orchestrator_message::Payload::Input(input)) => {
+                                    if let Err(e) = task
+                                        .control_tx
+                                        .send(runner::RunnerControl::SendInput(input.content))
+                                        .await
+                                    {
+                                        warn!(error = %e, "Failed to forward input to surviving task");
+                                    }
+                                }
                                 Some(proto::orchestrator_message::Payload::Shutdown(shutdown)) => {
                                     info!(reason = %shutdown.reason, "Received Shutdown during surviving task");
                                     if let Some(tx) = task.cancel_tx.take() {
@@ -385,6 +542,14 @@ async fn run_session(
                                     }
                                     heartbeat_handle.abort();
                                     return ConnectionResult::Shutdown;
+                                }
+                                Some(proto::orchestrator_message::Payload::SandboxFileRequest(request)) => {
+                                    let response = sandbox_files::handle_request(request).await;
+                                    let _ = runner_tx
+                                        .send(RunnerMessage {
+                                            payload: Some(proto::runner_message::Payload::SandboxFileResponse(response)),
+                                        })
+                                        .await;
                                 }
                                 _ => {}
                             }
@@ -399,6 +564,7 @@ async fn run_session(
                 }
             }
         };
+        set_heartbeat_runtime_state(&heartbeat_state, HeartbeatRuntimeState::idle());
 
         let idle = RunnerMessage {
             payload: Some(proto::runner_message::Payload::Idle(RunnerIdle {
@@ -442,10 +608,20 @@ async fn run_session(
                 );
 
                 let task_id_str = start_task.task_id.clone();
+                let task_session_id = start_task.session_id.clone();
+                set_heartbeat_runtime_state(
+                    &heartbeat_state,
+                    HeartbeatRuntimeState::busy(task_id_str.clone(), task_session_id.clone()),
+                );
+                let task_work_dir = session_config
+                    .work_dir
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .or_else(|| start_task.work_dir.clone())
+                    .or_else(|| Some("/workspace".to_string()));
                 let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
                 let mut cancel_tx = Some(cancel_tx);
                 let (control_tx, control_rx) = mpsc::channel::<runner::RunnerControl>(64);
-                let control_tx = Some(control_tx);
 
                 // Create an intermediary channel that outlives the gRPC connection.
                 // Runner sends here; we forward to runner_tx (or buffer on disconnect).
@@ -479,17 +655,43 @@ async fn run_session(
                                 Ok(Ok(metadata)) => break metadata,
                                 Ok(Err(e)) => {
                                     error!(error = %e, "Task execution failed");
+                                    let error = format!("Task execution failed: {e}");
+                                    if let Err(send_err) = send_task_failure_result(
+                                        &runner_tx,
+                                        error,
+                                        task_session_id.clone(),
+                                        task_work_dir.clone(),
+                                    )
+                                    .await
+                                    {
+                                        error!(error = %send_err, "Failed to send task failure result");
+                                        heartbeat_handle.abort();
+                                        return ConnectionResult::Disconnected;
+                                    }
                                     break runner::TaskMetadata {
-                                        work_dir: String::new(),
-                                        session_id: None,
+                                        work_dir: task_work_dir.clone().unwrap_or_default(),
+                                        session_id: task_session_id.clone(),
                                         aborted: false,
                                     };
                                 }
                                 Err(e) => {
                                     error!(error = %e, "Task join error");
+                                    let error = format!("Task join error: {e}");
+                                    if let Err(send_err) = send_task_failure_result(
+                                        &runner_tx,
+                                        error,
+                                        task_session_id.clone(),
+                                        task_work_dir.clone(),
+                                    )
+                                    .await
+                                    {
+                                        error!(error = %send_err, "Failed to send task join failure result");
+                                        heartbeat_handle.abort();
+                                        return ConnectionResult::Disconnected;
+                                    }
                                     break runner::TaskMetadata {
-                                        work_dir: String::new(),
-                                        session_id: None,
+                                        work_dir: task_work_dir.clone().unwrap_or_default(),
+                                        session_id: task_session_id.clone(),
                                         aborted: false,
                                     };
                                 }
@@ -501,8 +703,11 @@ async fn run_session(
                                 warn!("gRPC channel dead during event forward — preserving task for reconnect");
                                 *surviving_task = Some(SurvivingTask {
                                     task_id: task_id_str.clone(),
+                                    session_id: task_session_id.clone(),
+                                    work_dir: task_work_dir.clone(),
                                     handle: task_handle,
                                     cancel_tx,
+                                    control_tx: control_tx.clone(),
                                     event_rx,
                                     unsent_event: Some(msg),
                                 });
@@ -528,16 +733,20 @@ async fn run_session(
                                             shutdown = true;
                                         }
                                         Some(proto::orchestrator_message::Payload::Input(input)) => {
-                                            if let Some(tx) = &control_tx {
-                                                let _ = tx
-                                                    .send(runner::RunnerControl::SendInput(
-                                                        input.content,
-                                                    ))
-                                                    .await;
-                                            }
+                                            let _ = control_tx
+                                                .send(runner::RunnerControl::SendInput(input.content))
+                                                .await;
                                         }
                                         Some(proto::orchestrator_message::Payload::MemoryUpdate(update)) => {
                                             runner::handle_memory_update(update, session_config).await;
+                                        }
+                                        Some(proto::orchestrator_message::Payload::SandboxFileRequest(request)) => {
+                                            let response = sandbox_files::handle_request(request).await;
+                                            let _ = runner_tx
+                                                .send(RunnerMessage {
+                                                    payload: Some(proto::runner_message::Payload::SandboxFileResponse(response)),
+                                                })
+                                                .await;
                                         }
                                         _ => {}
                                     }
@@ -546,8 +755,11 @@ async fn run_session(
                                     warn!("Orchestrator stream closed during task — task continues running");
                                     *surviving_task = Some(SurvivingTask {
                                         task_id: task_id_str.clone(),
+                                        session_id: task_session_id.clone(),
+                                        work_dir: task_work_dir.clone(),
                                         handle: task_handle,
                                         cancel_tx,
+                                        control_tx: control_tx.clone(),
                                         event_rx,
                                         unsent_event: None,
                                     });
@@ -558,8 +770,11 @@ async fn run_session(
                                     error!(error = %e, "Error reading orchestrator stream during task — task continues running");
                                     *surviving_task = Some(SurvivingTask {
                                         task_id: task_id_str.clone(),
+                                        session_id: task_session_id.clone(),
+                                        work_dir: task_work_dir.clone(),
                                         handle: task_handle,
                                         cancel_tx,
+                                        control_tx: control_tx.clone(),
                                         event_rx,
                                         unsent_event: None,
                                     });
@@ -570,6 +785,8 @@ async fn run_session(
                         }
                     }
                 };
+
+                set_heartbeat_runtime_state(&heartbeat_state, HeartbeatRuntimeState::idle());
 
                 if shutdown {
                     heartbeat_handle.abort();
@@ -595,6 +812,7 @@ async fn run_session(
             }
             Some(proto::orchestrator_message::Payload::Setup(setup)) => {
                 info!("Received SetupSandbox");
+                let setup_work_dir = setup.work_dir.clone();
                 match runner::handle_setup(setup, runner_tx.clone()).await {
                     Ok(config) => {
                         let wd = config.work_dir.clone().unwrap_or_default();
@@ -615,6 +833,17 @@ async fn run_session(
                     }
                     Err(e) => {
                         error!(error = %e, "SetupSandbox failed");
+                        if let Err(send_err) = send_setup_failure_result(
+                            &runner_tx,
+                            format!("SetupSandbox failed: {e}"),
+                            setup_work_dir,
+                        )
+                        .await
+                        {
+                            error!(error = %send_err, "Failed to send SetupSandbox failure result");
+                            heartbeat_handle.abort();
+                            return ConnectionResult::Disconnected;
+                        }
                     }
                 }
             }
@@ -625,12 +854,79 @@ async fn run_session(
             Some(proto::orchestrator_message::Payload::MemoryUpdate(update)) => {
                 runner::handle_memory_update(update, session_config).await;
             }
+            Some(proto::orchestrator_message::Payload::SandboxFileRequest(request)) => {
+                let response = sandbox_files::handle_request(request).await;
+                let _ = runner_tx
+                    .send(RunnerMessage {
+                        payload: Some(proto::runner_message::Payload::SandboxFileResponse(response)),
+                    })
+                    .await;
+            }
             Some(proto::orchestrator_message::Payload::Shutdown(shutdown)) => {
                 info!(reason = %shutdown.reason, "Received Shutdown, exiting");
                 heartbeat_handle.abort();
                 return ConnectionResult::Shutdown;
             }
             None => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn setup_failure_result_reports_failed_setup_with_work_dir() {
+        let (tx, mut rx) = mpsc::channel(1);
+
+        send_setup_failure_result(
+            &tx,
+            "SetupSandbox failed: clone setup repos".to_string(),
+            Some("/workspace".to_string()),
+        )
+        .await
+        .expect("send setup failure result");
+
+        let message = rx.recv().await.expect("failure result message");
+        match message.payload {
+            Some(proto::runner_message::Payload::Result(result)) => {
+                assert_eq!(result.status, "failed");
+                assert_eq!(
+                    result.error.as_deref(),
+                    Some("SetupSandbox failed: clone setup repos")
+                );
+                assert_eq!(result.work_dir.as_deref(), Some("/workspace"));
+            }
+            other => panic!("unexpected runner message: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn task_failure_result_reports_failed_task_with_context() {
+        let (tx, mut rx) = mpsc::channel(1);
+
+        send_task_failure_result(
+            &tx,
+            "Task execution failed: StartTask setup command #1 failed".to_string(),
+            Some("harness-session-1".to_string()),
+            Some("/workspace/project".to_string()),
+        )
+        .await
+        .expect("send task failure result");
+
+        let message = rx.recv().await.expect("failure result message");
+        match message.payload {
+            Some(proto::runner_message::Payload::Result(result)) => {
+                assert_eq!(result.status, "failed");
+                assert_eq!(
+                    result.error.as_deref(),
+                    Some("Task execution failed: StartTask setup command #1 failed")
+                );
+                assert_eq!(result.session_id.as_deref(), Some("harness-session-1"));
+                assert_eq!(result.work_dir.as_deref(), Some("/workspace/project"));
+            }
+            other => panic!("unexpected runner message: {other:?}"),
         }
     }
 }

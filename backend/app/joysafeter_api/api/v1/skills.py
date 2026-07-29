@@ -1,16 +1,26 @@
 import posixpath
+import re
 import uuid
 import zipfile
 from io import BytesIO
 from pathlib import PurePosixPath
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_skill_file_id, parse_skill_id, parse_skill_security_scan_id
-from app.joysafeter_api.services import SkillLifecycleService, SkillService, SkillVersionService
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_api.services import (
+    SkillLifecycleService,
+    SkillPromotionService,
+    SkillService,
+    SkillVersionService,
+)
+from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillUsageLog
 from app.joysafeter_domain.schemas.joysafeter_skill import (
     CreateSkillFileRequest,
     CreateSkillRequest,
@@ -19,6 +29,7 @@ from app.joysafeter_domain.schemas.joysafeter_skill import (
     SkillLifecycleTransitionResponse,
     SkillResponse,
     SkillSecurityScanResponse,
+    SkillUsageResponse,
     SkillVersionFileResponse,
     SkillVersionResponse,
     UpdateSkillFileRequest,
@@ -28,7 +39,6 @@ from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     InvalidRequestError,
     NotFoundError,
-    ResourceConflictError,
 )
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -65,6 +75,21 @@ def _max_import_total_file_bytes() -> int:
 
 
 ZIP_IMPORT_DIAGNOSTIC_SAMPLE_SIZE = 8
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _validate_sha256_hex(value: str | None, field: str) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if not _SHA256_HEX_RE.fullmatch(normalized):
+        raise InvalidRequestError(
+            code="SKILL_USAGE_HASH_INVALID",
+            message=f"{field} must be a SHA-256 hex digest.",
+            data={"field": field},
+            user_action="fix_input",
+        )
+    return normalized
 
 FILE_TYPE_BY_EXT = {
     ".md": "markdown",
@@ -90,18 +115,6 @@ FILE_TYPE_BY_EXT = {
 }
 
 ZIP_SYSTEM_FILE_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}
-
-
-def _handle_service_error(e: Exception):
-    if isinstance(e, NotFoundError):
-        return JSONResponse(status_code=404, content=e.to_payload())
-    if isinstance(e, AccessDeniedError):
-        return JSONResponse(status_code=403, content=e.to_payload())
-    if isinstance(e, InvalidRequestError):
-        return JSONResponse(status_code=400, content=e.to_payload())
-    if isinstance(e, ResourceConflictError):
-        return JSONResponse(status_code=409, content=e.to_payload())
-    raise
 
 
 def _flush_async_scans(svc: SkillService, background_tasks: BackgroundTasks) -> None:
@@ -347,32 +360,26 @@ async def create_skill(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     files_data = None
     if req.files:
         files_data = [f if isinstance(f, dict) else f for f in req.files]
-    try:
-        skill = await svc.create_skill(
-            created_by_id=auth_ctx.user_id,
-            name=req.name,
-            description=req.description,
-            content=req.content,
-            tags=req.tags or None,
-            source_type=req.source_type,
-            source_url=req.source_url or None,
-            is_public=req.is_public,
-            visibility=req.visibility,
-            license=req.license or None,
-            files=files_data,
-            project_id=auth_ctx.project_id,
-        )
-        skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
-        # P2.16: flush any async scan descriptors the service queued. Without
-        # this, a skill whose total payload exceeds ``skill_security_async_threshold_bytes``
-        # would land with ``security_status='scanning'`` and stay stuck forever
-        # — ``is_skill_usable`` keeps returning False so the skill never loads.
+    skill = await svc.create_skill(
+        created_by_id=auth_ctx.user_id,
+        name=req.name,
+        description=req.description,
+        content=req.content,
+        tags=req.tags or None,
+        source_type=req.source_type,
+        source_url=req.source_url or None,
+        license=req.license or None,
+        files=files_data,
+        project_id=auth_ctx.project_id,
+    )
+    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
+    # P2.16: flush any async scan descriptors the service queued. Without
+    # this, a skill whose total payload exceeds ``skill_security_async_threshold_bytes``
+    # would land with ``security_status='scanning'`` and stay stuck forever.
     _flush_async_scans(svc, background_tasks)
     return SkillResponse.model_validate(skill)
 
@@ -386,36 +393,28 @@ async def import_skill_zip(
 ) -> SkillResponse:
     filename = file.filename or ""
     if filename and not filename.lower().endswith(".zip"):
-        return JSONResponse(
-            status_code=400,
-            content=InvalidRequestError(
-                "Only ZIP files are supported",
-                code="SKILL_IMPORT_ZIP_ONLY",
-            ).to_payload(),
+        raise InvalidRequestError(
+            "Only ZIP files are supported",
+            code="SKILL_IMPORT_ZIP_ONLY",
         )
 
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        zip_bytes = await file.read()
-        files_data, payload, _skill_md_content = _build_skill_files_from_zip(zip_bytes)
-        skill = await svc.create_skill(
-            created_by_id=auth_ctx.user_id,
-            name=str(payload["name"]),
-            description=str(payload.get("description") or ""),
-            content=str(payload.get("content") or ""),
-            tags=payload.get("tags") or None,
-            source_type="zip",
-            source_url=filename or None,
-            is_public=False,
-            license=payload.get("license") or None,
-            files=files_data,
-            project_id=auth_ctx.project_id,
-        )
-        skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
-        # P2.16: see ``create_skill`` — ZIP imports go through the same
-        # ``create_skill`` service method and emit the same async descriptors.
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    zip_bytes = await file.read()
+    files_data, payload, _skill_md_content = _build_skill_files_from_zip(zip_bytes)
+    skill = await svc.create_skill(
+        created_by_id=auth_ctx.user_id,
+        name=str(payload["name"]),
+        description=str(payload.get("description") or ""),
+        content=str(payload.get("content") or ""),
+        tags=payload.get("tags") or None,
+        source_type="zip",
+        source_url=filename or None,
+        license=payload.get("license") or None,
+        files=files_data,
+        project_id=auth_ctx.project_id,
+    )
+    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
+    # P2.16: see ``create_skill``; ZIP imports go through the same service path.
     _flush_async_scans(svc, background_tasks)
     return SkillResponse.model_validate(skill)
 
@@ -427,7 +426,7 @@ async def list_skills(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     skills, has_more = await svc.list_skills(
         current_user_id=auth_ctx.user_id,
         project_id=auth_ctx.project_id,
@@ -450,11 +449,8 @@ async def get_skill_security_scan(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillSecurityScanResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        scan = await svc.get_security_scan(scan_id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    scan = await svc.get_security_scan(scan_id, current_user_id=auth_ctx.user_id)
     return SkillSecurityScanResponse.model_validate(scan)
 
 
@@ -464,12 +460,10 @@ async def get_skill(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
-    return SkillResponse.model_validate(skill)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+    resp = SkillResponse.model_validate(skill)
+    return resp
 
 
 @router.get("/{skill_id}/security-scans/latest")
@@ -478,11 +472,8 @@ async def get_latest_skill_security_scan(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillSecurityScanResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        scan = await svc.get_latest_security_scan(skill_id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    scan = await svc.get_latest_security_scan(skill_id, current_user_id=auth_ctx.user_id)
     return SkillSecurityScanResponse.model_validate(scan)
 
 
@@ -494,16 +485,13 @@ async def list_skill_security_scans(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        scans, has_more = await svc.list_security_scans(
-            skill_id,
-            current_user_id=auth_ctx.user_id,
-            limit=limit,
-            after_id=after_id,
-        )
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    scans, has_more = await svc.list_security_scans(
+        skill_id,
+        current_user_id=auth_ctx.user_id,
+        limit=limit,
+        after_id=after_id,
+    )
     data = [SkillSecurityScanResponse.model_validate(scan) for scan in scans]
     return {
         "data": data,
@@ -513,6 +501,88 @@ async def list_skill_security_scans(
     }
 
 
+@router.get("/usage/search")
+async def search_skill_usage(
+    limit: int = Query(50, ge=1, le=100),
+    artifact_hash: Optional[str] = Query(None, min_length=64, max_length=64),
+    target_hash: Optional[str] = Query(None, min_length=64, max_length=64),
+    security_scan_id: Optional[uuid.UUID] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> PaginatedResponse[SkillUsageResponse]:
+    artifact_hash = _validate_sha256_hex(artifact_hash, "artifact_hash")
+    target_hash = _validate_sha256_hex(target_hash, "target_hash")
+
+    if not any((artifact_hash, target_hash, security_scan_id)):
+        raise InvalidRequestError(
+            code="SKILL_USAGE_FILTER_REQUIRED",
+            message="At least one usage filter is required.",
+            data={"filters": ["artifact_hash", "target_hash", "security_scan_id"]},
+            user_action="fix_input",
+        )
+
+    stmt = select(JoySafeterSkillUsageLog)
+    if auth_ctx.project_id is not None:
+        stmt = stmt.where(JoySafeterSkillUsageLog.project_id == auth_ctx.project_id)
+    if artifact_hash:
+        stmt = stmt.where(JoySafeterSkillUsageLog.artifact_hash == artifact_hash)
+    if target_hash:
+        stmt = stmt.where(JoySafeterSkillUsageLog.target_hash == target_hash)
+    if security_scan_id:
+        stmt = stmt.where(JoySafeterSkillUsageLog.security_scan_id == security_scan_id)
+
+    stmt = stmt.order_by(JoySafeterSkillUsageLog.created_at.desc(), JoySafeterSkillUsageLog.id.desc()).limit(limit + 1)
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    data = [SkillUsageResponse.model_validate(row) for row in rows[:limit]]
+    return PaginatedResponse(
+        data=data,
+        has_more=has_more,
+        first_id=str(data[0].id) if data else None,
+        last_id=str(data[-1].id) if data else None,
+    )
+
+
+@router.get("/{skill_id}/usage")
+async def list_skill_usage(
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    limit: int = Query(50, ge=1, le=100),
+    artifact_hash: Optional[str] = Query(None, min_length=64, max_length=64),
+    target_hash: Optional[str] = Query(None, min_length=64, max_length=64),
+    security_scan_id: Optional[uuid.UUID] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> PaginatedResponse[SkillUsageResponse]:
+    artifact_hash = _validate_sha256_hex(artifact_hash, "artifact_hash")
+    target_hash = _validate_sha256_hex(target_hash, "target_hash")
+
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+
+    stmt = select(JoySafeterSkillUsageLog).where(JoySafeterSkillUsageLog.skill_id == skill_id)
+    if auth_ctx.project_id is not None:
+        stmt = stmt.where(JoySafeterSkillUsageLog.project_id == auth_ctx.project_id)
+    if artifact_hash:
+        stmt = stmt.where(JoySafeterSkillUsageLog.artifact_hash == artifact_hash)
+    if target_hash:
+        stmt = stmt.where(JoySafeterSkillUsageLog.target_hash == target_hash)
+    if security_scan_id:
+        stmt = stmt.where(JoySafeterSkillUsageLog.security_scan_id == security_scan_id)
+
+    stmt = stmt.order_by(JoySafeterSkillUsageLog.created_at.desc(), JoySafeterSkillUsageLog.id.desc()).limit(limit + 1)
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    data = [SkillUsageResponse.model_validate(row) for row in rows[:limit]]
+    return PaginatedResponse(
+        data=data,
+        has_more=has_more,
+        first_id=str(data[0].id) if data else None,
+        last_id=str(data[-1].id) if data else None,
+    )
+
+
 @router.post("/{skill_id}/security-scans/rescan")
 async def rescan_skill_security(
     background_tasks: BackgroundTasks,
@@ -520,14 +590,11 @@ async def rescan_skill_security(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillSecurityScanResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        # Async dispatch: returns immediately with a scanning-state row;
-        # the actual (potentially slow, LLM-backed) scan runs in the
-        # background. The client polls security-scans/latest for the verdict.
-        scan = await svc.rescan_skill_async(skill_id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    # Async dispatch: returns immediately with a scanning-state row;
+    # the actual (potentially slow, LLM-backed) scan runs in the
+    # background. The client polls security-scans/latest for the verdict.
+    scan = await svc.rescan_skill_async(skill_id, current_user_id=auth_ctx.user_id)
     _flush_async_scans(svc, background_tasks)
     return SkillSecurityScanResponse.model_validate(scan)
 
@@ -540,24 +607,19 @@ async def update_skill(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        skill = await svc.update_skill(
-            skill_id,
-            current_user_id=auth_ctx.user_id,
-            name=req.name,
-            description=req.description,
-            content=req.content,
-            tags=req.tags,
-            source_type=req.source_type,
-            source_url=req.source_url,
-            is_public=req.is_public,
-            visibility=req.visibility,
-            license=req.license,
-        )
-        skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    skill = await svc.update_skill(
+        skill_id,
+        current_user_id=auth_ctx.user_id,
+        name=req.name,
+        description=req.description,
+        content=req.content,
+        tags=req.tags,
+        source_type=req.source_type,
+        source_url=req.source_url,
+        license=req.license,
+    )
+    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
     _flush_async_scans(svc, background_tasks)
     return SkillResponse.model_validate(skill)
 
@@ -568,11 +630,8 @@ async def delete_skill(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        await svc.delete_skill(skill_id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    await svc.delete_skill(skill_id, current_user_id=auth_ctx.user_id)
     return {"id": f"skill_{skill_id}", "type": "skill_deleted"}
 
     # ── Skill Lifecycle Transitions ─────────────────────────────────────
@@ -583,10 +642,7 @@ async def delete_skill(
 
 
 async def _run_transition(transition_coro) -> SkillLifecycleTransitionResponse:
-    try:
-        result = await transition_coro
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+    result = await transition_coro
     return SkillLifecycleTransitionResponse.model_validate(result)
 
 
@@ -597,7 +653,7 @@ async def submit_skill_for_review(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
     """draft -> pending_review."""
-    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     return await _run_transition(svc.submit_for_review(skill_id, current_user_id=auth_ctx.user_id))
 
 
@@ -608,7 +664,7 @@ async def approve_skill(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
     """pending_review -> approved (P1: self-approve allowed)."""
-    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     return await _run_transition(svc.approve(skill_id, current_user_id=auth_ctx.user_id))
 
 
@@ -619,7 +675,7 @@ async def reject_skill(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
     """pending_review -> rejected."""
-    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     return await _run_transition(svc.reject(skill_id, current_user_id=auth_ctx.user_id))
 
 
@@ -630,7 +686,7 @@ async def archive_skill(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
     """approved -> archived."""
-    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     return await _run_transition(svc.archive(skill_id, current_user_id=auth_ctx.user_id))
 
 
@@ -641,7 +697,7 @@ async def unarchive_skill(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
     """archived -> approved."""
-    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     return await _run_transition(svc.unarchive(skill_id, current_user_id=auth_ctx.user_id))
 
 
@@ -652,7 +708,7 @@ async def reopen_skill(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
     """rejected -> draft (resubmit cycle)."""
-    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     return await _run_transition(svc.reopen(skill_id, current_user_id=auth_ctx.user_id))
 
     # ── Admin: batch rescan ────────────────────────────────────────────
@@ -708,8 +764,10 @@ async def admin_rescan_all_skills(
     from sqlalchemy import or_ as _or
     from sqlalchemy import select as _select
 
-    from app.joysafeter_domain.models.joysafeter_project import Project
-    from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillSecurityScan
+    from app.joysafeter_domain.models.joysafeter_skill import (
+        JoySafeterSkillLifecycleStatus,
+        JoySafeterSkillSecurityScan,
+    )
     from app.joysafeter_domain.services.joysafeter_skill_security import (
         run_scan_in_background,
     )
@@ -723,6 +781,7 @@ async def admin_rescan_all_skills(
     # active org via a subquery on the projects table.
     org_project_ids = _select(Project.id).where(Project.org_id == auth_ctx.org_id).scalar_subquery()
     org_scope_filter = JoySafeterSkill.project_id.in_(org_project_ids)
+    mutable_skill_filter = JoySafeterSkill.lifecycle_status != JoySafeterSkillLifecycleStatus.ARCHIVED.value
 
     if ruleset_below:
         ruleset_filter = _or(
@@ -739,6 +798,7 @@ async def admin_rescan_all_skills(
                     ruleset_filter,
                 ),
                 org_scope_filter,
+                mutable_skill_filter,
             )
             .limit(limit)
         )
@@ -755,6 +815,7 @@ async def admin_rescan_all_skills(
                     JoySafeterSkillSecurityScan.ruleset_version.is_(None),
                 ),
                 org_scope_filter,
+                mutable_skill_filter,
             )
             .limit(limit)
         )
@@ -769,7 +830,7 @@ async def admin_rescan_all_skills(
     skills = list(result.scalars().unique())
 
     scheduled: list[str] = []
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     sec = svc.security_service
     for skill in skills:
         await sec.mark_scanning(skill.id)
@@ -807,20 +868,17 @@ async def create_skill_file(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillFileResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     file_type = req.file_type or "text"
-    try:
-        f = await svc.add_file(
-            skill_id=skill_id,
-            current_user_id=auth_ctx.user_id,
-            path=req.path,
-            file_name=req.file_name,
-            file_type=file_type,
-            content=req.content,
-            size=len(req.content) if req.content else 0,
-        )
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+    f = await svc.add_file(
+        skill_id=skill_id,
+        current_user_id=auth_ctx.user_id,
+        path=req.path,
+        file_name=req.file_name,
+        file_type=file_type,
+        content=req.content,
+        size=len(req.content) if req.content else 0,
+    )
     _flush_async_scans(svc, background_tasks)
     return SkillFileResponse.model_validate(f)
 
@@ -831,11 +889,8 @@ async def list_skill_files(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
     files = skill.files or []
     data = [SkillFileResponse.model_validate(f) for f in files]
     return {"data": data}
@@ -848,14 +903,16 @@ async def get_skill_file(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillFileResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
     f = next((f for f in (skill.files or []) if f.id == file_id), None)
     if not f:
-        raise HTTPException(404, "Skill file not found")
+        raise NotFoundError(
+            code="SKILL_FILE_NOT_FOUND",
+            message="Skill file not found",
+            data={"skill_id": str(skill_id), "file_id": str(file_id)},
+            user_action="refresh",
+        )
     return SkillFileResponse.model_validate(f)
 
 
@@ -868,18 +925,15 @@ async def update_skill_file(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillFileResponse:
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        f = await svc.update_file(
-            file_id=file_id,
-            current_user_id=auth_ctx.user_id,
-            content=req.content,
-            path=req.path,
-            file_name=req.file_name,
-            expected_skill_id=skill_id,
-        )
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    f = await svc.update_file(
+        file_id=file_id,
+        current_user_id=auth_ctx.user_id,
+        content=req.content,
+        path=req.path,
+        file_name=req.file_name,
+        expected_skill_id=skill_id,
+    )
     _flush_async_scans(svc, background_tasks)
     return SkillFileResponse.model_validate(f)
 
@@ -892,15 +946,12 @@ async def delete_skill_file(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
-    svc = SkillService(db, active_org_id=auth_ctx.org_id)
-    try:
-        await svc.delete_file(
-            file_id,
-            current_user_id=auth_ctx.user_id,
-            expected_skill_id=skill_id,
-        )
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    await svc.delete_file(
+        file_id,
+        current_user_id=auth_ctx.user_id,
+        expected_skill_id=skill_id,
+    )
     _flush_async_scans(svc, background_tasks)
     return {"id": f"sklfile_{file_id}", "type": "skill_file_deleted"}
 
@@ -914,7 +965,7 @@ async def create_skill_version(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillVersionResponse:
-    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id)
+    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     version_str = req.version or ""
     if not version_str:
         from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
@@ -928,15 +979,12 @@ async def create_skill_version(
             version_str = str(h.bump_patch())
         else:
             version_str = "0.1.0"
-    try:
-        sv = await svc.publish_version(
-            skill_id=skill_id,
-            current_user_id=auth_ctx.user_id,
-            version_str=version_str,
-            release_notes=req.release_notes or None,
-        )
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+    sv = await svc.publish_version(
+        skill_id=skill_id,
+        current_user_id=auth_ctx.user_id,
+        version_str=version_str,
+        release_notes=req.release_notes or None,
+    )
     return SkillVersionResponse.model_validate(sv)
 
 
@@ -948,13 +996,12 @@ async def list_skill_versions(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
-    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id)
-    try:
-        versions = await svc.list_versions(skill_id, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    versions, has_more = await svc.list_versions(
+        skill_id, current_user_id=auth_ctx.user_id, limit=limit, after_id=after_id
+    )
     data = [SkillVersionResponse.model_validate(v) for v in versions]
-    return {"data": data, "has_more": False}
+    return {"data": data, "has_more": has_more}
 
 
 @router.get("/{skill_id}/versions/{version}")
@@ -964,11 +1011,8 @@ async def get_skill_version(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillVersionResponse:
-    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id)
-    try:
-        sv = await svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    sv = await svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
     return SkillVersionResponse.model_validate(sv)
 
 
@@ -980,16 +1024,13 @@ async def delete_skill_version(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
-    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id)
-    try:
-        await svc.delete_version(
-            skill_id,
-            version,
-            current_user_id=auth_ctx.user_id,
-            force=force,
-        )
-    except (NotFoundError, AccessDeniedError, ResourceConflictError) as e:
-        return _handle_service_error(e)
+    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    await svc.delete_version(
+        skill_id,
+        version,
+        current_user_id=auth_ctx.user_id,
+        force=force,
+    )
     return {"type": "skill_version_deleted"}
 
 
@@ -1000,11 +1041,8 @@ async def list_skill_version_files(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
-    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id)
-    try:
-        sv = await svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError) as e:
-        return _handle_service_error(e)
+    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    sv = await svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
     files = sv.files or []
     data = [SkillVersionFileResponse.model_validate(f) for f in files]
     return {"data": data}
@@ -1017,9 +1055,100 @@ async def restore_skill_from_version(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillResponse:
-    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id)
-    try:
-        skill = await svc.restore_draft(skill_id, version, current_user_id=auth_ctx.user_id)
-    except (NotFoundError, AccessDeniedError, InvalidRequestError) as e:
-        return _handle_service_error(e)
+    svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    skill = await svc.restore_draft(skill_id, version, current_user_id=auth_ctx.user_id)
+    return SkillResponse.model_validate(skill)
+
+
+# ---------------------------------------------------------------------------
+# Version-level tiered promotion
+#
+# A skill is a project resource; project editors publish project-tier versions
+# freely. Exposing a version to the ``organization`` or ``public`` tier goes
+# through a version-level, four-eyes approval: a skill ADMIN submits, the org
+# OWNER approves (approver != submitter) after the version's security scan is
+# re-checked. The service (``SkillPromotionService``) owns every gate; the
+# routes are thin HTTP shells.
+# ---------------------------------------------------------------------------
+
+
+class SubmitPromotionRequest(BaseModel):
+    # The tier this version is being submitted for; only the promotable tiers
+    # are accepted (a 422 at the boundary beats a service-layer conflict).
+    target_tier: Literal["organization", "public"]
+
+
+class RejectPromotionRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class TakedownRequest(BaseModel):
+    # The tier pointer to clear.
+    tier: Literal["organization", "public"]
+
+
+@router.post("/{skill_id}/versions/{version}/submit-promotion")
+async def submit_skill_promotion(
+    req: SubmitPromotionRequest,
+    version: str,
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SkillVersionResponse:
+    """Submit a version for promotion to organization/public (requires skill ADMIN)."""
+    version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    promoted = await svc.submit_promotion(
+        target_tier=req.target_tier,
+        current_user_id=auth_ctx.user_id,
+        version_id=target.id,
+    )
+    return SkillVersionResponse.model_validate(promoted)
+
+
+@router.post("/{skill_id}/versions/{version}/approve-promotion")
+async def approve_skill_promotion(
+    version: str,
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SkillVersionResponse:
+    """Approve a pending promotion (org OWNER only, four-eyes enforced in the service)."""
+    version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    approved = await svc.approve_promotion(version_id=target.id, current_user_id=auth_ctx.user_id)
+    return SkillVersionResponse.model_validate(approved)
+
+
+@router.post("/{skill_id}/versions/{version}/reject-promotion")
+async def reject_skill_promotion(
+    req: RejectPromotionRequest,
+    version: str,
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SkillVersionResponse:
+    """Reject a pending promotion (org OWNER only)."""
+    version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    rejected = await svc.reject_promotion(version_id=target.id, current_user_id=auth_ctx.user_id, reason=req.reason)
+    return SkillVersionResponse.model_validate(rejected)
+
+
+@router.post("/{skill_id}/takedown")
+async def takedown_skill(
+    req: TakedownRequest,
+    skill_id: uuid.UUID = Depends(parse_skill_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> SkillResponse:
+    """Pull a skill down from a tier (org OWNER only); clears the pointer and
+    recomputes visibility fail-closed to the highest remaining tier."""
+    svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    await svc.takedown(skill_id=skill_id, tier=req.tier, current_user_id=auth_ctx.user_id)
+    read_svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
+    skill = await read_svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
     return SkillResponse.model_validate(skill)

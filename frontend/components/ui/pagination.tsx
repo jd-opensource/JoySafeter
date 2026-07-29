@@ -129,7 +129,9 @@ export function Pagination({
                 size="sm"
                 className="h-7 min-w-7 px-2"
                 onClick={() => onPageChange(item)}
-                disabled={item === page || isLoading || (totalPages === 0 && item > page && !canGoNext)}
+                disabled={
+                  item === page || isLoading || (totalPages === 0 && item > page && !canGoNext)
+                }
               >
                 {item}
               </Button>

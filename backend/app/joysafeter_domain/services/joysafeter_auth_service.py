@@ -12,6 +12,8 @@ Each former module's full body is kept verbatim below under a section banner;
 redundant imports across sections are harmless.
 """
 
+# ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
+
 
 # ============================================================================
 # auth_session_service.py
@@ -210,31 +212,31 @@ class AuthSessionService(BaseService):
 """Auth service — registration, login, password reset, and related business logic."""
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models.enums import SecurityAuditEventType
+from app.joysafeter_domain.models.joysafeter_auth import AuthSession, AuthUser
+from app.joysafeter_domain.services.base import BaseService
+from app.joysafeter_domain.services.joysafeter_email_service import email_service
+from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     AuthenticationError,
     InternalServiceError,
     InvalidRequestError,
 )
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.security import (
     generate_email_verify_token,
     generate_password_reset_token,
     get_password_hash,
     verify_password,
 )
-from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_domain.models.joysafeter_auth import AuthSession, AuthUser
-from app.joysafeter_domain.models.enums import SecurityAuditEventType
-from app.joysafeter_domain.repositories.joysafeter_auth_user import AuthUserRepository
-from app.joysafeter_domain.services.base import BaseService
-from app.joysafeter_domain.services.joysafeter_email_service import email_service
-from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 
 
 class AuthService(BaseService):
@@ -274,14 +276,15 @@ class AuthService(BaseService):
         project_id = None
         role = None
         try:
-            from sqlalchemy import select
-            from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
-            from app.joysafeter_domain.models.joysafeter_project import Project
             import uuid as _uuid
 
-            result = await self.db.execute(
-                select(Member).where(Member.user_id == user_id).limit(1)
-            )
+            from sqlalchemy import select
+
+            from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
+            from app.joysafeter_domain.models.joysafeter_project import Project
+            from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
+
+            result = await self.db.execute(select(Member).where(Member.user_id == user_id).limit(1))
             membership = result.scalar_one_or_none()
 
             # Auto-create org + project for users who don't have one yet
@@ -305,26 +308,45 @@ class AuthService(BaseService):
                 )
                 self.db.add(default_project)
                 await self.db.flush()
+                # Grant the owner an explicit ProjectMember row on their default
+                # project via the shared helper, matching every other bootstrap
+                # path. Owners are org-wide so this isn't required for access
+                # today, but keeping the grant consistent avoids a lockout if the
+                # role is ever narrowed below admin.
+                await ProjectService(self.db).grant_project_membership(
+                    project_id=default_project.id,
+                    user_id=user_id,
+                    role="owner",
+                )
 
             org_id = membership.organization_id
             role = membership.role
 
             proj_result = await self.db.execute(
-                select(Project).where(
+                select(Project)
+                .where(
                     Project.org_id == org_id,
                     Project.is_default.is_(True),
-                ).limit(1)
+                )
+                .limit(1)
             )
             project = proj_result.scalar_one_or_none()
             if not project:
-                proj_result = await self.db.execute(
-                    select(Project).where(Project.org_id == org_id).limit(1)
-                )
+                proj_result = await self.db.execute(select(Project).where(Project.org_id == org_id).limit(1))
                 project = proj_result.scalar_one_or_none()
             if project:
                 project_id = project.id
-        except Exception:
-            logger.debug("Failed to resolve org/project for JWT claims", exc_info=True)
+        except Exception as exc:
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="AUTH_JWT_CONTEXT_RESOLVE_FAILED",
+                    message="Failed to resolve org/project for JWT claims",
+                    operation="resolve_jwt_context",
+                    boundary="auth_service",
+                    data={"user_id": user_id},
+                    detail=exc.__class__.__name__,
+                )
+            ).debug("Failed to resolve org/project for JWT claims")
 
         # generate access token (JWT) with org/project context
         access_token = create_access_token(
@@ -346,8 +368,17 @@ class AuthService(BaseService):
                 refresh_expire_seconds = int(refresh_expires.timestamp() - datetime.now(timezone.utc).timestamp())
                 await RedisClient.set(refresh_token_key, user_id, expire=refresh_expire_seconds)
                 await RedisClient.set(refresh_token_user_key, refresh_token, expire=refresh_expire_seconds)
-            except Exception:
-                logger.debug("Failed to store refresh token in Redis", exc_info=True)
+            except Exception as exc:
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="AUTH_REFRESH_TOKEN_REDIS_STORE_FAILED",
+                        message="Failed to store refresh token in Redis",
+                        operation="store_refresh_token",
+                        boundary="auth_service",
+                        data={"user_id": user_id},
+                        detail=exc.__class__.__name__,
+                    )
+                ).debug("Failed to store refresh token in Redis")
 
         await self._store_refresh_session(refresh_token, user_id, refresh_expires)
 
@@ -432,8 +463,17 @@ class AuthService(BaseService):
                 await redis_client.delete(refresh_token_key)
                 await redis_client.delete(refresh_token_user_key)
                 await RedisClient.set(grace_key, user_id, expire=self._REFRESH_GRACE_SECONDS)
-            except Exception:
-                logger.debug("Failed to rotate refresh token in Redis", exc_info=True)
+            except Exception as exc:
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="AUTH_REFRESH_TOKEN_REDIS_ROTATE_FAILED",
+                        message="Failed to rotate refresh token in Redis",
+                        operation="rotate_refresh_token",
+                        boundary="auth_service",
+                        data={"user_id": user_id},
+                        detail=exc.__class__.__name__,
+                    )
+                ).debug("Failed to rotate refresh token in Redis")
         else:
             # No Redis: cannot keep a grace pointer, fall back to hard delete.
             pass
@@ -471,9 +511,7 @@ class AuthService(BaseService):
 
     async def issue_login_tokens(self, user: AuthUser) -> dict:
         """Issue access/refresh/csrf tokens for an already authenticated user."""
-        access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(
-            user.id
-        )
+        access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(user.id)
         return self._build_jwt_login_response(
             user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
         )
@@ -639,7 +677,17 @@ class AuthService(BaseService):
             stored_password = user.hashed_password.strip().lower()
             if len(stored_password) != 64 or not all(c in "0123456789abcdef" for c in stored_password):
                 # Log the internal error but don't expose to user
-                logger.error(f"Invalid stored password format for user: {user.id}")
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="AUTH_STORED_PASSWORD_FORMAT_INVALID",
+                        message="Invalid stored password format",
+                        operation="validate_stored_password_format",
+                        boundary="auth_service",
+                        data={"user_id": str(user.id)},
+                        retryable=False,
+                        user_action="check_data",
+                    )
+                ).warning("Invalid stored password format")
                 raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
 
             password_match = verify_password(password, stored_password)
@@ -656,8 +704,17 @@ class AuthService(BaseService):
                         user_email=email,
                         details={},
                     )
-                except Exception:
-                    logger.debug("Failed to log login failure audit event", exc_info=True)
+                except Exception as exc:
+                    logger.bind(
+                        error=_oauth_service_error_payload(
+                            code="AUTH_LOGIN_FAILURE_AUDIT_WRITE_FAILED",
+                            message="Failed to log login failure audit event",
+                            operation="write_login_failure_audit",
+                            boundary="auth_service",
+                            data={"user_id": user.id if user else None, "user_email": email},
+                            detail=exc.__class__.__name__,
+                        )
+                    ).debug("Failed to log login failure audit event")
 
                 await self.commit()
                 raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
@@ -936,28 +993,55 @@ Responsibilities:
 - Bind OAuth accounts
 """
 
-import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple, cast
+from datetime import datetime
+from typing import Optional, Tuple, cast
 from urllib.parse import urlencode
 
 import httpx
-from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.app_errors import AuthenticationError, InvalidRequestError
-from app.joysafeter_shared.oauth import get_oauth_config
-from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_oauth_account import OAuthAccount
-from app.joysafeter_domain.repositories.joysafeter_auth_user import AuthUserRepository
 from app.joysafeter_domain.services.base import BaseService
+from app.joysafeter_shared.cache.redis import RedisClient
+from app.joysafeter_shared.oauth import get_oauth_config
+from app.joysafeter_shared.oauth.security import validate_oauth_endpoint_url
 
 LOG_PREFIX = "[OAuthService]"
 
 # State TTL (seconds)
 OAUTH_STATE_EXPIRE_SECONDS = 600  # 10 minutes
+
+
+def _oauth_service_error_payload(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    provider_name: str | None = None,
+    boundary: str = "oauth_service",
+    source: str = "runtime",
+    data: dict[str, object] | None = None,
+    detail: str | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> dict[str, object]:
+    payload_data: dict[str, object] = {}
+    if provider_name is not None:
+        payload_data["provider_name"] = provider_name
+    if data:
+        payload_data.update(data)
+    return async_boundary_error_payload(
+        code=code,
+        message=message,
+        boundary=boundary,
+        operation=operation,
+        data=payload_data,
+        source=source,
+        retryable=retryable,
+        user_action=user_action,
+        detail=detail,
+    )
 
 
 class OAuthService(BaseService):
@@ -1067,7 +1151,16 @@ class OAuthService(BaseService):
 
                 await RedisClient.set(state_key, json.dumps(state_data), expire=OAUTH_STATE_EXPIRE_SECONDS)
             except Exception as e:
-                logger.warning(f"{LOG_PREFIX} Failed to store state in Redis: {e}")
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="OAUTH_SERVICE_STATE_STORE_FAILED",
+                        message="Failed to store OAuth state in Redis",
+                        operation="store_state",
+                        provider_name=provider_name,
+                        data={"state_key": state_key},
+                        detail=e.__class__.__name__,
+                    )
+                ).warning(f"{LOG_PREFIX} Failed to store state in Redis")
 
         # Get authorize URL (may require OIDC Discovery)
         authorize_url: Optional[str] = provider.authorize_url or None
@@ -1076,7 +1169,17 @@ class OAuthService(BaseService):
                 oidc_config = await self.oauth_config.discover_oidc_config(provider.issuer)
                 authorize_url = cast(Optional[str], oidc_config.get("authorization_endpoint"))
             except Exception as e:
-                logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="OAUTH_AUTHORIZATION_DISCOVERY_UPSTREAM_FAILED",
+                        message="OAuth authorization endpoint discovery failed",
+                        operation="discover_authorization_endpoint",
+                        provider_name=provider_name,
+                        source="upstream",
+                        data={"issuer": provider.issuer},
+                        detail=e.__class__.__name__,
+                    )
+                ).error(f"{LOG_PREFIX} OIDC Discovery failed")
                 raise self._endpoint_discovery_failed(provider_name, "authorization")
 
         if not authorize_url:
@@ -1123,7 +1226,15 @@ class OAuthService(BaseService):
                     await RedisClient.delete(state_key)
                     return cast(Dict[str, Any], json.loads(state_data_str))
             except Exception as e:
-                logger.warning(f"{LOG_PREFIX} Failed to validate state from Redis: {e}")
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="OAUTH_SERVICE_STATE_VALIDATE_FAILED",
+                        message="Failed to validate OAuth state from Redis",
+                        operation="validate_state",
+                        data={"state_key": state_key},
+                        detail=e.__class__.__name__,
+                    )
+                ).warning(f"{LOG_PREFIX} Failed to validate state from Redis")
 
         return None
 
@@ -1157,11 +1268,39 @@ class OAuthService(BaseService):
                 oidc_config = await self.oauth_config.discover_oidc_config(provider.issuer)
                 token_url = cast(Optional[str], oidc_config.get("token_endpoint"))
             except Exception as e:
-                logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="OAUTH_TOKEN_DISCOVERY_UPSTREAM_FAILED",
+                        message="OAuth token endpoint discovery failed",
+                        operation="discover_token_endpoint",
+                        provider_name=provider_name,
+                        source="upstream",
+                        data={"issuer": provider.issuer},
+                        detail=e.__class__.__name__,
+                    )
+                ).error(f"{LOG_PREFIX} OIDC Discovery failed")
                 raise self._endpoint_discovery_failed(provider_name, "token")
 
         if not token_url:
             raise self._missing_endpoint(provider_name, "token")
+        try:
+            token_url = validate_oauth_endpoint_url(token_url, endpoint_type="token")
+        except ValueError as e:
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_TOKEN_URL_INVALID",
+                    message="OAuth token URL failed security validation",
+                    operation="validate_token_endpoint",
+                    provider_name=provider_name,
+                    source="api",
+                    detail=e.__class__.__name__,
+                )
+            ).error(f"{LOG_PREFIX} Invalid token URL")
+            raise InvalidRequestError(
+                f"Invalid OAuth token URL for {provider_name}",
+                code="OAUTH_TOKEN_URL_INVALID",
+                data={"provider_name": provider_name},
+            ) from None
 
         # Build request
         data = {
@@ -1208,10 +1347,29 @@ class OAuthService(BaseService):
                 return tokens
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"{LOG_PREFIX} Token exchange failed: {e.response.text}")
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_TOKEN_EXCHANGE_UPSTREAM_FAILED",
+                    message="OAuth token exchange failed",
+                    operation="exchange_code_for_tokens",
+                    provider_name=provider_name,
+                    source="upstream",
+                    data={"status_code": e.response.status_code},
+                    detail=e.__class__.__name__,
+                )
+            ).error(f"{LOG_PREFIX} Token exchange failed")
             raise self._token_exchange_failed(provider_name)
         except Exception as e:
-            logger.error(f"{LOG_PREFIX} Token exchange error: {e}")
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_TOKEN_EXCHANGE_REQUEST_FAILED",
+                    message="OAuth token exchange request failed",
+                    operation="exchange_code_for_tokens",
+                    provider_name=provider_name,
+                    source="upstream",
+                    detail=e.__class__.__name__,
+                )
+            ).error(f"{LOG_PREFIX} Token exchange error")
             raise self._token_exchange_failed(provider_name)
 
     # ==================== User Info ====================
@@ -1242,11 +1400,39 @@ class OAuthService(BaseService):
                 oidc_config = await self.oauth_config.discover_oidc_config(provider.issuer)
                 userinfo_url = oidc_config.get("userinfo_endpoint")
             except Exception as e:
-                logger.error(f"{LOG_PREFIX} OIDC Discovery failed: {e}")
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="OAUTH_USERINFO_DISCOVERY_UPSTREAM_FAILED",
+                        message="OAuth userinfo endpoint discovery failed",
+                        operation="discover_userinfo_endpoint",
+                        provider_name=provider_name,
+                        source="upstream",
+                        data={"issuer": provider.issuer},
+                        detail=e.__class__.__name__,
+                    )
+                ).error(f"{LOG_PREFIX} OIDC Discovery failed")
                 raise self._endpoint_discovery_failed(provider_name, "userinfo")
 
         if not userinfo_url:
             raise self._missing_endpoint(provider_name, "userinfo")
+        try:
+            userinfo_url = validate_oauth_endpoint_url(userinfo_url, endpoint_type="userinfo")
+        except ValueError as e:
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_USERINFO_URL_INVALID",
+                    message="OAuth userinfo URL failed security validation",
+                    operation="validate_userinfo_endpoint",
+                    provider_name=provider_name,
+                    source="api",
+                    detail=e.__class__.__name__,
+                )
+            ).error(f"{LOG_PREFIX} Invalid userinfo URL")
+            raise InvalidRequestError(
+                f"Invalid OAuth userinfo URL for {provider_name}",
+                code="OAUTH_USERINFO_URL_INVALID",
+                data={"provider_name": provider_name},
+            ) from None
 
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -1269,10 +1455,29 @@ class OAuthService(BaseService):
                 return userinfo
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"{LOG_PREFIX} Failed to fetch userinfo: {e.response.text}")
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_USERINFO_UPSTREAM_FAILED",
+                    message="OAuth userinfo fetch failed",
+                    operation="fetch_userinfo",
+                    provider_name=provider_name,
+                    source="upstream",
+                    data={"status_code": e.response.status_code},
+                    detail=e.__class__.__name__,
+                )
+            ).error(f"{LOG_PREFIX} Failed to fetch userinfo")
             raise self._userinfo_fetch_failed(provider_name)
         except Exception as e:
-            logger.error(f"{LOG_PREFIX} Userinfo fetch error: {e}")
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_USERINFO_REQUEST_FAILED",
+                    message="OAuth userinfo request failed",
+                    operation="fetch_userinfo",
+                    provider_name=provider_name,
+                    source="upstream",
+                    detail=e.__class__.__name__,
+                )
+            ).error(f"{LOG_PREFIX} Userinfo fetch error")
             raise self._userinfo_fetch_failed(provider_name)
 
     async def _fetch_github_email(self, access_token: str) -> Optional[str]:
@@ -1301,7 +1506,16 @@ class OAuthService(BaseService):
 
                 return None
         except Exception as e:
-            logger.warning(f"{LOG_PREFIX} Failed to fetch GitHub email: {e}")
+            logger.bind(
+                error=_oauth_service_error_payload(
+                    code="OAUTH_GITHUB_EMAIL_FETCH_FAILED",
+                    message="Failed to fetch GitHub primary email",
+                    operation="fetch_github_email",
+                    provider_name="github",
+                    source="upstream",
+                    detail=e.__class__.__name__,
+                )
+            ).warning(f"{LOG_PREFIX} Failed to fetch GitHub email")
             return None
 
     # ==================== User Management ====================
@@ -1380,7 +1594,17 @@ class OAuthService(BaseService):
                 return user, False
             else:
                 # Binding exists but user missing; clean up
-                logger.warning(f"{LOG_PREFIX} OAuth account exists but user not found, cleaning up")
+                logger.bind(
+                    error=_oauth_service_error_payload(
+                        code="AUTH_OAUTH_ACCOUNT_USER_MISSING",
+                        message="OAuth account exists but user is missing",
+                        operation="cleanup_missing_oauth_user",
+                        provider_name=provider_name,
+                        data={"user_id": str(oauth_account.user_id)},
+                        retryable=False,
+                        user_action=None,
+                    )
+                ).warning(f"{LOG_PREFIX} OAuth account exists but user not found, cleaning up")
                 await self._delete_oauth_account(oauth_account)
 
         # 2) Link by email if enabled
@@ -1577,16 +1801,13 @@ Update last-login time and IP, and record a login-success audit event.
 Called by auth_service.login and oauth_callback to keep the logic centralized.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
-
-from app.joysafeter_domain.models.enums import SecurityAuditEventType
 
 
 async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: str) -> None:
@@ -1610,7 +1831,17 @@ async def run_post_login_init(db: AsyncSession, user: "AuthUser", ip_address: st
             user_id=user.id,
             user_email=user.email,
         )
-    except Exception:
-        logger.warning("Failed to create security audit entry", exc_info=True)
+    except Exception as exc:
+        logger.bind(
+            error=_oauth_service_error_payload(
+                code="AUTH_LOGIN_AUDIT_WRITE_FAILED",
+                message="Failed to create security audit entry",
+                operation="write_login_audit",
+                boundary="auth_service",
+                source="runtime",
+                data={"user_id": user.id, "user_email": user.email},
+                detail=exc.__class__.__name__,
+            )
+        ).warning("Failed to create security audit entry")
 
     # Note: workspace provisioning removed — new users get org + project via joysafeter auth.

@@ -20,20 +20,26 @@ interface SecretKeySelectProps {
   className?: string
   provider?: string
   protocol?: string
+  disabled?: boolean
 }
 
-export function SecretKeySelect({ value, onChange, placeholder, className, provider, protocol }: SecretKeySelectProps) {
+export function SecretKeySelect({
+  value,
+  onChange,
+  placeholder,
+  className,
+  provider,
+  protocol,
+  disabled = false,
+}: SecretKeySelectProps) {
   const { t } = useTranslation()
   const groups = getSecretKeyGroups(provider, protocol)
   const visibleOptions = groups.flatMap((group) => group.keys)
   const showCurrentKey = !!value && !visibleOptions.includes(value)
 
   return (
-    <Select
-      value={value}
-      onValueChange={onChange}
-    >
-      <SelectTrigger className={cn('flex-1 font-mono text-sm', className)}>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className={cn('flex-1 font-mono text-sm', className)} disabled={disabled}>
         <SelectValue placeholder={placeholder || t('managed.secrets.selectKey')} />
       </SelectTrigger>
       <SelectContent>
@@ -41,20 +47,22 @@ export function SecretKeySelect({ value, onChange, placeholder, className, provi
           <SelectGroup key={group.id}>
             <SelectLabel className="flex items-center gap-2 px-2 py-2">
               <span
-                className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white"
                 style={{ backgroundColor: group.bgColor }}
               >
                 {group.icon}
               </span>
-              <span className="text-sm font-semibold text-foreground">{t(group.labelKey, { defaultValue: group.label })}</span>
+              <span className="text-sm font-semibold text-foreground">
+                {t(group.labelKey, { defaultValue: group.label })}
+              </span>
             </SelectLabel>
             {group.keys.map((key, i) => {
               const isLast = i === group.keys.length - 1
               const prefix = isLast ? '└' : '├'
               return (
-                <SelectItem key={key} value={key} className="font-mono text-sm pl-8">
+                <SelectItem key={key} value={key} className="pl-8 font-mono text-sm">
                   <span className="flex items-center gap-1.5">
-                    <span className="text-muted-foreground/50 text-xs">{prefix}</span>
+                    <span className="text-xs text-muted-foreground/50">{prefix}</span>
                     {key}
                   </span>
                 </SelectItem>
@@ -64,13 +72,17 @@ export function SecretKeySelect({ value, onChange, placeholder, className, provi
         ))}
         {showCurrentKey && (
           <SelectGroup>
-            <SelectLabel className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-muted-foreground border-t border-border/50 mt-1 pt-1.5">
-              <span className="w-5 h-5 rounded bg-gray-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">C</span>
-              <span className="text-sm font-semibold text-foreground">{t('managed.secrets.customKey')}</span>
+            <SelectLabel className="border-border/50 mt-1 flex items-center gap-2 border-t px-2 py-1.5 pt-1.5 text-xs font-semibold text-muted-foreground">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-gray-500 text-[10px] font-bold text-white">
+                C
+              </span>
+              <span className="text-sm font-semibold text-foreground">
+                {t('managed.secrets.customKey')}
+              </span>
             </SelectLabel>
-            <SelectItem value={value} className="font-mono text-sm pl-8">
+            <SelectItem value={value} className="pl-8 font-mono text-sm">
               <span className="flex items-center gap-1.5">
-                <span className="text-muted-foreground/50 text-xs">└</span>
+                <span className="text-xs text-muted-foreground/50">└</span>
                 {value}
               </span>
             </SelectItem>

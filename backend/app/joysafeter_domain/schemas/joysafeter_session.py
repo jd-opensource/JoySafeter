@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
@@ -21,7 +21,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
-
+from app.joysafeter_domain.schemas.joysafeter_environment import MountResource
 
 # ---------------------------------------------------------------------------
 # JoySafeter Session Schemas
@@ -112,7 +112,13 @@ class InterruptedStopReason(BaseModel):
 
 class ErrorStopReason(BaseModel):
     type: Literal["error"] = "error"
-    message: Optional[str] = None
+    code: str = "UNKNOWN_ERROR"
+    message: str
+    data: Optional[Dict[str, Any]] = None
+    source: str = "internal"
+    retryable: bool = False
+    user_action: Optional[str] = None
+    detail: Optional[str] = None
 
 
 class TimeoutStopReason(BaseModel):
@@ -146,6 +152,7 @@ StopReason = Union[
 
 class AgentRef(BaseModel):
     """Agent reference supporting pinned versions: {type, id, version}."""
+
     type: str = "agent"
     id: uuid.UUID
     version: Optional[int] = None
@@ -167,6 +174,7 @@ class SessionFileResourceRequest(BaseModel):
     def validate_mount_path(self):
         if self.mount_path:
             import os
+
             normalized = os.path.normpath(self.mount_path)
             if ".." in normalized.split("/") or ".." in normalized.split("\\"):
                 raise ValueError("mount_path must not contain path traversal")
@@ -183,7 +191,7 @@ class SessionRepoResourceRequest(BaseModel):
 
     type: str = "github_repository"
     url: str
-    branch: str = ""
+    branch: Optional[str] = None
     mount_path: Optional[str] = None
     mount_name: Optional[str] = None
     authorization_token: Optional[str] = None
@@ -197,6 +205,7 @@ class SessionRepoResourceRequest(BaseModel):
     def validate_mount_path(self):
         if self.mount_path:
             import os
+
             normalized = os.path.normpath(self.mount_path)
             if ".." in normalized.split("/") or ".." in normalized.split("\\"):
                 raise ValueError("mount_path must not contain path traversal")
@@ -206,9 +215,14 @@ class SessionRepoResourceRequest(BaseModel):
         return self
 
 
+class SessionStorageMountRequest(MountResource):
+    type: str = "storage"
+
+
 MAX_MEMORY_STORE_RESOURCES = 8
 MAX_FILE_RESOURCES = 100
 MAX_REPO_RESOURCES = 16
+MAX_STORAGE_MOUNT_RESOURCES = 16
 
 
 def _parse_agent_id(raw: str) -> uuid.UUID:
@@ -228,6 +242,7 @@ class CreateSessionRequest(BaseModel):
     resources: list[SessionResourceRequest] = Field(default_factory=list)
     file_resources: list[SessionFileResourceRequest] = Field(default_factory=list)
     repo_resources: list[SessionRepoResourceRequest] = Field(default_factory=list)
+    storage_mounts: list[SessionStorageMountRequest] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -269,6 +284,47 @@ class SessionRepoResourceResponse(BaseModel):
         return f"sesrsc_{v}"
 
 
+class SessionFileResourceResponse(BaseModel):
+    id: uuid.UUID
+    type: str = "file"
+    file_id: uuid.UUID
+    mount_path: str
+    access: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return f"sesrsc_{v}"
+
+    @field_serializer("file_id")
+    def serialize_file_id(self, v: uuid.UUID) -> str:
+        return f"file_{v}"
+
+
+class SessionStorageMountResponse(BaseModel):
+    id: uuid.UUID
+    type: str = "storage"
+    name: str
+    volume_ref: str
+    sub_path: str = ""
+    mount_path: str
+    access: str
+    required: bool = True
+    created_at: datetime
+
+    @field_serializer("id")
+    def serialize_id(self, v: uuid.UUID) -> str:
+        return str(v)
+
+
+class UpdateRepoResourceRequest(BaseModel):
+    """Rotate the clone credential on a github_repository resource."""
+
+    authorization_token: str
+
+
 class SessionResponse(BaseModel):
     id: uuid.UUID
     type: str = "session"
@@ -281,6 +337,7 @@ class SessionResponse(BaseModel):
     vault_ids: list[str] = Field(default_factory=list)
     resources: list[SessionResourceResponse] = Field(default_factory=list)
     repo_resources: list[SessionRepoResourceResponse] = Field(default_factory=list)
+    storage_mounts: list[SessionStorageMountResponse] = Field(default_factory=list)
     usage: SessionUsage = Field(default_factory=SessionUsage)
     stats: SessionStats = Field(default_factory=SessionStats)
     created_at: datetime
@@ -292,6 +349,9 @@ class SessionResponse(BaseModel):
     @field_serializer("id")
     def serialize_id(self, v: uuid.UUID) -> str:
         return f"sess_{v}"
+
+
+from app.joysafeter_domain.schemas.joysafeter_skill import SkillUsageResponse as SessionSkillUsageResponse  # noqa: E402
 
 
 class SingleEventRequest(BaseModel):
@@ -330,17 +390,19 @@ class SendEventRequest(BaseModel):
         if self.events:
             return self.events
         if self.type:
-            return [SingleEventRequest(
-                type=self.type,
-                content=self.content,
-                tool_use_id=self.tool_use_id,
-                custom_tool_use_id=self.custom_tool_use_id,
-                tool_use_event_id=self.tool_use_event_id,
-                result=self.result,
-                approved=self.approved,
-                deny_message=self.deny_message,
-                payload=self.payload,
-            )]
+            return [
+                SingleEventRequest(
+                    type=self.type,
+                    content=self.content,
+                    tool_use_id=self.tool_use_id,
+                    custom_tool_use_id=self.custom_tool_use_id,
+                    tool_use_event_id=self.tool_use_event_id,
+                    result=self.result,
+                    approved=self.approved,
+                    deny_message=self.deny_message,
+                    payload=self.payload,
+                )
+            ]
         return []
 
 

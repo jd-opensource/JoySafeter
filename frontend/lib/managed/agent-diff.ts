@@ -88,10 +88,7 @@ const diffObject = (
   if (deepEqual(before, after)) {
     return { changed: false, before, after, changedKeys: [] }
   }
-  const keys = new Set<string>([
-    ...Object.keys(before || {}),
-    ...Object.keys(after || {}),
-  ])
+  const keys = new Set<string>([...Object.keys(before || {}), ...Object.keys(after || {})])
   const changedKeys = Array.from(keys).filter(
     (k) => !deepEqual((before || {})[k], (after || {})[k]),
   )
@@ -100,7 +97,10 @@ const diffObject = (
 
 // ---------- Long-text diff (system prompt) ----------
 
-const diffText = (a: string | null | undefined, b: string | null | undefined): TextFieldDiff => {
+export const diffText = (
+  a: string | null | undefined,
+  b: string | null | undefined,
+): TextFieldDiff => {
   const before = a || ''
   const after = b || ''
   if (before === after) return { changed: false, lines: [] }
@@ -156,7 +156,8 @@ const toolKey = (t: AgentTool): string => {
   return name || type || JSON.stringify(t).slice(0, 32)
 }
 
-const mcpKey = (m: McpServer): string => (m as { name?: string }).name || JSON.stringify(m).slice(0, 32)
+const mcpKey = (m: McpServer): string =>
+  (m as { name?: string }).name || JSON.stringify(m).slice(0, 32)
 
 const skillKey = (s: AgentSkillRef): string => {
   const sid = (s as { skill_id?: string; name?: string }).skill_id
@@ -166,21 +167,42 @@ const skillKey = (s: AgentSkillRef): string => {
 
 // ---------- Main entry ----------
 
-export function diffAgents(base: Agent | null | undefined, target: Agent | null | undefined): AgentDiff {
+export function diffAgents(
+  base: Agent | null | undefined,
+  target: Agent | null | undefined,
+): AgentDiff {
   const a = base || ({} as Agent)
   const b = target || ({} as Agent)
 
   const engine_kind = diffScalar(a.engine_kind, b.engine_kind)
   const description = diffScalar(a.description, b.description)
-  const model = diffObject(a.model as Record<string, unknown> | null, b.model as Record<string, unknown> | null)
+  const model = diffObject(
+    a.model as Record<string, unknown> | null,
+    b.model as Record<string, unknown> | null,
+  )
   const system_prompt = diffText(a.system || a.system_prompt, b.system || b.system_prompt)
   const tools = diffArray<AgentTool>(a.tools, b.tools, toolKey)
   const mcp_servers = diffArray<McpServer>(a.mcp_servers, b.mcp_servers, mcpKey)
   const skills = diffArray<AgentSkillRef>(a.skills, b.skills, skillKey)
 
-  const changedCount = [engine_kind, description, model, system_prompt, tools, mcp_servers, skills].filter(
-    (d) => d.changed,
-  ).length
+  const changedCount = [
+    engine_kind,
+    description,
+    model,
+    system_prompt,
+    tools,
+    mcp_servers,
+    skills,
+  ].filter((d) => d.changed).length
 
-  return { changedCount, engine_kind, description, model, system_prompt, tools, mcp_servers, skills }
+  return {
+    changedCount,
+    engine_kind,
+    description,
+    model,
+    system_prompt,
+    tools,
+    mcp_servers,
+    skills,
+  }
 }

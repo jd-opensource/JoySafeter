@@ -53,6 +53,8 @@ dependencies = [
     "rich>=13.7.0",
     "python-frontmatter>=1.1.0",
     "markdownify>=0.11.6",
+    # Scheduler (cron parsing); timezone handling uses stdlib zoneinfo
+    "croniter>=3.0",
     # Email
     "aiosmtplib>=3.0.0",
     # Caching
@@ -119,7 +121,9 @@ dev = [
     "pre-commit>=4.0.0",
     "types-PyYAML>=6.0.0",
     "types-redis>=4.0.0",
+    "types-aiofiles>=23.0.0",
     "pyright>=1.1.409",
+    "testcontainers[postgres]>=4.8.0",
 ]
 
 [tool.ruff]
@@ -131,9 +135,21 @@ src = [".", "src"]
 select = ["E", "F", "I", "W"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+# The repo contains a local `backend/alembic/` migrations dir, so ruff's
+# automatic first-party detection classifies `alembic` differently depending
+# on the working directory (first-party from backend/, third-party from repo
+# root). That made the repo-root `ruff` pre-commit hook and the `cd backend`
+# strict hook / CI ruff demand conflicting import orders for the same file.
+# Pin it first-party so classification is cwd-independent and matches CI.
+known-first-party = ["alembic"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "no_db: test does not require the shared Postgres testcontainer",
+]
 
 [tool.mypy]
 python_version = "3.12"
@@ -144,4 +160,4 @@ ignore_missing_imports = true
 disable_error_code = ["annotation-unchecked"]
 
 [tool.uv]
-index-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"

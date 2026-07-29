@@ -11,6 +11,7 @@ from typing import Optional
 from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.config.settings import settings
 
 _template_dir = Path(__file__).resolve().parents[2] / "joysafeter_shared" / "templates"
@@ -60,7 +61,16 @@ class EmailService:
 
         # production mode — use SMTP
         if not self.smtp_host or not self.smtp_user:
-            logger.warning("SMTP not configured, email not sent")
+            log_boundary_failure_loguru(
+                logger,
+                boundary="email_service",
+                code="EMAIL_SMTP_NOT_CONFIGURED",
+                message="SMTP not configured, email not sent",
+                operation="send_email",
+                data={"has_host": bool(self.smtp_host), "has_user": bool(self.smtp_user)},
+                retryable=False,
+                user_action="check_configuration",
+            )
             return False
 
         try:
@@ -85,7 +95,15 @@ class EmailService:
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to send email: {e}")
+            log_boundary_failure_loguru(
+                logger,
+                boundary="email_service",
+                code="EMAIL_SEND_FAILED",
+                message="Failed to send email",
+                operation="send_email",
+                error=e,
+                data={"smtp_host": self.smtp_host or "", "smtp_port": self.smtp_port},
+            )
             return False
 
     async def send_password_reset_email(

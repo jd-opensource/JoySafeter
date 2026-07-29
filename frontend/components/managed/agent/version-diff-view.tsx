@@ -32,7 +32,7 @@ export function VersionDiffView({ base, target, baseVersion, targetVersion }: Pr
   const d = useMemo(() => diffAgents(base, target), [base, target])
 
   return (
-    <div className="space-y-6 mt-4">
+    <div className="mt-4 space-y-6">
       {/* Summary bar */}
       <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2 text-sm">
         <span className="font-mono">v{baseVersion}</span>
@@ -59,7 +59,9 @@ export function VersionDiffView({ base, target, baseVersion, targetVersion }: Pr
       <ArrayFieldSection
         title={t('managed.agents.tools')}
         diff={d.tools}
-        renderItem={(item) => (item as { name?: string; type?: string }).name || (item as { type?: string }).type || '-'}
+        renderItem={(item) =>
+          (item as { name?: string; type?: string }).name || (item as { type?: string }).type || '-'
+        }
       />
       <ArrayFieldSection
         title={t('managed.agents.mcpServers')}
@@ -103,18 +105,20 @@ function FieldSection({
   const fmt = format ?? ((v: string) => v || '-')
   return (
     <section>
-      <h3 className="text-sm font-medium text-foreground mb-1 flex items-center gap-2">
+      <h3 className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
         {title}
         {!diff.changed && <UnchangedLabel />}
       </h3>
       {diff.changed ? (
-        <div className="text-sm font-mono space-x-2">
-          <span className="line-through text-red-700 dark:text-red-400 opacity-70">{fmt(diff.before)}</span>
+        <div className="space-x-2 font-mono text-sm">
+          <span className="text-red-700 line-through opacity-70 dark:text-red-400">
+            {fmt(diff.before)}
+          </span>
           <span className="text-muted-foreground">→</span>
           <span className="text-green-700 dark:text-green-400">{fmt(diff.after)}</span>
         </div>
       ) : (
-        <p className="text-sm text-muted-foreground font-mono">{fmt(diff.before)}</p>
+        <p className="font-mono text-sm text-muted-foreground">{fmt(diff.before)}</p>
       )}
     </section>
   )
@@ -123,21 +127,21 @@ function FieldSection({
 function ObjectFieldSection({ title, diff }: { title: string; diff: ObjectFieldDiff }) {
   return (
     <section>
-      <h3 className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+      <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
         {title}
         {!diff.changed && <UnchangedLabel />}
       </h3>
       {diff.changed ? (
         <div className="grid grid-cols-2 gap-3 text-xs">
-          <pre className="bg-red-500/5 border border-red-500/20 rounded p-3 overflow-x-auto font-mono whitespace-pre-wrap">
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded border border-red-500/20 bg-red-500/5 p-3 font-mono">
             {JSON.stringify(diff.before, null, 2)}
           </pre>
-          <pre className="bg-green-500/5 border border-green-500/20 rounded p-3 overflow-x-auto font-mono whitespace-pre-wrap">
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded border border-green-500/20 bg-green-500/5 p-3 font-mono">
             {JSON.stringify(diff.after, null, 2)}
           </pre>
         </div>
       ) : (
-        <pre className="bg-muted p-3 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap font-mono">
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-3 font-mono text-xs">
           {JSON.stringify(diff.before ?? diff.after, null, 2)}
         </pre>
       )}
@@ -149,7 +153,7 @@ function TextFieldSection({ title, diff }: { title: string; diff: TextFieldDiff 
   if (!diff.changed && diff.lines.length === 0) {
     return (
       <section>
-        <h3 className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+        <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
           {title} <UnchangedLabel />
         </h3>
       </section>
@@ -157,18 +161,18 @@ function TextFieldSection({ title, diff }: { title: string; diff: TextFieldDiff 
   }
   return (
     <section>
-      <h3 className="text-sm font-medium text-foreground mb-2">{title}</h3>
-      <pre className="bg-muted rounded-lg text-xs overflow-x-auto font-mono max-h-[400px] overflow-y-auto p-0 leading-relaxed">
+      <h3 className="mb-2 text-sm font-medium text-foreground">{title}</h3>
+      <pre className="max-h-[400px] overflow-x-auto overflow-y-auto rounded-lg bg-muted p-0 font-mono text-xs leading-relaxed">
         {diff.lines.map((ln, i) => {
           const cls =
             ln.type === 'add'
               ? 'bg-green-500/10 text-green-700 dark:text-green-300'
               : ln.type === 'remove'
-              ? 'bg-red-500/10 text-red-700 dark:text-red-300'
-              : 'text-muted-foreground'
+                ? 'bg-red-500/10 text-red-700 dark:text-red-300'
+                : 'text-muted-foreground'
           const prefix = ln.type === 'add' ? '+ ' : ln.type === 'remove' ? '- ' : '  '
           return (
-            <div key={i} className={`${cls} px-3 py-0.5 whitespace-pre-wrap`}>
+            <div key={i} className={`${cls} whitespace-pre-wrap px-3 py-0.5`}>
               {prefix}
               {ln.value}
             </div>
@@ -191,7 +195,7 @@ function ArrayFieldSection<T>({
   const { t } = useTranslation()
   return (
     <section>
-      <h3 className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+      <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
         {title}
         {!diff.changed && <UnchangedLabel />}
       </h3>
@@ -201,13 +205,17 @@ function ArrayFieldSection<T>({
             .filter((i) => i.status !== 'unchanged')
             .map((item) => {
               const variant: 'default' | 'secondary' | 'destructive' | 'outline' =
-                item.status === 'added' ? 'default' : item.status === 'removed' ? 'destructive' : 'secondary'
+                item.status === 'added'
+                  ? 'default'
+                  : item.status === 'removed'
+                    ? 'destructive'
+                    : 'secondary'
               const label =
                 item.status === 'added'
                   ? t('managed.agents.detail.added')
                   : item.status === 'removed'
-                  ? t('managed.agents.detail.removed')
-                  : t('managed.agents.detail.modified')
+                    ? t('managed.agents.detail.removed')
+                    : t('managed.agents.detail.modified')
               const display =
                 item.status === 'modified'
                   ? `${renderItem(item.before as T)} → ${renderItem(item.after as T)}`

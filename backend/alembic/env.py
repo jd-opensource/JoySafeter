@@ -16,8 +16,8 @@ from app.joysafeter_shared.config.settings import ENV_FILE
 load_dotenv(ENV_FILE, override=False)
 
 from app.joysafeter_domain import models  # noqa: F401,E402 - register SQLAlchemy models
-from app.joysafeter_shared.database import Base  # noqa: E402
 from app.joysafeter_shared.config.settings import settings  # noqa: E402
+from app.joysafeter_shared.database import Base  # noqa: E402
 
 config = context.config
 

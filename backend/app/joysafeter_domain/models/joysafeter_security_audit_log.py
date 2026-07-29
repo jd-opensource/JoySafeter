@@ -9,8 +9,8 @@ from sqlalchemy import Index, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.database import Base
 from app.joysafeter_domain.models.base import TimestampMixin
+from app.joysafeter_shared.database import Base
 
 
 class SecurityAuditLog(Base, TimestampMixin):

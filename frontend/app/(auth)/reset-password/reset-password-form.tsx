@@ -141,10 +141,7 @@ export function SetNewPasswordForm({
         toastSuccess(statusMessage)
       }
     }
-    if (validationMessage) {
-      toastError(validationMessage)
-    }
-  }, [statusType, statusMessage, validationMessage])
+  }, [statusType, statusMessage])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

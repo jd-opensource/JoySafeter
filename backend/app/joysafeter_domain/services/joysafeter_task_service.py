@@ -6,19 +6,23 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
-from loguru import logger
-from sqlalchemy import and_, func, select, text, update as sa_update
+from sqlalchemy import and_, func, select, text
+from sqlalchemy import update as sa_update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
-from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_task import (
+    JOYSAFETER_TERMINAL_STATUSES as TERMINAL_STATUSES,
+)
 from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTask,
     JoySafeterTaskStatus,
-    JOYSAFETER_TERMINAL_STATUSES as TERMINAL_STATUSES,
 )
-from app.joysafeter_shared.utils.datetime import utc_now
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
 
 
@@ -27,6 +31,17 @@ class JoySafeterTaskService:
         self.db = db
         self.state_machine = JoySafeterTaskStateMachine(db)
 
+    @staticmethod
+    def scoped_idempotency_key(idempotency_key: str, project_id: Optional[str]) -> str:
+        project_scope = project_id if project_id is not None else "__no_project__"
+        return f"project:{project_scope}:{idempotency_key}"
+
+    @classmethod
+    def _idempotency_key_candidates(cls, idempotency_key: str, project_id: Optional[str]) -> list[str]:
+        # Include the raw key as a legacy fallback for rows created before keys
+        # were project-scoped in storage.
+        scoped = cls.scoped_idempotency_key(idempotency_key, project_id)
+        return [scoped, idempotency_key] if scoped != idempotency_key else [scoped]
 
     async def create_task(
         self,
@@ -37,8 +52,12 @@ class JoySafeterTaskService:
         timeout_sec: int = 7200,
         max_retries: int = 2,
         project_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        user_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+        trigger_id: Optional[uuid.UUID] = None,
     ) -> JoySafeterTask:
-        kwargs = dict(
+        values: dict[str, Any] = dict(
             agent_id=agent_id,
             prompt=prompt,
             system_prompt=system_prompt,
@@ -48,22 +67,72 @@ class JoySafeterTaskService:
             max_retries=max_retries,
         )
         if project_id is not None:
-            kwargs["project_id"] = project_id
-        task = JoySafeterTask(**kwargs)
-        self.db.add(task)
-        await self.db.commit()
-        await self.db.refresh(task)
-        return task
+            values["project_id"] = project_id
+        if user_id is not None:
+            values["user_id"] = user_id
+        if org_id is not None:
+            values["org_id"] = org_id
+        if trigger_id is not None:
+            values["trigger_id"] = trigger_id
 
-    async def get_task(
-        self, task_id: uuid.UUID, project_id: Optional[str] = None
+        if idempotency_key is None:
+            task = JoySafeterTask(**values)
+            self.db.add(task)
+            await self.db.commit()
+            await self.db.refresh(task)
+            setattr(task, "_created_by_create_task", True)
+            return task
+
+        # Idempotent submission: one key -> one task, even under concurrent
+        # retries from HA API replicas. INSERT ... ON CONFLICT DO NOTHING makes
+        # the unique constraint the arbiter; on conflict we return the existing task.
+        stored_idempotency_key = self.scoped_idempotency_key(idempotency_key, project_id)
+        values["idempotency_key"] = stored_idempotency_key
+        stmt = (
+            pg_insert(JoySafeterTask)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["idempotency_key"])
+            .returning(JoySafeterTask.id)
+        )
+        result = await self.db.execute(stmt)
+        await self.db.commit()
+        row = result.first()
+        if row is not None:
+            task_id = row[0]
+            created = True
+        else:
+            conditions = [JoySafeterTask.idempotency_key == stored_idempotency_key]
+            if project_id is not None:
+                conditions.append(JoySafeterTask.project_id == project_id)
+            task_id = (await self.db.execute(select(JoySafeterTask.id).where(and_(*conditions)))).scalar_one()
+            created = False
+        fetched = await self.get_task(task_id)
+        assert fetched is not None
+        setattr(fetched, "_created_by_create_task", created)
+        return fetched
+
+    async def get_by_idempotency_key(
+        self, idempotency_key: str, project_id: Optional[str] = None
     ) -> Optional[JoySafeterTask]:
+        """Return the task previously created with this idempotency key, if any.
+
+        Lets the API short-circuit a retried submission before doing other work
+        (e.g. auto-creating a ChatSession), keeping the whole endpoint idempotent,
+        not just the task INSERT.
+        """
+        conditions: list[ColumnElement[bool]] = [
+            JoySafeterTask.idempotency_key.in_(self._idempotency_key_candidates(idempotency_key, project_id))
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterTask.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterTask).where(and_(*conditions)))
+        return result.scalar_one_or_none()
+
+    async def get_task(self, task_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterTask]:
         conditions = [JoySafeterTask.id == task_id]
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterTask).where(and_(*conditions))
-        )
+        result = await self.db.execute(select(JoySafeterTask).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
     async def list_tasks_by_agent(
@@ -71,11 +140,13 @@ class JoySafeterTaskService:
         agent_id: uuid.UUID,
         limit: int = 20,
         after_id: Optional[uuid.UUID] = None,
+        project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterTask], bool]:
-        q = select(JoySafeterTask).where(JoySafeterTask.agent_id == agent_id)
-        if after_id:
-            q = q.where(JoySafeterTask.id < after_id)
-        q = q.order_by(JoySafeterTask.created_at.desc()).limit(limit + 1)
+        conditions = [JoySafeterTask.agent_id == agent_id]
+        if project_id is not None:
+            conditions.append(JoySafeterTask.project_id == project_id)
+        q = select(JoySafeterTask).where(and_(*conditions))
+        q = apply_created_at_desc_cursor(q, JoySafeterTask, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         tasks = list(result.scalars().all())
         has_more = len(tasks) > limit
@@ -100,11 +171,9 @@ class JoySafeterTaskService:
             conditions.append(JoySafeterTask.status == status)
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
-        if after_id:
-            conditions.append(JoySafeterTask.id < after_id)
         if conditions:
             q = q.where(and_(*conditions))
-        q = q.order_by(JoySafeterTask.created_at.desc()).limit(limit + 1)
+        q = apply_created_at_desc_cursor(q, JoySafeterTask, after_id).limit(limit + 1)
         result = await self.db.execute(q)
         tasks = list(result.scalars().all())
         has_more = len(tasks) > limit
@@ -112,6 +181,19 @@ class JoySafeterTaskService:
 
     async def cancel_task(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
         return await self.state_machine.cancel(task_id)
+
+    async def cancel_task_if_owner_matches(
+        self,
+        task_id: uuid.UUID,
+        *,
+        expected_sandbox_id: Optional[uuid.UUID],
+        expected_owner_epoch: Optional[int],
+    ) -> Optional[JoySafeterTask]:
+        return await self.state_machine.cancel_if_owner_matches(
+            task_id,
+            expected_sandbox_id=expected_sandbox_id,
+            expected_owner_epoch=expected_owner_epoch,
+        )
 
     async def claim_task_for_scheduling(self, task_id: uuid.UUID) -> bool:
         return await self.state_machine.claim_for_scheduling(task_id)
@@ -128,14 +210,9 @@ class JoySafeterTaskService:
 
     async def update_task_chat_session(self, task_id: uuid.UUID, session_id: uuid.UUID) -> None:
         await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(JoySafeterTask.id == task_id)
-            .values(chat_session_id=session_id)
+            sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(chat_session_id=session_id)
         )
         await self.db.commit()
-
-    async def reset_sandbox_tasks_to_pending(self, sandbox_id: uuid.UUID) -> int:
-        return await self.state_machine.reset_sandbox_scheduling_to_pending(sandbox_id)
 
     async def list_running_tasks(self) -> list:
         result = await self.db.execute(
@@ -153,9 +230,7 @@ class JoySafeterTaskService:
         )
         return list(result.scalars().all())
 
-    async def next_scheduling_task_for_sandbox(
-        self, sandbox_id: uuid.UUID
-    ) -> Optional[uuid.UUID]:
+    async def next_scheduling_task_for_sandbox(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
         result = await self.db.execute(
             select(JoySafeterTask.id)
             .where(
@@ -169,14 +244,10 @@ class JoySafeterTaskService:
         )
         return result.scalar_one_or_none()
 
-    async def claim_next_sandbox_task_for_running(
-        self, sandbox_id: uuid.UUID
-    ) -> Optional[uuid.UUID]:
+    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[tuple[uuid.UUID, int]]:
         return await self.state_machine.claim_next_sandbox_task_for_running(sandbox_id)
 
-    async def list_recoverable_tasks_by_sandbox(
-        self, sandbox_id: uuid.UUID
-    ) -> list[uuid.UUID]:
+    async def list_recoverable_tasks_by_sandbox(self, sandbox_id: uuid.UUID) -> list[uuid.UUID]:
         result = await self.db.execute(
             select(JoySafeterTask.id)
             .where(
@@ -207,9 +278,7 @@ class JoySafeterTaskService:
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
         result = await self.db.execute(
-            select(JoySafeterTask)
-            .where(and_(*conditions))
-            .order_by(JoySafeterTask.created_at.asc())
+            select(JoySafeterTask).where(and_(*conditions)).order_by(JoySafeterTask.created_at.asc())
         )
         return list(result.scalars().all())
 
@@ -217,62 +286,100 @@ class JoySafeterTaskService:
         self,
         task_id: uuid.UUID,
         new_status: JoySafeterTaskStatus,
+        expected_epoch: Optional[int] = None,
     ) -> bool:
-        return await self.state_machine.transition_to(task_id, new_status)
+        return await self.state_machine.transition_to(task_id, new_status, expected_epoch=expected_epoch)
 
     async def update_task_error(
         self,
         task_id: uuid.UUID,
         error: str,
         new_status: JoySafeterTaskStatus,
+        expected_epoch: Optional[int] = None,
     ) -> bool:
-        return await self.state_machine.fail_with_error(task_id, error, new_status)
+        return await self.state_machine.fail_with_error(task_id, error, new_status, expected_epoch=expected_epoch)
 
-    async def update_task_output(self, task_id: uuid.UUID, output: str) -> None:
-        await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(JoySafeterTask.id == task_id)
-            .values(output=output)
-        )
-        await self.db.commit()
+    async def update_task_output(self, task_id: uuid.UUID, output: str, expected_epoch: Optional[int] = None) -> bool:
+        return await self.state_machine.update_output(task_id, output, expected_epoch=expected_epoch)
 
-    async def update_task_usage(self, task_id: uuid.UUID, usage: dict) -> None:
-        await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(JoySafeterTask.id == task_id)
-            .values(usage=usage)
-        )
-        await self.db.commit()
+    async def update_task_usage(self, task_id: uuid.UUID, usage: dict, expected_epoch: Optional[int] = None) -> bool:
+        return await self.state_machine.update_usage(task_id, usage, expected_epoch=expected_epoch)
 
     async def update_task_sandbox(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> None:
         await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(JoySafeterTask.id == task_id)
-            .values(sandbox_id=sandbox_id)
+            sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(sandbox_id=sandbox_id)
         )
         await self.db.commit()
 
-    async def attach_sandbox_if_scheduling(
-        self, task_id: uuid.UUID, sandbox_id: uuid.UUID
-    ) -> bool:
+    async def attach_sandbox_if_scheduling(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> bool:
         return await self.state_machine.attach_sandbox_if_scheduling(task_id, sandbox_id)
 
-    async def increment_retry(self, task_id: uuid.UUID) -> bool:
-        return await self.state_machine.retry(task_id)
+    async def increment_retry(self, task_id: uuid.UUID, expected_epoch: Optional[int] = None) -> bool:
+        return await self.state_machine.retry(task_id, expected_epoch=expected_epoch)
 
-    async def agent_has_active_tasks(self, agent_id: uuid.UUID) -> bool:
+    async def agent_has_active_tasks(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+        terminal_values = [s.value for s in TERMINAL_STATUSES]
+        conditions = [
+            JoySafeterTask.agent_id == agent_id,
+            JoySafeterTask.status.notin_(terminal_values),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterTask.project_id == project_id)
+        result = await self.db.execute(select(func.count()).select_from(JoySafeterTask).where(and_(*conditions)))
+        return cast(int, result.scalar()) > 0
+
+    async def count_active_tasks_for_project(self, project_id: str) -> int:
+        """Count the project's non-terminal tasks (pending/scheduling/running).
+
+        This is the quantity admission control is gated on: a single tenant
+        (project) must not occupy unbounded fleet capacity. Terminal tasks
+        (completed/failed/cancelled) do not count against the live budget.
+        """
         terminal_values = [s.value for s in TERMINAL_STATUSES]
         result = await self.db.execute(
             select(func.count())
             .select_from(JoySafeterTask)
             .where(
                 and_(
-                    JoySafeterTask.agent_id == agent_id,
+                    JoySafeterTask.project_id == project_id,
                     JoySafeterTask.status.notin_(terminal_values),
                 )
             )
         )
-        return result.scalar() > 0
+        return cast(int, result.scalar())
+
+    async def count_active_tasks_for_user(self, user_id: str) -> int:
+        """Count a user's non-terminal tasks (pending/scheduling/running).
+
+        Backs per-user admission control: one user cannot occupy the whole
+        project/fleet budget. Terminal tasks do not count against the live total.
+        """
+        terminal_values = [s.value for s in TERMINAL_STATUSES]
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(JoySafeterTask)
+            .where(
+                and_(
+                    JoySafeterTask.user_id == user_id,
+                    JoySafeterTask.status.notin_(terminal_values),
+                )
+            )
+        )
+        return cast(int, result.scalar())
+
+    async def resolve_project_task_limit(self, project_id: str, default_limit: int) -> int:
+        """The effective concurrent-task limit for a project.
+
+        A project may carry a per-project override (``max_concurrent_tasks``);
+        when unset (NULL) the caller's global default applies. Kept free of the
+        global settings singleton so the decision is a pure function of the row
+        plus the passed default — trivially testable.
+        """
+        override = await self.db.execute(select(Project.max_concurrent_tasks).where(Project.id == project_id))
+        value = override.scalar_one_or_none()
+        if value is None:
+            return default_limit
+        return cast(int, value)
 
     async def find_overdue_tasks(self, cutoff: datetime) -> list[JoySafeterTask]:
         result = await self.db.execute(
@@ -280,9 +387,7 @@ class JoySafeterTaskService:
                 and_(
                     JoySafeterTask.status == JoySafeterTaskStatus.RUNNING.value,
                     JoySafeterTask.started_at.isnot(None),
-                    text(
-                        "started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"
-                    ),
+                    text("started_at + (COALESCE(timeout_sec, 7200) * interval '1 second') < NOW()"),
                 )
             )
         )

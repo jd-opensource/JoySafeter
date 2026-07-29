@@ -48,9 +48,7 @@ export function ConfirmDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>
-            {t('common.cancel')}
-          </AlertDialogCancel>
+          <AlertDialogCancel onClick={onCancel}>{t('common.cancel')}</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
             className={

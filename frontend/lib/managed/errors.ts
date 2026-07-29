@@ -2,28 +2,66 @@ import { toastError } from '@/lib/utils/toast'
 
 type Translator = (key: string, options?: Record<string, unknown>) => string
 
+export type ManagedErrorEnvelope = {
+  code: string
+  message: string
+  data: Record<string, unknown> | null
+  source?: string
+  retryable?: boolean
+  userAction?: string
+  detail?: string
+  traceId?: string
+  status?: number
+}
+
+export function parseApiError(error: unknown): ManagedErrorEnvelope {
+  const apiError = error as {
+    status?: unknown
+    code?: unknown
+    message?: unknown
+    data?: unknown
+    source?: unknown
+    retryable?: unknown
+    userAction?: unknown
+    detail?: unknown
+    traceId?: unknown
+  }
+  const data =
+    apiError?.data && typeof apiError.data === 'object'
+      ? (apiError.data as Record<string, unknown>)
+      : null
+  return {
+    code: typeof apiError?.code === 'string' ? apiError.code : '',
+    message: typeof apiError?.message === 'string' ? apiError.message : '',
+    data,
+    source: typeof apiError?.source === 'string' ? apiError.source : undefined,
+    retryable: typeof apiError?.retryable === 'boolean' ? apiError.retryable : undefined,
+    userAction: typeof apiError?.userAction === 'string' ? apiError.userAction : undefined,
+    detail: typeof apiError?.detail === 'string' ? apiError.detail : undefined,
+    traceId: typeof apiError?.traceId === 'string' ? apiError.traceId : undefined,
+    status: typeof apiError?.status === 'number' ? apiError.status : undefined,
+  }
+}
+
 export function shouldRetryManagedResourceError(failureCount: number, error: unknown): boolean {
-  const apiError = error as { status?: number; response?: { status?: number } }
-  const status = apiError?.status ?? apiError?.response?.status
-  if (status === 403 || status === 404) return false
+  const { code } = parseApiError(error)
+  if (
+    code === 'FORBIDDEN' ||
+    code === 'UNAUTHORIZED' ||
+    code === 'NOT_FOUND' ||
+    code.endsWith('_NOT_FOUND')
+  ) {
+    return false
+  }
   return failureCount < 2
 }
 
-export function getOperationErrorMessage(t: Translator, error: unknown, fallbackKey: string): string {
-  const apiError = error as {
-    status?: number
-    code?: string
-    message?: string
-    payload?: { message?: string; data?: Record<string, unknown> | null }
-    data?: Record<string, unknown> | null
-  }
-  const code = apiError?.code || ''
-  const message = (apiError?.message || apiError?.payload?.message || '').toLowerCase()
-  const data = apiError?.data || apiError?.payload?.data || null
-
-  if (message.includes('archived')) {
-    return t('managed.errors.resourceArchived')
-  }
+export function getOperationErrorMessage(
+  t: Translator,
+  error: unknown,
+  fallbackKey: string,
+): string {
+  const { code, message, data } = parseApiError(error)
 
   if (code === 'SKILL_SECURITY_SCAN_REJECTED') {
     return t('managed.errors.skillSecurityRejected', {
@@ -35,11 +73,11 @@ export function getOperationErrorMessage(t: Translator, error: unknown, fallback
   }
   if (code === 'SKILL_SECURITY_SCAN_FAILED') {
     return t('managed.errors.skillSecurityScanFailed', {
-      error: data?.error_message || '',
+      error: data?.error_message ?? '',
     })
   }
 
-  if (apiError?.status === 403 || code === 'JOYSAFETER_WRITE_REQUIRED' || code === 'WRITE_ACCESS_DENIED' || message.includes('write access required')) {
+  if (code === 'JOYSAFETER_WRITE_REQUIRED') {
     return t('managed.errors.writeRequired')
   }
   if (code === 'JOYSAFETER_ADMIN_REQUIRED') {
@@ -48,7 +86,7 @@ export function getOperationErrorMessage(t: Translator, error: unknown, fallback
   if (code === 'NOT_ORG_MEMBER') {
     return t('managed.errors.notOrgMember')
   }
-  if (code === 'JOYSAFETER_UNAUTHORIZED' || apiError?.status === 401) {
+  if (code === 'JOYSAFETER_UNAUTHORIZED' || code === 'UNAUTHORIZED') {
     return t('managed.errors.unauthorized')
   }
   if (code === 'MEMBERSHIP_EXPIRED') {
@@ -60,12 +98,38 @@ export function getOperationErrorMessage(t: Translator, error: unknown, fallback
   if (code === 'PROJECT_ARCHIVED') {
     return t('managed.errors.projectArchived')
   }
-  if (apiError?.status === 404 || code.includes('NOT_FOUND')) {
+  if (code === 'NOT_FOUND' || code.endsWith('_NOT_FOUND')) {
     return t('managed.errors.resourceNotFound')
+  }
+  if (message.trim()) {
+    return message
   }
   return t(fallbackKey)
 }
 
-export function toastOperationError(t: Translator, error: unknown, fallbackKey = 'common.operationFailed', titleKey = 'common.operationFailed'): void {
+export function getOperationErrorMessageWithDetails(
+  t: Translator,
+  error: unknown,
+  fallbackKey: string,
+): string {
+  const message = getOperationErrorMessage(t, error, fallbackKey)
+  const errorEnvelope = parseApiError(error)
+  const status = typeof errorEnvelope.status === 'number' ? `HTTP ${errorEnvelope.status}` : ''
+  const details = [
+    errorEnvelope.code.trim(),
+    status,
+    errorEnvelope.source?.trim() ?? '',
+    errorEnvelope.traceId?.trim() ? `trace ${errorEnvelope.traceId.trim()}` : '',
+  ].filter(Boolean)
+
+  return details.length > 0 ? `${message} (${details.join(', ')})` : message
+}
+
+export function toastOperationError(
+  t: Translator,
+  error: unknown,
+  fallbackKey = 'common.operationFailed',
+  titleKey = 'common.operationFailed',
+): void {
   toastError(getOperationErrorMessage(t, error, fallbackKey), t(titleKey))
 }

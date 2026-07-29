@@ -2,7 +2,6 @@
 Common dependencies.
 """
 
-import uuid
 from typing import Annotated, Optional
 
 from fastapi import Depends, Request
@@ -11,14 +10,12 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError, NotFoundError
+from app.joysafeter_domain.models.joysafeter_auth import AuthUser as User
+from app.joysafeter_domain.services.joysafeter_auth_service import AuthSessionService
+from app.joysafeter_shared.common.app_errors import AuthenticationError
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.security import decode_token
-from app.joysafeter_domain.models.joysafeter_auth import AuthUser as User
-from app.joysafeter_domain.models.enums import OrgRole
-from app.joysafeter_domain.models.joysafeter_organization import Member as OrgMember
-from app.joysafeter_domain.services.joysafeter_auth_service import AuthSessionService
 
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login/form", auto_error=False)
 
@@ -111,88 +108,4 @@ async def get_current_user_optional(
     return None
 
 
-def require_org_role(min_role: OrgRole):
-    """
-    Verify the current user's role on the given organization_id
-    (simple string comparison: owner > admin > member).
-    Requires organization_id in path/query params.
-    """
-    role_order = [OrgRole.MEMBER, OrgRole.ADMIN, OrgRole.OWNER]
-
-    def _rank(r: str) -> int:
-        try:
-            return role_order.index(OrgRole(r))
-        except ValueError:
-            return -1
-
-    async def checker(
-        organization_id: uuid.UUID,
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user),
-    ) -> User:
-        if current_user.is_superuser:
-            return current_user
-
-        result = await db.execute(
-            select(OrgMember).where(
-                OrgMember.organization_id == organization_id,
-                OrgMember.user_id == current_user.id,
-            )
-        )
-        member = result.scalar_one_or_none()
-        if not member:
-            raise AccessDeniedError("No access to organization", code="ORGANIZATION_ACCESS_DENIED")
-        if _rank(member.role) < _rank(min_role):
-            raise AccessDeniedError("Insufficient organization permission", code="ORGANIZATION_PERMISSION_DENIED")
-        return current_user
-
-    return Depends(checker)
-
-
 CurrentUser = Annotated[User, Depends(get_current_user)]
-
-
-def require_project_access():
-    """
-    Route-level dependency that resolves the project_id (from path param or
-    X-Project-Id header) and verifies the current user has access via org membership.
-    Returns the project_id as a string.
-    """
-
-    async def checker(
-        request: Request,
-        project_id: Optional[str] = None,
-        db: AsyncSession = Depends(get_db),
-        current_user: User = Depends(get_current_user),
-    ) -> str:
-        if current_user.is_superuser:
-            pid = project_id or request.headers.get("X-Project-Id")
-            if not pid:
-                raise NotFoundError("project_id required", code="PROJECT_ID_REQUIRED")
-            return pid
-
-        pid = project_id or request.headers.get("X-Project-Id")
-        if not pid:
-            raise NotFoundError("project_id required", code="PROJECT_ID_REQUIRED")
-
-        from app.joysafeter_domain.models.joysafeter_project import Project
-        result = await db.execute(
-            select(Project).where(Project.id == pid)
-        )
-        project = result.scalar_one_or_none()
-        if not project:
-            raise NotFoundError("Project not found", code="PROJECT_NOT_FOUND")
-
-        result = await db.execute(
-            select(OrgMember).where(
-                OrgMember.organization_id == project.org_id,
-                OrgMember.user_id == current_user.id,
-            )
-        )
-        member = result.scalar_one_or_none()
-        if not member:
-            raise AccessDeniedError("No access to project", code="PROJECT_ACCESS_DENIED")
-
-        return pid
-
-    return Depends(checker)

@@ -1,4 +1,7 @@
-FROM golang:1.24-bookworm AS go-builder
+ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
+ARG DOCKER_MIRROR="docker.m.daocloud.io"
+
+FROM ${BASE_IMAGE_REGISTRY}golang:1.24-bookworm AS go-builder
 ENV GOPATH=/go
 ENV PATH=$PATH:/go/bin
 ENV CGO_ENABLED=0
@@ -32,7 +35,7 @@ RUN go install github.com/owasp-amass/amass/v4/...@latest || \
 # Clean up Go caches to reduce image size
 RUN go clean -cache -modcache || true && rm -rf /go/pkg /tmp/*
 
-FROM debian:stable-slim AS downloader
+FROM ${BASE_IMAGE_REGISTRY}debian:stable-slim AS downloader
 RUN apt-get update && apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /downloads
@@ -50,7 +53,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
     touch /usr/local/bin/kr; \
     fi
 
-FROM kalilinux/kali-rolling
+FROM ${DOCKER_MIRROR}/kalilinux/kali-rolling
 
 ARG DEBIAN_FRONTEND=noninteractive
 

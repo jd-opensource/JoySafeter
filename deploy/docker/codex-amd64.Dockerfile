@@ -1,4 +1,5 @@
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/ubuntu:22.04 AS base
+ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
+FROM ${BASE_IMAGE_REGISTRY}ubuntu:22.04 AS base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -26,7 +27,7 @@ RUN add-apt-repository -y ppa:deadsnakes/ppa \
     && pip install -i https://pypi.tuna.tsinghua.edu.cn/simple --no-cache-dir uv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm config set registry https://registry.npmmirror.com \
     && npm install -g yarn pnpm \

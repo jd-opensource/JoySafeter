@@ -13,14 +13,20 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { managedPost } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
+import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/request-scope'
 import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { Button } from '@/components/ui/button'
-import type { SkillLifecycleStatus } from '@/types/managed'
+import type { SkillImpactSummary, SkillLifecycleStatus } from '@/types/managed'
+import {
+  currentProjectAllowsWrite,
+  currentProjectAllowsAdmin,
+} from '@/hooks/managed/use-current-project-read-only'
 
 interface TransitionResponse {
   skill_id: string
@@ -81,38 +87,101 @@ const TRANSITIONS: Array<{
 interface SkillLifecycleActionsProps {
   skillId: string
   currentStatus: SkillLifecycleStatus | string | undefined
+  requestScope: ManagedRequestScope
+  operationScope: string
+  canSubmitTransition?: (
+    endpoint: string,
+    currentStatus: SkillLifecycleStatus | string | undefined,
+  ) => boolean
   // Optional invalidation keys — list views can pass their list key
   // to force a refetch after a transition lands.
   invalidateKeys?: Array<readonly unknown[]>
+  impact?: SkillImpactSummary | null
 }
 
 export function SkillLifecycleActions({
   skillId,
   currentStatus,
+  requestScope,
+  operationScope,
+  canSubmitTransition,
   invalidateKeys = [],
+  impact = null,
 }: SkillLifecycleActionsProps) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const [busyEndpoint, setBusyEndpoint] = useState<string | null>(null)
+  const operationScopeRef = useRef(operationScope)
+  const requestScopeRef = useRef(requestScope)
+  const mutationRunRef = useRef(0)
 
-  // ``managedPost`` strips the resource prefix from the id before
-  // hitting the endpoint. The backend route uses the bare UUID under
-  // ``/skills/{id}/<action>``, matching the existing skill routes.
-  const bareId = skillId.startsWith('skill_') ? skillId.slice('skill_'.length) : skillId
+  useEffect(() => {
+    if (operationScopeRef.current === operationScope) return
+    operationScopeRef.current = operationScope
+    requestScopeRef.current = requestScope
+    mutationRunRef.current += 1
+    setBusyEndpoint(null)
+  }, [operationScope, requestScope])
+
+  useEffect(
+    () => () => {
+      mutationRunRef.current += 1
+    },
+    [],
+  )
+
+  const nextMutation = (endpoint: string) => {
+    if (!currentProjectAllowsWrite()) return null
+    const runId = mutationRunRef.current + 1
+    mutationRunRef.current = runId
+    return {
+      endpoint,
+      skillId,
+      invalidateKeys: [...invalidateKeys],
+      requestScope: requestScopeRef.current,
+      runId,
+      scope: operationScopeRef.current,
+    }
+  }
+  const isCurrentMutation = (runId: number, scope: string) =>
+    mutationRunRef.current === runId &&
+    operationScopeRef.current === scope &&
+    currentProjectAllowsWrite()
 
   const mutation = useMutation({
-    mutationFn: async (endpoint: string) => {
+    mutationFn: async ({
+      skillId,
+      endpoint,
+      requestScope,
+      runId,
+      scope,
+    }: {
+      skillId: string
+      endpoint: string
+      invalidateKeys: Array<readonly unknown[]>
+      requestScope: ManagedRequestScope
+      runId: number
+      scope: string
+    }) => {
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project skill lifecycle transition ignored')
+      }
       setBusyEndpoint(endpoint)
       try {
         const result = await managedPost<TransitionResponse>(
-          `/skills/${bareId}/${endpoint}`,
+          apiResourcePath('skills', skillId, endpoint),
+          {},
+          managedRequestOptions(requestScope),
         )
         return result
       } finally {
-        setBusyEndpoint(null)
+        if (isCurrentMutation(runId, scope)) {
+          setBusyEndpoint(null)
+        }
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      if (!isCurrentMutation(variables.runId, variables.scope)) return
       toastSuccess(
         t('managed.skills.transition.success', {
           from: data.from_status,
@@ -120,15 +189,13 @@ export function SkillLifecycleActions({
         }),
       )
       // Invalidate caller-provided queries (skill list, detail, etc.)
-      for (const key of invalidateKeys) {
+      for (const key of variables.invalidateKeys) {
         qc.invalidateQueries({ queryKey: key })
       }
     },
-    onError: (error: unknown) => {
-      const msg =
-        error instanceof Error
-          ? error.message
-          : t('managed.skills.transition.failed')
+    onError: (error: unknown, variables) => {
+      if (!isCurrentMutation(variables.runId, variables.scope)) return
+      const msg = error instanceof Error ? error.message : t('managed.skills.transition.failed')
       toastError(msg)
     },
   })
@@ -140,18 +207,39 @@ export function SkillLifecycleActions({
   }
 
   return (
-    <div className="inline-flex flex-wrap items-center gap-2">
-      {available.map((edge) => (
-        <Button
-          key={edge.endpoint}
-          variant={edge.variant}
-          size="sm"
-          disabled={busyEndpoint !== null}
-          onClick={() => mutation.mutate(edge.endpoint)}
-        >
-          {t(edge.labelKey)}
-        </Button>
-      ))}
+    <div className="inline-flex items-center gap-1.5">
+      {available.map((edge) => {
+        const canSubmit = canSubmitTransition
+          ? canSubmitTransition(edge.endpoint, currentStatus)
+          : currentProjectAllowsAdmin()
+        return (
+          <Button
+            key={edge.endpoint}
+            variant={edge.variant}
+            size="sm"
+            disabled={busyEndpoint !== null || !canSubmit}
+            onClick={() => {
+              if (!canSubmit) return
+              if (edge.endpoint === 'archive' && impact?.counts.total) {
+                const ok = window.confirm(
+                  t('managed.skills.archiveImpactConfirm', {
+                    count: impact.counts.total,
+                    agents: impact.counts.agents,
+                    triggers: impact.counts.triggers,
+                    activeTasks: impact.counts.active_tasks,
+                    defaultValue: `Archive this skill? It is referenced by ${impact.counts.total} item(s): ${impact.counts.agents} agent(s), ${impact.counts.triggers} trigger(s), ${impact.counts.active_tasks} active task(s).`,
+                  }),
+                )
+                if (!ok) return
+              }
+              const next = nextMutation(edge.endpoint)
+              if (next) mutation.mutate(next)
+            }}
+          >
+            {t(edge.labelKey)}
+          </Button>
+        )
+      })}
     </div>
   )
 }

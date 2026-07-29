@@ -36,6 +36,24 @@ _connect_args = {
     "timeout": 10,
 }
 
+# SSL handling for asyncpg.
+#
+# asyncpg defaults to attempting SSL (sslmode=prefer), which makes it probe the
+# libpq client-cert path /root/.postgresql/postgresql.key. When the process runs
+# as a non-root user (e.g. `admin` in JDOS), that path is unreadable and even
+# Path.exists() raises PermissionError, crashing connection setup.
+#
+# POSTGRES_SSL controls this explicitly:
+#   unset / "" / "disable" / "false" → ssl=False (internal RDS, no SSL) [default]
+#   "require" / "true"               → ssl=True (encrypted, no client cert)
+import os as _os
+
+_pg_ssl = _os.getenv("POSTGRES_SSL", "").strip().lower()
+if _pg_ssl in ("require", "true", "verify-ca", "verify-full"):
+    _connect_args["ssl"] = True
+else:
+    _connect_args["ssl"] = False
+
 if settings.database_pgbouncer:
     # PgBouncer transaction pooling mode:
     # - Disable prepared statements (not compatible with transaction pooling)

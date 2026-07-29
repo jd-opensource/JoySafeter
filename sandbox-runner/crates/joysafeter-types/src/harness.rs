@@ -30,6 +30,8 @@ pub enum HarnessError {
 pub struct HarnessInput {
     pub prompt: String,
     pub system_prompt: Option<String>,
+    /// "append" (default) → --append-system-prompt; "replace" → --system-prompt
+    pub system_prompt_mode: String,
     pub session_id: Option<String>,
     pub model: Option<String>,
     pub max_turns: Option<u32>,

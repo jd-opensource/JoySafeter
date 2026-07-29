@@ -61,6 +61,7 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
         if role == "worker":
             try:
                 from app.joysafeter_worker.lifecycle import _worker_tasks
+
                 dead_tasks = []
                 for task in _worker_tasks:
                     if task.done():
@@ -75,17 +76,51 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
             except Exception:
                 pass
 
+            try:
+                from app.joysafeter_shared.cache.redis import RedisClient
+                from app.joysafeter_shared.config.settings import joysafeter_config
+                from app.joysafeter_worker.events.health import collect_event_stream_health
+
+                if joysafeter_config.event_stream_enabled:
+                    redis = RedisClient.get_client()
+                    if redis is None:
+                        checks["status"] = "unhealthy"
+                        checks["event_stream"] = {"status": "unhealthy", "error": "redis_unavailable"}
+                    else:
+                        stream_health = await collect_event_stream_health(redis)
+                        checks["event_stream"] = stream_health
+                        if stream_health.get("status") == "unhealthy":
+                            checks["status"] = "unhealthy"
+                        elif stream_health.get("status") == "degraded" and checks["status"] == "ok":
+                            checks["status"] = "degraded"
+            except Exception as e:
+                checks["status"] = "unhealthy"
+                checks["event_stream"] = {"status": "unhealthy", "error": str(e)}
+
+            if settings.scheduler_enabled:
+                try:
+                    from app.joysafeter_worker.lifecycle import scheduler_health
+
+                    checks["scheduler"] = scheduler_health()
+                except Exception as e:
+                    if checks["status"] == "ok":
+                        checks["status"] = "degraded"
+                    checks["scheduler"] = {"status": "degraded", "error": str(e)}
+
         # Check DB connectivity
         try:
             from app.joysafeter_shared.database import engine
+
             async with engine.connect() as conn:
                 from sqlalchemy import text
+
                 await conn.execute(text("SELECT 1"))
         except Exception as e:
             checks["status"] = "unhealthy"
             checks["db_error"] = str(e)
 
         from fastapi.responses import JSONResponse
+
         status_code = 200 if checks["status"] == "ok" else 503
         return JSONResponse(content=checks, status_code=status_code)
 

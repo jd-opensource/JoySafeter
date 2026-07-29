@@ -1,7 +1,7 @@
 # Rust orchestrator production image
 
-ARG RUST_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1-bookworm
-ARG RUNTIME_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/debian:bookworm-slim
+ARG RUST_IMAGE=public.ecr.aws/docker/library/rust:1-bookworm
+ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
 
 FROM ${RUST_IMAGE} AS builder
 
@@ -22,6 +22,12 @@ COPY proto ./proto
 COPY backend/app/joysafeter_orchestrator_rs ./backend/app/joysafeter_orchestrator_rs
 
 WORKDIR /src/backend/app/joysafeter_orchestrator_rs
+# aws-sdk-s3 is extremely memory-hungry to compile. Limit parallelism and relax
+# optimization settings so the build succeeds in memory-constrained Docker VMs.
+# At runtime the binary is ~10-15% larger but functionally identical.
+ENV CARGO_BUILD_JOBS=1
+ENV CARGO_PROFILE_RELEASE_LTO=false
+ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 RUN cargo build --release
 
 FROM ${RUNTIME_IMAGE} AS runner

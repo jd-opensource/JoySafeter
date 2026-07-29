@@ -3,7 +3,7 @@
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -62,6 +62,14 @@ const NAME_VALIDATIONS = {
   },
 }
 
+const isSafeRelativeRedirectUrl = (url: string): boolean => {
+  if (!url.startsWith('/')) return false
+  if (url.startsWith('//')) return false
+  if (url.includes('..') || url.includes('//')) return false
+  if (url.match(/^(javascript|data|vbscript|file):/i)) return false
+  return true
+}
+
 const getEmailErrorKey = (reason?: string): string => {
   if (!reason) return 'auth.emailInvalid'
   if (reason.includes('Invalid email format')) return 'auth.emailInvalidFormat'
@@ -100,8 +108,9 @@ function SignupFormContent() {
     const emailParam = searchParams.get('email') || ''
     const redirectParam = searchParams.get('redirect') || ''
     const inviteFlowParam = searchParams.get('invite_flow')
-    const isInvite = inviteFlowParam === 'true' || redirectParam.startsWith('/invite/')
-    return { emailParam, redirectParam, isInvite }
+    const safeRedirectParam = isSafeRelativeRedirectUrl(redirectParam) ? redirectParam : ''
+    const isInvite = inviteFlowParam === 'true' || safeRedirectParam.startsWith('/invite/')
+    return { emailParam, redirectParam: safeRedirectParam, isInvite }
   }, [searchParams])
 
   const [isLoading, setIsLoading] = useState(false)
@@ -116,7 +125,24 @@ function SignupFormContent() {
   const [showEmailValidationError, setShowEmailValidationError] = useState(false)
   const redirectUrl = initialSearchParamValues.redirectParam
   const isInviteFlow = initialSearchParamValues.isInvite
+  const signInHref = isInviteFlow
+    ? `/signin?invite_flow=true${redirectUrl ? `&callbackUrl=${encodeURIComponent(redirectUrl)}` : ''}`
+    : '/signin'
   const [isButtonHovered, setIsButtonHovered] = useState(false)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const submitRunRef = useRef(0)
+  const isMountedRef = useRef(false)
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      submitRunRef.current += 1
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
+      }
+    }
+  }, [])
 
   const [name, setName] = useState('')
   const [nameErrors, setNameErrors] = useState<string[]>([])
@@ -209,6 +235,9 @@ function SignupFormContent() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    const runId = submitRunRef.current + 1
+    submitRunRef.current = runId
+    const isCurrentSubmit = () => isMountedRef.current && submitRunRef.current === runId
     setIsLoading(true)
 
     const formData = new FormData(e.currentTarget)
@@ -289,6 +318,8 @@ function SignupFormContent() {
         },
       )
 
+      if (!isCurrentSubmit()) return
+
       if (!response || response.error) {
         setIsLoading(false)
         return
@@ -308,10 +339,16 @@ function SignupFormContent() {
       }
 
       // Redirect to login page, don't auto-login
-      setTimeout(() => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
+      }
+      redirectTimerRef.current = setTimeout(() => {
+        redirectTimerRef.current = null
+        if (!isCurrentSubmit()) return
         router.push('/signin')
       }, 500)
     } catch (error) {
+      if (!isCurrentSubmit()) return
       logger.error('Signup error:', error)
       setIsLoading(false)
     }
@@ -455,7 +492,7 @@ function SignupFormContent() {
           {mounted ? t('auth.alreadyHaveAccount') : 'Already have an account?'}{' '}
         </span>
         <Link
-          href={isInviteFlow ? `/signin?invite_flow=true&callbackUrl=${redirectUrl}` : '/signin'}
+          href={signInHref}
           className="font-medium text-[var(--brand-600)] underline-offset-4 transition hover:text-[var(--brand-700)] hover:underline"
         >
           {mounted ? t('auth.signIn') : 'Sign In'}

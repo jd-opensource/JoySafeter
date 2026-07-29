@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Clone, Default)]
 pub struct SessionConfig {
@@ -104,30 +104,13 @@ pub async fn handle_task(
         .await
         .map_err(|e| format!("unpack task skills to {}: {e}", work_dir.display()))?;
 
-    // Execute environment setup commands (package installs etc.)
-    for cmd in &task.setup_commands {
-        info!(command = %cmd, "Running setup command");
-        let status = tokio::process::Command::new("sh")
-            .args(["-c", cmd])
-            .current_dir(&work_dir)
-            .status()
-            .await;
-        match status {
-            Ok(s) if s.success() => {
-                info!(command = %cmd, "Setup command succeeded");
-            }
-            Ok(s) => {
-                warn!(command = %cmd, code = ?s.code(), "Setup command exited with non-zero");
-            }
-            Err(e) => {
-                warn!(command = %cmd, error = %e, "Setup command failed to execute");
-            }
-        }
-    }
+    run_setup_commands(&work_dir, &task.setup_commands, "StartTask").await?;
 
     // Clone configured repos (idempotent fallback for pooled/reconnected sandboxes
     // that may have missed SetupSandbox).
-    crate::repos::clone_repos(&work_dir, &task.repos).await;
+    crate::repos::clone_repos(&work_dir, &task.repos)
+        .await
+        .map_err(|e| format!("clone task repos to {}: {e}", work_dir.display()))?;
 
     // Write MCP servers and custom tools to .claude/settings.json (Claude Code only)
     write_settings_json(
@@ -166,6 +149,10 @@ pub async fn handle_task(
             (Some(mem_prompt), None) => Some(mem_prompt.clone()),
             (None, sp) => sp.clone(),
         },
+        system_prompt_mode: task
+            .system_prompt_mode
+            .clone()
+            .unwrap_or_else(|| "append".to_string()),
         session_id: task.session_id.clone(),
         model,
         max_turns: task.max_turns,
@@ -416,19 +403,7 @@ pub async fn handle_setup(
         Err(e) => warn!(work_dir = %work_dir.display(), error = %e, "Cannot stat work_dir"),
     }
 
-    for cmd in &setup.setup_commands {
-        info!(command = %cmd, "Running setup command");
-        let status = tokio::process::Command::new("sh")
-            .args(["-c", cmd])
-            .current_dir(&work_dir)
-            .status()
-            .await;
-        match status {
-            Ok(s) if s.success() => info!(command = %cmd, "Setup command succeeded"),
-            Ok(s) => warn!(command = %cmd, code = ?s.code(), "Setup command non-zero"),
-            Err(e) => warn!(command = %cmd, error = %e, "Setup command failed"),
-        }
-    }
+    run_setup_commands(&work_dir, &setup.setup_commands, "SetupSandbox").await?;
 
     unpack_skills(&work_dir, &setup.skills, &setup.provider)
         .await
@@ -439,7 +414,9 @@ pub async fn handle_setup(
     download_file_refs(&setup.file_refs)
         .await
         .map_err(|e| format!("download_file_refs: {e}"))?;
-    crate::repos::clone_repos(&work_dir, &setup.repos).await;
+    crate::repos::clone_repos(&work_dir, &setup.repos)
+        .await
+        .map_err(|e| format!("clone setup repos to {}: {e}", work_dir.display()))?;
     write_settings_json(
         &work_dir,
         &setup.provider,
@@ -487,24 +464,9 @@ pub async fn handle_setup(
     let fuse_active = false;
 
     if !fuse_active {
-        for mount in &setup.memory_mounts {
-            let mount_path = std::path::Path::new(&mount.mount_path);
-            for file in &mount.files {
-                let rel = file.relative_path.trim_start_matches('/');
-                let file_path = mount_path.join(rel);
-                if let Some(parent) = file_path.parent() {
-                    if let Err(e) = tokio::fs::create_dir_all(parent).await {
-                        warn!(path = %parent.display(), error = %e, "Failed to create memory dir");
-                        continue;
-                    }
-                }
-                if let Err(e) = tokio::fs::write(&file_path, &file.content).await {
-                    warn!(path = %file_path.display(), error = %e, "Failed to write initial memory file");
-                } else {
-                    info!(path = %file_path.display(), size = file.content.len(), "Wrote initial memory file");
-                }
-            }
-        }
+        write_initial_memory_files(&setup.memory_mounts)
+            .await
+            .map_err(|e| format!("write initial memory files: {e}"))?;
     }
 
     let config = SessionConfig {
@@ -524,6 +486,57 @@ pub async fn handle_setup(
 
     info!(work_dir = %work_dir.display(), "Sandbox setup complete");
     Ok(config)
+}
+
+async fn run_setup_commands(
+    work_dir: &Path,
+    setup_commands: &[String],
+    phase: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    for (idx, cmd) in setup_commands.iter().enumerate() {
+        info!(command = %cmd, "Running setup command");
+        let status = tokio::process::Command::new("sh")
+            .args(["-c", cmd])
+            .current_dir(work_dir)
+            .status()
+            .await;
+        match status {
+            Ok(s) if s.success() => info!(command = %cmd, "Setup command succeeded"),
+            Ok(s) => {
+                let detail = s
+                    .code()
+                    .map(|code| format!("exit code {code}"))
+                    .unwrap_or_else(|| "terminated by signal".to_string());
+                error!(
+                    command = %cmd,
+                    code = ?s.code(),
+                    phase = %phase,
+                    "Setup command failed"
+                );
+                return Err(format!(
+                    "{phase} setup command #{} failed in {}: {detail}",
+                    idx + 1,
+                    work_dir.display()
+                )
+                .into());
+            }
+            Err(e) => {
+                error!(
+                    command = %cmd,
+                    error = %e,
+                    phase = %phase,
+                    "Setup command failed to execute"
+                );
+                return Err(format!(
+                    "{phase} setup command #{} could not execute in {}: {e}",
+                    idx + 1,
+                    work_dir.display()
+                )
+                .into());
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Resolve the skill directory layout for a given engine/provider.
@@ -550,17 +563,38 @@ async fn unpack_skills(
     skills: &[proto::SkillArchive],
     provider: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use sha2::{Digest, Sha256};
+
     for skill in skills {
         let target_dir = skill_base_dir(work_dir, provider, &skill.target);
+        let marker_path = target_dir.join(&skill.name).join(".skill_hash");
+
+        // Fast path: if the skill is already unpacked with the same content, skip.
+        let content_hash = format!("{:x}", Sha256::digest(&skill.tar_gz));
+        if let Ok(existing_hash) = tokio::fs::read_to_string(&marker_path).await {
+            if existing_hash.trim() == content_hash {
+                debug!(
+                    name = %skill.name,
+                    target = %skill.target,
+                    "Skill already unpacked (hash match), skipping"
+                );
+                continue;
+            }
+        }
+
+        // Unpack (first time or content changed)
         tokio::fs::create_dir_all(&target_dir)
             .await
             .map_err(|e| format!("mkdir {}: {e}", target_dir.display()))?;
-        let cursor = std::io::Cursor::new(&skill.tar_gz);
-        let gz = flate2::read::GzDecoder::new(cursor);
-        let mut archive = tar::Archive::new(gz);
-        archive
-            .unpack(&target_dir)
+        crate::archive::extract_tar_gz_bytes_to_dir(&skill.tar_gz, &target_dir)
             .map_err(|e| format!("unpack tar to {}: {e}", target_dir.display()))?;
+
+        // Write marker for next time
+        if let Some(parent) = marker_path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let _ = tokio::fs::write(&marker_path, &content_hash).await;
+
         info!(
             name = %skill.name,
             target = %skill.target,
@@ -586,9 +620,7 @@ async fn write_files(
         tokio::fs::write(path, &file.content)
             .await
             .map_err(|e| format!("write {}: {e}", path.display()))?;
-        if let Err(e) = crate::archive::auto_extract_archive(path).await {
-            warn!(path = %file.path, filename = %file.filename, error = %e, "Failed to auto-extract file archive");
-        }
+        auto_extract_file_archive(path, &file.path, &file.filename).await?;
         info!(path = %file.path, filename = %file.filename, size = file.content.len(), "Wrote file");
     }
     Ok(())
@@ -607,22 +639,84 @@ async fn download_file_refs(
         info!(url = %fr.url, path = %fr.path, "Downloading file from presigned URL");
         let resp = reqwest::get(&fr.url)
             .await
-            .map_err(|e| format!("download {}: {e}", fr.url))?;
+            .map_err(|e| format!("download file ref {}: {e}", fr.path))?;
         if !resp.status().is_success() {
-            warn!(status = %resp.status(), url = %fr.url, "File download failed");
-            continue;
+            return Err(format!(
+                "download file ref {} returned HTTP {}",
+                fr.path,
+                resp.status()
+            )
+            .into());
         }
         let bytes = resp
             .bytes()
             .await
-            .map_err(|e| format!("read body {}: {e}", fr.url))?;
+            .map_err(|e| format!("read file ref body {}: {e}", fr.path))?;
         tokio::fs::write(path, &bytes)
             .await
             .map_err(|e| format!("write {}: {e}", path.display()))?;
-        if let Err(e) = crate::archive::auto_extract_archive(path).await {
-            warn!(path = %fr.path, filename = %fr.filename, error = %e, "Failed to auto-extract downloaded archive");
-        }
+        auto_extract_file_archive(path, &fr.path, &fr.filename).await?;
         info!(path = %fr.path, filename = %fr.filename, size = bytes.len(), "Downloaded file");
+    }
+    Ok(())
+}
+
+async fn auto_extract_file_archive(
+    path: &Path,
+    display_path: &str,
+    filename: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(target_dir) = crate::archive::auto_extract_archive(path)
+        .await
+        .map_err(|e| {
+            format!(
+                "auto-extract archive {} ({}) to workspace failed: {e}",
+                display_path, filename
+            )
+        })?
+    {
+        info!(
+            path = %display_path,
+            filename = %filename,
+            target = %target_dir.display(),
+            "Auto-extracted file archive"
+        );
+    }
+    Ok(())
+}
+
+async fn write_initial_memory_files(
+    memory_mounts: &[proto::MemoryStoreMount],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    for mount in memory_mounts {
+        let mount_path = Path::new(&mount.mount_path);
+        for file in &mount.files {
+            let rel = file.relative_path.trim_start_matches('/');
+            let file_path = mount_path.join(rel);
+            if let Some(parent) = file_path.parent() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    format!(
+                        "create memory dir {} for mount {}: {e}",
+                        parent.display(),
+                        mount.mount_name
+                    )
+                })?;
+            }
+            tokio::fs::write(&file_path, &file.content)
+                .await
+                .map_err(|e| {
+                    format!(
+                        "write initial memory file {} for mount {}: {e}",
+                        file_path.display(),
+                        mount.mount_name
+                    )
+                })?;
+            info!(
+                path = %file_path.display(),
+                size = file.content.len(),
+                "Wrote initial memory file"
+            );
+        }
     }
     Ok(())
 }
@@ -810,6 +904,7 @@ pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &Sess
         } else {
             fuse_handle.write_file(mount_name, &update.relative_path, &update.content);
         }
+        info!(mount_name = %mount_name, path = %update.relative_path, "Applied memory update via FUSE");
         return;
     }
 
@@ -829,6 +924,7 @@ pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &Sess
                 warn!(path = %file_path.display(), error = %e, "Failed to write memory file from peer update");
             }
         }
+        info!(path = %file_path.display(), "Applied memory update via bind mount");
     }
 }
 
@@ -870,6 +966,232 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_setup_fails_when_declared_repo_clone_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing_source = dir.path().join("missing-source.git");
+        let setup = proto::SetupSandbox {
+            work_dir: Some(dir.path().to_string_lossy().to_string()),
+            repos: vec![proto::RepoConfig {
+                url: missing_source.to_string_lossy().to_string(),
+                path: "repo".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+
+        let result = handle_setup(setup, runner_tx).await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("clone setup repos")
+        );
+        assert!(!dir.path().join("repo/.git").exists());
+    }
+
+    #[tokio::test]
+    async fn handle_setup_fails_when_setup_command_exits_non_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let setup = proto::SetupSandbox {
+            work_dir: Some(dir.path().to_string_lossy().to_string()),
+            setup_commands: vec!["exit 23".to_string(), "touch should_not_run".to_string()],
+            ..Default::default()
+        };
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+
+        let err = match handle_setup(setup, runner_tx).await {
+            Ok(_) => panic!("failing setup command must fail sandbox setup"),
+            Err(err) => err.to_string(),
+        };
+
+        assert!(err.contains("SetupSandbox setup command #1 failed"));
+        assert!(err.contains("exit code 23"));
+        assert!(!dir.path().join("should_not_run").exists());
+    }
+
+    #[tokio::test]
+    async fn handle_setup_fails_when_initial_memory_file_cannot_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocked_mount_path = dir.path().join("memory-blocker");
+        tokio::fs::write(&blocked_mount_path, b"not a directory")
+            .await
+            .unwrap();
+        let setup = proto::SetupSandbox {
+            work_dir: Some(dir.path().to_string_lossy().to_string()),
+            provider: "docker".to_string(),
+            memory_mounts: vec![proto::MemoryStoreMount {
+                mount_name: "mem".to_string(),
+                mount_path: blocked_mount_path.to_string_lossy().to_string(),
+                files: vec![proto::MemoryFile {
+                    relative_path: "seed.md".to_string(),
+                    content: b"seed".to_vec(),
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+
+        let err = match handle_setup(setup, runner_tx).await {
+            Ok(_) => panic!("unwritable initial memory file must fail sandbox setup"),
+            Err(err) => err.to_string(),
+        };
+
+        assert!(err.contains("write initial memory files"));
+        assert!(err.contains("memory-blocker"));
+        assert!(!dir.path().join("memory-blocker/seed.md").exists());
+    }
+
+    #[tokio::test]
+    async fn handle_setup_fails_when_inline_archive_file_cannot_be_extracted() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive_path = dir.path().join("broken.zip");
+        let setup = proto::SetupSandbox {
+            work_dir: Some(dir.path().to_string_lossy().to_string()),
+            files: vec![proto::FileMount {
+                path: archive_path.to_string_lossy().to_string(),
+                filename: "broken.zip".to_string(),
+                content: b"not a valid zip".to_vec(),
+            }],
+            ..Default::default()
+        };
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+
+        let err = match handle_setup(setup, runner_tx).await {
+            Ok(_) => panic!("invalid inline archive must fail sandbox setup"),
+            Err(err) => err.to_string(),
+        };
+
+        assert!(err.contains("write_files"));
+        assert!(err.contains("auto-extract archive"));
+        assert!(err.contains("broken.zip"));
+        assert!(archive_path.exists());
+    }
+
+    #[tokio::test]
+    async fn handle_setup_fails_when_file_ref_download_returns_non_success_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let (url, server) = spawn_single_response_server(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+        )
+        .await;
+        let file_path = dir.path().join("missing.bin");
+        let setup = proto::SetupSandbox {
+            work_dir: Some(dir.path().to_string_lossy().to_string()),
+            file_refs: vec![proto::FileRef {
+                path: file_path.to_string_lossy().to_string(),
+                url,
+                filename: "missing.bin".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+
+        let err = match handle_setup(setup, runner_tx).await {
+            Ok(_) => panic!("non-success file ref download must fail sandbox setup"),
+            Err(err) => err.to_string(),
+        };
+        server.await.unwrap();
+
+        assert!(err.contains("download_file_refs"));
+        assert!(err.contains("HTTP 404"));
+        assert!(!file_path.exists());
+    }
+
+    #[tokio::test]
+    async fn handle_setup_fails_when_downloaded_archive_cannot_be_extracted() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = b"not a valid zip";
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: ".to_vec();
+        response.extend_from_slice(body.len().to_string().as_bytes());
+        response.extend_from_slice(b"\r\nConnection: close\r\n\r\n");
+        response.extend_from_slice(body);
+        let (url, server) = spawn_single_response_server(response).await;
+        let archive_path = dir.path().join("downloaded.zip");
+        let setup = proto::SetupSandbox {
+            work_dir: Some(dir.path().to_string_lossy().to_string()),
+            file_refs: vec![proto::FileRef {
+                path: archive_path.to_string_lossy().to_string(),
+                url,
+                filename: "downloaded.zip".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+
+        let err = match handle_setup(setup, runner_tx).await {
+            Ok(_) => panic!("invalid downloaded archive must fail sandbox setup"),
+            Err(err) => err.to_string(),
+        };
+        server.await.unwrap();
+
+        assert!(err.contains("download_file_refs"));
+        assert!(err.contains("auto-extract archive"));
+        assert!(err.contains("downloaded.zip"));
+        assert!(archive_path.exists());
+    }
+
+    #[tokio::test]
+    async fn handle_task_fails_when_fallback_setup_command_exits_before_adapter_run() {
+        std::env::set_var("JOYSAFETER_MOCK_ADAPTER", "1");
+        let dir = tempfile::tempdir().unwrap();
+        let adapters = Arc::new(AdapterRegistry::discover().await);
+        assert!(adapters.get("claude").is_some());
+        let task = proto::StartTask {
+            provider: "claude".to_string(),
+            work_dir: Some(dir.path().to_string_lossy().to_string()),
+            setup_commands: vec!["exit 24".to_string(), "touch should_not_run".to_string()],
+            ..Default::default()
+        };
+        let session_config = SessionConfig::default();
+        let (runner_tx, mut runner_rx) = mpsc::channel(1);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let (_control_tx, control_rx) = mpsc::channel(1);
+
+        let err = match handle_task(
+            task,
+            &session_config,
+            adapters,
+            runner_tx,
+            cancel_rx,
+            control_rx,
+        )
+        .await
+        {
+            Ok(_) => panic!("failing StartTask setup command must fail before adapter starts"),
+            Err(err) => err.to_string(),
+        };
+
+        assert!(err.contains("StartTask setup command #1 failed"));
+        assert!(err.contains("exit code 24"));
+        assert!(!dir.path().join("should_not_run").exists());
+        assert!(runner_rx.try_recv().is_err());
+    }
+
+    async fn spawn_single_response_server(
+        response: Vec<u8>,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut request).await;
+            tokio::io::AsyncWriteExt::write_all(&mut socket, &response)
+                .await
+                .unwrap();
+        });
+        (format!("http://{addr}/file"), server)
+    }
+
+    #[tokio::test]
     async fn write_settings_json_emits_permissions_and_mcp() {
         let dir = std::env::temp_dir().join(format!("jsf_test_{}", std::process::id()));
         let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -884,7 +1206,7 @@ mod tests {
         let allowed = vec!["Bash".to_string(), "Read".to_string()];
         let ask = vec!["mcp__github__*".to_string()];
 
-        write_settings_json(&dir, &mcp, &[], &allowed, &ask)
+        write_settings_json(&dir, "claude", &mcp, &[], &allowed, &ask)
             .await
             .unwrap();
 
@@ -895,19 +1217,42 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(settings["permissions"]["allow"], serde_json::json!(["Bash", "Read"]));
-        assert_eq!(settings["permissions"]["ask"], serde_json::json!(["mcp__github__*"]));
-        assert_eq!(settings["enableAllProjectMcpServers"], serde_json::json!(true));
-        assert!(settings.get("mcpServers").is_none(), "MCP defs must NOT be in settings.json");
-        assert!(settings["permissions"].get("deny").is_none(), "no deny in official model");
+        assert_eq!(
+            settings["permissions"]["allow"],
+            serde_json::json!(["Bash", "Read"])
+        );
+        assert_eq!(
+            settings["permissions"]["ask"],
+            serde_json::json!(["mcp__github__*"])
+        );
+        assert_eq!(
+            settings["enableAllProjectMcpServers"],
+            serde_json::json!(true)
+        );
+        assert!(
+            settings.get("mcpServers").is_none(),
+            "MCP defs must NOT be in settings.json"
+        );
+        assert!(
+            settings["permissions"].get("deny").is_none(),
+            "no deny in official model"
+        );
 
         // .mcp.json: server definition lives here
         let mcp_json: serde_json::Value = serde_json::from_str(
-            &tokio::fs::read_to_string(dir.join(".mcp.json")).await.unwrap(),
+            &tokio::fs::read_to_string(dir.join(".mcp.json"))
+                .await
+                .unwrap(),
         )
         .unwrap();
-        assert_eq!(mcp_json["mcpServers"]["github"]["type"], serde_json::json!("http"));
-        assert_eq!(mcp_json["mcpServers"]["github"]["url"], serde_json::json!("https://mcp.example.com"));
+        assert_eq!(
+            mcp_json["mcpServers"]["github"]["type"],
+            serde_json::json!("http")
+        );
+        assert_eq!(
+            mcp_json["mcpServers"]["github"]["url"],
+            serde_json::json!("https://mcp.example.com")
+        );
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }

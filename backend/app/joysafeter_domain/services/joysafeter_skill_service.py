@@ -9,8 +9,10 @@ skill_lifecycle_service.py (v1 cleanup consolidation):
 
 Security/packing/runtime-policy live in joysafeter_skill_security.py.
 """
+
 from __future__ import annotations
 
+# ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
 
 # ============================================================================
 # skill_lifecycle_service.py
@@ -40,10 +42,9 @@ Every other edge raises ``InvalidRequestError`` with code
 Authorization
 -------------
 
-P1 lets the **owner** drive every transition (self-review). Once we have
-admin reviewers the API layer can pass ``is_admin=True`` and the rules
-unlock for cross-user approve/reject; until then, only the skill's owner
-(or a collaborator with admin role) can call any transition.
+Every transition is gated by the caller's project capability on the skill
+(via ``check_skill_access``): there is no owner special-case and no per-skill
+collaborator role — write/admin comes solely from the project role.
 
 Runtime gate interaction
 ------------------------
@@ -63,15 +64,19 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkillLifecycleStatus,
+    JoySafeterSkillVisibility,
 )
 from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
     NotFoundError,
 )
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+from app.joysafeter_shared.common.joysafeter_auth.context import (
+    JoySafeterRole,
+    ProjectCapability,
+)
+from app.joysafeter_shared.common.skill_permissions import check_skill_access, resolve_skill_org_id
 
 # Edges that ``transition()`` accepts. Anything not in this set is a
 # rejected transition; the empty target set on a state means "this is a
@@ -99,7 +104,18 @@ class LifecycleTransition:
 class SkillLifecycleService:
     """State machine + persistence for ``Skill.lifecycle_status``."""
 
-    def __init__(self, db: AsyncSession, *, active_org_id: Optional[str] = None):
+    # Class-level default so bare ``__new__``-constructed test harnesses
+    # (which set only the fields they exercise) still resolve a sane org
+    # role when they stub ``check_skill_access``.
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
         self.db = db
         self.skill_repo = SkillRepository(db)
         # P2.9: active org for strict isolation in ``check_skill_access``.
@@ -108,6 +124,10 @@ class SkillLifecycleService:
         # multi-org admin can't fire transitions from a different org
         # context. ``None`` falls back to pre-P2.9 behavior.
         self._active_org_id = active_org_id
+        # Single-axis redesign: the caller's org role is threaded through
+        # to ``check_skill_access`` so an org super-user resolves to ADMIN
+        # capability. ``MEMBER`` is the safe default for internal callers.
+        self._caller_org_role = caller_org_role
 
     async def submit_for_review(self, skill_id: uuid.UUID, current_user_id: str) -> LifecycleTransition:
         """draft -> pending_review (owner action)."""
@@ -164,7 +184,7 @@ class SkillLifecycleService:
         current_user_id: str,
         to_status: str,
     ) -> LifecycleTransition:
-        skill = await self.skill_repo.get(skill_id)
+        skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
             raise NotFoundError(
                 "Skill not found",
@@ -172,15 +192,16 @@ class SkillLifecycleService:
                 data={"skill_id": str(skill_id)},
             )
 
-            # P1 authorization: only the owner (or a skill admin) can drive
-            # the state machine. ``check_skill_access`` already understands
-            # ownership + admin role on the collaborator table; reusing it
-            # keeps the auth model consistent with the rest of skill writes.
+        # Authorization: lifecycle transitions (submit/approve/reject/archive/
+        # unarchive/reopen) require ProjectCapability.ADMIN — a stricter gate
+        # than ordinary content writes (create/edit files use WRITE). Approving
+        # or publishing a skill is a higher-privilege act than editing it.
         await check_skill_access(
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.admin,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
 
@@ -198,6 +219,19 @@ class SkillLifecycleService:
                 },
             )
 
+        if to_status == JoySafeterSkillLifecycleStatus.APPROVED.value:
+            from app.joysafeter_domain.services.joysafeter_skill_security import scan_ok
+            from app.joysafeter_shared.config import settings
+
+            if settings.skill_security_scan_enabled:
+                scan_ready, reason = scan_ok(skill)
+                if not scan_ready:
+                    raise InvalidRequestError(
+                        "Skill must pass security scan before entering approved state.",
+                        code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",
+                        data={"skill_id": str(skill_id), "from_status": from_status, "reason": reason},
+                    )
+
         skill.lifecycle_status = to_status
         await self.db.commit()
         await self.db.refresh(skill)
@@ -207,6 +241,7 @@ class SkillLifecycleService:
             to_status=to_status,
         )
 
+
 # ============================================================================
 # skill_version_service.py
 # ============================================================================
@@ -214,29 +249,37 @@ class SkillLifecycleService:
 """Skill Version Service — publish, list, get, delete, restore."""
 
 
-import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List
 
 import semver
 
 from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
     JoySafeterSkill,
     JoySafeterSkillFile,
     JoySafeterSkillVersion,
     JoySafeterSkillVersionFile,
 )
-from app.joysafeter_domain.repositories.joysafeter_skill import SkillFileRepository, SkillRepository
-from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionFileRepository, SkillVersionRepository
-from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+from app.joysafeter_domain.repositories.joysafeter_skill import SkillFileRepository
+from app.joysafeter_domain.repositories.joysafeter_skill_version import (
+    SkillVersionFileRepository,
+    SkillVersionRepository,
+)
+from app.joysafeter_shared.common.app_errors import ResourceConflictError
 
 from .base import BaseService
 
 
 class SkillVersionService(BaseService[JoySafeterSkillVersion]):
-    def __init__(self, db, *, active_org_id: Optional[str] = None):
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
         super().__init__(db)
         self.repo = SkillVersionRepository(db)
         self.file_repo = SkillVersionFileRepository(db)
@@ -249,6 +292,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         # falls back to pre-P2.9 cross-org-friendly behavior; legacy
         # callers stay safe.
         self._active_org_id = active_org_id
+        self._caller_org_role = caller_org_role
 
     async def publish_version(
         self,
@@ -263,10 +307,41 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.publisher,
-            is_superuser=is_superuser,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
+
+        # Runtime-readiness gate — publishing a snapshot that no agent can
+        # load creates a dead version and breaks the product contract between
+        # Skills, Agent picker, and orchestrator. Keep the historical
+        # ``SKILL_SECURITY_BLOCKED`` code for the high-risk verdict, but fail
+        # every other runtime-ineligible state with a precise reason.
+        # When security scanning is disabled globally, skip all scan gates.
+        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
+        from app.joysafeter_shared.config import settings as app_settings
+
+        if app_settings.skill_security_scan_enabled:
+            if skill.security_status == JoySafeterSkillSecurityStatus.BLOCKED.value:
+                raise InvalidRequestError(
+                    "技能存在高安全风险，已被安全扫描拦截，无法发布版本。请修复后重新扫描。",
+                    code="SKILL_SECURITY_BLOCKED",
+                    data={
+                        "security_status": skill.security_status,
+                        "security_severity": skill.security_severity,
+                        "security_score": skill.security_score,
+                    },
+                )
+            from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+
+            usable, reason = is_skill_usable(skill)
+            if not usable:
+                raise InvalidRequestError(
+                    "Skill is not runtime-ready and cannot be published.",
+                    code="SKILL_VERSION_NOT_RUNTIME_READY",
+                    data={"skill_id": str(skill_id), "reason": reason},
+                )
 
         # Validate semver format
         try:
@@ -286,7 +361,14 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             # Check > highest existing
         highest_str = await self.repo.get_highest_version_str(skill_id)
         if highest_str:
-            highest = semver.Version.parse(highest_str)
+            try:
+                highest = semver.Version.parse(highest_str)
+            except ValueError as exc:
+                raise InvalidRequestError(
+                    "A stored skill version is not valid semver; cannot validate the new version.",
+                    code="SKILL_VERSION_STORED_INVALID",
+                    data={"skill_id": str(skill_id), "stored_version": highest_str},
+                ) from exc
             if new_ver <= highest:
                 raise InvalidRequestError(
                     f"Version {version_str} must be greater than current highest {highest_str}",
@@ -338,17 +420,30 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         skill_id: uuid.UUID,
         current_user_id: str,
         is_superuser: bool = False,
-    ) -> List[JoySafeterSkillVersion]:
+        *,
+        limit: Optional[int] = None,
+        after_id: Optional[uuid.UUID] = None,
+    ) -> tuple[List[JoySafeterSkillVersion], bool]:
+        """Return ``(versions, has_more)`` for a skill, newest first.
+
+        Fix #3: the route declared ``limit`` / ``after_id`` and hardcoded
+        ``has_more=False`` while the service ignored both. This wires real
+        cursor pagination through the repo. The repo over-fetches one row when
+        ``limit`` is set; we trim it here and report whether more remain.
+        """
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.viewer,
-            is_superuser=is_superuser,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
-        return await self.repo.list_by_skill(skill_id)  # type: ignore[return-value,no-any-return]
+        rows = await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
+        if limit is not None and len(rows) > limit:
+            return rows[:limit], True
+        return rows, False
 
     async def get_version(
         self,
@@ -362,8 +457,8 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.viewer,
-            is_superuser=is_superuser,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
@@ -372,28 +467,6 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
                 "Skill version not found",
                 code="SKILL_VERSION_NOT_FOUND",
                 data={"skill_id": str(skill_id), "version": version_str},
-            )
-        return sv  # type: ignore[return-value,no-any-return]
-
-    async def get_latest_version(
-        self,
-        skill_id: uuid.UUID,
-        current_user_id: str,
-        is_superuser: bool = False,
-    ) -> JoySafeterSkillVersion:
-        skill = await self._get_skill_or_404(skill_id)
-        await check_skill_access(
-            self.db,
-            skill,
-            current_user_id,
-            JoySafeterCollaboratorRole.viewer,
-            is_superuser=is_superuser,
-            active_org_id=self._active_org_id,
-        )
-        sv = await self.repo.get_latest(skill_id)
-        if not sv:
-            raise NotFoundError(
-                "No published versions found", code="SKILL_VERSION_NOT_FOUND", data={"skill_id": str(skill_id)}
             )
         return sv  # type: ignore[return-value,no-any-return]
 
@@ -410,10 +483,11 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.admin,
-            is_superuser=is_superuser,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
             raise NotFoundError(
@@ -438,6 +512,19 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
                     },
                 )
 
+        # If this version was serving a tier (org/public), clear that pointer
+        # and recompute visibility in the SAME transaction. The FK is SET NULL,
+        # but that only nulls the DB column — the in-memory skill row would keep
+        # its stale pointer + stale visibility (e.g. visibility='organization'
+        # with org_version_id gone). Fail-closed: drop to the highest tier still
+        # backed by a live pointer (floor = project).
+        if skill.org_version_id == sv.id or skill.public_version_id == sv.id:
+            if skill.org_version_id == sv.id:
+                skill.org_version_id = None
+            if skill.public_version_id == sv.id:
+                skill.public_version_id = None
+            skill.visibility = recompute_visibility_from_pointers(skill)
+
         await self.db.delete(sv)
         await self.db.commit()
 
@@ -448,7 +535,6 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         import json
 
         from sqlalchemy import text as sa_text
-
 
         # JSONB array containment: skills @> [{"skill_id": "...", "version": "..."}]
         sid_str = str(skill_id)
@@ -506,10 +592,11 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.publisher,
-            is_superuser=is_superuser,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
         sv = await self.repo.get_by_version(skill_id, version_str)
         if not sv:
             raise NotFoundError(
@@ -546,6 +633,13 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
 
         await self.db.commit()
         await self.db.refresh(skill)
+        # Populate the request-scoped ``latest_version`` annotation so the
+        # route response matches ``get_skill`` (which attaches it). Without
+        # this, a restore returns a skill whose ``latest_version`` is the
+        # ClassVar default ``None`` — inconsistent with every other skill
+        # read. ``capability`` is set by the route, so we only fix this one.
+        latest = await self.repo.get_latest(skill_id)
+        setattr(skill, "latest_version", latest.version if latest else None)
         return skill
 
     async def _get_skill_or_404(self, skill_id: uuid.UUID) -> JoySafeterSkill:
@@ -560,6 +654,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         return skill  # type: ignore[return-value,no-any-return]
 
+
 # ============================================================================
 # skill_service.py
 # ============================================================================
@@ -569,21 +664,11 @@ Skill Service: Permission Check + CRUD
 """
 
 
-import uuid
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Literal
 
 from loguru import logger
 
-from app.joysafeter_domain.models.joysafeter_skill import (
-    JoySafeterCollaboratorRole,
-    JoySafeterSkill,
-    JoySafeterSkillFile,
-)
-from app.joysafeter_domain.repositories.joysafeter_skill import SkillFileRepository, SkillRepository
-from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, InvalidRequestError, NotFoundError
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.skill.validators import (
     truncate_compatibility,
     truncate_description,
@@ -603,21 +688,58 @@ from .base import BaseService
 from .joysafeter_skill_security import SkillSecurityService
 
 
+def _skill_archived_error(skill) -> ResourceConflictError:
+    return ResourceConflictError(
+        "Skill is archived and read-only. Unarchive before editing.",
+        code="SKILL_ARCHIVED",
+        data={"skill_id": str(skill.id)},
+        retryable=False,
+        user_action="refresh",
+    )
+
+
+def _ensure_skill_mutable(skill) -> None:
+    if getattr(skill, "lifecycle_status", None) == JoySafeterSkillLifecycleStatus.ARCHIVED.value:
+        raise _skill_archived_error(skill)
+
+
+_ELIGIBILITY_NEXT_ACTIONS: dict[str | None, str] = {
+    None: "none",
+    "skill_not_approved": "submit_or_approve",
+    "security_not_scanned": "run_security_scan",
+    "security_scanning": "wait_for_scan",
+    "security_failed": "fix_and_rescan",
+    "security_blocked": "fix_and_rescan",
+    "no_security_scan_hash": "run_security_scan",
+    "content_changed_after_scan": "run_security_scan",
+}
+
+
 class SkillService(BaseService[JoySafeterSkill]):
-    def __init__(self, db, *, active_org_id: Optional[str] = None):
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
         super().__init__(db)
         self.repo = SkillRepository(db)
         self.file_repo = SkillFileRepository(db)
-        self.security_service = SkillSecurityService(db, active_org_id=active_org_id)
+        self.security_service = SkillSecurityService(db, active_org_id=active_org_id, caller_org_role=caller_org_role)
         # P2.9: when the API layer constructs ``SkillService`` it
         # passes ``JoySafeterAuthContext.org_id`` here. The service
-        # then threads it into every ``check_skill_access`` call so
-        # owner / collaborator short-circuits respect strict org
-        # isolation — owners can't read their own skill while pinned
-        # to a different org context. ``None`` falls back to the
-        # pre-P2.9 behavior (cross-org owner reads allowed); kept for
-        # legacy callers we haven't migrated yet.
+        # then threads it into every ``check_skill_access`` call so the
+        # capability gate respects strict org isolation. ``None`` falls
+        # back to the pre-P2.9 behavior; kept for legacy callers we
+        # haven't migrated yet.
         self._active_org_id = active_org_id
+        # Single-axis redesign: the caller's org role, threaded into
+        # every ``check_skill_access`` call so an org super-user resolves
+        # to ADMIN capability on skills in their own org.
+        self._caller_org_role = caller_org_role
         # P2: BG-task descriptors that the API layer should hand to
         # FastAPI's ``BackgroundTasks`` once the request DB session
         # commits. Each entry is a plain dict of the kwargs that
@@ -653,7 +775,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         tags: Optional[List[str]],
         license: Optional[str],
         files: Optional[List[Dict[str, Any]]],
-        failure_mode: str = "fail_open",
+        failure_mode: Literal["default", "fail_open", "fail_closed"] = "fail_open",
         enforce_write_policy: bool = True,
     ):
         """Run a scan either inline or as a background dispatch.
@@ -703,6 +825,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         )
 
         if async_eligible:
+            assert skill_id is not None  # implied by async_eligible
             await self.security_service.mark_scanning(skill_id)
             self._pending_async_scans.append(
                 dict(
@@ -791,6 +914,151 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = fields["tags"]
         skill.license = fields["license"]
 
+    def _runtime_eligibility_next_action(self, reason: Optional[str]) -> str:
+        return _ELIGIBILITY_NEXT_ACTIONS.get(reason, "review_skill")
+
+    def _annotate_runtime_eligibility(self, skill: JoySafeterSkill) -> None:
+        from app.joysafeter_shared.config import settings as app_settings
+
+        if not app_settings.skill_security_scan_enabled:
+            # When scanning is globally disabled, skip security gates for
+            # runtime eligibility — only lifecycle_status matters.
+            usable = skill.lifecycle_status == "approved"
+            reason = None if usable else "skill_not_approved"
+        else:
+            from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+            usable, reason = is_skill_usable(skill)
+
+        next_action = self._runtime_eligibility_next_action(reason)
+        setattr(
+            skill,
+            "runtime_eligibility",
+            {
+                "usable": usable,
+                "reason": reason,
+                "next_action": next_action,
+            },
+        )
+
+    def _agent_skill_item_refs(self, item: Any, skill_id: uuid.UUID) -> bool:
+        if not isinstance(item, dict):
+            return False
+        value = item.get("skill_id")
+        if not value:
+            return False
+        try:
+            return uuid.UUID(str(value).removeprefix("skill_")) == skill_id
+        except ValueError:
+            return False
+
+    def _agent_refs_skill(self, skills: Any, skill_id: uuid.UUID) -> bool:
+        return isinstance(skills, list) and any(self._agent_skill_item_refs(item, skill_id) for item in skills)
+
+    async def _has_skill_references(self, skill: JoySafeterSkill) -> bool:
+        from sqlalchemy import select
+
+        from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+        from app.joysafeter_domain.models.joysafeter_project import Project
+
+        project_filter: Any
+        if self._active_org_id:
+            project_filter = JoySafeterAgent.project_id.in_(select(Project.id).where(Project.org_id == self._active_org_id))
+        else:
+            project_filter = JoySafeterAgent.project_id == skill.project_id
+
+        result = await self.db.execute(
+            select(JoySafeterAgent.id, JoySafeterAgent.skills)
+            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
+        )
+        for row in result.all():
+            if self._agent_refs_skill(row.skills, skill.id):
+                return True
+        return False
+
+    async def _annotate_skill_impact(self, skill: JoySafeterSkill, *, sample_limit: int = 8) -> None:
+        from sqlalchemy import select
+
+        from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
+        from app.joysafeter_domain.models.joysafeter_project import Project
+        from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+        from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+
+        project_filter: Any
+        if self._active_org_id:
+            project_filter = JoySafeterAgent.project_id.in_(select(Project.id).where(Project.org_id == self._active_org_id))
+        else:
+            project_filter = JoySafeterAgent.project_id == skill.project_id
+
+        agents_result = await self.db.execute(
+            select(JoySafeterAgent.id, JoySafeterAgent.name, JoySafeterAgent.version, JoySafeterAgent.skills)
+            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
+            .limit(1000)
+        )
+        current_agents = [row for row in agents_result.all() if self._agent_refs_skill(row.skills, skill.id)]
+        current_agent_ids = [row.id for row in current_agents]
+
+        version_result = await self.db.execute(
+            select(JoySafeterAgentVersion.id, JoySafeterAgentVersion.version, JoySafeterAgentVersion.snapshot)
+            .join(JoySafeterAgent, JoySafeterAgentVersion.agent_id == JoySafeterAgent.id)
+            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
+            .limit(1000)
+        )
+        version_rows = [row for row in version_result.all() if self._agent_refs_skill(row.snapshot.get("skills"), skill.id)]
+
+        cron_trigger_rows = []
+        task_rows = []
+        if current_agent_ids:
+            cron_trigger_result = await self.db.execute(
+                select(JoySafeterTrigger.id, JoySafeterTrigger.name, JoySafeterTrigger.enabled)
+                .where(
+                    JoySafeterTrigger.agent_id.in_(current_agent_ids),
+                    JoySafeterTrigger.type == "cron",
+                    JoySafeterTrigger.deleted_at.is_(None),
+                )
+                .limit(1000)
+            )
+            cron_trigger_rows = list(cron_trigger_result.all())
+
+            task_result = await self.db.execute(
+                select(JoySafeterTask.id, JoySafeterTask.status)
+                .where(
+                    JoySafeterTask.agent_id.in_(current_agent_ids),
+                    JoySafeterTask.status.notin_([status.value for status in JOYSAFETER_TERMINAL_STATUSES]),
+                )
+                .limit(1000)
+            )
+            task_rows = list(task_result.all())
+
+        references = []
+        for row in current_agents[:sample_limit]:
+            references.append({"type": "agent", "id": f"agent_{row.id}", "name": row.name, "version": str(row.version)})
+        remaining = max(0, sample_limit - len(references))
+        for row in cron_trigger_rows[:remaining]:
+            references.append(
+                {
+                    "type": "trigger",
+                    "id": f"trig_{row.id}",
+                    "name": row.name,
+                    "status": "enabled" if row.enabled else "disabled",
+                }
+            )
+
+        total = len(current_agents) + len(version_rows) + len(cron_trigger_rows) + len(task_rows)
+        setattr(
+            skill,
+            "impact",
+            {
+                "counts": {
+                    "agents": len(current_agents),
+                    "agent_versions": len(version_rows),
+                    "triggers": len(cron_trigger_rows),
+                    "active_tasks": len(task_rows),
+                    "total": total,
+                },
+                "references": references,
+            },
+        )
+
     async def list_skills(
         self,
         current_user_id: Optional[str] = None,
@@ -801,16 +1069,33 @@ class SkillService(BaseService[JoySafeterSkill]):
         limit: int = 20,
         after_id: Optional[uuid.UUID] = None,
     ) -> tuple[List[JoySafeterSkill], bool]:
-        """Get Skills list with cursor pagination."""
-        return await self.repo.list_by_user(
+        """Get Skills list with cursor pagination.
+
+        Each returned skill is annotated with ``latest_version`` — the most
+        recently published version string, or ``None`` when the skill has
+        never been published. Callers (e.g. the agent-builder skill picker)
+        use this to hide draft-only skills that can't yet be referenced.
+        """
+        skills, has_more = await self.repo.list_by_user(
             user_id=current_user_id,
             include_public=include_public,
             tags=tags,
             project_id=project_id,
             org_id=org_id,
+            caller_org_role=self._caller_org_role,
             limit=limit,
             after_id=after_id,
         )
+        # Batch-annotate latest published version (single query, no N+1).
+        ver_repo = SkillVersionRepository(self.db)
+        latest_map = await ver_repo.latest_version_map([s.id for s in skills])
+        for skill in skills:
+            # ``latest_version`` is a request-scoped annotation declared as a
+            # ClassVar on the model; set it per-instance via setattr so mypy
+            # doesn't reject assigning to a class variable through an instance.
+            setattr(skill, "latest_version", latest_map.get(skill.id))
+            self._annotate_runtime_eligibility(skill)
+        return skills, has_more
 
     async def get_skill(
         self,
@@ -822,21 +1107,21 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill or not isinstance(skill, JoySafeterSkill):
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: collaborator-aware
+            # Permission check: requires READ project capability
         if current_user_id:
             await check_skill_access(
                 self.db,
                 skill,
                 current_user_id,
-                JoySafeterCollaboratorRole.viewer,
+                ProjectCapability.READ,
+                caller_org_role=self._caller_org_role,
                 active_org_id=self._active_org_id,
             )
         else:
             # Anonymous read: only the ``public`` visibility tier opens
             # the row to a missing caller. Use the same fallback as
-            # ``check_skill_access`` so a row written by a legacy
-            # ``is_public=true`` writer still passes.
-            effective = skill.visibility or ("public" if skill.is_public else "private")
+            # ``check_skill_access``.
+            effective = skill.visibility or JoySafeterSkillVisibility.PROJECT.value
             if effective != "public":
                 raise AccessDeniedError(
                     "You don't have permission to access this skill",
@@ -845,41 +1130,10 @@ class SkillService(BaseService[JoySafeterSkill]):
 
                 # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
         skill = await self._attach_latest_version(skill)
+        self._annotate_runtime_eligibility(skill)
+        await self._annotate_skill_impact(skill)
         result = skill
         return result  # type: ignore
-
-    async def get_skill_by_name(
-        self,
-        skill_name: str,
-        current_user_id: Optional[str] = None,
-    ) -> Optional[JoySafeterSkill]:
-        """Get Skill by name (case-insensitive)
-
-        Args:
-            skill_name: Skill name
-            current_user_id: Current user ID for permission check
-
-        Returns:
-            Skill object, returns None if not found or unauthorized
-        """
-        # Get all accessible skills. Pass ``org_id`` so the lookup
-        # respects the caller's active org context — a user who's a
-        # member of two orgs and shares a skill name between them
-        # shouldn't get the wrong org's skill back here.
-        all_skills = await self.list_skills(
-            current_user_id=current_user_id,
-            include_public=True,
-            org_id=self._active_org_id,
-        )
-
-        # Search by name (case-insensitive)
-        for skill in all_skills:
-            if skill.name.lower() == skill_name.lower():
-                # Get complete information (including files)
-                result = await self.repo.get_with_files(skill.id)
-                return result if isinstance(result, JoySafeterSkill) else None
-
-        return None
 
     async def create_skill(
         self,
@@ -890,10 +1144,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         tags: Optional[List[str]] = None,
         source_type: str = "local",
         source_url: Optional[str] = None,
-        root_path: Optional[str] = None,
         owner_id: Optional[str] = None,
-        is_public: bool = False,
-        visibility: Optional[str] = None,
         license: Optional[str] = None,
         files: Optional[List[Dict[str, Any]]] = None,
         project_id: Optional[str] = None,
@@ -978,11 +1229,11 @@ class SkillService(BaseService[JoySafeterSkill]):
                 logger.warning(f"Skill compatibility exceeds 500 characters, truncating: {error}")
                 compatibility = truncate_compatibility(compatibility)
 
-                # Check if Skill with same name exists (same owner)
-        existing = await self.repo.get_by_name_and_owner(name, owner_id)
+                # Check if Skill with same name exists (same project)
+        existing = await self.repo.get_by_name_and_project(name, project_id)
         if existing:
             raise InvalidRequestError(
-                f"Skill name '{name}' already exists for this owner",
+                f"Skill name '{name}' already exists in this project",
                 code="SKILL_NAME_ALREADY_EXISTS",
                 data={"name": name},
             )
@@ -1025,24 +1276,10 @@ class SkillService(BaseService[JoySafeterSkill]):
             files=files,
         )
 
-        # Dual-write: ``visibility`` is now the canonical column.
-        # Precedence rule:
-        #   1. Explicit ``visibility`` from the caller (P2.8) wins.
-        #   2. Legacy callers passing only ``is_public`` derive
-        #      ``visibility`` from ``is_public + project_id`` — mirrors
-        #      the 20260625_000003 backfill so a client that hasn't
-        #      adopted ``visibility`` yet gets the obvious mapping.
-        # We also keep ``is_public`` in sync so any reader still on
-        # the old column sees a consistent value.
-        if visibility is not None:
-            visibility_value = visibility
-            is_public = visibility == "public"
-        elif is_public:
-            visibility_value = "public"
-        elif project_id is not None:
-            visibility_value = "project"
-        else:
-            visibility_value = "private"
+        # A skill is always created as a ``project`` resource. Exposure to the
+        # ``organization`` / ``public`` tiers only ever happens through the
+        # version-level promotion approval flow, never directly at create time.
+        visibility_value = JoySafeterSkillVisibility.PROJECT.value
 
         skill = JoySafeterSkill(
             name=name,
@@ -1051,10 +1288,8 @@ class SkillService(BaseService[JoySafeterSkill]):
             tags=tags or [],
             source_type=source_type,
             source_url=source_url,
-            root_path=root_path,
             owner_id=owner_id,
             created_by_id=created_by_id,
-            is_public=is_public,
             visibility=visibility_value,
             license=license,
             compatibility=compatibility,
@@ -1076,7 +1311,7 @@ class SkillService(BaseService[JoySafeterSkill]):
                 file_path = file_data.get("path", "")
                 file_name = file_data.get("file_name", "")
                 file_content_raw = file_data.get("content")
-                file_content_val: Optional[str] = (
+                file_content_val = (
                     file_content_raw
                     if isinstance(file_content_raw, (str, type(None)))
                     else str(file_content_raw)
@@ -1130,10 +1365,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         tags: Optional[List[str]] = None,
         source_type: Optional[str] = None,
         source_url: Optional[str] = None,
-        root_path: Optional[str] = None,
         owner_id: Optional[str] = None,
-        is_public: Optional[bool] = None,
-        visibility: Optional[str] = None,
         license: Optional[str] = None,
         compatibility: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -1148,14 +1380,16 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: collaborator-aware (editor role)
+            # Permission check: requires WRITE (editor) project capability
         await check_skill_access(
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Parse SKILL.md frontmatter if files contain SKILL.md
         if files:
@@ -1201,23 +1435,20 @@ class SkillService(BaseService[JoySafeterSkill]):
         proposed_tags = skill.tags if tags is None else tags
         proposed_source_type = skill.source_type if source_type is None else source_type
         proposed_source_url = skill.source_url if source_url is None else source_url
-        proposed_root_path = skill.root_path if root_path is None else root_path
         proposed_owner_id = skill.owner_id if owner_id is None else owner_id
-        proposed_is_public = skill.is_public if is_public is None else is_public
         proposed_license = skill.license if license is None else license
         proposed_compatibility = skill.compatibility if compatibility is None else compatibility
         proposed_metadata = skill.meta_data
         proposed_allowed_tools = skill.allowed_tools
 
-        # ── Privilege gates run BEFORE any write or scan ──
-        # P2.13: the ownership and visibility gates were originally
-        # placed after the security scan dispatch. That meant a
-        # rejected PUT still left an audit row in
+        # ── Ownership gate runs BEFORE any write or scan ──
+        # The gate was originally placed after the security scan dispatch. That
+        # meant a rejected PUT still left an audit row in
         # ``joysafeter_skill_security_scans`` claiming the spoofed
         # ``owner_id`` / ``created_by_id`` had legitimately scanned
         # the skill — useful telemetry for an attacker probing what
-        # private content trips which scanner rule, and noise in the
-        # audit log. Running the gates first means no side effects
+        # content trips which scanner rule, and noise in the
+        # audit log. Running the gate first means no side effects
         # of any kind escape the request when the caller is unauthorized.
         owner_before_change = skill.owner_id
         if owner_id is not None and proposed_owner_id != owner_before_change:
@@ -1233,43 +1464,7 @@ class SkillService(BaseService[JoySafeterSkill]):
                     },
                 )
 
-        current_visibility = skill.visibility or ("public" if skill.is_public else "private")
-        # P2.15: ``is_public`` is the legacy boolean that the dual-write
-        # block below (see ~line 778-783) still translates back into a
-        # ``visibility`` tier. So a non-owner admin collaborator who sends
-        # only ``{"is_public": true}`` would have skipped the owner-only
-        # gate (because ``visibility`` stayed None and ``target_visibility``
-        # stayed equal to ``current_visibility``) yet still escalate the
-        # skill to ``public`` once line 778 ran. Compute the effective
-        # target the same way the dual-write block will to keep the gate
-        # in lockstep with the actual mutation.
-        if visibility is not None:
-            target_visibility = visibility
-        elif is_public is not None:
-            if is_public:
-                target_visibility = "public"
-            elif skill.project_id is not None:
-                target_visibility = "project"
-            else:
-                target_visibility = "private"
-        else:
-            target_visibility = current_visibility
-        visibility_changes = current_visibility != target_visibility
-        if visibility_changes and owner_before_change != current_user_id:
-            raise AccessDeniedError(
-                "Only the skill owner can change the visibility tier. "
-                "Admin collaborators may edit content but cannot retier "
-                "who the skill is shared with.",
-                code="SKILL_VISIBILITY_OWNER_ONLY",
-                data={
-                    "skill_id": str(skill.id),
-                    "user_id": current_user_id,
-                    "from_visibility": current_visibility,
-                    "to_visibility": target_visibility,
-                },
-            )
-
-            # Validate name if provided
+        # Validate name if provided
         if name and name != skill.name:
             is_valid, error = validate_skill_name(name)
             if not is_valid:
@@ -1279,10 +1474,10 @@ class SkillService(BaseService[JoySafeterSkill]):
                     code="SKILL_NAME_INVALID",
                     data={"validation_error": error, "name": name},
                 )
-            existing = await self.repo.get_by_name_and_owner(name, skill.owner_id)
+            existing = await self.repo.get_by_name_and_project(name, skill.project_id)
             if existing:
                 raise InvalidRequestError(
-                    f"Skill name '{name}' already exists for this owner",
+                    f"Skill name '{name}' already exists in this project",
                     code="SKILL_NAME_ALREADY_EXISTS",
                     data={"name": name},
                 )
@@ -1338,19 +1533,33 @@ class SkillService(BaseService[JoySafeterSkill]):
             if invalid_files:
                 raise self._invalid_import_files_error(invalid_files)
 
-        security_scan = await self._dispatch_security_scan(
-            trigger="update",
-            created_by_id=current_user_id,
-            owner_id=proposed_owner_id,
-            project_id=skill.project_id,
-            skill_id=skill.id,
-            name=proposed_name,
-            description=proposed_description,
-            content=proposed_content,
-            tags=proposed_tags or [],
-            license=proposed_license,
-            files=proposed_files,
-        )
+        # Only the skill's *content* is security-relevant: the SKILL.md body
+        # and the attached files carry the code/instructions the scanner
+        # inspects. Pure metadata edits (name / description / tags / license /
+        # visibility) don't change what the skill *does*, so re-running the
+        # (potentially slow, inline-LLM) scanner on every such save is wasted
+        # work — and it blocked the "Save" button for seconds on skills small
+        # enough to fall under the async threshold. Skip the scan entirely
+        # when neither the SKILL.md content nor the file set changed; the
+        # skill keeps its existing security verdict untouched.
+        content_changed = content is not None and proposed_content != skill.content
+        files_changed = files is not None
+        if content_changed or files_changed:
+            security_scan = await self._dispatch_security_scan(
+                trigger="update",
+                created_by_id=current_user_id,
+                owner_id=proposed_owner_id,
+                project_id=skill.project_id,
+                skill_id=skill.id,
+                name=proposed_name,
+                description=proposed_description,
+                content=proposed_content,
+                tags=proposed_tags or [],
+                license=proposed_license,
+                files=proposed_files,
+            )
+        else:
+            security_scan = None
 
         skill.name = proposed_name
         skill.description = proposed_description
@@ -1358,31 +1567,12 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = proposed_tags or []
         skill.source_type = proposed_source_type
         skill.source_url = proposed_source_url
-        skill.root_path = proposed_root_path
-        # The ownership and visibility gates ran at the top of the
-        # function (P2.13) so we don't pay any side effects of an
-        # unauthorized call. By the time control reaches here, both
-        # mutations are pre-approved.
+        # The ownership gate ran at the top of the function (P2.13) so we
+        # don't pay any side effects of an unauthorized call. By the time
+        # control reaches here, the mutation is pre-approved. Visibility is
+        # NOT written here — a skill's tier is only ever changed through the
+        # version-level promotion approval flow (or a takedown).
         skill.owner_id = proposed_owner_id
-        skill.is_public = proposed_is_public
-        # Dual-write visibility (see ``create_skill`` for the mapping
-        # rationale). Precedence: explicit ``visibility`` from the caller
-        # wins; otherwise derive from is_public + project_id, but only
-        # when the caller actually moved the boolean — an update that
-        # only renames a skill must not accidentally retier its share
-        # surface.
-        if visibility is not None:
-            skill.visibility = visibility
-            # Keep the legacy boolean in sync for any reader still on
-            # the old column.
-            skill.is_public = visibility == "public"
-        elif is_public is not None:
-            if proposed_is_public:
-                skill.visibility = "public"
-            elif skill.project_id is not None:
-                skill.visibility = "project"
-            else:
-                skill.visibility = "private"
         skill.license = proposed_license
         skill.compatibility = proposed_compatibility
         skill.meta_data = proposed_metadata or {}
@@ -1446,11 +1636,30 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: Only owner can delete
-        if skill.owner_id != current_user_id:
-            raise AccessDeniedError("Only the owner can delete a skill", code="SKILL_DELETE_FORBIDDEN")
+        await check_skill_access(
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
+        )
+        # Deletion is intentionally allowed on archived skills: archiving is a
+        # retire/take-offline step, and purging a retired skill is a legitimate
+        # follow-up. The archived read-only guard (_ensure_skill_mutable) applies
+        # to *edits*, not to removal.
+        if await self._has_skill_references(skill):
+            await self._annotate_skill_impact(skill)
+            impact = getattr(skill, "impact", None) or {}
+            raise ResourceConflictError(
+                "Skill is still referenced by agents, cron triggers, or active tasks. Remove references before deleting.",
+                code="SKILL_DELETE_HAS_REFERENCES",
+                data={"skill_id": str(skill_id), "impact": impact},
+                retryable=False,
+                user_action="remove_references",
+            )
 
-            # Delete associated files
+        # Delete associated files
         await self.file_repo.delete_by_skill(skill_id)
 
         # Delete Skill
@@ -1474,14 +1683,16 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
-            # Permission check: collaborator-aware (editor role)
+            # Permission check: requires WRITE (editor) project capability
         await check_skill_access(
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Check if it's a system file
         if is_system_file(path) or is_system_file(file_name):
@@ -1507,42 +1718,54 @@ class SkillService(BaseService[JoySafeterSkill]):
             if warning:
                 logger.warning(f"Skill file warning: {warning}")
 
-        proposed_files = self.security_service.files_from_skill(skill)
-        proposed_files.append(
-            {
-                "path": path,
-                "file_name": file_name,
-                "file_type": file_type,
-                "content": content or "",
-                "storage_type": storage_type,
-                "storage_key": storage_key,
-                "size": size,
-            }
-        )
-        scan_fields = (
-            self._skill_md_candidate_fields(skill, content)
-            if self._is_skill_md_file(path, file_name)
-            else {
-                "name": skill.name,
-                "description": skill.description,
-                "content": skill.content,
-                "tags": list(skill.tags or []),
-                "license": skill.license,
-            }
-        )
-        security_scan = await self._dispatch_security_scan(
-            trigger="file_add",
-            created_by_id=current_user_id,
-            owner_id=skill.owner_id,
-            project_id=skill.project_id,
-            skill_id=skill.id,
-            name=scan_fields["name"],
-            description=scan_fields["description"],
-            content=scan_fields["content"],
-            tags=scan_fields["tags"],
-            license=scan_fields["license"],
-            files=proposed_files,
-        )
+        # Newly-created files start empty — both the ``.gitkeep`` a folder
+        # create adds, and any regular file the user creates before typing
+        # into it. Empty content has nothing to scan, so a full security scan
+        # (which can take a minute of LLM analysis and flips the skill to
+        # ``scanning``) is pure waste. Skip the scan when the added file is
+        # empty; the scan runs later on ``update_file`` once the user saves
+        # real content.
+        is_empty_new_file = not (content or "").strip()
+
+        if is_empty_new_file:
+            security_scan = None
+        else:
+            proposed_files = self.security_service.files_from_skill(skill)
+            proposed_files.append(
+                {
+                    "path": path,
+                    "file_name": file_name,
+                    "file_type": file_type,
+                    "content": content or "",
+                    "storage_type": storage_type,
+                    "storage_key": storage_key,
+                    "size": size,
+                }
+            )
+            scan_fields = (
+                self._skill_md_candidate_fields(skill, content)
+                if self._is_skill_md_file(path, file_name)
+                else {
+                    "name": skill.name,
+                    "description": skill.description,
+                    "content": skill.content,
+                    "tags": list(skill.tags or []),
+                    "license": skill.license,
+                }
+            )
+            security_scan = await self._dispatch_security_scan(
+                trigger="file_add",
+                created_by_id=current_user_id,
+                owner_id=skill.owner_id,
+                project_id=skill.project_id,
+                skill_id=skill.id,
+                name=scan_fields["name"],
+                description=scan_fields["description"],
+                content=scan_fields["content"],
+                tags=scan_fields["tags"],
+                license=scan_fields["license"],
+                files=proposed_files,
+            )
 
         file_obj = JoySafeterSkillFile(
             skill_id=skill_id,
@@ -1588,42 +1811,54 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(file_obj.skill_id)})
 
-            # Permission check: collaborator-aware (editor role)
+            # Permission check: requires WRITE (editor) project capability
         await check_skill_access(
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
-        proposed_files = [
-            {
-                "path": existing_file.path,
-                "file_name": existing_file.file_name,
-                "file_type": existing_file.file_type,
-                "content": existing_file.content or "",
-                "storage_type": existing_file.storage_type,
-                "storage_key": existing_file.storage_key,
-                "size": existing_file.size,
-            }
-            for existing_file in (skill.files or [])
-            if existing_file.id != file_obj.id
-        ]
-        security_scan = await self._dispatch_security_scan(
-            enforce_write_policy=False,
-            trigger="file_delete",
-            created_by_id=current_user_id,
-            owner_id=skill.owner_id,
-            project_id=skill.project_id,
-            skill_id=skill.id,
-            name=skill.name,
-            description=skill.description,
-            content=skill.content,
-            tags=list(skill.tags or []),
-            license=skill.license,
-            files=proposed_files,
-        )
+        # Deleting an empty file (a ``.gitkeep`` placeholder, or a file the
+        # user created but never wrote into) removes nothing scannable — the
+        # remaining content is unchanged — so a re-scan is pure waste. Deleting
+        # a file that HAD content does change the scannable surface, so it
+        # still scans.
+        deleted_was_empty = not (file_obj.content or "").strip()
+
+        if deleted_was_empty:
+            security_scan = None
+        else:
+            proposed_files = [
+                {
+                    "path": existing_file.path,
+                    "file_name": existing_file.file_name,
+                    "file_type": existing_file.file_type,
+                    "content": existing_file.content or "",
+                    "storage_type": existing_file.storage_type,
+                    "storage_key": existing_file.storage_key,
+                    "size": existing_file.size,
+                }
+                for existing_file in (skill.files or [])
+                if existing_file.id != file_obj.id
+            ]
+            security_scan = await self._dispatch_security_scan(
+                enforce_write_policy=False,
+                trigger="file_delete",
+                created_by_id=current_user_id,
+                owner_id=skill.owner_id,
+                project_id=skill.project_id,
+                skill_id=skill.id,
+                name=skill.name,
+                description=skill.description,
+                content=skill.content,
+                tags=list(skill.tags or []),
+                license=skill.license,
+                files=proposed_files,
+            )
 
         await self.file_repo.delete(file_id)
         if security_scan is not None:
@@ -1663,14 +1898,16 @@ class SkillService(BaseService[JoySafeterSkill]):
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(file_obj.skill_id)})
 
-            # Permission check: collaborator-aware (editor role)
+            # Permission check: requires WRITE (editor) project capability
         await check_skill_access(
             self.db,
             skill,
             current_user_id,
-            JoySafeterCollaboratorRole.editor,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Check if it's a system file (if path is being updated)
         if path is not None:
@@ -1768,121 +2005,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         # Type assertion: refresh updates the object in place
         return file_obj  # type: ignore
 
-    async def _sync_skill_from_skill_md(
-        self,
-        skill: JoySafeterSkill,
-        content: Optional[str],
-    ) -> None:
-        """Sync skill metadata from SKILL.md frontmatter.
-
-        Args:
-            skill: The skill to update
-            content: The SKILL.md content with YAML frontmatter
-        """
-        if not content:
-            return
-
-        self._apply_skill_md_content(skill, content)
-        await self.db.commit()
-        await self.db.refresh(skill)
-
-    async def import_skill_from_directory(
-        self, skill_dir: str, owner_id: str, is_public: bool = False
-    ) -> JoySafeterSkill:
-        """Import Skill from directory
-
-        Args:
-            skill_dir: Skill directory path (containing SKILL.md)
-            owner_id: Owner ID
-
-        Returns:
-            Created or updated Skill object
-        """
-        from pathlib import Path
-
-        from app.joysafeter_shared.skill.yaml_parser import extract_metadata_from_frontmatter, parse_skill_md
-
-        skill_path = Path(skill_dir)
-        if not skill_path.exists():
-            raise FileNotFoundError(f"Skill directory not found: {skill_dir}")
-
-            # Find SKILL.md
-        skill_md_path = skill_path / "SKILL.md"
-        if not skill_md_path.exists():
-            # Try lowercase
-            skill_md_path = skill_path / "skill.md"
-
-        if not skill_md_path.exists():
-            raise FileNotFoundError(f"SKILL.md not found in {skill_dir}")
-
-            # Read SKILL.md
-        with open(skill_md_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-            # Parse metadata
-        frontmatter, body = parse_skill_md(content)
-        metadata = extract_metadata_from_frontmatter(frontmatter)
-
-        name = metadata.get("name", skill_path.name)
-        description = metadata.get("description", "")
-
-        # Prepare file list
-        files = []
-
-        # Add SKILL.md
-        files.append({"path": "SKILL.md", "file_name": "SKILL.md", "content": content, "file_type": "markdown"})
-
-        # Recursively read other files
-        for file_path in skill_path.rglob("*"):
-            if file_path.is_file() and file_path.name.lower() != "skill.md" and not file_path.name.startswith("."):
-                try:
-                    rel_path = file_path.relative_to(skill_path)
-
-                    # Simple binary file check (try reading as utf-8)
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            file_content = f.read()
-
-                        files.append(
-                            {
-                                "path": str(rel_path),
-                                "file_name": file_path.name,
-                                "content": file_content,
-                                "file_type": self._detect_file_type(file_path),
-                            }
-                        )
-                    except UnicodeDecodeError:
-                        # Skip binary files
-                        continue
-                except Exception:
-                    continue
-
-                    # Check if exists
-        try:
-            existing_skill = await self.get_skill_by_name(name, current_user_id=owner_id)
-        except Exception:
-            existing_skill = None
-
-        if existing_skill:
-            return await self.update_skill(
-                skill_id=existing_skill.id,
-                current_user_id=owner_id,
-                name=name,
-                description=description,
-                files=files,
-                is_public=is_public,
-            )
-        else:
-            return await self.create_skill(
-                created_by_id=owner_id,
-                name=name,
-                description=description,
-                content=body,
-                files=files,
-                owner_id=owner_id,
-                is_public=is_public,
-            )
-
     async def list_security_scans(
         self,
         skill_id: uuid.UUID,
@@ -1901,10 +2023,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         """Get a security scan by id."""
         return await self.security_service.get_scan(scan_id, current_user_id)
 
-    async def rescan_skill(self, skill_id: uuid.UUID, current_user_id: str):
-        """Run a manual security rescan for persisted skill content."""
-        return await self.security_service.rescan_existing_skill(skill_id, current_user_id)
-
     async def rescan_skill_async(self, skill_id: uuid.UUID, current_user_id: str):
         """Dispatch a manual rescan as a background task and return immediately.
 
@@ -1919,25 +2037,24 @@ class SkillService(BaseService[JoySafeterSkill]):
         Mirrors ``_dispatch_security_scan``'s async branch + the permission
         + fallback bookkeeping from ``rescan_existing_skill``.
         """
-        from app.joysafeter_domain.services.joysafeter_skill_security import (
-            JoySafeterCollaboratorRole,
-        )
         from app.joysafeter_domain.models.joysafeter_skill import (
             JoySafeterSkillSecurityScan,
         )
-        from app.joysafeter_shared.common.skill_permissions import check_skill_access
         from app.joysafeter_shared.config.settings import settings as _settings
 
         sec = self.security_service
         skill = await sec.skill_repo.get_with_files(skill_id)
         if not skill:
-            raise NotFoundError(
-                "Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)}
-            )
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
         await check_skill_access(
-            self.db, skill, current_user_id, JoySafeterCollaboratorRole.editor,
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.WRITE,
+            caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        _ensure_skill_mutable(skill)
 
         # Scanner disabled at deployment level: nothing to do, fall back to
         # the synchronous path which cleanly returns a not_scanned row.
@@ -1969,6 +2086,8 @@ class SkillService(BaseService[JoySafeterSkill]):
         latest = await sec.repo.get_latest_by_skill(skill.id)
         if latest is not None:
             return latest
+        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
+
         placeholder = JoySafeterSkillSecurityScan(
             skill_id=skill.id,
             project_id=skill.project_id,
@@ -1978,7 +2097,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             target_name=skill.name,
             target_hash="",
             scanner="skillspector",
-            status="scanning",
+            status=JoySafeterSkillSecurityStatus.SCANNING.value,
             score=None,
             severity=None,
             recommendation=None,
@@ -1989,26 +2108,410 @@ class SkillService(BaseService[JoySafeterSkill]):
         await self.db.refresh(placeholder)
         return placeholder
 
-    def _detect_file_type(self, file_path: Union[str, Path]) -> str:
-        """Simple file type detection"""
-        if isinstance(file_path, str):
-            file_path = Path(file_path)
-
-        suffix = file_path.suffix.lower()
-        if suffix == ".py":
-            return "python"
-        elif suffix == ".md":
-            return "markdown"
-        elif suffix == ".json":
-            return "json"
-        elif suffix == ".yaml" or suffix == ".yml":
-            return "yaml"
-        else:
-            return "text"
-
     async def _attach_latest_version(self, skill):
         """Attach latest_version string to skill for API response."""
         ver_repo = SkillVersionRepository(self.db)
         latest = await ver_repo.get_latest(skill.id)
         skill.latest_version = latest.version if latest else None
+        return skill
+
+
+# ============================================================================
+# skill_promotion_service.py — version-level tiered promotion approval
+# ============================================================================
+
+"""Version-level tiered promotion approval.
+
+A skill is a project resource. Editors publish project-tier versions freely;
+exposing a version to the ``organization`` or ``public`` tier goes through a
+tiered, four-eyes approval:
+
+  submit_promotion  — caller has ADMIN capability on the skill AND the target
+                      version's security scan PASSED. Marks the version
+                      ``pending_review`` + records ``review_target_visibility``.
+  approve_promotion — caller is the org OWNER (for both org and public tiers),
+                      approver != the version's submitter (four-eyes), scan
+                      still passed. Sets the skill's tier pointer, raises
+                      visibility, stamps the version ``approved``.
+  reject_promotion  — org OWNER; version -> ``rejected``, pointer untouched.
+  takedown          — org OWNER; clears a tier pointer + recomputes visibility.
+
+The rescan auto-demote (a served version whose fresh verdict flips to
+failed/blocked) lives in ``SkillSecurityService.apply_latest_scan`` so it rides
+every scan-completion path.
+"""
+
+
+from app.joysafeter_domain.models.joysafeter_skill import (
+    VISIBILITY_RANK,
+    recompute_visibility_from_pointers,
+)
+from app.joysafeter_domain.services.joysafeter_skill_security import (
+    build_scan_files,
+    scan_ok,
+    target_hash,
+)
+
+# Tiers a version may be promoted to. ``project`` is the no-review default
+# tier and is never a promotion target; ``private`` is legacy and unreachable
+# here.
+_PROMOTABLE_TIERS = frozenset(
+    {
+        JoySafeterSkillVisibility.ORGANIZATION.value,
+        JoySafeterSkillVisibility.PUBLIC.value,
+    }
+)
+
+
+class SkillPromotionService(BaseService[JoySafeterSkill]):
+    """Version-level tiered promotion approval for the single-axis model."""
+
+    _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
+
+    def __init__(
+        self,
+        db,
+        *,
+        active_org_id: Optional[str] = None,
+        caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
+    ):
+        super().__init__(db)
+        self.skill_repo = SkillRepository(db)
+        self.version_repo = SkillVersionRepository(db)
+        self.version_file_repo = SkillVersionFileRepository(db)
+        self._active_org_id = active_org_id
+        self._caller_org_role = caller_org_role
+
+    # ── loading helpers ─────────────────────────────────────────
+
+    async def _get_skill_or_404(self, skill_id: uuid.UUID) -> JoySafeterSkill:
+        skill = await self.skill_repo.get(skill_id)
+        if not skill:
+            raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
+        return skill  # type: ignore[return-value,no-any-return]
+
+    async def _get_version_or_404(self, version_id: uuid.UUID) -> JoySafeterSkillVersion:
+        version = await self.version_repo.get(version_id)
+        if not version:
+            raise NotFoundError(
+                "Skill version not found",
+                code="SKILL_VERSION_NOT_FOUND",
+                data={"version_id": str(version_id)},
+            )
+        return version  # type: ignore[return-value,no-any-return]
+
+    def _require_org_approver(self) -> None:
+        # Promotion approval / takedown is an org-superuser act (OWNER or ADMIN).
+        # It was OWNER-only, but combined with four-eyes (approver != submitter)
+        # that deadlocked any org whose sole owner also authored the version.
+        # Widening to superuser keeps four-eyes meaningful (still needs a second
+        # distinct principal) while unblocking normal 2+-admin orgs. A genuine
+        # single-person org still cannot four-eyes — correct for a review gate.
+        if not self._caller_org_role.is_org_superuser():
+            raise AccessDeniedError(
+                "Only an organization owner or admin can review skill promotions.",
+                code="SKILL_PROMOTION_OWNER_ONLY",
+                data={"required_org_role": [JoySafeterRole.OWNER.value, JoySafeterRole.ADMIN.value]},
+            )
+
+    async def _require_same_org(self, skill: JoySafeterSkill) -> None:
+        """Reject cross-tenant promotion actions.
+
+        ``_require_org_approver`` only proves the caller is a super-user in
+        their OWN active org; it says nothing about which org the target skill
+        belongs to. Without this an org-A owner/admin could approve/reject/
+        takedown an org-B skill by id — a cross-tenant privilege escalation
+        (exposing or pulling another tenant's content). Mirrors the org
+        isolation ``check_skill_access`` applies on the ``submit`` side. A
+        ``None`` active org disables the gate (legacy callers), same as there.
+        """
+        if self._active_org_id is None:
+            return
+        skill_org_id = await resolve_skill_org_id(self.db, skill)
+        if skill_org_id != self._active_org_id:
+            raise AccessDeniedError(
+                "You don't have permission to review this skill's promotion.",
+                code="SKILL_ACCESS_DENIED",
+                data={"skill_id": str(skill.id), "active_org_id": self._active_org_id},
+            )
+
+    async def _require_promoted_content_scanned(self, skill: JoySafeterSkill, version: JoySafeterSkillVersion) -> None:
+        """Bind the scan verdict to the exact bytes being promoted.
+
+        ``scan_ok(skill)`` only proves the skill's CURRENT head content passed a
+        clean, non-drifted scan. But a promotion exposes the frozen VERSION
+        snapshot, whose content can diverge from the head (a stale version, or
+        content that was published — publish only blocks HIGH/CRITICAL — but was
+        never itself scanned clean). Approving/submitting such a version would
+        raise the skill's cross-tier visibility (and, once the packer consumes
+        the tier pointer, serve those bytes) under a scan verdict for a DIFFERENT
+        payload. Require the promoted version's canonical hash to equal the hash
+        the latest passed scan locked in — i.e. the exposed bytes are exactly the
+        scanned bytes. Recomputed through the same ``build_scan_files`` /
+        ``target_hash`` the scanner and drift gate use, over the version's frozen
+        fields + its file snapshot.
+        """
+        version_files = await self.version_file_repo.list_by_version(version.id)
+        files_payload = [
+            {
+                "path": vf.path,
+                "file_name": vf.file_name,
+                "file_type": vf.file_type,
+                "content": vf.content or "",
+                "storage_type": vf.storage_type,
+                "storage_key": vf.storage_key,
+                "size": vf.size,
+            }
+            for vf in version_files
+        ]
+        scan_files = build_scan_files(
+            name=version.skill_name,
+            description=version.skill_description,
+            content=version.content,
+            tags=list(version.tags or []),
+            license=version.license,
+            files=files_payload,
+        )
+        version_hash = target_hash(
+            name=version.skill_name,
+            description=version.skill_description,
+            content=version.content,
+            tags=list(version.tags or []),
+            license=version.license,
+            files=scan_files,
+        )
+        if version_hash != skill.security_scan_hash:
+            raise ResourceConflictError(
+                "This version's content does not match the skill's latest passed "
+                "security scan; rescan the current content and publish it as the "
+                "version you promote.",
+                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
+                data={
+                    "skill_id": str(skill.id),
+                    "version_id": str(version.id),
+                    "reason": "version_content_not_scanned",
+                },
+            )
+
+    # ── submit ──────────────────────────────────────────────────
+
+    async def submit_promotion(
+        self,
+        *,
+        target_tier: str,
+        current_user_id: str,
+        version_id: Optional[uuid.UUID] = None,
+        skill_id: Optional[uuid.UUID] = None,
+    ) -> JoySafeterSkillVersion:
+        """Submit a version for promotion to ``organization`` or ``public``.
+
+        GUARD: caller holds ADMIN capability on the skill.
+        PRECONDITION: the target version's security scan PASSED (``scan_ok``).
+        Effect: version -> ``pending_review`` + ``review_target_visibility``.
+        """
+        if target_tier not in _PROMOTABLE_TIERS:
+            raise InvalidRequestError(
+                f"Cannot promote to tier {target_tier!r}; must be one of {sorted(_PROMOTABLE_TIERS)}.",
+                code="SKILL_PROMOTION_TIER_INVALID",
+                data={"target_tier": target_tier},
+            )
+
+        version = await self._resolve_target_version(version_id=version_id, skill_id=skill_id)
+        skill = await self._get_skill_or_404(version.skill_id)
+
+        await check_skill_access(
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
+        )
+
+        ok, reason = scan_ok(skill)
+        if not ok:
+            raise ResourceConflictError(
+                "The skill's security scan has not passed; cannot submit for promotion.",
+                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
+                data={"skill_id": str(skill.id), "version_id": str(version.id), "reason": reason},
+            )
+        # Bind the passed scan to the exact bytes being promoted (this version).
+        await self._require_promoted_content_scanned(skill, version)
+
+        # Idempotent when already pending for the SAME tier; conflict when
+        # pending for a different tier (the caller must resolve the existing
+        # review first).
+        if version.lifecycle_status == "pending_review":
+            if version.review_target_visibility == target_tier:
+                return version
+            raise ResourceConflictError(
+                "This version is already pending review for a different tier.",
+                code="SKILL_PROMOTION_ALREADY_PENDING",
+                data={
+                    "version_id": str(version.id),
+                    "pending_tier": version.review_target_visibility,
+                    "requested_tier": target_tier,
+                },
+            )
+
+        version.lifecycle_status = "pending_review"
+        version.review_target_visibility = target_tier
+        await self.db.commit()
+        # NOTE: do NOT ``db.refresh(version)`` here. With
+        # ``expire_on_commit=False`` the mapped COLUMN values just set survive
+        # the commit and stay readable. ``refresh()`` would instead expire the
+        # ``lazy="selectin"`` relationships (``.skill`` / ``.published_by`` /
+        # ``.approved_by``) and a later attribute access on the returned object
+        # would fire a *sync* lazy load outside the async greenlet →
+        # ``MissingGreenlet``. Callers that need a relationship must re-select.
+        return version
+
+    async def _resolve_target_version(
+        self,
+        *,
+        version_id: Optional[uuid.UUID],
+        skill_id: Optional[uuid.UUID],
+    ) -> JoySafeterSkillVersion:
+        if version_id is not None:
+            return await self._get_version_or_404(version_id)
+        if skill_id is not None:
+            latest = await self.version_repo.get_latest(skill_id)
+            if not latest:
+                raise NotFoundError(
+                    "Skill has no published version to promote",
+                    code="SKILL_VERSION_NOT_FOUND",
+                    data={"skill_id": str(skill_id)},
+                )
+            return latest  # type: ignore[return-value,no-any-return]
+        raise InvalidRequestError(
+            "submit_promotion requires either version_id or skill_id",
+            code="SKILL_PROMOTION_TARGET_MISSING",
+        )
+
+    # ── approve ─────────────────────────────────────────────────
+
+    async def approve_promotion(
+        self,
+        version_id: uuid.UUID,
+        current_user_id: str,
+    ) -> JoySafeterSkillVersion:
+        """Approve a pending promotion. Org owner or admin, four-eyes enforced."""
+        self._require_org_approver()
+        version = await self._get_version_or_404(version_id)
+        skill = await self._get_skill_or_404(version.skill_id)
+        await self._require_same_org(skill)
+
+        if version.lifecycle_status != "pending_review" or not version.review_target_visibility:
+            raise ResourceConflictError(
+                "This version is not pending review.",
+                code="SKILL_PROMOTION_NOT_PENDING",
+                data={"version_id": str(version.id), "lifecycle_status": version.lifecycle_status},
+            )
+
+        # Four-eyes: the approver must differ from the version's submitter.
+        if current_user_id == version.published_by_id:
+            raise AccessDeniedError(
+                "The submitter cannot approve their own promotion (four-eyes).",
+                code="SKILL_PROMOTION_FOUR_EYES",
+                data={"version_id": str(version.id)},
+            )
+
+        # Re-check the scan still passes before exposing the content.
+        ok, reason = scan_ok(skill)
+        if not ok:
+            raise ResourceConflictError(
+                "The skill's security scan no longer passes; cannot approve promotion.",
+                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
+                data={"skill_id": str(skill.id), "version_id": str(version.id), "reason": reason},
+            )
+        # Bind the passed scan to the exact bytes being exposed (this version).
+        await self._require_promoted_content_scanned(skill, version)
+
+        target_tier = version.review_target_visibility
+        if target_tier == JoySafeterSkillVisibility.PUBLIC.value:
+            skill.public_version_id = version.id
+        elif target_tier == JoySafeterSkillVisibility.ORGANIZATION.value:
+            skill.org_version_id = version.id
+        else:  # pragma: no cover — submit already gates the tier vocabulary
+            raise InvalidRequestError(
+                f"Unsupported promotion tier {target_tier!r}",
+                code="SKILL_PROMOTION_TIER_INVALID",
+                data={"version_id": str(version.id), "target_tier": target_tier},
+            )
+
+        # Raise visibility to at least the approved tier (project<org<public).
+        if VISIBILITY_RANK.get(skill.visibility, 0) < VISIBILITY_RANK[target_tier]:
+            skill.visibility = target_tier
+
+        version.lifecycle_status = "approved"
+        version.approved_by_id = current_user_id
+        version.approved_at = datetime.now(timezone.utc)
+        version.review_target_visibility = None
+
+        await self.db.commit()
+        # See ``submit_promotion``: skip ``refresh`` to avoid expiring the
+        # selectin relationships (columns survive under expire_on_commit=False).
+        return version
+
+    # ── reject ──────────────────────────────────────────────────
+
+    async def reject_promotion(
+        self,
+        version_id: uuid.UUID,
+        current_user_id: str,
+        reason: Optional[str] = None,
+    ) -> JoySafeterSkillVersion:
+        """Reject a pending promotion. Org owner or admin. Pointer untouched."""
+        self._require_org_approver()
+        version = await self._get_version_or_404(version_id)
+        skill = await self._get_skill_or_404(version.skill_id)
+        await self._require_same_org(skill)
+
+        if version.lifecycle_status != "pending_review":
+            raise ResourceConflictError(
+                "This version is not pending review.",
+                code="SKILL_PROMOTION_NOT_PENDING",
+                data={"version_id": str(version.id), "lifecycle_status": version.lifecycle_status},
+            )
+
+        version.lifecycle_status = "rejected"
+        version.review_target_visibility = None
+        await self.db.commit()
+        # See ``submit_promotion``: skip ``refresh`` (selectin-relationship trap).
+        return version
+
+    # ── takedown ────────────────────────────────────────────────
+
+    async def takedown(
+        self,
+        skill_id: uuid.UUID,
+        tier: str,
+        current_user_id: str,
+    ) -> JoySafeterSkill:
+        """Pull a skill down from a tier. Org owner or admin.
+
+        Clears the tier pointer and recomputes visibility to the highest tier
+        still backed by a non-null pointer (floor ``project``, fail-closed).
+        """
+        self._require_org_approver()
+        if tier not in _PROMOTABLE_TIERS:
+            raise InvalidRequestError(
+                f"Cannot take down tier {tier!r}; must be one of {sorted(_PROMOTABLE_TIERS)}.",
+                code="SKILL_PROMOTION_TIER_INVALID",
+                data={"tier": tier},
+            )
+        skill = await self._get_skill_or_404(skill_id)
+        await self._require_same_org(skill)
+
+        if tier == JoySafeterSkillVisibility.PUBLIC.value:
+            skill.public_version_id = None
+        else:
+            skill.org_version_id = None
+        skill.visibility = recompute_visibility_from_pointers(skill)
+
+        await self.db.commit()
+        # See ``submit_promotion``: skip ``refresh``. ``skill`` has
+        # ``lazy="selectin"`` relationships (``owner`` / ``created_by`` /
+        # ``files``); refreshing would expire them and a later access would
+        # trip ``MissingGreenlet``. The mutated columns survive the commit.
         return skill

@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.joysafeter_shared.database import Base
 from app.joysafeter_domain.models.base import TimestampMixin
+from app.joysafeter_shared.database import Base
 
 if TYPE_CHECKING:
     from app.joysafeter_domain.models.joysafeter_oauth_account import OAuthAccount  # pragma: no cover

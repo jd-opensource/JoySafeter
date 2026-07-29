@@ -161,6 +161,19 @@
     --gradient-secondary-from: #0ea5e9;
     --gradient-secondary-to: #67e8f9;
 
+    /* Chart palette (validated for CVD safety) */
+    --chart-1: #6f3dfa;
+    --chart-2: #0ea5e9;
+    --chart-3: #f59e0b;
+    --chart-4: #10b981;
+    --chart-5: #ef4444;
+    --chart-6: #ec4899;
+    --chart-7: #f97316;
+    --chart-8: #8b5cf6;
+    --chart-surface: #ffffff;
+    --chart-grid: #e5e7eb;
+    --chart-axis: #9ca3af;
+
     /* Misc */
     --code-bg: #0d1117;
     --canvas-dot: #cbd5e1;
@@ -254,6 +267,19 @@
     --gradient-brand-accent: #38bdf8;
     --gradient-secondary-from: #06b6d4;
     --gradient-secondary-to: #22d3ee;
+
+    /* Chart palette (validated for CVD safety — dark stepped) */
+    --chart-1: #7c3aed;
+    --chart-2: #0c8cbf;
+    --chart-3: #b07e00;
+    --chart-4: #0fa67b;
+    --chart-5: #dc4444;
+    --chart-6: #c94d85;
+    --chart-7: #d96525;
+    --chart-8: #8b6fd4;
+    --chart-surface: #141a21;
+    --chart-grid: #1e2938;
+    --chart-axis: #6b7280;
 
     /* Misc */
     --code-bg: #0a0e14;

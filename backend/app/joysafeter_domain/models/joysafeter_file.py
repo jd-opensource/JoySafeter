@@ -1,10 +1,9 @@
 """JoySafeterFile model - stores file metadata for uploaded and agent-generated files."""
 
 import uuid
-from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 

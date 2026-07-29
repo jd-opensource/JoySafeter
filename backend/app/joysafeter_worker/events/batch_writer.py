@@ -1,15 +1,20 @@
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
+
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.utils.locks import session_advisory_lock_key
 
 if TYPE_CHECKING:
-    from app.joysafeter_orchestrator.runtime_config import RuntimeConfig
+    from app.joysafeter_shared.orchestrator_bridge import RuntimeConfig
 
 logger = logging.getLogger(__name__)
 
 DEDUP_EVENT_TYPES = {
     "session.status_idle",
+    "session.status_rescheduling",
     "session.status_rescheduled",
     "session.status_running",
     "session.status_terminated",
@@ -18,6 +23,14 @@ DEDUP_EVENT_TYPES = {
     "session.thread_status_terminated",
     "span.model_request_start",
     "span.model_request_end",
+}
+
+SESSION_STATUS_EVENT_TYPES = {
+    "session.status_idle",
+    "session.status_rescheduling",
+    "session.status_rescheduled",
+    "session.status_running",
+    "session.status_terminated",
 }
 
 
@@ -50,6 +63,10 @@ def _dedup_payload_key(event: BufferedEvent) -> object:
     return event.payload
 
 
+def _is_session_status_event(event_type: str) -> bool:
+    return event_type in SESSION_STATUS_EVENT_TYPES
+
+
 def _is_duplicate_event(a: BufferedEvent | None, b: BufferedEvent) -> bool:
     if a is None:
         return False
@@ -63,9 +80,33 @@ def _is_duplicate_event(a: BufferedEvent | None, b: BufferedEvent) -> bool:
 _STOP_SENTINEL = object()
 
 
+def _event_batch_error(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    error: Exception | None = None,
+    data: dict[str, Any] | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> dict[str, Any]:
+    return async_boundary_error_payload(
+        code=code,
+        message=message,
+        boundary="event_batch_writer",
+        operation=operation,
+        data=data,
+        source="worker",
+        detail=error.__class__.__name__ if error is not None else None,
+        retryable=retryable,
+        user_action=user_action,
+    )
+
+
 class _PartialBatchError(Exception):
     """Raised when _batch_insert succeeds for some sessions but fails for others.
     Carries the failed events so _flush_buffer can retry them individually."""
+
     def __init__(self, failed_events: list):
         self.failed_events = failed_events
         super().__init__(f"{len(failed_events)} events failed in batch")
@@ -77,6 +118,7 @@ class _FlushRequest:
     Carries an asyncio.Event that the flush loop sets after the buffer
     has been written, so callers of flush() can await actual completion.
     """
+
     __slots__ = ("ack",)
 
     def __init__(self) -> None:
@@ -96,6 +138,29 @@ class EventBatchSender:
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=config.max_size * 4)
         self._task: Optional[asyncio.Task] = None
         self._stopped = asyncio.Event()
+        self._lost_event_count = 0
+        self._last_lost_event: dict[str, Any] | None = None
+
+    def health_snapshot(self) -> dict[str, Any]:
+        status = "degraded" if self._lost_event_count else "ok"
+        return {
+            "status": status,
+            "enabled": self._config.enabled,
+            "queue_size": self._queue.qsize(),
+            "queue_max_size": self._queue.maxsize,
+            "lost_event_count": self._lost_event_count,
+            "last_lost_event": self._last_lost_event,
+        }
+
+    def _record_lost_event(self, event: BufferedEvent, error: Exception) -> None:
+        self._lost_event_count += 1
+        self._last_lost_event = {
+            "session_id": str(event.session_id),
+            "event_type": event.event_type,
+            "event_id": str(event.id) if event.id else None,
+            "error": str(error),
+            "timestamp": time.time(),
+        }
 
     @property
     def _effective_max_size(self) -> int:
@@ -119,12 +184,32 @@ class EventBatchSender:
             try:
                 await asyncio.wait_for(self._queue.put(_STOP_SENTINEL), timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("Could not enqueue stop sentinel (queue full), force cancelling")
+                logger.warning(
+                    "Could not enqueue stop sentinel (queue full), force cancelling",
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_STOP_SENTINEL_QUEUE_FULL",
+                            message="Could not enqueue stop sentinel; force cancelling batch writer.",
+                            operation="stop_event_batch_writer",
+                            data={"queue_size": self._queue.qsize()},
+                        )
+                    },
+                )
                 self._task.cancel()
             try:
                 await asyncio.wait_for(self._stopped.wait(), timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("Event buffer did not drain in 5s, force cancelling")
+                logger.warning(
+                    "Event buffer did not drain in 5s, force cancelling",
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_DRAIN_TIMEOUT",
+                            message="Event batch buffer did not drain before shutdown.",
+                            operation="stop_event_batch_writer",
+                            data={"queue_size": self._queue.qsize()},
+                        )
+                    },
+                )
                 self._task.cancel()
             try:
                 await self._task
@@ -137,15 +222,28 @@ class EventBatchSender:
             if inserted is not None:
                 await self._publish_inserted([inserted])
             return
-        # F9 fix: use put with timeout instead of blocking indefinitely.
-        # Log when queue is full so operators can detect backpressure.
+        # Do not silently drop here. This sender is used as the durable fallback
+        # for Redis Stream backpressure; if the in-memory queue is wedged, write
+        # synchronously so callers either get durable persistence or a real error.
         try:
             await asyncio.wait_for(self._queue.put(event), timeout=10.0)
         except asyncio.TimeoutError:
-            logger.warning(
-                "Event batch queue full for 10s (size=%d), dropping event for session %s",
-                self._queue.qsize(), event.session_id,
+            logger.error(
+                "Event batch queue full for 10s (size=%d), writing event synchronously for session %s",
+                self._queue.qsize(),
+                event.session_id,
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_QUEUE_FULL",
+                        message="Event batch queue full; writing event synchronously.",
+                        operation="enqueue_event_batch",
+                        data={"queue_size": self._queue.qsize(), "session_id": str(event.session_id)},
+                    )
+                },
             )
+            inserted = await self._write_single(event)
+            if inserted is not None:
+                await self._publish_inserted([inserted])
 
     async def flush(self) -> None:
         """Flush buffered events and await acknowledgment from the flush loop.
@@ -160,7 +258,17 @@ class EventBatchSender:
         try:
             await asyncio.wait_for(self._queue.put(req), timeout=10.0)
         except asyncio.TimeoutError:
-            logger.warning("Flush request could not be enqueued (queue full for 10s)")
+            logger.warning(
+                "Flush request could not be enqueued (queue full for 10s)",
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_FLUSH_QUEUE_FULL",
+                        message="Flush request could not be enqueued.",
+                        operation="flush_event_batch",
+                        data={"queue_size": self._queue.qsize()},
+                    )
+                },
+            )
             return
         await req.ack.wait()
 
@@ -255,7 +363,7 @@ class EventBatchSender:
         count = len(buffer)
         logger.debug("Flushing %d events to DB", count)
         try:
-            inserted = await self._batch_insert(buffer)
+            await self._batch_insert(buffer)
             # Publish handled inside _batch_insert now (F4 regression fix)
         except _PartialBatchError as e:
             # Some sessions succeeded (already published inside _batch_insert),
@@ -263,12 +371,33 @@ class EventBatchSender:
             logger.error(
                 "Partial batch failure (%d events failed), retrying individually",
                 len(e.failed_events),
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_PARTIAL_INSERT_FAILED",
+                        message="Partial event batch insert failed; retrying failed events individually.",
+                        operation="flush_event_batch",
+                        error=e,
+                        data={"failed_events": len(e.failed_events)},
+                    )
+                },
+                exc_info=True,
             )
             await self._retry_individual(e.failed_events)
         except Exception as e:
             logger.error(
                 "Batch insert failed (%d events), falling back to individual inserts: %s",
-                count, e,
+                count,
+                e,
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_INSERT_FAILED",
+                        message="Event batch insert failed; falling back to individual inserts.",
+                        operation="flush_event_batch",
+                        error=e,
+                        data={"event_count": count},
+                    )
+                },
+                exc_info=True,
             )
             await self._retry_individual(buffer)
 
@@ -282,14 +411,40 @@ class EventBatchSender:
                         try:
                             await self._publish_inserted([inserted])
                         except Exception as pub_err:
-                            logger.warning("Realtime publish failed (event persisted): %s", pub_err)
+                            logger.warning(
+                                "Realtime publish failed (event persisted): %s",
+                                pub_err,
+                                extra={
+                                    "error": _event_batch_error(
+                                        code="EVENT_REALTIME_PUBLISH_FAILED",
+                                        message="Realtime publish failed after event was persisted.",
+                                        operation="publish_persisted_event",
+                                        error=pub_err,
+                                        data={"session_id": str(event.session_id), "event_type": event.event_type},
+                                    )
+                                },
+                                exc_info=True,
+                            )
                     break
                 except Exception as inner:
                     if attempt == 0:
                         await asyncio.sleep(0.5)
                     else:
+                        self._record_lost_event(event, inner)
                         logger.error(
-                            "Individual event insert failed after retry (event lost): %s", inner
+                            "Individual event insert failed after retry (event lost): %s",
+                            inner,
+                            extra={
+                                "error": _event_batch_error(
+                                    code="EVENT_INSERT_RETRY_EXHAUSTED",
+                                    message="Individual event insert failed after retry.",
+                                    operation="retry_individual_event_insert",
+                                    error=inner,
+                                    data={"session_id": str(event.session_id), "event_type": event.event_type},
+                                    retryable=False,
+                                )
+                            },
+                            exc_info=True,
                         )
 
     async def _batch_insert(self, events: list[BufferedEvent]) -> list[BufferedEvent]:
@@ -297,6 +452,23 @@ class EventBatchSender:
 
         groups: dict = defaultdict(list)
         for e in events:
+            if _is_session_status_event(e.event_type):
+                logger.warning(
+                    "Skipping session status event in batch writer: session=%s event_type=%s",
+                    e.session_id,
+                    e.event_type,
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_SESSION_STATUS_SKIPPED",
+                            message="Session status event skipped by batch writer.",
+                            operation="batch_insert_events",
+                            data={"session_id": str(e.session_id), "event_type": e.event_type},
+                            retryable=False,
+                            user_action="refresh",
+                        )
+                    },
+                )
+                continue
             groups[e.session_id].append(e)
 
         # F2 fix: process each session in its OWN transaction so that a slow
@@ -311,7 +483,19 @@ class EventBatchSender:
             except Exception as e:
                 logger.error(
                     "Batch insert failed for session %s (%d events): %s",
-                    session_id, len(groups[session_id]), e,
+                    session_id,
+                    len(groups[session_id]),
+                    e,
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_SESSION_INSERT_FAILED",
+                            message="Event batch insert failed for session.",
+                            operation="batch_insert_session_group",
+                            error=e,
+                            data={"session_id": str(session_id), "event_count": len(groups[session_id])},
+                        )
+                    },
+                    exc_info=True,
                 )
                 failed_events.extend(groups[session_id])
 
@@ -320,7 +504,20 @@ class EventBatchSender:
             try:
                 await self._publish_inserted(all_inserted)
             except Exception as pub_err:
-                logger.warning("Realtime publish failed for batch (events persisted): %s", pub_err)
+                logger.warning(
+                    "Realtime publish failed for batch (events persisted): %s",
+                    pub_err,
+                    extra={
+                        "error": _event_batch_error(
+                            code="EVENT_BATCH_REALTIME_PUBLISH_FAILED",
+                            message="Realtime publish failed after batch events were persisted.",
+                            operation="publish_persisted_event_batch",
+                            error=pub_err,
+                            data={"event_count": len(all_inserted)},
+                        )
+                    },
+                    exc_info=True,
+                )
 
         # If any sessions failed, raise so callers can handle:
         # - _flush_buffer will fall back to individual inserts for failed_events
@@ -329,17 +526,16 @@ class EventBatchSender:
             raise _PartialBatchError(failed_events)
         return all_inserted
 
-    async def _insert_session_group(
-        self, session_id, events: list[BufferedEvent]
-    ) -> list[BufferedEvent]:
+    async def _insert_session_group(self, session_id, events: list[BufferedEvent]) -> list[BufferedEvent]:
         """Insert events for a single session within its own transaction."""
-        from sqlalchemy import text, func, select
-        from app.joysafeter_shared.database import AsyncSessionLocal
-        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
+        from sqlalchemy import func, select, text
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        inserted_objs = []
+        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
+        from app.joysafeter_shared.database import AsyncSessionLocal
+
         async with AsyncSessionLocal() as db:
-            lock_key = int.from_bytes(session_id.bytes[8:], "big", signed=True)
+            lock_key = session_advisory_lock_key(session_id)
             await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
             result = await db.execute(
@@ -367,53 +563,72 @@ class EventBatchSender:
                 if previous is not None
                 else None
             )
-            next_seq = base_seq
+            next_seq: int = base_seq or 0
 
+            inserted: list[BufferedEvent] = []
             for e in events:
                 if _is_duplicate_event(previous_event, e):
                     continue
 
-                if e.id is not None:
-                    from sqlalchemy import exists
-                    already = await db.execute(
-                        select(exists().where(JoySafeterSessionEvent.id == e.id))
-                    )
-                    if already.scalar():
-                        continue
-
                 next_seq += 1
-                kwargs: dict[str, Any] = dict(
+                values: dict[str, Any] = dict(
                     session_id=e.session_id,
                     event_type=e.event_type,
                     payload=e.payload,
                     seq=next_seq,
                 )
                 if e.id is not None:
-                    kwargs["id"] = e.id
-                obj = JoySafeterSessionEvent(**kwargs)
-                db.add(obj)
-                inserted_objs.append(obj)
+                    values["id"] = e.id
+                insert_stmt = pg_insert(JoySafeterSessionEvent).values(**values)
+                if e.id is not None:
+                    # The event id is the PK, so a redelivered id becomes a no-op
+                    # instead of a PK violation that would abort the whole batch.
+                    insert_stmt = insert_stmt.on_conflict_do_nothing(index_elements=["id"])
+                stmt = insert_stmt.returning(JoySafeterSessionEvent.id, JoySafeterSessionEvent.seq)
+                row = (await db.execute(stmt)).first()
+                if row is None:
+                    # Duplicate id: nothing inserted, so don't consume the seq.
+                    next_seq -= 1
+                    continue
+
+                inserted.append(
+                    BufferedEvent(
+                        session_id=e.session_id,
+                        event_type=e.event_type,
+                        payload=e.payload or {},
+                        seq=row.seq,
+                        id=row.id,
+                    )
+                )
                 previous_event = e
 
             await db.commit()
-            inserted: list[BufferedEvent] = []
-            for obj in inserted_objs:
-                await db.refresh(obj)
-                inserted.append(
-                    BufferedEvent(
-                      session_id=obj.session_id,
-                        event_type=obj.event_type,
-                        payload=obj.payload or {},
-                        seq=obj.seq,
-                        id=obj.id,
-                    )
-                )
             return inserted
 
     async def _write_single(self, event: BufferedEvent) -> BufferedEvent | None:
-        from sqlalchemy import text, func, select
-        from app.joysafeter_shared.database import AsyncSessionLocal
+        if _is_session_status_event(event.event_type):
+            logger.warning(
+                "Skipping session status event in batch writer: session=%s event_type=%s",
+                event.session_id,
+                event.event_type,
+                extra={
+                    "error": _event_batch_error(
+                        code="EVENT_BATCH_SESSION_STATUS_SKIPPED",
+                        message="Session status event skipped by batch writer.",
+                        operation="write_single_event",
+                        data={"session_id": str(event.session_id), "event_type": event.event_type},
+                        retryable=False,
+                        user_action="refresh",
+                    )
+                },
+            )
+            return None
+
+        from sqlalchemy import func, select, text
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         from app.joysafeter_domain.models.joysafeter_session import JoySafeterSessionEvent
+        from app.joysafeter_shared.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
             async with db.begin():
@@ -448,33 +663,30 @@ class EventBatchSender:
                 if _is_duplicate_event(latest_event, event):
                     return None
 
-                # Skip if event_id already exists (written by SessionStateSubscriber)
-                if event.id is not None:
-                    from sqlalchemy import exists
-                    already = await db.execute(
-                        select(exists().where(JoySafeterSessionEvent.id == event.id))
-                    )
-                    if already.scalar():
-                        return None
-
-                seq = base_seq + 1
-                kwargs: dict[str, Any] = dict(
+                seq = (base_seq or 0) + 1
+                values: dict[str, Any] = dict(
                     session_id=event.session_id,
                     event_type=event.event_type,
                     payload=event.payload,
                     seq=seq,
                 )
                 if event.id is not None:
-                    kwargs["id"] = event.id
-                obj = JoySafeterSessionEvent(**kwargs)
-                db.add(obj)
-            await db.refresh(obj)
+                    values["id"] = event.id
+                insert_stmt = pg_insert(JoySafeterSessionEvent).values(**values)
+                if event.id is not None:
+                    # Idempotent on the event-id PK: a redelivery (or a row the
+                    # SessionStateSubscriber already wrote) is a no-op, not a crash.
+                    insert_stmt = insert_stmt.on_conflict_do_nothing(index_elements=["id"])
+                stmt = insert_stmt.returning(JoySafeterSessionEvent.id, JoySafeterSessionEvent.seq)
+                row = (await db.execute(stmt)).first()
+                if row is None:
+                    return None
             return BufferedEvent(
-                session_id=obj.session_id,
-                event_type=obj.event_type,
-                payload=obj.payload or {},
-                seq=obj.seq,
-                id=obj.id,
+                session_id=event.session_id,
+                event_type=event.event_type,
+                payload=event.payload or {},
+                seq=row.seq,
+                id=row.id,
             )
 
     async def _publish_inserted(self, events: list[BufferedEvent]) -> None:

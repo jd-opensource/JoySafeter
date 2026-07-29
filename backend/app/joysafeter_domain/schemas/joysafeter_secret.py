@@ -1,6 +1,5 @@
-import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -49,6 +48,27 @@ class UpdateSecretRequest(BaseModel):
     @classmethod
     def _trim_url_values(cls, v: dict[str, str]) -> dict[str, str]:
         return _trim_secret_values(v)
+
+
+class TestSecretRequest(BaseModel):
+    provider: str = "custom"
+    protocol: str = "custom"
+    data: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("data")
+    @classmethod
+    def _trim_url_values(cls, v: dict[str, str]) -> dict[str, str]:
+        return _trim_secret_values(v)
+
+
+class SecretTestResponse(BaseModel):
+    ok: bool
+    provider: str
+    protocol: str
+    message: str
+    endpoint: Optional[str] = None
+    status: Optional[int] = None
+    error_detail: Optional[str] = None
 
 
 class SecretListItem(BaseModel):

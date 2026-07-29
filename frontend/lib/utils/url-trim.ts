@@ -35,14 +35,19 @@ export function isUrlLikeKey(key: string | undefined): boolean {
   if (!key) return false
   const normalized = normalizeKey(key)
   if (!normalized) return false
-  return URL_KEY_SUFFIXES.some((suffix) => normalized === suffix || normalized.endsWith(`_${suffix}`))
+  return URL_KEY_SUFFIXES.some(
+    (suffix) => normalized === suffix || normalized.endsWith(`_${suffix}`),
+  )
 }
 
 export function isConfigStringKey(key: string | undefined): boolean {
   if (!key) return false
   const normalized = normalizeKey(key)
   if (!normalized) return false
-  return CONFIG_KEY_EXACT.has(normalized) || CONFIG_KEY_SUFFIXES.some((suffix) => normalized === suffix || normalized.endsWith(`_${suffix}`))
+  return (
+    CONFIG_KEY_EXACT.has(normalized) ||
+    CONFIG_KEY_SUFFIXES.some((suffix) => normalized === suffix || normalized.endsWith(`_${suffix}`))
+  )
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

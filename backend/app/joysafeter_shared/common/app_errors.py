@@ -38,6 +38,12 @@ class AppError(Exception):
             result["detail"] = self.detail
         return result
 
+    def to_stream_event(self, *, status: int | None = None) -> dict[str, Any]:
+        payload = {"type": "error", **self.to_payload()}
+        if status is not None:
+            payload["status"] = status
+        return payload
+
 
 class DomainError(AppError):
     _default_source: str = "api"
@@ -241,6 +247,24 @@ class RequestValidationAppError(ValidationError):
         message: str = "请求参数校验失败",
         *,
         code: str = "REQUEST_VALIDATION_ERROR",
+        data: Mapping[str, Any] | None = None,
+        retryable: bool = False,
+        user_action: str | None = "fix_input",
+        detail: str | None = None,
+        **kw: Any,
+    ):
+        kw.setdefault("source", self._default_source)
+        super().__init__(
+            code=code, message=message, data=data, retryable=retryable, user_action=user_action, detail=detail, **kw
+        )
+
+
+class PayloadTooLargeError(ValidationError):
+    def __init__(
+        self,
+        message: str = "请求体过大 / Request body too large",
+        *,
+        code: str = "REQUEST_BODY_TOO_LARGE",
         data: Mapping[str, Any] | None = None,
         retryable: bool = False,
         user_action: str | None = "fix_input",

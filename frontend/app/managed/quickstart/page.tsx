@@ -23,18 +23,49 @@ import {
   Square,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { useQuickstartChat, type QuickstartEngine, type StepId } from '@/hooks/managed/use-quickstart-chat'
-import { managedGet, managedPost } from '@/lib/api-client'
+import {
+  useQuickstartChat,
+  type QuickstartEngine,
+  type StepId,
+} from '@/hooks/managed/use-quickstart-chat'
+import { ApiError, managedGet, managedPost } from '@/lib/api-client'
+import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  hasManagedRequestScope,
+  managedRequestOptions,
+  managedScopeKey,
+  type ManagedRequestScope,
+  useManagedRequestScope,
+} from '@/lib/managed/request-scope'
 import { shortIdWithPrefix, stripIdPrefix } from '@/lib/managed/id'
+import { generateUUID } from '@/lib/utils/uuid'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSessionStream } from '@/lib/managed/sse'
 import { useRouter } from 'next/navigation'
-import type { Environment, PaginatedResponse, Session, SessionEvent, Vault } from '@/types/managed'
+import type {
+  Agent,
+  Environment,
+  PaginatedResponse,
+  Session,
+  SessionEvent,
+  Vault,
+} from '@/types/managed'
 import { EventList, EventDetail, EventFilter } from '@/components/managed/session'
 import yaml from 'js-yaml'
+import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 
 const TEMPLATE_ICONS: Record<string, typeof FileText> = {
   blank: FileText,
@@ -62,6 +93,92 @@ const TEMPLATE_IDS = [
   'analyst',
 ]
 
+const TEMPLATE_META: Record<string, { categoryKey: string; badgeKey: string }> = {
+  blank: { categoryKey: 'managed.quickstart.templateCategory.basic', badgeKey: 'managed.quickstart.templateBadge.basic' },
+  researcher: { categoryKey: 'managed.quickstart.templateCategory.research', badgeKey: 'managed.quickstart.templateBadge.web' },
+  extractor: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.data' },
+  monitor: { categoryKey: 'managed.quickstart.templateCategory.ops', badgeKey: 'managed.quickstart.templateBadge.alert' },
+  support: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.chat' },
+  incident: { categoryKey: 'managed.quickstart.templateCategory.ops', badgeKey: 'managed.quickstart.templateBadge.workflow' },
+  feedback: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.insight' },
+  retro: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.meeting' },
+  escalator: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.workflow' },
+  analyst: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.report' },
+}
+
+const TEMPLATE_CONFIGS: Record<string, Record<string, unknown>> = {
+  blank: {
+    name: 'Blank Agent',
+    description: 'A minimal general-purpose agent configuration.',
+    system_prompt: 'You are a helpful assistant. Clarify the user goal, plan briefly, and complete the task safely and accurately.',
+    tools: [],
+    metadata: { quickstart_template: 'blank' },
+  },
+  researcher: {
+    name: 'Deep Researcher',
+    description: 'Research topics in depth and produce concise, sourced summaries.',
+    system_prompt: 'You are a deep research agent. Break down the research question, gather relevant information, compare sources, identify uncertainties, and produce a structured answer with concise citations or source notes when available.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'researcher' },
+  },
+  extractor: {
+    name: 'Structured Extractor',
+    description: 'Extract structured data from unstructured text.',
+    system_prompt: 'You extract structured data from unstructured input. Preserve source meaning, avoid inventing missing fields, and return clean JSON or tables that match the requested schema.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'extractor' },
+  },
+  monitor: {
+    name: 'Site Monitor',
+    description: 'Monitor data sources and summarize changes or alerts.',
+    system_prompt: 'You are a monitoring agent. Check the configured sources, detect meaningful changes, classify severity, and produce clear alerts with recommended next actions.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'monitor' },
+  },
+  support: {
+    name: 'Customer Support Agent',
+    description: 'Handle support conversations with clear troubleshooting steps.',
+    system_prompt: 'You are a customer support agent. Be empathetic, ask focused clarifying questions, troubleshoot step by step, and summarize the resolution or escalation path.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'support' },
+  },
+  incident: {
+    name: 'Incident Commander',
+    description: 'Coordinate incident response workflows.',
+    system_prompt: 'You are an incident commander. Establish impact, timeline, owners, mitigation, communication updates, and post-incident follow-up. Keep responses action-oriented and time-aware.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'incident' },
+  },
+  feedback: {
+    name: 'Feedback Miner',
+    description: 'Analyze user feedback for themes and insights.',
+    system_prompt: 'You analyze user feedback. Cluster comments into themes, extract representative examples, estimate impact, and propose prioritized product actions.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'feedback' },
+  },
+  retro: {
+    name: 'Sprint Retro Host',
+    description: 'Host retrospectives and record action items.',
+    system_prompt: 'You facilitate sprint retrospectives. Collect wins, pain points, root causes, action items, owners, and follow-up dates. Keep the discussion balanced and constructive.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'retro' },
+  },
+  escalator: {
+    name: 'Support to Engineering',
+    description: 'Triage and escalate support tickets to engineering teams.',
+    system_prompt: 'You triage support tickets for engineering. Reproduce the issue from available evidence, classify severity, identify affected systems, and write a concise engineering-ready escalation.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'escalator' },
+  },
+  analyst: {
+    name: 'Data Analyst',
+    description: 'Analyze datasets and generate reports.',
+    system_prompt: 'You are a data analyst. Inspect data quality, compute relevant summaries, identify trends or anomalies, and produce clear recommendations with assumptions stated.',
+    tools: [{ type: 'agent_toolset_20260401' }],
+    metadata: { quickstart_template: 'analyst' },
+  },
+}
+
 const STEP_API_ENDPOINTS: Record<number, string> = {
   3: '/agents',
   4: '/environments',
@@ -77,34 +194,46 @@ type QuickstartSecret = {
   keys?: string[]
 }
 
+type ActiveVaultsCache = { data?: Vault[] } | Vault[]
+
+function unwrapActiveVaultsCache(value: ActiveVaultsCache | undefined) {
+  if (!value) return undefined
+  return Array.isArray(value) ? value : value.data || []
+}
+
+function getCurrentManagedScope() {
+  const { currentOrgId, currentProjectId } = useProjectStore.getState()
+  return managedScopeKey(currentOrgId, currentProjectId)
+}
+
 function isSecretCompatible(secret: QuickstartSecret | undefined, engine: QuickstartEngine | null) {
   if (!secret) return false
   if (!engine) return true
   const provider = (secret.provider || '').toLowerCase()
   const protocol = (secret.protocol || '').toLowerCase()
   const keys = new Set(secret.keys || [])
-  if (engine === 'codex') {
-    return (
-      provider === 'codex' ||
-      protocol === 'openai_responses' ||
-      protocol === 'chat_completions' ||
-      keys.has('OPENAI_API_KEY')
-    )
-  }
-  return (
+
+  const isOpenAiSecret =
+    provider === 'codex' ||
+    protocol === 'openai_responses' ||
+    protocol === 'chat_completions' ||
+    keys.has('OPENAI_API_KEY')
+
+  const isAnthropicSecret =
     provider === 'anthropic' ||
     provider === 'claude' ||
     protocol === 'anthropic_messages' ||
     keys.has('ANTHROPIC_API_KEY') ||
     keys.has('ANTHROPIC_AUTH_TOKEN')
-  )
+
+  if (engine === 'codex') return isOpenAiSecret
+  if (engine === 'native') return isOpenAiSecret || isAnthropicSecret
+  return isAnthropicSecret
 }
 
 function secretDetail(secret: QuickstartSecret) {
   const provider = secret.provider && secret.provider !== 'custom' ? secret.provider : ''
-  const modelKey = secret.keys?.find((key) =>
-    ['ANTHROPIC_MODEL', 'OPENAI_MODEL'].includes(key),
-  )
+  const modelKey = secret.keys?.find((key) => ['ANTHROPIC_MODEL', 'OPENAI_MODEL'].includes(key))
   return [provider, modelKey, secret.is_default ? 'default' : ''].filter(Boolean).join(' · ')
 }
 
@@ -133,16 +262,14 @@ function Stepper({
   ]
 
   return (
-    <div className="flex items-center justify-center gap-2 py-3 mb-4">
+    <div className="mb-4 flex items-center justify-center gap-2 py-3">
       {steps.map((step, i) => {
         const isDone = completedSteps.has(step.num)
         const isActive = step.num === currentStep
 
         return (
           <div key={step.num} className="flex items-center gap-2">
-            {i > 0 && (
-              <span className="text-muted-foreground/60 mx-1">→</span>
-            )}
+            {i > 0 && <span className="mx-1 text-muted-foreground/60">→</span>}
             <div className="flex items-center gap-2 whitespace-nowrap">
               <span
                 className={cn(
@@ -157,7 +284,11 @@ function Stepper({
               <span
                 className={cn(
                   'text-sm font-medium',
-                  isActive ? 'text-foreground' : isDone ? 'text-foreground' : 'text-muted-foreground',
+                  isActive
+                    ? 'text-foreground'
+                    : isDone
+                      ? 'text-foreground'
+                      : 'text-muted-foreground',
                 )}
               >
                 {step.label}
@@ -174,11 +305,31 @@ function Stepper({
 
 function ApiCard({ endpoint, curl }: { endpoint: string; curl: string }) {
   const [copied, setCopied] = useState(false)
+  const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (copiedResetTimerRef.current) {
+        clearTimeout(copiedResetTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const showCopiedFeedback = () => {
+    if (copiedResetTimerRef.current) {
+      clearTimeout(copiedResetTimerRef.current)
+    }
+    setCopied(true)
+    copiedResetTimerRef.current = setTimeout(() => {
+      setCopied(false)
+      copiedResetTimerRef.current = null
+    }, 2000)
+  }
 
   const handleCopy = () => {
     navigator.clipboard.writeText(curl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    showCopiedFeedback()
   }
 
   return (
@@ -293,23 +444,51 @@ function StepCompleteCard({
 
 // -- TemplateCard -----------------------------------------------------------
 
-function TemplateCard({ templateId, onClick }: { templateId: string; onClick: () => void }) {
+function TemplateCard({
+  templateId,
+  onClick,
+  disabled = false,
+}: {
+  templateId: string
+  onClick: () => void
+  disabled?: boolean
+}) {
   const { t } = useTranslation()
   const Icon = TEMPLATE_ICONS[templateId] || FileText
+  const meta = TEMPLATE_META[templateId]
   return (
     <button
       onClick={onClick}
-      className="flex items-start gap-3 rounded-xl border border-border bg-background p-4 text-left transition-colors hover:bg-muted/50"
+      disabled={disabled}
+      className={cn(
+        'group relative flex min-h-[104px] items-start gap-3 rounded-2xl border border-border bg-background p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-ring',
+        disabled && 'cursor-not-allowed opacity-60 hover:bg-background',
+      )}
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-        <Icon className="h-4.5 w-4.5 text-muted-foreground" />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted transition-colors group-hover:bg-primary/10">
+        <Icon className="h-5 w-5 text-muted-foreground transition-colors group-hover:text-primary" />
       </div>
-      <div className="min-w-0">
-        <div className="text-[14px] font-semibold text-foreground">
-          {t(`quickstart.template.${templateId}.name`)}
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="truncate text-[14px] font-semibold text-foreground">
+            {t(`quickstart.template.${templateId}.name`)}
+          </div>
+          {meta && (
+            <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              {t(meta.badgeKey)}
+            </span>
+          )}
         </div>
         <div className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
           {t(`quickstart.template.${templateId}.description`)}
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
+          <span className="text-muted-foreground">
+            {meta ? t(meta.categoryKey) : t('managed.quickstart.templateCategory.basic')}
+          </span>
+          <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+            {t('managed.quickstart.useTemplate')}
+          </span>
         </div>
       </div>
     </button>
@@ -495,6 +674,8 @@ export default function QuickstartPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const currentProjectReadOnly = useCurrentProjectReadOnly()
+  const managedScope = useManagedRequestScope()
   const [editorTab, setEditorTab] = useState<'yaml' | 'json'>('yaml')
   const [rightTab, setRightTab] = useState<'config' | 'preview'>('config')
   const [secretRef, setSecretRef] = useState('')
@@ -513,6 +694,9 @@ export default function QuickstartPage() {
   const [showPreviewSearch, setShowPreviewSearch] = useState(false)
   const [selectedPreviewEvent, setSelectedPreviewEvent] = useState<SessionEvent | null>(null)
   const autoIntroSentRef = useRef<Set<number>>(new Set())
+  const managedScopeRef = useRef(managedScope.key)
+  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
+  const pageActionRunRef = useRef(0)
 
   // Sub-step state for environment (step 2) inline flow
   const [envSubStep, setEnvSubStep] = useState<
@@ -533,23 +717,75 @@ export default function QuickstartPage() {
   const [vaultName, setVaultName] = useState('')
   const [pendingVaultId, setPendingVaultId] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (managedScopeRef.current === managedScope.key) return
+    managedScopeRef.current = managedScope.key
+    managedRequestScopeRef.current = managedScope
+    pageActionRunRef.current += 1
+    setSelectedEnvId('')
+    setLocalSessionId('')
+    setIsTestRunning(false)
+    setIsStoppingSession(false)
+    sessionMsgDraftVersionRef.current += 1
+    sessionMsgInputRef.current = ''
+    setSessionMsgInput('')
+    setIsSendingMsg(false)
+    setSelectedPreviewEvent(null)
+    setPreviewFilter(new Set())
+    setPreviewSearch('')
+    setShowPreviewSearch(false)
+    setPendingEnvId(null)
+    setPendingVaultId(null)
+    setEnvSubStep('choose')
+    setEnvUsesAI(false)
+    setEnvAnswers({})
+    setEnvHosts('')
+    setVaultSubStep('choose')
+    setVaultUsesAI(false)
+    setVaultAnswers({})
+    setVaultName('')
+    autoIntroSentRef.current = new Set()
+  }, [managedScope.key])
+
+  const nextPageAction = () => {
+    const runId = pageActionRunRef.current + 1
+    pageActionRunRef.current = runId
+    return { runId, scope: managedScopeRef.current }
+  }
+
+  const isCurrentPageAction = (runId: number, scope: string) =>
+    pageActionRunRef.current === runId &&
+    managedScopeRef.current === scope &&
+    getCurrentManagedScope() === scope
+
+  const currentPageScopeIsActive = () => getCurrentManagedScope() === managedScopeRef.current
+  const currentPageProjectAllowsWrite = () =>
+    currentPageScopeIsActive() && currentProjectAllowsWrite()
+
   const { data: secretsRes } = useQuery({
-    queryKey: ['secrets'],
-    queryFn: () => managedGet<{ data: QuickstartSecret[] }>('/secrets'),
+    queryKey: ['secrets', managedScope.key],
+    queryFn: () =>
+      managedGet<{ data: QuickstartSecret[] }>('/secrets', managedRequestOptions(managedScope)),
+    enabled: hasManagedRequestScope(managedScope),
   })
   const secrets = secretsRes?.data
 
   const { data: environments } = useQuery({
-    queryKey: ['environments-active'],
+    queryKey: ['environments-active', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Environment>>('/environments')
+      const res = await managedGet<PaginatedResponse<Environment>>(
+        '/environments',
+        managedRequestOptions(managedScope),
+      )
       return res.data || []
     },
+    enabled: hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultsRes } = useQuery({
-    queryKey: ['vaults-active'],
-    queryFn: () => managedGet<{ data: Vault[] }>('/vaults'),
+    queryKey: ['vaults-active', managedScope.key],
+    queryFn: () => managedGet<{ data: Vault[] }>('/vaults', managedRequestOptions(managedScope)),
+    enabled: hasManagedRequestScope(managedScope),
   })
   const vaults = vaultsRes?.data
 
@@ -574,10 +810,12 @@ export default function QuickstartPage() {
     isStreaming,
     curls,
     resourceIds,
+    createdResourceIds = new Set<string>(),
     completedSteps,
     pendingConfirmation,
     isCreating,
     sendMessage,
+    applyTemplate,
     selectEngine,
     selectAgentSecret,
     advanceStep,
@@ -621,12 +859,19 @@ export default function QuickstartPage() {
   const sessionId = rawSessionId ? stripIdPrefix(rawSessionId) : ''
   const isSessionActive = !!sessionId
 
-  const { events: sessionEvents } = useSessionStream(sessionId, isSessionActive)
+  const { events: sessionEvents } = useSessionStream(
+    sessionId,
+    isSessionActive && hasManagedRequestScope(managedScope),
+  )
 
   const { data: activeSession } = useQuery({
-    queryKey: ['session', rawSessionId],
-    queryFn: () => managedGet<Session>(`/sessions/${sessionId}`),
-    enabled: isSessionActive,
+    queryKey: ['session', managedScope.key, rawSessionId],
+    queryFn: () =>
+      managedGet<Session>(
+        apiResourcePath('sessions', rawSessionId || sessionId),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: isSessionActive && hasManagedRequestScope(managedScope),
     refetchInterval: (query) => {
       const status = query.state.data?.status
       return status === 'running' ? 3000 : false
@@ -715,6 +960,16 @@ export default function QuickstartPage() {
   }, [isSessionActive])
   const [sessionMsgInput, setSessionMsgInput] = useState('')
   const [isSendingMsg, setIsSendingMsg] = useState(false)
+  const sessionMsgInputRef = useRef('')
+  const sessionMsgDraftVersionRef = useRef(0)
+
+  const setSessionMessageDraft = (value: string, options: { userEdit?: boolean } = {}) => {
+    if (options.userEdit) {
+      sessionMsgDraftVersionRef.current += 1
+    }
+    sessionMsgInputRef.current = value
+    setSessionMsgInput(value)
+  }
 
   const isSessionRunning = useMemo(() => {
     if (activeSession?.status) return activeSession.status === 'running'
@@ -733,34 +988,94 @@ export default function QuickstartPage() {
   }, [activeSession?.status, sessionEvents])
 
   const handleStopSession = async () => {
-    if (!sessionId || isStoppingSession) return
+    if (!sessionId || isStoppingSession || !currentPageProjectAllowsWrite()) return
+    const requestScope = managedRequestScopeRef.current
+    const currentSession = rawSessionId
+      ? queryClient.getQueryData<Session>(['session', requestScope.key, rawSessionId])
+      : null
+    if (currentSession) {
+      if (
+        stripIdPrefix(currentSession.id) !== sessionId ||
+        currentSession.status !== 'running' ||
+        currentSession.archived_at
+      ) {
+        return
+      }
+    } else if (activeSession?.status && activeSession.status !== 'running') {
+      return
+    }
+    const { runId, scope } = nextPageAction()
+    const targetRawSessionId = rawSessionId
+    const targetSessionId = sessionId
     setIsStoppingSession(true)
     try {
-      await managedPost(`/sessions/${sessionId}/stop`, {})
-      queryClient.invalidateQueries({ queryKey: ['session', rawSessionId] })
+      await managedPost(
+        apiResourcePath('sessions', targetSessionId, 'stop'),
+        {},
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentPageAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['session', scope, targetRawSessionId] })
     } catch (e) {
+      if (!isCurrentPageAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
-      setIsStoppingSession(false)
+      if (isCurrentPageAction(runId, scope)) {
+        setIsStoppingSession(false)
+      }
     }
   }
 
   const handleSendSessionMessage = async () => {
     const text = sessionMsgInput.trim()
-    if (!text || !sessionId || isSendingMsg || isSessionRunning) return
+    if (!text || !sessionId || isSendingMsg || isSessionRunning || !currentPageProjectAllowsWrite())
+      return
+    const requestScope = managedRequestScopeRef.current
+    const currentSession = rawSessionId
+      ? queryClient.getQueryData<Session>(['session', requestScope.key, rawSessionId])
+      : null
+    if (currentSession) {
+      if (
+        stripIdPrefix(currentSession.id) !== sessionId ||
+        currentSession.status !== 'idle' ||
+        currentSession.archived_at
+      ) {
+        return
+      }
+    } else if (activeSession?.status && activeSession.status !== 'idle') {
+      return
+    }
+    const { runId, scope } = nextPageAction()
+    const targetSessionId = sessionId
     setIsSendingMsg(true)
-    setSessionMsgInput('')
+    setSessionMessageDraft('', { userEdit: true })
     try {
-      await managedPost(`/sessions/${sessionId}/events`, {
-        events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
-      })
+      const requestOptions = managedRequestOptions(requestScope)
+      await managedPost(
+        apiResourcePath('sessions', targetSessionId, 'events'),
+        {
+          events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
+        },
+        {
+          ...requestOptions,
+          headers: {
+            ...requestOptions.headers,
+            'Idempotency-Key': `session-message:${generateUUID()}`,
+          },
+        },
+      )
     } catch (e) {
-      const msg = (e as Error).message
-      if (!msg.includes('409') && !msg.includes('running')) {
+      if (!isCurrentPageAction(runId, scope)) return
+      const sessionBusy =
+        e instanceof ApiError &&
+        (e.code === 'SESSION_ALREADY_RUNNING' || e.code === 'SESSION_ACTIVE_TASK')
+      if (!sessionBusy) {
         toastOperationError(t, e, 'common.operationFailed')
       }
     } finally {
-      setIsSendingMsg(false)
+      if (isCurrentPageAction(runId, scope)) {
+        setIsSendingMsg(false)
+      }
     }
   }
 
@@ -772,33 +1087,159 @@ export default function QuickstartPage() {
     return (vaults || []).filter((v) => !v.archived_at)
   }, [vaults])
 
+  const readCurrentActiveEnvironments = () => {
+    const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
+      'environments-active',
+      managedScope.key,
+    ])
+    return (currentEnvironmentData || activeEnvironments).filter((env) => !env.archived_at)
+  }
+
+  const readCurrentActiveVaults = () => {
+    const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
+      'vaults-active',
+      managedScope.key,
+    ])
+    return (unwrapActiveVaultsCache(currentVaultData) || activeVaults).filter(
+      (vault) => !vault.archived_at,
+    )
+  }
+
+  const confirmSelectedEnvironment = () => {
+    if (!currentPageProjectAllowsWrite()) return
+    if (!pendingEnvId) {
+      advanceStep()
+      return
+    }
+    const currentEnv = readCurrentActiveEnvironments().find((env) => env.id === pendingEnvId)
+    if (!currentEnv) return
+    selectExistingEnvironment(currentEnv.id)
+    advanceStep()
+  }
+
+  const confirmSelectedVault = () => {
+    if (!currentPageProjectAllowsWrite()) return
+    if (!pendingVaultId) {
+      advanceStep()
+      return
+    }
+    const currentVault = readCurrentActiveVaults().find((vault) => vault.id === pendingVaultId)
+    if (!currentVault) return
+    selectExistingVault(currentVault.id)
+    advanceStep()
+  }
+
+  const currentSessionAgentIsActive = () => {
+    if (!currentProjectAllowsWrite()) return false
+    const agentId = resourceIds[3]
+    if (!agentId) return false
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
+    if (currentAgent) return currentAgent.id === agentId && !currentAgent.archived_at
+    return createdResourceIds.has(agentId)
+  }
+
+  const resolveSessionEnvironmentId = () => {
+    const envId = resourceIds[4]
+    if (!envId) return null
+    const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
+      'environments-active',
+      managedScope.key,
+    ])
+    const currentEnvRecord = currentEnvironmentData?.find((env) => env.id === envId)
+    if (currentEnvRecord?.archived_at) return null
+    if (readCurrentActiveEnvironments().some((env) => env.id === envId)) return envId
+    return createdResourceIds.has(envId) ? envId : null
+  }
+
+  const resolveSessionVaultId = () => {
+    const vaultId = resourceIds[5]
+    if (!vaultId) return null
+    const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
+      'vaults-active',
+      managedScope.key,
+    ])
+    const currentVaultRecord = unwrapActiveVaultsCache(currentVaultData)?.find(
+      (vault) => vault.id === vaultId,
+    )
+    if (currentVaultRecord?.archived_at) return null
+    if (readCurrentActiveVaults().some((vault) => vault.id === vaultId)) return vaultId
+    return createdResourceIds.has(vaultId) ? vaultId : null
+  }
+
+  const handleCreateSession = () => {
+    if (!currentPageProjectAllowsWrite()) return
+    if (!currentSessionAgentIsActive()) return
+    createSession({
+      environmentId: resolveSessionEnvironmentId(),
+      vaultId: resolveSessionVaultId(),
+    })
+  }
+
+  const selectedEnvIsActive = useMemo(() => {
+    return !!selectedEnvId && activeEnvironments.some((env) => env.id === selectedEnvId)
+  }, [activeEnvironments, selectedEnvId])
+
   const selectedEnvironmentName = useMemo(() => {
-    return activeEnvironments.find((env) => env.id === selectedEnvId)?.name || activeSession?.environment_id || ''
+    return (
+      activeEnvironments.find((env) => env.id === selectedEnvId)?.name ||
+      activeSession?.environment_id ||
+      ''
+    )
   }, [activeEnvironments, activeSession?.environment_id, selectedEnvId])
 
   // Auto-send AI intro only when user chose "Something else" (AI mode)
   useEffect(() => {
-    if (currentStep === 4 && envUsesAI && !completedSteps.has(4) && !isStreaming) {
+    if (
+      !currentProjectReadOnly &&
+      currentStep === 4 &&
+      envUsesAI &&
+      !completedSteps.has(4) &&
+      !isStreaming
+    ) {
       if (!autoIntroSentRef.current.has(4)) {
         autoIntroSentRef.current.add(4)
         sendAutoIntro(4 as StepId)
       }
     }
-    if (currentStep === 5 && vaultUsesAI && !completedSteps.has(5) && !isStreaming) {
+    if (
+      !currentProjectReadOnly &&
+      currentStep === 5 &&
+      vaultUsesAI &&
+      !completedSteps.has(5) &&
+      !isStreaming
+    ) {
       if (!autoIntroSentRef.current.has(5)) {
         autoIntroSentRef.current.add(5)
         sendAutoIntro(5 as StepId)
       }
     }
-  }, [currentStep, completedSteps, isStreaming, sendAutoIntro, envUsesAI, vaultUsesAI])
+  }, [
+    currentStep,
+    completedSteps,
+    currentProjectReadOnly,
+    isStreaming,
+    sendAutoIntro,
+    envUsesAI,
+    vaultUsesAI,
+  ])
 
   // Auto-switch to preview and generate test message when session is created
   useEffect(() => {
     const sid = resourceIds[6] || localSessionId
+    const scopeAtStart = managedScopeRef.current
+    const draftVersionAtStart = sessionMsgDraftVersionRef.current
     if (sid) {
       setRightTab('preview')
       generateTestMessage().then((msg) => {
-        if (msg) setSessionMsgInput(msg)
+        if (
+          managedScopeRef.current === scopeAtStart &&
+          sid === (resourceIds[6] || localSessionId) &&
+          msg &&
+          sessionMsgDraftVersionRef.current === draftVersionAtStart &&
+          !sessionMsgInputRef.current.trim()
+        ) {
+          setSessionMessageDraft(msg)
+        }
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -806,9 +1247,32 @@ export default function QuickstartPage() {
 
   // Sync environment created in quickstart to the preview panel dropdown
   useEffect(() => {
-    if (resourceIds[4]) setSelectedEnvId(resourceIds[4])
+    const quickstartEnvId = resourceIds[4]
+    if (!quickstartEnvId) return
+
+    setSelectedEnvId(quickstartEnvId)
+    if (!createdResourceIds.has(quickstartEnvId)) return
+    queryClient.setQueryData<Environment[] | undefined>(
+      ['environments-active', managedScope.key],
+      (current) => {
+        if (!current || current.some((env) => env.id === quickstartEnvId)) return current
+        const generatedName =
+          typeof config.environment?.name === 'string' ? config.environment.name : ''
+        return [
+          ...current,
+          {
+            id: quickstartEnvId,
+            name:
+              envAnswers.choiceLabel || generatedName || shortIdWithPrefix(quickstartEnvId, 'env_'),
+            created_at: '',
+            updated_at: '',
+            archived_at: null,
+          },
+        ]
+      },
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceIds[4]])
+  }, [resourceIds[4], createdResourceIds])
 
   const handleEnvSkip = () => {
     advanceStep()
@@ -833,18 +1297,45 @@ export default function QuickstartPage() {
 
   const handleTestRun = async () => {
     const agentId = resourceIds[3]
-    if (!agentId) return
+    if (!agentId || !currentPageProjectAllowsWrite()) return
+    const requestScope = managedRequestScopeRef.current
+    const { runId, scope } = nextPageAction()
     setIsTestRunning(true)
     try {
-      const body: Record<string, unknown> = { agent: agentId }
-      if (selectedEnvId) body.environment_id = stripIdPrefix(selectedEnvId)
-      const res = await managedPost<{ id: string }>('/sessions', body)
+      const body: Record<string, unknown> = { agent: apiResourceId(agentId) }
+      const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
+        'environments-active',
+        requestScope.key,
+      ])
+      const currentActiveEnvironments = readCurrentActiveEnvironments()
+      const currentSelectedEnv = currentActiveEnvironments.find((env) => env.id === selectedEnvId)
+      const currentSelectedEnvRecord = currentEnvironmentData?.find(
+        (env) => env.id === selectedEnvId,
+      )
+      const selectedEnvIsCurrentQuickstartResource =
+        selectedEnvId === resourceIds[4] &&
+        createdResourceIds.has(selectedEnvId) &&
+        !currentSelectedEnvRecord?.archived_at
+      const selectedEnvCanBeSubmitted =
+        !!currentSelectedEnv || selectedEnvIsCurrentQuickstartResource
+      if (selectedEnvId && selectedEnvCanBeSubmitted) {
+        body.environment_id = apiResourceId(currentSelectedEnv?.id || selectedEnvId)
+      }
+      const res = await managedPost<{ id: string }>(
+        '/sessions',
+        body,
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentPageAction(runId, scope)) return
       setLocalSessionId(res.id)
       setRightTab('preview')
     } catch (e) {
+      if (!isCurrentPageAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
     } finally {
-      setIsTestRunning(false)
+      if (isCurrentPageAction(runId, scope)) {
+        setIsTestRunning(false)
+      }
     }
   }
 
@@ -859,13 +1350,20 @@ export default function QuickstartPage() {
   }, [templateSearch, t])
 
   const handleTemplateClick = (templateId: string) => {
+    if (!currentPageProjectAllowsWrite()) return
     const name = t(`quickstart.template.${templateId}.name`)
-    const desc = t(`quickstart.template.${templateId}.description`)
-    if (templateId === 'blank') {
-      sendMessage('Create a blank agent with default configuration')
-    } else {
-      sendMessage(`Create a ${name.toLowerCase()} agent: ${desc}`)
-    }
+    const config = TEMPLATE_CONFIGS[templateId] || TEMPLATE_CONFIGS.blank
+    applyTemplate({
+      message: t('managed.quickstart.templateApplyMessage', {
+        name,
+        defaultValue: `Create an agent from the "${name}" template`,
+      }),
+      agent: {
+        ...config,
+        name,
+        description: t(`quickstart.template.${templateId}.description`),
+      },
+    })
   }
 
   const configObj = useMemo(() => {
@@ -883,14 +1381,17 @@ export default function QuickstartPage() {
     if (a.description) ordered.description = a.description
     if (a.system_prompt || a.system) ordered.system = a.system_prompt || a.system
     if (a.tools) ordered.tools = a.tools
+    if (a.mcp_servers) ordered.mcp_servers = a.mcp_servers
+    if (a.skills) ordered.skills = a.skills
+    if (a.env) ordered.env = a.env
+    if (a.multiagent) ordered.multiagent = a.multiagent
     if (a.metadata) ordered.metadata = a.metadata
     return ordered
   }, [config, currentStep])
 
   const configText = useMemo(() => {
     if (!configObj) {
-      const label =
-        currentStep === 4 ? 'Environment' : currentStep === 5 ? 'Vault' : 'Agent'
+      const label = currentStep === 4 ? 'Environment' : currentStep === 5 ? 'Vault' : 'Agent'
       return editorTab === 'yaml'
         ? `# ${label} configuration will appear here\n# as the AI generates it...`
         : `{\n  // ${label} configuration will appear here\n  // as the AI generates it...\n}`
@@ -914,7 +1415,7 @@ export default function QuickstartPage() {
 
   const handleSend = () => {
     const text = inputValue.trim()
-    if (!text || isStreaming || isSessionRunning) return
+    if (!text || isStreaming || isSessionRunning || !currentPageProjectAllowsWrite()) return
     setInputValue('')
     sendMessage(text)
   }
@@ -922,10 +1423,9 @@ export default function QuickstartPage() {
   const handleQuickstartEngineSelect = (engine: QuickstartEngine) => {
     const engineSecrets = (secrets || []).filter((secret) => isSecretCompatible(secret, engine))
     const currentSecretIsCompatible = isSecretCompatible(selectedSecret, engine)
-    const nextSecret =
-      currentSecretIsCompatible
-        ? selectedSecret
-        : engineSecrets.find((secret) => secret.is_default) || engineSecrets[0]
+    const nextSecret = currentSecretIsCompatible
+      ? selectedSecret
+      : engineSecrets.find((secret) => secret.is_default) || engineSecrets[0]
 
     if (nextSecret && nextSecret.name !== secretRef) {
       setSecretRef(nextSecret.name)
@@ -934,11 +1434,13 @@ export default function QuickstartPage() {
   }
 
   const handleAgentSecretSelect = (name: string) => {
+    if (!currentPageProjectAllowsWrite()) return
     setSecretRef(name)
     selectAgentSecret()
   }
 
   const isMainInputDisabled =
+    currentProjectReadOnly ||
     isStreaming ||
     currentStep === 2 ||
     !generationSecret?.secretRef ||
@@ -947,7 +1449,7 @@ export default function QuickstartPage() {
 
   return (
     <div className="w-full">
-      <h1 className="text-lg font-semibold text-foreground px-1 pt-1">
+      <h1 className="px-1 pt-1 text-lg font-semibold text-foreground">
         {t('managed.quickstart.title')}
       </h1>
 
@@ -959,7 +1461,7 @@ export default function QuickstartPage() {
             <Button
               size="sm"
               className="gap-1.5 bg-foreground text-xs text-background hover:bg-foreground/90"
-              disabled={isStoppingSession}
+              disabled={isStoppingSession || currentProjectReadOnly}
               onClick={handleStopSession}
             >
               {isStoppingSession ? (
@@ -973,7 +1475,7 @@ export default function QuickstartPage() {
             <Button
               size="sm"
               className="gap-1.5 text-xs"
-              disabled={!resourceIds[3] || isTestRunning}
+              disabled={!resourceIds[3] || isTestRunning || currentProjectReadOnly}
               onClick={handleTestRun}
             >
               {isTestRunning ? (
@@ -995,17 +1497,15 @@ export default function QuickstartPage() {
             <div className="flex gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
               <div>
-                <div className="text-sm font-semibold">{t('managed.quickstart.secretRequiredTitle')}</div>
+                <div className="text-sm font-semibold">
+                  {t('managed.quickstart.secretRequiredTitle')}
+                </div>
                 <p className="mt-1 text-sm leading-relaxed text-amber-900/80 dark:text-amber-100/80">
                   {t('managed.quickstart.secretRequiredDescription')}
                 </p>
               </div>
             </div>
-            <Button
-              size="sm"
-              className="shrink-0"
-              onClick={() => router.push('/managed/secrets')}
-            >
+            <Button size="sm" className="shrink-0" onClick={() => router.push('/managed/secrets')}>
               {t('managed.quickstart.configureSecret')}
             </Button>
           </div>
@@ -1042,13 +1542,13 @@ export default function QuickstartPage() {
                       ? t('managed.quickstart.noApiKey')
                       : currentStep === 2
                         ? t('managed.quickstart.chooseSecret')
-                      : currentStep >= 3 && !selectedSecretCompatible
-                        ? t('managed.quickstart.noCompatibleSecret')
-                        : isSessionRunning
-                          ? t('managed.quickstart.agentProcessing')
-                          : isStreaming
-                            ? t('managed.quickstart.waitingForResponse')
-                            : t('managed.quickstart.describeAgent')
+                        : currentStep >= 3 && !selectedSecretCompatible
+                          ? t('managed.quickstart.noCompatibleSecret')
+                          : isSessionRunning
+                            ? t('managed.quickstart.agentProcessing')
+                            : isStreaming
+                              ? t('managed.quickstart.waitingForResponse')
+                              : t('managed.quickstart.describeAgent')
                   }
                   className="h-8 flex-1 border-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
                 />
@@ -1069,11 +1569,19 @@ export default function QuickstartPage() {
             </div>
           </section>
 
-          <section className="overflow-auto rounded-2xl border border-border bg-card p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-[16px] font-semibold text-foreground">
-                {t('managed.quickstart.browseTemplates')}
-              </h3>
+          <section className="overflow-auto rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-[17px] font-semibold text-foreground">
+                  {t('managed.quickstart.browseTemplates')}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t('managed.quickstart.templateBrowseHint')}
+                </p>
+              </div>
+              <div className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                {t('managed.quickstart.templateCount', { count: filteredTemplates.length })}
+              </div>
             </div>
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1085,14 +1593,29 @@ export default function QuickstartPage() {
                 className="h-9 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 xl:grid-cols-2">
               {filteredTemplates.map((id) => (
-                <TemplateCard key={id} templateId={id} onClick={() => handleTemplateClick(id)} />
+                <TemplateCard
+                  key={id}
+                  templateId={id}
+                  disabled={currentProjectReadOnly}
+                  onClick={() => handleTemplateClick(id)}
+                />
               ))}
             </div>
             {filteredTemplates.length === 0 && (
-              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-                {t('managed.quickstart.noTemplatesMatch')}
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20 px-4 py-12 text-center">
+                <Search className="mb-3 h-6 w-6 text-muted-foreground" />
+                <div className="text-sm font-medium text-foreground">
+                  {t('managed.quickstart.noTemplatesMatch')}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTemplateSearch('')}
+                  className="mt-2 text-xs font-medium text-primary hover:underline"
+                >
+                  {t('managed.quickstart.clearTemplateSearch')}
+                </button>
               </div>
             )}
           </section>
@@ -1115,12 +1638,17 @@ export default function QuickstartPage() {
                       { num: 2, label: t('managed.quickstart.engineCodex') },
                       { num: 3, label: t('managed.quickstart.engineNative') },
                     ]}
-                    onSelect={(num) => handleQuickstartEngineSelect(num === 2 ? 'codex' : num === 3 ? 'native' : 'claude')}
+                    onSelect={(num) =>
+                      handleQuickstartEngineSelect(
+                        num === 2 ? 'codex' : num === 3 ? 'native' : 'claude',
+                      )
+                    }
                   />
                 )}
 
-                {currentStep === 2 && !completedSteps.has(2) && (
-                  compatibleSecrets.length > 0 ? (
+                {currentStep === 2 &&
+                  !completedSteps.has(2) &&
+                  (compatibleSecrets.length > 0 ? (
                     <NumberedChoiceList
                       question={t('managed.quickstart.secretQuestion')}
                       choices={compatibleSecrets.map((secret, index) => ({
@@ -1144,8 +1672,7 @@ export default function QuickstartPage() {
                         {t('managed.quickstart.configureSecret')}
                       </Button>
                     </div>
-                  )
-                )}
+                  ))}
 
                 {/* Step 2 secret: show completed badge before the next step actions */}
                 {currentStep > 2 && completedSteps.has(2) && selectedSecret && (
@@ -1159,7 +1686,7 @@ export default function QuickstartPage() {
                     <Button
                       className="h-10 rounded-xl px-5 text-sm font-semibold"
                       onClick={confirmStep}
-                      disabled={isCreating}
+                      disabled={isCreating || currentProjectReadOnly}
                     >
                       {isCreating ? (
                         <>
@@ -1230,8 +1757,12 @@ export default function QuickstartPage() {
                               setEnvUsesAI(true)
                             } else if (num <= activeEnvironments.length) {
                               const env = activeEnvironments[num - 1]
-                              setPendingEnvId(env.id)
-                              setEnvAnswers({ choiceLabel: env.name })
+                              const currentEnv = readCurrentActiveEnvironments().find(
+                                (current) => current.id === env.id,
+                              )
+                              if (!currentEnv) return
+                              setPendingEnvId(currentEnv.id)
+                              setEnvAnswers({ choiceLabel: currentEnv.name })
                               setEnvSubStep('selected')
                             } else {
                               setEnvAnswers({ choiceLabel: t('managed.quickstart.envCreateNew') })
@@ -1251,10 +1782,7 @@ export default function QuickstartPage() {
                           <div className="flex items-center gap-2 pt-1">
                             <Button
                               className="h-10 rounded-xl px-5 text-sm font-semibold"
-                              onClick={() => {
-                                if (pendingEnvId) selectExistingEnvironment(pendingEnvId)
-                                advanceStep()
-                              }}
+                              onClick={confirmSelectedEnvironment}
                             >
                               {t('managed.quickstart.nextConfigureVault')}
                             </Button>
@@ -1275,7 +1803,7 @@ export default function QuickstartPage() {
                               { num: 2, label: t('managed.quickstart.envUnrestricted') },
                               { num: 0, label: t('managed.quickstart.envSomethingElse') },
                             ]}
-                            onSelect={(num) => {
+                            onSelect={async (num) => {
                               if (num === 0) {
                                 setEnvSubStep(null)
                                 setEnvUsesAI(true)
@@ -1286,7 +1814,8 @@ export default function QuickstartPage() {
                                 }))
                                 setEnvSubStep('hosts')
                               } else {
-                                createEnvironment('unrestricted', [])
+                                const created = await createEnvironment('unrestricted', [])
+                                if (!created) return
                                 setEnvAnswers((prev) => ({
                                   ...prev,
                                   networkingLabel: t('managed.quickstart.envUnrestricted'),
@@ -1326,13 +1855,14 @@ export default function QuickstartPage() {
                             <div className="flex items-center justify-between">
                               <Button
                                 className="h-9 rounded-xl px-4 text-sm"
-                                disabled={isCreating}
-                                onClick={() => {
+                                disabled={isCreating || currentProjectReadOnly}
+                                onClick={async () => {
                                   const hosts = envHosts
                                     .split(',')
                                     .map((h) => h.trim())
                                     .filter(Boolean)
-                                  createEnvironment('limited', hosts)
+                                  const created = await createEnvironment('limited', hosts)
+                                  if (!created) return
                                   setEnvSubStep('selected')
                                 }}
                               >
@@ -1390,11 +1920,17 @@ export default function QuickstartPage() {
                               setVaultUsesAI(true)
                             } else if (num <= activeVaults.length) {
                               const vault = activeVaults[num - 1]
-                              setPendingVaultId(vault.id)
-                              setVaultAnswers({ choiceLabel: vault.name })
+                              const currentVault = readCurrentActiveVaults().find(
+                                (current) => current.id === vault.id,
+                              )
+                              if (!currentVault) return
+                              setPendingVaultId(currentVault.id)
+                              setVaultAnswers({ choiceLabel: currentVault.name })
                               setVaultSubStep('selected')
                             } else {
-                              setVaultAnswers({ choiceLabel: t('managed.quickstart.vaultCreateNew') })
+                              setVaultAnswers({
+                                choiceLabel: t('managed.quickstart.vaultCreateNew'),
+                              })
                               setVaultSubStep('name')
                             }
                           }}
@@ -1411,10 +1947,7 @@ export default function QuickstartPage() {
                           <div className="flex items-center gap-2 pt-1">
                             <Button
                               className="h-10 rounded-xl px-5 text-sm font-semibold"
-                              onClick={() => {
-                                if (pendingVaultId) selectExistingVault(pendingVaultId)
-                                advanceStep()
-                              }}
+                              onClick={confirmSelectedVault}
                             >
                               {t('managed.quickstart.nextStartSession')}
                             </Button>
@@ -1442,9 +1975,10 @@ export default function QuickstartPage() {
                             <div className="flex items-center justify-between">
                               <Button
                                 className="h-9 rounded-xl px-4 text-sm"
-                                disabled={isCreating || !vaultName.trim()}
-                                onClick={() => {
-                                  createVault(vaultName.trim())
+                                disabled={isCreating || currentProjectReadOnly || !vaultName.trim()}
+                                onClick={async () => {
+                                  const created = await createVault(vaultName.trim())
+                                  if (!created) return
                                   setVaultAnswers((prev) => ({
                                     ...prev,
                                     choiceLabel: vaultName.trim(),
@@ -1481,9 +2015,7 @@ export default function QuickstartPage() {
                     <div className="space-y-1 rounded-lg border border-border bg-muted/50 p-3 font-mono text-xs">
                       <div>
                         <span className="text-muted-foreground">agent:</span>{' '}
-                        {resourceIds[3]
-                          ? shortIdWithPrefix(resourceIds[3], 'agent_')
-                          : '—'}
+                        {resourceIds[3] ? shortIdWithPrefix(resourceIds[3], 'agent_') : '—'}
                       </div>
                       {resourceIds[4] && (
                         <div>
@@ -1500,8 +2032,8 @@ export default function QuickstartPage() {
                     </div>
                     <Button
                       className="h-10 rounded-xl px-5 text-sm"
-                      disabled={isCreating || !resourceIds[3]}
-                      onClick={createSession}
+                      disabled={isCreating || currentProjectReadOnly || !resourceIds[3]}
+                      onClick={handleCreateSession}
                     >
                       {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                       {t('managed.quickstart.startSession')}
@@ -1582,13 +2114,13 @@ export default function QuickstartPage() {
                         ? t('managed.quickstart.noApiKey')
                         : currentStep === 2
                           ? t('managed.quickstart.chooseSecret')
-                        : currentStep >= 3 && !selectedSecretCompatible
-                          ? t('managed.quickstart.noCompatibleSecret')
-                          : isSessionRunning
-                            ? t('managed.quickstart.agentProcessing')
-                            : isStreaming
-                              ? t('managed.quickstart.waitingForResponse')
-                              : t('managed.quickstart.reply')
+                          : currentStep >= 3 && !selectedSecretCompatible
+                            ? t('managed.quickstart.noCompatibleSecret')
+                            : isSessionRunning
+                              ? t('managed.quickstart.agentProcessing')
+                              : isStreaming
+                                ? t('managed.quickstart.waitingForResponse')
+                                : t('managed.quickstart.reply')
                     }
                     className="h-8 flex-1 border-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-50"
                   />
@@ -1672,7 +2204,10 @@ export default function QuickstartPage() {
                       <Search className="h-4 w-4" />
                     </button>
                   </div>
-                  <div ref={configScrollRef} className="h-[calc(100vh-285px)] overflow-auto px-3 py-3">
+                  <div
+                    ref={configScrollRef}
+                    className="h-[calc(100vh-285px)] overflow-auto px-3 py-3"
+                  >
                     <div className="font-mono text-[14px] leading-7">
                       {codeLines.map((line, i) => (
                         <div
@@ -1700,17 +2235,16 @@ export default function QuickstartPage() {
                         {selectedEnvironmentName ? (
                           <>
                             {t('managed.quickstart.environment')}
-                            <span className="ml-1 font-medium text-foreground">{selectedEnvironmentName}</span>
+                            <span className="ml-1 font-medium text-foreground">
+                              {selectedEnvironmentName}
+                            </span>
                           </>
                         ) : (
                           t('managed.quickstart.sessionLiveHint')
                         )}
                       </div>
                     ) : (
-                      <Select
-                        value={selectedEnvId || undefined}
-                        onValueChange={setSelectedEnvId}
-                      >
+                      <Select value={selectedEnvId || undefined} onValueChange={setSelectedEnvId}>
                         <SelectTrigger className="w-[220px] max-w-[40vw]">
                           <SelectValue placeholder={t('managed.quickstart.selectEnv')} />
                         </SelectTrigger>
@@ -1768,9 +2302,7 @@ export default function QuickstartPage() {
                         </button>
                         <EventFilter
                           selected={
-                            previewFilter.size > 0
-                              ? previewFilter
-                              : new Set(previewAvailableTypes)
+                            previewFilter.size > 0 ? previewFilter : new Set(previewAvailableTypes)
                           }
                           onChange={setPreviewFilter}
                           availableTypes={previewAvailableTypes}
@@ -1801,9 +2333,7 @@ export default function QuickstartPage() {
                             event={selectedPreviewEvent}
                             mode={previewTab}
                             sessionStart={
-                              mergedSessionEvents[0]?.created_at ||
-                              mergedSessionEvents[0]?.id ||
-                              ''
+                              mergedSessionEvents[0]?.created_at || mergedSessionEvents[0]?.id || ''
                             }
                             onClose={() => setSelectedPreviewEvent(null)}
                           />
@@ -1817,9 +2347,7 @@ export default function QuickstartPage() {
                           <EventList
                             events={mergedSessionEvents}
                             sessionStart={
-                              mergedSessionEvents[0]?.created_at ||
-                              mergedSessionEvents[0]?.id ||
-                              ''
+                              mergedSessionEvents[0]?.created_at || mergedSessionEvents[0]?.id || ''
                             }
                             selectedId={null}
                             onSelect={(evt) => {
@@ -1835,14 +2363,16 @@ export default function QuickstartPage() {
                           <input
                             type="text"
                             value={sessionMsgInput}
-                            onChange={(e) => setSessionMsgInput(e.target.value)}
+                            onInput={(e) =>
+                              setSessionMessageDraft(e.currentTarget.value, { userEdit: true })
+                            }
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault()
                                 handleSendSessionMessage()
                               }
                             }}
-                            disabled={isSendingMsg}
+                            disabled={isSendingMsg || currentProjectReadOnly}
                             placeholder={
                               isSessionRunning
                                 ? t('managed.quickstart.agentProcessing')
@@ -1855,10 +2385,12 @@ export default function QuickstartPage() {
                           ) : (
                             <button
                               onClick={handleSendSessionMessage}
-                              disabled={isSendingMsg || !sessionMsgInput.trim()}
+                              disabled={
+                                isSendingMsg || currentProjectReadOnly || !sessionMsgInput.trim()
+                              }
                               className={cn(
                                 'inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-semibold text-primary-foreground shadow-sm transition-colors',
-                                isSendingMsg || !sessionMsgInput.trim()
+                                isSendingMsg || currentProjectReadOnly || !sessionMsgInput.trim()
                                   ? 'cursor-not-allowed bg-muted-foreground/30 text-white shadow-none'
                                   : 'bg-primary hover:bg-primary/90',
                               )}
@@ -1878,7 +2410,7 @@ export default function QuickstartPage() {
                         variant="outline"
                         size="sm"
                         className="gap-1.5"
-                        disabled={!resourceIds[3] || isTestRunning}
+                        disabled={!resourceIds[3] || isTestRunning || currentProjectReadOnly}
                         onClick={handleTestRun}
                       >
                         {isTestRunning ? (

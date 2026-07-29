@@ -23,16 +23,50 @@ from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.services import AuthService, OAuthService
+from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
+from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.common.dependencies import get_db
 from app.joysafeter_shared.common.response import success_response
-from app.joysafeter_shared.oauth import get_oauth_config, get_protocol_handler
-from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_api.services import AuthService, OAuthService
+from app.joysafeter_shared.oauth import get_oauth_config, get_protocol_handler
 
 LOG_PREFIX = "[OAuthAPI]"
 router = APIRouter(tags=["joysafeter-oauth"])
+
+
+def _oauth_api_error_payload(
+    *,
+    code: str,
+    message: str,
+    operation: str,
+    provider: str | None = None,
+    state: str | None = None,
+    data: dict[str, object] | None = None,
+    detail: str | None = None,
+    retryable: bool = True,
+    user_action: str | None = "retry",
+) -> dict[str, object]:
+    payload_data: dict[str, object] = {}
+    if provider is not None:
+        payload_data["provider"] = provider
+    if state is not None:
+        payload_data["state_prefix"] = state[:20]
+    if data:
+        payload_data.update(data)
+    return async_boundary_error_payload(
+        code=code,
+        message=message,
+        boundary="oauth_api",
+        operation=operation,
+        data=payload_data,
+        source="api",
+        retryable=retryable,
+        user_action=user_action,
+        detail=detail,
+    )
 
 
 # ==================== Response Models ====================
@@ -113,7 +147,16 @@ async def oauth_authorize(
         try:
             await RedisClient.set(f"oauth_state:{resolved_state}", json.dumps(state_data), expire=600)
         except Exception as e:
-            logger.warning(f"{LOG_PREFIX} Failed to store state in Redis: {e}")
+            logger.bind(
+                error=_oauth_api_error_payload(
+                    code="OAUTH_API_STATE_STORE_FAILED",
+                    message="Failed to store OAuth state in Redis",
+                    operation="store_state",
+                    provider=provider,
+                    state=resolved_state,
+                    detail=e.__class__.__name__,
+                )
+            ).warning(f"{LOG_PREFIX} Failed to store state in Redis")
 
     logger.info(f"{LOG_PREFIX} Generated authorization URL for {provider}")
     return success_response(
@@ -150,13 +193,31 @@ async def oauth_callback(
 
     # Handle user denial
     if error:
-        logger.warning(f"{LOG_PREFIX} OAuth error: {error} - {error_description}")
+        log_boundary_failure_loguru(
+            logger,
+            boundary="oauth_api",
+            code="OAUTH_PROVIDER_ACCESS_DENIED",
+            message="OAuth provider returned an access denial",
+            operation="handle_callback_denial",
+            data={"provider": provider, "oauth_error": error, "has_description": bool(error_description)},
+            retryable=False,
+            user_action="retry_login",
+        )
         return _redirect_with_error(frontend_url, "OAUTH_ACCESS_DENIED", error_description or error)
 
     # 2. Load provider config (needed to detect protocol)
     provider_config = oauth_config.get_provider(provider)
     if not provider_config:
-        logger.error(f"{LOG_PREFIX} Provider not found: {provider}")
+        log_boundary_failure_loguru(
+            logger,
+            boundary="oauth_api",
+            code="OAUTH_PROVIDER_NOT_FOUND",
+            message="OAuth provider not found",
+            operation="load_oauth_provider",
+            data={"provider": provider},
+            retryable=False,
+            user_action="check_configuration",
+        )
         return _redirect_with_error(frontend_url, "OAUTH_PROVIDER_NOT_FOUND")
 
     # 1. Validate state (JD SSO can skip; it relies on Cookie, not auth code)
@@ -171,11 +232,29 @@ async def oauth_callback(
 
         # Validate provider match
         if state_data.get("provider") != provider:
-            logger.warning(f"{LOG_PREFIX} Provider mismatch: expected {state_data.get('provider')}, got {provider}")
+            log_boundary_failure_loguru(
+                logger,
+                boundary="oauth_api",
+                code="OAUTH_PROVIDER_MISMATCH",
+                message="OAuth callback provider mismatch",
+                operation="validate_callback_provider",
+                data={"provider": provider, "expected_provider": str(state_data.get("provider") or "")},
+                retryable=False,
+                user_action="retry_login",
+            )
             return _redirect_with_error(frontend_url, "OAUTH_PROVIDER_MISMATCH")
     elif provider_config.protocol != "jd_sso":
         # Non-JD SSO protocols require state
-        logger.warning(f"{LOG_PREFIX} Missing state parameter for {provider_config.protocol}")
+        log_boundary_failure_loguru(
+            logger,
+            boundary="oauth_api",
+            code="OAUTH_STATE_MISSING",
+            message="OAuth callback missing state parameter",
+            operation="validate_callback_state",
+            data={"provider": provider, "protocol": provider_config.protocol},
+            retryable=False,
+            user_action="retry_login",
+        )
         return _redirect_with_error(frontend_url, "OAUTH_STATE_MISSING")
 
     try:
@@ -238,19 +317,35 @@ async def oauth_callback(
         raise
     except ValueError as e:
         # Validation error raised by protocol handler
-        logger.error(f"{LOG_PREFIX} OAuth callback validation error: {e}")
+        log_boundary_failure_loguru(
+            logger,
+            boundary="oauth_api",
+            code="OAUTH_CALLBACK_VALIDATION_FAILED",
+            message="OAuth callback validation failed",
+            operation="process_oauth_callback",
+            error=e,
+            data={"provider": provider, "protocol": provider_config.protocol},
+            retryable=provider_config.protocol == "jd_sso" and retry < 1,
+            user_action="retry_login",
+        )
         await db.rollback()
         # JD SSO: missing sso.jd.com cookie likely means the JD session was not yet
         # established. Redirect back to the authorize URL once to let JD set the cookie
         # (seamless if the user already has a JD session), instead of failing immediately.
         if provider_config.protocol == "jd_sso" and retry < 1:
             logger.info(f"{LOG_PREFIX} JD SSO retry: redirecting back to authorize URL")
-            return await _redirect_to_jd_authorize(
-                request, provider, callback_url, retry + 1, db
-            )
+            return await _redirect_to_jd_authorize(request, provider, callback_url, retry + 1, db)
         return _redirect_with_error(frontend_url, "OAUTH_CALLBACK_INVALID", str(e))
     except Exception as e:
-        logger.error(f"{LOG_PREFIX} OAuth callback error: {e}", exc_info=True)
+        log_boundary_failure_loguru(
+            logger,
+            boundary="oauth_api",
+            code="OAUTH_CALLBACK_FAILED",
+            message="OAuth callback failed",
+            operation="process_oauth_callback",
+            error=e,
+            data={"provider": provider, "protocol": provider_config.protocol},
+        )
         await db.rollback()
         return _redirect_with_error(frontend_url, "OAUTH_CALLBACK_FAILED", str(e))
 
@@ -376,7 +471,16 @@ async def _redirect_to_jd_authorize(
             }
             await RedisClient.set(f"oauth_state:{resolved_state}", json.dumps(state_data), expire=600)
         except Exception as e:
-            logger.warning(f"{LOG_PREFIX} Failed to store retry state in Redis: {e}")
+            logger.bind(
+                error=_oauth_api_error_payload(
+                    code="OAUTH_API_RETRY_STATE_STORE_FAILED",
+                    message="Failed to store OAuth retry state in Redis",
+                    operation="store_retry_state",
+                    provider=provider,
+                    state=resolved_state,
+                    detail=e.__class__.__name__,
+                )
+            ).warning(f"{LOG_PREFIX} Failed to store retry state in Redis")
 
     return RedirectResponse(url=authorization_url, status_code=302)
 
@@ -411,16 +515,22 @@ def _resolve_frontend_callback_url(frontend_url: str, callback_url: str) -> str:
 
     parsed_callback = urlparse(callback_url)
     parsed_frontend = urlparse(frontend_url)
-    if (
-        parsed_callback.scheme in ("http", "https")
-        and parsed_callback.netloc == parsed_frontend.netloc
-    ):
+    if parsed_callback.scheme in ("http", "https") and parsed_callback.netloc == parsed_frontend.netloc:
         return callback_url
 
     if not parsed_callback.scheme and not parsed_callback.netloc:
         return f"{frontend_url}/{callback_url.lstrip('/')}"
 
-    logger.warning(f"{LOG_PREFIX} Blocked unsafe OAuth callback URL: {callback_url}")
+    log_boundary_failure_loguru(
+        logger,
+        boundary="oauth_api",
+        code="OAUTH_CALLBACK_URL_BLOCKED",
+        message="Blocked unsafe OAuth callback URL",
+        operation="resolve_frontend_callback_url",
+        data={"frontend_host": parsed_frontend.netloc, "callback_host": parsed_callback.netloc or ""},
+        retryable=False,
+        user_action="check_configuration",
+    )
     return default_url
 
 
@@ -428,8 +538,13 @@ async def _validate_state(state: str, oauth_config) -> tuple[Optional[Dict], str
     """Validate state and return state_data and callback_url."""
     callback_url = oauth_config.settings.default_redirect_url
 
+    # `state` is the login-CSRF nonce; Redis is its authoritative store. If the
+    # store is unavailable we cannot confirm the nonce, so fail CLOSED (reject
+    # the login) rather than open. Availability of login during a Redis outage
+    # is deliberately traded away — a CSRF control must never be silently
+    # disabled by an infrastructure failure.
     if not RedisClient.is_available():
-        return {}, callback_url
+        return None, callback_url
 
     try:
         state_key = f"oauth_state:{state}"
@@ -440,11 +555,30 @@ async def _validate_state(state: str, oauth_config) -> tuple[Optional[Dict], str
             await RedisClient.delete(state_key)
             return state_data, callback_url
         else:
-            logger.warning(f"{LOG_PREFIX} Invalid or expired state: {state[:20]}...")
+            log_boundary_failure_loguru(
+                logger,
+                boundary="oauth_api",
+                code="OAUTH_STATE_INVALID",
+                message="OAuth state is invalid or expired",
+                operation="validate_state",
+                data={"state_prefix": state[:20]},
+                retryable=False,
+                user_action="retry_login",
+            )
             return None, callback_url
     except Exception as e:
-        logger.warning(f"{LOG_PREFIX} Failed to validate state: {e}")
-        return {}, callback_url
+        logger.bind(
+            error=_oauth_api_error_payload(
+                code="OAUTH_API_STATE_VALIDATE_FAILED",
+                message="Failed to validate OAuth state from Redis",
+                operation="validate_state",
+                state=state,
+                detail=e.__class__.__name__,
+            )
+        ).warning(f"{LOG_PREFIX} Failed to validate state")
+        # Same fail-closed rationale as the Redis-unavailable branch: a lookup
+        # error means the nonce is unverifiable, so reject rather than proceed.
+        return None, callback_url
 
 
 def _create_auth_response(

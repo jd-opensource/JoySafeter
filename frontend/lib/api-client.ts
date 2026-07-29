@@ -24,6 +24,7 @@
 import { env as runtimeEnv } from 'next-runtime-env'
 
 import { getCsrfToken, setCsrfToken } from '@/lib/auth/csrf'
+import { publishRefreshCompleted } from '@/lib/auth/session-events'
 import { trimConfigStringFields } from '@/lib/utils/url-trim'
 import { useProjectStore } from '@/stores/managed/project-store'
 
@@ -94,6 +95,7 @@ export interface ApiErrorPayload {
   retryable?: boolean
   user_action?: UserAction
   detail?: string
+  trace_id?: string
 }
 
 export function createApiError(
@@ -117,6 +119,8 @@ export class ApiError extends Error {
   public readonly source: ErrorSource
   public readonly retryable: boolean
   public readonly userAction?: UserAction
+  public readonly traceId?: string
+  public readonly detail?: string
 
   constructor(
     public readonly status: number,
@@ -131,15 +135,51 @@ export class ApiError extends Error {
     this.source = payload.source ?? 'internal'
     this.retryable = payload.retryable ?? false
     this.userAction = payload.user_action
+    this.traceId = payload.trace_id
+    this.detail = payload.detail
   }
 }
 
-async function extractErrorFromResponse(response: Response): Promise<ApiError> {
+const UNAUTHORIZED_ERROR_CODES = new Set([
+  'HTTP_401',
+  'UNAUTHORIZED',
+  'JOYSAFETER_UNAUTHORIZED',
+  'REFRESH_TOKEN_INVALID',
+  'TOKEN_INVALID',
+  'BEARER_TOKEN_MISSING',
+  'MISSING_CREDENTIALS',
+  'USER_INVALID',
+])
+
+export function isUnauthorizedApiError(error: unknown): boolean {
+  return error instanceof ApiError && UNAUTHORIZED_ERROR_CODES.has(error.code)
+}
+
+const MAX_ERROR_TEXT_LENGTH = 1000
+
+function truncateErrorText(text: string): string {
+  if (text.length <= MAX_ERROR_TEXT_LENGTH) return text
+  return `${text.slice(0, MAX_ERROR_TEXT_LENGTH)}...`
+}
+
+function attachResponseTrace(response: Response, payload: ApiErrorPayload): ApiErrorPayload {
+  const traceId = response.headers.get('x-trace-id')
+  if (!traceId) return payload
+  return { ...payload, trace_id: payload.trace_id ?? traceId }
+}
+
+export async function extractErrorFromResponse(response: Response): Promise<ApiError> {
   let payload: ApiErrorPayload | undefined
+  let text = ''
   try {
-    const text = await response.text()
+    text = await response.text()
     const errorData = JSON.parse(text)
-    if (errorData && typeof errorData === 'object' && 'code' in errorData && 'message' in errorData) {
+    if (
+      errorData &&
+      typeof errorData === 'object' &&
+      'code' in errorData &&
+      'message' in errorData
+    ) {
       payload = errorData as ApiErrorPayload
     } else if (errorData && typeof errorData === 'object' && 'detail' in errorData) {
       const detail = typeof errorData.detail === 'string' ? errorData.detail : response.statusText
@@ -147,13 +187,25 @@ async function extractErrorFromResponse(response: Response): Promise<ApiError> {
         code: response.status > 0 ? `HTTP_${response.status}` : 'UNKNOWN_ERROR',
         message: detail || response.statusText || `API Error: ${response.status}`,
         detail,
-        data: null,
+        data: typeof errorData.detail === 'string' ? null : { detail: errorData.detail as unknown },
       }
     }
   } catch {
-    /* not JSON or empty body */
+    const message = truncateErrorText(text.trim())
+    if (message) {
+      payload = {
+        code: response.status > 0 ? `HTTP_${response.status}` : 'UNKNOWN_ERROR',
+        message,
+        detail: message,
+        data: null,
+      }
+    }
   }
-  return createApiError(response.status, response.statusText, payload)
+  return createApiError(
+    response.status,
+    response.statusText,
+    payload ? attachResponseTrace(response, payload) : payload,
+  )
 }
 
 export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
@@ -194,13 +246,22 @@ async function parseResponse<T>(response: Response): Promise<T> {
       'message' in json &&
       !('success' in json)
     ) {
-      throw createApiError(response.status, response.statusText, json as ApiErrorPayload)
+      throw createApiError(
+        response.status,
+        response.statusText,
+        attachResponseTrace(response, json as ApiErrorPayload),
+      )
     }
 
     if (json && typeof json === 'object' && 'data' in json && 'success' in json) {
       // Paginated response: keep has_more/first_id/last_id alongside data
       if ('has_more' in json) {
-        return { data: json.data, has_more: json.has_more, first_id: json.first_id, last_id: json.last_id } as T
+        return {
+          data: json.data,
+          has_more: json.has_more,
+          first_id: json.first_id,
+          last_id: json.last_id,
+        } as T
       }
       return json.data
     }
@@ -215,7 +276,6 @@ async function parseResponse<T>(response: Response): Promise<T> {
 // ==================== Token Refresh ====================
 let isRefreshing = false
 let refreshPromise: Promise<void> | null = null
-const AUTH_SESSION_CHANGE_KEY = 'auth_session_change'
 const AUTH_REFRESH_LOCK_KEY = 'auth_refresh_lock'
 const AUTH_REFRESHED_AT_KEY = 'auth_refresh_completed_at'
 const AUTH_REFRESH_LOCK_TTL_MS = 15_000
@@ -286,23 +346,48 @@ function getLastRefreshCompletedAt(): number {
   }
 }
 
-function publishRefreshCompleted(): void {
-  if (typeof window === 'undefined') return
-  try {
-    const timestamp = Date.now()
-    localStorage.setItem(AUTH_REFRESHED_AT_KEY, String(timestamp))
-    localStorage.setItem(
-      AUTH_SESSION_CHANGE_KEY,
-      JSON.stringify({ type: 'refresh', timestamp }),
-    )
-    setTimeout(() => localStorage.removeItem(AUTH_SESSION_CHANGE_KEY), 100)
-  } catch {
-    /* ignore */
-  }
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function getAbortReason(signal: AbortSignal): unknown {
+  return 'reason' in signal ? signal.reason : undefined
+}
+
+function createRequestAbortSignal(
+  timeout: number,
+  externalSignal?: AbortSignal | null,
+): {
+  signal: AbortSignal
+  didTimeout: () => boolean
+  cleanup: () => void
+} {
+  const controller = new AbortController()
+  let timedOut = false
+
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeout)
+
+  const abortFromExternal = () => {
+    controller.abort(externalSignal ? getAbortReason(externalSignal) : undefined)
+  }
+
+  if (externalSignal?.aborted) {
+    abortFromExternal()
+  } else {
+    externalSignal?.addEventListener('abort', abortFromExternal, { once: true })
+  }
+
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    cleanup: () => {
+      clearTimeout(timeoutId)
+      externalSignal?.removeEventListener('abort', abortFromExternal)
+    },
+  }
 }
 
 async function waitForRefreshLockRelease(startedAt: number, timeout: number): Promise<boolean> {
@@ -391,7 +476,7 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
       } catch {
         /* refresh response without JSON body */
       }
-      publishRefreshCompleted()
+      publishRefreshCompleted(AUTH_REFRESHED_AT_KEY)
     } catch (error) {
       clearTimeout(timeoutId)
       if (error instanceof Error && error.name === 'AbortError') {
@@ -429,6 +514,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
     skipManagedContext,
     headers: customHeaders,
     method = 'GET',
+    signal: externalSignal,
     ...restOptions
   } = options
   const headers: Record<string, string> = {
@@ -442,16 +528,18 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
       headers['X-CSRF-Token'] = csrfToken
     }
     if (!skipManagedContext) {
-      const projectId = useProjectStore.getState().currentProjectId
-      if (projectId && !headers['X-Project-Id']) {
-        headers['X-Project-Id'] = projectId
+      const { currentOrgId, currentProjectId } = useProjectStore.getState()
+      if (currentOrgId && !headers['X-Org-Id']) {
+        headers['X-Org-Id'] = currentOrgId
+      }
+      if (currentProjectId && !headers['X-Project-Id']) {
+        headers['X-Project-Id'] = currentProjectId
       }
     }
   }
 
   const fullUrl = buildUrl(url)
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeout)
+  const requestSignal = createRequestAbortSignal(timeout, externalSignal)
   let didRefresh = false
   const requestBody = json ? trimConfigStringFields(body) : body
 
@@ -461,8 +549,13 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
         ...restOptions,
         method,
         headers,
-        body: body ? (json ? JSON.stringify(requestBody) : (body as BodyInit)) : undefined,
-        signal: controller.signal,
+        body:
+          body !== undefined
+            ? json
+              ? JSON.stringify(requestBody)
+              : (body as BodyInit)
+            : undefined,
+        signal: requestSignal.signal,
         credentials: 'include',
       })
 
@@ -474,7 +567,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
           if (newCsrfToken) headers['X-CSRF-Token'] = newCsrfToken
           return makeRequest()
         } catch (refreshError) {
-          if (!(refreshError instanceof ApiError && refreshError.status === 401)) {
+          if (!isUnauthorizedApiError(refreshError)) {
             throw refreshError
           }
           // Refresh token is invalid/expired, continue throwing original 401.
@@ -490,9 +583,16 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
       if (e instanceof ApiError) throw e
       if (e instanceof Error) {
         if (e.name === 'AbortError') {
-          throw createApiError(408, 'Request Timeout', {
-            code: 'REQUEST_TIMEOUT',
-            message: 'Request timed out',
+          if (requestSignal.didTimeout()) {
+            throw createApiError(408, 'Request Timeout', {
+              code: 'REQUEST_TIMEOUT',
+              message: 'Request timed out',
+              data: null,
+            })
+          }
+          throw createApiError(0, 'Request Aborted', {
+            code: 'REQUEST_ABORTED',
+            message: 'Request was aborted',
             data: null,
           })
         }
@@ -508,7 +608,7 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
         data: null,
       })
     } finally {
-      clearTimeout(timeoutId)
+      requestSignal.cleanup()
     }
   }
 
@@ -579,18 +679,29 @@ export async function apiUpload<T>(
 export async function apiStream(
   url: string,
   body: unknown,
-  options?: { signal?: AbortSignal; withAuth?: boolean },
+  options?: {
+    signal?: AbortSignal
+    withAuth?: boolean
+    skipManagedContext?: boolean
+    headers?: HeadersInit
+  },
 ): Promise<Response> {
-  const { withAuth = true, signal } = options || {}
+  const { withAuth = true, signal, skipManagedContext, headers: customHeaders } = options || {}
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'text/event-stream',
+    ...(customHeaders as Record<string, string>),
   }
 
   if (withAuth) {
     const csrfToken = getCsrfToken()
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken
+    if (!skipManagedContext) {
+      const { currentProjectId, currentOrgId } = useProjectStore.getState()
+      if (currentOrgId) headers['X-Org-Id'] = currentOrgId
+      if (currentProjectId) headers['X-Project-Id'] = currentProjectId
+    }
   }
 
   const fullUrl = buildUrl(url)
@@ -613,7 +724,7 @@ export async function apiStream(
         if (newCsrfToken) headers['X-CSRF-Token'] = newCsrfToken
         return makeRequest()
       } catch (refreshError) {
-        if (!(refreshError instanceof ApiError && refreshError.status === 401)) {
+        if (!isUnauthorizedApiError(refreshError)) {
           throw refreshError
         }
         /* Refresh token is invalid/expired, continue throwing original 401. */
@@ -661,7 +772,10 @@ export function managedGet<T>(
   url: string,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'GET' })
 }
 
@@ -670,7 +784,10 @@ export function managedPost<T>(
   body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'POST', body })
 }
 
@@ -679,7 +796,10 @@ export function managedPut<T>(
   body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'PUT', body })
 }
 
@@ -687,7 +807,10 @@ export function managedDelete<T>(
   url: string,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'DELETE' })
 }
 
@@ -696,7 +819,10 @@ export function managedPatch<T>(
   body?: unknown,
   options?: Omit<ApiRequestOptions, 'method' | 'body'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'PATCH', body })
 }
 
@@ -705,7 +831,10 @@ export function managedUpload<T>(
   file: File | FormData,
   options?: Omit<ApiRequestOptions, 'method' | 'body' | 'json'>,
 ): Promise<T> {
-  const headers = getManagedHeaders(options?.headers as Record<string, string>, options?.skipManagedContext)
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
   return apiUpload<T>(buildManagedUrl(url), file, { ...options, headers })
 }
 

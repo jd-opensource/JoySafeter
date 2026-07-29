@@ -108,32 +108,6 @@ export interface ParsedSkillMd {
   body: string
 }
 
-export interface Skill {
-  id: string
-  name: string
-  description: string
-  content: string // This is the markdown body from SKILL.md
-  tags: string[]
-  source_type: 'local' | 'git' | 's3'
-  source_url: string | null
-  root_path: string | null
-  owner_id: string | null
-  created_by_id: string
-  is_public: boolean
-  license: string | null
-  compatibility?: string | null // Max 500 characters (per Agent Skills spec)
-  metadata?: Record<string, string> // dict[str, str] (per Agent Skills spec)
-  allowed_tools?: string[] // list[str] (per Agent Skills spec)
-  created_at: string
-  updated_at: string
-  security_scan?: SkillSecurityScanSummary
-  files?: SkillFile[]
-  // Legacy fields for backward compatibility (deprecated, use source_type instead)
-  source?: 'local' | 'git' | 's3' // Updated: 'aws' -> 's3' to match form schema
-  sourceUrl?: string
-  updatedAt?: number
-}
-
 // Execution Panel Types
 export type ExecutionStepType =
   | 'node_lifecycle'

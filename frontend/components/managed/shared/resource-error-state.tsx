@@ -2,8 +2,8 @@
 
 import { AlertTriangle, ArrowLeft, FileQuestion, RefreshCw, ShieldAlert } from 'lucide-react'
 
-import { useTranslation } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/lib/i18n'
 
 type ManagedResourceKind =
   | 'agent'
@@ -15,6 +15,7 @@ type ManagedResourceKind =
   | 'secret'
   | 'session'
   | 'skill'
+  | 'trigger'
   | 'vault'
 
 type ErrorReason = 'forbidden' | 'notFound' | 'unknown'
@@ -41,7 +42,12 @@ function getErrorReason(error: unknown): ErrorReason {
   const status = getErrorStatus(error)
   const code = getErrorCode(error).toUpperCase()
 
-  if (status === 403 || code.includes('FORBIDDEN') || code.includes('ACCESS_DENIED') || code.includes('WRITE_REQUIRED')) {
+  if (
+    status === 403 ||
+    code.includes('FORBIDDEN') ||
+    code.includes('ACCESS_DENIED') ||
+    code.includes('WRITE_REQUIRED')
+  ) {
     return 'forbidden'
   }
   if (status === 404 || code.includes('NOT_FOUND')) {
@@ -59,8 +65,10 @@ export function ResourceErrorState({
 }: ResourceErrorStateProps) {
   const { t } = useTranslation()
   const reason = getErrorReason(error)
-  const Icon = reason === 'forbidden' ? ShieldAlert : reason === 'notFound' ? FileQuestion : AlertTriangle
-  const iconClassName = reason === 'forbidden' || reason === 'unknown' ? 'text-destructive' : 'text-muted-foreground'
+  const Icon =
+    reason === 'forbidden' ? ShieldAlert : reason === 'notFound' ? FileQuestion : AlertTriangle
+  const iconClassName =
+    reason === 'forbidden' || reason === 'unknown' ? 'text-destructive' : 'text-muted-foreground'
 
   return (
     <div className="flex min-h-[360px] flex-col items-center justify-center px-6 py-16 text-center">

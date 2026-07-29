@@ -52,4 +52,15 @@ mkdir -p /home/agent/.codex
     fi
 } > /home/agent/.codex/config.toml
 
+# Scrub runner token from container env — same logic as runner-entrypoint.sh.
+# Save to file so the runner binary can still read it, then unset the env var
+# to prevent exposure via `docker exec env`.
+TOKEN_FILE="/tmp/.runner-token"
+if [ -n "${JOYSAFETER_RUNNER_TOKEN:-}" ]; then
+    printf '%s' "$JOYSAFETER_RUNNER_TOKEN" > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
+    export JOYSAFETER_RUNNER_TOKEN_FILE="$TOKEN_FILE"
+    unset JOYSAFETER_RUNNER_TOKEN
+fi
+
 exec joysafeter-runner "$@"
