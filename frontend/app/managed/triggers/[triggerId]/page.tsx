@@ -43,11 +43,7 @@ import {
 } from '@/lib/managed/triggers'
 import { toastSuccess } from '@/lib/utils/toast'
 
-export default function TriggerDetailPage({
-  params,
-}: {
-  params: Promise<{ triggerId: string }>
-}) {
+export default function TriggerDetailPage({ params }: { params: Promise<{ triggerId: string }> }) {
   const { triggerId: rawId } = React.use(params)
   const triggerId = stripIdPrefix(rawId || '')
   const { t } = useTranslation()
@@ -287,6 +283,13 @@ export default function TriggerDetailPage({
     })
   }
 
+  if (trigger.type === 'manual') {
+    summary.push({
+      label: t('managed.triggers.schedule'),
+      value: t('managed.triggers.manualSummary'),
+    })
+  }
+
   summary.push(
     { label: t('managed.triggers.sessionMode'), value: sessionModeValue() },
     { label: t('managed.triggers.agent'), value: <MonoId id={trigger.agent_id} /> },
@@ -388,7 +391,9 @@ export default function TriggerDetailPage({
             <p className="text-sm font-medium text-foreground">
               {t('managed.triggers.autoDisabledTitle')}
             </p>
-            <p className="text-sm text-muted-foreground">{t('managed.triggers.autoDisabledBody')}</p>
+            <p className="text-sm text-muted-foreground">
+              {t('managed.triggers.autoDisabledBody')}
+            </p>
             {trigger.disabled_reason && (
               <p className="text-xs text-muted-foreground">
                 {t('managed.triggers.autoDisabledReason', { reason: trigger.disabled_reason })}

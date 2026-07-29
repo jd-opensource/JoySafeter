@@ -206,9 +206,7 @@ export default function TriggerListPage() {
   const renderSummary = (trig: AgentTrigger) => {
     if (trig.type === 'cron') {
       if (trig.run_at) {
-        return (
-          <span className="text-sm text-foreground">{formatRunOnce(t, trig.run_at)}</span>
-        )
+        return <span className="text-sm text-foreground">{formatRunOnce(t, trig.run_at)}</span>
       }
       return (
         <div className="min-w-0">
@@ -232,7 +230,9 @@ export default function TriggerListPage() {
         </span>
       )
     }
-    return <span className="text-sm text-muted-foreground">—</span>
+    return (
+      <span className="text-sm text-muted-foreground">{t('managed.triggers.manualSummary')}</span>
+    )
   }
 
   const renderStatus = (trig: AgentTrigger) => {

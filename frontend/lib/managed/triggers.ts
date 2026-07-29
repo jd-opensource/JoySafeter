@@ -63,12 +63,11 @@ export interface AgentTrigger {
 
 export interface AgentTriggerCreate {
   name: string
-  type?: 'cron' | 'webhook'
+  type?: TriggerType
   agent_id: string
   prompt_template: string
   secret_ref?: string | null
   secret_key?: string | null
-  system_prompt?: string | null
   environment_ref?: string | null
   description?: string | null
   enabled?: boolean
@@ -147,7 +146,10 @@ export function useAgentTrigger(triggerId: string | undefined) {
   return useQuery({
     queryKey: ['trigger', scope.key, triggerId],
     queryFn: () =>
-      managedGet<AgentTrigger>(apiResourcePath('triggers', triggerId), managedRequestOptions(scope)),
+      managedGet<AgentTrigger>(
+        apiResourcePath('triggers', triggerId),
+        managedRequestOptions(scope),
+      ),
     enabled: !!triggerId && hasManagedRequestScope(scope),
   })
 }
@@ -272,7 +274,10 @@ export function useRunTrigger(defaultId = '') {
   const qc = useQueryClient()
   const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: ({ id = defaultId, idempotencyKey }: { id?: string; idempotencyKey?: string } = {}) => {
+    mutationFn: ({
+      id = defaultId,
+      idempotencyKey,
+    }: { id?: string; idempotencyKey?: string } = {}) => {
       const options = managedRequestOptions(scope)
       const headers = idempotencyKey
         ? { ...options.headers, 'Idempotency-Key': idempotencyKey }

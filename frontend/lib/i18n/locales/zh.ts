@@ -957,7 +957,8 @@ const zh = {
         recommended: '推荐',
         allowedHosts: '允许的主机',
         allowedHostsPlaceholder: 'api.example.com\ngithub.com\n*.internal.example.com',
-        allowedHostsDesc: '支持逗号或换行分隔。第三方服务地址会自动放行；这里仅填写额外需要直连访问的主机。',
+        allowedHostsDesc:
+          '支持逗号或换行分隔。第三方服务地址会自动放行；这里仅填写额外需要直连访问的主机。',
         packages: '安装包',
         envVarsLabel: '环境变量',
         envVarsHint:
@@ -1086,6 +1087,7 @@ const zh = {
         },
         typeHintCron: '按 cron 周期或在设定时间触发智能体一次。',
         typeHintWebhook: '当签名的 HTTP 请求命中其端点时触发智能体。',
+        typeHintManual: '保存一个按需触发器，仅通过“立即运行”动作执行。',
         // Filters
         statusFilter: '状态',
         filterAll: '全部',
@@ -1101,9 +1103,9 @@ const zh = {
         noAgents: '暂无可用智能体',
         description: '描述',
         descriptionPlaceholder: '可选。说明这个触发器的用途。',
-        prompt: '提示词',
-        promptPlaceholder: '触发时智能体应该做什么？',
-        promptTemplate: 'Prompt 模板',
+        prompt: '触发后执行内容',
+        promptPlaceholder: '告诉智能体此触发器触发后要做什么。',
+        promptTemplate: '触发后执行内容',
         promptVarsHint: '可用变量示例：',
         runtimeEnvironment: '运行环境',
         envFollowAgent: '跟随 Agent 默认',
@@ -1112,7 +1114,7 @@ const zh = {
         maxRetries: '最大重试次数',
         enabled: '启用',
         disabled: '已禁用',
-        enabledHint: '已禁用的触发器不会触发。',
+        enabledHint: '已禁用的触发器不会由调度计划或 Webhook 投递触发。',
         // Schedule (cron / run-once)
         schedule: '调度计划',
         scheduleMode: '何时',
@@ -1122,6 +1124,7 @@ const zh = {
         runOnceHint: '在选定时间恰好触发一次，之后保持空闲。',
         runOnceSummary: '仅一次 · {{when}}',
         runOnceFuture: '请选择未来的时间。',
+        manualSummary: '仅手动运行',
         concurrency: '并发策略',
         concurrencyHint: '并发策略仅治理定时触发之间的重叠；手动"立即运行"总会执行。',
         nextRun: '下次运行',

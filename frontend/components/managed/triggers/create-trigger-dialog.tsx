@@ -41,6 +41,7 @@ import {
   type AgentTrigger,
   type TriggerConcurrencyPolicy,
   type TriggerSessionMode,
+  type TriggerType,
   type WebhookAuthMethod,
 } from '@/lib/managed/triggers'
 
@@ -66,7 +67,7 @@ interface SessionOption {
   archived_at?: string | null
 }
 
-type TriggerKind = 'cron' | 'webhook'
+type TriggerKind = TriggerType
 
 interface CreateTriggerDialogProps {
   open: boolean
@@ -81,6 +82,16 @@ const AUTH_METHODS: WebhookAuthMethod[] = ['hmac', 'bearer', 'token']
 const DEFAULT_DEDUPE_HEADER = 'x-joysafeter-delivery'
 const DEFAULT_SECRET_KEY = 'WEBHOOK_SECRET'
 const NOW_REFRESH_MS = 1000
+const PROMPT_VARIABLE_EXAMPLES: Record<TriggerKind, string[]> = {
+  cron: ['{{ cron.fired_at }}', '{{ cron.cron_expr }}', '{{ trigger.name }}'],
+  webhook: [
+    '{{ body }}',
+    '{{ body.alert.name }}',
+    '{{ headers.user_agent }}',
+    '{{ trigger.name }}',
+  ],
+  manual: ['{{ trigger.fired_at }}', '{{ trigger.source_type }}', '{{ trigger.name }}'],
+}
 let nowSnapshot = Math.floor(Date.now() / NOW_REFRESH_MS) * NOW_REFRESH_MS
 
 function currentNowSnapshot(): number {
@@ -207,7 +218,7 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
 
   const cfgAuth = trigger.config?.auth_methods
   return {
-    type: trigger.type === 'webhook' ? 'webhook' : 'cron',
+    type: trigger.type,
     name: trigger.name,
     description: trigger.description ?? '',
     agentId: apiResourceId(trigger.agent_id),
@@ -389,7 +400,9 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
       ? scheduleMode === 'once'
         ? runAtIsFuture || isUnchangedCompletedOneOff
         : isValidCron(cron)
-      : !!secretRef && authMethods.length > 0 && filterRowsValid)
+      : type === 'webhook'
+        ? !!secretRef && authMethods.length > 0 && filterRowsValid
+        : true)
 
   const pending = createMut.isPending || updateMut.isPending
 
@@ -435,13 +448,15 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
               timezone: tz,
               concurrency_policy: policy,
             }
-        : {
-            secret_ref: secretRef,
-            secret_key: secretKey || DEFAULT_SECRET_KEY,
-            auth_methods: authMethods,
-            dedupe_header: dedupeHeader.trim() || DEFAULT_DEDUPE_HEADER,
-            filter: rowsToFilter(filterRows),
-          }
+        : type === 'webhook'
+          ? {
+              secret_ref: secretRef,
+              secret_key: secretKey || DEFAULT_SECRET_KEY,
+              auth_methods: authMethods,
+              dedupe_header: dedupeHeader.trim() || DEFAULT_DEDUPE_HEADER,
+              filter: rowsToFilter(filterRows),
+            }
+          : {}
 
     try {
       if (isEdit && trigger) {
@@ -489,26 +504,28 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Type segmented control (locked on edit; manual not creatable) */}
+          {/* Type segmented control (locked on edit so type-specific runtime state is not rewritten). */}
           <div className="space-y-1.5">
             <Label>{t('managed.triggers.type')}</Label>
-            <Tabs
-              value={type}
-              onValueChange={(v) => !isEdit && setType(v as TriggerKind)}
-            >
-              <TabsList className="grid w-full grid-cols-2">
+            <Tabs value={type} onValueChange={(v) => !isEdit && setType(v as TriggerKind)}>
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="cron" disabled={isEdit && type !== 'cron'}>
                   {t('managed.triggers.typeOption.cron')}
                 </TabsTrigger>
                 <TabsTrigger value="webhook" disabled={isEdit && type !== 'webhook'}>
                   {t('managed.triggers.typeOption.webhook')}
                 </TabsTrigger>
+                <TabsTrigger value="manual" disabled={isEdit && type !== 'manual'}>
+                  {t('managed.triggers.typeOption.manual')}
+                </TabsTrigger>
               </TabsList>
             </Tabs>
             <p className="text-xs text-muted-foreground">
               {type === 'cron'
                 ? t('managed.triggers.typeHintCron')
-                : t('managed.triggers.typeHintWebhook')}
+                : type === 'webhook'
+                  ? t('managed.triggers.typeHintWebhook')
+                  : t('managed.triggers.typeHintManual')}
             </p>
           </div>
 
@@ -607,8 +624,11 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
             />
             <p className="text-xs text-muted-foreground">
               {t('managed.triggers.promptVarsHint')}{' '}
-              <code>{'{{ body }}'}</code>, <code>{'{{ body.alert.name }}'}</code>,{' '}
-              <code>{'{{ fired_at }}'}</code>
+              <span className="inline-flex flex-wrap gap-1 align-middle">
+                {PROMPT_VARIABLE_EXAMPLES[type].map((example) => (
+                  <code key={example}>{example}</code>
+                ))}
+              </span>
             </p>
           </div>
 
@@ -656,9 +676,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                 })}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              {t('managed.triggers.environmentHint')}
-            </p>
+            <p className="text-xs text-muted-foreground">{t('managed.triggers.environmentHint')}</p>
           </div>
 
           {/* Cron tab */}
@@ -806,7 +824,9 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                           value={row.path}
                           onChange={(e) =>
                             setFilterRows((rows) =>
-                              rows.map((r, i) => (i === index ? { ...r, path: e.target.value } : r)),
+                              rows.map((r, i) =>
+                                i === index ? { ...r, path: e.target.value } : r,
+                              ),
                             )
                           }
                           placeholder={t('managed.triggers.deliveryFilterPathPlaceholder')}

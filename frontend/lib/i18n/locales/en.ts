@@ -684,12 +684,15 @@ const en = {
         filesAndOutputs: 'Files / Outputs',
         fileList: 'File List',
         persistentFiles: 'Output Files',
-        persistentFilesDesc: 'Persistent files attached to or produced by this session. They remain visible after sandbox cleanup.',
+        persistentFilesDesc:
+          'Persistent files attached to or produced by this session. They remain visible after sandbox cleanup.',
         noOutputFiles: 'No output files yet.',
         runtimeSandboxFiles: 'All Files',
         sandboxFiles: 'Sandbox Files',
-        sandboxFilesDesc: 'Browse runtime files and outputs under /workspace. Hidden files are not shown.',
-        sandboxFilesUnavailable: 'The session sandbox is unavailable. It may not be started or may have been destroyed.',
+        sandboxFilesDesc:
+          'Browse runtime files and outputs under /workspace. Hidden files are not shown.',
+        sandboxFilesUnavailable:
+          'The session sandbox is unavailable. It may not be started or may have been destroyed.',
         emptySandboxFiles: 'No visible files in this directory.',
         searchFiles: 'Search files',
         parentDirectory: 'Parent',
@@ -1032,6 +1035,7 @@ const en = {
         },
         typeHintCron: 'Fires the agent on a recurring cron schedule or once at a set time.',
         typeHintWebhook: 'Fires the agent when a signed HTTP request hits its endpoint.',
+        typeHintManual: 'Saves an on-demand trigger that only runs from the Run now action.',
         // Filters
         statusFilter: 'Status',
         filterAll: 'All',
@@ -1047,9 +1051,9 @@ const en = {
         noAgents: 'No agents available',
         description: 'Description',
         descriptionPlaceholder: 'Optional. What this trigger is for.',
-        prompt: 'Prompt',
-        promptPlaceholder: 'What should the agent do when this fires?',
-        promptTemplate: 'Prompt template',
+        prompt: 'Run instructions',
+        promptPlaceholder: 'Tell the agent what to do when this trigger fires.',
+        promptTemplate: 'Run instructions',
         promptVarsHint: 'Available variables, for example:',
         runtimeEnvironment: 'Runtime environment',
         envFollowAgent: 'Follow agent default',
@@ -1058,7 +1062,7 @@ const en = {
         maxRetries: 'Max retries',
         enabled: 'Enabled',
         disabled: 'Disabled',
-        enabledHint: 'Disabled triggers will not fire.',
+        enabledHint: 'Disabled triggers will not fire from schedules or webhook deliveries.',
         // Schedule (cron / run-once)
         schedule: 'Schedule',
         scheduleMode: 'When',
@@ -1068,6 +1072,7 @@ const en = {
         runOnceHint: 'Fires exactly once at the chosen time, then stays idle.',
         runOnceSummary: 'Run once · {{when}}',
         runOnceFuture: 'Pick a time in the future.',
+        manualSummary: 'Run manually only',
         concurrency: 'Concurrency',
         concurrencyHint:
           'Concurrency policy governs overlap between scheduled fires only; a manual "Run now" always executes.',
@@ -1251,14 +1256,16 @@ const en = {
           'Quickstart uses your default model secret to generate recommendations. The Agent itself uses the selected Agent Secret for model, endpoint, and API key settings.',
         configureSecret: 'Configure Secret',
         browseTemplates: 'Browse Templates',
-        templateBrowseHint: 'Pick a common scenario to prefill the agent role, tools, and follow-up configuration suggestions.',
+        templateBrowseHint:
+          'Pick a common scenario to prefill the agent role, tools, and follow-up configuration suggestions.',
         templateCount: '{{count}} templates',
         searchTemplates: 'Search templates...',
         noTemplatesMatch: 'No matching templates',
         clearTemplateSearch: 'Clear search',
         useTemplate: 'Use template →',
         templateApplyMessage: 'Create an agent from the "{{name}}" template',
-        templateAppliedMessage: 'Structured template applied. Review the configuration on the right, then create this agent.',
+        templateAppliedMessage:
+          'Structured template applied. Review the configuration on the right, then create this agent.',
         templateCategory: {
           basic: 'Basic setup',
           research: 'Research & analysis',
@@ -1719,7 +1726,8 @@ const en = {
             unknown: 'Not ready',
           },
           action: {
-            submit_or_approve: 'A project admin needs to submit this skill for review and approve it.',
+            submit_or_approve:
+              'A project admin needs to submit this skill for review and approve it.',
             run_security_scan: 'A security scan must be completed first.',
             fix_and_rescan: 'Fix the security findings, then run a new security scan.',
             wait_for_scan: 'A security scan is in progress — please wait.',
@@ -2028,7 +2036,8 @@ const en = {
         detail: {
           consecutiveFailures: '{{count}} consecutive failures (threshold: {{threshold}})',
           slowAgent: 'avg {{avgSec}}s (threshold: {{thresholdSec}}s)',
-          tokenSpike: 'token usage up {{changePct}}% vs previous period (threshold: {{thresholdPct}}%)',
+          tokenSpike:
+            'token usage up {{changePct}}% vs previous period (threshold: {{thresholdPct}}%)',
           highRetries: 'max {{maxRetries}} retries ({{taskCount}} tasks)',
           zombieSession: 'session running for {{hours}}h',
           unknown: 'Anomaly detected',
@@ -2052,9 +2061,12 @@ const en = {
         engineDistribution: 'Engine Distribution',
         suggestions: 'Optimization Tips',
         suggestionMessages: {
-          lowCacheHit: 'Cache hit rate is {{cacheHitPct}}% — consider reducing system prompt variation to improve caching',
-          highOutputRatio: 'Output tokens are {{outputRatioPct}}% of input — consider constraining agent response length',
-          highQueueWait: 'Average queue wait is {{queueWaitSec}}s — consider adding more sandbox capacity',
+          lowCacheHit:
+            'Cache hit rate is {{cacheHitPct}}% — consider reducing system prompt variation to improve caching',
+          highOutputRatio:
+            'Output tokens are {{outputRatioPct}}% of input — consider constraining agent response length',
+          highQueueWait:
+            'Average queue wait is {{queueWaitSec}}s — consider adding more sandbox capacity',
           unknown: 'Optimization opportunity detected',
         },
       },

@@ -19,7 +19,9 @@ vi.mock('@/hooks/managed/use-current-project-read-only', () => ({
 vi.mock('@/hooks/managed/use-scoped-actions', () => ({
   useScopedActions: () => ({
     scope: { orgId: 'org-a', projectId: 'project-a', key: 'org-a:project-a' },
-    beginAction: () => ({ scope: { orgId: 'org-a', projectId: 'project-a', key: 'org-a:project-a' } }),
+    beginAction: () => ({
+      scope: { orgId: 'org-a', projectId: 'project-a', key: 'org-a:project-a' },
+    }),
     isCurrentAction: () => true,
     scopeIsActive: () => true,
     bumpRun: vi.fn(),
@@ -41,7 +43,8 @@ vi.mock('@/lib/api-client', () => ({
 }))
 
 vi.mock('@/lib/managed/triggers', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/managed/triggers')>('@/lib/managed/triggers')
+  const actual =
+    await vi.importActual<typeof import('@/lib/managed/triggers')>('@/lib/managed/triggers')
   return {
     ...actual,
     useCreateAgentTrigger: () => ({ mutateAsync, isPending: false }),
@@ -114,6 +117,22 @@ function pendingOneOffTrigger(): AgentTrigger {
   }
 }
 
+function manualTrigger(): AgentTrigger {
+  return {
+    ...completedOneOffTrigger(),
+    id: 'trig_manual',
+    name: 'Manual only',
+    type: 'manual',
+    prompt_template: 'run on demand',
+    cron_expr: null,
+    timezone: null,
+    run_at: null,
+    concurrency_policy: 'allow',
+    next_run_at: null,
+    last_fired_slot: null,
+  }
+}
+
 function renderDialog(trigger: AgentTrigger, open = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const view = render(
@@ -183,5 +202,29 @@ describe('CreateTriggerDialog edit mode', () => {
 
     const saveButton = view.getByText('common.save').closest('button')
     expect(saveButton?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('edits a manual trigger without leaking cron-only fields', async () => {
+    const { getByDisplayValue, getByText, queryByText } = renderDialog(manualTrigger())
+
+    expect(getByDisplayValue('Manual only')).toBeTruthy()
+    expect(getByText('managed.triggers.typeOption.manual')).toBeTruthy()
+    expect(getByText('{{ trigger.fired_at }}')).toBeTruthy()
+    expect(getByText('{{ trigger.source_type }}')).toBeTruthy()
+    expect(queryByText('{{ body }}')).toBeNull()
+    const saveButton = getByText('common.save').closest('button')
+    expect(saveButton?.hasAttribute('disabled')).toBe(false)
+
+    fireEvent.click(saveButton!)
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled())
+    const payload = mutateAsync.mock.calls[0][0]
+    expect(payload.id).toBe('trig_manual')
+    expect(payload.body).not.toHaveProperty('cron_expr')
+    expect(payload.body).not.toHaveProperty('run_at')
+    expect(payload.body).not.toHaveProperty('timezone')
+    expect(payload.body).not.toHaveProperty('concurrency_policy')
+    expect(payload.body).not.toHaveProperty('secret_ref')
+    expect(payload.body).not.toHaveProperty('auth_methods')
   })
 })
