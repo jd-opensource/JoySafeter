@@ -30,6 +30,7 @@ from app.everos.core.observability.logging import get_logger
 from .exception_handlers import register_handlers
 from .lifespans import (
     CascadeLifespanProvider,
+    IdleFlushLifespanProvider,
     LanceDBLifespanProvider,
     LLMLifespanProvider,
     OmeLifespanProvider,
@@ -64,6 +65,7 @@ def _default_lifespan_providers() -> list[LifespanProvider]:
         CascadeLifespanProvider(),
         VectorRebuildLifespanProvider(),
         OmeLifespanProvider(),
+        IdleFlushLifespanProvider(),
     ]
 
 

@@ -22,6 +22,7 @@ External usage::
 """
 
 from .cascade import CascadeLifespanProvider as CascadeLifespanProvider
+from .idle_flush import IdleFlushLifespanProvider as IdleFlushLifespanProvider
 from .lancedb import LanceDBLifespanProvider as LanceDBLifespanProvider
 from .llm import LLMLifespanProvider as LLMLifespanProvider
 from .ome import OmeLifespanProvider as OmeLifespanProvider
@@ -32,6 +33,7 @@ from .vector_rebuild import (
 
 __all__ = [
     "CascadeLifespanProvider",
+    "IdleFlushLifespanProvider",
     "LLMLifespanProvider",
     "LanceDBLifespanProvider",
     "OmeLifespanProvider",
