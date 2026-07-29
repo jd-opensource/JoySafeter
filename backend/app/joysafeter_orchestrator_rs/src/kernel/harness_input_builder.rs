@@ -151,6 +151,20 @@ impl HarnessInputBuilder {
             .unwrap_or("append")
             .to_string();
 
+        // EverOS memory service integration. Ported from the deleted Python
+        // `harness_input_builder` (`_resolve_everos_base_url` +
+        // `_append_everos_system_prompt`) — the only EverOS wiring the Python
+        // orchestrator carried. Ensure the sandbox env exposes the normalized
+        // base URL and the system prompt tells the agent where to reach it.
+        let everos_base_url = resolve_everos_base_url(&input.env);
+        input
+            .env
+            .insert("EVEROS_BASE_URL".to_string(), everos_base_url.clone());
+        input.system_prompt = Some(append_everos_system_prompt(
+            input.system_prompt.take(),
+            &everos_base_url,
+        ));
+
         let has_harness_resume = input
             .session_id
             .as_ref()
@@ -1239,6 +1253,8 @@ mod tests {
         should_inject_conversation_history, trim_history_lines_to_budget, HarnessInputBuilder,
         SkillForArchive,
     };
+    use super::{append_everos_system_prompt, resolve_everos_base_url, EVEROS_DEFAULT_BASE_URL};
+    use std::collections::HashMap;
     use uuid::Uuid;
 
     fn database_url() -> Option<String> {
@@ -1400,6 +1416,49 @@ mod tests {
         let mut skill = ready_skill();
         skill.security_scan_hash = None;
         assert!(ensure_skill_runtime_ready(&skill).is_err());
+    }
+
+    #[test]
+    fn everos_base_url_falls_back_to_default_and_strips_trailing_slash() {
+        // No agent env and (in a clean test process) no EVEROS_BASE_URL set:
+        // resolves to the in-cluster default.
+        let empty = HashMap::new();
+        assert_eq!(resolve_everos_base_url(&empty), EVEROS_DEFAULT_BASE_URL);
+
+        // Agent-provided value wins and its trailing slash is stripped.
+        let mut env = HashMap::new();
+        env.insert(
+            "EVEROS_BASE_URL".to_string(),
+            "http://everos.internal:9999/".to_string(),
+        );
+        assert_eq!(
+            resolve_everos_base_url(&env),
+            "http://everos.internal:9999"
+        );
+
+        // Blank agent value is ignored, falling through to the default.
+        let mut blank = HashMap::new();
+        blank.insert("EVEROS_BASE_URL".to_string(), "   ".to_string());
+        assert_eq!(resolve_everos_base_url(&blank), EVEROS_DEFAULT_BASE_URL);
+    }
+
+    #[test]
+    fn everos_system_prompt_is_always_appended() {
+        let url = "http://everos:8003";
+
+        // With a base prompt, the note is appended after a blank line.
+        let with_base = append_everos_system_prompt(Some("base prompt".to_string()), url);
+        assert!(with_base.starts_with("base prompt\n\n# EverOS Memory Service"));
+        assert!(with_base.contains(&format!("`{url}`")));
+
+        // With no base prompt, the note stands alone (mirrors Python behavior).
+        let without_base = append_everos_system_prompt(None, url);
+        assert!(without_base.starts_with("# EverOS Memory Service"));
+        assert!(without_base.contains(&format!("`{url}`")));
+
+        // An empty base prompt is treated as absent.
+        let empty_base = append_everos_system_prompt(Some(String::new()), url);
+        assert_eq!(empty_base, without_base);
     }
 
     #[tokio::test]
@@ -2352,6 +2411,45 @@ fn combine_system_prompt(base: Option<String>, memory: Option<String>) -> Option
         (Some(base), None) => Some(base),
         (None, Some(memory)) => Some(memory),
         (None, None) => None,
+    }
+}
+
+/// In-cluster default for the EverOS memory service, matching the compose
+/// `everos` container (`:8003`).
+const EVEROS_DEFAULT_BASE_URL: &str = "http://everos:8003";
+
+/// Resolve the EverOS base URL for the sandbox.
+///
+/// Mirrors Python `_resolve_everos_base_url` combined with the
+/// `env.setdefault("EVEROS_BASE_URL", ...)` in `build_harness_input`: prefer an
+/// agent-provided value, fall back to the orchestrator process env, then the
+/// in-cluster default. The trailing slash is always stripped.
+fn resolve_everos_base_url(env: &HashMap<String, String>) -> String {
+    env.get("EVEROS_BASE_URL")
+        .cloned()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| std::env::var("EVEROS_BASE_URL").ok())
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| EVEROS_DEFAULT_BASE_URL.to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// Append the EverOS availability note to the combined system prompt.
+///
+/// Mirrors Python `_append_everos_system_prompt` verbatim: the note is always
+/// emitted (even when there is no base prompt) so the agent is told where the
+/// memory service lives.
+fn append_everos_system_prompt(base_system: Option<String>, everos_base_url: &str) -> String {
+    let note = format!(
+        "# EverOS Memory Service\n\
+         The EverOS memory service is available inside this sandbox at \
+         `{everos_base_url}`. Use it for long-term memory operations when \
+         the task explicitly requires memory search or memory writes."
+    );
+    match base_system.filter(|v| !v.is_empty()) {
+        Some(base) => format!("{base}\n\n{note}"),
+        None => note,
     }
 }
 
