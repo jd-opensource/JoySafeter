@@ -4,12 +4,13 @@ Single source of truth for "cancel a task AND actually stop the run". Both the
 HTTP ``POST /tasks/{id}/cancel`` endpoint and the scheduler's ``replace``
 concurrency policy go through here, so the two paths can never drift.
 
-The critical invariant: a task marked ``CANCELLED`` in Postgres must be
+The critical invariant: a task marked ``CANCELLED`` in Postgres must either have
+no runtime owner yet (pending/scheduling before sandbox attach), or be
 accompanied by the Redis ``cancel`` command that the Rust orchestrator's command
 listener consumes to call ``request_cancel()`` on the sandbox actually running
-it. Flipping only the DB row (the previous scheduler behaviour) left the run
-executing to completion — a cosmetic cancel. This service guarantees both halves
-happen together.
+it. Flipping only the DB row for an owned runtime left the run executing to
+completion — a cosmetic cancel. This service guarantees both halves happen
+together.
 
 Runtime command relay goes through the shared orchestrator bridge. This keeps
 the cancellation boundary usable from both API and worker/scheduler code without
@@ -24,7 +25,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
+from app.joysafeter_domain.models.joysafeter_task import JoySafeterTaskStatus
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_shared.common.app_errors import ConflictError, ServiceUnavailableError
@@ -40,12 +41,12 @@ class TaskCancellationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _resolve_sandbox_id(self, task: Any) -> Any | None:
-        sandbox_id = getattr(task, "sandbox_id", None)
-        if not sandbox_id and getattr(task, "chat_session_id", None):
-            sandbox = await SandboxService(self.db).find_by_session(task.chat_session_id)
-            sandbox_id = sandbox.id if sandbox else None
-        return sandbox_id
+    def _task_sandbox_id(self, task: Any) -> Any | None:
+        return getattr(task, "sandbox_id", None)
+
+    @staticmethod
+    def _task_status(task: Any) -> JoySafeterTaskStatus:
+        return JoySafeterTaskStatus.from_str_lossy(getattr(task, "status", ""))
 
     async def _relay_cancel_to_sandbox(self, task: Any, sandbox_id: Any, *, reason: str) -> bool:
         task_id = getattr(task, "id")
@@ -67,11 +68,12 @@ class TaskCancellationService:
     async def relay_cancel(self, task: Any, *, reason: str) -> bool:
         """Publish the Redis ``cancel`` command to the sandbox running *task*.
 
-        Returns ``True`` when a cancel command was relayed, ``False`` when the
-        task has no sandbox yet (still pending) — such a task is stopped purely
-        by its DB state transition, so no relay is needed.
+        Only the task's own ``sandbox_id`` is treated as runtime ownership proof;
+        a session's previous/current sandbox is not enough to address a cancel.
+        Returns ``True`` when a command was relayed, ``False`` when the task has
+        no sandbox owner yet.
         """
-        sandbox_id = await self._resolve_sandbox_id(task)
+        sandbox_id = self._task_sandbox_id(task)
         if not sandbox_id:
             return False
         return await self._relay_cancel_to_sandbox(task, sandbox_id, reason=reason)
@@ -89,7 +91,8 @@ class TaskCancellationService:
         session_id = getattr(task, "chat_session_id", None)
         observed_task_sandbox_id = getattr(task, "sandbox_id", None)
         observed_owner_epoch = getattr(task, "owner_epoch", None)
-        sandbox_id = await self._resolve_sandbox_id(task)
+        sandbox_id = self._task_sandbox_id(task)
+        status = self._task_status(task)
         task_svc = JoySafeterTaskService(self.db)
         if sandbox_id:
             relayed = await self._relay_cancel_to_sandbox(task, sandbox_id, reason=reason)
@@ -143,7 +146,51 @@ class TaskCancellationService:
                     user_action="refresh",
                 )
         else:
-            await task_svc.cancel_task(task_id)
+            if status == JoySafeterTaskStatus.RUNNING:
+                raise ServiceUnavailableError(
+                    code="TASK_CANCEL_STATE_SYNC_FAILED",
+                    message="Task cancel could not be finalized because task has no runtime owner.",
+                    data={"task_id": str(task_id), "session_id": str(session_id or "")},
+                    source="api",
+                    retryable=True,
+                    user_action="refresh",
+                )
+            try:
+                cancelled = await task_svc.cancel_task_if_owner_matches(
+                    task_id,
+                    expected_sandbox_id=observed_task_sandbox_id,
+                    expected_owner_epoch=observed_owner_epoch,
+                )
+            except ValueError:
+                raise
+            except Exception as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="task_cancellation",
+                    code="TASK_CANCEL_STATE_SYNC_FAILED",
+                    message="Failed to finalize task cancel before runtime ownership was assigned",
+                    operation="cancel_task_finalize_without_runtime_owner",
+                    error=exc,
+                    data={"task_id": str(task_id), "session_id": str(session_id or "")},
+                )
+                await self.db.rollback()
+                raise ServiceUnavailableError(
+                    code="TASK_CANCEL_STATE_SYNC_FAILED",
+                    message="Task cancel could not be finalized because task ownership changed.",
+                    data={"task_id": str(task_id), "session_id": str(session_id or "")},
+                    source="api",
+                    retryable=True,
+                    user_action="refresh",
+                ) from None
+            if not cancelled:
+                raise ServiceUnavailableError(
+                    code="TASK_CANCEL_STATE_SYNC_FAILED",
+                    message="Task cancel could not be finalized because task ownership changed.",
+                    data={"task_id": str(task_id), "session_id": str(session_id or "")},
+                    source="api",
+                    retryable=True,
+                    user_action="refresh",
+                )
         await self._mark_session_idle_after_cancel(task_id=task_id, session_id=session_id)
         return bool(sandbox_id)
 

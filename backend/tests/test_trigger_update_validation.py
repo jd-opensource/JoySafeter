@@ -223,9 +223,37 @@ async def test_create_rejects_cron_expr_on_webhook_at_domain_boundary():
     assert exc_info.value.code == "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED"
 
 
+@pytest.mark.asyncio
+async def test_create_manual_trigger_has_no_schedule_or_webhook_config_pollution():
+    db = _NoDb()
+    trigger = await _NoDbCreateService(db).create(  # type: ignore[arg-type]
+        name="manual-only",
+        type="manual",
+        agent_id=uuid.uuid4(),
+        prompt_template="run on demand",
+        secret_ref="ignored-webhook-secret",
+        secret_key="IGNORED_SECRET_KEY",
+        auth_methods=["hmac"],
+        dedupe_header="x-ignored-delivery",
+    )
+
+    assert db.added is trigger
+    assert trigger.type == "manual"
+    assert trigger.config == {}
+    assert trigger.cron_expr is None
+    assert trigger.timezone is None
+    assert trigger.run_at is None
+    assert trigger.next_run_at is None
+    assert trigger.secret_ref is None
+    assert trigger.secret_key is None
+
+
 class _NoDb:
+    def __init__(self):
+        self.added = None
+
     def add(self, _value):
-        pass
+        self.added = _value
 
     async def commit(self):
         pass
@@ -235,5 +263,8 @@ class _NoDb:
 
 
 class _NoDbCreateService(JoySafeterTriggerService):
+    async def get_by_name(self, *_args, **_kwargs):
+        return None
+
     async def resolve_runnable_target(self, **_kwargs):
         return SimpleNamespace(id=uuid.uuid4()), None

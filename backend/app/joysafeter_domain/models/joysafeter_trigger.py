@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,13 +23,28 @@ class TriggerConcurrencyPolicy(str, enum.Enum):
 class JoySafeterTrigger(JoySafeterBaseModel):
     __tablename__ = "joysafeter_triggers"
     __table_args__ = (
-        UniqueConstraint("project_id", "name", name="uq_joysafeter_triggers_project_name"),
+        Index(
+            "uq_joysafeter_triggers_project_name",
+            "project_id",
+            "name",
+            unique=True,
+            postgresql_where=text("project_id IS NOT NULL AND deleted_at IS NULL"),
+            sqlite_where=text("project_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_joysafeter_triggers_global_name",
+            "name",
+            unique=True,
+            postgresql_where=text("project_id IS NULL AND deleted_at IS NULL"),
+            sqlite_where=text("project_id IS NULL AND deleted_at IS NULL"),
+        ),
         Index("idx_joysafeter_triggers_project", "project_id"),
         Index("idx_joysafeter_triggers_type_enabled", "type", "enabled"),
         Index(
             "idx_joysafeter_triggers_cron_due",
             "next_run_at",
-            postgresql_where=text("enabled IS TRUE AND type = 'cron'"),
+            postgresql_where=text("enabled IS TRUE AND type = 'cron' AND deleted_at IS NULL"),
+            sqlite_where=text("enabled IS TRUE AND type = 'cron' AND deleted_at IS NULL"),
         ),
     )
 
@@ -75,6 +90,7 @@ class JoySafeterTrigger(JoySafeterBaseModel):
 
     locked_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255), ForeignKey("joysafeter_organization_projects.id"), nullable=True

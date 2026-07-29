@@ -16,11 +16,13 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JOYSAFETER_TERMINAL_STATUSES,
     JoySafeterTask,
 )
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
-from app.joysafeter_shared.common.app_errors import ConflictError, RequestValidationAppError
+from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, RequestValidationAppError
+from app.joysafeter_shared.utils.id_utils import same_id
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 _SESSION_KEY_MAX_CHARS = 512
@@ -115,6 +117,20 @@ class AgentTriggerExecutor:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def _lock_trigger_for_submission(self, *, trigger_id: uuid.UUID, project_id: Optional[str]) -> None:
+        conditions = [JoySafeterTrigger.id == trigger_id]
+        if project_id is not None:
+            conditions.append(JoySafeterTrigger.project_id == project_id)
+        conditions.append(JoySafeterTrigger.deleted_at.is_(None))
+        result = await self.db.execute(select(JoySafeterTrigger.id).where(*conditions).with_for_update())
+        if result.scalar_one_or_none() is None:
+            raise NotFoundError(
+                code="TRIGGER_NOT_FOUND",
+                message="Trigger not found",
+                data={"trigger_id": str(trigger_id)},
+                user_action="refresh",
+            )
+
     async def resolve_session(self, config: AgentTriggerRunConfig) -> tuple[JoySafeterSession, bool]:
         session_svc = SessionService(self.db)
         mode = config.session_mode or "fresh"
@@ -134,7 +150,7 @@ class AgentTriggerExecutor:
                     data={"session_id": str(config.pinned_session_id)},
                     user_action="fix_input",
                 )
-            if session.agent_id != config.agent.id:
+            if not same_id(session.agent_id, config.agent.id):
                 raise RequestValidationAppError(
                     code="TRIGGER_PINNED_SESSION_AGENT_MISMATCH",
                     message="Pinned session belongs to a different agent",
@@ -149,7 +165,7 @@ class AgentTriggerExecutor:
             session = None
             if config.reusable_session_id is not None:
                 session = await session_svc.get_session(config.reusable_session_id, project_id=config.project_id)
-                if session is not None and (session.archived_at is not None or session.agent_id != config.agent.id):
+                if session is not None and (session.archived_at is not None or not same_id(session.agent_id, config.agent.id)):
                     session = None
             if session is not None and session.status == SessionStatus.IDLE.value:
                 return session, False
@@ -207,6 +223,8 @@ class AgentTriggerExecutor:
     async def run(self, config: AgentTriggerRunConfig, *, enforce_user_quota: bool = True) -> AgentTriggerRunResult:
         session_svc = SessionService(self.db)
         submission = TaskSubmissionService(self.db)
+        if config.trigger_id is not None:
+            await self._lock_trigger_for_submission(trigger_id=config.trigger_id, project_id=config.project_id)
         await submission.enforce_admission(
             project_id=config.project_id,
             user_id=config.user_id,
@@ -223,6 +241,13 @@ class AgentTriggerExecutor:
         )
         if active_result.scalar_one_or_none() is not None:
             raise ConflictError(code="CONFLICT", message="Target session already has an active task")
+        if config.trigger_id is not None:
+            try:
+                await self._lock_trigger_for_submission(trigger_id=config.trigger_id, project_id=config.project_id)
+            except NotFoundError:
+                if created_session:
+                    await session_svc.delete_session(session.id, project_id=config.project_id)
+                raise
         task, created = await submission.create_and_dispatch(
             agent_id=config.agent.id,
             prompt=config.prompt,
@@ -240,7 +265,7 @@ class AgentTriggerExecutor:
             enforce_admission=False,
             enforce_user_quota=False,
         )
-        if not created and created_session and task.chat_session_id != session.id:
+        if not created and created_session and not same_id(task.chat_session_id, session.id):
             # Idempotent replay: create_and_dispatch dropped the fresh session we
             # auto-created for this attempt and returned the pre-existing task.
             # Return that task's real session so callers (mark_attempt.last_session_id)

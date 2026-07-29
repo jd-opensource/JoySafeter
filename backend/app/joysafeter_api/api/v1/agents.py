@@ -40,7 +40,6 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import (
-    relay_sandbox_command_via_redis,
     relay_sandbox_destroy_via_redis,
 )
 
@@ -521,33 +520,21 @@ async def _cancel_active_tasks_for_agent(
     agent_id: uuid.UUID, db: AsyncSession, project_id: Optional[str] = None
 ) -> None:
     """Cancel all active tasks through the Rust runtime boundary."""
-    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-    from app.joysafeter_api.services import SandboxService
+    from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 
     svc = AgentService(db)
-    task_svc = TaskService(db)
-    sandbox_svc = SandboxService(db)
+    cancellation = TaskCancellationService(db)
 
     active_tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=project_id)
     cancelled = 0
 
     for task in active_tasks:
-        sandbox_id = getattr(task, "sandbox_id", None)
-        if not sandbox_id and getattr(task, "chat_session_id", None):
-            sandbox = await sandbox_svc.find_by_session(task.chat_session_id, project_id=project_id)
-            sandbox_id = sandbox.id if sandbox else None
-        if sandbox_id:
-            relayed = await relay_sandbox_command_via_redis(
-                sandbox_id,
-                command_type="cancel",
-                reason="Agent deleted",
-                boundary="agent_api",
-                operation="delete_agent_cancel_task",
-                failure_code="AGENT_REDIS_CANCEL_RELAY_FAILED",
-                failure_message="Redis task cancel relay failed during agent delete",
-                data={"agent_id": str(agent_id), "task_id": str(task.id)},
-            )
-            if not relayed:
+        try:
+            await cancellation.cancel(task, reason="Agent deleted")
+            cancelled += 1
+        except ServiceUnavailableError as exc:
+            if exc.code == "TASK_CANCEL_REDIS_RELAY_FAILED":
+                sandbox_id = (exc.data or {}).get("sandbox_id") or str(getattr(task, "sandbox_id", ""))
                 raise ServiceUnavailableError(
                     code="AGENT_REDIS_CANCEL_RELAY_FAILED",
                     message="Failed to cancel agent task in sandbox runtime.",
@@ -555,13 +542,10 @@ async def _cancel_active_tasks_for_agent(
                     source="runtime",
                     retryable=True,
                     user_action="retry",
-                )
-
-        try:
-            await task_svc.cancel_task(task.id)
-            cancelled += 1
+                ) from exc
+            logger.debug("Failed to cancel task %s during agent force delete", task.id, exc_info=True)
         except Exception:
-            logger.debug("Failed to cancel task %s during agent force delete", task.id)
+            logger.debug("Failed to cancel task %s during agent force delete", task.id, exc_info=True)
 
     remaining_active = await svc.list_active_tasks_for_agent(agent_id, project_id=project_id)
     if remaining_active:

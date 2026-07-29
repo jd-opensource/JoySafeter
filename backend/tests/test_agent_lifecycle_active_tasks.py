@@ -638,7 +638,7 @@ async def test_force_delete_agent_cancels_and_destroys_sandbox_via_rust(db_sessi
 
     await delete_agent(agent_id, True, db_session, _auth_ctx())
 
-    command_types = [payload["type"] for _, payload in redis.published]
+    command_types = [payload["type"] for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
     assert command_types == ["cancel", "destroy"]
     assert redis.blpop_timeouts == [2, 30]
 

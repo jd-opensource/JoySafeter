@@ -201,6 +201,47 @@ async def test_fire_webhook_stamps_trigger_id_for_run_history(db_session, monkey
 
 
 @pytest.mark.asyncio
+async def test_fire_webhook_redacts_and_bounds_persisted_last_payload(db_session, monkeypatch):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    trigger = await _seed_webhook_trigger(db_session)
+    payload = {
+        "body": {
+            "kind": "wanted",
+            "token": "raw-token-value",
+            "nested": {"Authorization": "Bearer raw-token-value"},
+            "message": "x" * 10_000,
+        },
+        "headers": {"content_type": "application/json"},
+    }
+
+    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+        trigger,
+        raw_body=b'{"kind":"wanted"}',
+        payload=payload,
+        delivery_id="delivery-redaction",
+        auth_fingerprint="signature-1",
+    )
+
+    assert status == "fired"
+    assert task is not None
+    assert session_id is not None
+    assert deduped is False
+    assert reason is None
+
+    await db_session.refresh(trigger)
+    body = trigger.last_payload["body"]
+    assert body["kind"] == "wanted"
+    assert body["token"] == "[REDACTED]"
+    assert body["nested"]["Authorization"] == "[REDACTED]"
+    assert "raw-token-value" not in str(trigger.last_payload)
+    assert len(body["message"]) < 1200
+
+
+@pytest.mark.asyncio
 async def test_fire_webhook_bounds_oversized_external_delivery_key(db_session, monkeypatch):
     redis = _FakeQueueRedis()
     monkeypatch.setattr(

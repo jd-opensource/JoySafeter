@@ -554,6 +554,44 @@ async def test_delete_environment_rejects_cron_trigger_reference_without_active_
 
 
 @pytest.mark.asyncio
+async def test_delete_environment_ignores_soft_deleted_trigger_reference(db_session):
+    env = JoySafeterEnvironment(name=f"soft-deleted-trigger-env-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(name=f"soft-deleted-trigger-agent-{uuid.uuid4()}")
+    db_session.add_all([env, agent])
+    await db_session.commit()
+    await db_session.refresh(env)
+    await db_session.refresh(agent)
+    env_id = env.id
+
+    trigger = JoySafeterTrigger(
+        name=f"deleted-env-schedule-{uuid.uuid4()}",
+        type="cron",
+        agent_id=agent.id,
+        prompt_template="run later",
+        cron_expr="*/5 * * * *",
+        timezone="UTC",
+        enabled=False,
+        next_run_at=None,
+        environment_ref=env.name,
+        deleted_at=utc_now(),
+        filter={},
+        config={},
+        last_payload={},
+    )
+    db_session.add(trigger)
+    await db_session.commit()
+
+    deleted = await delete_environment(env_id, db_session, _auth_ctx())
+
+    assert deleted is None
+    db_session.expire_all()
+    env_row = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == env_id))
+    ).scalar_one()
+    assert env_row.deleted_at is not None
+
+
+@pytest.mark.asyncio
 async def test_update_environment_config_rejects_active_task_agent_reference(db_session):
     env = JoySafeterEnvironment(name=f"update-config-env-{uuid.uuid4()}", description="")
     db_session.add(env)

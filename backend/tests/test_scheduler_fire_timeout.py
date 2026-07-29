@@ -42,8 +42,8 @@ async def test_hung_fire_times_out_and_is_retried_transiently(monkeypatch):
     async def claim_due(self, **kwargs):
         return [trigger]
 
-    async def record_fire_failure(self, trigger_id, fired_slot, *, error, transient):
-        captured.append((trigger_id, transient))
+    async def record_fire_failure(self, trigger_id, fired_slot, *, error, transient, expected_locked_by=None):
+        captured.append((trigger_id, transient, expected_locked_by))
         return False
 
     async def hung_fire(self, trigger_arg, fired_slot):
@@ -60,6 +60,6 @@ async def test_hung_fire_times_out_and_is_retried_transiently(monkeypatch):
     )
     monkeypatch.setattr(SchedulerLoop, "_fire", hung_fire)
 
-    await SchedulerLoop()._tick()
+    await SchedulerLoop(worker_id="timeout-worker")._tick()
 
-    assert captured == [(trigger.id, True)]
+    assert captured == [(trigger.id, True, "timeout-worker")]

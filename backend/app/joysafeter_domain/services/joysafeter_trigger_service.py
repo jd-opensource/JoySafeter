@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
 
 from sqlalchemy import select, text
@@ -23,6 +23,7 @@ from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import Trigg
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
+from app.joysafeter_shared.utils.id_utils import same_id
 
 _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYSAFETER_TERMINAL_STATUSES]
 
@@ -46,9 +47,15 @@ class JoySafeterTriggerService:
         runtime_block_reason = None
         if type(self).trigger_runtime_block_reason is not JoySafeterTriggerService.trigger_runtime_block_reason:
             runtime_block_reason = self.trigger_runtime_block_reason
+        get_trigger_for_update = None
+        if hasattr(self.db, "execute"):
+            async def get_trigger_for_update(trigger_id: uuid.UUID) -> Optional[JoySafeterTrigger]:
+                return await self._get_for_update(trigger_id)
+
         return TriggerSchedulerStateService(
             self.db,
             get_trigger=lambda trigger_id: self.get(trigger_id),
+            get_trigger_for_update=get_trigger_for_update,
             sync_config=self._sync_config,
             next_run_or_pause=next_run_or_pause,
             runtime_block_reason=runtime_block_reason,
@@ -110,7 +117,7 @@ class JoySafeterTriggerService:
     @staticmethod
     def _is_trigger_name_integrity_error(exc: IntegrityError) -> bool:
         message = str(exc.orig or exc).lower()
-        return "uq_joysafeter_triggers_project_name" in message or (
+        return "uq_joysafeter_triggers_project_name" in message or "uq_joysafeter_triggers_global_name" in message or (
             "joysafeter_triggers" in message and "project_id" in message and "name" in message and "unique" in message
         )
 
@@ -122,6 +129,43 @@ class JoySafeterTriggerService:
             data={"name": name},
             user_action="fix_input",
         )
+
+    @staticmethod
+    def _trigger_has_active_runs_conflict(
+        trigger_id: uuid.UUID,
+        active_tasks: Sequence[JoySafeterTask],
+    ) -> ResourceConflictError:
+        return ResourceConflictError(
+            code="TRIGGER_HAS_ACTIVE_RUNS",
+            message="Trigger has active runs. Cancel or wait for them before deleting the trigger.",
+            data={
+                "trigger_id": str(trigger_id),
+                "active_task_ids": [str(task.id) for task in active_tasks],
+            },
+            user_action="wait_or_cancel",
+        )
+
+    @staticmethod
+    def _trigger_fire_in_progress_conflict(trigger: JoySafeterTrigger) -> ResourceConflictError:
+        return ResourceConflictError(
+            code="TRIGGER_FIRE_IN_PROGRESS",
+            message="Trigger is currently being fired by the scheduler. Wait for it to finish before deleting.",
+            data={
+                "trigger_id": str(trigger.id),
+                "locked_by": trigger.locked_by,
+                "locked_at": trigger.locked_at.isoformat() if trigger.locked_at else None,
+            },
+            user_action="wait_or_cancel",
+        )
+
+    @staticmethod
+    def _has_fresh_scheduler_claim(trigger: JoySafeterTrigger, *, lock_grace_sec: int) -> bool:
+        if not trigger.locked_by or trigger.locked_at is None:
+            return False
+        locked_at = trigger.locked_at
+        if locked_at.tzinfo is None:
+            locked_at = locked_at.replace(tzinfo=timezone.utc)
+        return locked_at > datetime.now(timezone.utc) - timedelta(seconds=lock_grace_sec)
 
     async def _commit_or_raise_name_conflict(self, name: str) -> None:
         try:
@@ -174,6 +218,11 @@ class JoySafeterTriggerService:
             secret_key=secret_key,
             auth_methods=auth_methods,
         )
+        if type != "webhook":
+            secret_ref = None
+            secret_key = None
+            auth_methods = None
+            dedupe_header = None
         if await self.get_by_name(name, project_id) is not None:
             raise self._trigger_name_conflict(name)
         await self.resolve_runnable_target(
@@ -240,11 +289,27 @@ class JoySafeterTriggerService:
         await self._notify_scheduler(trigger)
         return trigger
 
-    async def get(self, trigger_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterTrigger]:
+    async def get(
+        self,
+        trigger_id: uuid.UUID,
+        project_id: Optional[str] = None,
+        *,
+        include_deleted: bool = False,
+    ) -> Optional[JoySafeterTrigger]:
         conditions = [JoySafeterTrigger.id == trigger_id]
         if project_id is not None:
             conditions.append(JoySafeterTrigger.project_id == project_id)
+        if not include_deleted:
+            conditions.append(JoySafeterTrigger.deleted_at.is_(None))
         result = await self.db.execute(select(JoySafeterTrigger).where(*conditions))
+        return result.scalar_one_or_none()
+
+    async def _get_for_update(self, trigger_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterTrigger]:
+        conditions = [JoySafeterTrigger.id == trigger_id]
+        if project_id is not None:
+            conditions.append(JoySafeterTrigger.project_id == project_id)
+        conditions.append(JoySafeterTrigger.deleted_at.is_(None))
+        result = await self.db.execute(select(JoySafeterTrigger).where(*conditions).with_for_update())
         return result.scalar_one_or_none()
 
     async def get_by_name(
@@ -254,7 +319,11 @@ class JoySafeterTriggerService:
         *,
         type: Optional[str] = None,
     ) -> Optional[JoySafeterTrigger]:
-        conditions = [JoySafeterTrigger.name == name, JoySafeterTrigger.project_id == project_id]
+        conditions = [
+            JoySafeterTrigger.name == name,
+            JoySafeterTrigger.project_id == project_id,
+            JoySafeterTrigger.deleted_at.is_(None),
+        ]
         if type is not None:
             conditions.append(JoySafeterTrigger.type == type)
         result = await self.db.execute(select(JoySafeterTrigger).where(*conditions))
@@ -269,7 +338,7 @@ class JoySafeterTriggerService:
         limit: int = 100,
         offset: int = 0,
     ) -> Sequence[JoySafeterTrigger]:
-        conditions = []
+        conditions = [JoySafeterTrigger.deleted_at.is_(None)]
         if project_id is not None:
             conditions.append(JoySafeterTrigger.project_id == project_id)
         if enabled is not None:
@@ -282,13 +351,13 @@ class JoySafeterTriggerService:
         return result.scalars().all()
 
     async def update(self, trigger_id: uuid.UUID, project_id: Optional[str], **fields: Any) -> Optional[JoySafeterTrigger]:
-        trigger = await self.get(trigger_id, project_id=project_id)
+        trigger = await self._get_for_update(trigger_id, project_id=project_id)
         if trigger is None:
             return None
         plan = TriggerConfigPolicy.plan_update(trigger, fields)
         if "name" in fields and fields["name"] != trigger.name:
             existing = await self.get_by_name(fields["name"], project_id)
-            if existing is not None and existing.id != trigger_id:
+            if existing is not None and not same_id(existing.id, trigger_id):
                 raise self._trigger_name_conflict(fields["name"])
         if plan.should_resolve_target:
             await self.resolve_runnable_target(
@@ -326,10 +395,25 @@ class JoySafeterTriggerService:
         return trigger
 
     async def delete(self, trigger_id: uuid.UUID, project_id: Optional[str]) -> bool:
-        trigger = await self.get(trigger_id, project_id=project_id)
+        trigger = await self._get_for_update(trigger_id, project_id=project_id)
         if trigger is None:
             return False
-        await self.db.delete(trigger)
+        from app.joysafeter_shared.config.settings import settings
+
+        if self._has_fresh_scheduler_claim(trigger, lock_grace_sec=settings.scheduler_lock_grace_sec):
+            raise self._trigger_fire_in_progress_conflict(trigger)
+        active_tasks = await self.get_active_tasks(trigger.id)
+        if active_tasks:
+            raise self._trigger_has_active_runs_conflict(trigger.id, active_tasks)
+        now = datetime.now(timezone.utc)
+        trigger.deleted_at = now
+        trigger.enabled = False
+        trigger.next_run_at = None
+        trigger.locked_by = None
+        trigger.locked_at = None
+        trigger.pending_slot_at = None
+        trigger.slot_attempts = 0
+        self._sync_config(trigger)
         await self.db.commit()
         return True
 
@@ -362,8 +446,8 @@ class JoySafeterTriggerService:
             lock_grace_sec=lock_grace_sec,
         )
 
-    async def release_claim(self, trigger_id: uuid.UUID) -> None:
-        await self._scheduler_state().release_claim(trigger_id)
+    async def release_claim(self, trigger_id: uuid.UUID, *, expected_locked_by: Optional[str] = None) -> None:
+        await self._scheduler_state().release_claim(trigger_id, expected_locked_by=expected_locked_by)
 
     async def earliest_next_run(self, *, lock_grace_sec: int = 120) -> Optional[datetime]:
         """MIN(next_run_at) across enabled cron triggers with a due slot ahead.
@@ -401,6 +485,7 @@ class JoySafeterTriggerService:
             select(JoySafeterTrigger).where(
                 JoySafeterTrigger.project_id == project_id,
                 JoySafeterTrigger.type == "cron",
+                JoySafeterTrigger.deleted_at.is_(None),
             )
         )
         for trigger in result.scalars().all():
@@ -421,6 +506,7 @@ class JoySafeterTriggerService:
             select(JoySafeterTrigger).where(
                 JoySafeterTrigger.agent_id == agent_id,
                 JoySafeterTrigger.type == "cron",
+                JoySafeterTrigger.deleted_at.is_(None),
             )
         )
         for trigger in result.scalars().all():
@@ -449,7 +535,9 @@ class JoySafeterTriggerService:
             return
         result = await self.db.execute(
             select(JoySafeterTrigger).where(
-                JoySafeterTrigger.project_id == project_id, JoySafeterTrigger.type == "cron"
+                JoySafeterTrigger.project_id == project_id,
+                JoySafeterTrigger.type == "cron",
+                JoySafeterTrigger.deleted_at.is_(None),
             )
         )
         for trigger in result.scalars().all():
@@ -477,7 +565,7 @@ class JoySafeterTriggerService:
         limit: int = 50,
         offset: int = 0,
     ) -> Optional[Sequence[JoySafeterTask]]:
-        trigger = await self.get(trigger_id, project_id=project_id)
+        trigger = await self.get(trigger_id, project_id=project_id, include_deleted=True)
         if trigger is None:
             return None
         result = await self.db.execute(
@@ -500,7 +588,8 @@ class JoySafeterTriggerService:
         session_id: Optional[uuid.UUID] = None,
         error: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
-    ) -> None:
+        expected_locked_by: Optional[str] = None,
+    ) -> bool:
         """Release the lock and move ``next_run_at`` to the next FUTURE instant.
 
         Uses "catch up once and advance": the next fire is computed with
@@ -515,7 +604,7 @@ class JoySafeterTriggerService:
         intentionally skipped (e.g. a FORBID concurrency policy), which are
         neither a success nor a failure.
         """
-        await self._scheduler_state().advance_after_fire(
+        return await self._scheduler_state().advance_after_fire(
             trigger_id,
             fired_slot,
             success=success,
@@ -524,6 +613,7 @@ class JoySafeterTriggerService:
             session_id=session_id,
             error=error,
             payload=payload,
+            expected_locked_by=expected_locked_by,
         )
 
     async def record_fire_failure(
@@ -533,6 +623,7 @@ class JoySafeterTriggerService:
         *,
         error: str,
         transient: bool,
+        expected_locked_by: Optional[str] = None,
     ) -> bool:
         """Record a failed fire: retry the same slot with backoff, or dead-letter.
 
@@ -553,6 +644,7 @@ class JoySafeterTriggerService:
             fired_slot,
             error=error,
             transient=transient,
+            expected_locked_by=expected_locked_by,
         )
 
     async def _next_run_or_pause(self, trigger: JoySafeterTrigger) -> Optional[datetime]:

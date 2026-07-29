@@ -1010,7 +1010,11 @@ class SkillService(BaseService[JoySafeterSkill]):
         if current_agent_ids:
             cron_trigger_result = await self.db.execute(
                 select(JoySafeterTrigger.id, JoySafeterTrigger.name, JoySafeterTrigger.enabled)
-                .where(JoySafeterTrigger.agent_id.in_(current_agent_ids), JoySafeterTrigger.type == "cron")
+                .where(
+                    JoySafeterTrigger.agent_id.in_(current_agent_ids),
+                    JoySafeterTrigger.type == "cron",
+                    JoySafeterTrigger.deleted_at.is_(None),
+                )
                 .limit(1000)
             )
             cron_trigger_rows = list(cron_trigger_result.all())

@@ -20,6 +20,7 @@ from app.joysafeter_api.services import JoySafeterEnvironmentService as Environm
 from app.joysafeter_api.services import SessionService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
+from app.joysafeter_domain.models.joysafeter_storage_mount import JoySafeterSessionStorageMount
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
@@ -43,7 +44,6 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
 from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS
 from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
-from app.joysafeter_domain.models.joysafeter_storage_mount import JoySafeterSessionStorageMount
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
     NotFoundError,
@@ -59,6 +59,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.utils.id_utils import same_id
 
 logger = logging.getLogger(__name__)
 
@@ -1098,6 +1099,30 @@ async def _relay_control_via_redis(
         return False
 
 
+async def _publish_command_and_wait_for_ack(
+    redis_client,
+    channel: str,
+    command: dict[str, Any],
+    *,
+    command_id: str,
+    ack_key: str,
+    ack_timeout_seconds: int = 2,
+) -> bool:
+    from app.joysafeter_shared.orchestrator_bridge.runtime_commands import publish_command_and_wait_for_ack
+
+    return await publish_command_and_wait_for_ack(
+        redis_client,
+        channel,
+        command,
+        command_id=command_id,
+        ack_key=ack_key,
+        ack_timeout_seconds=ack_timeout_seconds,
+        boundary="session_api",
+        failure_code="SESSION_REDIS_COMMAND_ACK_WAIT_FAILED",
+        failure_message="Redis command ACK wait failed",
+    )
+
+
 async def _relay_cancel_via_redis(session, *, reason: str, sandbox_id: uuid.UUID | str | None = None) -> bool:
     """Send a `cancel` command for this session's active sandbox via Redis.
 
@@ -1289,7 +1314,7 @@ async def _idempotent_user_message_replay_response(
         project_id=project_id,
     )
     if existing_task is not None:
-        if existing_task.chat_session_id != session_id:
+        if not same_id(existing_task.chat_session_id, session_id):
             raise ResourceConflictError(
                 code="SESSION_IDEMPOTENCY_KEY_MISMATCH",
                 message="Idempotency-Key was already used for a different session",

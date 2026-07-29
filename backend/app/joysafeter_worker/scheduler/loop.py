@@ -305,6 +305,7 @@ class SchedulerLoop:
                         fired_slot,
                         error=str(exc) or exc.__class__.__name__,
                         transient=transient,
+                        expected_locked_by=self._worker_id,
                     )
                 _HEARTBEAT.mark_fire(success=False)
                 if dead_lettered:
@@ -342,7 +343,12 @@ class SchedulerLoop:
             async with AsyncSessionLocal() as db:
                 svc = JoySafeterTriggerService(db)
                 if outcome.status == "skipped":
-                    await svc.advance_after_fire(trigger.id, fired_slot, record_attempt=False)
+                    await svc.advance_after_fire(
+                        trigger.id,
+                        fired_slot,
+                        record_attempt=False,
+                        expected_locked_by=self._worker_id,
+                    )
                 else:
                     await svc.advance_after_fire(
                         trigger.id,
@@ -351,6 +357,7 @@ class SchedulerLoop:
                         task_id=outcome.task_id,
                         session_id=outcome.session_id,
                         payload=outcome.payload,
+                        expected_locked_by=self._worker_id,
                     )
             fire_lag = (datetime.now(timezone.utc) - fired_slot).total_seconds()
             _HEARTBEAT.mark_fire(success=outcome.status != "skipped", fire_lag_sec=fire_lag)
@@ -389,7 +396,7 @@ class SchedulerLoop:
                     status="deduped",
                     task_id=existing_task.id,
                     session_id=getattr(existing_task, "chat_session_id", None),
-                    payload={"deduped": True, "cron": {"fired_at": fired_slot.isoformat()}},
+                    payload=provider.build_payload(trigger, fired_slot=fired_slot),
                 )
 
             # Concurrency policy: decide whether this fire may proceed.

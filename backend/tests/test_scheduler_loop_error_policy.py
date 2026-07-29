@@ -83,12 +83,12 @@ def _install_common(monkeypatch, *, claimed, captured):
     async def claim_due(self, **kwargs):
         return claimed
 
-    async def record_fire_failure(self, trigger_id, fired_slot, *, error, transient):
-        captured.append(("fail", trigger_id, transient))
+    async def record_fire_failure(self, trigger_id, fired_slot, *, error, transient, expected_locked_by=None):
+        captured.append(("fail", trigger_id, transient, expected_locked_by))
         return False
 
     async def advance_after_fire(self, trigger_id, fired_slot, **kwargs):
-        captured.append(("advance", trigger_id))
+        captured.append(("advance", trigger_id, kwargs.get("expected_locked_by")))
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr(
@@ -123,9 +123,9 @@ async def test_retryable_cancel_error_is_transient(monkeypatch, code):
         raise ServiceUnavailableError(code=code, message="cancel half-done", source="runtime", retryable=True, user_action="retry")
 
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
-    await SchedulerLoop()._tick()
+    await SchedulerLoop(worker_id="test-worker")._tick()
 
-    assert captured == [("fail", trigger.id, True)]
+    assert captured == [("fail", trigger.id, True, "test-worker")]
 
 
 @pytest.mark.asyncio
@@ -138,9 +138,9 @@ async def test_generic_retryable_apperror_is_transient(monkeypatch):
         raise ServiceUnavailableError(code="TASK_ENQUEUE_FAILED", message="redis down", source="runtime", retryable=True, user_action="retry")
 
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
-    await SchedulerLoop()._tick()
+    await SchedulerLoop(worker_id="test-worker")._tick()
 
-    assert captured == [("fail", trigger.id, True)]
+    assert captured == [("fail", trigger.id, True, "test-worker")]
 
 
 @pytest.mark.asyncio
@@ -153,9 +153,9 @@ async def test_unexpected_error_is_permanent(monkeypatch):
         raise RuntimeError("unexpected scheduler failure")
 
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
-    await SchedulerLoop()._tick()
+    await SchedulerLoop(worker_id="test-worker")._tick()
 
-    assert captured == [("fail", trigger.id, False)]
+    assert captured == [("fail", trigger.id, False, "test-worker")]
 
 
 @pytest.mark.asyncio

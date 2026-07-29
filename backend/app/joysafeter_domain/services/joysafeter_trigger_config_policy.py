@@ -6,11 +6,11 @@ from typing import Any, Optional
 
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger, TriggerConcurrencyPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
-from app.joysafeter_domain.triggers import get_provider
+from app.joysafeter_domain.triggers import get_provider, supported_kinds
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
 from app.joysafeter_shared.utils.cron import validate_cron, validate_timezone
 
-_SUPPORTED_TRIGGER_TYPES = frozenset({"cron", "webhook"})
+_SUPPORTED_TRIGGER_TYPES = frozenset(supported_kinds())
 _SUPPORTED_SESSION_MODES = frozenset({"fresh", "reuse", "pinned", "keyed"})
 _SUPPORTED_CONCURRENCY_POLICIES = frozenset(policy.value for policy in TriggerConcurrencyPolicy)
 

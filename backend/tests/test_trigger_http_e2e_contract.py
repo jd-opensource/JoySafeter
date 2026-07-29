@@ -12,7 +12,8 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
-from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
@@ -163,7 +164,19 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
         active_task = (
             await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == uuid.UUID(trigger_id.removeprefix("trig_"))))
         ).scalar_one()
+        original_task_trigger_id = active_task.trigger_id
         assert redis.rpushed == [("joysafeter:global_queue", str(active_task.id))]
+
+        active_delete_resp = await client.delete(f"/api/v1/triggers/{trigger_id}")
+        assert active_delete_resp.status_code == 409
+        assert active_delete_resp.json()["code"] == "TRIGGER_HAS_ACTIVE_RUNS"
+        assert active_delete_resp.json()["data"] == {
+            "trigger_id": trigger_id.removeprefix("trig_"),
+            "active_task_ids": [str(active_task.id)],
+        }
+
+        active_task.status = JoySafeterTaskStatus.COMPLETED.value
+        await db_session.commit()
 
         delete_resp = await client.delete(f"/api/v1/triggers/{trigger_id}")
         assert delete_resp.status_code == 204
@@ -171,6 +184,109 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
         missing_resp = await client.get(f"/api/v1/triggers/{trigger_id}")
         assert missing_resp.status_code == 404
         assert missing_resp.json()["code"] == "TRIGGER_NOT_FOUND"
+
+        list_after_delete_resp = await client.get("/api/v1/triggers", params={"type": "webhook"})
+        assert list_after_delete_resp.status_code == 200
+        assert [item["id"] for item in list_after_delete_resp.json()] == []
+
+        deleted_runs_resp = await client.get(f"/api/v1/triggers/{trigger_id}/runs")
+        assert deleted_runs_resp.status_code == 200
+        deleted_runs = deleted_runs_resp.json()
+        assert len(deleted_runs) == 1
+        assert deleted_runs[0]["id"] == fired["task_id"]
+        assert deleted_runs[0]["trigger_id"] == trigger_id
+
+        detached_task = (
+            await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == active_task.id))
+        ).scalar_one()
+        assert detached_task.trigger_id == original_task_trigger_id
+
+        recreate_resp = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "Manual HTTP E2E Updated",
+                "type": "webhook",
+                "agent_id": str(agent.id),
+                "prompt_template": "handle again",
+                "secret_ref": "hook-secret",
+                "auth_methods": ["hmac"],
+            },
+        )
+        assert recreate_resp.status_code == 201
+        assert recreate_resp.json()["id"] != trigger_id
+
+
+@pytest.mark.asyncio
+async def test_trigger_http_manual_type_create_list_run_and_history(db_session, monkeypatch):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    org, project, agent = await _seed_project_agent_and_secret(db_session)
+    app = _app(db_session, _ctx(project.id, org.id))
+
+    async with _client(app) as client:
+        create_resp = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "Manual Type HTTP E2E",
+                "type": "manual",
+                "agent_id": str(agent.id),
+                "prompt_template": "run {{ trigger.source_type }} via {{ trigger.type }}",
+                "session_mode": "fresh",
+            },
+        )
+        assert create_resp.status_code == 201
+        created = create_resp.json()
+        trigger_id = created["id"]
+        assert created["type"] == "manual"
+        assert created["webhook_url"] is None
+        assert created["config"] == {}
+        assert created["cron_expr"] is None
+        assert created["run_at"] is None
+        assert created["next_run_at"] is None
+        assert created["secret_ref"] is None
+        assert created["secret_key"] is None
+
+        manual_list_resp = await client.get("/api/v1/triggers", params={"type": "manual"})
+        assert manual_list_resp.status_code == 200
+        assert [item["id"] for item in manual_list_resp.json()] == [trigger_id]
+
+        run_resp = await client.post(
+            f"/api/v1/triggers/{trigger_id}/run",
+            headers={"Idempotency-Key": "manual-type-e2e-key"},
+        )
+        assert run_resp.status_code == 202
+        fired = run_resp.json()
+        assert fired["status"] == "fired"
+        assert fired["task_id"].startswith("task_")
+        assert fired["session_id"].startswith("sess_")
+
+        runs_resp = await client.get(f"/api/v1/triggers/{trigger_id}/runs")
+        assert runs_resp.status_code == 200
+        runs = runs_resp.json()
+        assert len(runs) == 1
+        assert runs[0]["id"] == fired["task_id"]
+        assert runs[0]["trigger_id"] == trigger_id
+
+    task_uuid = uuid.UUID(fired["task_id"].removeprefix("task_"))
+    db_session.expire_all()
+    stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
+    stored_trigger = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == uuid.UUID(trigger_id.removeprefix("trig_"))))
+    ).scalar_one()
+    stored_session = (await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == stored_task.chat_session_id))).scalar_one()
+    assert stored_task.prompt == "run manual via manual"
+    assert stored_task.trigger_id == stored_trigger.id
+    assert stored_session.metadata_["trigger_type"] == "manual"
+    assert stored_session.metadata_["source_trigger_type"] == "manual"
+    assert stored_trigger.last_payload["trigger"]["type"] == "manual"
+    assert stored_trigger.last_payload["trigger"]["source_type"] == "manual"
+    assert stored_trigger.config == {}
+    assert stored_trigger.secret_ref is None
+    assert stored_trigger.secret_key is None
+    assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
 
 
 @pytest.mark.asyncio

@@ -69,6 +69,10 @@ def test_cron_accepts_run_at_only():
     _validate(run_at=_FUTURE)
 
 
+def test_manual_accepts_no_schedule_or_webhook_secret():
+    _validate(type="manual")
+
+
 def test_run_at_must_be_future():
     _assert_invalid("TRIGGER_RUN_AT_IN_PAST", run_at=_PAST)
 

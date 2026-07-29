@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
@@ -21,6 +22,7 @@ from app.joysafeter_domain.services.agent_trigger_execution import (
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.triggers import get_provider
+from app.joysafeter_shared.common.app_errors import NotFoundError
 
 FireResult = tuple[str, Optional[JoySafeterTask], Optional[uuid.UUID], bool, Optional[str]]
 ProjectBlockReason = Callable[[Optional[str]], Awaitable[Optional[str]]]
@@ -97,6 +99,23 @@ class TriggerFireService:
             payload=payload,
         )
 
+    async def _lock_trigger_for_fire(self, trigger: JoySafeterTrigger) -> JoySafeterTrigger:
+        conditions = [JoySafeterTrigger.id == trigger.id]
+        project_id = getattr(trigger, "project_id", None)
+        if project_id is not None:
+            conditions.append(JoySafeterTrigger.project_id == project_id)
+        conditions.append(JoySafeterTrigger.deleted_at.is_(None))
+        result = await self.db.execute(select(JoySafeterTrigger).where(*conditions).with_for_update())
+        locked = result.scalar_one_or_none()
+        if locked is None:
+            raise NotFoundError(
+                code="TRIGGER_NOT_FOUND",
+                message="Trigger not found",
+                data={"trigger_id": str(trigger.id)},
+                user_action="refresh",
+            )
+        return locked
+
     async def _run_agent_trigger(
         self,
         trigger: JoySafeterTrigger,
@@ -151,6 +170,7 @@ class TriggerFireService:
         auth_fingerprint: str,
         ignore_enabled: bool = False,
     ) -> FireResult:
+        trigger = await self._lock_trigger_for_fire(trigger)
         if not trigger.enabled and not ignore_enabled:
             return "skipped", None, None, False, "trigger disabled"
         if trigger.type != "webhook":
@@ -188,6 +208,7 @@ class TriggerFireService:
         idempotency_header: Optional[str] = None,
         now: Optional[datetime] = None,
     ) -> FireResult:
+        trigger = await self._lock_trigger_for_fire(trigger)
         now = now or datetime.now(timezone.utc)
         provider = get_provider("manual")
         payload = provider.build_payload(trigger, now=now)

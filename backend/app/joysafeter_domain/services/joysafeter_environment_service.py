@@ -260,6 +260,7 @@ class EnvironmentService:
         conditions: list[ColumnElement[bool]] = [
             JoySafeterTrigger.environment_ref.is_not(None),
             JoySafeterTrigger.type == "cron",
+            JoySafeterTrigger.deleted_at.is_(None),
         ]
         if project_id is not None:
             conditions.append(JoySafeterTrigger.project_id == project_id)

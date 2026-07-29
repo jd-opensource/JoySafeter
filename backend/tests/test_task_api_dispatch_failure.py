@@ -768,6 +768,39 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_session(d
 
 
 @pytest.mark.asyncio
+async def test_create_task_idempotent_replay_accepts_same_session_uuid_value_across_uuid_types(
+    db_session, monkeypatch
+):
+    redis = _FakeRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    agent = JoySafeterAgent(name=f"direct-task-idem-same-session-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    session_id = session.id
+
+    key = f"task-replay-same-session-{uuid.uuid4()}"
+    request = JoySafeterCreateTaskRequest(agent_id=agent.id, chat_session_id=session_id, prompt="scan target")
+
+    first = await create_task(request, db_session, _auth_ctx(), idempotency_key=key)
+    db_session.expire_all()
+    second = await create_task(request, db_session, _auth_ctx(), idempotency_key=key)
+
+    assert second.id == first.id
+    assert second.status == first.status
+    assert redis.rpushed == [("joysafeter:global_queue", str(first.id))]
+
+
+@pytest.mark.asyncio
 async def test_create_task_rejects_idempotency_key_reuse_for_different_environment(db_session, monkeypatch):
     redis = _FakeRedis()
     monkeypatch.setattr(
@@ -1105,8 +1138,56 @@ async def test_cancel_task_does_not_mark_cancelled_when_runtime_cancel_relay_fai
 
 
 @pytest.mark.asyncio
-async def test_cancel_task_reports_session_idle_write_failure(db_session, monkeypatch):
+async def test_cancel_running_task_without_runtime_owner_fails_closed(db_session, monkeypatch):
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
+
+    agent = JoySafeterAgent(name=f"cancel-missing-owner-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(agent_id=agent.id, status="running")
+    db_session.add(session)
+    await db_session.flush()
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        chat_session_id=session.id,
+        prompt="corrupt running task",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    task_id = task.id
+    session_id = session.id
+
+    with pytest.raises(AppError) as exc_info:
+        await cancel_task(task_id, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_CANCEL_STATE_SYNC_FAILED",
+        "message": "Task cancel could not be finalized because task has no runtime owner.",
+        "data": {"task_id": str(task_id), "session_id": str(session_id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "refresh",
+    }
+
+    db_session.expire_all()
+    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    assert task_row.status == JoySafeterTaskStatus.RUNNING.value
+    assert task_row.sandbox_id is None
+    assert session_row.status == "running"
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_reports_session_idle_write_failure(db_session, monkeypatch):
+    redis = _FakeCommandRedis()
+    monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
 
     async def fail_idle_transition(self, session_id, status, task_id, stop_reason=None):
         raise RuntimeError("session write failed")
@@ -1126,11 +1207,25 @@ async def test_cancel_task_reports_session_idle_write_failure(db_session, monkey
     await db_session.commit()
     await db_session.refresh(session)
 
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session.id,
+        external_id=f"sandbox-cancel-session-sync-{uuid.uuid4()}",
+        provider="docker",
+        status="running",
+        image="joysafeter/test:latest",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    await db_session.refresh(sandbox)
+    session.last_sandbox_id = sandbox.id
+
     task = JoySafeterTask(
         agent_id=agent.id,
         chat_session_id=session.id,
+        sandbox_id=sandbox.id,
         prompt="long running",
         status=JoySafeterTaskStatus.RUNNING.value,
+        owner_epoch=7,
     )
     db_session.add(task)
     await db_session.commit()

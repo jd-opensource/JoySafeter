@@ -1,10 +1,14 @@
+import asyncio
 import json
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from starlette.requests import Request
 
 from app.joysafeter_api.api.v1.auth import archive_project, restore_project
@@ -23,14 +27,17 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_trigger import TriggerCreateRequest, TriggerUpdateRequest
+from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
+from app.joysafeter_domain.triggers.providers.base import get_provider
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now
+from app.joysafeter_worker.scheduler.loop import SchedulerLoop
 
 
 def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
@@ -85,9 +92,26 @@ class _FakeCommandRedis:
 class _FakeQueueRedis:
     def __init__(self):
         self.rpushed: list[tuple[str, str]] = []
+        self.published: list[tuple[str, str]] = []
 
     async def rpush(self, key: str, value: str) -> None:
         self.rpushed.append((key, value))
+
+    async def publish(self, channel: str, value: str) -> int:
+        self.published.append((channel, value))
+        return 1
+
+
+async def _wait_for_backend_lock_wait(db_session: AsyncSession, *, pid: int) -> None:
+    for _ in range(50):
+        result = await db_session.execute(
+            text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
+            {"pid": pid},
+        )
+        if result.scalar_one_or_none() == "Lock":
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"backend {pid} did not wait on a row lock")
 
 
 async def _create_project_with_agent(
@@ -194,6 +218,258 @@ async def test_scheduler_claim_skips_archived_project_triggers_without_disabling
     assert archived_row.next_run_at is not None
     assert archived_row.locked_by is None
     assert archived_row.locked_at is None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_claim_skips_soft_deleted_triggers(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="SoftDeletedTriggerClaim")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="soft-deleted-claim")
+    trigger_id = trigger.id
+    trigger.deleted_at = utc_now()
+    trigger.enabled = True
+    assert trigger.next_run_at is not None
+    await db_session.commit()
+
+    claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+        worker_id="soft-deleted-worker",
+        limit=10,
+    )
+
+    assert claimed == []
+    assert await JoySafeterTriggerService(db_session).earliest_next_run() is None
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+    assert row.deleted_at is not None
+    assert row.locked_by is None
+    assert row.locked_at is None
+
+
+@pytest.mark.asyncio
+async def test_update_returns_missing_when_concurrent_delete_wins(db_session, postgres_url):
+    _, project, agent = await _create_project_with_agent(db_session, name="UpdateDeleteRace")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="update-delete-race")
+    trigger_id = trigger.id
+    original_prompt = trigger.prompt_template
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    update_task = None
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as delete_session, factory() as update_session, factory() as monitor_session:
+            delete_tx = await delete_session.begin()
+            try:
+                locked = (
+                    await delete_session.execute(
+                        select(JoySafeterTrigger)
+                        .where(JoySafeterTrigger.id == trigger_id, JoySafeterTrigger.deleted_at.is_(None))
+                        .with_for_update()
+                    )
+                ).scalar_one()
+                locked.deleted_at = utc_now()
+                locked.enabled = False
+                locked.next_run_at = None
+                locked.pending_slot_at = None
+                locked.slot_attempts = 0
+                await delete_session.flush()
+
+                update_pid = (await update_session.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+                update_task = asyncio.create_task(
+                    JoySafeterTriggerService(update_session).update(
+                        trigger_id,
+                        project.id,
+                        prompt_template="stale update after delete",
+                        enabled=True,
+                    )
+                )
+                await _wait_for_backend_lock_wait(monitor_session, pid=update_pid)
+                await delete_tx.commit()
+                updated = await asyncio.wait_for(update_task, timeout=5)
+            finally:
+                if delete_tx.is_active:
+                    await delete_tx.rollback()
+
+        assert updated is None
+
+        db_session.expire_all()
+        row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+        assert row.deleted_at is not None
+        assert row.enabled is False
+        assert row.next_run_at is None
+        assert row.prompt_template == original_prompt
+    finally:
+        if update_task is not None and not update_task.done():
+            update_task.cancel()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_stale_scheduler_advance_does_not_clear_new_worker_claim(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="StaleAdvanceFence")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="stale-advance-fence")
+    trigger_id = trigger.id
+
+    claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+        worker_id="worker-a",
+        limit=1,
+        lock_grace_sec=120,
+    )
+    assert [row.id for row in claimed] == [trigger_id]
+    fired_slot = claimed[0].next_run_at
+    assert fired_slot is not None
+
+    db_session.expire_all()
+    reclaimed = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+    reclaimed.locked_by = "worker-b"
+    reclaimed.locked_at = utc_now()
+    await db_session.commit()
+
+    advanced = await JoySafeterTriggerService(db_session).advance_after_fire(
+        trigger_id,
+        fired_slot,
+        success=True,
+        expected_locked_by="worker-a",
+    )
+
+    assert advanced is False
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+    assert row.locked_by == "worker-b"
+    assert row.locked_at is not None
+    assert row.next_run_at == fired_slot
+    assert row.last_fired_slot is None
+    assert row.last_success_at is None
+
+
+@pytest.mark.asyncio
+async def test_stale_scheduler_failure_does_not_backoff_over_new_worker_claim(db_session):
+    _, project, agent = await _create_project_with_agent(db_session, name="StaleFailureFence")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="stale-failure-fence")
+    trigger_id = trigger.id
+    fired_slot = trigger.next_run_at
+    assert fired_slot is not None
+    trigger.locked_by = "worker-b"
+    trigger.locked_at = utc_now()
+    await db_session.commit()
+
+    dead_lettered = await JoySafeterTriggerService(db_session).record_fire_failure(
+        trigger_id,
+        fired_slot,
+        error="stale worker timed out",
+        transient=True,
+        expected_locked_by="worker-a",
+    )
+
+    assert dead_lettered is False
+    db_session.expire_all()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+    assert row.locked_by == "worker-b"
+    assert row.locked_at is not None
+    assert row.next_run_at == fired_slot
+    assert row.pending_slot_at is None
+    assert row.slot_attempts == 0
+    assert row.last_error is None
+    assert row.consecutive_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_scheduler_recovers_created_task_when_state_write_was_missed(db_session, postgres_url, monkeypatch):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    monkeypatch.setattr(
+        "app.joysafeter_worker.scheduler.loop.AsyncSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False),
+    )
+    try:
+        _, project, agent = await _create_project_with_agent(db_session, name="RecoverCreatedTask")
+        project_id = project.id
+        trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="recover-created-task")
+        trigger_id = trigger.id
+        expected_payload_trigger = SimpleNamespace(
+            id=trigger.id,
+            name=trigger.name,
+            cron_expr=trigger.cron_expr,
+            timezone=trigger.timezone,
+            last_fired_slot=trigger.last_fired_slot,
+        )
+
+        claimed_a = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+            worker_id="worker-a",
+            limit=1,
+            lock_grace_sec=120,
+        )
+        assert [row.id for row in claimed_a] == [trigger_id]
+        fired_slot = claimed_a[0].next_run_at
+        assert fired_slot is not None
+
+        first_outcome = await SchedulerLoop(worker_id="worker-a")._fire(claimed_a[0], fired_slot)
+        assert first_outcome.status == "fired"
+        assert first_outcome.task_id is not None
+        assert first_outcome.session_id is not None
+
+        db_session.expire_all()
+        stale = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+        stale.locked_at = utc_now() - timedelta(minutes=10)
+        await db_session.commit()
+
+        claimed_b = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+            worker_id="worker-b",
+            limit=1,
+            lock_grace_sec=120,
+        )
+        assert [row.id for row in claimed_b] == [trigger_id]
+
+        replay = await SchedulerLoop(worker_id="worker-b")._fire(claimed_b[0], fired_slot)
+        assert replay.status == "deduped"
+        assert replay.task_id == first_outcome.task_id
+        assert replay.session_id == first_outcome.session_id
+        assert redis.rpushed == [("joysafeter:global_queue", str(first_outcome.task_id))]
+
+        advanced = await JoySafeterTriggerService(db_session).advance_after_fire(
+            trigger_id,
+            fired_slot,
+            success=True,
+            task_id=replay.task_id,
+            session_id=replay.session_id,
+            payload=replay.payload,
+            expected_locked_by="worker-b",
+        )
+        assert advanced is True
+
+        db_session.expire_all()
+        row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+        tasks = (
+            (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id)))
+            .scalars()
+            .all()
+        )
+        sessions = (
+            (
+                await db_session.execute(
+                    select(JoySafeterSession).where(
+                        JoySafeterSession.project_id == project_id,
+                        JoySafeterSession.metadata_["trigger_id"].astext == str(trigger_id),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        expected_payload = get_provider("cron").build_payload(expected_payload_trigger, fired_slot=fired_slot)
+        assert [task.id for task in tasks] == [first_outcome.task_id]
+        assert [session.id for session in sessions] == [first_outcome.session_id]
+        assert row.locked_by is None
+        assert row.locked_at is None
+        assert row.last_fired_slot == fired_slot
+        assert row.last_task_id == first_outcome.task_id
+        assert row.last_session_id == first_outcome.session_id
+        assert row.last_payload == expected_payload
+        assert row.last_payload["cron"]["name"] == expected_payload_trigger.name
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -746,6 +1022,99 @@ async def test_manual_trigger_run_rejects_archived_agent_without_creating_task(d
 
 
 @pytest.mark.asyncio
+async def test_manual_fire_rechecks_deleted_trigger_before_creating_session_or_task(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="DeletedDuringManualFire")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="deleted-during-manual")
+    stale_trigger = SimpleNamespace(
+        id=trigger.id,
+        name=trigger.name,
+        type=trigger.type,
+        enabled=trigger.enabled,
+        agent_id=trigger.agent_id,
+        prompt_template=trigger.prompt_template,
+        system_prompt=trigger.system_prompt,
+        environment_ref=trigger.environment_ref,
+        filter=trigger.filter,
+        timeout_sec=trigger.timeout_sec,
+        max_retries=trigger.max_retries,
+        project_id=trigger.project_id,
+        user_id=trigger.user_id,
+        org_id=trigger.org_id,
+        session_mode=trigger.session_mode,
+        pinned_session_id=trigger.pinned_session_id,
+        reusable_session_id=trigger.reusable_session_id,
+        session_key=trigger.session_key,
+        cron_expr=trigger.cron_expr,
+        timezone=trigger.timezone,
+        last_fired_slot=trigger.last_fired_slot,
+    )
+    trigger_id = trigger.id
+    assert await JoySafeterTriggerService(db_session).delete(trigger_id, project.id) is True
+
+    with pytest.raises(AppError) as exc_info:
+        await JoySafeterTriggerService(db_session).fire_manual(stale_trigger)  # type: ignore[arg-type]
+
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "TRIGGER_NOT_FOUND",
+        "message": "Trigger not found",
+        "data": {"trigger_id": str(trigger_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    assert (
+        await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id))
+    ).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_manual_fire_cleans_auto_session_when_trigger_deleted_after_session_create(db_session, monkeypatch):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    org, project, agent = await _create_project_with_agent(db_session, name="DeletedAfterManualSession")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="deleted-after-session")
+    trigger_id = trigger.id
+    original_resolve_session = AgentTriggerExecutor.resolve_session
+
+    async def delete_trigger_after_session_create(self, config):
+        session, created = await original_resolve_session(self, config)
+        row = await db_session.get(JoySafeterTrigger, trigger_id)
+        assert row is not None
+        await db_session.delete(row)
+        await db_session.commit()
+        return session, created
+
+    monkeypatch.setattr(AgentTriggerExecutor, "resolve_session", delete_trigger_after_session_create)
+
+    with pytest.raises(AppError) as exc_info:
+        await run_trigger_now(trigger_id, db_session, _admin_ctx(project.id, org.id))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
+        "code": "TRIGGER_NOT_FOUND",
+        "message": "Trigger not found",
+        "data": {"trigger_id": str(trigger_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
+    assert (
+        await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id))
+    ).scalars().all() == []
+    assert (
+        await db_session.execute(
+            select(JoySafeterSession).where(
+                JoySafeterSession.project_id == project.id,
+                JoySafeterSession.metadata_["trigger_id"].astext == str(trigger_id),
+            )
+        )
+    ).scalars().all() == []
+    assert redis.rpushed == []
+
+
+@pytest.mark.asyncio
 async def test_manual_trigger_run_skips_when_project_archived(db_session, monkeypatch):
     redis = _FakeQueueRedis()
     monkeypatch.setattr(
@@ -1117,6 +1486,71 @@ async def test_trigger_service_create_race_converts_db_unique_violation_to_confl
 
 
 @pytest.mark.asyncio
+async def test_trigger_service_create_global_name_race_converts_db_unique_violation_to_conflict(db_session, monkeypatch):
+    agent = JoySafeterAgent(name=f"global-duplicate-agent-{uuid.uuid4()}", project_id=None)
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    svc = JoySafeterTriggerService(db_session)
+    existing = await svc.create(
+        name=f"global-duplicate-{uuid.uuid4()}",
+        type="cron",
+        agent_id=agent.id,
+        prompt_template="global trigger",
+        cron_expr="*/5 * * * *",
+        timezone="UTC",
+        project_id=None,
+        user_id=None,
+        org_id=None,
+    )
+    existing_id = existing.id
+    existing_name = existing.name
+    real_lookup = svc.get_by_name
+
+    async def _race_misses_existing_global_name(name: str, lookup_project_id: str | None, *, type: str | None = None):
+        if name == existing_name and lookup_project_id is None:
+            return None
+        return await real_lookup(name, lookup_project_id, type=type)
+
+    monkeypatch.setattr(svc, "get_by_name", _race_misses_existing_global_name)
+
+    with pytest.raises(AppError) as exc_info:
+        await svc.create(
+            name=existing_name,
+            type="cron",
+            agent_id=agent.id,
+            prompt_template="global race should surface conflict",
+            cron_expr="*/5 * * * *",
+            timezone="UTC",
+            project_id=None,
+            user_id=None,
+            org_id=None,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "TRIGGER_NAME_EXISTS",
+        "message": f"A trigger named '{existing_name}' already exists in this project",
+        "data": {"name": existing_name},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    rows = (
+        (
+            await db_session.execute(
+                select(JoySafeterTrigger).where(
+                    JoySafeterTrigger.project_id.is_(None),
+                    JoySafeterTrigger.name == existing_name,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [row.id for row in rows] == [existing_id]
+
+
+@pytest.mark.asyncio
 async def test_trigger_service_rejects_cross_project_environment_without_creating_trigger(db_session):
     _, project, agent = await _create_project_with_agent(db_session, name="TriggerSvcEnvProjectA")
     _, other_project, _ = await _create_project_with_agent(db_session, name="TriggerSvcEnvProjectB")
@@ -1247,6 +1681,44 @@ async def test_update_trigger_rejects_missing_environment_without_persisting_ref
     row = (
         await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
     ).scalar_one()
+    assert row.environment_ref is None
+
+
+@pytest.mark.asyncio
+async def test_update_trigger_rejects_missing_environment_without_persisting_other_fields(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="UpdatePartialFailure")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="update-partial-failure")
+    trigger_id = trigger.id
+    original_name = trigger.name
+    original_prompt = trigger.prompt_template
+    original_timeout = trigger.timeout_sec
+    missing_ref = f"env_{uuid.uuid4()}"
+
+    with pytest.raises(AppError) as exc_info:
+        await JoySafeterTriggerService(db_session).update(
+            trigger_id,
+            project.id,
+            name="should-not-persist",
+            prompt_template="should not persist",
+            timeout_sec=original_timeout + 1,
+            environment_ref=missing_ref,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=422) == {
+        "code": "TRIGGER_ENVIRONMENT_NOT_FOUND",
+        "message": f"Environment not found: {missing_ref}",
+        "data": {"environment_ref": missing_ref},
+        "source": "validation",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    db_session.expire_all()
+    row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert row.name == original_name
+    assert row.prompt_template == original_prompt
+    assert row.timeout_sec == original_timeout
     assert row.environment_ref is None
 
 
@@ -1730,3 +2202,236 @@ async def test_scheduled_task_cancel_does_not_mark_cancelled_when_runtime_relay_
     )
     assert [str(row.id) for row in tasks] == [str(task_id)]
     assert tasks[0].status == JoySafeterTaskStatus.RUNNING.value
+
+
+@pytest.mark.asyncio
+async def test_scheduled_pending_task_cancel_does_not_relay_to_previous_session_sandbox(db_session, monkeypatch):
+    redis = _FakeCommandRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    _, project, agent = await _create_project_with_agent(db_session, name="ReplacePendingNoRelay")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="replace-pending-no-relay")
+    trigger.concurrency_policy = "replace"
+    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="running")
+    db_session.add(session)
+    await db_session.flush()
+    previous_sandbox = JoySafeterSandbox(
+        chat_session_id=session.id,
+        external_id=f"sandbox-previous-{uuid.uuid4()}",
+        provider="docker",
+        status="idle",
+        image="joysafeter/test:latest",
+    )
+    db_session.add(previous_sandbox)
+    await db_session.flush()
+    session.last_sandbox_id = previous_sandbox.id
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        chat_session_id=session.id,
+        trigger_id=trigger.id,
+        project_id=project.id,
+        prompt="queued scheduled slot",
+        status=JoySafeterTaskStatus.PENDING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    task_id = task.id
+
+    relayed = await TaskCancellationService(db_session).cancel(
+        task,
+        reason=f"Replaced by trigger {trigger.id} slot {utc_now().isoformat()}",
+    )
+
+    assert relayed is False
+    assert not [channel for channel, _ in redis.published if channel.startswith("joysafeter:cmd:")]
+    db_session.expire_all()
+    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert task_row.status == JoySafeterTaskStatus.CANCELLED.value
+    assert task_row.sandbox_id is None
+
+
+@pytest.mark.asyncio
+async def test_scheduled_pending_task_cancel_marks_session_idle_when_it_was_the_only_active_task(
+    db_session, monkeypatch
+):
+    redis = _FakeCommandRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    _, project, agent = await _create_project_with_agent(db_session, name="ReplacePendingIdle")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="replace-pending-idle")
+    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="running")
+    db_session.add(session)
+    await db_session.flush()
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        chat_session_id=session.id,
+        trigger_id=trigger.id,
+        project_id=project.id,
+        prompt="queued scheduled slot",
+        status=JoySafeterTaskStatus.PENDING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    task_id = task.id
+    session_id = session.id
+
+    relayed = await TaskCancellationService(db_session).cancel(task, reason="replace pending")
+
+    assert relayed is False
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert task_row.status == JoySafeterTaskStatus.CANCELLED.value
+    assert str(task_row.chat_session_id) == str(session_id)
+    assert session_row.status == "idle"
+    assert session_row.stop_reason == {"type": "cancelled"}
+
+
+@pytest.mark.asyncio
+async def test_scheduler_replace_cancels_pending_prior_task_and_fires_replacement(
+    db_session, postgres_url, monkeypatch
+):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    monkeypatch.setattr(
+        "app.joysafeter_worker.scheduler.loop.AsyncSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False),
+    )
+
+    try:
+        _, project, agent = await _create_project_with_agent(db_session, name="ReplacePendingFire")
+        trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="replace-pending-fire")
+        trigger.concurrency_policy = "replace"
+        old_session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="running")
+        db_session.add(old_session)
+        await db_session.flush()
+        old_task = JoySafeterTask(
+            agent_id=agent.id,
+            chat_session_id=old_session.id,
+            trigger_id=trigger.id,
+            project_id=project.id,
+            prompt="queued scheduled slot",
+            status=JoySafeterTaskStatus.PENDING.value,
+        )
+        db_session.add(old_task)
+        await db_session.commit()
+        trigger_id = trigger.id
+        old_task_id = old_task.id
+        old_session_id = old_session.id
+        fired_slot = trigger.next_run_at
+        assert fired_slot is not None
+
+        outcome = await SchedulerLoop(worker_id="replace-pending-worker")._fire(trigger, fired_slot)
+
+        assert outcome.status == "fired"
+        assert outcome.task_id is not None
+        assert outcome.task_id != old_task_id
+        assert redis.rpushed == [("joysafeter:global_queue", str(outcome.task_id))]
+        assert not [channel for channel, _ in redis.published if channel.startswith("joysafeter:cmd:")]
+
+        db_session.expire_all()
+        tasks = (
+            await db_session.execute(
+                select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id).order_by(JoySafeterTask.created_at)
+            )
+        ).scalars().all()
+        old_task_row = next(row for row in tasks if str(row.id) == str(old_task_id))
+        new_task_row = next(row for row in tasks if str(row.id) == str(outcome.task_id))
+        old_session_row = (
+            await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == old_session_id))
+        ).scalar_one()
+        new_session_row = (
+            await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == outcome.session_id))
+        ).scalar_one()
+
+        assert old_task_row.status == JoySafeterTaskStatus.CANCELLED.value
+        assert old_session_row.status == "idle"
+        assert old_session_row.stop_reason == {"type": "cancelled"}
+        assert new_task_row.status == JoySafeterTaskStatus.PENDING.value
+        assert new_task_row.chat_session_id == new_session_row.id
+        assert new_session_row.status == "running"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_pending_task_cancel_fails_closed_if_sandbox_is_assigned_concurrently(
+    db_session, monkeypatch
+):
+    redis = _FakeCommandRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+
+    _, project, agent = await _create_project_with_agent(db_session, name="ReplacePendingOwnerRace")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="replace-pending-owner-race")
+    trigger.concurrency_policy = "replace"
+    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="running")
+    db_session.add(session)
+    await db_session.flush()
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        chat_session_id=session.id,
+        trigger_id=trigger.id,
+        project_id=project.id,
+        prompt="queued scheduled slot",
+        status=JoySafeterTaskStatus.PENDING.value,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    sandbox = JoySafeterSandbox(
+        chat_session_id=session.id,
+        external_id=f"sandbox-race-{uuid.uuid4()}",
+        provider="docker",
+        status="provisioning",
+        image="joysafeter/test:latest",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    task_id = task.id
+    session_id = session.id
+    sandbox_id = sandbox.id
+
+    await db_session.execute(
+        text(
+            "UPDATE joysafeter_tasks "
+            "SET status = 'scheduling', sandbox_id = :sandbox_id, updated_at = NOW() "
+            "WHERE id = :task_id"
+        ),
+        {"task_id": task_id, "sandbox_id": sandbox_id},
+    )
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await TaskCancellationService(db_session).cancel(
+            task,
+            reason=f"Replaced by trigger {trigger.id} slot {utc_now().isoformat()}",
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=503) == {
+        "code": "TASK_CANCEL_STATE_SYNC_FAILED",
+        "message": "Task cancel could not be finalized because task ownership changed.",
+        "data": {"task_id": str(task_id), "session_id": str(session_id)},
+        "source": "api",
+        "retryable": True,
+        "user_action": "refresh",
+    }
+    assert redis.published == []
+
+    db_session.expire_all()
+    task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
+    assert task_row.status == JoySafeterTaskStatus.SCHEDULING.value
+    assert str(task_row.sandbox_id) == str(sandbox_id)
