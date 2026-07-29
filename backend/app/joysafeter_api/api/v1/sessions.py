@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1._everos_flush import flush_everos_session
 from app.joysafeter_api.api.v1.id_helpers import parse_session_id as _parse_session_id
 from app.joysafeter_api.api.v1.session_metadata import (
     merge_current_user_session_metadata,
@@ -495,6 +496,7 @@ async def archive_session(
     ok = await svc.archive_session(session_id)
     if not ok:
         raise HTTPException(404, "Session not found")
+    await flush_everos_session(db, session_id=session_id, project_id=auth_ctx.project_id)
     return {"status": "archived"}
 
 
