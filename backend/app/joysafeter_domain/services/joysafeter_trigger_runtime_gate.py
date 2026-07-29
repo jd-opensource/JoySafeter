@@ -145,6 +145,23 @@ class TriggerRuntimeGate:
     def claimable_lock_filter(stale_before: datetime):
         return or_(JoySafeterTrigger.locked_at.is_(None), JoySafeterTrigger.locked_at < stale_before)
 
+    @staticmethod
+    def lock_stmt(trigger_id: uuid.UUID, project_id: Optional[str] = None):
+        """`SELECT ... FOR UPDATE` for a live (non-soft-deleted) trigger row."""
+        conditions = [JoySafeterTrigger.id == trigger_id, JoySafeterTrigger.deleted_at.is_(None)]
+        if project_id is not None:
+            conditions.append(JoySafeterTrigger.project_id == project_id)
+        return select(JoySafeterTrigger).where(*conditions).with_for_update()
+
+    @staticmethod
+    def trigger_not_found_error(trigger_id: uuid.UUID) -> NotFoundError:
+        return NotFoundError(
+            code="TRIGGER_NOT_FOUND",
+            message="Trigger not found",
+            data={"trigger_id": str(trigger_id)},
+            user_action="refresh",
+        )
+
     async def project_triggers_paused(self, project_id: Optional[str]) -> bool:
         if project_id is None:
             return False

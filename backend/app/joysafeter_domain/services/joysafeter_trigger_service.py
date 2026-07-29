@@ -308,11 +308,7 @@ class JoySafeterTriggerService:
         return result.scalar_one_or_none()
 
     async def _get_for_update(self, trigger_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterTrigger]:
-        conditions = [JoySafeterTrigger.id == trigger_id]
-        if project_id is not None:
-            conditions.append(JoySafeterTrigger.project_id == project_id)
-        conditions.append(JoySafeterTrigger.deleted_at.is_(None))
-        result = await self.db.execute(select(JoySafeterTrigger).where(*conditions).with_for_update())
+        result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         return result.scalar_one_or_none()
 
     async def get_by_name(

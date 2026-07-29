@@ -65,6 +65,61 @@ class TaskCancellationService:
             },
         )
 
+    @staticmethod
+    def _state_sync_data(*, task_id: Any, session_id: Any, sandbox_id: Any = None) -> dict[str, str]:
+        data = {"task_id": str(task_id), "session_id": str(session_id or "")}
+        if sandbox_id is not None:
+            data["sandbox_id"] = str(sandbox_id)
+        return data
+
+    def _state_sync_failed(self, *, task_id: Any, session_id: Any, sandbox_id: Any = None) -> ServiceUnavailableError:
+        return ServiceUnavailableError(
+            code="TASK_CANCEL_STATE_SYNC_FAILED",
+            message="Task cancel could not be finalized because task ownership changed.",
+            data=self._state_sync_data(task_id=task_id, session_id=session_id, sandbox_id=sandbox_id),
+            source="api",
+            retryable=True,
+            user_action="refresh",
+        )
+
+    async def _finalize_owner_matched_cancel(
+        self,
+        task_svc: JoySafeterTaskService,
+        *,
+        task_id: Any,
+        session_id: Any,
+        observed_sandbox_id: Any,
+        observed_owner_epoch: Any,
+        log_operation: str,
+        log_message: str,
+        sandbox_id: Any = None,
+    ) -> None:
+        """Flip the DB row to CANCELLED only if runtime ownership still matches."""
+        try:
+            cancelled = await task_svc.cancel_task_if_owner_matches(
+                task_id,
+                expected_sandbox_id=observed_sandbox_id,
+                expected_owner_epoch=observed_owner_epoch,
+            )
+        except ValueError:
+            # cancel_task_if_owner_matches raises ValueError when the task is already
+            # terminal; let it propagate un-wrapped instead of masking it as a sync failure.
+            raise
+        except Exception as exc:
+            log_boundary_failure(
+                logger,
+                boundary="task_cancellation",
+                code="TASK_CANCEL_STATE_SYNC_FAILED",
+                message=log_message,
+                operation=log_operation,
+                error=exc,
+                data=self._state_sync_data(task_id=task_id, session_id=session_id, sandbox_id=sandbox_id),
+            )
+            await self.db.rollback()
+            raise self._state_sync_failed(task_id=task_id, session_id=session_id, sandbox_id=sandbox_id) from None
+        if not cancelled:
+            raise self._state_sync_failed(task_id=task_id, session_id=session_id, sandbox_id=sandbox_id)
+
     async def relay_cancel(self, task: Any, *, reason: str) -> bool:
         """Publish the Redis ``cancel`` command to the sandbox running *task*.
 
@@ -109,88 +164,35 @@ class TaskCancellationService:
                     retryable=True,
                     user_action="retry",
                 )
-            try:
-                cancelled = await task_svc.cancel_task_if_owner_matches(
-                    task_id,
-                    expected_sandbox_id=observed_task_sandbox_id,
-                    expected_owner_epoch=observed_owner_epoch,
-                )
-            except ValueError:
-                raise
-            except Exception as exc:
-                log_boundary_failure(
-                    logger,
-                    boundary="task_cancellation",
-                    code="TASK_CANCEL_STATE_SYNC_FAILED",
-                    message="Failed to finalize task cancel after runtime ACK",
-                    operation="cancel_task_finalize_after_runtime_ack",
-                    error=exc,
-                    data={"task_id": str(task_id), "session_id": str(session_id or ""), "sandbox_id": str(sandbox_id)},
-                )
-                await self.db.rollback()
-                raise ServiceUnavailableError(
-                    code="TASK_CANCEL_STATE_SYNC_FAILED",
-                    message="Task cancel could not be finalized because task ownership changed.",
-                    data={"task_id": str(task_id), "session_id": str(session_id or ""), "sandbox_id": str(sandbox_id)},
-                    source="api",
-                    retryable=True,
-                    user_action="refresh",
-                ) from None
-            if not cancelled:
-                raise ServiceUnavailableError(
-                    code="TASK_CANCEL_STATE_SYNC_FAILED",
-                    message="Task cancel could not be finalized because task ownership changed.",
-                    data={"task_id": str(task_id), "session_id": str(session_id or ""), "sandbox_id": str(sandbox_id)},
-                    source="api",
-                    retryable=True,
-                    user_action="refresh",
-                )
+            await self._finalize_owner_matched_cancel(
+                task_svc,
+                task_id=task_id,
+                session_id=session_id,
+                observed_sandbox_id=observed_task_sandbox_id,
+                observed_owner_epoch=observed_owner_epoch,
+                log_operation="cancel_task_finalize_after_runtime_ack",
+                log_message="Failed to finalize task cancel after runtime ACK",
+                sandbox_id=sandbox_id,
+            )
         else:
             if status == JoySafeterTaskStatus.RUNNING:
                 raise ServiceUnavailableError(
                     code="TASK_CANCEL_STATE_SYNC_FAILED",
                     message="Task cancel could not be finalized because task has no runtime owner.",
-                    data={"task_id": str(task_id), "session_id": str(session_id or "")},
+                    data=self._state_sync_data(task_id=task_id, session_id=session_id),
                     source="api",
                     retryable=True,
                     user_action="refresh",
                 )
-            try:
-                cancelled = await task_svc.cancel_task_if_owner_matches(
-                    task_id,
-                    expected_sandbox_id=observed_task_sandbox_id,
-                    expected_owner_epoch=observed_owner_epoch,
-                )
-            except ValueError:
-                raise
-            except Exception as exc:
-                log_boundary_failure(
-                    logger,
-                    boundary="task_cancellation",
-                    code="TASK_CANCEL_STATE_SYNC_FAILED",
-                    message="Failed to finalize task cancel before runtime ownership was assigned",
-                    operation="cancel_task_finalize_without_runtime_owner",
-                    error=exc,
-                    data={"task_id": str(task_id), "session_id": str(session_id or "")},
-                )
-                await self.db.rollback()
-                raise ServiceUnavailableError(
-                    code="TASK_CANCEL_STATE_SYNC_FAILED",
-                    message="Task cancel could not be finalized because task ownership changed.",
-                    data={"task_id": str(task_id), "session_id": str(session_id or "")},
-                    source="api",
-                    retryable=True,
-                    user_action="refresh",
-                ) from None
-            if not cancelled:
-                raise ServiceUnavailableError(
-                    code="TASK_CANCEL_STATE_SYNC_FAILED",
-                    message="Task cancel could not be finalized because task ownership changed.",
-                    data={"task_id": str(task_id), "session_id": str(session_id or "")},
-                    source="api",
-                    retryable=True,
-                    user_action="refresh",
-                )
+            await self._finalize_owner_matched_cancel(
+                task_svc,
+                task_id=task_id,
+                session_id=session_id,
+                observed_sandbox_id=observed_task_sandbox_id,
+                observed_owner_epoch=observed_owner_epoch,
+                log_operation="cancel_task_finalize_without_runtime_owner",
+                log_message="Failed to finalize task cancel before runtime ownership was assigned",
+            )
         await self._mark_session_idle_after_cancel(task_id=task_id, session_id=session_id)
         return bool(sandbox_id)
 

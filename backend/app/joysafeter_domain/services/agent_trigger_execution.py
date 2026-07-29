@@ -16,10 +16,10 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JOYSAFETER_TERMINAL_STATUSES,
     JoySafeterTask,
 )
-from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
+from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, RequestValidationAppError
 from app.joysafeter_shared.utils.id_utils import same_id
@@ -118,18 +118,9 @@ class AgentTriggerExecutor:
         self.db = db
 
     async def _lock_trigger_for_submission(self, *, trigger_id: uuid.UUID, project_id: Optional[str]) -> None:
-        conditions = [JoySafeterTrigger.id == trigger_id]
-        if project_id is not None:
-            conditions.append(JoySafeterTrigger.project_id == project_id)
-        conditions.append(JoySafeterTrigger.deleted_at.is_(None))
-        result = await self.db.execute(select(JoySafeterTrigger.id).where(*conditions).with_for_update())
+        result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         if result.scalar_one_or_none() is None:
-            raise NotFoundError(
-                code="TRIGGER_NOT_FOUND",
-                message="Trigger not found",
-                data={"trigger_id": str(trigger_id)},
-                user_action="refresh",
-            )
+            raise TriggerRuntimeGate.trigger_not_found_error(trigger_id)
 
     async def resolve_session(self, config: AgentTriggerRunConfig) -> tuple[JoySafeterSession, bool]:
         session_svc = SessionService(self.db)
@@ -242,6 +233,9 @@ class AgentTriggerExecutor:
         if active_result.scalar_one_or_none() is not None:
             raise ConflictError(code="CONFLICT", message="Target session already has an active task")
         if config.trigger_id is not None:
+            # Re-lock: resolve_session may have created a session, which commits and
+            # drops the FOR UPDATE lock taken above — re-acquire before dispatching so
+            # a trigger soft-deleted during session creation cannot still fire.
             try:
                 await self._lock_trigger_for_submission(trigger_id=config.trigger_id, project_id=config.project_id)
             except NotFoundError:

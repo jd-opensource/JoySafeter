@@ -53,17 +53,15 @@ class TriggerSchedulerStateService:
             return await self._get_trigger_for_update(trigger_id)
         if self._get_trigger is not None:
             return await self._get_trigger(trigger_id)
-        result = await self.db.execute(
-            select(JoySafeterTrigger)
-            .where(
-                JoySafeterTrigger.id == trigger_id,
-                JoySafeterTrigger.deleted_at.is_(None),
-            )
-            .with_for_update()
-        )
+        result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id))
         return result.scalar_one_or_none()
 
-    async def _owns_claim(self, trigger: JoySafeterTrigger, expected_locked_by: Optional[str]) -> bool:
+    async def _owns_claim_or_release(self, trigger: JoySafeterTrigger, expected_locked_by: Optional[str]) -> bool:
+        """Whether this worker still owns *trigger*'s claim.
+
+        When another worker has taken over, commit to release the FOR UPDATE lock
+        held by ``get_for_update`` before the caller bails out.
+        """
         if expected_locked_by is None or trigger.locked_by == expected_locked_by:
             return True
         await self.db.commit()
@@ -148,7 +146,7 @@ class TriggerSchedulerStateService:
         trigger = await self.get_for_update(trigger_id)
         if trigger is None:
             return False
-        if not await self._owns_claim(trigger, expected_locked_by):
+        if not await self._owns_claim_or_release(trigger, expected_locked_by):
             return False
         trigger.last_fired_slot = fired_slot
         trigger.locked_by = None
@@ -183,7 +181,7 @@ class TriggerSchedulerStateService:
         trigger = await self.get_for_update(trigger_id)
         if trigger is None:
             return False
-        if not await self._owns_claim(trigger, expected_locked_by):
+        if not await self._owns_claim_or_release(trigger, expected_locked_by):
             return False
         now = datetime.now(timezone.utc)
         trigger.slot_attempts = (trigger.slot_attempts or 0) + 1

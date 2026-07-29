@@ -61,10 +61,10 @@ def _sanitize_value(value: Any, *, depth: int) -> Any:
             out["_truncated_keys"] = len(items) - _MAX_COLLECTION_ITEMS
         return out
     if isinstance(value, list):
-        out = [_sanitize_value(item, depth=depth + 1) for item in value[:_MAX_COLLECTION_ITEMS]]
+        list_out: list[Any] = [_sanitize_value(item, depth=depth + 1) for item in value[:_MAX_COLLECTION_ITEMS]]
         if len(value) > _MAX_COLLECTION_ITEMS:
-            out.append({"_truncated_items": len(value) - _MAX_COLLECTION_ITEMS})
-        return out
+            list_out.append({"_truncated_items": len(value) - _MAX_COLLECTION_ITEMS})
+        return list_out
     if isinstance(value, tuple):
         return _sanitize_value(list(value), depth=depth)
     if isinstance(value, str):
