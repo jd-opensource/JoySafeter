@@ -50,6 +50,38 @@ class _ConversationStatusRepo(RepoBase[ConversationStatus]):
             session_id, track, app_id=app_id, project_id=project_id, last_memcell_ts=ts
         )
 
+    async def list_idle_candidates(
+        self,
+        cutoff: dt.datetime,
+        *,
+        track: str = "memorize",
+        limit: int = 500,
+    ) -> list[tuple[str, str, str]]:
+        """Return (app_id, project_id, session_id) of sessions that have
+        un-extracted buffered content and have been idle past ``cutoff``.
+
+        Candidate = last_message_ts present, older than ``cutoff``, and
+        strictly newer than last_memcell_ts (or memcell never set).
+        """
+        async with session_scope(self._factory) as s:
+            stmt = (
+                select(
+                    ConversationStatus.app_id,
+                    ConversationStatus.project_id,
+                    ConversationStatus.session_id,
+                )
+                .where(
+                    ConversationStatus.track == track,
+                    ConversationStatus.last_message_ts.is_not(None),
+                    ConversationStatus.last_message_ts < cutoff,
+                    (ConversationStatus.last_memcell_ts.is_(None))
+                    | (ConversationStatus.last_message_ts > ConversationStatus.last_memcell_ts),
+                )
+                .limit(limit)
+            )
+            rows = (await s.execute(stmt)).all()
+            return [(r[0], r[1], r[2]) for r in rows]
+
     async def _upsert(
         self,
         session_id: str,
