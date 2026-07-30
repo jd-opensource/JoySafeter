@@ -1800,27 +1800,18 @@ export default function QuickstartPage() {
                             question={t('managed.quickstart.envNetworkingQuestion')}
                             choices={[
                               { num: 1, label: t('managed.quickstart.envLimited'), arrow: true },
-                              { num: 2, label: t('managed.quickstart.envUnrestricted') },
                               { num: 0, label: t('managed.quickstart.envSomethingElse') },
                             ]}
                             onSelect={async (num) => {
                               if (num === 0) {
                                 setEnvSubStep(null)
                                 setEnvUsesAI(true)
-                              } else if (num === 1) {
+                              } else {
                                 setEnvAnswers((prev) => ({
                                   ...prev,
                                   networkingLabel: t('managed.quickstart.envLimited'),
                                 }))
                                 setEnvSubStep('hosts')
-                              } else {
-                                const created = await createEnvironment('unrestricted', [])
-                                if (!created) return
-                                setEnvAnswers((prev) => ({
-                                  ...prev,
-                                  networkingLabel: t('managed.quickstart.envUnrestricted'),
-                                }))
-                                setEnvSubStep('selected')
                               }
                             }}
                             onSkip={handleEnvSkip}

@@ -170,7 +170,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
 
       setName(env.name)
       setDescription(env.description || '')
-      setNetworkType(env.config?.networking?.type || 'limited')
+      setNetworkType('limited')
       setAllowedHosts(env.config?.networking?.allowed_hosts?.join(', ') || '')
       setAptPackages(env.config?.packages?.apt?.join(', ') || '')
       setPipPackages(env.config?.packages?.pip?.join(', ') || '')
@@ -390,27 +390,11 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
             {t('managed.environments.networking')}
           </FormFieldLabel>
           <div className="rounded-xl border border-border bg-muted/25 p-3">
-            <Select
-              value={networkType}
-              onValueChange={(value) => {
-                setNetworkType(value)
-                setDirty(true)
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="unrestricted">
-                  {t('managed.environments.netUnrestricted')}
-                </SelectItem>
-                <SelectItem value="limited">{t('managed.environments.netLimited')}</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              {t('managed.environments.netLimited')}
+            </div>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              {networkType === 'limited'
-                ? t('managed.environments.netLimitedDesc', '默认禁止外网访问，仅允许白名单主机和已配置的第三方服务。')
-                : t('managed.environments.netUnrestrictedDesc', '允许沙箱访问外网；仅建议在可信环境或调试场景使用。')}
+              {t('managed.environments.netLimitedDesc', '默认禁止外网访问，仅允许白名单主机和已配置的第三方服务。')}
             </p>
             {networkType === 'limited' && (
               <div className="mt-3 space-y-1.5 border-t border-border/70 pt-3">
