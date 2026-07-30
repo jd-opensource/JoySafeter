@@ -14,8 +14,12 @@ correctly; CRUD round-trip belongs to integration suites).
 
 from __future__ import annotations
 
+import pytest
+
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog as SkillUsageLog
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillVersion as SkillVersion
+
+pytestmark = pytest.mark.no_db
 
 # ── SkillUsageLog ─────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
 import datetime as dt
 
+import pytest
 from sqlalchemy import Column, DateTime, String, create_engine, select
 from sqlalchemy.orm import Session, declarative_base
 
@@ -7,6 +8,8 @@ from app.joysafeter_domain.pagination import (
     apply_created_at_desc_cursor,
     apply_ordered_cursor,
 )
+
+pytestmark = pytest.mark.no_db
 
 Base = declarative_base()
 

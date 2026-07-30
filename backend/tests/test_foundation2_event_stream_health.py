@@ -5,6 +5,8 @@ import pytest
 from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_worker.events.health import collect_event_stream_health
 
+pytestmark = pytest.mark.no_db
+
 
 class _FakeRedis:
     def __init__(self, lengths: dict[str, int], pending=0):

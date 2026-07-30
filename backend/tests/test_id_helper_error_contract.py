@@ -14,6 +14,8 @@ from app.joysafeter_api.api.v1.id_helpers import (
 )
 from app.joysafeter_shared.common.app_errors import AppError
 
+pytestmark = pytest.mark.no_db
+
 
 @pytest.mark.asyncio
 async def test_parse_agent_id_invalid_value_returns_structured_error():

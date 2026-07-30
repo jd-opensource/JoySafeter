@@ -1,5 +1,6 @@
 import inspect
 
+import pytest
 from fastapi.params import Depends
 
 from app.joysafeter_api.api.v1 import (
@@ -21,12 +22,15 @@ from app.joysafeter_api.api.v1 import (
 from app.joysafeter_shared.common.joysafeter_auth import (
     get_joysafeter_auth_context,
     require_joysafeter_admin,
+    require_joysafeter_platform_admin,
     require_joysafeter_project_admin,
     require_joysafeter_user_admin,
     require_joysafeter_user_context,
     require_joysafeter_user_write,
     require_joysafeter_write,
 )
+
+pytestmark = pytest.mark.no_db
 
 
 def _dependency_for(handler, parameter_name: str = "auth_ctx"):
@@ -113,6 +117,7 @@ def test_auth_management_context_routes_require_user_principal():
         require_joysafeter_user_context,
         require_joysafeter_user_write,
         require_joysafeter_user_admin,
+        require_joysafeter_platform_admin,
         require_joysafeter_project_admin,
     }
 

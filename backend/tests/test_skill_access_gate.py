@@ -31,6 +31,8 @@ from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth.context import ProjectCapability
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 
+pytestmark = pytest.mark.no_db
+
 MODULE = "app.joysafeter_shared.common.skill_permissions"
 
 

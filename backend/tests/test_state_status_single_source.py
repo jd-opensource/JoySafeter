@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
 from app.joysafeter_domain.models.joysafeter_task import (
     JOYSAFETER_TERMINAL_STATUSES,
@@ -28,6 +30,8 @@ from app.joysafeter_domain.models.joysafeter_task import (
 )
 from app.joysafeter_domain.services import joysafeter_skill_security as skill_security
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SANDBOX_STATUSES
+
+pytestmark = pytest.mark.no_db
 
 
 def _repo_root() -> Path:

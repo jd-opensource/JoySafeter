@@ -23,6 +23,8 @@ from app.joysafeter_domain.services.joysafeter_skill_security import (
     target_hash,
 )
 
+pytestmark = pytest.mark.no_db
+
 # ── scan_input_bytes ───────────────────────────────────────────
 
 

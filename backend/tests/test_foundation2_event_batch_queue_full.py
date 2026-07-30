@@ -8,6 +8,8 @@ import pytest
 from app.joysafeter_worker.events import batch_writer as bw
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchConfig, EventBatchSender
 
+pytestmark = pytest.mark.no_db
+
 
 def _event() -> BufferedEvent:
     return BufferedEvent(

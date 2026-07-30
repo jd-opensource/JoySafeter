@@ -4,6 +4,8 @@ import pytest
 
 from app.joysafeter_api.api.v1.tasks import _stream_via_redis, _task_stream_error_payload
 
+pytestmark = pytest.mark.no_db
+
 
 class _FakeWebSocket:
     def __init__(self):
