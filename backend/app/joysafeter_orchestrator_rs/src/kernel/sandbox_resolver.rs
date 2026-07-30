@@ -36,6 +36,33 @@ use super::llm_providers::{
 /// freezing task scheduling.
 const SETUP_NETWORKING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+fn mcp_credential_url_keys(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut keys = vec![trimmed.to_string()];
+    if let Ok(mut url) = Url::parse(trimmed) {
+        if let Some(host) = url.host_str().map(|host| host.to_ascii_lowercase()) {
+            let _ = url.set_host(Some(&host));
+        }
+        let path = url.path().to_string();
+        if path != "/" {
+            url.set_path(path.trim_end_matches('/'));
+        }
+        keys.push(url.to_string());
+        if url.path() != "/" {
+            let with_slash_path = format!("{}/", url.path().trim_end_matches('/'));
+            url.set_path(&with_slash_path);
+            keys.push(url.to_string());
+        }
+    }
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
 /// 3-stage sandbox resolution with full Python parity:
 /// 1. Reuse existing active sandbox for the session (with fingerprint check)
 /// 1b. Restart stopped sandbox for the session
@@ -1362,14 +1389,19 @@ impl SandboxResolver {
                             "failed to decrypt vault credential for MCP server '{url}' in vault {vault_id}: {e}"
                         )
                     })?;
-                    token_by_url.insert(url, tok);
+                    for key in mcp_credential_url_keys(&url) {
+                        token_by_url.insert(key, tok.clone());
+                    }
                 }
             }
         }
 
         let mut egress = Vec::new();
         for (name, url) in mcp_servers {
-            let Some(token) = token_by_url.get(&url) else {
+            let token = mcp_credential_url_keys(&url)
+                .into_iter()
+                .find_map(|key| token_by_url.get(&key));
+            let Some(token) = token else {
                 continue;
             };
             let upstream = UpstreamTarget::from_url(&url)
@@ -2825,6 +2857,14 @@ mod egress_tests {
             mounts: vec![],
             egress_policy_hash: egress_policy_hash.to_string(),
         }
+    }
+
+    #[test]
+    fn mcp_credential_url_keys_matches_trailing_slash_variants() {
+        let keys = mcp_credential_url_keys("https://AI-Legal-Test.JD.com/legal-mcp/mcp/");
+
+        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp".to_string()));
+        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp/".to_string()));
     }
 
     #[test]

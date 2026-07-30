@@ -811,15 +811,21 @@ impl CdsBackend for FilesystemCds {
     }
 }
 
-/// Render a [`ClusterSpec`] to canonical Envoy Cluster JSON: a STRICT_DNS cluster
-/// with one endpoint at the real upstream host:port, plus a TLS transport socket
-/// (auto-SNI + system CA trust) when the upstream is HTTPS.
+/// Render a [`ClusterSpec`] to canonical Envoy Cluster JSON: a LOGICAL_DNS
+/// cluster with one endpoint at the real upstream host:port, plus a TLS
+/// transport socket (auto-SNI + system CA trust) when the upstream is HTTPS.
+///
+/// LOGICAL_DNS (vs STRICT_DNS) is chosen because each credential-injection
+/// upstream has exactly one endpoint. LOGICAL_DNS only resolves on new
+/// connections and retains the last-good IP on transient DNS failures, which
+/// eliminates the "no healthy upstream" 503 window that STRICT_DNS produces
+/// when DNS briefly fails (it clears the endpoint list entirely).
 fn render_cluster_json(spec: &ClusterSpec) -> Value {
     let mut cluster = json!({
         "@type": CLUSTER_TYPE_URL,
         "name": spec.name,
         "connect_timeout": "10s",
-        "type": "STRICT_DNS",
+        "type": "LOGICAL_DNS",
         "lb_policy": "ROUND_ROBIN",
         "dns_lookup_family": "V4_ONLY",
         "load_assignment": {
@@ -973,7 +979,7 @@ fn build_virtual_hosts_json(
                 }
                 // host_rewrite → real upstream (fixes Host header + TLS SNI);
                 // prefix_rewrite → real upstream path; cluster → per-upstream
-                // STRICT_DNS cluster whose endpoint is the real host (resolved
+                // LOGICAL_DNS cluster whose endpoint is the real host (resolved
                 // independently of the placeholder authority).
                 let prefix_rewrite = route_prefix_rewrite(r);
                 let route_json = if r.exact_path {
@@ -983,14 +989,24 @@ fn build_virtual_hosts_json(
                     json!({
                         "cluster": r.cluster_name,
                         "host_rewrite_literal": r.upstream_host,
-                        "timeout": "0s"
+                        "timeout": "0s",
+                        "retry_policy": {
+                            "retry_on": "5xx,reset,connect-failure",
+                            "num_retries": 2,
+                            "per_try_timeout": "10s"
+                        }
                     })
                 } else {
                     json!({
                         "cluster": r.cluster_name,
                         "host_rewrite_literal": r.upstream_host,
                         "prefix_rewrite": prefix_rewrite,
-                        "timeout": "0s"
+                        "timeout": "0s",
+                        "retry_policy": {
+                            "retry_on": "5xx,reset,connect-failure",
+                            "num_retries": 2,
+                            "per_try_timeout": "10s"
+                        }
                     })
                 };
                 let mut match_json = if r.exact_path {
@@ -1059,7 +1075,14 @@ fn build_virtual_hosts_json(
                 },
                 {
                     "match": route_match_with_proxy_auth(json!({ "prefix": "/" }), proxy_auth_token),
-                    "route": { "cluster": "dynamic_forward_proxy" },
+                    "route": {
+                        "cluster": "dynamic_forward_proxy",
+                        "retry_policy": {
+                            "retry_on": "5xx,reset,connect-failure",
+                            "num_retries": 2,
+                            "per_try_timeout": "10s"
+                        }
+                    },
                     "request_headers_to_remove": ["proxy-authorization"]
                 }
             ]
@@ -2154,7 +2177,7 @@ fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
             nanos: 0,
         }),
         cluster_discovery_type: Some(cluster::ClusterDiscoveryType::Type(
-            cluster::DiscoveryType::StrictDns as i32,
+            cluster::DiscoveryType::LogicalDns as i32,
         )),
         load_assignment: Some(ClusterLoadAssignment {
             cluster_name: spec.name.clone(),
@@ -2393,6 +2416,12 @@ fn build_virtual_hosts_proto(
                             ),
                         ),
                         prefix_rewrite,
+                        retry_policy: Some(envoy_types::pb::envoy::config::route::v3::RetryPolicy {
+                            retry_on: "5xx,reset,connect-failure".to_string(),
+                            num_retries: Some(envoy_types::pb::google::protobuf::UInt32Value { value: 2 }),
+                            per_try_timeout: Some(envoy_types::pb::google::protobuf::Duration { seconds: 10, nanos: 0 }),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     })),
                     request_headers_to_add: headers,
@@ -2469,6 +2498,12 @@ fn build_virtual_hosts_proto(
                 cluster_specifier: Some(route_action::ClusterSpecifier::Cluster(
                     "dynamic_forward_proxy".to_string(),
                 )),
+                retry_policy: Some(envoy_types::pb::envoy::config::route::v3::RetryPolicy {
+                    retry_on: "5xx,reset,connect-failure".to_string(),
+                    num_retries: Some(envoy_types::pb::google::protobuf::UInt32Value { value: 2 }),
+                    per_try_timeout: Some(envoy_types::pb::google::protobuf::Duration { seconds: 10, nanos: 0 }),
+                    ..Default::default()
+                }),
                 ..Default::default()
             })),
             request_headers_to_remove: vec!["proxy-authorization".to_string()],
@@ -2904,7 +2939,7 @@ mod tests {
 
         // The TLS cluster JSON carries SNI + CA trust; the listener JSON renders.
         let cj = render_cluster_json(mcp_cluster);
-        assert_eq!(cj["type"], "STRICT_DNS");
+        assert_eq!(cj["type"], "LOGICAL_DNS");
         assert_eq!(
             cj["transport_socket"]["typed_config"]["sni"],
             "mcp.example.com"

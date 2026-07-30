@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tar::{Builder, Header};
 use tracing::{debug, warn};
+use url::Url;
 use uuid::Uuid;
 
 use crate::db::queries;
@@ -21,6 +22,33 @@ use crate::kernel::run_spec::{
 
 const CONVERSATION_HISTORY_EVENT_LIMIT: i64 = 100;
 const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
+
+fn mcp_credential_url_keys(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut keys = vec![trimmed.to_string()];
+    if let Ok(mut url) = Url::parse(trimmed) {
+        if let Some(host) = url.host_str().map(|host| host.to_ascii_lowercase()) {
+            let _ = url.set_host(Some(&host));
+        }
+        let path = url.path().to_string();
+        if path != "/" {
+            url.set_path(path.trim_end_matches('/'));
+        }
+        keys.push(url.to_string());
+        if url.path() != "/" {
+            let with_slash_path = format!("{}/", url.path().trim_end_matches('/'));
+            url.set_path(&with_slash_path);
+            keys.push(url.to_string());
+        }
+    }
+    keys.sort();
+    keys.dedup();
+    keys
+}
 
 /// Constructs gRPC SetupSandbox and StartTask messages from task/agent/session data.
 ///
@@ -717,13 +745,18 @@ impl HarnessInputBuilder {
                             vault_id
                         )
                     })?;
-                    creds_by_url.insert(url, cred);
+                    for key in mcp_credential_url_keys(&url) {
+                        creds_by_url.insert(key, cred.clone());
+                    }
                 }
             }
         }
 
         for mcp in mcp_servers {
-            if let Some(cred) = creds_by_url.get_mut(&mcp.url) {
+            let matched_key = mcp_credential_url_keys(&mcp.url)
+                .into_iter()
+                .find(|key| creds_by_url.contains_key(key));
+            if let Some(cred) = matched_key.and_then(|key| creds_by_url.get_mut(&key)) {
                 // Trigger OAuth refresh so the DB token stays fresh; the actual
                 // token is injected at the Envoy egress boundary (built separately
                 // from the same DB rows), never written into the sandbox.
@@ -1235,9 +1268,9 @@ mod tests {
     use sqlx::PgPool;
 
     use super::{
-        ensure_skill_runtime_ready, extract_content_text, parse_semver, session_container_work_dir,
-        should_inject_conversation_history, trim_history_lines_to_budget, HarnessInputBuilder,
-        SkillForArchive,
+        ensure_skill_runtime_ready, extract_content_text, mcp_credential_url_keys, parse_semver,
+        session_container_work_dir, should_inject_conversation_history,
+        trim_history_lines_to_budget, HarnessInputBuilder, SkillForArchive,
     };
     use uuid::Uuid;
 
@@ -1260,6 +1293,13 @@ mod tests {
                 .await
                 .expect("connect to migrated Postgres test database"),
         )
+    }
+
+    #[test]
+    fn mcp_credential_url_keys_matches_trailing_slash_variants() {
+        let keys = mcp_credential_url_keys("https://AI-Legal-Test.JD.com/legal-mcp/mcp/");
+        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp".to_string()));
+        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp/".to_string()));
     }
 
     async fn cleanup(
@@ -2550,7 +2590,7 @@ struct SecretRow {
     data: serde_json::Value,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, Clone, FromRow)]
 struct VaultCredentialRow {
     id: Uuid,
     mcp_server_url: Option<String>,

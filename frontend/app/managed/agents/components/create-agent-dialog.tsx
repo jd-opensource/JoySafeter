@@ -43,6 +43,7 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import type { SkillRuntimeEligibility } from '@/types/managed'
 import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
+import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { ModelSecretSelect } from './model-secret-select'
@@ -234,15 +235,22 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   }
 
   const addMcpServer = () => {
-    if (!mcpName.trim() || !mcpUrl.trim()) return
-    const urlError = validateUrlScheme(mcpUrl.trim())
+    const trimmedName = mcpName.trim()
+    const trimmedUrl = mcpUrl.trim()
+    if (!trimmedName || !trimmedUrl) return
+    const nameError = validateUniqueMcpServerName(trimmedName, mcpServers)
+    if (nameError) {
+      toastOperationError(t, new Error(nameError), 'common.error')
+      return
+    }
+    const urlError = validateUrlScheme(trimmedUrl)
     if (urlError) {
       toastOperationError(t, new Error(urlError), 'common.error')
       return
     }
     setMcpServers((prev) => [
       ...prev,
-      { name: mcpName.trim(), url: mcpUrl.trim(), policy: 'always_ask' },
+      { name: trimmedName, url: trimmedUrl, policy: 'always_ask' },
     ])
     setMcpName('')
     setMcpUrl('')
