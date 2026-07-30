@@ -905,6 +905,25 @@ fn build_http_listener_json(
                         "allow_absolute_url": true
                     },
                     "stream_idle_timeout": "0s",
+                    "access_log": [{
+                        "name": "envoy.access_loggers.stdout",
+                        "typed_config": {
+                            "@type": "type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog",
+                            "log_format": {
+                                "json_format": {
+                                    "ts": "%START_TIME%",
+                                    "method": "%REQ(:METHOD)%",
+                                    "authority": "%REQ(:AUTHORITY)%",
+                                    "path": "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%",
+                                    "status": "%RESPONSE_CODE%",
+                                    "flags": "%RESPONSE_FLAGS%",
+                                    "upstream": "%UPSTREAM_HOST%",
+                                    "duration_ms": "%DURATION%",
+                                    "listener": format!("{sandbox_id}_http")
+                                }
+                            }
+                        }
+                    }],
                     "upgrade_configs": [{
                         "upgrade_type": "CONNECT"
                     }],
@@ -2281,6 +2300,9 @@ fn build_http_listener_proto(
             allow_absolute_url: Some(envoy_types::pb::google::protobuf::BoolValue { value: true }),
             ..Default::default()
         }),
+        // Disable stream idle timeout so long-lived connections (SSE / streaming
+        // LLM responses / MCP) are not killed by the default 5-minute idle limit.
+        stream_idle_timeout: Some(envoy_types::pb::google::protobuf::Duration { seconds: 0, nanos: 0 }),
         upgrade_configs: vec![http_connection_manager::UpgradeConfig {
             upgrade_type: "CONNECT".to_string(),
             ..Default::default()
@@ -2548,14 +2570,20 @@ fn proxy_auth_headers_proto(
     proxy_auth_token: Option<&str>,
 ) -> Vec<envoy_types::pb::envoy::config::route::v3::HeaderMatcher> {
     use envoy_types::pb::envoy::config::route::v3::{header_matcher, HeaderMatcher};
+    use envoy_types::pb::envoy::r#type::matcher::v3::{string_matcher, StringMatcher};
 
     let Some(token) = proxy_auth_token.filter(|token| !token.is_empty()) else {
         return vec![];
     };
     vec![HeaderMatcher {
         name: "proxy-authorization".to_string(),
-        header_match_specifier: Some(header_matcher::HeaderMatchSpecifier::ExactMatch(
-            proxy_authorization_value(token),
+        header_match_specifier: Some(header_matcher::HeaderMatchSpecifier::StringMatch(
+            StringMatcher {
+                match_pattern: Some(string_matcher::MatchPattern::Exact(
+                    proxy_authorization_value(token),
+                )),
+                ..Default::default()
+            },
         )),
         ..Default::default()
     }]
@@ -3235,6 +3263,7 @@ mod tests {
         let any = encode_listener_any(&http).unwrap();
         use envoy_types::pb::envoy::config::listener::v3::Listener;
         use envoy_types::pb::envoy::config::route::v3::header_matcher;
+        use envoy_types::pb::envoy::r#type::matcher::v3::string_matcher;
         use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
             http_connection_manager, HttpConnectionManager,
         };
@@ -3258,7 +3287,8 @@ mod tests {
         assert_eq!(credential_header.name, "proxy-authorization");
         assert!(matches!(
             credential_header.header_match_specifier.as_ref(),
-            Some(header_matcher::HeaderMatchSpecifier::ExactMatch(value)) if value == &expected
+            Some(header_matcher::HeaderMatchSpecifier::StringMatch(sm))
+                if sm.match_pattern == Some(string_matcher::MatchPattern::Exact(expected.clone()))
         ));
 
         let allowed_header = &rc.virtual_hosts[1].routes[0]
@@ -3269,7 +3299,8 @@ mod tests {
         assert_eq!(allowed_header.name, "proxy-authorization");
         assert!(matches!(
             allowed_header.header_match_specifier.as_ref(),
-            Some(header_matcher::HeaderMatchSpecifier::ExactMatch(value)) if value == &expected
+            Some(header_matcher::HeaderMatchSpecifier::StringMatch(sm))
+                if sm.match_pattern == Some(string_matcher::MatchPattern::Exact(expected.clone()))
         ));
     }
 
