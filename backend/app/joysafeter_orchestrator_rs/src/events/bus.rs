@@ -44,9 +44,12 @@ impl EventBus {
             config.instance_id.clone(),
         ));
 
-        // Build the persist sink. Redis Stream + Worker is the primary
-        // non-status event persistence path when enabled. Without it,
-        // local/dev deployments keep the direct DB batch persister.
+        // Build persist sinks. Redis Stream + Worker remains the async fanout
+        // path when enabled, but we also keep the direct DB batch persister as
+        // a durability fallback. The session event primary key is the event_id,
+        // so worker redelivery later becomes a no-op instead of duplicating
+        // rows. This prevents a stuck/missing worker from making agent events
+        // invisible in the UI.
         let sinks: Vec<Arc<dyn EventSink>> = if config.event_stream_enabled {
             let stream_publisher = Arc::new(EventStreamPublisher::new(
                 redis_client.clone(),
@@ -55,7 +58,7 @@ impl EventBus {
                 Some(persister.clone()),
                 config.event_stream_fallback_to_db,
             ));
-            vec![stream_publisher]
+            vec![stream_publisher, persister.clone()]
         } else {
             vec![persister.clone()]
         };

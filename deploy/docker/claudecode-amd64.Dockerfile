@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make cmake \
     ripgrep tree htop \
     vim nano \
-    socat \
     sqlite3 postgresql-client redis-tools \
     && rm -rf /var/lib/apt/lists/*
 

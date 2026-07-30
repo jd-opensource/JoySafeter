@@ -900,12 +900,10 @@ async fn persistent_claude_reader(
                                     .max(pull(Some(mu), "input_tokens"));
                                 entry.output_tokens = pull(Some(mu), "outputTokens")
                                     .max(pull(Some(mu), "output_tokens"));
-                                entry.cache_read_tokens =
-                                    pull(Some(mu), "cachedInputTokens")
-                                        .max(pull(Some(mu), "cache_read_input_tokens"));
-                                entry.cache_write_tokens =
-                                    pull(Some(mu), "uncachedInputTokens")
-                                        .max(pull(Some(mu), "cache_creation_input_tokens"));
+                                entry.cache_read_tokens = pull(Some(mu), "cachedInputTokens")
+                                    .max(pull(Some(mu), "cache_read_input_tokens"));
+                                entry.cache_write_tokens = pull(Some(mu), "uncachedInputTokens")
+                                    .max(pull(Some(mu), "cache_creation_input_tokens"));
                             }
                         }
                     }

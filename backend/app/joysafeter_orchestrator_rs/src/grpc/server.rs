@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -8,10 +9,11 @@ use futures::Stream;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use tokio::net::UnixListener;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::{ReceiverStream, UnixListenerStream};
 use tokio_stream::StreamExt as _;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, error, info, warn};
@@ -6899,25 +6901,31 @@ pub async fn start_grpc_server(
     runtime_config: Arc<RuntimeConfig>,
     xds_service: Option<Arc<crate::sandbox::lds_backend::DeltaXdsServer>>,
 ) -> anyhow::Result<JoinHandle<()>> {
-    let service = AgentBridgeService::new(
+    let service = Arc::new(AgentBridgeService::new(
         bridge_registry,
         event_bus,
         queue,
         pool,
-        config,
+        config.clone(),
         sandbox_provider,
         redis_coordinator,
         memory_subscribers,
         runtime_config,
-    );
+    ));
+
+    let control_socket_path = prepare_runner_control_socket(&config).await?;
 
     // Build the service with message size limits
-    let svc = AgentBridgeServer::new(service)
+    let svc = AgentBridgeServer::from_arc(service.clone())
+        .max_decoding_message_size(GRPC_MAX_RECV_MESSAGE_SIZE)
+        .max_encoding_message_size(GRPC_MAX_SEND_MESSAGE_SIZE);
+
+    let control_svc = AgentBridgeServer::from_arc(service)
         .max_decoding_message_size(GRPC_MAX_RECV_MESSAGE_SIZE)
         .max_encoding_message_size(GRPC_MAX_SEND_MESSAGE_SIZE);
 
     let handle = tokio::spawn(async move {
-        info!(addr = %addr, xds = xds_service.is_some(), "gRPC server listening (services: joysafeter.AgentBridge[, envoy ADS])");
+        info!(addr = %addr, control_socket = %control_socket_path.display(), xds = xds_service.is_some(), "gRPC server listening (TCP services: joysafeter.AgentBridge[, envoy ADS]; UDS service: joysafeter.AgentBridge)");
 
         let mut builder = tonic::transport::Server::builder()
             // Fix 1.2: transport-level keepalive for dead connection detection
@@ -6929,19 +6937,68 @@ pub async fn start_grpc_server(
         // LDS backend is in gRPC mode, the Delta ADS service is registered on
         // the SAME server — tonic routes by service path, so runners and Envoy
         // coexist on one port with no interference.
-        let serve_result = if let Some(xds) = xds_service {
+        let tcp_server = if let Some(xds) = xds_service {
             use envoy_types::pb::envoy::service::discovery::v3::aggregated_discovery_service_server::AggregatedDiscoveryServiceServer;
             let ads = AggregatedDiscoveryServiceServer::from_arc(xds);
-            builder.add_service(svc).add_service(ads).serve(addr).await
+            builder.add_service(svc).add_service(ads).serve(addr)
         } else {
-            builder.add_service(svc).serve(addr).await
+            builder.add_service(svc).serve(addr)
         };
 
-        if let Err(e) = serve_result {
-            error!("gRPC server error: {e}");
+        let control_listener = match UnixListener::bind(&control_socket_path) {
+            Ok(listener) => listener,
+            Err(e) => {
+                error!(path = %control_socket_path.display(), "failed to bind runner control UDS: {e}");
+                return;
+            }
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) = tokio::fs::set_permissions(
+                &control_socket_path,
+                std::fs::Permissions::from_mode(0o666),
+            )
+            .await
+            {
+                warn!(path = %control_socket_path.display(), "failed to chmod runner control UDS: {e}");
+            }
+        }
+        let control_server = tonic::transport::Server::builder()
+            .add_service(control_svc)
+            .serve_with_incoming(UnixListenerStream::new(control_listener));
+
+        tokio::select! {
+            result = tcp_server => {
+                if let Err(e) = result {
+                    error!("TCP gRPC server error: {e}");
+                }
+            }
+            result = control_server => {
+                if let Err(e) = result {
+                    error!("runner control UDS gRPC server error: {e}");
+                }
+            }
         }
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
     Ok(handle)
+}
+
+async fn prepare_runner_control_socket(config: &JoySafeterConfig) -> anyhow::Result<PathBuf> {
+    let dir = PathBuf::from(&config.runner_control_socket_host_dir);
+    tokio::fs::create_dir_all(&dir).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).await?;
+    }
+    let socket_path = dir.join("grpc.sock");
+    match tokio::fs::remove_file(&socket_path).await {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(socket_path)
 }

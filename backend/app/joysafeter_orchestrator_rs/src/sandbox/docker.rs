@@ -154,14 +154,8 @@ impl DockerProvider {
                     )
                 } else {
                     (
-                        Arc::new(FilesystemLds::new(
-                            docker.clone(),
-                            config.envoy_container_name.clone(),
-                        )),
-                        Arc::new(FilesystemCds::new(
-                            docker.clone(),
-                            config.envoy_container_name.clone(),
-                        )),
+                        Arc::new(FilesystemLds::new(config.envoy_config_dir.clone())),
+                        Arc::new(FilesystemCds::new(config.envoy_config_dir.clone())),
                     )
                 };
             Some(Arc::new(EnvoyManager::new(
@@ -169,6 +163,7 @@ impl DockerProvider {
                 EnvoyConfig {
                     envoy_image: config.envoy_image.clone(),
                     socket_volume: config.envoy_socket_volume.clone(),
+                    socket_host_dir: config.envoy_socket_host_dir.clone(),
                     config_dir: config.envoy_config_dir.clone(),
                     envoy_network: config.envoy_network.clone(),
                     grpc_target_host: config.envoy_grpc_host.clone(),
@@ -176,7 +171,7 @@ impl DockerProvider {
                     container_name: config.envoy_container_name.clone(),
                     xds_mode: config.envoy_xds_mode.clone(),
                     write_debug_entries: config.envoy_write_debug_entries,
-                    socket_owner: config.sandbox_run_as_user.clone(),
+                    socket_ready_timeout_ms: config.envoy_socket_ready_timeout_ms,
                     health_check_interval_sec: config.envoy_health_check_interval_sec,
                     health_failure_threshold: config.envoy_health_failure_threshold,
                 },
@@ -446,14 +441,42 @@ impl SandboxProvider for DockerProvider {
         let mut mounts = Vec::new();
 
         if config.network.as_deref() == Some("none") {
-            let socket_volume = self
-                .socket_volume
-                .clone()
-                .unwrap_or_else(|| "joysafeter-sockets".to_string());
+            let control_host_dir = &self.config.runner_control_socket_host_dir;
+            let control_container_path = &self.config.runner_control_socket_container_path;
+            let control_container_dir = control_container_path
+                .rsplit_once('/')
+                .map(|(dir, _)| if dir.is_empty() { "/" } else { dir })
+                .unwrap_or("/control");
+            if let Some(control_volume) = self.config.runner_control_socket_volume.as_deref() {
+                mounts.push(Mount {
+                    target: Some(control_container_dir.to_string()),
+                    source: Some(control_volume.to_string()),
+                    typ: Some(MountTypeEnum::VOLUME),
+                    read_only: Some(false),
+                    volume_options: Some(MountVolumeOptions {
+                        no_copy: Some(true),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+            } else {
+                binds.push(format!("{control_host_dir}:{control_container_dir}"));
+            }
+
             if let Some(ref manager) = self.envoy_manager {
                 manager.prepare_socket_dir(config.sandbox_id).await?;
             }
-            if self.socket_subpath_mount {
+            if let Some(socket_host_dir) = self.config.envoy_socket_host_dir.as_deref() {
+                let sandbox_socket_dir = format!("{socket_host_dir}/{}", config.sandbox_id);
+                binds.push(format!(
+                    "{sandbox_socket_dir}:/sockets/{}",
+                    config.sandbox_id
+                ));
+            } else if self.socket_subpath_mount {
+                let socket_volume = self
+                    .socket_volume
+                    .clone()
+                    .unwrap_or_else(|| "joysafeter-sockets".to_string());
                 // Mount only this sandbox's subdirectory from the shared socket
                 // volume. Envoy still owns `/sockets/<sandbox_id>`, but the sandbox
                 // cannot enumerate or connect to sibling sandbox sockets.
@@ -470,6 +493,10 @@ impl SandboxProvider for DockerProvider {
                     ..Default::default()
                 });
             } else {
+                let socket_volume = self
+                    .socket_volume
+                    .clone()
+                    .unwrap_or_else(|| "joysafeter-sockets".to_string());
                 // Compatibility fallback for older Docker engines/API versions
                 // that reject volume subpaths. Keep route-level proxy auth and
                 // per-sandbox token protection enabled even though mount scope is
@@ -478,14 +505,28 @@ impl SandboxProvider for DockerProvider {
                     sandbox_id = %config.sandbox_id,
                     "Using legacy full socket-volume mount; subpath mount is disabled or unsupported"
                 );
-                binds.push(format!("{socket_volume}:/sockets"));
+                mounts.push(Mount {
+                    target: Some("/sockets".to_string()),
+                    source: Some(socket_volume),
+                    typ: Some(MountTypeEnum::VOLUME),
+                    read_only: Some(false),
+                    volume_options: Some(MountVolumeOptions {
+                        no_copy: Some(true),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
             }
-            let orchestrator_url = format!("unix:///sockets/{}/grpc.sock", config.sandbox_id);
+            let orchestrator_url = format!("unix://{control_container_path}");
             env_map.insert(
                 "JOYSAFETER_ORCHESTRATOR_URL".to_string(),
                 orchestrator_url.clone(),
             );
             env_map.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), orchestrator_url);
+            env_map.insert(
+                "JOYSAFETER_EGRESS_HTTP_SOCKET_PATH".to_string(),
+                format!("/sockets/{}/http.sock", config.sandbox_id),
+            );
         }
 
         let env: Vec<String> = env_map.iter().map(|(k, v)| format!("{k}={v}")).collect();
@@ -906,9 +947,11 @@ impl SandboxProvider for DockerProvider {
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
+            tracing::info!(sandbox_id = %sandbox_id, "Configuring Envoy networking for sandbox");
             manager
                 .setup_for_sandbox(sandbox_id, networking, credentials)
                 .await?;
+            tracing::info!(sandbox_id = %sandbox_id, "Envoy networking configured for sandbox");
         }
         Ok(())
     }

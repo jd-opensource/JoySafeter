@@ -69,6 +69,11 @@ impl SandboxController {
         ));
 
         let s = self.clone();
+        handles.push(tokio::spawn(
+            async move { s.networking_reconcile_loop().await },
+        ));
+
+        let s = self.clone();
         handles.push(tokio::spawn(async move { s.cleanup_loop().await }));
 
         handles
@@ -120,6 +125,78 @@ impl SandboxController {
                 error!("Provisioning poll error: {e}");
             }
         }
+    }
+
+    /// Networking reconcile loop: re-push egress policy for sandboxes whose
+    /// Envoy config was left degraded (pending/nacked/failed) by a transient
+    /// xDS or Docker hiccup during provisioning. This is what makes the grpc
+    /// xDS path production-safe: a sandbox that missed its policy push self-heals
+    /// within one tick instead of running with no egress until the next task.
+    ///
+    /// Runs every 15s. Bounded batch per tick so a large backlog can't stall the
+    /// loop; oldest-degraded sandboxes are retried first.
+    async fn networking_reconcile_loop(self: &Arc<Self>) {
+        // Only meaningful for providers with egress management (Docker+Envoy).
+        // Other providers (Daytona/E2B/k8s) manage networking externally.
+        if !self.provider.capabilities().has_egress_management {
+            return;
+        }
+        let interval = Duration::from_secs(15);
+        const BATCH: i64 = 20;
+        info!("SandboxController networking reconcile started (interval=15s)");
+
+        loop {
+            tokio::time::sleep(interval).await;
+
+            if let Err(e) = self.reconcile_degraded_networking(BATCH).await {
+                error!("Networking reconcile error: {e}");
+            }
+        }
+    }
+
+    /// Re-push egress policy for up to `limit` degraded limited-networking
+    /// sandboxes. Each reconcile is independent; one failure does not abort the
+    /// batch. Fail-closed: a sandbox that can't be repaired stays `network=none`
+    /// with no egress and is retried next tick.
+    async fn reconcile_degraded_networking(&self, limit: i64) -> anyhow::Result<()> {
+        let degraded = queries::list_degraded_limited_sandboxes(&self.pool, limit).await?;
+        if degraded.is_empty() {
+            return Ok(());
+        }
+        debug!(
+            count = degraded.len(),
+            "Reconciling degraded sandbox networking"
+        );
+
+        for sandbox in &degraded {
+            match crate::kernel::sandbox_resolver::reconcile_sandbox_networking(
+                &self.pool,
+                self.provider.as_ref(),
+                sandbox,
+                &self.config.llm_egress_allowed_hosts,
+            )
+            .await
+            {
+                Ok(crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::Refreshed {
+                    policy_hash,
+                }) => {
+                    info!(
+                        sandbox_id = %sandbox.id,
+                        policy_hash = %policy_hash,
+                        "Reconciled degraded sandbox networking"
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(
+                        sandbox_id = %sandbox.id,
+                        error = %e,
+                        "Failed to reconcile sandbox networking; will retry next tick"
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Cleanup loop: runs every 60s. Pool management + stale cleanup.

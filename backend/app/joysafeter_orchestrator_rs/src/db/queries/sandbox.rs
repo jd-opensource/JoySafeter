@@ -102,6 +102,33 @@ pub async fn list_live_limited_sandboxes_for_project(
     .await
 }
 
+/// List live limited-networking sandboxes whose Envoy egress policy is NOT in
+/// the `ready` state — a push failed, NACK'd, or was left degraded (e.g. a
+/// transient xDS/Docker hiccup during provisioning). The networking-reconcile
+/// loop re-pushes these so a sandbox self-heals instead of running with no
+/// egress until the next task. Ordered oldest-updated-first so the
+/// longest-degraded sandbox is retried first.
+pub async fn list_degraded_limited_sandboxes(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<JoySafeterSandbox>, sqlx::Error> {
+    sqlx::query_as::<_, JoySafeterSandbox>(
+        r#"
+        SELECT * FROM joysafeter_sandboxes
+        WHERE status IN ('idle', 'running', 'provisioning')
+          AND destroyed_at IS NULL
+          AND external_id IS NOT NULL
+          AND config #>> '{fingerprint,networking,type}' = 'limited'
+          AND networking_status IN ('pending', 'nacked', 'failed')
+        ORDER BY updated_at
+        LIMIT $1
+        "#,
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
 /// Create a new sandbox record.
 pub async fn create_sandbox(
     pool: &PgPool,
@@ -906,12 +933,14 @@ pub async fn claim_sandbox_for_command_destroy(
 }
 
 /// Mark a passively observed sandbox as destroyed only if the row still matches
-/// the status/external id observed by the cleanup path.
+/// the cleanup claim/external id.
 ///
 /// Passive sweeps and command-driven provider deletion must not convert a
-/// sandbox that concurrently restarted, reconnected, or moved to a different
-/// lifecycle state into `destroyed` based on a stale pre-provider-call
-/// observation.
+/// A graceful stop path can race after a passive cleanup claim and move the row
+/// from `stopping` to `stopped` after the provider runtime has already been
+/// destroyed. Accept that narrow cleanup-owned transition too; otherwise the
+/// stopped row keeps occupying `idx_csb_active_session_unique` and blocks
+/// rescheduling the session forever.
 pub async fn destroy_sandbox_if_status_and_external_id(
     pool: &PgPool,
     sandbox_id: Uuid,
@@ -926,9 +955,14 @@ pub async fn destroy_sandbox_if_status_and_external_id(
             updated_at = NOW(),
             idle_since = NULL
         WHERE id = $1
-          AND status = $2
+          AND (status = $2 OR ($2 = 'stopping' AND status = 'stopped'))
           AND destroyed_at IS NULL
           AND external_id IS NOT DISTINCT FROM $3
+          AND NOT EXISTS (
+              SELECT 1 FROM joysafeter_tasks
+              WHERE sandbox_id = $1
+                AND status IN ('pending', 'scheduling', 'running')
+          )
         "#,
     )
     .bind(sandbox_id)

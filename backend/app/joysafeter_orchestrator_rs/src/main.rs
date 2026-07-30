@@ -31,6 +31,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = JoySafeterConfig::from_env();
+    config.validate()?;
 
     info!(
         instance_id = %config.instance_id,

@@ -123,11 +123,12 @@ pub async fn handle_task(
     )
     .await?;
 
-    let env = if session_config.env.is_empty() {
+    let mut env = if session_config.env.is_empty() {
         task.env.clone()
     } else {
         session_config.env.clone()
     };
+    merge_process_proxy_env(&mut env);
     let secrets = if session_config.secrets.is_empty() {
         task.secrets.clone()
     } else {
@@ -370,6 +371,26 @@ pub async fn handle_task(
         session_id: result_session_id,
         aborted: false,
     })
+}
+
+fn merge_process_proxy_env(env: &mut std::collections::HashMap<String, String>) {
+    for key in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "NO_PROXY",
+        "no_proxy",
+    ] {
+        if env.contains_key(key) {
+            continue;
+        }
+        if let Ok(value) = std::env::var(key) {
+            env.insert(key.to_string(), value);
+        }
+    }
 }
 
 pub async fn handle_setup(

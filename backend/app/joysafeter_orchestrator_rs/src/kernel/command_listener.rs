@@ -1,6 +1,5 @@
 use base64::Engine as _;
 use redis::AsyncCommands;
-use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -12,10 +11,8 @@ use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::redis_coordinator::RedisCoordinator;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
-use crate::kernel::sandbox_resolver::{allowed_hosts_from_networking, rebuild_sandbox_credentials};
 use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::image_builder::{EnvironmentPackages, ImageBuilder};
-use crate::sandbox::lds_backend;
 use crate::sandbox::provider::SandboxProvider;
 
 const SANDBOX_DESTROY_BROADCAST_CHANNEL: &str = "joysafeter:cmd:destroy";
@@ -275,45 +272,29 @@ impl CommandListener {
         let sandbox = queries::get_sandbox(&self.pool, sandbox_id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("sandbox not found: {sandbox_id}"))?;
-        let external_id = sandbox
-            .external_id
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow::anyhow!("sandbox has no external_id: {sandbox_id}"))?;
-        let networking = sandbox
-            .config
-            .as_ref()
-            .and_then(|config| config.get("fingerprint"))
-            .and_then(|fingerprint| fingerprint.get("networking"));
-        if networking
-            .and_then(|value| value.get("type"))
-            .and_then(|value| value.as_str())
-            != Some("limited")
+
+        match crate::kernel::sandbox_resolver::reconcile_sandbox_networking(
+            &self.pool,
+            self.provider.as_ref(),
+            &sandbox,
+            &self.llm_egress_allowed_hosts,
+        )
+        .await?
         {
-            return Ok(
-                serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}),
-            );
+            crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::NotLimited => {
+                Ok(serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}))
+            }
+            crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::Refreshed {
+                policy_hash,
+            } => {
+                info!(sandbox_id = %sandbox_id, policy_hash = %policy_hash, "Refreshed sandbox network policy");
+                Ok(serde_json::json!({
+                    "ok": true,
+                    "refreshed": true,
+                    "policy_hash": policy_hash,
+                }))
+            }
         }
-
-        let credentials =
-            rebuild_sandbox_credentials(&self.pool, &sandbox, &self.llm_egress_allowed_hosts).await;
-        let policy = credentials.to_policy(&sandbox_id, allowed_hosts_from_networking(networking));
-        lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
-        let summary = lds_backend::egress_policy_summary(&sandbox_id, &policy);
-        let policy_hash = network_policy_hash(networking, &summary);
-
-        queries::prepare_sandbox_network_policy_push(&self.pool, sandbox_id, &policy_hash).await?;
-        self.provider
-            .refresh_networking(sandbox_id, external_id, networking, credentials)
-            .await?;
-        queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_id).await?;
-
-        info!(sandbox_id = %sandbox_id, policy_hash = %policy_hash, "Refreshed sandbox network policy");
-        Ok(serde_json::json!({
-            "ok": true,
-            "refreshed": true,
-            "policy_hash": policy_hash,
-        }))
     }
 
     async fn handle_destroy_sandbox(
@@ -576,19 +557,6 @@ impl CommandListener {
         );
         Ok(())
     }
-}
-
-fn network_policy_hash(
-    networking: Option<&serde_json::Value>,
-    summary: &serde_json::Value,
-) -> String {
-    let material = serde_json::json!({
-        "networking": networking.cloned().unwrap_or_else(|| serde_json::json!({})),
-        "summary": summary,
-    });
-    let mut hasher = Sha256::new();
-    hasher.update(material.to_string().as_bytes());
-    hex::encode(hasher.finalize())
 }
 
 fn sandbox_file_response_to_json(response: proto::SandboxFileResponse) -> serde_json::Value {

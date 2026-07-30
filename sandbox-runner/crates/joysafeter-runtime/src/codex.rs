@@ -1332,10 +1332,7 @@ async fn handle_item_notification(
                 // and the empty-set check would wrongly declare the turn
                 // complete. By the time the child's turn/started arrives
                 // we'd be too late. Note: insertions are idempotent.
-                if let Some(receivers) = item
-                    .get("receiverThreadIds")
-                    .and_then(|v| v.as_array())
-                {
+                if let Some(receivers) = item.get("receiverThreadIds").and_then(|v| v.as_array()) {
                     for r in receivers {
                         if let Some(tid) = r.as_str() {
                             note_thread_active(current_turn, tid).await;
@@ -1721,10 +1718,7 @@ async fn signal_thread_done(
 /// a no-op. Called on `turn/started`, on busy `thread/status/changed`, and
 /// proactively for every receiver in `collabAgentToolCall item/started`
 /// so the spawn handshake doesn't race the child's own `turn/started`.
-async fn note_thread_active(
-    current_turn: &Arc<Mutex<Option<TurnState>>>,
-    thread_id: &str,
-) {
+async fn note_thread_active(current_turn: &Arc<Mutex<Option<TurnState>>>, thread_id: &str) {
     let mut guard = current_turn.lock().await;
     if let Some(ref mut turn) = *guard {
         turn.active_threads.insert(thread_id.to_string());

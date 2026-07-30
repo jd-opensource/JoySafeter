@@ -27,6 +27,15 @@ use super::llm_providers::{
     llm_provider_registry, CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY,
 };
 
+/// Hard client-side bound on a provider networking setup/refresh call (Envoy
+/// socket prep + xDS push + ACK/socket-readiness wait). The individual steps are
+/// bounded, but this outer bound guarantees the sandbox-provisioning path can
+/// never block indefinitely on a wedged Envoy/xDS: on timeout the sandbox is
+/// marked `failed` (fail-closed: it keeps network=none, no egress) and the
+/// networking-reconcile loop retries it. Prevents a single stuck setup from
+/// freezing task scheduling.
+const SETUP_NETWORKING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// 3-stage sandbox resolution with full Python parity:
 /// 1. Reuse existing active sandbox for the session (with fingerprint check)
 /// 1b. Restart stopped sandbox for the session
@@ -463,6 +472,7 @@ impl SandboxResolver {
             labels.insert("joysafeter.project_id".to_string(), project_id.clone());
         }
 
+        let limited_networking = context.network.as_deref() == Some("none");
         let create_config = SandboxCreateConfig {
             sandbox_id: sandbox_db_id,
             image: image.clone(),
@@ -471,7 +481,13 @@ impl SandboxResolver {
             cpu_limit: self.config.sandbox_cpu,
             memory_limit_mb: self.config.sandbox_memory_mb,
             network: context.network.clone(),
-            start_immediately: context.network.as_deref() != Some("none"),
+            // Restricted sandboxes are created stopped, then started explicitly
+            // right after create() — BEFORE the Envoy egress push — so the runner
+            // (which reaches the orchestrator over a direct control UDS, not
+            // Envoy) boots without waiting on xDS. The egress push and socket
+            // materialization happen off the critical path; the runner's
+            // in-process HTTP bridge retries the egress socket until it appears.
+            start_immediately: !limited_networking,
             // Use session_id for workspace path (Python L332-333: workspace_root/session_id)
             workspace_path: self.config.sandbox_workspace_root.as_ref().map(|root| {
                 if let Some(sid) = context.session_id {
@@ -551,7 +567,32 @@ impl SandboxResolver {
             return Err(e.into());
         }
 
-        if create_config.network.as_deref() == Some("none") {
+        // Start the container as soon as it exists, BEFORE pushing Envoy egress
+        // config. This takes Envoy off the sandbox-start critical path:
+        //   * runner control-plane gRPC uses a direct orchestrator UDS, not Envoy,
+        //     so the runner can connect and receive Setup/StartTask immediately;
+        //   * the runner's in-process HTTP egress bridge binds instantly and
+        //     connects to the per-sandbox Envoy socket lazily (retrying until it
+        //     appears), so the egress socket need not exist at start time.
+        // A slow or failing Envoy push therefore only delays *outbound* traffic,
+        // never sandbox/runner boot. (For non-limited networking the container was
+        // already started inside `create()` via start_immediately.)
+        if !create_config.start_immediately {
+            if let Err(e) = self.provider.start(&external_id).await {
+                self.network_policy_ready.remove(&sandbox_db_id);
+                let _ = self.provider.destroy(&external_id).await;
+                let _ = self.teardown_networking(sandbox_db_id).await;
+                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
+                return Err(e.context("failed to start sandbox after control-plane setup"));
+            }
+            info!(
+                sandbox_id = %sandbox_db_id,
+                external_id = %external_id,
+                "Started sandbox (egress config applied asynchronously)"
+            );
+        }
+
+        if limited_networking {
             if !self.provider.capabilities().has_egress_management {
                 let _ = self.provider.destroy(&external_id).await;
                 let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
@@ -559,15 +600,33 @@ impl SandboxResolver {
                     "limited sandbox networking requires egress management, but provider does not support it"
                 );
             }
-            let _ = queries::prepare_sandbox_network_policy_push(
+            info!(
+                sandbox_id = %sandbox_db_id,
+                external_id = %external_id,
+                policy_hash = %context.expected.egress_policy_hash,
+                "Preparing Envoy networking (sandbox already started)"
+            );
+            if let Err(e) = queries::prepare_sandbox_network_policy_push(
                 &self.pool,
                 sandbox_db_id,
                 &context.expected.egress_policy_hash,
             )
-            .await?;
-            if let Err(e) = self
-                .provider
-                .setup_networking(
+            .await
+            {
+                let _ = self.provider.destroy(&external_id).await;
+                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
+                return Err(anyhow::anyhow!(
+                    "failed to mark sandbox network policy pending: {e}"
+                ));
+            }
+            info!(
+                sandbox_id = %sandbox_db_id,
+                external_id = %external_id,
+                "Pushing Envoy networking (off the sandbox-start critical path)"
+            );
+            let setup_result = tokio::time::timeout(
+                SETUP_NETWORKING_TIMEOUT,
+                self.provider.setup_networking(
                     sandbox_db_id,
                     &external_id,
                     context.networking.as_ref(),
@@ -575,10 +634,22 @@ impl SandboxResolver {
                         .credentials
                         .clone()
                         .with_proxy_auth_token(Some(runner_token.clone())),
-                )
-                .await
-            {
+                ),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                Err(anyhow::anyhow!(
+                    "setup_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+                ))
+            });
+            if let Err(e) = setup_result {
                 self.network_policy_ready.remove(&sandbox_db_id);
+                warn!(
+                    sandbox_id = %sandbox_db_id,
+                    external_id = %external_id,
+                    error = %e,
+                    "Envoy egress networking setup failed; sandbox already started with degraded egress (runner control gRPC uses direct UDS). The networking reconcile loop will retry."
+                );
                 let _ = queries::update_sandbox_networking_status(
                     &self.pool,
                     sandbox_db_id,
@@ -591,29 +662,18 @@ impl SandboxResolver {
                 let _ = self
                     .persist_network_policy_failure(sandbox_db_id, Some(task_id), &context, &e)
                     .await;
-                let _ = self.provider.destroy(&external_id).await;
-                let _ = self.teardown_networking(sandbox_db_id).await;
-                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
-                return Err(e);
-            }
-            if let Err(e) = self.provider.start(&external_id).await {
-                self.network_policy_ready.remove(&sandbox_db_id);
-                let _ = self.provider.destroy(&external_id).await;
-                let _ = self.teardown_networking(sandbox_db_id).await;
-                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
-                return Err(
-                    e.context("failed to start sandbox after Envoy networking became ready")
+            } else {
+                info!(
+                    sandbox_id = %sandbox_db_id,
+                    external_id = %external_id,
+                    "Envoy networking ready"
                 );
-            }
-            info!(
-                sandbox_id = %sandbox_db_id,
-                external_id = %external_id,
-                "Started sandbox after Envoy networking became ready"
-            );
-            self.network_policy_ready
-                .insert(sandbox_db_id, context.expected.egress_policy_hash.clone());
-            if self.config.envoy_xds_mode != "grpc" {
-                let _ = queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_db_id).await;
+                self.network_policy_ready
+                    .insert(sandbox_db_id, context.expected.egress_policy_hash.clone());
+                if self.config.envoy_xds_mode != "grpc" {
+                    let _ =
+                        queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_db_id).await;
+                }
             }
         }
 
@@ -827,9 +887,9 @@ impl SandboxResolver {
             &context.expected.egress_policy_hash,
         )
         .await?;
-        if let Err(e) = self
-            .provider
-            .refresh_networking(
+        let refresh_result = tokio::time::timeout(
+            SETUP_NETWORKING_TIMEOUT,
+            self.provider.refresh_networking(
                 sandbox.id,
                 external_id,
                 context.networking.as_ref(),
@@ -837,15 +897,26 @@ impl SandboxResolver {
                     .credentials
                     .clone()
                     .with_proxy_auth_token(sandbox_runner_token(sandbox)),
-            )
-            .await
-            .with_context(|| format!("failed to refresh Envoy policy for sandbox {}", sandbox.id))
-        {
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(anyhow::anyhow!(
+                "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+            ))
+        })
+        .with_context(|| format!("failed to refresh Envoy policy for sandbox {}", sandbox.id));
+        if let Err(e) = refresh_result {
             self.network_policy_ready.remove(&sandbox.id);
             let _ = self
                 .persist_network_policy_failure(sandbox.id, None, context, &e)
                 .await;
-            return Err(e);
+            warn!(
+                sandbox_id = %sandbox.id,
+                error = %e,
+                "Envoy policy refresh failed for reused sandbox; continuing with degraded networking"
+            );
+            return Ok(());
         }
 
         self.network_policy_ready
@@ -1983,6 +2054,105 @@ pub(crate) async fn rebuild_sandbox_credentials(
         routes,
         proxy_auth_token: sandbox_runner_token(sandbox),
     }
+}
+
+/// Outcome of a networking reconcile attempt for one sandbox.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NetworkingReconcileOutcome {
+    /// Sandbox is not limited-networking; nothing to do.
+    NotLimited,
+    /// Policy was (re)pushed and marked ready.
+    Refreshed { policy_hash: String },
+}
+
+/// Rebuild a sandbox's egress policy from current DB state and (re)push it to
+/// the provider's Envoy, marking it ready on success. This is the single shared
+/// implementation behind both the API-triggered `network_policy_refresh` command
+/// and the background networking-reconcile loop, so credential rotation and
+/// self-healing follow identical, tested logic.
+///
+/// On provider failure the sandbox's networking status is recorded as `failed`
+/// (fail-closed: it keeps `network=none` and simply has no egress) and the error
+/// is returned so the caller can log/retry. The reconcile loop will pick it up
+/// again on its next tick.
+pub(crate) async fn reconcile_sandbox_networking(
+    pool: &PgPool,
+    provider: &dyn SandboxProvider,
+    sandbox: &JoySafeterSandbox,
+    llm_egress_allowed_hosts: &[String],
+) -> anyhow::Result<NetworkingReconcileOutcome> {
+    let sandbox_id = sandbox.id;
+    let Some(external_id) = sandbox
+        .external_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
+        anyhow::bail!("sandbox {sandbox_id} has no external_id");
+    };
+
+    let networking = sandbox
+        .config
+        .as_ref()
+        .and_then(|config| config.get("fingerprint"))
+        .and_then(|fingerprint| fingerprint.get("networking"));
+    if networking
+        .and_then(|value| value.get("type"))
+        .and_then(|value| value.as_str())
+        != Some("limited")
+    {
+        return Ok(NetworkingReconcileOutcome::NotLimited);
+    }
+
+    let credentials = rebuild_sandbox_credentials(pool, sandbox, llm_egress_allowed_hosts).await;
+    let policy = credentials.to_policy(&sandbox_id, allowed_hosts_from_networking(networking));
+    crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
+    let summary = crate::sandbox::lds_backend::egress_policy_summary(&sandbox_id, &policy);
+    let policy_hash = network_policy_hash(networking, &summary);
+
+    queries::prepare_sandbox_network_policy_push(pool, sandbox_id, &policy_hash).await?;
+    let refresh_result = tokio::time::timeout(
+        SETUP_NETWORKING_TIMEOUT,
+        provider.refresh_networking(sandbox_id, external_id, networking, credentials),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(anyhow::anyhow!(
+            "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+        ))
+    });
+    if let Err(e) = refresh_result {
+        // Fail-closed: record the failure; the sandbox keeps network=none and
+        // will be retried by the reconcile loop.
+        let _ = queries::update_sandbox_networking_status(
+            pool,
+            sandbox_id,
+            "failed",
+            Some(&policy_hash),
+            None,
+            Some(&e.to_string()),
+        )
+        .await;
+        return Err(e);
+    }
+    queries::mark_sandbox_network_policy_acked(pool, sandbox_id).await?;
+
+    Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
+}
+
+/// Hash the effective egress policy (networking allowlist + rendered credential
+/// summary) into the `networking_policy_hash` used for drift detection and the
+/// policy-version audit row. Shared by the refresh command and reconcile loop.
+pub(crate) fn network_policy_hash(
+    networking: Option<&serde_json::Value>,
+    summary: &serde_json::Value,
+) -> String {
+    let material = serde_json::json!({
+        "networking": networking.cloned().unwrap_or_else(|| serde_json::json!({})),
+        "summary": summary,
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(material.to_string().as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 /// Standalone environment loader for recovery (mirrors `load_environment`).

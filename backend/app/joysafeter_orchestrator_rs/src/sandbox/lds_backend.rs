@@ -1,8 +1,8 @@
 //! Pluggable LDS (Listener Discovery Service) backends for the per-sandbox
 //! Envoy proxy.
 //!
-//! `EnvoyManager` describes each sandbox's two listeners (a gRPC TCP-proxy pipe
-//! and an HTTP allowlist pipe) as neutral [`ListenerSpec`]s and hands them to an
+//! `EnvoyManager` describes each sandbox's HTTP egress listener as a neutral
+//! [`ListenerSpec`] and hands it to an
 //! [`LdsBackend`]. Two backends exist, selected at startup by
 //! `JOYSAFETER_ENVOY_XDS_MODE`:
 //!
@@ -14,9 +14,10 @@
 //!   keeps them in memory, and pushes only the changed resources to Envoy over a
 //!   long-lived stream (`api_type: DELTA_GRPC`). O(1) per update, no file I/O.
 //!
-//! The sandbox data plane (network=none + shared `/sockets` volume + the runner's
-//! socat bridge) is identical regardless of backend — only the transport of the
-//! Listener config differs.
+//! The sandbox egress data plane (network=none + shared `/sockets` volume + the
+//! runner's socat bridge) is identical regardless of backend — only the transport
+//! of the Listener config differs. Runner gRPC control-plane traffic bypasses
+//! Envoy and connects directly to the orchestrator's Unix socket.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -25,7 +26,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use bollard::Docker;
 use futures::Stream;
 use prost::Message;
 use serde_json::{json, Value};
@@ -47,15 +47,18 @@ use envoy_types::pb::google::protobuf::Any;
 /// with this so Envoy routes it to LDS.
 const LISTENER_TYPE_URL: &str = "type.googleapis.com/envoy.config.listener.v3.Listener";
 
+/// Hard client-side bound on any single Docker exec/upload against the Envoy
+/// container. The Docker daemon calls are not self-bounding; without this a
+/// stalled daemon wedges sandbox provisioning indefinitely. Generous enough to
+/// cover a busy daemon, short enough that the provisioning path degrades and
+/// retries rather than hanging.
 // ---------------------------------------------------------------------------
 // Neutral listener description
 // ---------------------------------------------------------------------------
 
-/// Which of a sandbox's two listeners this is.
+/// Which sandbox listener this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListenerKind {
-    /// TCP-proxy pipe forwarding the runner's gRPC to the orchestrator.
-    Grpc,
     /// HTTP connection-manager pipe enforcing the egress allowlist.
     Http,
 }
@@ -604,12 +607,9 @@ fn escape_envoy_header_value(raw: &str) -> String {
 }
 
 impl ListenerSpec {
-    /// Resource name Envoy sees, e.g. `"<uuid>_grpc"` / `"<uuid>_http"`.
-    /// Kept identical to the historical filesystem naming so a mode switch is
-    /// transparent.
+    /// Resource name Envoy sees, e.g. `"<uuid>_http"`.
     pub fn resource_name(&self) -> String {
         match self.kind {
-            ListenerKind::Grpc => format!("{}_grpc", self.sandbox_id),
             ListenerKind::Http => format!("{}_http", self.sandbox_id),
         }
     }
@@ -624,7 +624,7 @@ impl ListenerSpec {
 pub trait LdsBackend: Send + Sync {
     /// Add or replace the given listeners.
     async fn upsert(&self, specs: Vec<ListenerSpec>) -> anyhow::Result<()>;
-    /// Remove listeners by resource name (e.g. `"<uuid>_grpc"`).
+    /// Remove listeners by resource name (e.g. `"<uuid>_http"`).
     async fn remove(&self, names: Vec<String>) -> anyhow::Result<()>;
     /// Replace the entire set (used for init and gRPC re-sync on reconnect).
     async fn replace_all(&self, specs: Vec<ListenerSpec>) -> anyhow::Result<()>;
@@ -637,6 +637,26 @@ pub trait LdsBackend: Send + Sync {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+    /// Release any retained per-sandbox apply/ACK bookkeeping on teardown.
+    /// Filesystem LDS keeps no such state, so the default is a no-op.
+    async fn forget_sandbox(&self, _sandbox_id: Uuid) {}
+
+    /// Atomically apply one sandbox's clusters and listeners in a single update
+    /// (CDS ordered before LDS for make-before-break). Existing clusters under
+    /// `cluster_prefix` that are absent from `clusters` are removed.
+    ///
+    /// Returns `Ok(true)` if the backend applied the combined batch, or
+    /// `Ok(false)` if it does not support batching and the caller should fall
+    /// back to separate CDS then LDS writes. The default is `Ok(false)` so the
+    /// filesystem backend keeps its two-file behaviour unchanged.
+    async fn apply_sandbox_batch(
+        &self,
+        _clusters: Vec<ClusterSpec>,
+        _listeners: Vec<ListenerSpec>,
+        _cluster_prefix: String,
+    ) -> anyhow::Result<bool> {
+        Ok(false)
+    }
 }
 
 // ===========================================================================
@@ -646,17 +666,15 @@ pub trait LdsBackend: Send + Sync {
 /// LDS backend that writes `/envoy-config/lds.json` into the Envoy container.
 /// This is the historical behaviour, relocated behind the trait unchanged.
 pub struct FilesystemLds {
-    docker: Arc<Docker>,
-    container_name: String,
+    config_dir: String,
     /// name → rendered listener JSON. Rewritten in full on every change.
     listeners: Mutex<HashMap<String, Value>>,
 }
 
 impl FilesystemLds {
-    pub fn new(docker: Arc<Docker>, container_name: String) -> Self {
+    pub fn new(config_dir: String) -> Self {
         Self {
-            docker,
-            container_name,
+            config_dir,
             listeners: Mutex::new(HashMap::new()),
         }
     }
@@ -669,13 +687,7 @@ impl FilesystemLds {
             "resources": resources,
         });
         let lds_json = serde_json::to_string(&lds)?;
-        write_file_in_envoy(
-            &self.docker,
-            &self.container_name,
-            "/envoy-config/lds.json",
-            &lds_json,
-        )
-        .await?;
+        write_config_file(&self.config_dir, "lds.json", &lds_json).await?;
         debug!(
             listener_count = listeners.len(),
             "FilesystemLds wrote lds.json"
@@ -736,16 +748,14 @@ const CLUSTER_TYPE_URL: &str = "type.googleapis.com/envoy.config.cluster.v3.Clus
 
 /// CDS backend that writes `/envoy-config/cds.json` into the Envoy container.
 pub struct FilesystemCds {
-    docker: Arc<Docker>,
-    container_name: String,
+    config_dir: String,
     clusters: Mutex<HashMap<String, Value>>,
 }
 
 impl FilesystemCds {
-    pub fn new(docker: Arc<Docker>, container_name: String) -> Self {
+    pub fn new(config_dir: String) -> Self {
         Self {
-            docker,
-            container_name,
+            config_dir,
             clusters: Mutex::new(HashMap::new()),
         }
     }
@@ -757,13 +767,7 @@ impl FilesystemCds {
             "resources": resources,
         });
         let cds_json = serde_json::to_string(&cds)?;
-        write_file_in_envoy(
-            &self.docker,
-            &self.container_name,
-            "/envoy-config/cds.json",
-            &cds_json,
-        )
-        .await?;
+        write_config_file(&self.config_dir, "cds.json", &cds_json).await?;
         debug!(
             cluster_count = clusters.len(),
             "FilesystemCds wrote cds.json"
@@ -858,7 +862,6 @@ fn render_cluster_json(spec: &ClusterSpec) -> Value {
 /// Render a [`ListenerSpec`] to canonical Envoy Listener JSON.
 fn render_listener_json(spec: &ListenerSpec) -> Value {
     match spec.kind {
-        ListenerKind::Grpc => build_grpc_listener_json(&spec.sandbox_id),
         ListenerKind::Http => build_http_listener_json(
             &spec.sandbox_id,
             &spec.allowed_hosts,
@@ -866,30 +869,6 @@ fn render_listener_json(spec: &ListenerSpec) -> Value {
             spec.proxy_auth_token.as_deref(),
         ),
     }
-}
-
-/// TCP proxy listener that forwards gRPC traffic to the orchestrator.
-fn build_grpc_listener_json(sandbox_id: &Uuid) -> Value {
-    json!({
-        "@type": LISTENER_TYPE_URL,
-        "name": format!("{sandbox_id}_grpc"),
-        "address": {
-            "pipe": {
-                "path": format!("/sockets/{sandbox_id}/grpc.sock"),
-                "mode": 384
-            }
-        },
-        "filter_chains": [{
-            "filters": [{
-                "name": "envoy.filters.network.tcp_proxy",
-                "typed_config": {
-                    "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
-                    "stat_prefix": format!("{sandbox_id}_grpc"),
-                    "cluster": "orchestrator_grpc"
-                }
-            }]
-        }]
-    })
 }
 
 /// HTTP connection manager listener with domain-based allowlist.
@@ -907,7 +886,7 @@ fn build_http_listener_json(
         "address": {
             "pipe": {
                 "path": format!("/sockets/{sandbox_id}/http.sock"),
-                "mode": 384
+                "mode": 438
             }
         },
         "filter_chains": [{
@@ -1271,6 +1250,55 @@ enum Change {
     Remove(String),
 }
 
+#[derive(Debug, Clone)]
+struct VersionedChange {
+    version: u64,
+    type_url: String,
+    changes: Vec<Change>,
+}
+
+const XDS_CHANGE_LOG_LIMIT: usize = 4096;
+
+/// Upper bound on outstanding response nonces tracked per ADS stream. Envoy
+/// acknowledges nonces in order, so a stream normally has only a couple in
+/// flight; this cap is a safety net against unbounded growth if some pushes are
+/// never ACK'd (e.g. Envoy disconnects mid-flight). Eviction is FIFO.
+const XDS_NONCE_TRACK_LIMIT: usize = 512;
+
+/// Bounded, insertion-ordered map from response nonce to the
+/// `(type_url, version, resource_names)` it carried. Used per ADS stream to map
+/// an Envoy ACK/NACK back to the sandboxes it applied to. Entries are removed
+/// when consumed by an ACK/NACK and FIFO-evicted once the cap is exceeded, so a
+/// long-lived stream cannot leak nonce state.
+#[derive(Default)]
+struct NonceTracker {
+    map: HashMap<String, (String, u64, Vec<String>)>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl NonceTracker {
+    fn insert(&mut self, nonce: String, entry: (String, u64, Vec<String>)) {
+        if self.map.insert(nonce.clone(), entry).is_none() {
+            self.order.push_back(nonce);
+        }
+        while self.order.len() > XDS_NONCE_TRACK_LIMIT {
+            if let Some(old) = self.order.pop_front() {
+                self.map.remove(&old);
+            }
+        }
+    }
+
+    /// Remove and return the entry for `nonce`. Consuming on ACK/NACK is what
+    /// keeps the tracker bounded in the common (fully-acknowledged) case.
+    fn take(&mut self, nonce: &str) -> Option<(String, u64, Vec<String>)> {
+        let entry = self.map.remove(nonce);
+        if entry.is_some() {
+            self.order.retain(|n| n != nonce);
+        }
+        entry
+    }
+}
+
 /// Shared xDS state: the authoritative resource sets (per type URL) + version.
 struct XdsState {
     /// type_url → (resource name → encoded resource). Holds both Clusters and
@@ -1278,6 +1306,10 @@ struct XdsState {
     resources: HashMap<String, HashMap<String, Any>>,
     /// Monotonic version stamped into each Delta response.
     version: u64,
+    /// Recent per-version changes used by active Delta ADS streams. This keeps
+    /// ordinary updates incremental instead of cloning and sending the full LDS
+    /// and CDS world every time one sandbox changes.
+    change_log: Vec<VersionedChange>,
 }
 
 #[derive(Debug, Clone)]
@@ -1292,6 +1324,7 @@ impl XdsState {
         Self {
             resources: HashMap::new(),
             version: 0,
+            change_log: Vec::new(),
         }
     }
 
@@ -1301,6 +1334,22 @@ impl XdsState {
 
     fn snapshot_type(&self, type_url: &str) -> HashMap<String, Any> {
         self.resources.get(type_url).cloned().unwrap_or_default()
+    }
+
+    fn changes_since(&self, version: u64) -> Option<Vec<VersionedChange>> {
+        let Some(first) = self.change_log.first() else {
+            return Some(Vec::new());
+        };
+        if version < first.version.saturating_sub(1) {
+            return None;
+        }
+        Some(
+            self.change_log
+                .iter()
+                .filter(|change| change.version > version)
+                .cloned()
+                .collect(),
+        )
     }
 }
 
@@ -1365,6 +1414,14 @@ impl DeltaXdsServer {
         }
     }
 
+    /// Drop any retained ACK/NACK status for a torn-down sandbox. Called when a
+    /// sandbox's listeners/clusters are removed so `apply_status` cannot grow
+    /// unboundedly over the orchestrator's lifetime (one entry per sandbox ever
+    /// created otherwise).
+    async fn forget_sandbox(&self, sandbox_id: Uuid) {
+        self.apply_status.lock().await.remove(&sandbox_id);
+    }
+
     /// Apply a batch of changes to one resource type and wake the stream.
     async fn apply(
         &self,
@@ -1372,24 +1429,53 @@ impl DeltaXdsServer {
         changes: Vec<Change>,
         pending_sandboxes: Vec<Uuid>,
     ) -> u64 {
-        if changes.is_empty() {
+        self.apply_batch(vec![(type_url.to_string(), changes)], pending_sandboxes)
+            .await
+    }
+
+    /// Apply changes across several resource types as one atomic update: a single
+    /// version tick, one change-log group per non-empty type (in the given order,
+    /// so callers pass Clusters before Listeners for make-before-break), and one
+    /// `notify` wake. This lets a sandbox's CDS + LDS update ride a single version
+    /// instead of two, halving stream wakeups and re-pushes under load.
+    async fn apply_batch(
+        &self,
+        groups: Vec<(String, Vec<Change>)>,
+        pending_sandboxes: Vec<Uuid>,
+    ) -> u64 {
+        let groups: Vec<(String, Vec<Change>)> = groups
+            .into_iter()
+            .filter(|(_, changes)| !changes.is_empty())
+            .collect();
+        if groups.is_empty() {
             return *self.notify.borrow();
         }
         let mut st = self.state.lock().await;
         st.version += 1;
         let version = st.version;
-        {
-            let map = st.entry(type_url);
-            for change in &changes {
-                match change {
-                    Change::Upsert(name, any) => {
-                        map.insert(name.clone(), any.clone());
-                    }
-                    Change::Remove(name) => {
-                        map.remove(name);
+        for (type_url, changes) in &groups {
+            {
+                let map = st.entry(type_url);
+                for change in changes {
+                    match change {
+                        Change::Upsert(name, any) => {
+                            map.insert(name.clone(), any.clone());
+                        }
+                        Change::Remove(name) => {
+                            map.remove(name);
+                        }
                     }
                 }
             }
+            st.change_log.push(VersionedChange {
+                version,
+                type_url: type_url.clone(),
+                changes: changes.clone(),
+            });
+        }
+        if st.change_log.len() > XDS_CHANGE_LOG_LIMIT {
+            let remove_count = st.change_log.len() - XDS_CHANGE_LOG_LIMIT;
+            st.change_log.drain(..remove_count);
         }
         drop(st);
         if !pending_sandboxes.is_empty() {
@@ -1402,7 +1488,11 @@ impl DeltaXdsServer {
                     },
                 );
             }
-            let _ = self.status_notify.send(*self.status_notify.borrow() + 1);
+            // Hoist the current value into a local before send(): holding the
+            // watch read guard from borrow() across send()'s write acquisition
+            // on the same channel self-deadlocks (read-then-write on one thread).
+            let next_status_version = *self.status_notify.borrow() + 1;
+            let _ = self.status_notify.send(next_status_version);
         }
         // Ignore send error: no receiver means no Envoy connected yet; the
         // change is already recorded and delivered as initial state on connect.
@@ -1469,6 +1559,59 @@ impl LdsBackend for GrpcLds {
         timeout: Duration,
     ) -> anyhow::Result<()> {
         self.server.wait_for_sandbox_ack(sandbox_id, timeout).await
+    }
+
+    async fn forget_sandbox(&self, sandbox_id: Uuid) {
+        self.server.forget_sandbox(sandbox_id).await;
+    }
+
+    async fn apply_sandbox_batch(
+        &self,
+        clusters: Vec<ClusterSpec>,
+        listeners: Vec<ListenerSpec>,
+        cluster_prefix: String,
+    ) -> anyhow::Result<bool> {
+        // Cluster changes: upsert the new set, remove any prior clusters under
+        // this sandbox's prefix that are no longer present (credentials removed
+        // since the last refresh).
+        let mut new_cluster_names = std::collections::HashSet::new();
+        let mut cluster_changes = Vec::with_capacity(clusters.len());
+        for spec in &clusters {
+            new_cluster_names.insert(spec.name.clone());
+            cluster_changes.push(Change::Upsert(spec.name.clone(), encode_cluster_any(spec)?));
+        }
+        // Listener changes: upsert this sandbox's listeners and collect the
+        // sandboxes they belong to for pending/ACK tracking.
+        let mut listener_changes = Vec::with_capacity(listeners.len());
+        let mut pending_sandboxes = Vec::new();
+        for spec in &listeners {
+            if !pending_sandboxes.contains(&spec.sandbox_id) {
+                pending_sandboxes.push(spec.sandbox_id);
+            }
+            listener_changes.push(Change::Upsert(
+                spec.resource_name(),
+                encode_listener_any(spec)?,
+            ));
+        }
+        {
+            let st = self.server.state.lock().await;
+            for existing in st.snapshot_type(CLUSTER_TYPE_URL).keys() {
+                if existing.starts_with(&cluster_prefix) && !new_cluster_names.contains(existing) {
+                    cluster_changes.push(Change::Remove(existing.clone()));
+                }
+            }
+        }
+        // One atomic version tick, Clusters before Listeners (make-before-break).
+        self.server
+            .apply_batch(
+                vec![
+                    (CLUSTER_TYPE_URL.to_string(), cluster_changes),
+                    (LISTENER_TYPE_URL.to_string(), listener_changes),
+                ],
+                pending_sandboxes,
+            )
+            .await;
+        Ok(true)
     }
 }
 
@@ -1606,83 +1749,50 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
         // never reference a not-yet-known cluster (make-before-break).
         const TYPES: [&str; 2] = [CLUSTER_TYPE_URL, LISTENER_TYPE_URL];
 
-        // Snapshot the initial full state per type to send on connect.
-        let (initial, mut last_seen_version) = {
-            let st = self.state.lock().await;
-            let version = st.version;
-            let mut responses = Vec::new();
-            for type_url in TYPES {
-                let map = st.snapshot_type(type_url);
-                let resources: Vec<Resource> = map
-                    .iter()
-                    .map(|(name, any)| Resource {
-                        name: name.clone(),
-                        version: version.to_string(),
-                        resource: Some(any.clone()),
-                        ..Default::default()
-                    })
-                    .collect();
-                responses.push(DeltaDiscoveryResponse {
-                    system_version_info: version.to_string(),
-                    resources,
-                    removed_resources: vec![],
-                    type_url: type_url.to_string(),
-                    nonce: format!("n-{type_url}-{version}"),
-                    ..Default::default()
-                });
-            }
-            (responses, version)
-        };
-
         let task = async move {
             // Track response nonce -> resource names so ACK/NACK can be mapped
-            // back to sandbox policy rows.
-            let mut nonce_resources: HashMap<String, (String, u64, Vec<String>)> = HashMap::new();
-
-            // Send initial state (CDS then LDS).
-            for resp in initial {
-                nonce_resources.insert(
-                    resp.nonce.clone(),
-                    (
-                        resp.type_url.clone(),
-                        resp.system_version_info.parse::<u64>().unwrap_or_default(),
-                        resp.resources
-                            .iter()
-                            .map(|resource| resource.name.clone())
-                            .chain(resp.removed_resources.iter().cloned())
-                            .collect(),
-                    ),
-                );
-                if tx.send(Ok(resp)).await.is_err() {
-                    return;
-                }
-            }
-            // Track what Envoy currently has per type, to compute removes.
+            // back to sandbox policy rows. Bounded + consumed on ACK/NACK so a
+            // long-lived stream never leaks nonce state.
+            let mut nonce_resources = NonceTracker::default();
+            // Track resource types Envoy has subscribed to and what we have sent
+            // for each type. Delta ADS is subscription driven: sending resources
+            // before Envoy asks for a type can be ignored by Envoy and leaves
+            // later listener updates unapplied.
+            let mut subscribed: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             let mut sent: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
-            for type_url in TYPES {
-                let snap = state_handle.snapshot_type(type_url).await;
-                sent.insert(type_url.to_string(), snap.into_keys().collect());
-            }
+            let mut last_seen_version = *notify_rx.borrow_and_update();
 
             loop {
                 tokio::select! {
-                    // Drain ACK/NACK and subscription messages. We don't act on
-                    // subscriptions (we always push the full set) but we must
-                    // consume the stream so flow control advances and NACKs are
-                    // visible in logs.
+                    // Drain ACK/NACK and subscription messages. For Delta ADS we
+                    // only send a resource type after Envoy subscribes to it.
                     msg = inbound.message() => {
                         match msg {
                             Ok(Some(req)) => {
                                 if !req.response_nonce.is_empty() {
                                     let (acked_type_url, acked_version, resources) = nonce_resources
-                                        .get(&req.response_nonce)
-                                        .cloned()
+                                        .take(&req.response_nonce)
                                         .unwrap_or_default();
                                     if let Some(err) = &req.error_detail {
                                         warn!(code = err.code, message = %err.message, nonce = %req.response_nonce, "Envoy NACK'd xDS update");
                                         xds_status_handle.persist_nack(resources, acked_version, err.message.clone()).await;
                                     } else if acked_type_url == LISTENER_TYPE_URL {
                                         xds_status_handle.persist_ack(resources, acked_version).await;
+                                    }
+                                }
+                                if TYPES.contains(&req.type_url.as_str()) && subscribed.insert(req.type_url.clone()) {
+                                    let version = *notify_rx.borrow();
+                                    let snap = state_handle.snapshot_type(&req.type_url).await;
+                                    let (resp, current) = delta_response_from_snapshot(
+                                        req.type_url.clone(),
+                                        version,
+                                        snap,
+                                        &mut nonce_resources,
+                                    );
+                                    sent.insert(req.type_url, current);
+                                    if tx.send(Ok(resp)).await.is_err() {
+                                        break;
                                     }
                                 }
                             }
@@ -1704,49 +1814,50 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                         if version == last_seen_version {
                             continue;
                         }
-                        last_seen_version = version;
 
-                        // Emit a per-type delta, CDS before LDS.
-                        let mut closed = false;
-                        for type_url in TYPES {
-                            let snap = state_handle.snapshot_type(type_url).await;
-                            let current: std::collections::HashSet<String> =
-                                snap.keys().cloned().collect();
-                            let resources: Vec<Resource> = snap
-                                .iter()
-                                .map(|(name, any)| Resource {
-                                    name: name.clone(),
-                                    version: version.to_string(),
-                                    resource: Some(any.clone()),
-                                    ..Default::default()
-                                })
-                                .collect();
-                            let prev = sent.entry(type_url.to_string()).or_default();
-                            let removed: Vec<String> =
-                                prev.difference(&current).cloned().collect();
-                            *prev = current;
-
-                            let nonce = format!("n-{type_url}-{version}");
-                            nonce_resources.insert(
-                                nonce.clone(),
-                                (
+                        let Some(changes) = state_handle.changes_since(last_seen_version).await else {
+                            // The stream fell behind the bounded change log. Fall back to
+                            // one full snapshot per subscribed type so Envoy catches up.
+                            let mut closed = false;
+                            for type_url in TYPES {
+                                if !subscribed.contains(type_url) {
+                                    continue;
+                                }
+                                let snap = state_handle.snapshot_type(type_url).await;
+                                let (resp, current) = delta_response_from_snapshot(
                                     type_url.to_string(),
                                     version,
-                                    resources
-                                        .iter()
-                                        .map(|resource| resource.name.clone())
-                                        .chain(removed.iter().cloned())
-                                        .collect(),
-                                ),
-                            );
-                            let resp = DeltaDiscoveryResponse {
-                                system_version_info: version.to_string(),
-                                resources,
-                                removed_resources: removed,
-                                type_url: type_url.to_string(),
-                                nonce,
-                                ..Default::default()
-                            };
+                                    snap,
+                                    &mut nonce_resources,
+                                );
+                                sent.insert(type_url.to_string(), current);
+                                if tx.send(Ok(resp)).await.is_err() {
+                                    closed = true;
+                                    break;
+                                }
+                            }
+                            if closed {
+                                break;
+                            }
+                            last_seen_version = version;
+                            continue;
+                        };
+
+                        // Emit actual deltas only, CDS before LDS for each version.
+                        let mut closed = false;
+                        for change in changes {
+                            if !subscribed.contains(change.type_url.as_str()) {
+                                continue;
+                            }
+                            let (resp, removed) =
+                                delta_response_from_change(change, &mut nonce_resources);
+                            let prev = sent.entry(resp.type_url.clone()).or_default();
+                            for resource in &resp.resources {
+                                prev.insert(resource.name.clone());
+                            }
+                            for name in &removed {
+                                prev.remove(name);
+                            }
                             if tx.send(Ok(resp)).await.is_err() {
                                 closed = true;
                                 break;
@@ -1755,6 +1866,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                         if closed {
                             break;
                         }
+                        last_seen_version = version;
                     }
                 }
             }
@@ -1791,7 +1903,8 @@ impl XdsStatusHandle {
                 }
             }
             if !acked_sandboxes.is_empty() {
-                let _ = self.status_notify.send(*self.status_notify.borrow() + 1);
+                let next_status_version = *self.status_notify.borrow() + 1;
+                let _ = self.status_notify.send(next_status_version);
             }
         }
         let Some(pool) = self.db_pool.lock().await.clone() else {
@@ -1822,7 +1935,8 @@ impl XdsStatusHandle {
                 }
             }
             if !nacked_sandboxes.is_empty() {
-                let _ = self.status_notify.send(*self.status_notify.borrow() + 1);
+                let next_status_version = *self.status_notify.borrow() + 1;
+                let _ = self.status_notify.send(next_status_version);
             }
         }
         let Some(pool) = self.db_pool.lock().await.clone() else {
@@ -1848,6 +1962,98 @@ impl StateSnapshotHandle {
     async fn snapshot_type(&self, type_url: &str) -> HashMap<String, Any> {
         self.state.lock().await.snapshot_type(type_url)
     }
+
+    async fn changes_since(&self, version: u64) -> Option<Vec<VersionedChange>> {
+        self.state.lock().await.changes_since(version)
+    }
+}
+
+fn delta_response_from_snapshot(
+    type_url: String,
+    version: u64,
+    snap: HashMap<String, Any>,
+    nonce_resources: &mut NonceTracker,
+) -> (DeltaDiscoveryResponse, std::collections::HashSet<String>) {
+    let current: std::collections::HashSet<String> = snap.keys().cloned().collect();
+    let resources: Vec<Resource> = snap
+        .into_iter()
+        .map(|(name, any)| Resource {
+            name,
+            version: version.to_string(),
+            resource: Some(any),
+            ..Default::default()
+        })
+        .collect();
+    let nonce = format!("n-{type_url}-{version}-snapshot");
+    nonce_resources.insert(
+        nonce.clone(),
+        (
+            type_url.clone(),
+            version,
+            resources
+                .iter()
+                .map(|resource| resource.name.clone())
+                .collect(),
+        ),
+    );
+    (
+        DeltaDiscoveryResponse {
+            system_version_info: version.to_string(),
+            resources,
+            removed_resources: vec![],
+            type_url,
+            nonce,
+            ..Default::default()
+        },
+        current,
+    )
+}
+
+fn delta_response_from_change(
+    change: VersionedChange,
+    nonce_resources: &mut NonceTracker,
+) -> (DeltaDiscoveryResponse, Vec<String>) {
+    let mut removed = Vec::new();
+    let mut resources = Vec::new();
+    for item in change.changes {
+        match item {
+            Change::Upsert(name, any) => {
+                resources.push(Resource {
+                    name,
+                    version: change.version.to_string(),
+                    resource: Some(any),
+                    ..Default::default()
+                });
+            }
+            Change::Remove(name) => {
+                removed.push(name);
+            }
+        }
+    }
+    let nonce = format!("n-{}-{}", change.type_url, change.version);
+    nonce_resources.insert(
+        nonce.clone(),
+        (
+            change.type_url.clone(),
+            change.version,
+            resources
+                .iter()
+                .map(|resource| resource.name.clone())
+                .chain(removed.iter().cloned())
+                .collect(),
+        ),
+    );
+    (
+        DeltaDiscoveryResponse {
+            system_version_info: change.version.to_string(),
+            resources,
+            removed_resources: removed.clone(),
+            type_url: change.type_url,
+            nonce,
+            ..Default::default()
+        },
+        removed,
+    )
 }
 
 impl DeltaXdsServer {
@@ -1899,7 +2105,6 @@ fn encode_listener_any(spec: &ListenerSpec) -> anyhow::Result<Any> {
     use envoy_types::pb::envoy::config::listener::v3::Listener;
 
     let listener: Listener = match spec.kind {
-        ListenerKind::Grpc => build_grpc_listener_proto(&spec.sandbox_id),
         ListenerKind::Http => build_http_listener_proto(
             &spec.sandbox_id,
             &spec.allowed_hosts,
@@ -2014,51 +2219,6 @@ fn pack_any<M: Message>(type_url: &str, msg: &M) -> Any {
     Any {
         type_url: type_url.to_string(),
         value: buf,
-    }
-}
-
-fn build_grpc_listener_proto(
-    sandbox_id: &Uuid,
-) -> envoy_types::pb::envoy::config::listener::v3::Listener {
-    use envoy_types::pb::envoy::config::core::v3::{address, Address, Pipe};
-    use envoy_types::pb::envoy::config::listener::v3::{filter, Filter, FilterChain, Listener};
-    use envoy_types::pb::envoy::extensions::filters::network::tcp_proxy::v3::{
-        tcp_proxy, TcpProxy,
-    };
-
-    let tcp_proxy = TcpProxy {
-        stat_prefix: format!("{sandbox_id}_grpc"),
-        cluster_specifier: Some(tcp_proxy::ClusterSpecifier::Cluster(
-            "orchestrator_grpc".to_string(),
-        )),
-        ..Default::default()
-    };
-
-    Listener {
-        name: format!("{sandbox_id}_grpc"),
-        address: Some(Address {
-            address: Some(address::Address::Pipe(Pipe {
-                path: format!("/sockets/{sandbox_id}/grpc.sock"),
-                // Envoy creates Unix listener sockets as its own process user
-                // (root in the stock container). The sandbox runner executes as
-                // the unprivileged sandbox user, so the socket must be
-                // connectable even before the orchestrator's post-create chown
-                // runs. Isolation comes from mounting only this sandbox's socket
-                // subdirectory into the sandbox.
-                mode: 438,
-            })),
-        }),
-        filter_chains: vec![FilterChain {
-            filters: vec![Filter {
-                name: "envoy.filters.network.tcp_proxy".to_string(),
-                config_type: Some(filter::ConfigType::TypedConfig(pack_any(
-                    "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
-                    &tcp_proxy,
-                ))),
-            }],
-            ..Default::default()
-        }],
-        ..Default::default()
     }
 }
 
@@ -2367,123 +2527,21 @@ fn proxy_auth_headers_proto(
 }
 
 // ---------------------------------------------------------------------------
-// Shared Envoy container file write (used by FilesystemLds + EnvoyManager)
+// Shared Envoy bind-mount file write (used by filesystem LDS/CDS)
 // ---------------------------------------------------------------------------
 
-/// Execute a shell command inside the Envoy container, returning combined output.
-pub async fn exec_in_envoy(
-    docker: &Docker,
-    container_name: &str,
-    cmd: &str,
-) -> anyhow::Result<String> {
-    use bollard::exec::{CreateExecOptions, StartExecResults};
-    use futures::StreamExt;
-
-    let exec = docker
-        .create_exec(
-            container_name,
-            CreateExecOptions {
-                cmd: Some(vec!["sh".to_string(), "-c".to_string(), cmd.to_string()]),
-                attach_stdout: Some(true),
-                attach_stderr: Some(true),
-                ..Default::default()
-            },
-        )
-        .await?;
-
-    let mut output = String::new();
-    if let StartExecResults::Attached {
-        output: mut stream, ..
-    } = docker.start_exec(&exec.id, None).await?
-    {
-        while let Some(msg) = stream.next().await {
-            let msg = msg?;
-            output.push_str(&msg.to_string());
-        }
-    }
-
-    let inspect = docker.inspect_exec(&exec.id).await?;
-    match inspect.exit_code {
-        Some(0) => {}
-        Some(code) => {
-            anyhow::bail!("Envoy container command failed with exit code {code}: {output}");
-        }
-        None => {
-            anyhow::bail!("Envoy container command finished without an exit code: {output}");
-        }
-    }
-
-    Ok(output)
-}
-
-/// Write a file inside the Envoy container atomically (tmp + mv).
-///
-/// The file payload is uploaded as a tar archive instead of being embedded into
-/// a shell command. Envoy configs can become large when many routes or secret
-/// header injections are present, and passing the full content through `sh -c`
-/// can exceed the kernel's argv/env size limit.
-///
-/// After the atomic rename, we `touch` the parent directory to guarantee that
-/// Envoy's `watched_directory` inotify picks up the change. On Docker bind
-/// mounts the `mv` (rename) event is frequently invisible to the watcher
-/// inside the container, but a `touch` on the directory itself always fires a
-/// directory-level `IN_ATTRIB` that Envoy's `FilesystemSubscriptionImpl` uses
-/// as a rescan trigger.
-pub async fn write_file_in_envoy(
-    docker: &Docker,
-    container_name: &str,
-    path: &str,
+async fn write_config_file(
+    config_dir: &str,
+    relative_path: &str,
     content: &str,
 ) -> anyhow::Result<()> {
-    let tmp_path = format!("{path}.tmp");
-    // Derive the parent directory for the post-write touch.
-    let parent = std::path::Path::new(path)
-        .parent()
-        .and_then(|p| p.to_str())
-        .unwrap_or("/envoy-config");
-
-    let tmp_name = std::path::Path::new(&tmp_path)
-        .file_name()
-        .and_then(|p| p.to_str())
-        .ok_or_else(|| anyhow::anyhow!("invalid Envoy config path: {path}"))?;
-    upload_file_to_envoy(docker, container_name, parent, tmp_name, content.as_bytes()).await?;
-
-    let cmd = format!("mv '{}' '{}' && touch '{}'", tmp_path, path, parent);
-    exec_in_envoy(docker, container_name, &cmd).await?;
-    Ok(())
-}
-
-async fn upload_file_to_envoy(
-    docker: &Docker,
-    container_name: &str,
-    dir: &str,
-    file_name: &str,
-    content: &[u8],
-) -> anyhow::Result<()> {
-    use bollard::container::UploadToContainerOptions;
-
-    let mut tar_buf = Vec::new();
-    {
-        let mut archive = tar::Builder::new(&mut tar_buf);
-        let mut header = tar::Header::new_gnu();
-        header.set_path(file_name)?;
-        header.set_size(content.len() as u64);
-        header.set_mode(0o644);
-        header.set_cksum();
-        archive.append(&header, content)?;
-        archive.finish()?;
+    let path = std::path::Path::new(config_dir).join(relative_path);
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
     }
-
-    docker
-        .upload_to_container(
-            container_name,
-            Some(UploadToContainerOptions {
-                path: dir,
-                ..Default::default()
-            }),
-            tar_buf.into(),
-        )
-        .await?;
+    let tmp = path.with_extension("tmp");
+    tokio::fs::write(&tmp, content).await?;
+    tokio::fs::rename(&tmp, &path).await?;
     Ok(())
 }
 
@@ -2491,6 +2549,146 @@ async fn upload_file_to_envoy(
 mod tests {
     use super::*;
     use prost::Message;
+
+    /// Regression: `DeltaXdsServer::apply` must not self-deadlock when it records
+    /// pending sandbox status. It previously called
+    /// `status_notify.send(*status_notify.borrow() + 1)`, holding the watch read
+    /// guard from `borrow()` across `send()`'s write acquisition on the same
+    /// channel — a permanent single-thread read-then-write deadlock that only ran
+    /// in gRPC xDS mode (the LDS listener push carries a non-empty
+    /// `pending_sandboxes`). It wedged the global `config_apply_lock` and made
+    /// every sandbox's networking reconcile time out, so Envoy never received the
+    /// per-sandbox listener and `/sockets/<id>/http.sock` was never created.
+    #[tokio::test]
+    async fn grpc_lds_upsert_with_pending_status_does_not_deadlock() {
+        let server = DeltaXdsServer::new();
+        let lds = GrpcLds::new(server.clone());
+        let mut listener = spec(ListenerKind::Http, &["example.com"]);
+        listener.sandbox_id = Uuid::from_u128(1);
+
+        // Before the fix this future never resolves; bound it so the test fails
+        // as a timeout instead of hanging the whole test binary.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            lds.upsert(vec![listener]),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "GrpcLds::upsert deadlocked while recording pending xDS status"
+        );
+        result.unwrap().expect("upsert should succeed");
+
+        // The pending status was recorded for the sandbox.
+        let statuses = server.apply_status.lock().await;
+        assert!(matches!(
+            statuses.get(&Uuid::from_u128(1)),
+            Some(XdsApplyStatus::Pending { .. })
+        ));
+    }
+
+    /// `forget_sandbox` must drop retained ACK/NACK bookkeeping so `apply_status`
+    /// stays bounded across a sandbox's lifecycle (create → teardown).
+    #[tokio::test]
+    async fn forget_sandbox_clears_apply_status() {
+        let server = DeltaXdsServer::new();
+        let lds = GrpcLds::new(server.clone());
+        let sandbox = Uuid::from_u128(7);
+        let mut listener = spec(ListenerKind::Http, &["example.com"]);
+        listener.sandbox_id = sandbox;
+
+        lds.upsert(vec![listener]).await.unwrap();
+        assert!(server.apply_status.lock().await.contains_key(&sandbox));
+
+        lds.forget_sandbox(sandbox).await;
+        assert!(
+            !server.apply_status.lock().await.contains_key(&sandbox),
+            "apply_status must be cleared on teardown"
+        );
+    }
+
+    /// The nonce tracker is bounded and FIFO-evicts oldest entries, so a stream
+    /// that pushes far more updates than Envoy ACKs cannot leak nonce state.
+    #[test]
+    fn nonce_tracker_is_bounded_and_fifo() {
+        let mut tracker = NonceTracker::default();
+        for i in 0..(XDS_NONCE_TRACK_LIMIT + 50) {
+            tracker.insert(format!("n-{i}"), ("t".to_string(), i as u64, vec![]));
+        }
+        assert!(tracker.map.len() <= XDS_NONCE_TRACK_LIMIT);
+        assert_eq!(tracker.map.len(), tracker.order.len());
+        // Oldest were evicted; a recent one survives and is consumed on take().
+        let recent = format!("n-{}", XDS_NONCE_TRACK_LIMIT + 49);
+        assert!(tracker.take(&recent).is_some());
+        assert!(tracker.take(&recent).is_none(), "take must consume");
+        assert!(tracker.take("n-0").is_none(), "oldest was evicted");
+    }
+
+    /// `apply_sandbox_batch` applies clusters and listeners under ONE version
+    /// tick (single stream wake) with clusters recorded before listeners, and
+    /// removes stale clusters under the sandbox's prefix.
+    #[tokio::test]
+    async fn apply_sandbox_batch_is_atomic_and_ordered() {
+        let server = DeltaXdsServer::new();
+        let lds = GrpcLds::new(server.clone());
+        let sandbox = Uuid::from_u128(9);
+        let prefix = format!("up_{sandbox}_");
+
+        // Seed a stale cluster under the prefix that should be pruned.
+        server
+            .apply(
+                CLUSTER_TYPE_URL,
+                vec![Change::Upsert(
+                    format!("{prefix}stale_443"),
+                    encode_cluster_any(&ClusterSpec {
+                        name: format!("{prefix}stale_443"),
+                        upstream_host: "old.example.com".to_string(),
+                        upstream_port: 443,
+                        upstream_tls: true,
+                    })
+                    .unwrap(),
+                )],
+                vec![],
+            )
+            .await;
+        let version_before = server.state.lock().await.version;
+
+        let clusters = vec![ClusterSpec {
+            name: format!("{prefix}new_443"),
+            upstream_host: "new.example.com".to_string(),
+            upstream_port: 443,
+            upstream_tls: true,
+        }];
+        let mut listener = spec(ListenerKind::Http, &["example.com"]);
+        listener.sandbox_id = sandbox;
+
+        let applied = lds
+            .apply_sandbox_batch(clusters, vec![listener], prefix.clone())
+            .await
+            .unwrap();
+        assert!(applied, "grpc backend must apply the batch");
+
+        let st = server.state.lock().await;
+        // Exactly one version tick for the combined CDS+LDS update.
+        assert_eq!(st.version, version_before + 1);
+        // Both change-log groups share that single version.
+        let batch: Vec<&VersionedChange> = st
+            .change_log
+            .iter()
+            .filter(|c| c.version == st.version)
+            .collect();
+        assert_eq!(batch.len(), 2, "one CDS group + one LDS group");
+        assert_eq!(batch[0].type_url, CLUSTER_TYPE_URL, "CDS before LDS");
+        assert_eq!(batch[1].type_url, LISTENER_TYPE_URL);
+        // Stale cluster pruned, new cluster present, listener present.
+        let clusters_now = st.snapshot_type(CLUSTER_TYPE_URL);
+        assert!(clusters_now.contains_key(&format!("{prefix}new_443")));
+        assert!(!clusters_now.contains_key(&format!("{prefix}stale_443")));
+        assert!(st
+            .snapshot_type(LISTENER_TYPE_URL)
+            .contains_key(&format!("{sandbox}_http")));
+    }
 
     fn spec(kind: ListenerKind, hosts: &[&str]) -> ListenerSpec {
         ListenerSpec {
@@ -2555,10 +2753,6 @@ mod tests {
     #[test]
     fn resource_names_match_historical_scheme() {
         assert_eq!(
-            spec(ListenerKind::Grpc, &[]).resource_name(),
-            "00000000-0000-0000-0000-000000000000_grpc"
-        );
-        assert_eq!(
             spec(ListenerKind::Http, &[]).resource_name(),
             "00000000-0000-0000-0000-000000000000_http"
         );
@@ -2608,18 +2802,6 @@ mod tests {
         let text = summary.to_string();
         assert!(text.contains("value_sha256"));
         assert!(!text.contains("Bearer sk-secret"));
-    }
-
-    #[test]
-    fn grpc_listener_encodes_to_listener_any() {
-        let any = encode_listener_any(&spec(ListenerKind::Grpc, &[])).unwrap();
-        assert_eq!(any.type_url, LISTENER_TYPE_URL);
-        // Round-trips as a Listener with the expected name + a pipe address.
-        use envoy_types::pb::envoy::config::listener::v3::Listener;
-        let l = Listener::decode(any.value.as_slice()).unwrap();
-        assert_eq!(l.name, "00000000-0000-0000-0000-000000000000_grpc");
-        assert_eq!(l.filter_chains.len(), 1);
-        assert!(l.address.is_some());
     }
 
     #[test]
