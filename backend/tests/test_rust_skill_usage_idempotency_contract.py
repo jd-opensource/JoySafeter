@@ -5,9 +5,7 @@ import pytest
 pytestmark = pytest.mark.no_db
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HARNESS_INPUT_BUILDER = REPO_ROOT / Path(
-    "backend/app/joysafeter_orchestrator_rs/src/kernel/harness_input_builder.rs"
-)
+HARNESS_INPUT_BUILDER = REPO_ROOT / Path("backend/app/joysafeter_orchestrator_rs/src/kernel/harness_input_builder.rs")
 
 
 def test_rust_skill_usage_insert_is_idempotent_per_session_artifact():

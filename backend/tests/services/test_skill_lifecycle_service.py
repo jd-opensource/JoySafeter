@@ -37,7 +37,6 @@ from app.joysafeter_shared.common.app_errors import (
 )
 from app.joysafeter_shared.config import settings as app_settings
 
-
 pytestmark = pytest.mark.no_db
 
 

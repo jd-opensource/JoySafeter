@@ -25,9 +25,7 @@ class _FakeRedis:
 
 @pytest.mark.asyncio
 async def test_webhook_fire_stamps_trigger_id_so_runs_visible(db_session, monkeypatch):
-    monkeypatch.setattr(
-        "app.joysafeter_shared.cache.redis.RedisClient.get_client", staticmethod(lambda: _FakeRedis())
-    )
+    monkeypatch.setattr("app.joysafeter_shared.cache.redis.RedisClient.get_client", staticmethod(lambda: _FakeRedis()))
     org = Organization(name=f"wr-org-{uuid.uuid4()}", slug=f"wr-org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()

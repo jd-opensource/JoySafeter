@@ -36,15 +36,27 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/lib/managed/request-scope', () => ({
-  useManagedRequestScope: () => ({ orgId: 'org-a', projectId: 'project-a', key: 'org-a:project-a' }),
+  useManagedRequestScope: () => ({
+    orgId: 'org-a',
+    projectId: 'project-a',
+    key: 'org-a:project-a',
+  }),
   managedRequestOptions: () => ({ headers: {} }),
   managedScopeKey: (o: string | null, p: string | null) => `${o ?? ''}:${p ?? ''}`,
 }))
 
 vi.mock('@/lib/managed/triggers', () => ({
-  useAgentTriggers: () => ({ data: hoisted.state.triggers, isLoading: false, isFetching: false, isError: false }),
+  useAgentTriggers: () => ({
+    data: hoisted.state.triggers,
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+  }),
   useToggleAgentTrigger: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useRunTrigger: () => ({ mutateAsync: vi.fn().mockResolvedValue({ status: 'fired' }), isPending: false }),
+  useRunTrigger: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({ status: 'fired' }),
+    isPending: false,
+  }),
   useDeleteAgentTrigger: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 

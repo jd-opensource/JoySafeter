@@ -131,7 +131,9 @@ async def list_triggers(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> List[TriggerResponse]:
-    triggers = await JoySafeterTriggerService(db).list(project_id=auth_ctx.project_id, enabled=enabled, type=type, limit=limit, offset=offset)
+    triggers = await JoySafeterTriggerService(db).list(
+        project_id=auth_ctx.project_id, enabled=enabled, type=type, limit=limit, offset=offset
+    )
     return [_response(trigger, request) for trigger in triggers]
 
 
@@ -169,7 +171,12 @@ async def update_trigger(
     fields = body.model_dump(exclude_unset=True)
     updated = await svc.update(trigger_id, auth_ctx.project_id, **fields)
     if updated is None:
-        raise NotFoundError(code="TRIGGER_NOT_FOUND", message="Trigger not found", data={"trigger_id": str(trigger_id)}, user_action="refresh")
+        raise NotFoundError(
+            code="TRIGGER_NOT_FOUND",
+            message="Trigger not found",
+            data={"trigger_id": str(trigger_id)},
+            user_action="refresh",
+        )
     return _response(updated, request)
 
 
@@ -219,7 +226,12 @@ async def list_trigger_runs(
         offset=offset,
     )
     if runs is None:
-        raise NotFoundError(code="TRIGGER_NOT_FOUND", message="Trigger not found", data={"trigger_id": str(trigger_id)}, user_action="refresh")
+        raise NotFoundError(
+            code="TRIGGER_NOT_FOUND",
+            message="Trigger not found",
+            data={"trigger_id": str(trigger_id)},
+            user_action="refresh",
+        )
     return [TriggerRunResponse.model_validate(task) for task in runs]
 
 
@@ -240,7 +252,12 @@ async def fire_webhook_trigger(
     svc = JoySafeterTriggerService(db)
     trigger = await svc.get(trigger_id)
     if trigger is None or trigger.type != "webhook":
-        raise NotFoundError(code="TRIGGER_NOT_FOUND", message="Trigger not found", data={"trigger_id": str(trigger_id)}, user_action="refresh")
+        raise NotFoundError(
+            code="TRIGGER_NOT_FOUND",
+            message="Trigger not found",
+            data={"trigger_id": str(trigger_id)},
+            user_action="refresh",
+        )
     raw_body = await request.body()
     signature = x_joysafeter_signature or x_hub_signature_256
     token = x_joysafeter_token

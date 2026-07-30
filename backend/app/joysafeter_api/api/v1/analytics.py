@@ -11,25 +11,25 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.schemas.analytics import (
+    AgentMetricsResponse,
+    AnalyticsSummaryResponse,
+    CallsListResponse,
+    CallsTimePoint,
+    EngineShareItem,
+    ErrorSummaryResponse,
+    HealthCheckResponse,
+    LatencyStatsResponse,
+    LatencyTimePoint,
+    ObservationNodeResponse,
+    TokensTimePoint,
+)
+from app.joysafeter_domain.services.analytics_service import AnalyticsService
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     get_joysafeter_auth_context,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_domain.services.analytics_service import AnalyticsService
-from app.joysafeter_domain.schemas.analytics import (
-    AnalyticsSummaryResponse,
-    CallsTimePoint,
-    TokensTimePoint,
-    LatencyTimePoint,
-    EngineShareItem,
-    CallsListResponse,
-    ObservationNodeResponse,
-    AgentMetricsResponse,
-    HealthCheckResponse,
-    ErrorSummaryResponse,
-    LatencyStatsResponse,
-)
 
 logger = logging.getLogger(__name__)
 

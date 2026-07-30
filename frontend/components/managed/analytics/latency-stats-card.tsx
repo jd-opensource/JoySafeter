@@ -21,7 +21,7 @@ export function LatencyStatsCard({ data, loading }: LatencyStatsCardProps) {
   if (loading || !data) {
     return (
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="h-4 w-24 animate-pulse rounded bg-muted mb-3" />
+        <div className="mb-3 h-4 w-24 animate-pulse rounded bg-muted" />
         <div className="h-16 animate-pulse rounded bg-muted" />
       </div>
     )
@@ -30,7 +30,7 @@ export function LatencyStatsCard({ data, loading }: LatencyStatsCardProps) {
   if (!data.buckets.length) {
     return (
       <div className="rounded-lg border border-border bg-card p-4">
-        <h3 className="text-sm font-medium text-foreground mb-3">
+        <h3 className="mb-3 text-sm font-medium text-foreground">
           {t('analytics.latencyStats.title')}
         </h3>
         <p className="text-xs text-muted-foreground">{t('analytics.charts.noData')}</p>
@@ -38,14 +38,12 @@ export function LatencyStatsCard({ data, loading }: LatencyStatsCardProps) {
     )
   }
 
-  const maxCount = Math.max(...data.buckets.map(b => b.count), 1)
+  const maxCount = Math.max(...data.buckets.map((b) => b.count), 1)
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-foreground">
-          {t('analytics.latencyStats.title')}
-        </h3>
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-foreground">{t('analytics.latencyStats.title')}</h3>
         <span className="text-xs text-muted-foreground">
           {data.total_calls} {t('analytics.latencyStats.totalTasks')}
         </span>
@@ -54,19 +52,22 @@ export function LatencyStatsCard({ data, loading }: LatencyStatsCardProps) {
       <div className="space-y-2">
         {data.buckets.map((bucket) => (
           <div key={bucket.label} className="flex items-center gap-2.5">
-            <span className="text-xs text-muted-foreground w-14 shrink-0 text-right tabular-nums">
+            <span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
               {bucket.label}
             </span>
-            <div className="flex-1 h-4 bg-muted/20 rounded overflow-hidden">
+            <div className="h-4 flex-1 overflow-hidden rounded bg-muted/20">
               <div
                 className={cn('h-full rounded', COLOR_MAP[bucket.color] || 'bg-gray-400')}
-                style={{ width: `${(bucket.count / maxCount) * 100}%`, minWidth: bucket.count > 0 ? '4px' : '0' }}
+                style={{
+                  width: `${(bucket.count / maxCount) * 100}%`,
+                  minWidth: bucket.count > 0 ? '4px' : '0',
+                }}
               />
             </div>
-            <span className="text-xs tabular-nums text-foreground w-8 text-right">
+            <span className="w-8 text-right text-xs tabular-nums text-foreground">
               {bucket.count}
             </span>
-            <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">
+            <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">
               {bucket.pct}%
             </span>
           </div>

@@ -142,9 +142,7 @@ export function CronEditor({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="minutely">
-                  {t('managed.triggers.cron.freq.minutely')}
-                </SelectItem>
+                <SelectItem value="minutely">{t('managed.triggers.cron.freq.minutely')}</SelectItem>
                 <SelectItem value="hourly">{t('managed.triggers.cron.freq.hourly')}</SelectItem>
                 <SelectItem value="daily">{t('managed.triggers.cron.freq.daily')}</SelectItem>
                 <SelectItem value="weekly">{t('managed.triggers.cron.freq.weekly')}</SelectItem>
@@ -287,9 +285,7 @@ export function CronEditor({
             className="font-mono"
             aria-invalid={!valid}
           />
-          <p className="text-xs text-muted-foreground">
-            {t('managed.triggers.cron.advancedHint')}
-          </p>
+          <p className="text-xs text-muted-foreground">{t('managed.triggers.cron.advancedHint')}</p>
         </TabsContent>
       </Tabs>
 

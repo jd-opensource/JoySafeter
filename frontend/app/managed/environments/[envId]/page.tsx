@@ -15,7 +15,12 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import type { Environment, EnvironmentMountResource, Secret, StorageVolumeCatalogItem } from '@/types/managed'
+import type {
+  Environment,
+  EnvironmentMountResource,
+  Secret,
+  StorageVolumeCatalogItem,
+} from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -352,340 +357,418 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
       <fieldset disabled={isReadOnly} className="mt-6 max-w-2xl space-y-6">
         <FormSectionCard
           title={t('managed.environments.basicSettings', '基础配置')}
-          description={t('managed.environments.basicSettingsDesc', '设置环境名称、用途和默认网络访问策略。')}
+          description={t(
+            'managed.environments.basicSettingsDesc',
+            '设置环境名称、用途和默认网络访问策略。',
+          )}
         >
-        <div className="space-y-2">
-          <FormFieldLabel required>
-            {t('managed.environments.name')}
-          </FormFieldLabel>
-          <Input
-            value={name}
-            placeholder={t('managed.environments.namePlaceholder')}
-            onChange={(e) => {
-              setName(e.target.value)
-              setDirty(true)
-            }}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <FormFieldLabel optional={t('managed.environments.optional')}>
-            {t('managed.environments.description')}
-          </FormFieldLabel>
-          <Input
-            value={description}
-            placeholder={t('managed.environments.descPlaceholder')}
-            onChange={(e) => {
-              setDescription(e.target.value)
-              setDirty(true)
-            }}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <FormFieldLabel
-            required
-            tooltip={t('managed.environments.networkingHint', '受限网络模式下，沙箱默认无法访问外网。只有白名单中的主机和第三方服务配置的地址可以访问。')}
-          >
-            {t('managed.environments.networking')}
-          </FormFieldLabel>
-          <div className="rounded-xl border border-border bg-muted/25 p-3">
-            <Select
-              value={networkType}
-              onValueChange={(value) => {
-                setNetworkType(value)
+          <div className="space-y-2">
+            <FormFieldLabel required>{t('managed.environments.name')}</FormFieldLabel>
+            <Input
+              value={name}
+              placeholder={t('managed.environments.namePlaceholder')}
+              onChange={(e) => {
+                setName(e.target.value)
                 setDirty(true)
               }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="unrestricted">
-                  {t('managed.environments.netUnrestricted')}
-                </SelectItem>
-                <SelectItem value="limited">{t('managed.environments.netLimited')}</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              {networkType === 'limited'
-                ? t('managed.environments.netLimitedDesc', '默认禁止外网访问，仅允许白名单主机和已配置的第三方服务。')
-                : t('managed.environments.netUnrestrictedDesc', '允许沙箱访问外网；仅建议在可信环境或调试场景使用。')}
-            </p>
-            {networkType === 'limited' && (
-              <div className="mt-3 space-y-1.5 border-t border-border/70 pt-3">
-                <FormFieldLabel optional={t('managed.environments.optional')}>
-                  {t('managed.environments.allowedHosts')}
-                </FormFieldLabel>
-                <textarea
-                  placeholder={t('managed.environments.allowedHostsPlaceholder', 'api.example.com\ngithub.com\n*.internal.example.com')}
-                  value={allowedHosts}
-                  onChange={(e) => {
-                    setAllowedHosts(e.target.value)
-                    setDirty(true)
-                  }}
-                  rows={4}
-                  className="flex min-h-[96px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {t('managed.environments.allowedHostsDesc', '第三方服务地址会自动放行；这里仅填写额外需要直连访问的主机。')}
-                </p>
-              </div>
-            )}
+            />
           </div>
-        </div>
+
+          <div className="space-y-2">
+            <FormFieldLabel optional={t('managed.environments.optional')}>
+              {t('managed.environments.description')}
+            </FormFieldLabel>
+            <Input
+              value={description}
+              placeholder={t('managed.environments.descPlaceholder')}
+              onChange={(e) => {
+                setDescription(e.target.value)
+                setDirty(true)
+              }}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <FormFieldLabel
+              required
+              tooltip={t(
+                'managed.environments.networkingHint',
+                '受限网络模式下，沙箱默认无法访问外网。只有白名单中的主机和第三方服务配置的地址可以访问。',
+              )}
+            >
+              {t('managed.environments.networking')}
+            </FormFieldLabel>
+            <div className="rounded-xl border border-border bg-muted/25 p-3">
+              <Select
+                value={networkType}
+                onValueChange={(value) => {
+                  setNetworkType(value)
+                  setDirty(true)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unrestricted">
+                    {t('managed.environments.netUnrestricted')}
+                  </SelectItem>
+                  <SelectItem value="limited">{t('managed.environments.netLimited')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                {networkType === 'limited'
+                  ? t(
+                      'managed.environments.netLimitedDesc',
+                      '默认禁止外网访问，仅允许白名单主机和已配置的第三方服务。',
+                    )
+                  : t(
+                      'managed.environments.netUnrestrictedDesc',
+                      '允许沙箱访问外网；仅建议在可信环境或调试场景使用。',
+                    )}
+              </p>
+              {networkType === 'limited' && (
+                <div className="border-border/70 mt-3 space-y-1.5 border-t pt-3">
+                  <FormFieldLabel optional={t('managed.environments.optional')}>
+                    {t('managed.environments.allowedHosts')}
+                  </FormFieldLabel>
+                  <textarea
+                    placeholder={t(
+                      'managed.environments.allowedHostsPlaceholder',
+                      'api.example.com\ngithub.com\n*.internal.example.com',
+                    )}
+                    value={allowedHosts}
+                    onChange={(e) => {
+                      setAllowedHosts(e.target.value)
+                      setDirty(true)
+                    }}
+                    rows={4}
+                    className="flex min-h-[96px] w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t(
+                      'managed.environments.allowedHostsDesc',
+                      '第三方服务地址会自动放行；这里仅填写额外需要直连访问的主机。',
+                    )}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </FormSectionCard>
         <AdvancedSection
           open={showAdvanced}
           onOpenChange={setShowAdvanced}
           title={t('managed.environments.advancedOptions', '高级选项')}
-          summary={t('managed.environments.advancedSummaryEdit', '环境变量、数据卷挂载、第三方服务')}
+          summary={t(
+            'managed.environments.advancedSummaryEdit',
+            '环境变量、数据卷挂载、第三方服务',
+          )}
         >
-        <div>
-          <FormFieldLabel
-            optional={t('managed.environments.optional')}
-            tooltip={t('managed.environments.envVarsHint', '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感凭证。')}
-            className="mb-3"
-          >
-            {t('managed.environments.envVarsLabel')}
-          </FormFieldLabel>
-          <Input
-            value={envVars}
-            onChange={(e) => {
-              setEnvVars(e.target.value)
-              setDirty(true)
-            }}
-            placeholder="KEY=value, NODE_ENV=production"
-          />
-        </div>
-
-        <div className="pt-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <FormFieldLabel optional={t('managed.environments.optional')}>
-                {t('managed.environments.storageMounts', '数据卷挂载')}
-              </FormFieldLabel>
-              <p className="text-xs text-muted-foreground">
-                将平台管理的共享存储目录挂载到沙箱的 /workspace 下，供 Agent 读写文件。
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={storageVolumes.length === 0}
-              onClick={() => {
-                const first = storageVolumes[0]
-                if (!first) return
-                const mountName = mountNameFromVolume(first.volume_ref)
-                setMountResources((items) => [
-                  ...items,
-                  {
-                    name: mountName,
-                    volumeRef: first.volume_ref,
-                    subPath: first.allowed_prefixes?.[0] || '',
-                    mountPath: defaultMountPath(mountName),
-                    access: 'read_only',
-                    required: true,
-                  },
-                ])
+          <div>
+            <FormFieldLabel
+              optional={t('managed.environments.optional')}
+              tooltip={t(
+                'managed.environments.envVarsHint',
+                '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感凭证。',
+              )}
+              className="mb-3"
+            >
+              {t('managed.environments.envVarsLabel')}
+            </FormFieldLabel>
+            <Input
+              value={envVars}
+              onChange={(e) => {
+                setEnvVars(e.target.value)
                 setDirty(true)
               }}
-            >
-              添加挂载
-            </Button>
+              placeholder="KEY=value, NODE_ENV=production"
+            />
           </div>
-          {storageVolumes.length === 0 && (
-            <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
-              当前部署未配置 Storage volume catalog。
+
+          <div className="pt-4">
+            <FormFieldLabel optional={t('managed.environments.optional')} className="mb-3">
+              {t('managed.environments.packages')}
+            </FormFieldLabel>
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">APT</span>
+                <Input
+                  placeholder="curl, git, build-essential"
+                  value={aptPackages}
+                  onChange={(event) => {
+                    setAptPackages(event.target.value)
+                    setDirty(true)
+                  }}
+                />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">PyPI</span>
+                <Input
+                  placeholder="numpy, pandas, requests"
+                  value={pipPackages}
+                  onChange={(event) => {
+                    setPipPackages(event.target.value)
+                    setDirty(true)
+                  }}
+                />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">npm</span>
+                <Input
+                  placeholder="typescript, eslint, prettier"
+                  value={npmPackages}
+                  onChange={(event) => {
+                    setNpmPackages(event.target.value)
+                    setDirty(true)
+                  }}
+                />
+              </label>
             </div>
-          )}
-          {mountResources.length > 0 && (
-            <div className="space-y-3">
-              {mountResources.map((resource, index) => {
-                const selected = storageVolumes.find((item) => item.volume_ref === resource.volumeRef)
-                const canWrite = selected?.max_access === 'read_write'
-                return (
-                  <div key={`${resource.volumeRef}-${index}`} className="rounded-xl border bg-card p-3">
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium">{resource.name || '数据卷'}</p>
-                        <p className="text-xs text-muted-foreground">
-                          挂载到 {resource.mountPath || '/workspace/storage/data'}
-                        </p>
+          </div>
+
+          <div className="pt-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <FormFieldLabel optional={t('managed.environments.optional')}>
+                  {t('managed.environments.storageMounts', '数据卷挂载')}
+                </FormFieldLabel>
+                <p className="text-xs text-muted-foreground">
+                  将平台管理的共享存储目录挂载到沙箱的 /workspace 下，供 Agent 读写文件。
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={storageVolumes.length === 0}
+                onClick={() => {
+                  const first = storageVolumes[0]
+                  if (!first) return
+                  const mountName = mountNameFromVolume(first.volume_ref)
+                  setMountResources((items) => [
+                    ...items,
+                    {
+                      name: mountName,
+                      volumeRef: first.volume_ref,
+                      subPath: first.allowed_prefixes?.[0] || '',
+                      mountPath: defaultMountPath(mountName),
+                      access: 'read_only',
+                      required: true,
+                    },
+                  ])
+                  setDirty(true)
+                }}
+              >
+                添加挂载
+              </Button>
+            </div>
+            {storageVolumes.length === 0 && (
+              <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
+                当前部署未配置 Storage volume catalog。
+              </div>
+            )}
+            {mountResources.length > 0 && (
+              <div className="space-y-3">
+                {mountResources.map((resource, index) => {
+                  const selected = storageVolumes.find(
+                    (item) => item.volume_ref === resource.volumeRef,
+                  )
+                  const canWrite = selected?.max_access === 'read_write'
+                  return (
+                    <div
+                      key={`${resource.volumeRef}-${index}`}
+                      className="rounded-xl border bg-card p-3"
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium">{resource.name || '数据卷'}</p>
+                          <p className="text-xs text-muted-foreground">
+                            挂载到 {resource.mountPath || '/workspace/storage/data'}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setMountResources((items) =>
+                              items.filter((_, itemIndex) => itemIndex !== index),
+                            )
+                            setDirty(true)
+                          }}
+                        >
+                          移除
+                        </Button>
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setMountResources((items) => items.filter((_, itemIndex) => itemIndex !== index))
-                          setDirty(true)
-                        }}
-                      >
-                        移除
-                      </Button>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">数据卷</span>
+                          <Select
+                            value={resource.volumeRef}
+                            onValueChange={(value) => {
+                              const volume = storageVolumes.find(
+                                (item) => item.volume_ref === value,
+                              )
+                              const mountName = mountNameFromVolume(value)
+                              setMountResources((items) =>
+                                items.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? {
+                                        ...item,
+                                        name: mountName,
+                                        volumeRef: value,
+                                        subPath: volume?.allowed_prefixes?.[0] || '',
+                                        mountPath: defaultMountPath(mountName),
+                                        access: 'read_only',
+                                      }
+                                    : item,
+                                ),
+                              )
+                              setDirty(true)
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择数据卷" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {storageVolumes.map((volume) => (
+                                <SelectItem key={volume.volume_ref} value={volume.volume_ref}>
+                                  {volume.display_name || volume.volume_ref}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </label>
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">
+                            访问权限{' '}
+                            <FieldHelp text="只读模式下 Agent 只能读取文件，无法修改；读写模式允许 Agent 创建和修改文件。不能超过平台管理员授予的最大权限。" />
+                          </span>
+                          <Select
+                            value={resource.access}
+                            onValueChange={(value) => {
+                              setMountResources((items) =>
+                                items.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, access: value as MountResourceForm['access'] }
+                                    : item,
+                                ),
+                              )
+                              setDirty(true)
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择访问权限" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="read_only">只读</SelectItem>
+                              {canWrite && <SelectItem value="read_write">读写</SelectItem>}
+                            </SelectContent>
+                          </Select>
+                        </label>
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">
+                            子目录{' '}
+                            <FieldHelp text="存储卷内的子目录路径（相对路径）。留空则挂载整个存储卷根目录。必须在管理员配置的允许前缀范围内。" />
+                          </span>
+                          <Input
+                            value={resource.subPath}
+                            placeholder="tenant-a/project-x"
+                            onChange={(event) => {
+                              setMountResources((items) =>
+                                items.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, subPath: event.target.value }
+                                    : item,
+                                ),
+                              )
+                              setDirty(true)
+                            }}
+                          />
+                        </label>
+                        <label className="space-y-1 text-sm">
+                          <span className="font-medium">
+                            沙箱路径{' '}
+                            <FieldHelp text="数据卷在沙箱容器内的挂载位置。必须是 /workspace/ 下的绝对路径，Agent 通过这个路径读写文件。" />
+                          </span>
+                          <Input
+                            value={resource.mountPath}
+                            placeholder="/workspace/storage/data"
+                            onChange={(event) => {
+                              setMountResources((items) =>
+                                items.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, mountPath: event.target.value }
+                                    : item,
+                                ),
+                              )
+                              setDirty(true)
+                            }}
+                          />
+                        </label>
+                      </div>
+                      {selected?.allowed_prefixes && selected.allowed_prefixes.length > 0 && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          允许前缀：{selected.allowed_prefixes.join(', ')}
+                        </p>
+                      )}
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="space-y-1 text-sm">
-                        <span className="font-medium">数据卷</span>
-                        <Select
-                          value={resource.volumeRef}
-                          onValueChange={(value) => {
-                            const volume = storageVolumes.find((item) => item.volume_ref === value)
-                            const mountName = mountNameFromVolume(value)
-                            setMountResources((items) =>
-                              items.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? {
-                                      ...item,
-                                      name: mountName,
-                                      volumeRef: value,
-                                      subPath: volume?.allowed_prefixes?.[0] || '',
-                                      mountPath: defaultMountPath(mountName),
-                                      access: 'read_only',
-                                    }
-                                  : item,
-                              ),
-                            )
-                            setDirty(true)
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择数据卷" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {storageVolumes.map((volume) => (
-                              <SelectItem key={volume.volume_ref} value={volume.volume_ref}>
-                                {volume.display_name || volume.volume_ref}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        <span className="font-medium">
-                          访问权限 <FieldHelp text="只读模式下 Agent 只能读取文件，无法修改；读写模式允许 Agent 创建和修改文件。不能超过平台管理员授予的最大权限。" />
-                        </span>
-                        <Select
-                          value={resource.access}
-                          onValueChange={(value) => {
-                            setMountResources((items) =>
-                              items.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...item, access: value as MountResourceForm['access'] }
-                                  : item,
-                              ),
-                            )
-                            setDirty(true)
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择访问权限" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="read_only">只读</SelectItem>
-                            {canWrite && <SelectItem value="read_write">读写</SelectItem>}
-                          </SelectContent>
-                        </Select>
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        <span className="font-medium">
-                          子目录 <FieldHelp text="存储卷内的子目录路径（相对路径）。留空则挂载整个存储卷根目录。必须在管理员配置的允许前缀范围内。" />
-                        </span>
-                        <Input
-                          value={resource.subPath}
-                          placeholder="tenant-a/project-x"
-                          onChange={(event) => {
-                            setMountResources((items) =>
-                              items.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, subPath: event.target.value } : item,
-                              ),
-                            )
-                            setDirty(true)
-                          }}
-                        />
-                      </label>
-                      <label className="space-y-1 text-sm">
-                        <span className="font-medium">
-                          沙箱路径 <FieldHelp text="数据卷在沙箱容器内的挂载位置。必须是 /workspace/ 下的绝对路径，Agent 通过这个路径读写文件。" />
-                        </span>
-                        <Input
-                          value={resource.mountPath}
-                          placeholder="/workspace/storage/data"
-                          onChange={(event) => {
-                            setMountResources((items) =>
-                              items.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, mountPath: event.target.value } : item,
-                              ),
-                            )
-                            setDirty(true)
-                          }}
-                        />
-                      </label>
-                    </div>
-                    {selected?.allowed_prefixes && selected.allowed_prefixes.length > 0 && (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        允许前缀：{selected.allowed_prefixes.join(', ')}
-                      </p>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
-        <div className="pt-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <FormFieldLabel optional={t('managed.environments.optional')}>
-                {t('managed.environments.egressServices')}
-              </FormFieldLabel>
-              <p className="text-xs text-muted-foreground">
-                {t('managed.environments.egressServicesHint')}
-              </p>
+          <div className="pt-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <FormFieldLabel optional={t('managed.environments.optional')}>
+                  {t('managed.environments.egressServices')}
+                </FormFieldLabel>
+                <p className="text-xs text-muted-foreground">
+                  {t('managed.environments.egressServicesHint')}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEgressServices((items) => [...items, emptyEgressService()])
+                  setDirty(true)
+                }}
+              >
+                {t('managed.environments.addEgressService')}
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEgressServices((items) => [...items, emptyEgressService()])
+            <EgressServicesEditor
+              services={egressServices}
+              setServices={setEgressServices}
+              secrets={secrets}
+              errors={egressErrors}
+              onClearFieldError={(index, field) => {
+                setEgressErrors((prev) => {
+                  const next = { ...prev }
+                  if (next[index]) {
+                    next[index] = { ...next[index], [field]: undefined }
+                    if (Object.values(next[index]).every((v) => !v)) delete next[index]
+                  }
+                  return next
+                })
+              }}
+              onDirty={() => setDirty(true)}
+              onRemove={(index) => {
+                setEgressServices((items) => items.filter((_, i) => i !== index))
+                setEgressErrors((prev) => {
+                  const next = { ...prev }
+                  delete next[index]
+                  return next
+                })
                 setDirty(true)
               }}
-            >
-              {t('managed.environments.addEgressService')}
-            </Button>
+            />
           </div>
-          <EgressServicesEditor
-            services={egressServices}
-            setServices={setEgressServices}
-            secrets={secrets}
-            errors={egressErrors}
-            onClearFieldError={(index, field) => {
-              setEgressErrors((prev) => {
-                const next = { ...prev }
-                if (next[index]) {
-                  next[index] = { ...next[index], [field]: undefined }
-                  if (Object.values(next[index]).every((v) => !v)) delete next[index]
-                }
-                return next
-              })
-            }}
-            onDirty={() => setDirty(true)}
-            onRemove={(index) => {
-              setEgressServices((items) => items.filter((_, i) => i !== index))
-              setEgressErrors((prev) => {
-                const next = { ...prev }
-                delete next[index]
-                return next
-              })
-              setDirty(true)
-            }}
-          />
-        </div>
-
         </AdvancedSection>
 
         <FormActionBar className="mx-0">
@@ -700,8 +783,10 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
                   const e: Record<string, string> = {}
                   if (!svc.name.trim()) e.name = t('managed.environments.validation.required')
                   if (!svc.baseUrl.trim()) e.baseUrl = t('managed.environments.validation.required')
-                  if (!svc.credentialRef.trim()) e.credentialRef = t('managed.environments.validation.required')
-                  if (svc.authType === 'cookie' && !svc.secretKey.trim()) e.secretKey = t('managed.environments.validation.cookieRequired')
+                  if (!svc.credentialRef.trim())
+                    e.credentialRef = t('managed.environments.validation.required')
+                  if (svc.authType === 'cookie' && !svc.secretKey.trim())
+                    e.secretKey = t('managed.environments.validation.cookieRequired')
                   if (Object.keys(e).length) errors[idx] = e
                 })
                 setEgressErrors(errors)

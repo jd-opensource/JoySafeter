@@ -23,10 +23,7 @@ function consolidateEngines(data: EngineShareItem[]): EngineShareItem[] {
   const otherCount = rest.reduce((sum, item) => sum + item.count, 0)
   const otherPct = rest.reduce((sum, item) => sum + item.percentage, 0)
 
-  return [
-    ...top,
-    { engine: 'other', count: otherCount, percentage: otherPct },
-  ]
+  return [...top, { engine: 'other', count: otherCount, percentage: otherPct }]
 }
 
 function getEngineColor(engine: string): string {
@@ -38,11 +35,7 @@ function getEngineLabel(engine: string): string {
   return ENGINE_LABELS[engine] ?? engine
 }
 
-export function EngineShareChart({
-  data,
-  loading,
-  fetching,
-}: EngineShareChartProps) {
+export function EngineShareChart({ data, loading, fetching }: EngineShareChartProps) {
   const { t } = useTranslation()
   const items = consolidateEngines(data)
   const total = items.reduce((sum, item) => sum + item.count, 0)
@@ -86,9 +79,7 @@ export function EngineShareChart({
                 style={{ backgroundColor: getEngineColor(item.engine) }}
               />
               <span>{getEngineLabel(item.engine)}</span>
-              <span className="font-medium text-foreground">
-                {item.percentage.toFixed(1)}%
-              </span>
+              <span className="font-medium text-foreground">{item.percentage.toFixed(1)}%</span>
             </div>
           ))}
         </div>

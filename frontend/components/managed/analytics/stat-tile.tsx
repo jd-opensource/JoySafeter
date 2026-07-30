@@ -17,16 +17,11 @@ interface StatTileProps {
   loading?: boolean
 }
 
-function getDeltaColor(
-  direction: 'up' | 'down' | 'neutral',
-  inverse: boolean,
-) {
+function getDeltaColor(direction: 'up' | 'down' | 'neutral', inverse: boolean) {
   if (direction === 'neutral') return 'text-muted-foreground'
 
   const isPositive = inverse ? direction === 'down' : direction === 'up'
-  return isPositive
-    ? 'text-emerald-600 dark:text-emerald-400'
-    : 'text-red-600 dark:text-red-400'
+  return isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
 }
 
 function getDeltaArrow(direction: 'up' | 'down' | 'neutral') {
@@ -69,7 +64,7 @@ export function StatTile({
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <HelpCircle className="h-3 w-3 text-muted-foreground/60 cursor-help shrink-0" />
+                <HelpCircle className="h-3 w-3 shrink-0 cursor-help text-muted-foreground/60" />
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-[240px] text-xs">
                 {tooltip}
@@ -81,12 +76,7 @@ export function StatTile({
       <p className="mt-1.5 text-2xl font-semibold text-foreground">{value}</p>
       <div className="mt-2 flex items-center gap-3">
         {delta && (
-          <span
-            className={cn(
-              'text-xs font-medium',
-              getDeltaColor(deltaDirection, deltaInverse),
-            )}
-          >
+          <span className={cn('text-xs font-medium', getDeltaColor(deltaDirection, deltaInverse))}>
             {getDeltaArrow(deltaDirection)} {delta}
           </span>
         )}

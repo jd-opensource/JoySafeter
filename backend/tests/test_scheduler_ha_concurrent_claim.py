@@ -76,9 +76,7 @@ async def test_stale_lock_reclaimed_but_fresh_lock_respected(db_session):
     stale = await _seed_due_cron(
         db_session, org, project, agent, "stale", locked_by="crashed", locked_at=now - timedelta(seconds=200)
     )
-    fresh = await _seed_due_cron(
-        db_session, org, project, agent, "fresh", locked_by="alive", locked_at=now
-    )
+    fresh = await _seed_due_cron(db_session, org, project, agent, "fresh", locked_by="alive", locked_at=now)
 
     claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
         worker_id="survivor", limit=10, lock_grace_sec=120

@@ -28,6 +28,7 @@ vi.mock('@/lib/managed/filters', () => ({
 }))
 
 vi.mock('@/components/managed/shared', () => ({
+  AdvancedSection: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   DataTable: ({
     actionMenu,
     data,
@@ -50,6 +51,9 @@ vi.mock('@/components/managed/shared', () => ({
   ),
   FieldHelp: () => null,
   FilterBar: () => null,
+  FormActionBar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  FormFieldLabel: ({ children }: { children: ReactNode }) => <label>{children}</label>,
+  FormSectionCard: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   MonoId: ({ id }: { id: string }) => <span>{id}</span>,
   PageHeader: ({ title, action }: { title: string; action?: ReactNode }) => (
     <div>

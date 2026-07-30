@@ -64,14 +64,12 @@ def test_skill_security_policy_sets_derive_from_the_enum():
     # consumers of the vocabulary; pin them to the enum so a future rename can't
     # silently desync policy from the status values written to the DB.
     S = JoySafeterSkillSecurityStatus
-    assert skill_security._RUNTIME_ALLOWED_SECURITY_STATUSES == frozenset(
-        {S.PASSED.value, S.WARNING.value}
-    )
+    assert skill_security._RUNTIME_ALLOWED_SECURITY_STATUSES == frozenset({S.PASSED.value, S.WARNING.value})
     assert skill_security._AUTO_DEMOTE_SCAN_STATUSES == frozenset({S.FAILED.value, S.BLOCKED.value})
     # The two policy sets must partition into the enum (no stray value).
-    assert (
-        skill_security._RUNTIME_ALLOWED_SECURITY_STATUSES | skill_security._AUTO_DEMOTE_SCAN_STATUSES
-    ) <= {s.value for s in S}
+    assert (skill_security._RUNTIME_ALLOWED_SECURITY_STATUSES | skill_security._AUTO_DEMOTE_SCAN_STATUSES) <= {
+        s.value for s in S
+    }
 
 
 # ── #2  Task status set: Python enum ↔ Rust SQL literals ─────────────────

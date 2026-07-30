@@ -32,15 +32,11 @@ def test_input_command_ack_depends_on_bridge_queue_send_result():
 def test_reconnect_control_replay_marks_processed_only_after_runner_send():
     grpc_server = _read("backend/app/joysafeter_orchestrator_rs/src/grpc/server.rs")
 
-    helper = grpc_server.split("async fn replay_pending_control_inputs", 1)[1].split(
-        "/// Full reconnect handler", 1
-    )[0]
+    helper = grpc_server.split("async fn replay_pending_control_inputs", 1)[1].split("/// Full reconnect handler", 1)[0]
 
     assert "if let Err(e) = tx.send(input_msg).await" in helper
     assert "leaving event unprocessed for future reconnect" in helper
-    send_failed_branch = helper.split("if let Err(e) = tx.send(input_msg).await", 1)[1].split(
-        "sqlx::query", 1
-    )[0]
+    send_failed_branch = helper.split("if let Err(e) = tx.send(input_msg).await", 1)[1].split("sqlx::query", 1)[0]
     assert "processed_at" not in send_failed_branch
     assert "UPDATE joysafeter_session_events SET processed_at = NOW()" in helper
     assert "pending_control_replay_marks_processed_only_after_send_succeeds" in grpc_server

@@ -301,61 +301,61 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
 
       <div className="space-y-4 rounded-lg border border-border p-6">
         {!isCustomSecretProvider(provider) && (
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
-          <div className="space-y-1">
-            <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
-            <Select value={provider} onValueChange={updateProvider} disabled={projectReadOnly}>
-              <SelectTrigger disabled={projectReadOnly}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SECRET_PROVIDER_GROUPS.map((group) => (
-                  <SelectGroup key={group.label}>
-                    <SelectLabel className="flex items-center gap-2 px-2 py-2">
-                      <span
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white"
-                        style={{ backgroundColor: group.bgColor }}
-                      >
-                        {group.icon}
-                      </span>
-                      <span className="text-sm font-semibold text-foreground">
-                        {t(group.labelKey, { defaultValue: group.label })}
-                      </span>
-                    </SelectLabel>
-                    {group.options.map((item, i) => {
-                      const isLast = i === group.options.length - 1
-                      const prefix = isLast ? '└' : '├'
-                      return (
-                        <SelectItem key={item.value} value={item.value} className="pl-8 text-sm">
-                          <span className="flex items-center gap-1.5">
-                            <span className="text-xs text-muted-foreground/50">{prefix}</span>
-                            {item.label}
-                          </span>
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectGroup>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
+              <Select value={provider} onValueChange={updateProvider} disabled={projectReadOnly}>
+                <SelectTrigger disabled={projectReadOnly}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SECRET_PROVIDER_GROUPS.map((group) => (
+                    <SelectGroup key={group.label}>
+                      <SelectLabel className="flex items-center gap-2 px-2 py-2">
+                        <span
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white"
+                          style={{ backgroundColor: group.bgColor }}
+                        >
+                          {group.icon}
+                        </span>
+                        <span className="text-sm font-semibold text-foreground">
+                          {t(group.labelKey, { defaultValue: group.label })}
+                        </span>
+                      </SelectLabel>
+                      {group.options.map((item, i) => {
+                        const isLast = i === group.options.length - 1
+                        const prefix = isLast ? '└' : '├'
+                        return (
+                          <SelectItem key={item.value} value={item.value} className="pl-8 text-sm">
+                            <span className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground/50">{prefix}</span>
+                              {item.label}
+                            </span>
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">{t('managed.secrets.protocol')}</label>
+              <Select value={protocol} onValueChange={updateProtocol} disabled={projectReadOnly}>
+                <SelectTrigger disabled={projectReadOnly}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SECRET_PROTOCOL_OPTIONS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="h-10 w-10" />
           </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium">{t('managed.secrets.protocol')}</label>
-            <Select value={protocol} onValueChange={updateProtocol} disabled={projectReadOnly}>
-              <SelectTrigger disabled={projectReadOnly}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SECRET_PROTOCOL_OPTIONS.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="h-10 w-10" />
-        </div>
         )}
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium">{t('managed.secrets.dataLabel')}</label>

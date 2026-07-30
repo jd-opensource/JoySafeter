@@ -230,9 +230,7 @@ async def test_stream_consumer_acks_status_events_without_persisting_them(
     ).all()
     assert rows == [(message_id, "agent.message", 1)]
 
-    session_status = await db_session.scalar(
-        select(JoySafeterSession.status).where(JoySafeterSession.id == session_id)
-    )
+    session_status = await db_session.scalar(select(JoySafeterSession.status).where(JoySafeterSession.id == session_id))
     assert session_status == "idle", "worker stream fallback must not mutate session.status"
 
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
@@ -108,11 +108,15 @@ const manageItems: NavItem[] = [
 function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const { t } = useTranslation()
   const { projects, organizations, switchProject, orgId } = useProjectContext()
-  const { currentProjectId, currentOrgId } = useProjectStore()
+  const { currentProjectId, currentOrgId, currentProject: storedCurrentProject } = useProjectStore()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [allOrgProjects, setAllOrgProjects] = useState<Record<string, ProjectInfo[]>>({})
-  const currentProject = projects.find((p) => p.id === currentProjectId)
+  const loadSeqRef = useRef(0)
+  const switchSeqRef = useRef(0)
+  const currentProject =
+    projects.find((p) => p.id === currentProjectId) ||
+    (storedCurrentProject?.id === currentProjectId ? storedCurrentProject : null)
   const currentOrg = organizations.find((o) => o.id === (currentOrgId || orgId))
   const activeOrgId = currentOrgId || orgId
 
@@ -129,21 +133,34 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   }
 
   const handleSwitchToProject = async (targetOrgId: string, targetProjectId: string) => {
+    const switchSeq = ++switchSeqRef.current
     try {
       await switchProject(targetProjectId, targetOrgId)
+      if (switchSeq !== switchSeqRef.current) return
       setOpen(false)
       setSearch('')
     } catch (e) {
+      if (switchSeq !== switchSeqRef.current) return
       console.error('Failed to switch:', e)
     }
   }
 
   // Load projects for all orgs when dropdown opens
   const loadAllProjects = async () => {
+    const loadSeq = ++loadSeqRef.current
+    const requestedActiveOrgId = activeOrgId
+    const requestedProjectId = currentProjectId
     const result: Record<string, ProjectInfo[]> = {}
     for (const org of organizations) {
       if (org.id === activeOrgId) {
-        result[org.id] = projects.map((project) => ({
+        result[org.id] = [
+          ...projects,
+          ...(currentProject &&
+          currentProject.archived_at &&
+          !projects.some((project) => project.id === currentProject.id)
+            ? [currentProject]
+            : []),
+        ].map((project) => ({
           ...project,
           org_id: project.org_id || org.id,
         }))
@@ -160,6 +177,15 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
           result[org.id] = []
         }
       }
+    }
+    const { currentOrgId: latestOrgId, currentProjectId: latestProjectId } =
+      useProjectStore.getState()
+    if (
+      loadSeq !== loadSeqRef.current ||
+      latestOrgId !== requestedActiveOrgId ||
+      latestProjectId !== requestedProjectId
+    ) {
+      return
     }
     setAllOrgProjects(result)
   }
@@ -396,7 +422,10 @@ function NavSection({
           const exactMatch = pathname === item.to
           const prefixMatch = pathname?.startsWith(item.to + '/') ?? false
           const hasSiblingMatch = items.some(
-            (other) => other.to !== item.to && other.to.length > item.to.length && pathname?.startsWith(other.to)
+            (other) =>
+              other.to !== item.to &&
+              other.to.length > item.to.length &&
+              pathname?.startsWith(other.to),
           )
           const isItemActive = exactMatch || (prefixMatch && !hasSiblingMatch)
           return (
@@ -445,7 +474,10 @@ function NavSection({
             const exactMatch = pathname === item.to
             const prefixMatch = pathname?.startsWith(item.to + '/') ?? false
             const hasSiblingMatch = items.some(
-              (other) => other.to !== item.to && other.to.length > item.to.length && pathname?.startsWith(other.to)
+              (other) =>
+                other.to !== item.to &&
+                other.to.length > item.to.length &&
+                pathname?.startsWith(other.to),
             )
             const isActive = exactMatch || (prefixMatch && !hasSiblingMatch)
             return (
@@ -584,7 +616,12 @@ export function AppSidebar() {
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           <NavSection labelKey="nav.build" icon={FolderCode} items={buildItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
-          <NavSection labelKey="nav.automation" icon={CalendarClock} items={automationItems} collapsed />
+          <NavSection
+            labelKey="nav.automation"
+            icon={CalendarClock}
+            items={automationItems}
+            collapsed
+          />
           <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} collapsed />
           <div className="my-1 h-px w-6 bg-border" />
@@ -592,7 +629,14 @@ export function AppSidebar() {
           <div className="my-1 h-px w-6 bg-border" />
           <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} collapsed />
           {isPlatformAdmin ? <div className="my-1 h-px w-6 bg-border" /> : null}
-          {isPlatformAdmin ? <NavSection labelKey="nav.platformManage" icon={Shield} items={platformManageItems} collapsed /> : null}
+          {isPlatformAdmin ? (
+            <NavSection
+              labelKey="nav.platformManage"
+              icon={Shield}
+              items={platformManageItems}
+              collapsed
+            />
+          ) : null}
         </nav>
         <UserMenu collapsed />
       </aside>
@@ -621,7 +665,9 @@ export function AppSidebar() {
         <NavSection labelKey="nav.resources" icon={FolderCode} items={resourceItems} />
         <NavSection labelKey="nav.insights" icon={BarChart3} items={insightItems} />
         <NavSection labelKey="nav.manage" icon={Shield} items={manageItems} />
-        {isPlatformAdmin ? <NavSection labelKey="nav.platformManage" icon={Shield} items={platformManageItems} /> : null}
+        {isPlatformAdmin ? (
+          <NavSection labelKey="nav.platformManage" icon={Shield} items={platformManageItems} />
+        ) : null}
       </nav>
 
       <UserMenu />

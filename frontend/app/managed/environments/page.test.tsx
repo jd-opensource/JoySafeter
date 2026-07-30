@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(''),
 }))
 
 vi.mock('@/lib/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
 }))
 
 vi.mock('@/lib/api-client', () => ({
@@ -28,6 +29,7 @@ vi.mock('@/lib/managed/filters', () => ({
 }))
 
 vi.mock('@/components/managed/shared', () => ({
+  AdvancedSection: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   DataTable: ({
     actionMenu,
     data,
@@ -49,6 +51,10 @@ vi.mock('@/components/managed/shared', () => ({
     </div>
   ),
   FilterBar: () => null,
+  FormActionBar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  FormFieldError: ({ message }: { message?: string }) => (message ? <p>{message}</p> : null),
+  FormFieldLabel: ({ children }: { children: ReactNode }) => <label>{children}</label>,
+  FormSectionCard: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   MonoId: ({ id }: { id: string }) => <span>{id}</span>,
   PageHeader: ({ title, action }: { title: string; action?: ReactNode }) => (
     <div>
@@ -338,7 +344,7 @@ describe('EnvironmentListPage create lifecycle', () => {
       fireEvent.input(getByPlaceholderText('managed.environments.descPlaceholder'), {
         target: { value: 'Only for project A' },
       })
-      fireEvent.input(getByPlaceholderText('api.example.com, github.com'), {
+      fireEvent.input(getByPlaceholderText(/api\.example\.com/), {
         target: { value: 'api.project-a.example.com, github.com' },
       })
       fireEvent.input(getByPlaceholderText('curl, git, build-essential'), {
@@ -349,9 +355,6 @@ describe('EnvironmentListPage create lifecycle', () => {
       })
       fireEvent.input(getByPlaceholderText('KEY=value, NODE_ENV=production'), {
         target: { value: 'PROJECT=project-a' },
-      })
-      fireEvent.input(getByPlaceholderText('my-api-secret, db-credentials'), {
-        target: { value: 'project-a-secret' },
       })
     })
 
@@ -398,7 +401,7 @@ describe('EnvironmentListPage create lifecycle', () => {
       fireEvent.input(getByPlaceholderText('managed.environments.descPlaceholder'), {
         target: { value: 'Only for project A before archive' },
       })
-      fireEvent.input(getByPlaceholderText('api.example.com, github.com'), {
+      fireEvent.input(getByPlaceholderText(/api\.example\.com/), {
         target: { value: 'api.project-a.example.com, github.com' },
       })
       fireEvent.input(getByPlaceholderText('curl, git, build-essential'), {
@@ -409,9 +412,6 @@ describe('EnvironmentListPage create lifecycle', () => {
       })
       fireEvent.input(getByPlaceholderText('KEY=value, NODE_ENV=production'), {
         target: { value: 'PROJECT=project-a' },
-      })
-      fireEvent.input(getByPlaceholderText('my-api-secret, db-credentials'), {
-        target: { value: 'project-a-secret' },
       })
     })
 

@@ -11,15 +11,15 @@ not yet migrated to the database. This service queries the existing tables:
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
-from sqlalchemy import func, case, and_, desc, text, cast, Float, Integer, String
+from sqlalchemy import Integer, and_, case, cast, desc, func, text, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
-from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,9 @@ class AnalyticsService:
             func.count(JoySafeterTask.id).label("total_calls"),
             func.avg(JoySafeterTask.duration_ms).label("avg_duration_ms"),
             func.count(case((JoySafeterTask.status == JoySafeterTaskStatus.FAILED.value, 1))).label("error_count"),
-            func.count(case((JoySafeterTask.status == JoySafeterTaskStatus.COMPLETED.value, 1))).label("completed_count"),
+            func.count(case((JoySafeterTask.status == JoySafeterTaskStatus.COMPLETED.value, 1))).label(
+                "completed_count"
+            ),
         ).where(and_(*filters))
 
         result = await self.db.execute(stmt)
@@ -98,10 +100,8 @@ class AnalyticsService:
 
         token_stmt = select(
             func.sum(
-                func.coalesce(
-                    cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0
-                ) +
-                func.coalesce(
+                func.coalesce(cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0)
+                + func.coalesce(
                     cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "output_tokens"), Integer), 0
                 )
             ).label("total_tokens"),
@@ -111,9 +111,7 @@ class AnalyticsService:
                 )
             ).label("cache_read_tokens"),
             func.sum(
-                func.coalesce(
-                    cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0
-                )
+                func.coalesce(cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0)
             ).label("input_tokens"),
         ).where(and_(*session_filters))
 
@@ -122,7 +120,9 @@ class AnalyticsService:
         total_tokens = int(token_row.total_tokens or 0)
         cache_read_tokens = int(token_row.cache_read_tokens or 0)
         input_tokens = int(token_row.input_tokens or 0)
-        cache_hit_rate = cache_read_tokens / (input_tokens + cache_read_tokens) if (input_tokens + cache_read_tokens) > 0 else 0.0
+        cache_hit_rate = (
+            cache_read_tokens / (input_tokens + cache_read_tokens) if (input_tokens + cache_read_tokens) > 0 else 0.0
+        )
 
         # Active sessions
         active_stmt = select(func.count(JoySafeterSession.id)).where(
@@ -144,9 +144,16 @@ class AnalyticsService:
 
         # Delta computation
         delta = await self._compute_delta(
-            project_id, range_str, total_calls, success_rate,
-            avg_duration_ms, 0.0, total_tokens, 0.0,
-            error_count, active_sessions,
+            project_id,
+            range_str,
+            total_calls,
+            success_rate,
+            avg_duration_ms,
+            0.0,
+            total_tokens,
+            0.0,
+            error_count,
+            active_sessions,
         )
 
         return {
@@ -166,20 +173,30 @@ class AnalyticsService:
         }
 
     async def _compute_delta(
-        self, project_id: str, range_str: str,
-        curr_calls: int, curr_success_rate: float,
-        curr_duration: float, curr_ttft: float,
-        curr_tokens: int, curr_cost: float,
-        curr_errors: int, curr_active: int,
+        self,
+        project_id: str,
+        range_str: str,
+        curr_calls: int,
+        curr_success_rate: float,
+        curr_duration: float,
+        curr_ttft: float,
+        curr_tokens: int,
+        curr_cost: float,
+        curr_errors: int,
+        curr_active: int,
     ) -> dict:
         """Compute deltas by comparing with the previous equivalent period."""
         time_boundary = _get_time_boundary(range_str)
         if time_boundary is None:
             return {
-                "total_calls": None, "success_rate": None,
-                "avg_duration_ms": None, "avg_ttft_ms": None,
-                "total_tokens": None, "total_cost": None,
-                "error_count": None, "active_sessions": None,
+                "total_calls": None,
+                "success_rate": None,
+                "avg_duration_ms": None,
+                "avg_ttft_ms": None,
+                "total_tokens": None,
+                "total_cost": None,
+                "error_count": None,
+                "active_sessions": None,
             }
 
         now = datetime.now(timezone.utc)
@@ -214,7 +231,9 @@ class AnalyticsService:
         return {
             "total_calls": pct_change(curr_calls, prev_calls),
             "success_rate": pct_change(curr_success_rate, prev_success) if prev_success else None,
-            "avg_duration_ms": pct_change(curr_duration, float(row.avg_duration_ms or 0)) if row.avg_duration_ms else None,
+            "avg_duration_ms": pct_change(curr_duration, float(row.avg_duration_ms or 0))
+            if row.avg_duration_ms
+            else None,
             "avg_ttft_ms": None,
             "total_tokens": None,
             "total_cost": None,
@@ -227,8 +246,11 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     async def get_calls_timeseries(
-        self, project_id: str, range_str: str = "7d",
-        engine: Optional[str] = None, agent_id: Optional[str] = None,
+        self,
+        project_id: str,
+        range_str: str = "7d",
+        engine: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> list[dict]:
         """Task completions over time, bucketed."""
         time_boundary = _get_time_boundary(range_str)
@@ -265,8 +287,11 @@ class AnalyticsService:
         ]
 
     async def get_tokens_timeseries(
-        self, project_id: str, range_str: str = "7d",
-        engine: Optional[str] = None, agent_id: Optional[str] = None,
+        self,
+        project_id: str,
+        range_str: str = "7d",
+        engine: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> list[dict]:
         """Token usage over time from sessions, bucketed."""
         time_boundary = _get_time_boundary(range_str)
@@ -310,8 +335,11 @@ class AnalyticsService:
         ]
 
     async def get_latency_timeseries(
-        self, project_id: str, range_str: str = "7d",
-        engine: Optional[str] = None, agent_id: Optional[str] = None,
+        self,
+        project_id: str,
+        range_str: str = "7d",
+        engine: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> list[dict]:
         """Latency (task duration) over time, bucketed."""
         time_boundary = _get_time_boundary(range_str)
@@ -353,7 +381,9 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     async def get_engine_share(
-        self, project_id: str, range_str: str = "7d",
+        self,
+        project_id: str,
+        range_str: str = "7d",
     ) -> list[dict]:
         """Distribution of tasks by agent engine_kind."""
         time_boundary = _get_time_boundary(range_str)
@@ -377,14 +407,14 @@ class AnalyticsService:
         result = await self.db.execute(stmt)
         rows = result.all()
 
-        total = sum(row.count for row in rows) or 1
+        total = sum(int(count) for _engine, count in rows) or 1
         return [
             {
-                "engine": row.engine or "unknown",
-                "count": row.count,
-                "percentage": round(row.count / total * 100, 1),
+                "engine": engine or "unknown",
+                "count": count,
+                "percentage": round(count / total * 100, 1),
             }
-            for row in rows
+            for engine, count in rows
         ]
 
     # ------------------------------------------------------------------
@@ -392,11 +422,17 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     async def get_calls_list(
-        self, project_id: str, range_str: str = "7d",
-        engine: Optional[str] = None, model: Optional[str] = None,
-        status: Optional[str] = None, agent_id: Optional[str] = None,
-        page: int = 1, page_size: int = 20,
-        sort_by: str = "created_at", sort_order: str = "desc",
+        self,
+        project_id: str,
+        range_str: str = "7d",
+        engine: Optional[str] = None,
+        model: Optional[str] = None,
+        status: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
     ) -> dict:
         """Paginated list of task records."""
         time_boundary = _get_time_boundary(range_str)
@@ -456,28 +492,30 @@ class AnalyticsService:
             if task.started_at and task.created_at:
                 wait_ms = int((task.started_at - task.created_at).total_seconds() * 1000)
 
-            records.append({
-                "id": str(task.id),
-                "trace_id": str(task.id),
-                "session_id": str(task.chat_session_id) if task.chat_session_id else None,
-                "agent_id": str(task.agent_id) if task.agent_id else None,
-                "agent_name": agent_name,
-                "engine_kind": engine_kind,
-                "model": model_id,
-                "status": task.status,
-                "input_tokens": usage.get("input_tokens", 0) or 0,
-                "output_tokens": usage.get("output_tokens", 0) or 0,
-                "total_tokens": (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0),
-                "ttft_ms": None,
-                "duration_ms": task.duration_ms or 0,
-                "cost": 0.0,
-                "agent_steps": 0,
-                "error": task.error,
-                "started_at": task.started_at.isoformat() if task.started_at else None,
-                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-                "retry_count": task.retry_count or 0,
-                "queue_wait_ms": wait_ms,
-            })
+            records.append(
+                {
+                    "id": str(task.id),
+                    "trace_id": str(task.id),
+                    "session_id": str(task.chat_session_id) if task.chat_session_id else None,
+                    "agent_id": str(task.agent_id) if task.agent_id else None,
+                    "agent_name": agent_name,
+                    "engine_kind": engine_kind,
+                    "model": model_id,
+                    "status": task.status,
+                    "input_tokens": usage.get("input_tokens", 0) or 0,
+                    "output_tokens": usage.get("output_tokens", 0) or 0,
+                    "total_tokens": (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0),
+                    "ttft_ms": None,
+                    "duration_ms": task.duration_ms or 0,
+                    "cost": 0.0,
+                    "agent_steps": 0,
+                    "error": task.error,
+                    "started_at": task.started_at.isoformat() if task.started_at else None,
+                    "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                    "retry_count": task.retry_count or 0,
+                    "queue_wait_ms": wait_ms,
+                }
+            )
 
         return {
             "data": records,
@@ -490,7 +528,9 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     async def get_observations_tree(
-        self, project_id: str, trace_id: str,
+        self,
+        project_id: str,
+        trace_id: str,
     ) -> list[dict]:
         """Placeholder — returns empty until traces/observations tables are migrated."""
         return []
@@ -500,7 +540,9 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     async def get_agent_comparison(
-        self, project_id: str, range_str: str = "7d",
+        self,
+        project_id: str,
+        range_str: str = "7d",
     ) -> list[dict]:
         """Compare metrics across agents using aggregated queries."""
         time_boundary = _get_time_boundary(range_str)
@@ -551,19 +593,21 @@ class AnalyticsService:
             total_tasks = row.total_tasks or 0
             success_rate = (row.completed or 0) / total_tasks if total_tasks > 0 else 0.0
 
-            metrics_list.append({
-                "agent_id": str(row.agent_id),
-                "agent_name": row.agent_name or "Unknown",
-                "engine_kind": row.engine_kind,
-                "total_sessions": session_map.get(str(row.agent_id), 0),
-                "total_tasks": total_tasks,
-                "success_rate": round(success_rate, 3),
-                "avg_duration_ms": round(float(row.avg_duration or 0), 1),
-                "avg_ttft_ms": 0.0,
-                "avg_cost": 0.0,
-                "total_tokens": 0,
-                "avg_agent_steps": 0.0,
-            })
+            metrics_list.append(
+                {
+                    "agent_id": str(row.agent_id),
+                    "agent_name": row.agent_name or "Unknown",
+                    "engine_kind": row.engine_kind,
+                    "total_sessions": session_map.get(str(row.agent_id), 0),
+                    "total_tasks": total_tasks,
+                    "success_rate": round(success_rate, 3),
+                    "avg_duration_ms": round(float(row.avg_duration or 0), 1),
+                    "avg_ttft_ms": 0.0,
+                    "avg_cost": 0.0,
+                    "total_tokens": 0,
+                    "avg_agent_steps": 0.0,
+                }
+            )
 
         return metrics_list
 
@@ -613,10 +657,12 @@ class AnalyticsService:
         # --- Last error timestamp ---
         last_error_stmt = (
             select(JoySafeterTask.completed_at)
-            .where(and_(
-                JoySafeterTask.project_id == project_id,
-                JoySafeterTask.status == JoySafeterTaskStatus.FAILED.value,
-            ))
+            .where(
+                and_(
+                    JoySafeterTask.project_id == project_id,
+                    JoySafeterTask.status == JoySafeterTaskStatus.FAILED.value,
+                )
+            )
             .order_by(JoySafeterTask.completed_at.desc())
             .limit(1)
         )
@@ -632,8 +678,8 @@ class AnalyticsService:
             queue_filters.append(JoySafeterTask.created_at >= time_boundary)
 
         queue_stmt = select(
-            func.avg(func.extract('epoch', JoySafeterTask.started_at - JoySafeterTask.created_at)).label('avg_wait'),
-            func.max(func.extract('epoch', JoySafeterTask.started_at - JoySafeterTask.created_at)).label('max_wait'),
+            func.avg(func.extract("epoch", JoySafeterTask.started_at - JoySafeterTask.created_at)).label("avg_wait"),
+            func.max(func.extract("epoch", JoySafeterTask.started_at - JoySafeterTask.created_at)).label("max_wait"),
         ).where(and_(*queue_filters))
 
         queue_result = await self.db.execute(queue_stmt)
@@ -644,7 +690,9 @@ class AnalyticsService:
         # --- Alerts ---
         alerts: list[dict] = []
         if consecutive_failures_enabled:
-            alerts.extend(await self._detect_consecutive_failures(project_id, time_boundary, consecutive_failures_threshold))
+            alerts.extend(
+                await self._detect_consecutive_failures(project_id, time_boundary, consecutive_failures_threshold)
+            )
         if slow_agent_enabled:
             alerts.extend(await self._detect_slow_agents(project_id, time_boundary, slow_agent_threshold_ms))
         if token_spike_enabled:
@@ -659,15 +707,17 @@ class AnalyticsService:
             session_filters.append(JoySafeterSession.created_at >= time_boundary)
 
         token_stmt = select(
-            func.sum(func.coalesce(
-                cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0
-            )).label("input"),
-            func.sum(func.coalesce(
-                cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "output_tokens"), Integer), 0
-            )).label("output"),
-            func.sum(func.coalesce(
-                cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "cache_read_input_tokens"), Integer), 0
-            )).label("cache_read"),
+            func.sum(
+                func.coalesce(cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0)
+            ).label("input"),
+            func.sum(
+                func.coalesce(cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "output_tokens"), Integer), 0)
+            ).label("output"),
+            func.sum(
+                func.coalesce(
+                    cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "cache_read_input_tokens"), Integer), 0
+                )
+            ).label("cache_read"),
         ).where(and_(*session_filters))
 
         token_result = await self.db.execute(token_stmt)
@@ -691,20 +741,26 @@ class AnalyticsService:
         total_input = input_tokens
         total_output = output_tokens
         if cache_hit_rate < 0.5 and total_input > 0:
-            suggestions.append({
-                "type": "low_cache_hit",
-                "params": {"cacheHitPct": round(cache_hit_rate * 100)},
-            })
+            suggestions.append(
+                {
+                    "type": "low_cache_hit",
+                    "params": {"cacheHitPct": round(cache_hit_rate * 100)},
+                }
+            )
         if total_output > 0 and total_input > 0 and total_output / total_input > 0.5:
-            suggestions.append({
-                "type": "high_output_ratio",
-                "params": {"outputRatioPct": round(total_output / total_input * 100)},
-            })
+            suggestions.append(
+                {
+                    "type": "high_output_ratio",
+                    "params": {"outputRatioPct": round(total_output / total_input * 100)},
+                }
+            )
         if avg_queue_wait_sec > 30:
-            suggestions.append({
-                "type": "high_queue_wait",
-                "params": {"queueWaitSec": round(avg_queue_wait_sec)},
-            })
+            suggestions.append(
+                {
+                    "type": "high_queue_wait",
+                    "params": {"queueWaitSec": round(avg_queue_wait_sec)},
+                }
+            )
 
         return {
             "status": status,
@@ -727,7 +783,9 @@ class AnalyticsService:
         }
 
     async def _detect_consecutive_failures(
-        self, project_id: str, time_boundary: Optional[datetime],
+        self,
+        project_id: str,
+        time_boundary: Optional[datetime],
         threshold: int = 3,
     ) -> list[dict]:
         """Detect agents with consecutive recent failures."""
@@ -738,11 +796,13 @@ class AnalyticsService:
             select(JoySafeterTask.agent_id, JoySafeterAgent.name)
             .select_from(JoySafeterTask)
             .join(JoySafeterAgent, JoySafeterTask.agent_id == JoySafeterAgent.id)
-            .where(and_(
-                JoySafeterTask.project_id == project_id,
-                JoySafeterTask.status == JoySafeterTaskStatus.FAILED.value,
-                JoySafeterTask.created_at >= time_boundary if time_boundary else True,
-            ))
+            .where(
+                and_(
+                    JoySafeterTask.project_id == project_id,
+                    JoySafeterTask.status == JoySafeterTaskStatus.FAILED.value,
+                    JoySafeterTask.created_at >= time_boundary if time_boundary else true(),
+                )
+            )
             .group_by(JoySafeterTask.agent_id, JoySafeterAgent.name)
         )
         result = await self.db.execute(failed_agents_stmt)
@@ -752,10 +812,12 @@ class AnalyticsService:
             # Get last 5 tasks for this agent
             recent_stmt = (
                 select(JoySafeterTask.status)
-                .where(and_(
-                    JoySafeterTask.project_id == project_id,
-                    JoySafeterTask.agent_id == agent_id,
-                ))
+                .where(
+                    and_(
+                        JoySafeterTask.project_id == project_id,
+                        JoySafeterTask.agent_id == agent_id,
+                    )
+                )
                 .order_by(JoySafeterTask.created_at.desc())
                 .limit(5)
             )
@@ -771,18 +833,22 @@ class AnalyticsService:
                     break
 
             if consecutive >= threshold:
-                alerts.append({
-                    "type": "consecutive_failures",
-                    "severity": "error",
-                    "agent_name": agent_name,
-                    "agent_id": str(agent_id),
-                    "params": {"count": consecutive, "threshold": threshold},
-                })
+                alerts.append(
+                    {
+                        "type": "consecutive_failures",
+                        "severity": "error",
+                        "agent_name": agent_name,
+                        "agent_id": str(agent_id),
+                        "params": {"count": consecutive, "threshold": threshold},
+                    }
+                )
 
         return alerts
 
     async def _detect_slow_agents(
-        self, project_id: str, time_boundary: Optional[datetime],
+        self,
+        project_id: str,
+        time_boundary: Optional[datetime],
         threshold_ms: int = 10000,
     ) -> list[dict]:
         """Detect agents whose average duration exceeds the threshold."""
@@ -819,7 +885,9 @@ class AnalyticsService:
         ]
 
     async def _detect_token_spike(
-        self, project_id: str, range_str: str,
+        self,
+        project_id: str,
+        range_str: str,
         threshold_pct: int = 30,
     ) -> list[dict]:
         """Detect if token usage spiked above threshold compared to the previous period."""
@@ -835,49 +903,51 @@ class AnalyticsService:
         # Current period tokens
         curr_stmt = select(
             func.sum(
-                func.coalesce(
-                    cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0
-                ) +
-                func.coalesce(
+                func.coalesce(cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0)
+                + func.coalesce(
                     cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "output_tokens"), Integer), 0
                 )
             )
-        ).where(and_(
-            JoySafeterSession.project_id == project_id,
-            JoySafeterSession.created_at >= time_boundary,
-        ))
+        ).where(
+            and_(
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.created_at >= time_boundary,
+            )
+        )
         curr_tokens = (await self.db.execute(curr_stmt)).scalar() or 0
 
         # Previous period tokens
         prev_stmt = select(
             func.sum(
-                func.coalesce(
-                    cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0
-                ) +
-                func.coalesce(
+                func.coalesce(cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0)
+                + func.coalesce(
                     cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "output_tokens"), Integer), 0
                 )
             )
-        ).where(and_(
-            JoySafeterSession.project_id == project_id,
-            JoySafeterSession.created_at >= prev_start,
-            JoySafeterSession.created_at < prev_end,
-        ))
+        ).where(
+            and_(
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.created_at >= prev_start,
+                JoySafeterSession.created_at < prev_end,
+            )
+        )
         prev_tokens = (await self.db.execute(prev_stmt)).scalar() or 0
 
         if prev_tokens > 0:
             change_pct = (curr_tokens - prev_tokens) / prev_tokens
             if change_pct > threshold_pct / 100:
-                return [{
-                    "type": "token_spike",
-                    "severity": "warning",
-                    "agent_name": None,
-                    "agent_id": None,
-                    "params": {
-                        "changePct": round(change_pct * 100, 1),
-                        "thresholdPct": threshold_pct,
-                    },
-                }]
+                return [
+                    {
+                        "type": "token_spike",
+                        "severity": "warning",
+                        "agent_name": None,
+                        "agent_id": None,
+                        "params": {
+                            "changePct": round(change_pct * 100, 1),
+                            "thresholdPct": threshold_pct,
+                        },
+                    }
+                ]
 
         return []
 
@@ -930,11 +1000,13 @@ class AnalyticsService:
             )
             .select_from(JoySafeterSession)
             .outerjoin(JoySafeterAgent, JoySafeterSession.agent_id == JoySafeterAgent.id)
-            .where(and_(
-                JoySafeterSession.project_id == project_id,
-                JoySafeterSession.status == "running",
-                JoySafeterSession.created_at < threshold,
-            ))
+            .where(
+                and_(
+                    JoySafeterSession.project_id == project_id,
+                    JoySafeterSession.status == "running",
+                    JoySafeterSession.created_at < threshold,
+                )
+            )
             .order_by(JoySafeterSession.created_at.asc())
         )
 
@@ -943,13 +1015,15 @@ class AnalyticsService:
         now = datetime.now(timezone.utc)
         for row in result.all():
             hours = (now - row.created_at).total_seconds() / 3600
-            alerts.append({
-                "type": "zombie_session",
-                "severity": "warning",
-                "agent_name": row.name,
-                "agent_id": str(row.agent_id) if row.agent_id else None,
-                "params": {"hours": round(hours, 1)},
-            })
+            alerts.append(
+                {
+                    "type": "zombie_session",
+                    "severity": "warning",
+                    "agent_name": row.name,
+                    "agent_id": str(row.agent_id) if row.agent_id else None,
+                    "params": {"hours": round(hours, 1)},
+                }
+            )
         return alerts
 
     # ------------------------------------------------------------------
@@ -993,8 +1067,13 @@ class AnalyticsService:
         token_stmt = (
             select(
                 JoySafeterSession.agent_id,
-                func.sum(func.coalesce(cast(func.jsonb_extract_path_text(JoySafeterSession.usage, 'input_tokens'), Integer), 0) +
-                         func.coalesce(cast(func.jsonb_extract_path_text(JoySafeterSession.usage, 'output_tokens'), Integer), 0)
+                func.sum(
+                    func.coalesce(
+                        cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "input_tokens"), Integer), 0
+                    )
+                    + func.coalesce(
+                        cast(func.jsonb_extract_path_text(JoySafeterSession.usage, "output_tokens"), Integer), 0
+                    )
                 ).label("total_tokens"),
             )
             .where(and_(*session_filters))
@@ -1033,18 +1112,20 @@ class AnalyticsService:
             else:
                 activity_status = "idle"
 
-            ranking.append({
-                "agent_id": str(row.agent_id),
-                "agent_name": row.agent_name,
-                "engine_kind": row.engine_kind,
-                "total_tasks": total,
-                "success_rate": round(success_rate, 3),
-                "failed_count": failed,
-                "avg_duration_ms": round(avg_dur, 1),
-                "total_tokens": tokens,
-                "last_task_at": last_task.isoformat() if last_task else None,
-                "activity_status": activity_status,
-            })
+            ranking.append(
+                {
+                    "agent_id": str(row.agent_id),
+                    "agent_name": row.agent_name,
+                    "engine_kind": row.engine_kind,
+                    "total_tasks": total,
+                    "success_rate": round(success_rate, 3),
+                    "failed_count": failed,
+                    "avg_duration_ms": round(avg_dur, 1),
+                    "total_tokens": tokens,
+                    "last_task_at": last_task.isoformat() if last_task else None,
+                    "activity_status": activity_status,
+                }
+            )
 
         # Include agents with zero tasks (not in the main query results)
         existing_agent_ids = {r["agent_id"] for r in ranking}
@@ -1059,18 +1140,20 @@ class AnalyticsService:
         for agent in all_agents_result.scalars().all():
             if str(agent.id) not in existing_agent_ids:
                 last_task = last_task_map.get(str(agent.id))
-                ranking.append({
-                    "agent_id": str(agent.id),
-                    "agent_name": agent.name,
-                    "engine_kind": agent.engine_kind,
-                    "total_tasks": 0,
-                    "success_rate": 0.0,
-                    "failed_count": 0,
-                    "avg_duration_ms": 0.0,
-                    "total_tokens": 0,
-                    "last_task_at": last_task.isoformat() if last_task else None,
-                    "activity_status": "unused",
-                })
+                ranking.append(
+                    {
+                        "agent_id": str(agent.id),
+                        "agent_name": agent.name,
+                        "engine_kind": agent.engine_kind,
+                        "total_tasks": 0,
+                        "success_rate": 0.0,
+                        "failed_count": 0,
+                        "avg_duration_ms": 0.0,
+                        "total_tokens": 0,
+                        "last_task_at": last_task.isoformat() if last_task else None,
+                        "activity_status": "unused",
+                    }
+                )
 
         # Sort by: failed_count desc, then success_rate asc (worst first)
         ranking.sort(key=lambda x: (-x["failed_count"], x["success_rate"]))
@@ -1090,8 +1173,8 @@ class AnalyticsService:
 
         stmt = (
             select(
-                func.extract('dow', JoySafeterTask.created_at).label("day_of_week"),  # 0=Sunday
-                func.extract('hour', JoySafeterTask.created_at).label("hour"),
+                func.extract("dow", JoySafeterTask.created_at).label("day_of_week"),  # 0=Sunday
+                func.extract("hour", JoySafeterTask.created_at).label("hour"),
                 func.count(JoySafeterTask.id).label("count"),
                 func.count(case((JoySafeterTask.status == JoySafeterTaskStatus.FAILED.value, 1))).label("error_count"),
             )
@@ -1116,19 +1199,24 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     async def get_error_summary(
-        self, project_id: str, range_str: str = "7d",
-        engine: Optional[str] = None, agent_id: Optional[str] = None,
+        self,
+        project_id: str,
+        range_str: str = "7d",
+        engine: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> dict:
         """Aggregate errors by status type and show top error messages."""
         time_boundary = _get_time_boundary(range_str)
 
         filters = [
             JoySafeterTask.project_id == project_id,
-            JoySafeterTask.status.in_([
-                JoySafeterTaskStatus.FAILED.value,
-                JoySafeterTaskStatus.TIMEOUT.value,
-                JoySafeterTaskStatus.CANCELLED.value,
-            ]),
+            JoySafeterTask.status.in_(
+                [
+                    JoySafeterTaskStatus.FAILED.value,
+                    JoySafeterTaskStatus.TIMEOUT.value,
+                    JoySafeterTaskStatus.CANCELLED.value,
+                ]
+            ),
         ]
         if time_boundary:
             filters.append(JoySafeterTask.created_at >= time_boundary)
@@ -1179,8 +1267,11 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     async def get_latency_stats(
-        self, project_id: str, range_str: str = "7d",
-        engine: Optional[str] = None, agent_id: Optional[str] = None,
+        self,
+        project_id: str,
+        range_str: str = "7d",
+        engine: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> dict:
         """Compute duration distribution by time buckets."""
         time_boundary = _get_time_boundary(range_str)
@@ -1196,9 +1287,15 @@ class AnalyticsService:
         stmt = select(
             func.count(JoySafeterTask.id).label("total"),
             func.count(case((JoySafeterTask.duration_ms < 10000, 1))).label("under_10s"),
-            func.count(case((and_(JoySafeterTask.duration_ms >= 10000, JoySafeterTask.duration_ms < 60000), 1))).label("_10s_1m"),
-            func.count(case((and_(JoySafeterTask.duration_ms >= 60000, JoySafeterTask.duration_ms < 600000), 1))).label("_1m_10m"),
-            func.count(case((and_(JoySafeterTask.duration_ms >= 600000, JoySafeterTask.duration_ms < 3600000), 1))).label("_10m_1h"),
+            func.count(case((and_(JoySafeterTask.duration_ms >= 10000, JoySafeterTask.duration_ms < 60000), 1))).label(
+                "_10s_1m"
+            ),
+            func.count(case((and_(JoySafeterTask.duration_ms >= 60000, JoySafeterTask.duration_ms < 600000), 1))).label(
+                "_1m_10m"
+            ),
+            func.count(
+                case((and_(JoySafeterTask.duration_ms >= 600000, JoySafeterTask.duration_ms < 3600000), 1))
+            ).label("_10m_1h"),
             func.count(case((JoySafeterTask.duration_ms >= 3600000, 1))).label("over_1h"),
         ).where(and_(*filters))
 
@@ -1206,12 +1303,37 @@ class AnalyticsService:
         row = result.one()
         total = row.total or 1
 
-        buckets = [
-            {"label": "< 10s", "count": row.under_10s or 0, "pct": round((row.under_10s or 0) / total * 100, 1), "color": "emerald"},
-            {"label": "10s–1m", "count": row._10s_1m or 0, "pct": round((row._10s_1m or 0) / total * 100, 1), "color": "emerald"},
-            {"label": "1m–10m", "count": row._1m_10m or 0, "pct": round((row._1m_10m or 0) / total * 100, 1), "color": "amber"},
-            {"label": "10m–1h", "count": row._10m_1h or 0, "pct": round((row._10m_1h or 0) / total * 100, 1), "color": "amber"},
-            {"label": "> 1h", "count": row.over_1h or 0, "pct": round((row.over_1h or 0) / total * 100, 1), "color": "red"},
+        buckets: list[dict[str, Any]] = [
+            {
+                "label": "< 10s",
+                "count": row.under_10s or 0,
+                "pct": round((row.under_10s or 0) / total * 100, 1),
+                "color": "emerald",
+            },
+            {
+                "label": "10s–1m",
+                "count": row._10s_1m or 0,
+                "pct": round((row._10s_1m or 0) / total * 100, 1),
+                "color": "emerald",
+            },
+            {
+                "label": "1m–10m",
+                "count": row._1m_10m or 0,
+                "pct": round((row._1m_10m or 0) / total * 100, 1),
+                "color": "amber",
+            },
+            {
+                "label": "10m–1h",
+                "count": row._10m_1h or 0,
+                "pct": round((row._10m_1h or 0) / total * 100, 1),
+                "color": "amber",
+            },
+            {
+                "label": "> 1h",
+                "count": row.over_1h or 0,
+                "pct": round((row.over_1h or 0) / total * 100, 1),
+                "color": "red",
+            },
         ]
 
         return {

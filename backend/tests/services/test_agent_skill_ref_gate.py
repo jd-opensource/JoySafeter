@@ -10,7 +10,6 @@ from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAg
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.config import settings as app_settings
 
-
 pytestmark = pytest.mark.no_db
 
 
@@ -151,9 +150,7 @@ async def test_agent_skill_ref_gate_rejects_draft_version(monkeypatch):
         await svc._validate_skill_refs([{"skill_id": f"skill_{skill_id}", "version": "draft"}], "project-a")
 
     assert exc.value.code == "AGENT_SKILL_REF_NOT_RUNTIME_READY"
-    assert exc.value.data["skills"] == [
-        {"skill_id": str(skill_id), "version": "draft", "reason": "draft_not_allowed"}
-    ]
+    assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "version": "draft", "reason": "draft_not_allowed"}]
 
 
 async def test_agent_skill_ref_gate_rejects_missing_pinned_version(monkeypatch):
@@ -178,9 +175,7 @@ async def test_agent_skill_ref_gate_rejects_missing_pinned_version(monkeypatch):
             await svc._validate_skill_refs([{"skill_id": f"skill_{skill_id}", "version": "9.9.9"}], "project-a")
 
     assert exc.value.code == "AGENT_SKILL_REF_NOT_RUNTIME_READY"
-    assert exc.value.data["skills"] == [
-        {"skill_id": str(skill_id), "version": "9.9.9", "reason": "version_not_found"}
-    ]
+    assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "version": "9.9.9", "reason": "version_not_found"}]
 
 
 async def test_agent_skill_ref_gate_accepts_existing_pinned_version(monkeypatch):

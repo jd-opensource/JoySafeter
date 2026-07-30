@@ -41,9 +41,7 @@ def test_rust_runner_idle_paths_use_atomic_session_status_event_helper():
 def test_rust_running_status_paths_use_atomic_helper_before_publish():
     server = _read("backend/app/joysafeter_orchestrator_rs/src/grpc/server.rs")
 
-    helper = server.split("async fn emit_session_running_status", 1)[1].split(
-        "async fn emit_session_idle_status", 1
-    )[0]
+    helper = server.split("async fn emit_session_running_status", 1)[1].split("async fn emit_session_idle_status", 1)[0]
     reconnect = server.split("async fn handle_reconnect_with_event_loop", 1)[1].split(
         "// Run the full task event loop", 1
     )[0]
@@ -69,9 +67,8 @@ def test_rust_grpc_server_does_not_split_session_status_row_and_event_writes():
 def test_rust_task_controller_does_not_split_session_status_row_and_event_writes():
     controller = _read("backend/app/joysafeter_orchestrator_rs/src/kernel/task_controller.rs")
 
-    atomic_calls = (
-        controller.count("update_session_status_and_insert_event(")
-        + controller.count("update_session_status_if_no_active_tasks_and_insert_event(")
+    atomic_calls = controller.count("update_session_status_and_insert_event(") + controller.count(
+        "update_session_status_if_no_active_tasks_and_insert_event("
     )
     assert atomic_calls >= 4
     assert "queries::update_session_status(" not in controller
@@ -171,7 +168,10 @@ def test_rust_cancel_and_timeout_paths_write_replayable_idle_status():
     assert "Ok(true) =>" in transition_helper
     assert "emit_session_idle_status(" in transition_helper
     assert "Ok(false) =>" in transition_helper
-    assert "update_session_status_if_no_active_tasks_and_insert_event" in idle_helper or "update_session_status_and_insert_event" in idle_helper
+    assert (
+        "update_session_status_if_no_active_tasks_and_insert_event" in idle_helper
+        or "update_session_status_and_insert_event" in idle_helper
+    )
     assert '"session.status_idle"' in idle_helper
     assert "event_bus.publish(envelope).await;" in idle_helper
 
@@ -179,9 +179,9 @@ def test_rust_cancel_and_timeout_paths_write_replayable_idle_status():
 def test_rust_idle_status_publish_requires_inserted_status_event():
     server = _read("backend/app/joysafeter_orchestrator_rs/src/grpc/server.rs")
 
-    fallback = server.split(
-        "if task_done && !runner_idle_seen && !terminal_idle_handled", 1
-    )[1].split("\n    if let Some(result) = authoritative_result", 1)[0]
+    fallback = server.split("if task_done && !runner_idle_seen && !terminal_idle_handled", 1)[1].split(
+        "\n    if let Some(result) = authoritative_result", 1
+    )[0]
     result = server.split("runner_message::Payload::Result", 1)[1].split(
         'info!(task_id = %task_id, status = status, "Task result received");', 1
     )[0]

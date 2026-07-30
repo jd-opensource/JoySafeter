@@ -135,11 +135,7 @@ export function useAgentComparison(filters: AnalyticsFilters) {
   })
 }
 
-export function useAgentTrend(
-  filters: AnalyticsFilters,
-  agentIds: string[],
-  metric: string,
-) {
+export function useAgentTrend(filters: AnalyticsFilters, agentIds: string[], metric: string) {
   const params = {
     ...buildFilterParams(filters),
     agent_ids: agentIds.join(','),

@@ -120,7 +120,9 @@ async def test_retryable_cancel_error_is_transient(monkeypatch, code):
     _install_common(monkeypatch, claimed=[trigger], captured=captured)
 
     async def fail_fire(self, trigger_arg, fired_slot):
-        raise ServiceUnavailableError(code=code, message="cancel half-done", source="runtime", retryable=True, user_action="retry")
+        raise ServiceUnavailableError(
+            code=code, message="cancel half-done", source="runtime", retryable=True, user_action="retry"
+        )
 
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
     await SchedulerLoop(worker_id="test-worker")._tick()
@@ -135,7 +137,9 @@ async def test_generic_retryable_apperror_is_transient(monkeypatch):
     _install_common(monkeypatch, claimed=[trigger], captured=captured)
 
     async def fail_fire(self, trigger_arg, fired_slot):
-        raise ServiceUnavailableError(code="TASK_ENQUEUE_FAILED", message="redis down", source="runtime", retryable=True, user_action="retry")
+        raise ServiceUnavailableError(
+            code="TASK_ENQUEUE_FAILED", message="redis down", source="runtime", retryable=True, user_action="retry"
+        )
 
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
     await SchedulerLoop(worker_id="test-worker")._tick()

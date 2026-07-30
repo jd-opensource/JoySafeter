@@ -110,6 +110,9 @@ dev = [
 line-length = 120
 target-version = "py312"
 src = [".", "src"]
+# Generated protobuf gencode must not be linted/formatted — regenerating it
+# would reintroduce any changes we make, so keep it out of ruff entirely.
+extend-exclude = ["*_pb2.py", "*_pb2.pyi", "*_pb2_grpc.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]

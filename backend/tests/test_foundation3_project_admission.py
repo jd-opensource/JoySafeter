@@ -80,9 +80,9 @@ async def test_terminal_tasks_do_not_count(db_session, agent_id, project_a):
     done_row.status = JoySafeterTaskStatus.COMPLETED.value
     await db_session.commit()
 
-    assert (
-        await svc.count_active_tasks_for_project(project_a) == 1
-    ), "only the non-terminal task counts against the project budget"
+    assert await svc.count_active_tasks_for_project(project_a) == 1, (
+        "only the non-terminal task counts against the project budget"
+    )
     assert live.id != done.id
 
 
@@ -94,9 +94,9 @@ async def test_other_project_tasks_not_counted(db_session, agent_id, project_a, 
     await svc.create_task(agent_id=agent_id, prompt="scan", project_id=project_b)
 
     assert await svc.count_active_tasks_for_project(project_a) == 1
-    assert (
-        await svc.count_active_tasks_for_project(project_b) == 2
-    ), "the count must be scoped to one tenant; another project's tasks are invisible"
+    assert await svc.count_active_tasks_for_project(project_b) == 2, (
+        "the count must be scoped to one tenant; another project's tasks are invisible"
+    )
 
 
 @pytest.mark.asyncio
@@ -133,6 +133,6 @@ async def test_per_project_override_wins_over_default(db_session, project_a):
     project.max_concurrent_tasks = 20
     await db_session.commit()
 
-    assert (
-        await svc.resolve_project_task_limit(project_a, default_limit=5) == 20
-    ), "a project's own limit must override the global default"
+    assert await svc.resolve_project_task_limit(project_a, default_limit=5) == 20, (
+        "a project's own limit must override the global default"
+    )

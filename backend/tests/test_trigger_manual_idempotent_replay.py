@@ -82,17 +82,26 @@ def _config(agent, project, org, key):
 
 @pytest.mark.asyncio
 async def test_idempotent_replay_returns_live_session_no_fk_violation(db_session, monkeypatch):
-    monkeypatch.setattr(
-        "app.joysafeter_shared.cache.redis.RedisClient.get_client", staticmethod(lambda: _FakeRedis())
-    )
+    monkeypatch.setattr("app.joysafeter_shared.cache.redis.RedisClient.get_client", staticmethod(lambda: _FakeRedis()))
     org, project, agent, trigger = await _seed(db_session)
     key = f"manual:{uuid.uuid4()}"
 
     cfg = AgentTriggerRunConfig(
-        agent=agent, name="idem", source="trigger:manual:test", prompt="do it",
-        system_prompt=None, environment_ref=None, timeout_sec=7200, max_retries=2,
-        project_id=project.id, user_id="owner", org_id=org.id, idempotency_key=key,
-        session_mode="fresh", trigger_id=trigger.id, metadata={"trigger_type": "manual"},
+        agent=agent,
+        name="idem",
+        source="trigger:manual:test",
+        prompt="do it",
+        system_prompt=None,
+        environment_ref=None,
+        timeout_sec=7200,
+        max_retries=2,
+        project_id=project.id,
+        user_id="owner",
+        org_id=org.id,
+        idempotency_key=key,
+        session_mode="fresh",
+        trigger_id=trigger.id,
+        metadata={"trigger_type": "manual"},
     )
 
     first = await AgentTriggerExecutor(db_session).run(cfg, enforce_user_quota=False)

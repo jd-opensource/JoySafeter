@@ -2,16 +2,8 @@
 
 import { useTranslation } from '@/lib/i18n'
 
-export default function AnalyticsLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function AnalyticsLayout({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
 
-  return (
-    <div>
-      {children}
-    </div>
-  )
+  return <div>{children}</div>
 }

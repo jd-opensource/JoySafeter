@@ -186,7 +186,7 @@ class JoySafeterAgentService:
                 if app_settings.skill_security_scan_enabled:
                     usable, reason = is_skill_usable(skill, check_drift=False)
                     if not usable:
-                        invalid.append({"skill_id": str(skill_id), "reason": reason})
+                        invalid.append({"skill_id": str(skill_id), "reason": reason or "skill_unusable"})
                 else:
                     if skill.lifecycle_status != "approved":
                         invalid.append({"skill_id": str(skill_id), "reason": "skill_not_approved"})
@@ -277,8 +277,8 @@ class JoySafeterAgentService:
                 from app.joysafeter_shared.common.app_errors import ConflictError
 
                 raise ConflictError(
-                    f"Agent with name '{req.name}' already exists in this project.",
                     code="AGENT_NAME_CONFLICT",
+                    message=f"Agent with name '{req.name}' already exists in this project.",
                     data={"name": req.name},
                 ) from exc
             raise

@@ -47,7 +47,9 @@ export interface EligibilityActionView {
   hintKey: string
 }
 
-export function eligibilityActionView(nextAction: string | null | undefined): EligibilityActionView {
+export function eligibilityActionView(
+  nextAction: string | null | undefined,
+): EligibilityActionView {
   const code = nextAction || 'review_skill'
   return {
     hintKey: `managed.skills.eligibility.action.${code}`,

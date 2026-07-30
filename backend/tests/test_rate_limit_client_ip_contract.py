@@ -46,10 +46,7 @@ def test_client_ip_honors_forwarded_headers_only_from_trusted_proxy(monkeypatch)
     monkeypatch.setattr(settings, "trust_forwarded_headers", True)
     monkeypatch.setattr(settings, "trusted_proxy_cidrs", "10.0.0.0/8")
 
-    assert (
-        get_client_ip(_request({"X-Forwarded-For": "203.0.113.1, 198.51.100.10"}))
-        == "203.0.113.1"
-    )
+    assert get_client_ip(_request({"X-Forwarded-For": "203.0.113.1, 198.51.100.10"})) == "203.0.113.1"
     assert get_client_ip(_request({"X-Real-IP": "203.0.113.2"})) == "203.0.113.2"
 
 
@@ -89,7 +86,9 @@ async def test_rate_limit_uses_redis_counter_when_available(monkeypatch):
     redis = _FakeRedisRateCounter()
     monkeypatch.setattr("app.joysafeter_shared.rate_limit.RedisClient.get_client", staticmethod(lambda: redis))
 
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_rate_limit_app()), base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_rate_limit_app()), base_url="http://test"
+    ) as client:
         assert (await client.get("/limited")).status_code == 200
         assert (await client.get("/limited")).status_code == 200
         limited = await client.get("/limited")

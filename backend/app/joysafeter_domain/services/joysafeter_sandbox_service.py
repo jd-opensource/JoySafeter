@@ -406,9 +406,7 @@ class JoySafeterSandboxService:
 
         external_id_conditions = [JoySafeterSandbox.external_id == expected_external_id]
         if not expected_external_id:
-            external_id_conditions = [
-                or_(JoySafeterSandbox.external_id.is_(None), JoySafeterSandbox.external_id == "")
-            ]
+            external_id_conditions = [or_(JoySafeterSandbox.external_id.is_(None), JoySafeterSandbox.external_id == "")]
 
         result = await self.db.execute(
             sa_update(JoySafeterSandbox)

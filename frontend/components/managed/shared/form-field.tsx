@@ -79,7 +79,13 @@ export function FormSectionCard({
   )
 }
 
-export function FormActionBar({ children, className }: { children: ReactNode; className?: string }) {
+export function FormActionBar({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
   return (
     <div
       className={cn(

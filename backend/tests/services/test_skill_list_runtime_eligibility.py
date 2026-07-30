@@ -7,7 +7,6 @@ import pytest
 from app.joysafeter_domain.services import joysafeter_skill_service as skill_service_mod
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 
-
 pytestmark = pytest.mark.no_db
 
 

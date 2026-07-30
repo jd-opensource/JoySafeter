@@ -69,7 +69,7 @@ export function ChartContainer({
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <HelpCircle className="h-3 w-3 text-muted-foreground/60 cursor-help shrink-0" />
+                    <HelpCircle className="h-3 w-3 shrink-0 cursor-help text-muted-foreground/60" />
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-[280px] text-xs">
                     {tooltipText}
@@ -78,18 +78,11 @@ export function ChartContainer({
               </TooltipProvider>
             )}
           </div>
-          {subtitle && (
-            <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
-          )}
+          {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
         </div>
         {headerRight}
       </div>
-      <div
-        className={cn(
-          'p-4',
-          fetching && !loading && 'opacity-50 transition-opacity',
-        )}
-      >
+      <div className={cn('p-4', fetching && !loading && 'opacity-50 transition-opacity')}>
         {loading ? (
           <LoadingSkeleton />
         ) : error ? (

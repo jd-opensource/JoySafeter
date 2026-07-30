@@ -49,17 +49,13 @@ async def test_create_secret_duplicate_active_name_raises_conflict(db_session):
     await _ensure_project(db_session, "proj-idx")
     svc = SecretService(db_session)
     await svc.create_secret(
-        CreateSecretRequest(
-            name="dup", provider="custom", protocol="custom", data={"WEBHOOK_SECRET": "x"}
-        ),
+        CreateSecretRequest(name="dup", provider="custom", protocol="custom", data={"WEBHOOK_SECRET": "x"}),
         project_id="proj-idx",
     )
 
     with pytest.raises(ResourceConflictError) as exc_info:
         await svc.create_secret(
-            CreateSecretRequest(
-                name="dup", provider="custom", protocol="custom", data={"WEBHOOK_SECRET": "y"}
-            ),
+            CreateSecretRequest(name="dup", provider="custom", protocol="custom", data={"WEBHOOK_SECRET": "y"}),
             project_id="proj-idx",
         )
     assert exc_info.value.code == "SECRET_NAME_EXISTS"

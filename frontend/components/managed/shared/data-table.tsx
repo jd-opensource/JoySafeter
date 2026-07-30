@@ -214,8 +214,7 @@ export function DataTable<T>({
                 <tr key={headerGroup.id} className="border-b border-border bg-muted/30">
                   {headerGroup.headers.map((header) => {
                     const meta = header.column.columnDef.meta as
-                      | { className?: string; cssWidth?: string }
-                      | undefined
+                      { className?: string; cssWidth?: string } | undefined
                     return (
                       <th
                         key={header.id}

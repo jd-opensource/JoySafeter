@@ -220,7 +220,9 @@ class TriggerSchedulerStateService:
         if dead_lettered:
             trigger.enabled = False
             trigger.auto_disabled_at = now
-            trigger.disabled_reason = f"Auto-disabled after {trigger.consecutive_failures} consecutive fire failures: {error}"
+            trigger.disabled_reason = (
+                f"Auto-disabled after {trigger.consecutive_failures} consecutive fire failures: {error}"
+            )
             trigger.next_run_at = None
         else:
             trigger.next_run_at = await self.next_run_or_pause(trigger)

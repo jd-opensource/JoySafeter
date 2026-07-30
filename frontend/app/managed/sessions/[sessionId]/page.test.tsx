@@ -111,6 +111,7 @@ vi.mock('@/components/ui/input', () => ({
 
 vi.mock('@/components/ui/tabs', () => ({
   Tabs: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  TabsContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   TabsList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   TabsTrigger: ({ children }: { children: ReactNode }) => <button>{children}</button>,
 }))

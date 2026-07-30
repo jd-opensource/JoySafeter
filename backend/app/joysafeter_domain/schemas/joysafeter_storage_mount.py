@@ -69,7 +69,12 @@ def _validate_docker_host_path(value: object) -> str:
     normalized = str(path)
     if normalized in DANGEROUS_DOCKER_HOST_PATHS:
         raise ValueError("docker.host_path points to a reserved host path")
-    if normalized.startswith("/var/run/") or normalized.startswith("/proc/") or normalized.startswith("/sys/") or normalized.startswith("/dev/"):
+    if (
+        normalized.startswith("/var/run/")
+        or normalized.startswith("/proc/")
+        or normalized.startswith("/sys/")
+        or normalized.startswith("/dev/")
+    ):
         raise ValueError("docker.host_path points to a reserved host path")
     allowed_roots = _allowed_host_path_roots()
     if not any(_path_within_root(path, root) for root in allowed_roots):
@@ -106,6 +111,17 @@ def _validate_runtime_spec_dicts(docker: dict[str, Any], k8s: dict[str, Any]) ->
     else:
         k8s = {}
     return docker, k8s
+
+
+def _shared_field_validator(method: Any) -> Any:
+    """Re-attach a ``StorageVolumeBase`` field validator to a sibling request model.
+
+    ``field_validator`` stores its target as a classmethod; ``.__func__`` unwraps the
+    bound classmethod back to the plain function so pydantic can register the identical
+    validation logic on another model. Typed as ``Any`` because mypy does not model the
+    ``classmethod.__func__`` attribute.
+    """
+    return method.__func__
 
 
 class StorageVolumeBase(BaseModel):
@@ -196,10 +212,18 @@ class UpdateStorageVolumeRequest(BaseModel):
     enabled: Optional[bool] = None
     metadata: Optional[dict[str, Any]] = None
 
-    _validate_backend_type = field_validator("backend_type", mode="before")(StorageVolumeBase.validate_backend_type.__func__)
-    _validate_max_access = field_validator("max_access", mode="before")(StorageVolumeBase.validate_max_access.__func__)
-    _validate_allowed_prefixes = field_validator("allowed_prefixes", mode="before")(StorageVolumeBase.validate_allowed_prefixes.__func__)
-    _validate_quota_bytes = field_validator("quota_bytes")(StorageVolumeBase.validate_quota_bytes.__func__)
+    _validate_backend_type = field_validator("backend_type", mode="before")(
+        _shared_field_validator(StorageVolumeBase.validate_backend_type)
+    )
+    _validate_max_access = field_validator("max_access", mode="before")(
+        _shared_field_validator(StorageVolumeBase.validate_max_access)
+    )
+    _validate_allowed_prefixes = field_validator("allowed_prefixes", mode="before")(
+        _shared_field_validator(StorageVolumeBase.validate_allowed_prefixes)
+    )
+    _validate_quota_bytes = field_validator("quota_bytes")(
+        _shared_field_validator(StorageVolumeBase.validate_quota_bytes)
+    )
 
     @model_validator(mode="after")
     def validate_runtime_specs(self) -> "UpdateStorageVolumeRequest":
@@ -225,9 +249,15 @@ class StorageProjectGrantInput(BaseModel):
             raise ValueError("project_id is required")
         return project_id
 
-    _validate_max_access = field_validator("max_access", mode="before")(StorageVolumeBase.validate_max_access.__func__)
-    _validate_allowed_prefixes = field_validator("allowed_prefixes", mode="before")(StorageVolumeBase.validate_allowed_prefixes.__func__)
-    _validate_quota_bytes = field_validator("quota_bytes")(StorageVolumeBase.validate_quota_bytes.__func__)
+    _validate_max_access = field_validator("max_access", mode="before")(
+        _shared_field_validator(StorageVolumeBase.validate_max_access)
+    )
+    _validate_allowed_prefixes = field_validator("allowed_prefixes", mode="before")(
+        _shared_field_validator(StorageVolumeBase.validate_allowed_prefixes)
+    )
+    _validate_quota_bytes = field_validator("quota_bytes")(
+        _shared_field_validator(StorageVolumeBase.validate_quota_bytes)
+    )
 
 
 class StorageOrganizationGrantInput(BaseModel):
@@ -245,9 +275,15 @@ class StorageOrganizationGrantInput(BaseModel):
             raise ValueError("org_id is required")
         return org_id
 
-    _validate_max_access = field_validator("max_access", mode="before")(StorageVolumeBase.validate_max_access.__func__)
-    _validate_allowed_prefixes = field_validator("allowed_prefixes", mode="before")(StorageVolumeBase.validate_allowed_prefixes.__func__)
-    _validate_quota_bytes = field_validator("quota_bytes")(StorageVolumeBase.validate_quota_bytes.__func__)
+    _validate_max_access = field_validator("max_access", mode="before")(
+        _shared_field_validator(StorageVolumeBase.validate_max_access)
+    )
+    _validate_allowed_prefixes = field_validator("allowed_prefixes", mode="before")(
+        _shared_field_validator(StorageVolumeBase.validate_allowed_prefixes)
+    )
+    _validate_quota_bytes = field_validator("quota_bytes")(
+        _shared_field_validator(StorageVolumeBase.validate_quota_bytes)
+    )
 
 
 class StorageProjectGrantResponse(BaseModel):

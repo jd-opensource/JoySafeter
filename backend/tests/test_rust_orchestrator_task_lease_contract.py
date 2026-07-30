@@ -44,9 +44,7 @@ def test_rust_stale_watchdog_transitions_use_observed_owner_epoch_fence():
     observed_body = queries.split("pub async fn transition_task_cas_observed_owner_epoch", 1)[1].split(
         "/// Create a new session", 1
     )[0]
-    overdue_body = controller.split("async fn check_overdue_tasks", 1)[1].split(
-        "async fn check_stuck_scheduling", 1
-    )[0]
+    overdue_body = controller.split("async fn check_overdue_tasks", 1)[1].split("async fn check_stuck_scheduling", 1)[0]
     fail_helper = controller.split("async fn fail_task_and_mark_session_idle", 1)[1].split(
         "async fn fail_scheduling_task_and_mark_session_idle", 1
     )[0]
@@ -105,9 +103,7 @@ def test_rust_task_lease_renewal_only_extends_process_active_tasks():
     assert "bridge.current_task_owner_epoch.lock().await" in controller
     assert "check_lease_expired_tasks().await" in controller
 
-    retry_body = queries.split("pub async fn increment_running_retry", 1)[1].split(
-        "/// Fail a RUNNING task", 1
-    )[0]
+    retry_body = queries.split("pub async fn increment_running_retry", 1)[1].split("/// Fail a RUNNING task", 1)[0]
     assert "expected_owner_epoch: Option<i64>" in retry_body
     assert "owner_instance_id = NULL" in retry_body
     assert "owner_epoch = NULL" in retry_body

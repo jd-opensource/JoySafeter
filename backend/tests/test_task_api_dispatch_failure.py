@@ -768,9 +768,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_session(d
 
 
 @pytest.mark.asyncio
-async def test_create_task_idempotent_replay_accepts_same_session_uuid_value_across_uuid_types(
-    db_session, monkeypatch
-):
+async def test_create_task_idempotent_replay_accepts_same_session_uuid_value_across_uuid_types(db_session, monkeypatch):
     redis = _FakeRedis()
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",

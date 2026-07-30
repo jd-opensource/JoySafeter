@@ -812,23 +812,33 @@ class SkillSecurityService:
         """
         if counts["critical"] > 0:
             score = min(100, 90 + (counts["critical"] - 1) * 5 + counts["high"] * 3 + counts["medium"])
-            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.BLOCKED.value, score, "CRITICAL", "DO_NOT_INSTALL", "critical_issue")
+            return SkillSecurityPolicyDecision(
+                JoySafeterSkillSecurityStatus.BLOCKED.value, score, "CRITICAL", "DO_NOT_INSTALL", "critical_issue"
+            )
 
         if counts["high"] > 0:
             score = min(89, 70 + (counts["high"] - 1) * 5 + counts["medium"] * 2 + min(counts["low"], 10))
-            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.BLOCKED.value, score, "HIGH", "DO_NOT_INSTALL", "high_issue")
+            return SkillSecurityPolicyDecision(
+                JoySafeterSkillSecurityStatus.BLOCKED.value, score, "HIGH", "DO_NOT_INSTALL", "high_issue"
+            )
 
         if counts["medium"] > 0:
             score = min(69, 30 + (counts["medium"] - 1) * 5 + min(counts["low"], 10))
-            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "MEDIUM", "CAUTION", "medium_issue")
+            return SkillSecurityPolicyDecision(
+                JoySafeterSkillSecurityStatus.WARNING.value, score, "MEDIUM", "CAUTION", "medium_issue"
+            )
 
         if counts["low"] > 0:
             score = min(29, 5 + min(counts["low"] * 2, 24))
-            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "LOW", "CAUTION", "low_issue")
+            return SkillSecurityPolicyDecision(
+                JoySafeterSkillSecurityStatus.WARNING.value, score, "LOW", "CAUTION", "low_issue"
+            )
 
         if counts["issues"] > 0:
             score = min(49, max(1, scanner_score or counts["issues"]))
-            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, "LOW", "CAUTION", "unknown_issue_severity")
+            return SkillSecurityPolicyDecision(
+                JoySafeterSkillSecurityStatus.WARNING.value, score, "LOW", "CAUTION", "unknown_issue_severity"
+            )
 
         if self._scanner_aggregate_blocks(scanner_recommendation, scanner_severity, scanner_score):
             score = min(100, max(70, scanner_score or 70))
@@ -844,7 +854,13 @@ class SkillSecurityService:
         if scanner_recommendation == "CAUTION" or (scanner_score is not None and scanner_score > 0):
             score = min(49, max(1, scanner_score or 1))
             severity = scanner_severity if scanner_severity in {"MEDIUM", "LOW"} else "LOW"
-            return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.WARNING.value, score, severity, "CAUTION", "scanner_caution_without_issues")
+            return SkillSecurityPolicyDecision(
+                JoySafeterSkillSecurityStatus.WARNING.value,
+                score,
+                severity,
+                "CAUTION",
+                "scanner_caution_without_issues",
+            )
 
         return SkillSecurityPolicyDecision(JoySafeterSkillSecurityStatus.PASSED.value, 0, "LOW", "SAFE", "no_issues")
 

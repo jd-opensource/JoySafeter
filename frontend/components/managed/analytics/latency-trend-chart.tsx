@@ -30,9 +30,7 @@ function CustomTooltip({ active, payload, label }: Record<string, unknown>) {
 
   return (
     <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-md">
-      <p className="mb-1.5 text-xs text-muted-foreground">
-        {String(label ?? '')}
-      </p>
+      <p className="mb-1.5 text-xs text-muted-foreground">{String(label ?? '')}</p>
       {(payload as Record<string, unknown>[]).map((entry) => (
         <div key={String(entry.dataKey)} className="flex items-center gap-2 text-sm">
           <span
@@ -72,12 +70,7 @@ function ChartLegend() {
   )
 }
 
-export function LatencyTrendChart({
-  data,
-  range,
-  loading,
-  fetching,
-}: LatencyTrendChartProps) {
+export function LatencyTrendChart({ data, range, loading, fetching }: LatencyTrendChartProps) {
   const { t } = useTranslation()
 
   return (
@@ -101,11 +94,7 @@ export function LatencyTrendChart({
               <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid
-            strokeDasharray="0"
-            stroke="var(--chart-grid)"
-            vertical={false}
-          />
+          <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} />
           <XAxis
             dataKey="timestamp"
             tick={{ fontSize: 12, fill: 'var(--chart-axis)' }}

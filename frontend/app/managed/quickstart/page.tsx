@@ -94,86 +94,126 @@ const TEMPLATE_IDS = [
 ]
 
 const TEMPLATE_META: Record<string, { categoryKey: string; badgeKey: string }> = {
-  blank: { categoryKey: 'managed.quickstart.templateCategory.basic', badgeKey: 'managed.quickstart.templateBadge.basic' },
-  researcher: { categoryKey: 'managed.quickstart.templateCategory.research', badgeKey: 'managed.quickstart.templateBadge.web' },
-  extractor: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.data' },
-  monitor: { categoryKey: 'managed.quickstart.templateCategory.ops', badgeKey: 'managed.quickstart.templateBadge.alert' },
-  support: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.chat' },
-  incident: { categoryKey: 'managed.quickstart.templateCategory.ops', badgeKey: 'managed.quickstart.templateBadge.workflow' },
-  feedback: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.insight' },
-  retro: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.meeting' },
-  escalator: { categoryKey: 'managed.quickstart.templateCategory.service', badgeKey: 'managed.quickstart.templateBadge.workflow' },
-  analyst: { categoryKey: 'managed.quickstart.templateCategory.data', badgeKey: 'managed.quickstart.templateBadge.report' },
+  blank: {
+    categoryKey: 'managed.quickstart.templateCategory.basic',
+    badgeKey: 'managed.quickstart.templateBadge.basic',
+  },
+  researcher: {
+    categoryKey: 'managed.quickstart.templateCategory.research',
+    badgeKey: 'managed.quickstart.templateBadge.web',
+  },
+  extractor: {
+    categoryKey: 'managed.quickstart.templateCategory.data',
+    badgeKey: 'managed.quickstart.templateBadge.data',
+  },
+  monitor: {
+    categoryKey: 'managed.quickstart.templateCategory.ops',
+    badgeKey: 'managed.quickstart.templateBadge.alert',
+  },
+  support: {
+    categoryKey: 'managed.quickstart.templateCategory.service',
+    badgeKey: 'managed.quickstart.templateBadge.chat',
+  },
+  incident: {
+    categoryKey: 'managed.quickstart.templateCategory.ops',
+    badgeKey: 'managed.quickstart.templateBadge.workflow',
+  },
+  feedback: {
+    categoryKey: 'managed.quickstart.templateCategory.data',
+    badgeKey: 'managed.quickstart.templateBadge.insight',
+  },
+  retro: {
+    categoryKey: 'managed.quickstart.templateCategory.service',
+    badgeKey: 'managed.quickstart.templateBadge.meeting',
+  },
+  escalator: {
+    categoryKey: 'managed.quickstart.templateCategory.service',
+    badgeKey: 'managed.quickstart.templateBadge.workflow',
+  },
+  analyst: {
+    categoryKey: 'managed.quickstart.templateCategory.data',
+    badgeKey: 'managed.quickstart.templateBadge.report',
+  },
 }
 
 const TEMPLATE_CONFIGS: Record<string, Record<string, unknown>> = {
   blank: {
     name: 'Blank Agent',
     description: 'A minimal general-purpose agent configuration.',
-    system_prompt: 'You are a helpful assistant. Clarify the user goal, plan briefly, and complete the task safely and accurately.',
+    system_prompt:
+      'You are a helpful assistant. Clarify the user goal, plan briefly, and complete the task safely and accurately.',
     tools: [],
     metadata: { quickstart_template: 'blank' },
   },
   researcher: {
     name: 'Deep Researcher',
     description: 'Research topics in depth and produce concise, sourced summaries.',
-    system_prompt: 'You are a deep research agent. Break down the research question, gather relevant information, compare sources, identify uncertainties, and produce a structured answer with concise citations or source notes when available.',
+    system_prompt:
+      'You are a deep research agent. Break down the research question, gather relevant information, compare sources, identify uncertainties, and produce a structured answer with concise citations or source notes when available.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'researcher' },
   },
   extractor: {
     name: 'Structured Extractor',
     description: 'Extract structured data from unstructured text.',
-    system_prompt: 'You extract structured data from unstructured input. Preserve source meaning, avoid inventing missing fields, and return clean JSON or tables that match the requested schema.',
+    system_prompt:
+      'You extract structured data from unstructured input. Preserve source meaning, avoid inventing missing fields, and return clean JSON or tables that match the requested schema.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'extractor' },
   },
   monitor: {
     name: 'Site Monitor',
     description: 'Monitor data sources and summarize changes or alerts.',
-    system_prompt: 'You are a monitoring agent. Check the configured sources, detect meaningful changes, classify severity, and produce clear alerts with recommended next actions.',
+    system_prompt:
+      'You are a monitoring agent. Check the configured sources, detect meaningful changes, classify severity, and produce clear alerts with recommended next actions.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'monitor' },
   },
   support: {
     name: 'Customer Support Agent',
     description: 'Handle support conversations with clear troubleshooting steps.',
-    system_prompt: 'You are a customer support agent. Be empathetic, ask focused clarifying questions, troubleshoot step by step, and summarize the resolution or escalation path.',
+    system_prompt:
+      'You are a customer support agent. Be empathetic, ask focused clarifying questions, troubleshoot step by step, and summarize the resolution or escalation path.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'support' },
   },
   incident: {
     name: 'Incident Commander',
     description: 'Coordinate incident response workflows.',
-    system_prompt: 'You are an incident commander. Establish impact, timeline, owners, mitigation, communication updates, and post-incident follow-up. Keep responses action-oriented and time-aware.',
+    system_prompt:
+      'You are an incident commander. Establish impact, timeline, owners, mitigation, communication updates, and post-incident follow-up. Keep responses action-oriented and time-aware.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'incident' },
   },
   feedback: {
     name: 'Feedback Miner',
     description: 'Analyze user feedback for themes and insights.',
-    system_prompt: 'You analyze user feedback. Cluster comments into themes, extract representative examples, estimate impact, and propose prioritized product actions.',
+    system_prompt:
+      'You analyze user feedback. Cluster comments into themes, extract representative examples, estimate impact, and propose prioritized product actions.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'feedback' },
   },
   retro: {
     name: 'Sprint Retro Host',
     description: 'Host retrospectives and record action items.',
-    system_prompt: 'You facilitate sprint retrospectives. Collect wins, pain points, root causes, action items, owners, and follow-up dates. Keep the discussion balanced and constructive.',
+    system_prompt:
+      'You facilitate sprint retrospectives. Collect wins, pain points, root causes, action items, owners, and follow-up dates. Keep the discussion balanced and constructive.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'retro' },
   },
   escalator: {
     name: 'Support to Engineering',
     description: 'Triage and escalate support tickets to engineering teams.',
-    system_prompt: 'You triage support tickets for engineering. Reproduce the issue from available evidence, classify severity, identify affected systems, and write a concise engineering-ready escalation.',
+    system_prompt:
+      'You triage support tickets for engineering. Reproduce the issue from available evidence, classify severity, identify affected systems, and write a concise engineering-ready escalation.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'escalator' },
   },
   analyst: {
     name: 'Data Analyst',
     description: 'Analyze datasets and generate reports.',
-    system_prompt: 'You are a data analyst. Inspect data quality, compute relevant summaries, identify trends or anomalies, and produce clear recommendations with assumptions stated.',
+    system_prompt:
+      'You are a data analyst. Inspect data quality, compute relevant summaries, identify trends or anomalies, and produce clear recommendations with assumptions stated.',
     tools: [{ type: 'agent_toolset_20260401' }],
     metadata: { quickstart_template: 'analyst' },
   },

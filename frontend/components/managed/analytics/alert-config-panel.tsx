@@ -23,7 +23,7 @@ export function AlertConfigPanel({ config, onChange }: AlertConfigPanelProps) {
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
         aria-label={t('analytics.alertConfig.title')}
       >
         <Settings2 className="h-4 w-4" />
@@ -34,11 +34,11 @@ export function AlertConfigPanel({ config, onChange }: AlertConfigPanelProps) {
           {/* Backdrop */}
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           {/* Panel */}
-          <div className="absolute right-0 top-8 z-50 w-[320px] rounded-lg border border-border bg-card shadow-lg p-4">
-            <h4 className="text-sm font-medium text-foreground mb-3">
+          <div className="absolute right-0 top-8 z-50 w-[320px] rounded-lg border border-border bg-card p-4 shadow-lg">
+            <h4 className="mb-3 text-sm font-medium text-foreground">
               {t('analytics.alertConfig.title')}
             </h4>
-            <p className="text-xs text-muted-foreground mb-4">
+            <p className="mb-4 text-xs text-muted-foreground">
               {t('analytics.alertConfig.description')}
             </p>
 
@@ -47,22 +47,34 @@ export function AlertConfigPanel({ config, onChange }: AlertConfigPanelProps) {
               <div className="flex items-start gap-3">
                 <Switch
                   checked={config.consecutive_failures.enabled}
-                  onCheckedChange={(checked) => updateRule('consecutive_failures', { enabled: checked })}
+                  onCheckedChange={(checked) =>
+                    updateRule('consecutive_failures', { enabled: checked })
+                  }
                 />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground">{t('analytics.alertConfig.consecutiveFailures')}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-foreground">
+                    {t('analytics.alertConfig.consecutiveFailures')}
+                  </p>
                   <div className="mt-1 flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{t('analytics.alertConfig.threshold')}:</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t('analytics.alertConfig.threshold')}:
+                    </span>
                     <input
                       type="number"
                       min={1}
                       max={10}
                       value={config.consecutive_failures.threshold}
-                      onChange={(e) => updateRule('consecutive_failures', { threshold: Number(e.target.value) || 3 })}
+                      onChange={(e) =>
+                        updateRule('consecutive_failures', {
+                          threshold: Number(e.target.value) || 3,
+                        })
+                      }
                       disabled={!config.consecutive_failures.enabled}
                       className="w-16 rounded-md border border-border bg-background px-2 py-0.5 text-xs disabled:opacity-50"
                     />
-                    <span className="text-xs text-muted-foreground">{t('analytics.alertConfig.times')}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t('analytics.alertConfig.times')}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -73,16 +85,22 @@ export function AlertConfigPanel({ config, onChange }: AlertConfigPanelProps) {
                   checked={config.slow_agent.enabled}
                   onCheckedChange={(checked) => updateRule('slow_agent', { enabled: checked })}
                 />
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm text-foreground">{t('analytics.alertConfig.slowAgent')}</p>
                   <div className="mt-1 flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{t('analytics.alertConfig.threshold')}:</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t('analytics.alertConfig.threshold')}:
+                    </span>
                     <input
                       type="number"
                       min={1}
                       max={600}
                       value={config.slow_agent.threshold / 1000}
-                      onChange={(e) => updateRule('slow_agent', { threshold: (Number(e.target.value) || 10) * 1000 })}
+                      onChange={(e) =>
+                        updateRule('slow_agent', {
+                          threshold: (Number(e.target.value) || 10) * 1000,
+                        })
+                      }
                       disabled={!config.slow_agent.enabled}
                       className="w-16 rounded-md border border-border bg-background px-2 py-0.5 text-xs disabled:opacity-50"
                     />
@@ -97,16 +115,20 @@ export function AlertConfigPanel({ config, onChange }: AlertConfigPanelProps) {
                   checked={config.token_spike.enabled}
                   onCheckedChange={(checked) => updateRule('token_spike', { enabled: checked })}
                 />
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm text-foreground">{t('analytics.alertConfig.tokenSpike')}</p>
                   <div className="mt-1 flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{t('analytics.alertConfig.threshold')}:</span>
+                    <span className="text-xs text-muted-foreground">
+                      {t('analytics.alertConfig.threshold')}:
+                    </span>
                     <input
                       type="number"
                       min={5}
                       max={500}
                       value={config.token_spike.threshold}
-                      onChange={(e) => updateRule('token_spike', { threshold: Number(e.target.value) || 30 })}
+                      onChange={(e) =>
+                        updateRule('token_spike', { threshold: Number(e.target.value) || 30 })
+                      }
                       disabled={!config.token_spike.enabled}
                       className="w-16 rounded-md border border-border bg-background px-2 py-0.5 text-xs disabled:opacity-50"
                     />

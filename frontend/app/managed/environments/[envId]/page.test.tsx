@@ -25,6 +25,8 @@ vi.mock('@/lib/managed/errors', () => ({
 }))
 
 vi.mock('@/components/managed/shared', () => ({
+  AdvancedSection: ({ children }: { children: ReactNode }) => <section>{children}</section>,
+  FormActionBar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   MonoId: ({ id }: { id: string }) => <span>{id}</span>,
   PageHeader: ({ action, title }: { action?: ReactNode; title: string }) => (
     <div>
@@ -32,6 +34,8 @@ vi.mock('@/components/managed/shared', () => ({
       {action}
     </div>
   ),
+  FormFieldLabel: ({ children }: { children: ReactNode }) => <label>{children}</label>,
+  FormSectionCard: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   RelativeTime: ({ date }: { date: string }) => <span>{date}</span>,
   ResourceErrorState: () => null,
   StatusBadge: ({ status }: { status: string }) => <span>{status}</span>,

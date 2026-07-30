@@ -171,7 +171,9 @@ class TriggerRuntimeGate:
     async def project_trigger_block_reason(self, project_id: Optional[str]) -> Optional[str]:
         if project_id is None:
             return None
-        result = await self.db.execute(select(Project.archived_at, Project.triggers_paused).where(Project.id == project_id))
+        result = await self.db.execute(
+            select(Project.archived_at, Project.triggers_paused).where(Project.id == project_id)
+        )
         row = result.one_or_none()
         if row is None:
             return None

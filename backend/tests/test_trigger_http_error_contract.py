@@ -157,7 +157,9 @@ async def test_update_blank_webhook_secret_key_returns_semantic_error_without_pe
     db_session.add(org)
     await db_session.flush()
 
-    project = Project(org_id=org.id, name="Trigger HTTP Secret Project", slug=f"trigger-http-secret-project-{uuid.uuid4()}")
+    project = Project(
+        org_id=org.id, name="Trigger HTTP Secret Project", slug=f"trigger-http-secret-project-{uuid.uuid4()}"
+    )
     db_session.add(project)
     await db_session.flush()
 

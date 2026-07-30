@@ -47,14 +47,12 @@ function ObservationRow({
   const [expanded, setExpanded] = useState(true)
   const hasChildren = node.children.length > 0
   const color = getTypeColor(node)
-  const widthPercent = totalDurationMs > 0
-    ? Math.max((node.duration_ms / totalDurationMs) * 100, 1)
-    : 0
+  const widthPercent =
+    totalDurationMs > 0 ? Math.max((node.duration_ms / totalDurationMs) * 100, 1) : 0
 
   const ttftPercent =
     node.completion_start_time && node.start_time && totalDurationMs > 0
-      ? ((new Date(node.completion_start_time).getTime() -
-          new Date(node.start_time).getTime()) /
+      ? ((new Date(node.completion_start_time).getTime() - new Date(node.start_time).getTime()) /
           totalDurationMs) *
         100
       : null
@@ -64,40 +62,36 @@ function ObservationRow({
   }, [hasChildren])
 
   return (
-    <div
-      className={cn(depth > 0 && 'border-l border-border pl-4')}
-    >
+    <div className={cn(depth > 0 && 'border-l border-border pl-4')}>
       <div
         className={cn(
-          'flex items-center gap-2 py-1.5 rounded px-2',
+          'flex items-center gap-2 rounded px-2 py-1.5',
           hasChildren && 'cursor-pointer',
           'hover:bg-accent/30',
         )}
         onClick={toggle}
       >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {hasChildren && (
-            <span className="text-xs text-muted-foreground w-4 shrink-0 select-none">
+            <span className="w-4 shrink-0 select-none text-xs text-muted-foreground">
               {expanded ? '▾' : '▸'}
             </span>
           )}
           {!hasChildren && <span className="w-4 shrink-0" />}
           <Badge
             variant="outline"
-            className="text-[10px] leading-tight shrink-0 px-1.5 py-0"
+            className="shrink-0 px-1.5 py-0 text-[10px] leading-tight"
             style={{ borderColor: color, color }}
           >
             {node.type}
           </Badge>
-          <span className="text-sm truncate">{node.name}</span>
+          <span className="truncate text-sm">{node.name}</span>
           {node.model && (
-            <span className="text-xs text-muted-foreground truncate">
-              {node.model}
-            </span>
+            <span className="truncate text-xs text-muted-foreground">{node.model}</span>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="w-32 h-2 bg-muted/30 rounded-full overflow-hidden relative">
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="relative h-2 w-32 overflow-hidden rounded-full bg-muted/30">
             <div
               style={{
                 width: `${widthPercent}%`,
@@ -116,11 +110,11 @@ function ObservationRow({
               />
             )}
           </div>
-          <span className="text-xs tabular-nums text-muted-foreground w-16 text-right">
+          <span className="w-16 text-right text-xs tabular-nums text-muted-foreground">
             {formatDuration(node.duration_ms)}
           </span>
           {node.cost > 0 && (
-            <span className="text-xs text-muted-foreground w-14 text-right">
+            <span className="w-14 text-right text-xs text-muted-foreground">
               ${node.cost.toFixed(3)}
             </span>
           )}
@@ -162,12 +156,7 @@ export function ObservationWaterfall({
   return (
     <div className="space-y-0.5">
       {nodes.map((node) => (
-        <ObservationRow
-          key={node.id}
-          node={node}
-          totalDurationMs={totalDurationMs}
-          depth={0}
-        />
+        <ObservationRow key={node.id} node={node} totalDurationMs={totalDurationMs} depth={0} />
       ))}
     </div>
   )

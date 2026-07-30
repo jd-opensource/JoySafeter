@@ -38,10 +38,16 @@ describe('formatRunOnce', () => {
 })
 
 describe('fireResultToastMessage', () => {
-  const t = (key: string, opts?: Record<string, unknown>) => `${key}:${opts ? JSON.stringify(opts) : ''}`
+  const t = (key: string, opts?: Record<string, unknown>) =>
+    `${key}:${opts ? JSON.stringify(opts) : ''}`
 
   it('includes skipped reasons instead of using the generic in-progress copy', () => {
-    const out = fireResultToastMessage(t, 'skipped', 'Nightly', 'triggers are paused for this project')
+    const out = fireResultToastMessage(
+      t,
+      'skipped',
+      'Nightly',
+      'triggers are paused for this project',
+    )
 
     expect(out).toContain('managed.triggers.fireSkippedWithReason')
     expect(out).toContain('triggers are paused for this project')

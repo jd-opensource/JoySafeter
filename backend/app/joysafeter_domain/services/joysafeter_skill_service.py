@@ -927,6 +927,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             reason = None if usable else "skill_not_approved"
         else:
             from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+
             usable, reason = is_skill_usable(skill)
 
         next_action = self._runtime_eligibility_next_action(reason)
@@ -962,13 +963,16 @@ class SkillService(BaseService[JoySafeterSkill]):
 
         project_filter: Any
         if self._active_org_id:
-            project_filter = JoySafeterAgent.project_id.in_(select(Project.id).where(Project.org_id == self._active_org_id))
+            project_filter = JoySafeterAgent.project_id.in_(
+                select(Project.id).where(Project.org_id == self._active_org_id)
+            )
         else:
             project_filter = JoySafeterAgent.project_id == skill.project_id
 
         result = await self.db.execute(
-            select(JoySafeterAgent.id, JoySafeterAgent.skills)
-            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
+            select(JoySafeterAgent.id, JoySafeterAgent.skills).where(
+                project_filter, JoySafeterAgent.deleted_at.is_(None)
+            )
         )
         for row in result.all():
             if self._agent_refs_skill(row.skills, skill.id):
@@ -985,7 +989,9 @@ class SkillService(BaseService[JoySafeterSkill]):
 
         project_filter: Any
         if self._active_org_id:
-            project_filter = JoySafeterAgent.project_id.in_(select(Project.id).where(Project.org_id == self._active_org_id))
+            project_filter = JoySafeterAgent.project_id.in_(
+                select(Project.id).where(Project.org_id == self._active_org_id)
+            )
         else:
             project_filter = JoySafeterAgent.project_id == skill.project_id
 
@@ -1003,7 +1009,9 @@ class SkillService(BaseService[JoySafeterSkill]):
             .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
             .limit(1000)
         )
-        version_rows = [row for row in version_result.all() if self._agent_refs_skill(row.snapshot.get("skills"), skill.id)]
+        version_rows = [
+            row for row in version_result.all() if self._agent_refs_skill(row.snapshot.get("skills"), skill.id)
+        ]
 
         cron_trigger_rows = []
         task_rows = []
