@@ -415,6 +415,10 @@ class PlatformOrganizationResponse(BaseModel):
     created_at: datetime
 
 
+class PlatformOrganizationsResponse(BaseModel):
+    data: list[PlatformOrganizationResponse]
+
+
 class UpdatePlatformUserRequest(BaseModel):
     is_super_user: bool
 
@@ -1430,7 +1434,7 @@ async def list_platform_organizations(
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
-) -> list[PlatformOrganizationResponse]:
+) -> PlatformOrganizationsResponse:
     """List organizations for platform-level resource grants."""
     from sqlalchemy import or_
     from sqlalchemy.orm import selectinload
@@ -1451,19 +1455,21 @@ async def list_platform_organizations(
             .limit(limit)
         )
     result = await db.execute(query)
-    return [
-        PlatformOrganizationResponse(
-            id=org.id,
-            name=org.name,
-            slug=org.slug,
-            logo=org.logo,
-            member_count=len(org.members or []),
-            project_count=len(org.projects or []),
-            member_emails=[member.user.email for member in (org.members or []) if member.user and member.user.email],
-            created_at=org.created_at,
-        )
-        for org in result.scalars().all()
-    ]
+    return PlatformOrganizationsResponse(
+        data=[
+            PlatformOrganizationResponse(
+                id=org.id,
+                name=org.name,
+                slug=org.slug,
+                logo=org.logo,
+                member_count=len(org.members or []),
+                project_count=len(org.projects or []),
+                member_emails=[member.user.email for member in (org.members or []) if member.user and member.user.email],
+                created_at=org.created_at,
+            )
+            for org in result.scalars().all()
+        ]
+    )
 
 
 @router.put("/platform/users/{user_id}")
