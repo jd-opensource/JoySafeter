@@ -200,6 +200,16 @@ class TaskSubmissionService:
             )
             if not running_accepted:
                 raise RuntimeError("Session already has another active task")
+            # Emit the user.message event so the conversation timeline shows what
+            # the user (or API/cron caller) asked. Interactive sessions get this
+            # via POST /sessions/{id}/events; the submit() path (API create-task,
+            # cron, follow-up) was missing it — the prompt existed only on the
+            # task row, invisible in the event stream.
+            await session_svc.send_event(
+                chat_session_id,
+                "user.message",
+                {"content": [{"type": "text", "text": task.prompt}], "task_id": str(task.id)},
+            )
             await session_svc.send_event(
                 chat_session_id,
                 "session.status_running",
