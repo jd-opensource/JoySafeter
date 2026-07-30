@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Component, Path};
+use std::time::Duration;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -7,6 +8,7 @@ use base64::Engine as _;
 use chrono::Utc;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tar::{Builder, Header};
@@ -151,19 +153,48 @@ impl HarnessInputBuilder {
             .unwrap_or("append")
             .to_string();
 
-        // EverOS memory service integration. Ported from the deleted Python
-        // `harness_input_builder` (`_resolve_everos_base_url` +
-        // `_append_everos_system_prompt`) — the only EverOS wiring the Python
-        // orchestrator carried. Ensure the sandbox env exposes the normalized
-        // base URL and the system prompt tells the agent where to reach it.
         let everos_base_url = resolve_everos_base_url(&input.env);
         input
             .env
             .insert("EVEROS_BASE_URL".to_string(), everos_base_url.clone());
+        let everos_context = match self
+            .load_everos_context(task, session.as_ref(), agent.as_ref(), sandbox_external_id)
+            .await
+        {
+            Ok(context) => context,
+            Err(err) => {
+                warn!(
+                    task_id = %task.id,
+                    "Failed to load EverOS identity context; using fallback ids: {err}"
+                );
+                EverosContext::fallback(task, agent.as_ref(), sandbox_external_id)
+            }
+        };
+        input.env.extend(everos_context.identity.clone());
+        if let Some(active_session_ids) = &everos_context.active_session_ids {
+            input.env.insert(
+                "EVEROS_ACTIVE_SESSION_IDS".to_string(),
+                serde_json::to_string(active_session_ids).unwrap_or_else(|_| "[]".to_string()),
+            );
+        }
         input.system_prompt = Some(append_everos_system_prompt(
             input.system_prompt.take(),
             &everos_base_url,
+            &everos_context.identity,
+            everos_context.active_session_ids.as_deref(),
         ));
+        if let Some(bootstrap_prompt) = build_everos_bootstrap_prompt(
+            &everos_base_url,
+            &everos_context.identity,
+            everos_context.active_session_ids.as_deref(),
+        )
+        .await
+        {
+            input.system_prompt = Some(match input.system_prompt.take() {
+                Some(system) if !system.is_empty() => format!("{system}\n\n{bootstrap_prompt}"),
+                _ => bootstrap_prompt,
+            });
+        }
 
         let has_harness_resume = input
             .session_id
@@ -181,6 +212,171 @@ impl HarnessInputBuilder {
 
         debug!(task_id = %task.id, "Built harness input");
         Ok(input)
+    }
+
+    async fn load_everos_context(
+        &self,
+        task: &crate::db::models::JoySafeterTask,
+        session: Option<&crate::db::models::JoySafeterSession>,
+        agent: Option<&crate::db::models::JoySafeterAgent>,
+        sandbox_external_id: &str,
+    ) -> anyhow::Result<EverosContext> {
+        let row = sqlx::query_as::<_, EverosIdentityRow>(
+            r#"
+            SELECT
+                COALESCE(t.project_id, s.project_id, a.project_id) AS project_id,
+                p.slug AS project_slug,
+                t.chat_session_id AS session_id,
+                COALESCE(t.agent_id, s.agent_id, a.id) AS agent_id,
+                t.user_id AS task_user_id,
+                u.name AS task_user_name,
+                s.metadata AS session_metadata
+            FROM joysafeter_tasks t
+            LEFT JOIN joysafeter_sessions s ON s.id = t.chat_session_id
+            LEFT JOIN joysafeter_agents a ON a.id = COALESCE(t.agent_id, s.agent_id)
+            LEFT JOIN joysafeter_organization_projects p
+              ON p.id = COALESCE(t.project_id, s.project_id, a.project_id)
+            LEFT JOIN joysafeter_users u ON u.id = t.user_id
+            WHERE t.id = $1
+            "#,
+        )
+        .bind(task.id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let project_id = row
+            .as_ref()
+            .and_then(|row| row.project_id.as_deref())
+            .or(task.project_id.as_deref())
+            .or_else(|| session.and_then(|session| session.project_id.as_deref()))
+            .or_else(|| agent.and_then(|agent| agent.project_id.as_deref()));
+        let project_slug = row.as_ref().and_then(|row| row.project_slug.as_deref());
+        let session_id = row
+            .as_ref()
+            .and_then(|row| row.session_id)
+            .or(task.session_id)
+            .or_else(|| session.map(|session| session.id));
+        let agent_id = row
+            .as_ref()
+            .and_then(|row| row.agent_id)
+            .or(task.agent_id)
+            .or_else(|| session.and_then(|session| session.agent_id))
+            .or_else(|| agent.map(|agent| agent.id));
+        let session_metadata = row.as_ref().and_then(|row| row.session_metadata.as_ref());
+        let metadata_identity = everos_identity_from_session_metadata(session_metadata);
+        let fallback_member = if metadata_identity.is_none()
+            && row
+                .as_ref()
+                .and_then(|row| row.task_user_id.as_deref())
+                .is_none()
+        {
+            match project_id {
+                Some(project_id) => {
+                    self.resolve_single_project_member_identity(project_id)
+                        .await?
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let user_id = metadata_identity
+            .as_ref()
+            .and_then(|identity| identity.user_id.as_deref())
+            .or_else(|| row.as_ref().and_then(|row| row.task_user_id.as_deref()))
+            .or_else(|| {
+                fallback_member
+                    .as_ref()
+                    .and_then(|identity| identity.user_id.as_deref())
+            });
+        let user_name = metadata_identity
+            .as_ref()
+            .and_then(|identity| identity.user_name.as_deref())
+            .or_else(|| row.as_ref().and_then(|row| row.task_user_name.as_deref()))
+            .or_else(|| {
+                fallback_member
+                    .as_ref()
+                    .and_then(|identity| identity.user_name.as_deref())
+            });
+        let session_id_for_env = session_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| sandbox_external_id.to_string());
+        let agent_id_for_env = agent_id
+            .map(|id| id.to_string())
+            .or_else(|| agent.and_then(|agent| agent.engine_kind.clone()))
+            .unwrap_or_else(|| "agent".to_string());
+        let identity = build_everos_identity_env(
+            project_slug,
+            project_id,
+            &session_id_for_env,
+            user_id,
+            user_name,
+            &agent_id_for_env,
+        );
+        let active_session_ids = self
+            .list_active_everos_session_ids(project_id, session_id)
+            .await?;
+        Ok(EverosContext {
+            identity,
+            active_session_ids: Some(active_session_ids),
+        })
+    }
+
+    async fn resolve_single_project_member_identity(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<EverosUserIdentity>, sqlx::Error> {
+        sqlx::query_as::<_, EverosUserIdentity>(
+            r#"
+            SELECT users.id::text AS user_id, users.name AS user_name
+            FROM joysafeter_organization_projects projects
+            JOIN joysafeter_organization_members members
+              ON members.organization_id = projects.org_id
+            JOIN joysafeter_users users ON users.id = members.user_id
+            WHERE projects.id = $1
+            ORDER BY users.name ASC, users.id ASC
+            LIMIT 2
+            "#,
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await
+        .map(|rows| {
+            if rows.len() == 1 {
+                rows.into_iter().next()
+            } else {
+                None
+            }
+        })
+    }
+
+    async fn list_active_everos_session_ids(
+        &self,
+        project_id: Option<&str>,
+        fallback_session_id: Option<Uuid>,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        if let Some(project_id) = project_id {
+            let ids = sqlx::query_scalar::<_, Uuid>(
+                r#"
+                SELECT id
+                FROM joysafeter_sessions
+                WHERE project_id = $1
+                  AND archived_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 1000
+                "#,
+            )
+            .bind(project_id)
+            .fetch_all(&self.pool)
+            .await?;
+            return Ok(ids
+                .into_iter()
+                .map(|id| everos_path_safe_id(&id.to_string(), "default_session"))
+                .collect());
+        }
+        Ok(fallback_session_id
+            .map(|id| vec![everos_path_safe_id(&id.to_string(), "default_session")])
+            .unwrap_or_default())
     }
 
     pub fn build_setup_sandbox(input: &HarnessInput) -> proto::SetupSandbox {
@@ -1249,11 +1445,15 @@ mod tests {
     use sqlx::PgPool;
 
     use super::{
+        append_everos_system_prompt, build_everos_identity_env, everos_memory_get_url,
+        everos_memory_search_url, format_everos_bootstrap_prompt, resolve_everos_base_url,
+        EverosBootstrapMemories, EVEROS_DEFAULT_BASE_URL,
+    };
+    use super::{
         ensure_skill_runtime_ready, extract_content_text, parse_semver, session_container_work_dir,
         should_inject_conversation_history, trim_history_lines_to_budget, HarnessInputBuilder,
         SkillForArchive,
     };
-    use super::{append_everos_system_prompt, resolve_everos_base_url, EVEROS_DEFAULT_BASE_URL};
     use std::collections::HashMap;
     use uuid::Uuid;
 
@@ -1425,15 +1625,31 @@ mod tests {
         let empty = HashMap::new();
         assert_eq!(resolve_everos_base_url(&empty), EVEROS_DEFAULT_BASE_URL);
 
-        // Agent-provided value wins and its trailing slash is stripped.
+        // Recall/loading prefer the JoySafeter proxy, even when a direct EverOS
+        // base is also present for internal write paths.
         let mut env = HashMap::new();
+        env.insert(
+            "EVEROS_MEMORY_PROXY_BASE_URL".to_string(),
+            "http://api:8000/api/v1/everos_memory/".to_string(),
+        );
         env.insert(
             "EVEROS_BASE_URL".to_string(),
             "http://everos.internal:9999/".to_string(),
         );
         assert_eq!(
             resolve_everos_base_url(&env),
-            "http://everos.internal:9999"
+            "http://api:8000/api/v1/everos_memory"
+        );
+
+        // API proxy roots are already memory endpoints and only lose the trailing slash.
+        let mut proxy_env = HashMap::new();
+        proxy_env.insert(
+            "EVEROS_BASE_URL".to_string(),
+            "http://api:8000/api/v1/everos_memory/".to_string(),
+        );
+        assert_eq!(
+            resolve_everos_base_url(&proxy_env),
+            "http://api:8000/api/v1/everos_memory"
         );
 
         // Blank agent value is ignored, falling through to the default.
@@ -1445,20 +1661,111 @@ mod tests {
     #[test]
     fn everos_system_prompt_is_always_appended() {
         let url = "http://everos:8003";
+        let identity = build_everos_identity_env(
+            Some("demo-project"),
+            Some("proj-123"),
+            "session-123",
+            Some("user-123"),
+            Some("Alice Example"),
+            "agent-123",
+        );
 
         // With a base prompt, the note is appended after a blank line.
-        let with_base = append_everos_system_prompt(Some("base prompt".to_string()), url);
+        let with_base =
+            append_everos_system_prompt(Some("base prompt".to_string()), url, &identity, None);
         assert!(with_base.starts_with("base prompt\n\n# EverOS Memory Service"));
         assert!(with_base.contains(&format!("`{url}`")));
+        assert!(with_base.contains("Use the JoySafeter identity mapping below"));
+        assert!(with_base.contains("`project_id`: `demo-project__proj-123`"));
+        assert!(with_base.contains("`user_id`: `Alice_Example`"));
+        assert!(with_base.contains("For `/search` or `/get`, include `app_id` and `project_id`"));
 
         // With no base prompt, the note stands alone (mirrors Python behavior).
-        let without_base = append_everos_system_prompt(None, url);
+        let without_base = append_everos_system_prompt(None, url, &identity, None);
         assert!(without_base.starts_with("# EverOS Memory Service"));
         assert!(without_base.contains(&format!("`{url}`")));
 
         // An empty base prompt is treated as absent.
-        let empty_base = append_everos_system_prompt(Some(String::new()), url);
+        let empty_base = append_everos_system_prompt(Some(String::new()), url, &identity, None);
         assert_eq!(empty_base, without_base);
+    }
+
+    #[test]
+    fn everos_memory_urls_support_proxy_and_direct_bases() {
+        assert_eq!(
+            everos_memory_get_url("http://api:8000/api/v1/everos_memory/"),
+            "http://api:8000/api/v1/everos_memory/get"
+        );
+        assert_eq!(
+            everos_memory_search_url("http://api:8000/api/v1/everos_memory/"),
+            "http://api:8000/api/v1/everos_memory/search"
+        );
+        assert_eq!(
+            everos_memory_get_url("http://everos:8003/api/v1/memory"),
+            "http://everos:8003/api/v1/memory/get"
+        );
+        assert_eq!(
+            everos_memory_search_url("http://everos:8003/api/v1/memory"),
+            "http://everos:8003/api/v1/memory/search"
+        );
+        assert_eq!(
+            everos_memory_get_url("http://everos:8003"),
+            "http://everos:8003/api/v1/memory/get"
+        );
+        assert_eq!(
+            everos_memory_search_url("http://everos:8003"),
+            "http://everos:8003/api/v1/memory/search"
+        );
+    }
+
+    #[test]
+    fn everos_bootstrap_prompt_formats_startup_memories() {
+        let identity = build_everos_identity_env(
+            Some("demo-project"),
+            Some("proj-123"),
+            "session-123",
+            Some("user-123"),
+            Some("Alice Example"),
+            "agent-123",
+        );
+        let memories = EverosBootstrapMemories {
+            profiles: vec![json!({
+                "id": "profile-1",
+                "profile_data": {
+                    "summary": "Prefers direct implementation plans"
+                }
+            })],
+            episodes: vec![json!({
+                "id": "episode-1",
+                "timestamp": 1785436800000_i64,
+                "subject": "Rust orchestrator migration",
+                "summary": "User wants parity with Python memory injection",
+                "atomic_facts": [{"fact": "EverOS should be available through /get and /search"}]
+            })],
+            atomic_facts: vec![],
+            agent_cases: vec![json!({
+                "id": "case-1",
+                "session_id": "session-123",
+                "task_intent": "restore memory injection",
+                "approach": "port Python bootstrap behavior",
+                "key_insight": "identity env is required"
+            })],
+            agent_skills: vec![json!({
+                "id": "skill-1",
+                "name": "EverOS recall",
+                "description": "Use owner scoped memory queries"
+            })],
+        };
+
+        let prompt = format_everos_bootstrap_prompt(&identity, &memories).expect("bootstrap");
+
+        assert!(prompt.starts_with("# EverOS Memory Bootstrap"));
+        assert!(prompt.contains("POST `${EVEROS_BASE_URL}/get`"));
+        assert!(prompt.contains("POST `${EVEROS_BASE_URL}/search`"));
+        assert!(prompt.contains("Prefers direct implementation plans"));
+        assert!(prompt.contains("Rust orchestrator migration"));
+        assert!(prompt.contains("EverOS should be available through /get and /search"));
+        assert!(prompt.contains("EverOS recall"));
     }
 
     #[tokio::test]
@@ -2414,42 +2721,677 @@ fn combine_system_prompt(base: Option<String>, memory: Option<String>) -> Option
     }
 }
 
-/// In-cluster default for the EverOS memory service, matching the compose
-/// `everos` container (`:8003`).
-const EVEROS_DEFAULT_BASE_URL: &str = "http://everos:8003";
+const EVEROS_APP_ID: &str = "joysafeter";
+const EVEROS_DEFAULT_BASE_URL: &str = "http://host.docker.internal:8000/api/v1/everos_memory";
+const EVEROS_PROJECT_ID_SEPARATOR: &str = "__";
+const EVEROS_PROJECT_ID_MAX_LENGTH: usize = 128;
+const EVEROS_BOOTSTRAP_TIMEOUT_SECONDS: u64 = 3;
+const EVEROS_BOOTSTRAP_MAX_CHARS: usize = 12_000;
+const EVEROS_BOOTSTRAP_EPISODE_LIMIT: usize = 5;
+const EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT: usize = 5;
+const EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT: usize = 5;
+const EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT: usize = 5;
+const EVEROS_SESSION_USER_ID_METADATA_KEY: &str = "joysafeter_user_id";
+const EVEROS_SESSION_USER_NAME_METADATA_KEY: &str = "joysafeter_user_name";
+
+#[derive(Debug, Clone)]
+struct EverosContext {
+    identity: HashMap<String, String>,
+    active_session_ids: Option<Vec<String>>,
+}
+
+impl EverosContext {
+    fn fallback(
+        task: &crate::db::models::JoySafeterTask,
+        agent: Option<&crate::db::models::JoySafeterAgent>,
+        sandbox_external_id: &str,
+    ) -> Self {
+        let project_id = task
+            .project_id
+            .as_deref()
+            .or_else(|| agent.and_then(|agent| agent.project_id.as_deref()));
+        let session_id = task
+            .session_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| sandbox_external_id.to_string());
+        let agent_id = task
+            .agent_id
+            .map(|id| id.to_string())
+            .or_else(|| agent.map(|agent| agent.id.to_string()))
+            .unwrap_or_else(|| "agent".to_string());
+        Self {
+            identity: build_everos_identity_env(
+                None,
+                project_id,
+                &session_id,
+                None,
+                None,
+                &agent_id,
+            ),
+            active_session_ids: task
+                .session_id
+                .map(|id| vec![everos_path_safe_id(&id.to_string(), "default_session")]),
+        }
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct EverosIdentityRow {
+    project_id: Option<String>,
+    project_slug: Option<String>,
+    session_id: Option<Uuid>,
+    agent_id: Option<Uuid>,
+    task_user_id: Option<String>,
+    task_user_name: Option<String>,
+    session_metadata: Option<Value>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct EverosUserIdentity {
+    user_id: Option<String>,
+    user_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct EverosBootstrapMemories {
+    profiles: Vec<Value>,
+    episodes: Vec<Value>,
+    atomic_facts: Vec<Value>,
+    agent_cases: Vec<Value>,
+    agent_skills: Vec<Value>,
+}
 
 /// Resolve the EverOS base URL for the sandbox.
 ///
-/// Mirrors Python `_resolve_everos_base_url` combined with the
-/// `env.setdefault("EVEROS_BASE_URL", ...)` in `build_harness_input`: prefer an
-/// agent-provided value, fall back to the orchestrator process env, then the
-/// in-cluster default. The trailing slash is always stripped.
+/// Prefer the JoySafeter memory proxy so loading/recall passes lifecycle
+/// filtering. A direct `EVEROS_BASE_URL` is accepted only when it already
+/// points at the proxy endpoint.
 fn resolve_everos_base_url(env: &HashMap<String, String>) -> String {
-    env.get("EVEROS_BASE_URL")
+    let raw = env
+        .get("EVEROS_MEMORY_PROXY_BASE_URL")
         .cloned()
         .filter(|v| !v.trim().is_empty())
-        .or_else(|| std::env::var("EVEROS_BASE_URL").ok())
+        .or_else(|| std::env::var("EVEROS_MEMORY_PROXY_BASE_URL").ok())
         .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(|| EVEROS_DEFAULT_BASE_URL.to_string())
-        .trim_end_matches('/')
-        .to_string()
+        .or_else(|| {
+            env.get("EVEROS_BASE_URL")
+                .cloned()
+                .filter(|v| is_everos_memory_proxy_base(v))
+        })
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| {
+            std::env::var("EVEROS_BASE_URL")
+                .ok()
+                .filter(|v| is_everos_memory_proxy_base(v))
+        })
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| EVEROS_DEFAULT_BASE_URL.to_string());
+    normalize_everos_memory_base_url(&raw)
 }
 
-/// Append the EverOS availability note to the combined system prompt.
-///
-/// Mirrors Python `_append_everos_system_prompt` verbatim: the note is always
-/// emitted (even when there is no base prompt) so the agent is told where the
-/// memory service lives.
-fn append_everos_system_prompt(base_system: Option<String>, everos_base_url: &str) -> String {
+fn is_everos_memory_proxy_base(base: &str) -> bool {
+    base.trim()
+        .trim_end_matches('/')
+        .ends_with("/api/v1/everos_memory")
+}
+
+fn normalize_everos_memory_base_url(base: &str) -> String {
+    let base = base.trim().trim_end_matches('/');
+    if base.ends_with("/api/v1/memory") || base.ends_with("/api/v1/everos_memory") {
+        base.to_string()
+    } else {
+        format!("{base}/api/v1/memory")
+    }
+}
+
+fn everos_memory_get_url(base: &str) -> String {
+    format!("{}/get", normalize_everos_memory_base_url(base))
+}
+
+fn everos_memory_search_url(base: &str) -> String {
+    format!("{}/search", normalize_everos_memory_base_url(base))
+}
+
+fn build_everos_identity_env(
+    project_slug: Option<&str>,
+    project_id: Option<&str>,
+    session_id: &str,
+    user_id: Option<&str>,
+    user_name: Option<&str>,
+    agent_id: &str,
+) -> HashMap<String, String> {
+    let everos_project_id = match project_id {
+        Some(project_id) if project_slug.is_some() => {
+            compose_everos_project_id(project_slug, project_id)
+        }
+        Some(project_id) => everos_path_safe_id(project_id, "default"),
+        None => "default".to_string(),
+    };
+    HashMap::from([
+        ("EVEROS_APP_ID".to_string(), EVEROS_APP_ID.to_string()),
+        ("EVEROS_PROJECT_ID".to_string(), everos_project_id),
+        (
+            "EVEROS_SESSION_ID".to_string(),
+            everos_path_safe_id(session_id, "session"),
+        ),
+        (
+            "EVEROS_USER_ID".to_string(),
+            compose_everos_user_id(user_name, user_id),
+        ),
+        (
+            "EVEROS_AGENT_ID".to_string(),
+            everos_path_safe_id(agent_id, "agent"),
+        ),
+    ])
+}
+
+fn append_everos_system_prompt(
+    base_system: Option<String>,
+    everos_base_url: &str,
+    identity: &HashMap<String, String>,
+    active_session_ids: Option<&[String]>,
+) -> String {
+    let active_session_note = if active_session_ids.is_some() {
+        "\nArchived JoySafeter sessions are inactive for memory. For `episode`, `atomic_fact`, and `agent_case` `/get` or `/search` requests, include a `filters.session_id` constraint using `EVEROS_ACTIVE_SESSION_IDS`; do not retrieve or use memories from sessions outside that list.\n"
+    } else {
+        ""
+    };
     let note = format!(
         "# EverOS Memory Service\n\
          The EverOS memory service is available inside this sandbox at \
          `{everos_base_url}`. Use it for long-term memory operations when \
-         the task explicitly requires memory search or memory writes."
+         the task explicitly requires memory search or memory writes.\n\n\
+         Use the JoySafeter identity mapping below for every EverOS request:\n\
+         - `app_id`: `{}` from `EVEROS_APP_ID`\n\
+         - `project_id`: `{}` from `EVEROS_PROJECT_ID`\n\
+         - `session_id`: `{}` from `EVEROS_SESSION_ID`\n\
+         - user memory owner `user_id`: `{}` from `EVEROS_USER_ID`\n\
+         - agent memory owner `agent_id`: `{}` from `EVEROS_AGENT_ID`\n\n\
+         For `/search` or `/get`, include `app_id` and `project_id`; set \
+         `user_id` for user memories and `agent_id` for agent memories.{}",
+        everos_identity_value(identity, "EVEROS_APP_ID"),
+        everos_identity_value(identity, "EVEROS_PROJECT_ID"),
+        everos_identity_value(identity, "EVEROS_SESSION_ID"),
+        everos_identity_value(identity, "EVEROS_USER_ID"),
+        everos_identity_value(identity, "EVEROS_AGENT_ID"),
+        active_session_note
     );
     match base_system.filter(|v| !v.is_empty()) {
         Some(base) => format!("{base}\n\n{note}"),
         None => note,
+    }
+}
+
+async fn build_everos_bootstrap_prompt(
+    everos_base_url: &str,
+    identity: &HashMap<String, String>,
+    active_session_ids: Option<&[String]>,
+) -> Option<String> {
+    match fetch_everos_bootstrap_memories(everos_base_url, identity, active_session_ids).await {
+        Ok(memories) => format_everos_bootstrap_prompt(identity, &memories),
+        Err(err) => {
+            warn!("Failed to fetch EverOS bootstrap memories: {err}");
+            None
+        }
+    }
+}
+
+async fn fetch_everos_bootstrap_memories(
+    everos_base_url: &str,
+    identity: &HashMap<String, String>,
+    active_session_ids: Option<&[String]>,
+) -> anyhow::Result<EverosBootstrapMemories> {
+    let base_url = everos_base_url.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(EVEROS_BOOTSTRAP_TIMEOUT_SECONDS))
+        .build()?;
+    let base_payload = json!({
+        "app_id": everos_identity_value(identity, "EVEROS_APP_ID"),
+        "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"),
+        "sort_order": "desc",
+    });
+    let session_filter = active_session_filter(active_session_ids);
+    let mut memories = EverosBootstrapMemories::default();
+
+    memories.profiles = everos_get_items(
+        &client,
+        base_url,
+        json_merge(
+            &base_payload,
+            json!({
+                "user_id": everos_identity_value(identity, "EVEROS_USER_ID"),
+                "memory_type": "profile",
+                "page": 1,
+                "page_size": 1,
+            }),
+        ),
+        "profiles",
+    )
+    .await?;
+
+    let mut episode_payload = json_merge(
+        &base_payload,
+        json!({
+            "user_id": everos_identity_value(identity, "EVEROS_USER_ID"),
+            "memory_type": "episode",
+            "page": 1,
+            "page_size": EVEROS_BOOTSTRAP_EPISODE_LIMIT,
+            "sort_by": "timestamp",
+        }),
+    );
+    if let Some(filter) = &session_filter {
+        episode_payload["filters"] = filter.clone();
+    }
+    memories.episodes = everos_get_items(&client, base_url, episode_payload, "episodes").await?;
+
+    let fact_parent_ids = episode_fact_parent_ids(&memories.episodes);
+    if !fact_parent_ids.is_empty() {
+        let fact_filter = merge_bootstrap_filters(
+            json!({"parent_id": {"in": fact_parent_ids}}),
+            session_filter.clone(),
+        );
+        memories.atomic_facts = everos_get_items(
+            &client,
+            base_url,
+            json_merge(
+                &base_payload,
+                json!({
+                    "user_id": everos_identity_value(identity, "EVEROS_USER_ID"),
+                    "memory_type": "atomic_fact",
+                    "page": 1,
+                    "page_size": EVEROS_BOOTSTRAP_EPISODE_LIMIT * EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT,
+                    "sort_by": "timestamp",
+                    "filters": fact_filter,
+                }),
+            ),
+            "atomic_facts",
+        )
+        .await?;
+        attach_atomic_facts_to_episodes(&mut memories.episodes, &memories.atomic_facts);
+    }
+
+    let mut case_payload = json_merge(
+        &base_payload,
+        json!({
+            "agent_id": everos_identity_value(identity, "EVEROS_AGENT_ID"),
+            "memory_type": "agent_case",
+            "page": 1,
+            "page_size": EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT,
+            "sort_by": "timestamp",
+        }),
+    );
+    if let Some(filter) = &session_filter {
+        case_payload["filters"] = filter.clone();
+    }
+    memories.agent_cases = everos_get_items(&client, base_url, case_payload, "agent_cases").await?;
+    memories.agent_skills = everos_get_items(
+        &client,
+        base_url,
+        json_merge(
+            &base_payload,
+            json!({
+                "agent_id": everos_identity_value(identity, "EVEROS_AGENT_ID"),
+                "memory_type": "agent_skill",
+                "page": 1,
+                "page_size": EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT,
+                "sort_by": "updated_at",
+            }),
+        ),
+        "agent_skills",
+    )
+    .await?;
+
+    Ok(memories)
+}
+
+async fn everos_get_items(
+    client: &reqwest::Client,
+    base_url: &str,
+    payload: Value,
+    key: &str,
+) -> anyhow::Result<Vec<Value>> {
+    let response = client
+        .post(everos_memory_get_url(base_url))
+        .json(&payload)
+        .send()
+        .await?;
+    let response = response.error_for_status()?;
+    let data: Value = response.json().await?;
+    Ok(data
+        .get("data")
+        .and_then(|data| data.get(key))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn format_everos_bootstrap_prompt(
+    identity: &HashMap<String, String>,
+    memories: &EverosBootstrapMemories,
+) -> Option<String> {
+    if memories.profiles.is_empty()
+        && memories.episodes.is_empty()
+        && memories.agent_cases.is_empty()
+        && memories.agent_skills.is_empty()
+    {
+        return None;
+    }
+
+    let mut lines = vec![
+        "# EverOS Memory Bootstrap".to_string(),
+        "The following startup memories were loaded for this session as compact context. Treat them as hints, not as exhaustive evidence.".to_string(),
+        format!("- app_id: {}", everos_identity_value(identity, "EVEROS_APP_ID")),
+        format!("- project_id: {}", everos_identity_value(identity, "EVEROS_PROJECT_ID")),
+        format!("- session_id: {}", everos_identity_value(identity, "EVEROS_SESSION_ID")),
+        format!("- user_id: {}", everos_identity_value(identity, "EVEROS_USER_ID")),
+        format!("- agent_id: {}", everos_identity_value(identity, "EVEROS_AGENT_ID")),
+        String::new(),
+        "When more detail is needed, load the full memory through the EverOS service instead of guessing from this preview:".to_string(),
+        "- Full user episode/profile/fact records: POST `${EVEROS_BASE_URL}/get` with `app_id`, `project_id`, `user_id`, and `memory_type` set to `episode`, `profile`, or `atomic_fact`.".to_string(),
+        "- Full agent case/skill records: POST `${EVEROS_BASE_URL}/get` with `app_id`, `project_id`, `agent_id`, and `memory_type` set to `agent_case` or `agent_skill`.".to_string(),
+        "- For relevance-based lookup, POST `${EVEROS_BASE_URL}/search` with the same ids and a task-specific query, then use `/get` if a full listing is needed.".to_string(),
+        "- Current `/get` is owner/type paginated; when you already know an id, request a page for that owner/type and match the id in the returned items.".to_string(),
+        format!("- Agent skills are loaded progressively: this bootstrap includes up to {EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT}; use `/get` or `/search` for more."),
+        String::new(),
+        "Example `/get` bodies:".to_string(),
+        format!(
+            "- Episode: {}",
+            json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "user_id": everos_identity_value(identity, "EVEROS_USER_ID"), "memory_type": "episode", "page": 1, "page_size": 5, "sort_by": "timestamp", "sort_order": "desc"})
+        ),
+        format!(
+            "- Atomic facts: {}",
+            json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "user_id": everos_identity_value(identity, "EVEROS_USER_ID"), "memory_type": "atomic_fact", "page": 1, "page_size": 25, "sort_by": "timestamp", "sort_order": "desc", "filters": {"parent_id": "episode_entry_id"}})
+        ),
+        format!(
+            "- Agent case: {}",
+            json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "agent_id": everos_identity_value(identity, "EVEROS_AGENT_ID"), "memory_type": "agent_case", "page": 1, "page_size": 5, "sort_by": "timestamp", "sort_order": "desc"})
+        ),
+        format!(
+            "- Agent skill: {}",
+            json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "agent_id": everos_identity_value(identity, "EVEROS_AGENT_ID"), "memory_type": "agent_skill", "page": 1, "page_size": 5, "sort_by": "updated_at", "sort_order": "desc"})
+        ),
+    ];
+
+    if !memories.profiles.is_empty() {
+        lines.extend([String::new(), "## User Profiles".to_string()]);
+        for profile in &memories.profiles {
+            lines.push(format!("- id: {}", text_field(profile, "id")));
+            if let Some(profile_data) = profile.get("profile_data").and_then(Value::as_object) {
+                for key in ["summary", "explicit_info", "implicit_traits"] {
+                    if let Some(value) = profile_data.get(key) {
+                        lines.push(format!("  - {key}: {}", compact_value(value)));
+                    }
+                }
+            } else if let Some(profile_data) = profile.get("profile_data") {
+                lines.push(format!("  - profile_data: {}", compact_value(profile_data)));
+            }
+        }
+    }
+
+    if !memories.episodes.is_empty() {
+        lines.extend([
+            String::new(),
+            format!("## Latest User Episodes (up to {EVEROS_BOOTSTRAP_EPISODE_LIMIT})"),
+        ]);
+        for episode in memories
+            .episodes
+            .iter()
+            .take(EVEROS_BOOTSTRAP_EPISODE_LIMIT)
+        {
+            lines.push(format!("- id: {}", text_field(episode, "id")));
+            lines.push(format!(
+                "  - timestamp: {}",
+                text_field(episode, "timestamp")
+            ));
+            lines.push(format!("  - subject: {}", text_field(episode, "subject")));
+            lines.push(format!("  - summary: {}", text_field(episode, "summary")));
+            if let Some(facts) = episode.get("atomic_facts").and_then(Value::as_array) {
+                if !facts.is_empty() {
+                    lines.push("  - Related Facts:".to_string());
+                    for fact in facts.iter().take(EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT) {
+                        lines.push(format!("    - {}", text_field(fact, "fact")));
+                    }
+                }
+            }
+        }
+    }
+
+    if !memories.agent_cases.is_empty() {
+        lines.extend([
+            String::new(),
+            format!("## Agent Case Metadata (up to {EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT})"),
+        ]);
+        for case in memories
+            .agent_cases
+            .iter()
+            .take(EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT)
+        {
+            lines.push(format!("- id: {}", text_field(case, "id")));
+            lines.push(format!(
+                "  - session_id: {}",
+                text_field(case, "session_id")
+            ));
+            lines.push(format!("  - timestamp: {}", text_field(case, "timestamp")));
+            lines.push(format!(
+                "  - task_intent: {}",
+                text_field(case, "task_intent")
+            ));
+            lines.push(format!("  - approach: {}", text_field(case, "approach")));
+            lines.push(format!(
+                "  - key_insight: {}",
+                text_field(case, "key_insight")
+            ));
+            lines.push(format!(
+                "  - quality_score: {}",
+                text_field(case, "quality_score")
+            ));
+        }
+    }
+
+    if !memories.agent_skills.is_empty() {
+        lines.extend([
+            String::new(),
+            format!(
+                "## Agent Skill Metadata (progressive, up to {EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT})"
+            ),
+        ]);
+        for skill in memories
+            .agent_skills
+            .iter()
+            .take(EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT)
+        {
+            lines.push(format!("- id: {}", text_field(skill, "id")));
+            lines.push(format!("  - name: {}", text_field(skill, "name")));
+            lines.push(format!(
+                "  - description: {}",
+                text_field(skill, "description")
+            ));
+            lines.push(format!(
+                "  - confidence: {}",
+                text_field(skill, "confidence")
+            ));
+            lines.push(format!(
+                "  - maturity_score: {}",
+                text_field(skill, "maturity_score")
+            ));
+            lines.push(format!(
+                "  - source_case_ids: {}",
+                skill
+                    .get("source_case_ids")
+                    .map(compact_value)
+                    .unwrap_or_else(|| "[]".to_string())
+            ));
+        }
+    }
+
+    let prompt = lines.join("\n");
+    if prompt.len() > EVEROS_BOOTSTRAP_MAX_CHARS {
+        Some(format!(
+            "{}\n[EverOS bootstrap truncated]",
+            prompt
+                .chars()
+                .take(EVEROS_BOOTSTRAP_MAX_CHARS)
+                .collect::<String>()
+                .trim_end()
+        ))
+    } else {
+        Some(prompt)
+    }
+}
+
+fn everos_identity_from_session_metadata(metadata: Option<&Value>) -> Option<EverosUserIdentity> {
+    let object = metadata?.as_object()?;
+    let user_id = object
+        .get(EVEROS_SESSION_USER_ID_METADATA_KEY)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let user_name = object
+        .get(EVEROS_SESSION_USER_NAME_METADATA_KEY)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    if user_id.is_none() && user_name.is_none() {
+        None
+    } else {
+        Some(EverosUserIdentity { user_id, user_name })
+    }
+}
+
+fn json_merge(base: &Value, extra: Value) -> Value {
+    let mut merged = base.as_object().cloned().unwrap_or_default();
+    if let Some(extra) = extra.as_object() {
+        for (key, value) in extra {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(merged)
+}
+
+fn active_session_filter(active_session_ids: Option<&[String]>) -> Option<Value> {
+    let ids = active_session_ids?;
+    if ids.is_empty() {
+        Some(json!({"session_id": "__no_active_sessions__"}))
+    } else if ids.len() == 1 {
+        Some(json!({"session_id": ids[0]}))
+    } else {
+        Some(json!({"session_id": {"in": ids}}))
+    }
+}
+
+fn merge_bootstrap_filters(primary: Value, session_filter: Option<Value>) -> Value {
+    match session_filter {
+        Some(session_filter) => json!({"AND": [primary, session_filter]}),
+        None => primary,
+    }
+}
+
+fn episode_fact_parent_ids(episodes: &[Value]) -> Vec<Value> {
+    episodes
+        .iter()
+        .filter_map(|episode| {
+            episode
+                .get("id")
+                .cloned()
+                .or_else(|| episode.get("entry_id").cloned())
+        })
+        .collect()
+}
+
+fn attach_atomic_facts_to_episodes(episodes: &mut [Value], facts: &[Value]) {
+    for episode in episodes {
+        let Some(parent_id) = episode
+            .get("id")
+            .or_else(|| episode.get("entry_id"))
+            .and_then(value_as_string)
+        else {
+            continue;
+        };
+        let related: Vec<Value> = facts
+            .iter()
+            .filter(|fact| {
+                fact.get("parent_id").and_then(value_as_string).as_deref()
+                    == Some(parent_id.as_str())
+            })
+            .take(EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT)
+            .cloned()
+            .collect();
+        if !related.is_empty() {
+            episode["atomic_facts"] = Value::Array(related);
+        }
+    }
+}
+
+fn compose_everos_project_id(project_slug: Option<&str>, project_id: &str) -> String {
+    let stable_id = everos_path_safe_id(project_id, "default");
+    let separator_len = EVEROS_PROJECT_ID_SEPARATOR.len();
+    if stable_id.len() + separator_len >= EVEROS_PROJECT_ID_MAX_LENGTH {
+        return stable_id
+            .chars()
+            .take(EVEROS_PROJECT_ID_MAX_LENGTH)
+            .collect();
+    }
+    let max_slug_len = EVEROS_PROJECT_ID_MAX_LENGTH - separator_len - stable_id.len();
+    let mut slug = everos_path_safe_id(project_slug.unwrap_or("project"), "project");
+    slug = slug.chars().take(max_slug_len).collect();
+    slug = slug.trim_matches(&['.', '_'][..]).to_string();
+    if slug.is_empty() {
+        slug = "project".to_string();
+    }
+    format!("{slug}{EVEROS_PROJECT_ID_SEPARATOR}{stable_id}")
+}
+
+fn compose_everos_user_id(user_name: Option<&str>, user_id: Option<&str>) -> String {
+    everos_path_safe_id(
+        user_name.or(user_id).unwrap_or("default_user"),
+        "default_user",
+    )
+}
+
+fn everos_path_safe_id(value: &str, fallback: &str) -> String {
+    let mut safe = String::with_capacity(value.len());
+    let mut last_was_underscore = false;
+    for ch in value.trim().chars() {
+        let allowed = ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '@' | '+' | '-');
+        let next = if allowed { ch } else { '_' };
+        if next == '_' {
+            if !last_was_underscore {
+                safe.push(next);
+            }
+            last_was_underscore = true;
+        } else {
+            safe.push(next);
+            last_was_underscore = false;
+        }
+    }
+    let safe = safe.trim_matches(&['.', '_'][..]);
+    if safe.is_empty() || safe == "." || safe == ".." {
+        fallback.to_string()
+    } else {
+        safe.chars().take(EVEROS_PROJECT_ID_MAX_LENGTH).collect()
+    }
+}
+
+fn everos_identity_value<'a>(identity: &'a HashMap<String, String>, key: &str) -> &'a str {
+    identity.get(key).map(String::as_str).unwrap_or("")
+}
+
+fn text_field(value: &Value, key: &str) -> String {
+    value.get(key).and_then(value_as_string).unwrap_or_default()
+}
+
+fn value_as_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
+    }
+}
+
+fn compact_value(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Null => String::new(),
+        _ => value.to_string(),
     }
 }
 

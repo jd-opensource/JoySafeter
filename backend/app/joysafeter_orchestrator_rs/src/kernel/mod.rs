@@ -1,6 +1,7 @@
 /// Kernel primitives — scheduler, sandbox management, task execution.
 pub mod command_listener;
 pub mod engine_adapter;
+pub mod everos_bridge;
 pub mod harness_input_builder;
 pub mod llm_providers;
 pub mod memory_sync;

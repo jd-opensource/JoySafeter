@@ -99,6 +99,7 @@ class ReflectionOrchestrator:
         kind: str = "user_memory",
         app_id: str = "default",
         project_id: str = "default",
+        active_session_ids: set[str] | None = None,
     ) -> list[object]:
         """Run one Reflection cycle for a single owner scope.
 
@@ -138,6 +139,7 @@ class ReflectionOrchestrator:
                 owner_type=owner_type,
                 app_id=app_id,
                 project_id=project_id,
+                active_session_ids=active_session_ids,
             )
             if report is not None:
                 reports.append(report)
@@ -161,6 +163,7 @@ class ReflectionOrchestrator:
         owner_type: str,
         app_id: str,
         project_id: str,
+        active_session_ids: set[str] | None,
     ) -> object | None:
         """Process one cluster, catching errors to allow the cycle to continue.
 
@@ -183,6 +186,7 @@ class ReflectionOrchestrator:
                 owner_type=owner_type,
                 app_id=app_id,
                 project_id=project_id,
+                active_session_ids=active_session_ids,
             )
         except AppError:
             logger.warning(
@@ -247,6 +251,7 @@ class ReflectionOrchestrator:
         owner_type: str,
         app_id: str,
         project_id: str,
+        active_session_ids: set[str] | None = None,
     ) -> object | None:
         """Full flow for one cluster: merge, write, re-extract, deprecate.
 
@@ -265,9 +270,9 @@ class ReflectionOrchestrator:
 
         scope = dict(owner_id=owner_id, app_id=app_id, project_id=project_id)
         members, episodes = await self._load_cluster_episodes(
-            cluster_id=cluster_id, **scope
+            cluster_id=cluster_id, active_session_ids=active_session_ids, **scope
         )
-        if not members or not episodes:
+        if not members or len(episodes) < 2:
             return None
 
         mode, algo_result = await self._reflect_cluster(
@@ -335,6 +340,7 @@ class ReflectionOrchestrator:
         owner_id: str,
         app_id: str,
         project_id: str,
+        active_session_ids: set[str] | None = None,
     ) -> tuple[list[tuple[str, str]], list[Any]]:
         """Read cluster members and fetch their episode rows from LanceDB.
 
@@ -358,6 +364,19 @@ class ReflectionOrchestrator:
             app_id=app_id,
             project_id=project_id,
         )
+        if active_session_ids is not None:
+            active_episodes = [
+                episode
+                for episode in episodes
+                if getattr(episode, "session_id", None) in active_session_ids
+            ]
+            active_entry_ids = {episode.entry_id for episode in active_episodes}
+            members = [
+                (member_id, member_type)
+                for member_id, member_type in members
+                if member_id in active_entry_ids
+            ]
+            episodes = active_episodes
         return members, episodes
 
     async def _write_and_reextract(

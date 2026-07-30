@@ -70,12 +70,11 @@ async fn create_agent_and_session(pool: &PgPool, status: &str) -> (Uuid, Uuid) {
 }
 
 async fn cleanup(pool: &PgPool, agent_id: Uuid, session_id: Uuid) {
-    let _ =
-        sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
-            .bind(session_id)
-            .bind(agent_id)
-            .execute(pool)
-            .await;
+    let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
+        .bind(session_id)
+        .bind(agent_id)
+        .execute(pool)
+        .await;
     let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id = $1")
         .bind(session_id)
         .execute(pool)
@@ -369,24 +368,22 @@ async fn observed_owner_epoch_transition_does_not_mutate_reclaimed_task() {
         .expect("current owner transition should succeed");
         assert!(current_epoch_transition);
 
-        let null_owner_row: (String, Option<i64>, Option<String>) = sqlx::query_as(
-            "SELECT status, owner_epoch, error FROM joysafeter_tasks WHERE id = $1",
-        )
-        .bind(null_owner_task)
-        .fetch_one(&pool)
-        .await
-        .expect("load null-owner reclaimed task");
+        let null_owner_row: (String, Option<i64>, Option<String>) =
+            sqlx::query_as("SELECT status, owner_epoch, error FROM joysafeter_tasks WHERE id = $1")
+                .bind(null_owner_task)
+                .fetch_one(&pool)
+                .await
+                .expect("load null-owner reclaimed task");
         assert_eq!(null_owner_row.0, "running");
         assert_eq!(null_owner_row.1, Some(51));
         assert!(null_owner_row.2.is_none());
 
-        let epoch_owner_row: (String, Option<i64>, Option<String>) = sqlx::query_as(
-            "SELECT status, owner_epoch, error FROM joysafeter_tasks WHERE id = $1",
-        )
-        .bind(epoch_owner_task)
-        .fetch_one(&pool)
-        .await
-        .expect("load epoch-owner reclaimed task");
+        let epoch_owner_row: (String, Option<i64>, Option<String>) =
+            sqlx::query_as("SELECT status, owner_epoch, error FROM joysafeter_tasks WHERE id = $1")
+                .bind(epoch_owner_task)
+                .fetch_one(&pool)
+                .await
+                .expect("load epoch-owner reclaimed task");
         assert_eq!(epoch_owner_row.0, "completed");
         assert!(epoch_owner_row.1.is_none());
         assert!(epoch_owner_row.2.is_none());
@@ -1073,9 +1070,13 @@ async fn event_bus_stream_primary_without_fallback_does_not_direct_write_to_db()
             redis::Client::open("redis://127.0.0.1:1/").expect("construct redis client");
         let event_bus = EventBus::new(pool.clone(), &config, runtime_config, redis_client);
 
-        let envelope = EventEnvelope::new(session_id, "agent.message", json!({"content": "no fallback"}))
-            .with_task(task_id)
-            .flush_immediately();
+        let envelope = EventEnvelope::new(
+            session_id,
+            "agent.message",
+            json!({"content": "no fallback"}),
+        )
+        .with_task(task_id)
+        .flush_immediately();
         event_bus.publish(envelope).await;
         event_bus.flush().await;
 
@@ -1270,11 +1271,10 @@ async fn raw_status_envelope_through_subscriber_uses_canonical_db_seq_not_runner
         let handle = subscriber.spawn(rx);
 
         let payload = json!({"task_id": task_id.to_string()});
-        let envelope =
-            EventEnvelope::new(session_id, "session.status_running", payload.clone())
-                .with_task(task_id)
-                .with_runner_seq(777)
-                .status_change(None);
+        let envelope = EventEnvelope::new(session_id, "session.status_running", payload.clone())
+            .with_task(task_id)
+            .with_runner_seq(777)
+            .status_change(None);
         tx.send(Arc::new(envelope))
             .expect("send raw status envelope to subscriber");
 
@@ -1437,11 +1437,10 @@ async fn event_bus_routes_raw_status_to_state_subscriber_not_generic_persister()
         let handle = subscriber.spawn(event_bus.subscribe());
 
         let payload = json!({"task_id": task_id.to_string()});
-        let envelope =
-            EventEnvelope::new(session_id, "session.status_running", payload.clone())
-                .with_task(task_id)
-                .with_runner_seq(777)
-                .status_change(None);
+        let envelope = EventEnvelope::new(session_id, "session.status_running", payload.clone())
+            .with_task(task_id)
+            .with_runner_seq(777)
+            .status_change(None);
         event_bus.publish(envelope).await;
         event_bus.flush().await;
 
@@ -1509,11 +1508,10 @@ async fn stream_publisher_skips_status_events_instead_of_falling_back_to_db() {
         let handle = stream_publisher.spawn(rx);
 
         let payload = json!({"task_id": task_id.to_string()});
-        let envelope =
-            EventEnvelope::new(session_id, "session.status_running", payload.clone())
-                .with_task(task_id)
-                .with_runner_seq(777)
-                .status_change(None);
+        let envelope = EventEnvelope::new(session_id, "session.status_running", payload.clone())
+            .with_task(task_id)
+            .with_runner_seq(777)
+            .status_change(None);
         tx.send(Arc::new(envelope))
             .expect("send status envelope to stream publisher");
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -1756,11 +1754,9 @@ async fn mark_sandbox_stopped_if_active_stops_running_sandbox() {
         transition_sandbox(&pool, sandbox_id, "idle")
             .await
             .expect("sandbox idle before start");
-        assert!(
-            start_sandbox_task(&pool, sandbox_id, task_id)
-                .await
-                .expect("start sandbox task")
-        );
+        assert!(start_sandbox_task(&pool, sandbox_id, task_id)
+            .await
+            .expect("start sandbox task"));
 
         let stopped = mark_sandbox_stopped_if_active(&pool, sandbox_id)
             .await

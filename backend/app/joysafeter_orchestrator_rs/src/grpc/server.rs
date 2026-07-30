@@ -268,6 +268,7 @@ impl AgentBridge for AgentBridgeService {
                 None
             };
             let is_reconnect = ready.is_reconnect;
+            let runner_available_providers = ready.available_providers.clone();
 
             // Spawn the multi-task loop
             let pool = pool.clone();
@@ -341,6 +342,7 @@ impl AgentBridge for AgentBridgeService {
                 memory_subscribers.clone(),
                 &registry,
                 &runtime_config,
+                &runner_available_providers,
             )
             .await;
 
@@ -409,6 +411,7 @@ async fn multi_task_loop(
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_registry: &BridgeRegistry,
     runtime_config: &RuntimeConfig,
+    runner_available_providers: &[String],
 ) -> bool {
     let hb_sec = runtime_config.heartbeat_timeout_sec();
     let heartbeat_timeout = Duration::from_secs(if hb_sec > 0 {
@@ -772,6 +775,36 @@ async fn multi_task_loop(
                 continue;
             }
         };
+        if !runner_available_providers.contains(&start_task.provider) {
+            let provider = start_task.provider.clone();
+            let available = runner_available_providers.join(", ");
+            let reason = format!(
+                "Runner does not support provider '{provider}'. Available providers: [{available}]"
+            );
+            error!(
+                task_id = %task_id,
+                sandbox_id = %sandbox_db_id,
+                provider = %provider,
+                available_providers = ?runner_available_providers,
+                "{reason}"
+            );
+            fail_pre_start_task(
+                pool,
+                event_bus,
+                task_id,
+                task_owner_epoch,
+                session_id,
+                sandbox_db_id,
+                &reason,
+            )
+            .await;
+            *bridge.current_task_id.lock().await = None;
+            *bridge.current_task_owner_epoch.lock().await = None;
+            if let Some(coord) = redis_coord {
+                let _ = coord.remove_task_sandbox(task_id).await;
+            }
+            continue;
+        }
         let msg = OrchestratorMessage {
             payload: Some(orchestrator_message::Payload::Start(start_task)),
         };
@@ -841,13 +874,9 @@ async fn multi_task_loop(
         bridge.reset_confirmation();
         let setup_failure = is_setup_failure_task_result(&result);
         if !matches!(result, TaskResult::Disconnected) && !setup_failure {
-            if let Err(e) = crate::sandbox::artifacts::archive_task_artifacts(
-                pool,
-                bridge,
-                task_id,
-                session_id,
-            )
-            .await
+            if let Err(e) =
+                crate::sandbox::artifacts::archive_task_artifacts(pool, bridge, task_id, session_id)
+                    .await
             {
                 warn!(task_id = %task_id, error = %e, "Failed to archive task artifacts");
             }
@@ -1582,6 +1611,19 @@ async fn handle_task_message(
                 event_bus.flush().await;
             }
 
+            if cas_ok && status == "completed" {
+                if let Err(error) =
+                    crate::kernel::everos_bridge::sync_task_to_everos_agent_memory(pool, task_id)
+                        .await
+                {
+                    warn!(
+                        task_id = %task_id,
+                        error = %error,
+                        "EverOS memory add failed after completed task"
+                    );
+                }
+            }
+
             // Store result info for idle handler
             *bridge.last_result_status.lock().await = Some(status.to_string());
             *bridge.last_result_error.lock().await = harness_result.error.clone();
@@ -1736,7 +1778,10 @@ async fn handle_task_message(
         }
 
         runner_message::Payload::SandboxFileResponse(response) => {
-            if !bridge.complete_sandbox_file_response(response.clone()).await {
+            if !bridge
+                .complete_sandbox_file_response(response.clone())
+                .await
+            {
                 debug!(task_id = %task_id, "Received unmatched sandbox file response");
             }
             TaskMessageOutcome::default()
@@ -6758,6 +6803,19 @@ async fn failover_or_fail_inline(
                         "failover with agent output",
                     )
                     .await;
+                    event_bus.flush().await;
+                    if let Err(error) =
+                        crate::kernel::everos_bridge::sync_task_to_everos_agent_memory(
+                            pool, task_id,
+                        )
+                        .await
+                    {
+                        warn!(
+                            task_id = %task_id,
+                            error = %error,
+                            "EverOS memory add failed after failover completed task"
+                        );
+                    }
                     info!(task_id = %task_id, "Failover: task had output, marking completed + session idle");
                 }
                 Ok(false) => {

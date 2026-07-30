@@ -21,6 +21,7 @@ External usage::
 """
 
 from .cascade import CascadeLifespanProvider as CascadeLifespanProvider
+from .idle_flush import IdleFlushLifespanProvider as IdleFlushLifespanProvider
 from .lancedb import LanceDBLifespanProvider as LanceDBLifespanProvider
 from .llm import LLMLifespanProvider as LLMLifespanProvider
 from .ome import OmeLifespanProvider as OmeLifespanProvider
@@ -28,6 +29,7 @@ from .sqlite import SqliteLifespanProvider as SqliteLifespanProvider
 
 __all__ = [
     "CascadeLifespanProvider",
+    "IdleFlushLifespanProvider",
     "LLMLifespanProvider",
     "LanceDBLifespanProvider",
     "OmeLifespanProvider",

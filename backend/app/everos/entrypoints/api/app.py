@@ -30,6 +30,7 @@ from app.everos.core.observability.logging import get_logger
 from .exception_handlers import register_handlers
 from .lifespans import (
     CascadeLifespanProvider,
+    IdleFlushLifespanProvider,
     LanceDBLifespanProvider,
     LLMLifespanProvider,
     OmeLifespanProvider,
@@ -42,6 +43,7 @@ from .routes import (
     memorize,
     metrics,
     ome,
+    overview,
     search,
 )
 
@@ -86,6 +88,7 @@ def create_app(
             LanceDBLifespanProvider(),
             CascadeLifespanProvider(),
             OmeLifespanProvider(),
+            IdleFlushLifespanProvider(),
         ]
 
     app = FastAPI(
@@ -121,6 +124,7 @@ def create_app(
     app.include_router(get.router)
     app.include_router(ome.router)
     app.include_router(knowledge.router)
+    app.include_router(overview.router)
 
     logger.info("app_created", docs_enabled=enable_docs)
     return app

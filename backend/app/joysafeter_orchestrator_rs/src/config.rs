@@ -58,7 +58,6 @@ pub struct JoySafeterConfig {
     /// "use the image's default USER" (less safe).
     pub sandbox_run_as_user: String,
 
-
     // Multi-image map
     pub image_claude: String,
     pub image_codex: String,

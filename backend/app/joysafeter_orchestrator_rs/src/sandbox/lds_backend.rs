@@ -259,7 +259,6 @@ pub struct SandboxCredentials {
     pub routes: Vec<EgressCredentialRoute>,
 }
 
-
 impl SandboxCredentials {
     pub fn to_policy(
         &self,
@@ -1899,10 +1898,7 @@ mod tests {
                     upstream_prefix: "/v1/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
-                    inject_headers: vec![(
-                        "authorization".to_string(),
-                        "Bearer sk".to_string(),
-                    )],
+                    inject_headers: vec![("authorization".to_string(), "Bearer sk".to_string())],
                     remove_headers: vec![],
                 },
                 EgressCredentialRoute {
@@ -2294,10 +2290,7 @@ mod tests {
             upstream_tls: true,
             cluster_name: "up_test".to_string(),
             exact_path: false,
-            inject_headers: vec![(
-                "cookie".to_string(),
-                "session=abc%7Cdef%3Dxyz".to_string(),
-            )],
+            inject_headers: vec![("cookie".to_string(), "session=abc%7Cdef%3Dxyz".to_string())],
             remove_headers: vec![],
         };
         let vh = build_virtual_hosts_json(&[], &[cred]);

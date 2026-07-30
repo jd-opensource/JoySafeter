@@ -26,7 +26,7 @@ ARG UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 
 COPY pyproject.toml uv.lock* README.md ./
 
-RUN uv sync --frozen --no-dev || uv sync --no-dev -i ${UV_INDEX_URL}
+RUN uv sync --no-dev --index-url ${UV_INDEX_URL} --extra-index-url https://pypi.org/simple
 
 COPY . .
 

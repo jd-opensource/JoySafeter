@@ -392,7 +392,8 @@ impl SandboxController {
         if graceful {
             if let Some(bridge) = self.bridge_registry.get_by_db_id(sandbox_id) {
                 if let Some(activity) = bridge.runner_runtime_activity().await {
-                    let max_age_secs = (self.runtime_config.heartbeat_timeout_sec() * 2).max(30) as i64;
+                    let max_age_secs =
+                        (self.runtime_config.heartbeat_timeout_sec() * 2).max(30) as i64;
                     let age_secs = chrono::Utc::now()
                         .signed_duration_since(activity.observed_at)
                         .num_seconds();

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1._everos_flush import flush_everos_session
 from app.joysafeter_api.api.v1.id_helpers import parse_session_id as _parse_session_id
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
 from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
@@ -796,6 +797,7 @@ async def archive_session(
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
+    await flush_everos_session(db, session_id=session_id, project_id=auth_ctx.project_id)
     return {"status": "archived"}
 
 

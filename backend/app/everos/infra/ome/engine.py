@@ -601,7 +601,7 @@ class OfflineEngine:
         *,
         event: BaseEvent | None = None,
         force: bool = False,
-    ) -> None:
+    ) -> list[str]:
         """Manually trigger one strategy.
 
         - ``event=None`` → engine self-emits ``ManualTick(strategy_name=name)``
@@ -611,6 +611,10 @@ class OfflineEngine:
         Routes through :meth:`EventDispatcher.dispatch` with
         ``strategy_filter=name`` so the same three-gate logic is applied
         as for engine-driven dispatch.
+
+        Returns:
+            The run ids enqueued for matching routes. An empty list means the
+            strategy existed but dispatch gates did not schedule a run.
         """
         if not self._started:
             raise OMEError("trigger_manual: engine not started")
@@ -623,6 +627,7 @@ class OfflineEngine:
         )
         for meta, run_id in routes:
             self._enqueue_run(meta, event, run_id)
+        return [run_id for _, run_id in routes]
 
     def _enqueue_run(self, meta: StrategyMeta, event: BaseEvent, run_id: str) -> None:
         """Add a one-shot APScheduler job that hands the event to Runner.

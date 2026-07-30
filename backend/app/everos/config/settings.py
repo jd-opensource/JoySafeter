@@ -262,6 +262,9 @@ class MemorizeSettings(BaseModel):
 
     mode: Literal["chat", "agent"] = "agent"
     session_lock_timeout_seconds: float = Field(default=360.0, gt=0)
+    idle_flush_enabled: bool = True
+    idle_flush_threshold_seconds: int = Field(default=1800, gt=0)
+    idle_flush_scan_interval_seconds: int = Field(default=300, gt=0)
 
 
 class ClusteringSettings(BaseModel):
