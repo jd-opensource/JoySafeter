@@ -1010,9 +1010,8 @@ fn build_virtual_hosts_json(
                         "host_rewrite_literal": r.upstream_host,
                         "timeout": "0s",
                         "retry_policy": {
-                            "retry_on": "5xx,reset,connect-failure",
-                            "num_retries": 2,
-                            "per_try_timeout": "10s"
+                            "retry_on": "reset,connect-failure",
+                            "num_retries": 2
                         }
                     })
                 } else {
@@ -1022,9 +1021,8 @@ fn build_virtual_hosts_json(
                         "prefix_rewrite": prefix_rewrite,
                         "timeout": "0s",
                         "retry_policy": {
-                            "retry_on": "5xx,reset,connect-failure",
-                            "num_retries": 2,
-                            "per_try_timeout": "10s"
+                            "retry_on": "reset,connect-failure",
+                            "num_retries": 2
                         }
                     })
                 };
@@ -1097,9 +1095,8 @@ fn build_virtual_hosts_json(
                     "route": {
                         "cluster": "dynamic_forward_proxy",
                         "retry_policy": {
-                            "retry_on": "5xx,reset,connect-failure",
-                            "num_retries": 2,
-                            "per_try_timeout": "10s"
+                            "retry_on": "reset,connect-failure",
+                            "num_retries": 2
                         }
                     },
                     "request_headers_to_remove": ["proxy-authorization"]
@@ -2270,10 +2267,17 @@ fn build_http_listener_proto(
     credentials: &[CredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
+    use envoy_types::pb::envoy::config::accesslog::v3::{access_log, AccessLog};
     use envoy_types::pb::envoy::config::cluster::v3::cluster::DnsLookupFamily;
-    use envoy_types::pb::envoy::config::core::v3::{address, Address, Http1ProtocolOptions, Pipe};
+    use envoy_types::pb::envoy::config::core::v3::{
+        address, substitution_format_string, Address, Http1ProtocolOptions, Pipe,
+        SubstitutionFormatString,
+    };
     use envoy_types::pb::envoy::config::listener::v3::{filter, Filter, FilterChain, Listener};
     use envoy_types::pb::envoy::config::route::v3::RouteConfiguration;
+    use envoy_types::pb::envoy::extensions::access_loggers::stream::v3::{
+        stdout_access_log, StdoutAccessLog,
+    };
     use envoy_types::pb::envoy::extensions::common::dynamic_forward_proxy::v3::DnsCacheConfig;
     use envoy_types::pb::envoy::extensions::filters::http::dynamic_forward_proxy::v3::{
         filter_config, FilterConfig,
@@ -2300,6 +2304,23 @@ fn build_http_listener_proto(
             allow_absolute_url: Some(envoy_types::pb::google::protobuf::BoolValue { value: true }),
             ..Default::default()
         }),
+        access_log: vec![AccessLog {
+            name: "envoy.access_loggers.stdout".to_string(),
+            config_type: Some(access_log::ConfigType::TypedConfig(pack_any(
+                "type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog",
+                &StdoutAccessLog {
+                    access_log_format: Some(stdout_access_log::AccessLogFormat::LogFormat(
+                        SubstitutionFormatString {
+                            format: Some(substitution_format_string::Format::TextFormat(format!(
+                                "[%START_TIME%] listener={sandbox_id}_http method=%REQ(:METHOD)% authority=%REQ(:AUTHORITY)% path=%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% status=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% upstream=%UPSTREAM_HOST% cluster=%UPSTREAM_CLUSTER% duration_ms=%DURATION% bytes_in=%BYTES_RECEIVED% bytes_out=%BYTES_SENT%\\n"
+                            ))),
+                            ..Default::default()
+                        },
+                    )),
+                },
+            ))),
+            ..Default::default()
+        }],
         // Disable stream idle timeout so long-lived connections (SSE / streaming
         // LLM responses / MCP) are not killed by the default 5-minute idle limit.
         stream_idle_timeout: Some(envoy_types::pb::google::protobuf::Duration { seconds: 0, nanos: 0 }),
@@ -2438,12 +2459,15 @@ fn build_virtual_hosts_proto(
                             ),
                         ),
                         prefix_rewrite,
-                        retry_policy: Some(envoy_types::pb::envoy::config::route::v3::RetryPolicy {
-                            retry_on: "5xx,reset,connect-failure".to_string(),
-                            num_retries: Some(envoy_types::pb::google::protobuf::UInt32Value { value: 2 }),
-                            per_try_timeout: Some(envoy_types::pb::google::protobuf::Duration { seconds: 10, nanos: 0 }),
-                            ..Default::default()
-                        }),
+                        retry_policy: Some(
+                            envoy_types::pb::envoy::config::route::v3::RetryPolicy {
+                                retry_on: "reset,connect-failure".to_string(),
+                                num_retries: Some(envoy_types::pb::google::protobuf::UInt32Value {
+                                    value: 2,
+                                }),
+                                ..Default::default()
+                            },
+                        ),
                         ..Default::default()
                     })),
                     request_headers_to_add: headers,
@@ -2521,9 +2545,8 @@ fn build_virtual_hosts_proto(
                     "dynamic_forward_proxy".to_string(),
                 )),
                 retry_policy: Some(envoy_types::pb::envoy::config::route::v3::RetryPolicy {
-                    retry_on: "5xx,reset,connect-failure".to_string(),
+                    retry_on: "reset,connect-failure".to_string(),
                     num_retries: Some(envoy_types::pb::google::protobuf::UInt32Value { value: 2 }),
-                    per_try_timeout: Some(envoy_types::pb::google::protobuf::Duration { seconds: 10, nanos: 0 }),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -3263,10 +3286,10 @@ mod tests {
         let any = encode_listener_any(&http).unwrap();
         use envoy_types::pb::envoy::config::listener::v3::Listener;
         use envoy_types::pb::envoy::config::route::v3::header_matcher;
-        use envoy_types::pb::envoy::r#type::matcher::v3::string_matcher;
         use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
             http_connection_manager, HttpConnectionManager,
         };
+        use envoy_types::pb::envoy::r#type::matcher::v3::string_matcher;
         let l = Listener::decode(any.value.as_slice()).unwrap();
         let hcm_any = match &l.filter_chains[0].filters[0].config_type {
             Some(
