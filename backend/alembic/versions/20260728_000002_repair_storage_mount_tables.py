@@ -109,9 +109,13 @@ def _create_session_storage_mounts() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("session_id", "mount_path", name="uq_joysafeter_session_storage_mount_path"),
     )
-    op.create_index("idx_joysafeter_session_storage_mounts_session", "joysafeter_session_storage_mounts", ["session_id"])
+    op.create_index(
+        "idx_joysafeter_session_storage_mounts_session", "joysafeter_session_storage_mounts", ["session_id"]
+    )
     op.create_index("idx_joysafeter_session_storage_mounts_volume", "joysafeter_session_storage_mounts", ["volume_id"])
-    op.create_index("idx_joysafeter_session_storage_mounts_project", "joysafeter_session_storage_mounts", ["project_id"])
+    op.create_index(
+        "idx_joysafeter_session_storage_mounts_project", "joysafeter_session_storage_mounts", ["project_id"]
+    )
 
 
 def _create_storage_mount_audit() -> None:
@@ -136,7 +140,9 @@ def _create_storage_mount_audit() -> None:
         sa.ForeignKeyConstraint(["volume_id"], ["joysafeter_storage_volumes.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("idx_joysafeter_storage_audit_project_created", "joysafeter_storage_mount_audit", ["project_id", "created_at"])
+    op.create_index(
+        "idx_joysafeter_storage_audit_project_created", "joysafeter_storage_mount_audit", ["project_id", "created_at"]
+    )
     op.create_index("idx_joysafeter_storage_audit_session", "joysafeter_storage_mount_audit", ["session_id"])
     op.create_index("idx_joysafeter_storage_audit_volume", "joysafeter_storage_mount_audit", ["volume_id"])
     op.create_index("idx_joysafeter_storage_audit_action", "joysafeter_storage_mount_audit", ["action"])

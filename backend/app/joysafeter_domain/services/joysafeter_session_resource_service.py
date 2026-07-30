@@ -481,7 +481,9 @@ class SessionResourceService:
                 _repo_effective_mount_path(url=row.url, mount_path=row.mount_path, session_id=session_id)
                 for row in existing
             },
-            existing_reserved_mount_paths={row.mount_path for row in await self.list_file_records(session_id, project_id=project_id)},
+            existing_reserved_mount_paths={
+                row.mount_path for row in await self.list_file_records(session_id, project_id=project_id)
+            },
         )
         resource = prepared[0]
         row = JoySafeterSessionRepo(

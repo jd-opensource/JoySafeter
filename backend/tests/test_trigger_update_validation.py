@@ -58,7 +58,9 @@ def test_update_can_switch_cron_to_future_one_off():
 
 def test_update_rejects_keyed_session_without_key():
     _assert_invalid(
-        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        _trigger(
+            type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+        ),
         {"session_mode": "keyed"},
         "TRIGGER_SESSION_KEY_REQUIRED",
     )
@@ -66,7 +68,9 @@ def test_update_rejects_keyed_session_without_key():
 
 def test_update_rejects_invalid_session_mode():
     _assert_invalid(
-        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        _trigger(
+            type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+        ),
         {"session_mode": "loop"},
         "TRIGGER_SESSION_MODE_INVALID",
     )
@@ -82,7 +86,9 @@ def test_update_rejects_invalid_concurrency_policy():
 
 def test_update_rejects_empty_webhook_auth_methods():
     _assert_invalid(
-        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        _trigger(
+            type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+        ),
         {"auth_methods": []},
         "TRIGGER_AUTH_METHODS_REQUIRED",
     )
@@ -97,7 +103,9 @@ def test_update_allows_legacy_webhook_config_missing_auth_methods():
 
 def test_update_rejects_unknown_webhook_auth_methods():
     _assert_invalid(
-        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        _trigger(
+            type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+        ),
         {"auth_methods": ["hmac", "magic-link"]},
         "TRIGGER_AUTH_METHODS_INVALID",
     )
@@ -105,7 +113,9 @@ def test_update_rejects_unknown_webhook_auth_methods():
 
 def test_update_rejects_cron_expr_on_webhook_trigger():
     _assert_invalid(
-        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        _trigger(
+            type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+        ),
         {"cron_expr": "*/5 * * * *"},
         "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
     )
@@ -113,7 +123,9 @@ def test_update_rejects_cron_expr_on_webhook_trigger():
 
 def test_update_rejects_concurrency_policy_on_webhook_trigger():
     _assert_invalid(
-        _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}),
+        _trigger(
+            type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+        ),
         {"concurrency_policy": "forbid"},
         "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
     )

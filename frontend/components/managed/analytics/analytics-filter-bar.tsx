@@ -63,15 +63,11 @@ export function AnalyticsFilterBar({
   showStatusFilter = false,
 }: AnalyticsFilterBarProps) {
   const { t } = useTranslation()
-  const update = (patch: Partial<AnalyticsFilters>) =>
-    onFiltersChange({ ...filters, ...patch })
+  const update = (patch: Partial<AnalyticsFilters>) => onFiltersChange({ ...filters, ...patch })
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3">
-      <TimeRangePills
-        value={filters.range}
-        onChange={(range) => update({ range })}
-      />
+      <TimeRangePills value={filters.range} onChange={(range) => update({ range })} />
 
       {engines && engines.length > 0 && (
         <Select
@@ -181,20 +177,23 @@ function SearchableAgentSelect({
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => { setOpen(!open); setSearch('') }}
-        className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors min-w-[140px]"
+        onClick={() => {
+          setOpen(!open)
+          setSearch('')
+        }}
+        className="flex min-w-[140px] items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm transition-colors hover:bg-accent/50"
       >
-        <span className={cn('truncate max-w-[180px]', !selectedName && 'text-muted-foreground')}>
+        <span className={cn('max-w-[180px] truncate', !selectedName && 'text-muted-foreground')}>
           {selectedName || placeholder}
         </span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </button>
 
       {open && (
-        <div className="absolute top-full mt-1 left-0 z-50 w-[260px] rounded-md border border-border bg-card shadow-lg">
-          <div className="p-1.5 border-b border-border">
+        <div className="absolute left-0 top-full z-50 mt-1 w-[260px] rounded-md border border-border bg-card shadow-lg">
+          <div className="border-b border-border p-1.5">
             <div className="flex items-center gap-1.5 rounded-md bg-muted/30 px-2 py-1">
-              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <input
                 type="text"
                 value={search}
@@ -208,31 +207,44 @@ function SearchableAgentSelect({
           <div className="max-h-[240px] overflow-y-auto p-1">
             <button
               type="button"
-              onClick={() => { onChange(null); setOpen(false) }}
+              onClick={() => {
+                onChange(null)
+                setOpen(false)
+              }}
               className={cn(
-                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors',
-                !value && 'font-medium'
+                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-accent/50',
+                !value && 'font-medium',
               )}
             >
-              <Check className={cn('h-3.5 w-3.5 shrink-0', value ? 'invisible' : 'text-foreground')} />
+              <Check
+                className={cn('h-3.5 w-3.5 shrink-0', value ? 'invisible' : 'text-foreground')}
+              />
               {placeholder}
             </button>
             {filtered.map((a) => (
               <button
                 key={a.id}
                 type="button"
-                onClick={() => { onChange(a.id); setOpen(false) }}
+                onClick={() => {
+                  onChange(a.id)
+                  setOpen(false)
+                }}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent/50 transition-colors',
-                  value === a.id && 'font-medium'
+                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm transition-colors hover:bg-accent/50',
+                  value === a.id && 'font-medium',
                 )}
               >
-                <Check className={cn('h-3.5 w-3.5 shrink-0', value === a.id ? 'text-foreground' : 'invisible')} />
+                <Check
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0',
+                    value === a.id ? 'text-foreground' : 'invisible',
+                  )}
+                />
                 <span className="truncate">{a.name}</span>
               </button>
             ))}
             {filtered.length === 0 && (
-              <p className="px-2 py-3 text-xs text-muted-foreground text-center">
+              <p className="px-2 py-3 text-center text-xs text-muted-foreground">
                 {searchPlaceholder}
               </p>
             )}

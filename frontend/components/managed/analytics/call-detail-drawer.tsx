@@ -8,11 +8,7 @@ import { useTranslation } from '@/lib/i18n'
 import { StatTile } from './stat-tile'
 import { ObservationWaterfall } from './observation-waterfall'
 import { useObservationTree } from '@/lib/managed/analytics/hooks'
-import {
-  formatDuration,
-  formatCompactNumber,
-  formatCost,
-} from '@/lib/managed/analytics/formatters'
+import { formatDuration, formatCompactNumber, formatCost } from '@/lib/managed/analytics/formatters'
 import type { CallRecord } from '@/lib/managed/analytics/types'
 
 interface CallDetailDrawerProps {
@@ -32,9 +28,7 @@ function MetadataRow({ label, children }: { label: string; children: React.React
 
 export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps) {
   const { t } = useTranslation()
-  const { data: observations, isLoading: obsLoading } = useObservationTree(
-    call?.trace_id ?? null,
-  )
+  const { data: observations, isLoading: obsLoading } = useObservationTree(call?.trace_id ?? null)
 
   useEffect(() => {
     if (!open) return
@@ -49,31 +43,29 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
 
   return (
     <>
-      {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/20"
-          onClick={onClose}
-        />
-      )}
+      {open && <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />}
       <div
         role="dialog"
         aria-modal="true"
         aria-label={call?.agent_name ?? t('analytics.callDetail.title')}
         className={cn(
-          'fixed inset-y-0 right-0 z-50 w-[480px] bg-card border-l border-border shadow-lg transform transition-transform duration-200 flex flex-col',
+          'fixed inset-y-0 right-0 z-50 flex w-[480px] transform flex-col border-l border-border bg-card shadow-lg transition-transform duration-200',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <h2 className="text-sm font-medium truncate">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-sm font-medium">
               {call?.agent_id ? (
-                <Link href={`/managed/agents/${call.agent_id}`} className="hover:text-foreground transition-colors">
+                <Link
+                  href={`/managed/agents/${call.agent_id}`}
+                  className="transition-colors hover:text-foreground"
+                >
                   {call.agent_name}
                 </Link>
               ) : (
-                call?.agent_name ?? t('analytics.callDetail.title')
+                (call?.agent_name ?? t('analytics.callDetail.title'))
               )}
             </h2>
             {call && <StatusBadge status={call.status} />}
@@ -81,7 +73,7 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
           <button
             onClick={onClose}
             aria-label="Close"
-            className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-accent/50 transition-colors shrink-0"
+            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path
@@ -98,10 +90,15 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
           <div className="flex-1 overflow-y-auto">
             {/* Metadata */}
             <div className="border-b border-border px-5 py-3">
-              <MetadataRow label={t('analytics.calls.columns.engine')}>{call.engine_kind}</MetadataRow>
+              <MetadataRow label={t('analytics.calls.columns.engine')}>
+                {call.engine_kind}
+              </MetadataRow>
               <MetadataRow label={t('analytics.calls.columns.model')}>{call.model}</MetadataRow>
               <MetadataRow label={t('analytics.calls.columns.session')}>
-                <Link href={`/managed/sessions/${call.session_id}`} className="hover:text-foreground transition-colors">
+                <Link
+                  href={`/managed/sessions/${call.session_id}`}
+                  className="transition-colors hover:text-foreground"
+                >
                   <MonoId id={call.session_id} />
                 </Link>
               </MetadataRow>
@@ -133,19 +130,13 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
                 label={t('analytics.calls.columns.duration')}
                 value={formatDuration(call.duration_ms)}
               />
-              <StatTile
-                label={t('analytics.calls.columns.cost')}
-                value={formatCost(call.cost)}
-              />
-              <StatTile
-                label={t('analytics.callDetail.steps')}
-                value={String(call.agent_steps)}
-              />
+              <StatTile label={t('analytics.calls.columns.cost')} value={formatCost(call.cost)} />
+              <StatTile label={t('analytics.callDetail.steps')} value={String(call.agent_steps)} />
             </div>
 
             {/* Observation waterfall */}
             <div className="px-5 py-4">
-              <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 {t('analytics.observations.title')}
               </h3>
               <ObservationWaterfall
@@ -158,10 +149,10 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
             {/* Error */}
             {call.error && (
               <div className="border-t border-border px-5 py-4">
-                <h3 className="text-xs font-medium uppercase tracking-wider text-red-600 dark:text-red-400 mb-2">
+                <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-red-600 dark:text-red-400">
                   {t('common.error')}
                 </h3>
-                <pre className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words bg-red-50 dark:bg-red-950/30 rounded-md p-3">
+                <pre className="whitespace-pre-wrap break-words rounded-md bg-red-50 p-3 text-xs text-red-600 dark:bg-red-950/30 dark:text-red-400">
                   {call.error}
                 </pre>
               </div>
@@ -171,7 +162,7 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
             <div className="border-t border-border px-5 py-4">
               <Link
                 href={`/managed/sessions/${call.session_id}`}
-                className="flex items-center justify-center gap-2 w-full rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent/50 transition-colors"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
               >
                 {t('analytics.callDetail.viewSession')}
               </Link>

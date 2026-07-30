@@ -25,10 +25,15 @@ describe('health-presenter alert keys', () => {
   for (const [type, params] of Object.entries(ALERT_PARAMS)) {
     it(`${type} resolves in both locales with matching placeholders`, () => {
       const key = alertDetailKey(type)
-      for (const [name, tree] of [['en', enTree], ['zh', zhTree]] as const) {
+      for (const [name, tree] of [
+        ['en', enTree],
+        ['zh', zhTree],
+      ] as const) {
         const template = resolve(tree, key)
         expect(template, `${name}:${key}`).toBeTruthy()
-        expect([...placeholders(template!)].sort(), `${name}:${key} placeholders`).toEqual([...params].sort())
+        expect([...placeholders(template!)].sort(), `${name}:${key} placeholders`).toEqual(
+          [...params].sort(),
+        )
       }
     })
   }
@@ -44,10 +49,15 @@ describe('health-presenter suggestion keys', () => {
   for (const [type, params] of Object.entries(SUGGESTION_PARAMS)) {
     it(`${type} resolves in both locales with matching placeholders`, () => {
       const key = suggestionMessageKey(type)
-      for (const [name, tree] of [['en', enTree], ['zh', zhTree]] as const) {
+      for (const [name, tree] of [
+        ['en', enTree],
+        ['zh', zhTree],
+      ] as const) {
         const template = resolve(tree, key)
         expect(template, `${name}:${key}`).toBeTruthy()
-        expect([...placeholders(template!)].sort(), `${name}:${key} placeholders`).toEqual([...params].sort())
+        expect([...placeholders(template!)].sort(), `${name}:${key} placeholders`).toEqual(
+          [...params].sort(),
+        )
       }
     })
   }

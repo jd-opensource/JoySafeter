@@ -43,6 +43,7 @@ def _config() -> Config:
     return cfg
 
 
+@pytest.mark.no_db
 def test_chain_has_single_head():
     """A branched alembic chain produces two heads; surface that early
     before someone discovers it via `alembic upgrade` blowing up on a
@@ -53,6 +54,7 @@ def test_chain_has_single_head():
     assert len(heads) == 1, f"expected single head, got {heads}"
 
 
+@pytest.mark.no_db
 def test_chain_includes_expected_skill_revisions():
     """The chain ending at head must contain the current squashed schema and
     every follow-up Skill/managed-resource revision. If a future rebase drops
@@ -90,6 +92,7 @@ def test_chain_includes_expected_skill_revisions():
     assert not missing, f"missing revisions: {sorted(missing)}"
 
 
+@pytest.mark.no_db
 def test_upgrade_sql_renders_current_skill_steps():
     """Offline SQL generation exercises every revision's ``upgrade()``
     function. A typo (or PG-only syntax that alembic can't render in
@@ -125,6 +128,7 @@ def test_upgrade_sql_renders_current_skill_steps():
     assert "skill_usage_log_project_scan_created_idx" in sql
 
 
+@pytest.mark.no_db
 def test_downgrade_sql_unwinds_current_skill_steps():
     """Round-trip safety net: every upgrade must have a working
     downgrade. Offline mode lets us verify the SQL is generated;

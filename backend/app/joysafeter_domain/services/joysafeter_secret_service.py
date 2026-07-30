@@ -2,6 +2,7 @@ import uuid
 from typing import Optional
 
 from sqlalchemy import and_, delete, or_, outerjoin, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -12,6 +13,7 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, UpdateSecretRequest
 from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
+from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.utils.datetime import utc_now
 
 MASKED_SECRET_PREFIX = "********"
@@ -187,7 +189,23 @@ class SecretService:
             await self.clear_default_secret(project_id=project_id)
         secret = JoySafeterSecret(**kwargs)
         self.db.add(secret)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            message = str(getattr(exc, "orig", None) or exc).lower()
+            if (
+                "uq_joysafeter_secrets_project_name" in message
+                or "uq_joysafeter_secrets_global_name" in message
+                or ("joysafeter_secrets" in message and "name" in message and "unique" in message)
+            ):
+                raise ResourceConflictError(
+                    code="SECRET_NAME_EXISTS",
+                    message=f"A secret named '{req.name}' already exists in this project",
+                    data={"name": req.name},
+                    user_action="fix_input",
+                ) from exc
+            raise
         await self.db.refresh(secret)
         return secret
 

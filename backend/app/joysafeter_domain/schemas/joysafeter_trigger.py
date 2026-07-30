@@ -59,7 +59,17 @@ class TriggerCreateRequest(BaseModel):
             return _strip_required(value)
         return value
 
-    @field_validator("system_prompt", "environment_ref", "description", "cron_expr", "secret_ref", "secret_key", "dedupe_header", "session_key", mode="before")
+    @field_validator(
+        "system_prompt",
+        "environment_ref",
+        "description",
+        "cron_expr",
+        "secret_ref",
+        "secret_key",
+        "dedupe_header",
+        "session_key",
+        mode="before",
+    )
     @classmethod
     def _strip_optional_string(cls, value: object) -> object:
         if isinstance(value, str):
@@ -104,7 +114,17 @@ class TriggerUpdateRequest(BaseModel):
             return _strip_required(value)
         return value
 
-    @field_validator("system_prompt", "environment_ref", "description", "cron_expr", "secret_ref", "secret_key", "dedupe_header", "session_key", mode="before")
+    @field_validator(
+        "system_prompt",
+        "environment_ref",
+        "description",
+        "cron_expr",
+        "secret_ref",
+        "secret_key",
+        "dedupe_header",
+        "session_key",
+        mode="before",
+    )
     @classmethod
     def _strip_optional_string(cls, value: object) -> object:
         if isinstance(value, str):

@@ -37,7 +37,6 @@ from app.joysafeter_shared.common.app_errors import (
 )
 from app.joysafeter_shared.config import settings as app_settings
 
-
 pytestmark = pytest.mark.no_db
 
 
@@ -75,12 +74,12 @@ def _make_service(skill, *, monkeypatch):
     # P2.9 added strict org-isolation context. ``None`` keeps the
     # pre-P2.9 cross-org-friendly behavior — the right default for
     # tests that don't exercise that gate (those live in
-    # ``test_skill_permissions``).
+    # ``test_skill_access_gate``).
     svc._active_org_id = None
 
     # Bypass the per-skill auth check: every transition test calls it,
     # and we cover access denial separately in
-    # ``test_skill_permissions``.
+    # ``test_skill_access_gate``.
     async def _allow(*_args, **_kw):
         return None
 

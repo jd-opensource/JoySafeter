@@ -39,6 +39,29 @@ async def test_secret_name_reusable_after_soft_delete_within_project(db_session)
 
 
 @pytest.mark.asyncio
+async def test_create_secret_duplicate_active_name_raises_conflict(db_session):
+    # A duplicate ACTIVE (project_id, name) must surface as a clean 409-style
+    # ResourceConflictError, not a raw IntegrityError bubbling up to a 500.
+    from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest
+    from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
+    from app.joysafeter_shared.common.app_errors import ResourceConflictError
+
+    await _ensure_project(db_session, "proj-idx")
+    svc = SecretService(db_session)
+    await svc.create_secret(
+        CreateSecretRequest(name="dup", provider="custom", protocol="custom", data={"WEBHOOK_SECRET": "x"}),
+        project_id="proj-idx",
+    )
+
+    with pytest.raises(ResourceConflictError) as exc_info:
+        await svc.create_secret(
+            CreateSecretRequest(name="dup", provider="custom", protocol="custom", data={"WEBHOOK_SECRET": "y"}),
+            project_id="proj-idx",
+        )
+    assert exc_info.value.code == "SECRET_NAME_EXISTS"
+
+
+@pytest.mark.asyncio
 async def test_vault_name_reusable_after_soft_delete_within_project(db_session):
     await _ensure_project(db_session, "proj-idx")
 

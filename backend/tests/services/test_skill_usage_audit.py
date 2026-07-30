@@ -7,7 +7,6 @@ import pytest
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_domain.services.joysafeter_skill_security import SkillPacker
 
-
 pytestmark = pytest.mark.no_db
 
 

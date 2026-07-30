@@ -15,7 +15,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Star, Pencil, Archive, RotateCcw, Users, PauseCircle, PlayCircle } from 'lucide-react'
+import {
+  Plus,
+  Star,
+  Pencil,
+  Archive,
+  RotateCcw,
+  Users,
+  PauseCircle,
+  PlayCircle,
+} from 'lucide-react'
 import {
   DataTable,
   FilterBar,
@@ -369,7 +378,9 @@ export default function ProjectsPage() {
       key: 'status',
       header: t('manage.projects.status'),
       render: (project) => (
-        <StatusBadge status={project.archived_at ? 'archived' : project.triggers_paused ? 'paused' : 'active'} />
+        <StatusBadge
+          status={project.archived_at ? 'archived' : project.triggers_paused ? 'paused' : 'active'}
+        />
       ),
     },
     {

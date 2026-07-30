@@ -1271,6 +1271,105 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="Invalid or expired verification token",
     ),
+    # --- Platform administration / auth ---
+    "JOYSAFETER_PLATFORM_ADMIN_REQUIRED": CatalogEntry(
+        code="JOYSAFETER_PLATFORM_ADMIN_REQUIRED",
+        error_class=AccessDeniedError,
+        default_message="Platform admin access required",
+    ),
+    "PLATFORM_ADMIN_SELF_REVOKE_DENIED": CatalogEntry(
+        code="PLATFORM_ADMIN_SELF_REVOKE_DENIED",
+        error_class=InvalidRequestError,
+        default_message="You cannot revoke your own platform admin role",
+    ),
+    "PLATFORM_USER_NOT_FOUND": CatalogEntry(
+        code="PLATFORM_USER_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="User not found",
+    ),
+    # --- Secrets ---
+    "SECRET_NAME_EXISTS": CatalogEntry(
+        code="SECRET_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="Secret name exists",
+    ),
+    # --- Storage volumes / grants / mounts ---
+    "PROJECT_SCOPE_REQUIRED": CatalogEntry(
+        code="PROJECT_SCOPE_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Project scope is required for storage volume access",
+    ),
+    "SESSION_STORAGE_MOUNT_LIMIT_EXCEEDED": CatalogEntry(
+        code="SESSION_STORAGE_MOUNT_LIMIT_EXCEEDED",
+        error_class=InvalidRequestError,
+        default_message="Session storage mount limit exceeded",
+    ),
+    "STORAGE_ACCESS_DENIED": CatalogEntry(
+        code="STORAGE_ACCESS_DENIED",
+        error_class=InvalidRequestError,
+        default_message="Grant access exceeds volume maximum access",
+    ),
+    "STORAGE_GRANT_NOT_FOUND": CatalogEntry(
+        code="STORAGE_GRANT_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Storage grant not found",
+    ),
+    "STORAGE_ORGANIZATION_GRANT_NOT_FOUND": CatalogEntry(
+        code="STORAGE_ORGANIZATION_GRANT_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Storage organization grant not found",
+    ),
+    "STORAGE_ORG_GRANT_REQUIRED": CatalogEntry(
+        code="STORAGE_ORG_GRANT_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Storage volume must be granted to the organization before granting it to a project",
+    ),
+    "STORAGE_PREFIX_DENIED": CatalogEntry(
+        code="STORAGE_PREFIX_DENIED",
+        error_class=InvalidRequestError,
+        default_message="Grant allowed_prefixes exceed volume allowed prefixes",
+    ),
+    "STORAGE_QUOTA_DENIED": CatalogEntry(
+        code="STORAGE_QUOTA_DENIED",
+        error_class=InvalidRequestError,
+        default_message="Grant quota exceeds volume quota",
+    ),
+    "STORAGE_SUB_PATH_DENIED": CatalogEntry(
+        code="STORAGE_SUB_PATH_DENIED",
+        error_class=InvalidRequestError,
+        default_message="sub_path is outside allowed prefixes",
+    ),
+    "STORAGE_VOLUME_IN_USE": CatalogEntry(
+        code="STORAGE_VOLUME_IN_USE",
+        error_class=ResourceConflictError,
+        default_message="Storage volume has active session mounts",
+    ),
+    "STORAGE_VOLUME_NOT_ALLOWED": CatalogEntry(
+        code="STORAGE_VOLUME_NOT_ALLOWED",
+        error_class=InvalidRequestError,
+        default_message="Storage volume is not allowed for current project",
+    ),
+    "STORAGE_VOLUME_NOT_FOUND": CatalogEntry(
+        code="STORAGE_VOLUME_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Storage volume not found",
+    ),
+    "STORAGE_VOLUME_REF_EXISTS": CatalogEntry(
+        code="STORAGE_VOLUME_REF_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="Storage volume ref exists",
+    ),
+    # --- Triggers ---
+    "TRIGGER_FIRE_IN_PROGRESS": CatalogEntry(
+        code="TRIGGER_FIRE_IN_PROGRESS",
+        error_class=ResourceConflictError,
+        default_message="Trigger is currently being fired by the scheduler. Wait for it to finish before deleting.",
+    ),
+    "TRIGGER_HAS_ACTIVE_RUNS": CatalogEntry(
+        code="TRIGGER_HAS_ACTIVE_RUNS",
+        error_class=ResourceConflictError,
+        default_message="Trigger has active runs. Cancel or wait for them before deleting the trigger.",
+    ),
 }
 
 

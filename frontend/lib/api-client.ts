@@ -616,6 +616,118 @@ export async function apiFetch<T>(url: string, options: ApiRequestOptions = {}):
   return parseResponse<T>(response)
 }
 
+export async function apiFetchResponse(
+  url: string,
+  options: ApiRequestOptions = {},
+): Promise<Response> {
+  const {
+    withAuth = true,
+    body,
+    json = true,
+    timeout = 30000,
+    skipManagedContext,
+    headers: customHeaders,
+    method = 'GET',
+    signal: externalSignal,
+    ...restOptions
+  } = options
+  const headers: Record<string, string> = {
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+    ...(customHeaders as Record<string, string>),
+  }
+
+  if (withAuth) {
+    const csrfToken = getCsrfToken()
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken
+    }
+    if (!skipManagedContext) {
+      const { currentOrgId, currentProjectId } = useProjectStore.getState()
+      if (currentOrgId && !headers['X-Org-Id']) {
+        headers['X-Org-Id'] = currentOrgId
+      }
+      if (currentProjectId && !headers['X-Project-Id']) {
+        headers['X-Project-Id'] = currentProjectId
+      }
+    }
+  }
+
+  const fullUrl = buildUrl(url)
+  const requestSignal = createRequestAbortSignal(timeout, externalSignal)
+  let didRefresh = false
+  const requestBody = json ? trimConfigStringFields(body) : body
+
+  const makeRequest = async (): Promise<Response> => {
+    try {
+      const response = await fetch(fullUrl, {
+        ...restOptions,
+        method,
+        headers,
+        body:
+          body !== undefined
+            ? json
+              ? JSON.stringify(requestBody)
+              : (body as BodyInit)
+            : undefined,
+        signal: requestSignal.signal,
+        credentials: 'include',
+      })
+
+      if (response.status === 401 && withAuth && !didRefresh) {
+        try {
+          didRefresh = true
+          await refreshAccessTokenOrRelogin()
+          const newCsrfToken = getCsrfToken()
+          if (newCsrfToken) headers['X-CSRF-Token'] = newCsrfToken
+          return makeRequest()
+        } catch (refreshError) {
+          if (!isUnauthorizedApiError(refreshError)) {
+            throw refreshError
+          }
+        }
+      }
+
+      if (!response.ok) {
+        throw await extractErrorFromResponse(response)
+      }
+
+      return response
+    } catch (e) {
+      if (e instanceof ApiError) throw e
+      if (e instanceof Error) {
+        if (e.name === 'AbortError') {
+          if (requestSignal.didTimeout()) {
+            throw createApiError(408, 'Request Timeout', {
+              code: 'REQUEST_TIMEOUT',
+              message: 'Request timed out',
+              data: null,
+            })
+          }
+          throw createApiError(0, 'Request Aborted', {
+            code: 'REQUEST_ABORTED',
+            message: 'Request was aborted',
+            data: null,
+          })
+        }
+        throw createApiError(0, 'Network Error', {
+          code: 'NETWORK_ERROR',
+          message: e.message,
+          data: null,
+        })
+      }
+      throw createApiError(0, 'Unknown Error', {
+        code: 'UNKNOWN_ERROR',
+        message: String(e),
+        data: null,
+      })
+    } finally {
+      requestSignal.cleanup()
+    }
+  }
+
+  return makeRequest()
+}
+
 // ==================== Convenience Methods ====================
 
 export function apiGet<T>(
@@ -838,6 +950,17 @@ export function managedUpload<T>(
   return apiUpload<T>(buildManagedUrl(url), file, { ...options, headers })
 }
 
+export function managedFetchResponse(
+  url: string,
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<Response> {
+  const headers = getManagedHeaders(
+    options?.headers as Record<string, string>,
+    options?.skipManagedContext,
+  )
+  return apiFetchResponse(buildManagedUrl(url), { ...options, headers, method: 'GET' })
+}
+
 // ==================== Default Export ====================
 const apiClient = {
   fetch: apiFetch,
@@ -848,6 +971,7 @@ const apiClient = {
   patch: apiPatch,
   upload: apiUpload,
   stream: apiStream,
+  response: apiFetchResponse,
 }
 
 export default apiClient

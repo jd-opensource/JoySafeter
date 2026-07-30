@@ -198,7 +198,9 @@ async def test_scheduler_claim_skips_archived_project_triggers_without_disabling
         archived=True,
     )
     active_trigger = await _create_due_trigger(db_session, project=active_project, agent=active_agent, name="active")
-    archived_trigger = await _create_due_trigger(db_session, project=archived_project, agent=archived_agent, name="archived")
+    archived_trigger = await _create_due_trigger(
+        db_session, project=archived_project, agent=archived_agent, name="archived"
+    )
     active_trigger_id = active_trigger.id
     archived_trigger_id = archived_trigger.id
 
@@ -291,7 +293,9 @@ async def test_update_returns_missing_when_concurrent_delete_wins(db_session, po
         assert updated is None
 
         db_session.expire_all()
-        row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+        row = (
+            await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+        ).scalar_one()
         assert row.deleted_at is not None
         assert row.enabled is False
         assert row.next_run_at is None
@@ -318,7 +322,9 @@ async def test_stale_scheduler_advance_does_not_clear_new_worker_claim(db_sessio
     assert fired_slot is not None
 
     db_session.expire_all()
-    reclaimed = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+    reclaimed = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
     reclaimed.locked_by = "worker-b"
     reclaimed.locked_at = utc_now()
     await db_session.commit()
@@ -411,7 +417,9 @@ async def test_scheduler_recovers_created_task_when_state_write_was_missed(db_se
         assert first_outcome.session_id is not None
 
         db_session.expire_all()
-        stale = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+        stale = (
+            await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+        ).scalar_one()
         stale.locked_at = utc_now() - timedelta(minutes=10)
         await db_session.commit()
 
@@ -440,7 +448,9 @@ async def test_scheduler_recovers_created_task_when_state_write_was_missed(db_se
         assert advanced is True
 
         db_session.expire_all()
-        row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+        row = (
+            await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+        ).scalar_one()
         tasks = (
             (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id)))
             .scalars()
@@ -515,8 +525,12 @@ async def test_scheduler_claim_skips_deleted_or_archived_agent_triggers_without_
     _, active_project, active_agent = await _create_project_with_agent(db_session, name="ActiveAgentClaim")
     _, deleted_project, deleted_agent = await _create_project_with_agent(db_session, name="DeletedAgentClaim")
     _, archived_project, archived_agent = await _create_project_with_agent(db_session, name="ArchivedAgentClaim")
-    active_trigger = await _create_due_trigger(db_session, project=active_project, agent=active_agent, name="active-agent")
-    deleted_trigger = await _create_due_trigger(db_session, project=deleted_project, agent=deleted_agent, name="deleted-agent")
+    active_trigger = await _create_due_trigger(
+        db_session, project=active_project, agent=active_agent, name="active-agent"
+    )
+    deleted_trigger = await _create_due_trigger(
+        db_session, project=deleted_project, agent=deleted_agent, name="deleted-agent"
+    )
     archived_trigger = await _create_due_trigger(
         db_session,
         project=archived_project,
@@ -580,7 +594,9 @@ async def test_scheduler_claim_skips_trigger_environment_refs_that_are_not_live(
     live_env = await _create_environment(db_session, project=active_project)
     archived_env = await _create_environment(db_session, project=archived_project)
     deleted_env = await _create_environment(db_session, project=deleted_project)
-    active_trigger = await _create_due_trigger(db_session, project=active_project, agent=active_agent, name="active-env")
+    active_trigger = await _create_due_trigger(
+        db_session, project=active_project, agent=active_agent, name="active-env"
+    )
     archived_trigger = await _create_due_trigger(
         db_session,
         project=archived_project,
@@ -640,7 +656,9 @@ async def test_scheduler_claim_skips_agent_environment_refs_that_are_not_live(db
     deleted_agent.environment_ref = str(deleted_env.id)
     archived_env.archived_at = utc_now()
     deleted_env.deleted_at = utc_now()
-    active_trigger = await _create_due_trigger(db_session, project=active_project, agent=active_agent, name="active-agent-env")
+    active_trigger = await _create_due_trigger(
+        db_session, project=active_project, agent=active_agent, name="active-agent-env"
+    )
     archived_trigger = await _create_due_trigger(
         db_session,
         project=archived_project,
@@ -1476,7 +1494,9 @@ async def test_trigger_service_create_race_converts_db_unique_violation_to_confl
     rows = (
         (
             await db_session.execute(
-                select(JoySafeterTrigger).where(JoySafeterTrigger.project_id == project_id, JoySafeterTrigger.name == existing_name)
+                select(JoySafeterTrigger).where(
+                    JoySafeterTrigger.project_id == project_id, JoySafeterTrigger.name == existing_name
+                )
             )
         )
         .scalars()
@@ -1486,7 +1506,9 @@ async def test_trigger_service_create_race_converts_db_unique_violation_to_confl
 
 
 @pytest.mark.asyncio
-async def test_trigger_service_create_global_name_race_converts_db_unique_violation_to_conflict(db_session, monkeypatch):
+async def test_trigger_service_create_global_name_race_converts_db_unique_violation_to_conflict(
+    db_session, monkeypatch
+):
     agent = JoySafeterAgent(name=f"global-duplicate-agent-{uuid.uuid4()}", project_id=None)
     db_session.add(agent)
     await db_session.commit()
@@ -1678,9 +1700,7 @@ async def test_update_trigger_rejects_missing_environment_without_persisting_ref
         "user_action": "fix_input",
     }
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert row.environment_ref is None
 
 
@@ -1713,9 +1733,7 @@ async def test_update_trigger_rejects_missing_environment_without_persisting_oth
         "user_action": "fix_input",
     }
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert row.name == original_name
     assert row.prompt_template == original_prompt
     assert row.timeout_sec == original_timeout
@@ -1747,9 +1765,7 @@ async def test_trigger_service_update_rejects_cross_project_environment_without_
         "user_action": "fix_input",
     }
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert row.environment_ref is None
 
 
@@ -1847,9 +1863,7 @@ async def test_enable_trigger_rejects_archived_agent_without_rearming_trigger(db
         "user_action": "refresh",
     }
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert row.enabled is False
     assert row.next_run_at is None
 
@@ -1884,9 +1898,7 @@ async def test_enable_trigger_rejects_archived_environment_without_rearming_trig
         "user_action": "refresh",
     }
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert row.enabled is False
     assert row.next_run_at is None
 
@@ -1958,9 +1970,7 @@ async def test_advance_after_fire_catches_up_once_from_now_not_backfilling_misse
     await JoySafeterTriggerService(db_session).advance_after_fire(trigger_id, fired_slot)
 
     db_session.expire_all()
-    row = (
-        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert row.next_run_at is not None
     assert row.next_run_at > utc_now()
     # Landed on a real */5 boundary — proves it recomputed from now, not a clamped
@@ -2343,10 +2353,16 @@ async def test_scheduler_replace_cancels_pending_prior_task_and_fires_replacemen
 
         db_session.expire_all()
         tasks = (
-            await db_session.execute(
-                select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id).order_by(JoySafeterTask.created_at)
+            (
+                await db_session.execute(
+                    select(JoySafeterTask)
+                    .where(JoySafeterTask.trigger_id == trigger_id)
+                    .order_by(JoySafeterTask.created_at)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         old_task_row = next(row for row in tasks if str(row.id) == str(old_task_id))
         new_task_row = next(row for row in tasks if str(row.id) == str(outcome.task_id))
         old_session_row = (
@@ -2367,9 +2383,7 @@ async def test_scheduler_replace_cancels_pending_prior_task_and_fires_replacemen
 
 
 @pytest.mark.asyncio
-async def test_scheduled_pending_task_cancel_fails_closed_if_sandbox_is_assigned_concurrently(
-    db_session, monkeypatch
-):
+async def test_scheduled_pending_task_cancel_fails_closed_if_sandbox_is_assigned_concurrently(db_session, monkeypatch):
     redis = _FakeCommandRedis()
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",

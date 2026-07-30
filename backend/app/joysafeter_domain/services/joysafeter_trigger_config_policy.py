@@ -113,7 +113,9 @@ class TriggerConfigPolicy:
             pinned_session_id=pinned_session_id,
             session_key=session_key,
         )
-        concurrency_policy = fields["concurrency_policy"] if "concurrency_policy" in fields else trigger.concurrency_policy
+        concurrency_policy = (
+            fields["concurrency_policy"] if "concurrency_policy" in fields else trigger.concurrency_policy
+        )
         cls._validate_concurrency_policy(concurrency_policy)
 
         cron_expr = fields["cron_expr"] if "cron_expr" in fields else trigger.cron_expr
@@ -146,9 +148,8 @@ class TriggerConfigPolicy:
             next_environment_ref=fields["environment_ref"] if "environment_ref" in fields else trigger.environment_ref,
             should_resolve_target="environment_ref" in fields or fields.get("enabled") is True,
             secret_ref_to_verify=fields["secret_ref"] if trigger.type == "webhook" and "secret_ref" in fields else None,
-            recompute_next_run=trigger.type == "cron" and any(
-                key in fields for key in ("cron_expr", "timezone", "run_at", "enabled")
-            ),
+            recompute_next_run=trigger.type == "cron"
+            and any(key in fields for key in ("cron_expr", "timezone", "run_at", "enabled")),
             is_reenable=fields.get("enabled") is True,
         )
 
@@ -297,7 +298,11 @@ class TriggerConfigPolicy:
         if not auth_methods:
             raw_auth_methods = config.get("auth_methods")
             code = "TRIGGER_AUTH_METHODS_REQUIRED" if raw_auth_methods == [] else "TRIGGER_AUTH_METHODS_INVALID"
-            message = "auth_methods must not be empty" if raw_auth_methods == [] else "auth_methods contains unsupported values"
+            message = (
+                "auth_methods must not be empty"
+                if raw_auth_methods == []
+                else "auth_methods contains unsupported values"
+            )
             raise RequestValidationAppError(
                 code=code,
                 message=message,

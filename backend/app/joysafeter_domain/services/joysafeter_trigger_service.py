@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import select, text
+from sqlalchemy import ColumnElement, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +49,7 @@ class JoySafeterTriggerService:
             runtime_block_reason = self.trigger_runtime_block_reason
         get_trigger_for_update = None
         if hasattr(self.db, "execute"):
+
             async def get_trigger_for_update(trigger_id: uuid.UUID) -> Optional[JoySafeterTrigger]:
                 return await self._get_for_update(trigger_id)
 
@@ -117,8 +118,15 @@ class JoySafeterTriggerService:
     @staticmethod
     def _is_trigger_name_integrity_error(exc: IntegrityError) -> bool:
         message = str(exc.orig or exc).lower()
-        return "uq_joysafeter_triggers_project_name" in message or "uq_joysafeter_triggers_global_name" in message or (
-            "joysafeter_triggers" in message and "project_id" in message and "name" in message and "unique" in message
+        return (
+            "uq_joysafeter_triggers_project_name" in message
+            or "uq_joysafeter_triggers_global_name" in message
+            or (
+                "joysafeter_triggers" in message
+                and "project_id" in message
+                and "name" in message
+                and "unique" in message
+            )
         )
 
     @staticmethod
@@ -307,7 +315,9 @@ class JoySafeterTriggerService:
         result = await self.db.execute(select(JoySafeterTrigger).where(*conditions))
         return result.scalar_one_or_none()
 
-    async def _get_for_update(self, trigger_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterTrigger]:
+    async def _get_for_update(
+        self, trigger_id: uuid.UUID, project_id: Optional[str] = None
+    ) -> Optional[JoySafeterTrigger]:
         result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         return result.scalar_one_or_none()
 
@@ -337,7 +347,7 @@ class JoySafeterTriggerService:
         limit: int = 100,
         offset: int = 0,
     ) -> Sequence[JoySafeterTrigger]:
-        conditions = [JoySafeterTrigger.deleted_at.is_(None)]
+        conditions: list[ColumnElement[bool]] = [JoySafeterTrigger.deleted_at.is_(None)]
         if project_id is not None:
             conditions.append(JoySafeterTrigger.project_id == project_id)
         if enabled is not None:
@@ -345,11 +355,17 @@ class JoySafeterTriggerService:
         if type is not None:
             conditions.append(JoySafeterTrigger.type == type)
         result = await self.db.execute(
-            select(JoySafeterTrigger).where(*conditions).order_by(JoySafeterTrigger.created_at.desc()).limit(limit).offset(offset)
+            select(JoySafeterTrigger)
+            .where(*conditions)
+            .order_by(JoySafeterTrigger.created_at.desc())
+            .limit(limit)
+            .offset(offset)
         )
         return result.scalars().all()
 
-    async def update(self, trigger_id: uuid.UUID, project_id: Optional[str], **fields: Any) -> Optional[JoySafeterTrigger]:
+    async def update(
+        self, trigger_id: uuid.UUID, project_id: Optional[str], **fields: Any
+    ) -> Optional[JoySafeterTrigger]:
         trigger = await self._get_for_update(trigger_id, project_id=project_id)
         if trigger is None:
             return None
@@ -365,7 +381,9 @@ class JoySafeterTriggerService:
                 environment_ref=plan.next_environment_ref,
             )
         if plan.secret_ref_to_verify is not None:
-            secret = await SecretService(self.db).get_secret_by_name(plan.secret_ref_to_verify, project_id=trigger.project_id)
+            secret = await SecretService(self.db).get_secret_by_name(
+                plan.secret_ref_to_verify, project_id=trigger.project_id
+            )
             if secret is None:
                 raise NotFoundError(
                     code="TRIGGER_SECRET_NOT_FOUND",
@@ -431,7 +449,9 @@ class JoySafeterTriggerService:
     def _claimable_lock_filter(self, stale_before: datetime):
         return TriggerRuntimeGate.claimable_lock_filter(stale_before)
 
-    async def claim_due_cron_triggers(self, *, worker_id: str, limit: int, lock_grace_sec: int = 120) -> Sequence[JoySafeterTrigger]:
+    async def claim_due_cron_triggers(
+        self, *, worker_id: str, limit: int, lock_grace_sec: int = 120
+    ) -> Sequence[JoySafeterTrigger]:
         """Atomically claim due, enabled cron triggers whose project is live.
 
         A trigger is claimable when ``next_run_at <= now`` and it is either
@@ -710,7 +730,9 @@ class JoySafeterTriggerService:
     def _webhook_auth_methods(config: Any) -> frozenset[str]:
         return TriggerConfigPolicy.webhook_auth_methods(config)
 
-    async def verify_webhook_auth(self, trigger: JoySafeterTrigger, raw_body: bytes, signature: Optional[str], token: Optional[str]) -> bool:
+    async def verify_webhook_auth(
+        self, trigger: JoySafeterTrigger, raw_body: bytes, signature: Optional[str], token: Optional[str]
+    ) -> bool:
         secret = await self._resolve_webhook_secret(trigger)
         return WebhookAuthService.verify_with_secret(
             config=trigger.config,
@@ -760,7 +782,9 @@ class JoySafeterTriggerService:
             now=now,
         )
 
-    async def build_webhook_curl(self, trigger: JoySafeterTrigger, *, url: str, sample_body: Optional[dict[str, Any]] = None) -> str:
+    async def build_webhook_curl(
+        self, trigger: JoySafeterTrigger, *, url: str, sample_body: Optional[dict[str, Any]] = None
+    ) -> str:
         """A copy-paste ``curl`` that delivers a correctly HMAC-signed sample body.
 
         The trigger owner already holds the secret, so returning a signature

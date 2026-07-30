@@ -3,13 +3,22 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Database, Edit3, KeyRound, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react'
-import type { ProjectRecord, StorageMountAudit, StorageOrganizationGrant, StorageProjectGrant, StorageVolume } from '@/types/managed'
+import type {
+  ProjectRecord,
+  StorageMountAudit,
+  StorageOrganizationGrant,
+  StorageProjectGrant,
+  StorageVolume,
+} from '@/types/managed'
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { useSession } from '@/lib/auth/auth-client'
-import { currentProjectAllowsWrite, useCurrentProjectReadOnly } from '@/hooks/managed/use-current-project-read-only'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -40,7 +49,16 @@ import {
   StatusBadge,
 } from '@/components/managed/shared'
 
-const BACKEND_TYPES = ['generic', 'cubefs', 'cephfs', 'nfs', 'juicefs', 'lustre', 'pvc', 'host_path']
+const BACKEND_TYPES = [
+  'generic',
+  'cubefs',
+  'cephfs',
+  'nfs',
+  'juicefs',
+  'lustre',
+  'pvc',
+  'host_path',
+]
 
 type AccessMode = 'read_only' | 'read_write'
 type VolumeFormMode = 'create' | 'edit'
@@ -161,7 +179,11 @@ function SearchableGroupedSelect({
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
     if (!query) return options
-    return options.filter((option) => `${option.label} ${option.description || ''} ${option.searchText || ''}`.toLowerCase().includes(query))
+    return options.filter((option) =>
+      `${option.label} ${option.description || ''} ${option.searchText || ''}`
+        .toLowerCase()
+        .includes(query),
+    )
   }, [options, search])
   const groups = useMemo(() => {
     const map = new Map<string, SearchSelectOption[]>()
@@ -208,18 +230,28 @@ function SearchableGroupedSelect({
           groups.map(([group, items], groupIndex) => (
             <SelectGroup key={group}>
               <SelectLabel className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${palette[groupIndex % palette.length]}`}>
+                <span
+                  className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white ${palette[groupIndex % palette.length]}`}
+                >
                   {group.charAt(0).toUpperCase()}
                 </span>
                 {group}
-                <span className="text-[10px] font-normal text-muted-foreground/60">{items.length}</span>
+                <span className="text-[10px] font-normal text-muted-foreground/60">
+                  {items.length}
+                </span>
               </SelectLabel>
               {items.map((option, optionIndex) => (
                 <SelectItem key={option.value} value={option.value}>
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="w-3 shrink-0 text-[11px] text-muted-foreground/40">{optionIndex === items.length - 1 ? '└' : '├'}</span>
+                    <span className="w-3 shrink-0 text-[11px] text-muted-foreground/40">
+                      {optionIndex === items.length - 1 ? '└' : '├'}
+                    </span>
                     <span className="min-w-0 truncate">{option.label}</span>
-                    {option.badge ? <span className="shrink-0 text-[10px] text-muted-foreground/60">{option.badge}</span> : null}
+                    {option.badge ? (
+                      <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                        {option.badge}
+                      </span>
+                    ) : null}
                   </span>
                 </SelectItem>
               ))}
@@ -249,7 +281,9 @@ function SimpleStyledSelect({
       </SelectTrigger>
       <SelectContent>
         {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
         ))}
       </SelectContent>
     </Select>
@@ -270,7 +304,8 @@ function volumeToForm(volume: StorageVolume): VolumeFormState {
     allowedPrefixes: joinLines(volume.allowed_prefixes),
     runtimeMode: k8sPvc && !dockerHostPath ? 'k8s' : 'docker',
     dockerHostPath,
-    k8sNamespace: typeof volume.k8s?.namespace === 'string' ? volume.k8s.namespace : 'joysafeter-sandboxes',
+    k8sNamespace:
+      typeof volume.k8s?.namespace === 'string' ? volume.k8s.namespace : 'joysafeter-sandboxes',
     k8sPvc,
     enabled: volume.enabled,
   }
@@ -307,8 +342,14 @@ function currentProjectGrant(volume: StorageVolume, projectId?: string | null) {
 }
 
 function buildVolumePayload(form: VolumeFormState) {
-  const docker = form.runtimeMode === 'docker' && form.dockerHostPath.trim() ? { host_path: form.dockerHostPath.trim() } : {}
-  const k8s = form.runtimeMode === 'k8s' && form.k8sPvc.trim() ? { namespace: form.k8sNamespace.trim(), pvc: form.k8sPvc.trim() } : {}
+  const docker =
+    form.runtimeMode === 'docker' && form.dockerHostPath.trim()
+      ? { host_path: form.dockerHostPath.trim() }
+      : {}
+  const k8s =
+    form.runtimeMode === 'k8s' && form.k8sPvc.trim()
+      ? { namespace: form.k8sNamespace.trim(), pvc: form.k8sPvc.trim() }
+      : {}
   const payload: Record<string, unknown> = {
     backend_type: form.backendType.trim() || 'generic',
     display_name: form.displayName.trim(),
@@ -352,8 +393,13 @@ function grantStatus(volume: StorageVolume, projectId?: string | null) {
 function organizationOptionLabel(org: PlatformOrganization) {
   const name = org.name || org.slug || org.id
   const owner = org.member_emails?.[0]
-  const projectText = typeof org.project_count === 'number' ? `${org.project_count}个项目` : `组织：${org.id.slice(0, 8)}`
-  const memberText = owner ? `${owner}${(org.member_count || 0) > 1 ? ` 等${org.member_count}人` : ''}` : org.slug || org.id.slice(0, 8)
+  const projectText =
+    typeof org.project_count === 'number'
+      ? `${org.project_count}个项目`
+      : `组织：${org.id.slice(0, 8)}`
+  const memberText = owner
+    ? `${owner}${(org.member_count || 0) > 1 ? ` 等${org.member_count}人` : ''}`
+    : org.slug || org.id.slice(0, 8)
   return `${name} · ${memberText} · ${projectText}`
 }
 
@@ -375,11 +421,17 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
 
   const volumesQuery = useQuery({
     queryKey: ['storage-volumes', requestScope.key],
-    queryFn: () => managedGet<{ data: StorageVolume[] }>(`/storage-volumes?include_disabled=true${platformMode ? '' : '&scope=organization'}`),
+    queryFn: () =>
+      managedGet<{ data: StorageVolume[] }>(
+        `/storage-volumes?include_disabled=true${platformMode ? '' : '&scope=organization'}`,
+      ),
   })
   const auditQuery = useQuery({
     queryKey: ['storage-volumes-audit', requestScope.key, selectedVolume?.id || 'all'],
-    queryFn: () => managedGet<{ data: StorageMountAudit[] }>(`/storage-volumes/audit/logs?limit=100${selectedVolume ? `&volume_id=${selectedVolume.id}` : ''}`),
+    queryFn: () =>
+      managedGet<{ data: StorageMountAudit[] }>(
+        `/storage-volumes/audit/logs?limit=100${selectedVolume ? `&volume_id=${selectedVolume.id}` : ''}`,
+      ),
   })
   const projectsQuery = useQuery({
     queryKey: ['storage-volumes-projects', requestScope.key],
@@ -395,39 +447,62 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   const auditRows = auditQuery.data?.data || []
   const projects = projectsQuery.data || []
   const organizations = organizationsQuery.data || []
-  const projectNameById = useMemo(() => new Map(projects.map((project) => [project.id, project.name || project.slug || project.id])), [projects])
-  const organizationNameById = useMemo(() => new Map(organizations.map((org) => [org.id, organizationOptionLabel(org)])), [organizations])
-  const volumeOptions = useMemo<SearchSelectOption[]>(() => volumes.map((volume) => ({
-    value: volume.id,
-    label: volume.display_name,
-    description: `${volume.volume_ref} · ${volume.backend_type || 'generic'}`,
-    group: volume.backend_type || 'generic',
-    badge: grantStatus(volume, currentProjectId),
-    searchText: `${volume.display_name} ${volume.volume_ref} ${volume.description || ''} ${volume.backend_type || ''}`,
-  })), [volumes, currentProjectId])
-  const organizationOptions = useMemo<SearchSelectOption[]>(() => organizations.map((org) => ({
-    value: org.id,
-    label: organizationOptionLabel(org),
-    description: org.slug,
-    group: '组织',
-    badge: typeof org.project_count === 'number' ? `${org.project_count}项目` : undefined,
-    searchText: `${org.name} ${org.slug} ${org.id} ${(org.member_emails || []).join(' ')}`,
-  })), [organizations])
-  const projectOptions = useMemo<SearchSelectOption[]>(() => projects.map((project) => ({
-    value: project.id,
-    label: project.name || project.slug || project.id,
-    description: project.slug || project.id,
-    group: '项目',
-    searchText: `${project.name || ''} ${project.slug || ''} ${project.id}`,
-  })), [projects])
-  const orgGrantableVolumes = volumes.filter((volume) => !currentProjectGrant(volume, currentProjectId))
+  const projectNameById = useMemo(
+    () =>
+      new Map(projects.map((project) => [project.id, project.name || project.slug || project.id])),
+    [projects],
+  )
+  const organizationNameById = useMemo(
+    () => new Map(organizations.map((org) => [org.id, organizationOptionLabel(org)])),
+    [organizations],
+  )
+  const volumeOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      volumes.map((volume) => ({
+        value: volume.id,
+        label: volume.display_name,
+        description: `${volume.volume_ref} · ${volume.backend_type || 'generic'}`,
+        group: volume.backend_type || 'generic',
+        badge: grantStatus(volume, currentProjectId),
+        searchText: `${volume.display_name} ${volume.volume_ref} ${volume.description || ''} ${volume.backend_type || ''}`,
+      })),
+    [volumes, currentProjectId],
+  )
+  const organizationOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      organizations.map((org) => ({
+        value: org.id,
+        label: organizationOptionLabel(org),
+        description: org.slug,
+        group: '组织',
+        badge: typeof org.project_count === 'number' ? `${org.project_count}项目` : undefined,
+        searchText: `${org.name} ${org.slug} ${org.id} ${(org.member_emails || []).join(' ')}`,
+      })),
+    [organizations],
+  )
+  const projectOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      projects.map((project) => ({
+        value: project.id,
+        label: project.name || project.slug || project.id,
+        description: project.slug || project.id,
+        group: '项目',
+        searchText: `${project.name || ''} ${project.slug || ''} ${project.id}`,
+      })),
+    [projects],
+  )
+  const orgGrantableVolumes = volumes.filter(
+    (volume) => !currentProjectGrant(volume, currentProjectId),
+  )
 
   const openOrgGrantDialog = (volume?: StorageVolume) => {
     const target = volume || orgGrantableVolumes[0] || volumes[0] || null
     if (!target) return
     const existing = currentProjectGrant(target, currentProjectId)
     setGrantTarget(target)
-    setGrantForm(existing ? projectGrantToForm(existing) : defaultGrantFormForProject(currentProjectId))
+    setGrantForm(
+      existing ? projectGrantToForm(existing) : defaultGrantFormForProject(currentProjectId),
+    )
   }
 
   const invalidateStorage = () => {
@@ -440,57 +515,97 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
     mutationFn: async (form: VolumeFormState) => {
       const payload = buildVolumePayload(form)
       if (form.mode === 'edit' && form.id) {
-        return managedPost<StorageVolume>(`/storage-volumes/${form.id}`, payload, managedRequestOptions(requestScope))
+        return managedPost<StorageVolume>(
+          `/storage-volumes/${form.id}`,
+          payload,
+          managedRequestOptions(requestScope),
+        )
       }
-      return managedPost<StorageVolume>('/storage-volumes', payload, managedRequestOptions(requestScope))
+      return managedPost<StorageVolume>(
+        '/storage-volumes',
+        payload,
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: () => {
       setVolumeForm(null)
       invalidateStorage()
     },
-    onError: (err) => toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
+    onError: (err) =>
+      toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
   })
 
   const saveGrantMutation = useMutation({
     mutationFn: async ({ volume, form }: { volume: StorageVolume; form: GrantFormState }) => {
       if (platformMode) {
-        return managedPost<StorageOrganizationGrant>(`/storage-volumes/${volume.id}/organization-grants`, buildOrganizationGrantPayload(form), managedRequestOptions(requestScope))
+        return managedPost<StorageOrganizationGrant>(
+          `/storage-volumes/${volume.id}/organization-grants`,
+          buildOrganizationGrantPayload(form),
+          managedRequestOptions(requestScope),
+        )
       }
-      return managedPost<StorageProjectGrant>(`/storage-volumes/${volume.id}/grants`, buildGrantPayload(form), managedRequestOptions(requestScope))
+      return managedPost<StorageProjectGrant>(
+        `/storage-volumes/${volume.id}/grants`,
+        buildGrantPayload(form),
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: () => {
       setGrantTarget(null)
       setGrantForm(emptyGrantForm())
       invalidateStorage()
     },
-    onError: (err) => toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
+    onError: (err) =>
+      toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
   })
 
   const deleteGrantMutation = useMutation({
-    mutationFn: async ({ volume, projectId, orgId }: { volume: StorageVolume; projectId?: string; orgId?: string }) => {
+    mutationFn: async ({
+      volume,
+      projectId,
+      orgId,
+    }: {
+      volume: StorageVolume
+      projectId?: string
+      orgId?: string
+    }) => {
       if (platformMode && orgId) {
-        return managedDelete(`/storage-volumes/${volume.id}/organization-grants/${encodeURIComponent(orgId)}`, managedRequestOptions(requestScope))
+        return managedDelete(
+          `/storage-volumes/${volume.id}/organization-grants/${encodeURIComponent(orgId)}`,
+          managedRequestOptions(requestScope),
+        )
       }
-      return managedDelete(`/storage-volumes/${volume.id}/grants/${encodeURIComponent(projectId || '')}`, managedRequestOptions(requestScope))
+      return managedDelete(
+        `/storage-volumes/${volume.id}/grants/${encodeURIComponent(projectId || '')}`,
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: invalidateStorage,
-    onError: (err) => toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
+    onError: (err) =>
+      toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
   })
 
   const deleteVolumeMutation = useMutation({
-    mutationFn: async (volume: StorageVolume) => managedDelete(`/storage-volumes/${volume.id}`, managedRequestOptions(requestScope)),
+    mutationFn: async (volume: StorageVolume) =>
+      managedDelete(`/storage-volumes/${volume.id}`, managedRequestOptions(requestScope)),
     onSuccess: () => {
       setDeleteTarget(null)
       invalidateStorage()
     },
-    onError: (err) => toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
+    onError: (err) =>
+      toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
   })
 
   const toggleVolumeMutation = useMutation({
     mutationFn: async (volume: StorageVolume) =>
-      managedPost<StorageVolume>(`/storage-volumes/${volume.id}`, { enabled: !volume.enabled }, managedRequestOptions(requestScope)),
+      managedPost<StorageVolume>(
+        `/storage-volumes/${volume.id}`,
+        { enabled: !volume.enabled },
+        managedRequestOptions(requestScope),
+      ),
     onSuccess: invalidateStorage,
-    onError: (err) => toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
+    onError: (err) =>
+      toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),
   })
 
   const volumeRuntimeMissing = volumeForm
@@ -506,26 +621,57 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
       render: (volume) => (
         <div className="space-y-1">
           <div className="font-medium">{volume.display_name}</div>
-          <div className="text-xs text-muted-foreground">{volume.description || volume.volume_ref}</div>
+          <div className="text-xs text-muted-foreground">
+            {volume.description || volume.volume_ref}
+          </div>
         </div>
       ),
     },
-    ...(platformMode ? [{ key: 'id', header: 'ID', render: (volume: StorageVolume) => <MonoId id={volume.id} /> } satisfies Column<StorageVolume>] : []),
-    { key: 'backend_type', header: '后端', render: (volume) => <span className="uppercase">{volume.backend_type || 'generic'}</span> },
+    ...(platformMode
+      ? [
+          {
+            key: 'id',
+            header: 'ID',
+            render: (volume: StorageVolume) => <MonoId id={volume.id} />,
+          } satisfies Column<StorageVolume>,
+        ]
+      : []),
+    {
+      key: 'backend_type',
+      header: '后端',
+      render: (volume) => <span className="uppercase">{volume.backend_type || 'generic'}</span>,
+    },
     {
       key: 'usage',
       header: '用量',
       render: (volume) => <span className="text-xs">{formatBytes(volume.used_bytes)}</span>,
     },
-    { key: 'access', header: platformMode ? '最大权限' : '可申请权限', render: (volume) => (volume.max_access === 'read_write' ? '读写' : '只读') },
+    {
+      key: 'access',
+      header: platformMode ? '最大权限' : '可申请权限',
+      render: (volume) => (volume.max_access === 'read_write' ? '读写' : '只读'),
+    },
     {
       key: 'grants',
       header: platformMode ? '授权组织' : '当前项目授权',
-      render: (volume) => platformMode
-        ? <span>{volume.organization_grants?.filter((grant) => grant.enabled).length || 0}</span>
-        : <span>{grantStatus(volume, currentProjectId)}</span>,
+      render: (volume) =>
+        platformMode ? (
+          <span>{volume.organization_grants?.filter((grant) => grant.enabled).length || 0}</span>
+        ) : (
+          <span>{grantStatus(volume, currentProjectId)}</span>
+        ),
     },
-    ...(platformMode ? [{ key: 'status', header: '状态', render: (volume: StorageVolume) => <StatusBadge status={volume.enabled ? 'active' : 'archived'} /> } satisfies Column<StorageVolume>] : []),
+    ...(platformMode
+      ? [
+          {
+            key: 'status',
+            header: '状态',
+            render: (volume: StorageVolume) => (
+              <StatusBadge status={volume.enabled ? 'active' : 'archived'} />
+            ),
+          } satisfies Column<StorageVolume>,
+        ]
+      : []),
     {
       key: 'actions',
       header: '操作',
@@ -536,27 +682,47 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
             审计
           </Button>
           {canManagePlatformVolumes ? (
-            <Button size="sm" variant="outline" disabled={readOnly} onClick={() => setVolumeForm(volumeToForm(volume))}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={readOnly}
+              onClick={() => setVolumeForm(volumeToForm(volume))}
+            >
               <Edit3 className="mr-1 h-3.5 w-3.5" /> 编辑
             </Button>
           ) : null}
-          <Button size="sm" variant="outline" disabled={readOnly} onClick={() => {
-            if (!platformMode) {
-              openOrgGrantDialog(volume)
-              return
-            }
-            setGrantTarget(volume)
-            setGrantForm(emptyGrantForm())
-          }}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={readOnly}
+            onClick={() => {
+              if (!platformMode) {
+                openOrgGrantDialog(volume)
+                return
+              }
+              setGrantTarget(volume)
+              setGrantForm(emptyGrantForm())
+            }}
+          >
             <KeyRound className="mr-1 h-3.5 w-3.5" /> 授权
           </Button>
           {canManagePlatformVolumes ? (
-            <Button size="sm" variant="outline" disabled={readOnly || toggleVolumeMutation.isPending} onClick={() => toggleVolumeMutation.mutate(volume)}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={readOnly || toggleVolumeMutation.isPending}
+              onClick={() => toggleVolumeMutation.mutate(volume)}
+            >
               {volume.enabled ? '禁用' : '启用'}
             </Button>
           ) : null}
           {canManagePlatformVolumes ? (
-            <Button size="sm" variant="destructive" disabled={readOnly} onClick={() => setDeleteTarget(volume)}>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={readOnly}
+              onClick={() => setDeleteTarget(volume)}
+            >
               <Trash2 className="mr-1 h-3.5 w-3.5" /> 删除
             </Button>
           ) : null}
@@ -569,61 +735,116 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
     <div className="space-y-6">
       <PageHeader
         title={pageTitle}
-        subtitle={platformMode ? '平台侧维护底层存储卷：CFS/CubeFS/NFS/PVC 等运行时配置只在这里维护。' : '将平台已授权给本组织的存储卷分配给当前项目。'}
-        action={platformMode ? (
-          <Button size="sm" disabled={readOnly || !canManagePlatformVolumes} title={canManagePlatformVolumes ? undefined : '只有平台管理员可以新增底层存储卷'} onClick={() => setVolumeForm(emptyVolumeForm('create'))}>
-            <Plus className="mr-2 h-4 w-4" />
-            新增存储卷
-          </Button>
-        ) : (
-          <Button size="sm" disabled={readOnly || !currentProjectId || !volumes.length} onClick={() => openOrgGrantDialog()}>
-            <Plus className="mr-2 h-4 w-4" />
-            新增授权
-          </Button>
-        )}
+        subtitle={
+          platformMode
+            ? '平台侧维护底层存储卷：CFS/CubeFS/NFS/PVC 等运行时配置只在这里维护。'
+            : '将平台已授权给本组织的存储卷分配给当前项目。'
+        }
+        action={
+          platformMode ? (
+            <Button
+              size="sm"
+              disabled={readOnly || !canManagePlatformVolumes}
+              title={canManagePlatformVolumes ? undefined : '只有平台管理员可以新增底层存储卷'}
+              onClick={() => setVolumeForm(emptyVolumeForm('create'))}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              新增存储卷
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={readOnly || !currentProjectId || !volumes.length}
+              onClick={() => openOrgGrantDialog()}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              新增授权
+            </Button>
+          )
+        }
       />
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-lg border bg-card p-4">
-          <div className="flex items-center gap-2 text-sm font-medium"><Database className="h-4 w-4" /> {platformMode ? '存储卷' : '可授权存储卷'}</div>
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Database className="h-4 w-4" /> {platformMode ? '存储卷' : '可授权存储卷'}
+          </div>
           <div className="mt-2 text-2xl font-semibold">{volumes.length}</div>
-          <div className="text-xs text-muted-foreground">{platformMode ? `${volumes.filter((volume) => volume.enabled).length} 个启用` : '平台已发布的存储卷'}</div>
+          <div className="text-xs text-muted-foreground">
+            {platformMode
+              ? `${volumes.filter((volume) => volume.enabled).length} 个启用`
+              : '平台已发布的存储卷'}
+          </div>
         </div>
         <div className="rounded-lg border bg-card p-4">
-          <div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4" /> {platformMode ? '组织授权' : '当前项目授权'}</div>
-          <div className="mt-2 text-2xl font-semibold">{platformMode ? volumes.reduce((sum, volume) => sum + (volume.organization_grants?.length || 0), 0) : volumes.filter((volume) => currentProjectId && volume.grants?.some((grant) => grant.project_id === currentProjectId && grant.enabled)).length}</div>
-          <div className="text-xs text-muted-foreground">{platformMode ? '平台授权给组织' : '当前项目已授权'}</div>
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <ShieldCheck className="h-4 w-4" /> {platformMode ? '组织授权' : '当前项目授权'}
+          </div>
+          <div className="mt-2 text-2xl font-semibold">
+            {platformMode
+              ? volumes.reduce((sum, volume) => sum + (volume.organization_grants?.length || 0), 0)
+              : volumes.filter(
+                  (volume) =>
+                    currentProjectId &&
+                    volume.grants?.some(
+                      (grant) => grant.project_id === currentProjectId && grant.enabled,
+                    ),
+                ).length}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {platformMode ? '平台授权给组织' : '当前项目已授权'}
+          </div>
         </div>
         <div className="rounded-lg border bg-card p-4">
           <div className="text-sm font-medium">{platformMode ? '总用量' : '当前项目可见用量'}</div>
-          <div className="mt-2 text-2xl font-semibold">{formatBytes(volumes.reduce((sum, volume) => sum + (volume.used_bytes || 0), 0))}</div>
+          <div className="mt-2 text-2xl font-semibold">
+            {formatBytes(volumes.reduce((sum, volume) => sum + (volume.used_bytes || 0), 0))}
+          </div>
           <div className="text-xs text-muted-foreground">由后端 usage collector 更新</div>
         </div>
       </div>
 
       {!platformMode && !volumes.length ? (
         <div className="rounded-lg border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
-          当前还没有可授权的存储卷。请先由平台管理员在“平台管理 / 存储卷配置”中创建底层存储卷，然后这里才能为当前项目配置授权策略。
+          当前还没有可授权的存储卷。请先由平台管理员在“平台管理 /
+          存储卷配置”中创建底层存储卷，然后这里才能为当前项目配置授权策略。
         </div>
       ) : null}
 
       {volumesQuery.isError ? (
         <ResourceErrorState error={volumesQuery.error} resource="file" />
       ) : (
-        <DataTable data={volumes} columns={columns} loading={volumesQuery.isLoading} fetching={volumesQuery.isFetching} emptyMessage={platformMode ? '暂无存储卷' : '暂无可授权的存储卷，请先由平台管理员创建存储卷配置'} />
+        <DataTable
+          data={volumes}
+          columns={columns}
+          loading={volumesQuery.isLoading}
+          fetching={volumesQuery.isFetching}
+          emptyMessage={
+            platformMode ? '暂无存储卷' : '暂无可授权的存储卷，请先由平台管理员创建存储卷配置'
+          }
+        />
       )}
 
       <section className="space-y-3 rounded-lg border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold">{platformMode ? '挂载审计' : '授权审计'}</h2>
-            <p className="text-sm text-muted-foreground">{platformMode ? '查看 volume、grant、session attach 等存储挂载相关操作。' : '查看当前项目的数据卷授权和挂载相关操作。'}</p>
+            <p className="text-sm text-muted-foreground">
+              {platformMode
+                ? '查看 volume、grant、session attach 等存储挂载相关操作。'
+                : '查看当前项目的数据卷授权和挂载相关操作。'}
+            </p>
           </div>
           {selectedVolume ? (
-            <Button size="sm" variant="outline" onClick={() => setSelectedVolume(null)}>查看全部</Button>
+            <Button size="sm" variant="outline" onClick={() => setSelectedVolume(null)}>
+              查看全部
+            </Button>
           ) : null}
         </div>
-        <div className="text-sm text-muted-foreground">当前筛选：{selectedVolume ? selectedVolume.display_name : platformMode ? '全部存储卷' : '当前项目'}</div>
+        <div className="text-sm text-muted-foreground">
+          当前筛选：
+          {selectedVolume ? selectedVolume.display_name : platformMode ? '全部存储卷' : '当前项目'}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b text-left text-xs text-muted-foreground">
@@ -639,16 +860,24 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
             <tbody>
               {auditRows.map((row) => (
                 <tr key={row.id} className="border-b last:border-0">
-                  <td className="py-2 pr-3"><RelativeTime date={row.created_at} /></td>
+                  <td className="py-2 pr-3">
+                    <RelativeTime date={row.created_at} />
+                  </td>
                   <td className="py-2 pr-3 font-medium">{row.action}</td>
                   <td className="py-2 pr-3">{row.volume_ref || '-'}</td>
-                  <td className="py-2 pr-3">{row.project_id ? projectNameById.get(row.project_id) || row.project_id : '-'}</td>
+                  <td className="py-2 pr-3">
+                    {row.project_id ? projectNameById.get(row.project_id) || row.project_id : '-'}
+                  </td>
                   <td className="py-2 pr-3">{row.mount_path || row.sub_path || '-'}</td>
                   <td className="py-2 pr-3">{row.result}</td>
                 </tr>
               ))}
               {!auditRows.length ? (
-                <tr><td className="py-6 text-center text-muted-foreground" colSpan={6}>暂无审计记录</td></tr>
+                <tr>
+                  <td className="py-6 text-center text-muted-foreground" colSpan={6}>
+                    暂无审计记录
+                  </td>
+                </tr>
               ) : null}
             </tbody>
           </table>
@@ -659,13 +888,20 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
         <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{volumeForm?.mode === 'edit' ? '编辑存储卷' : '新增存储卷'}</DialogTitle>
-            <DialogDescription>建议一个项目一个独立目录或 PVC，默认只读，沙箱只挂载授权后的 volume_ref。</DialogDescription>
+            <DialogDescription>
+              建议一个项目一个独立目录或 PVC，默认只读，沙箱只挂载授权后的 volume_ref。
+            </DialogDescription>
           </DialogHeader>
           {volumeForm ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-1 text-sm">
                 <span className="font-medium">Volume Ref</span>
-                <Input value={volumeForm.volumeRef} disabled={volumeForm.mode === 'edit'} placeholder="org-a-project-a-assets" onChange={(e) => setVolumeForm({ ...volumeForm, volumeRef: e.target.value })} />
+                <Input
+                  value={volumeForm.volumeRef}
+                  disabled={volumeForm.mode === 'edit'}
+                  placeholder="org-a-project-a-assets"
+                  onChange={(e) => setVolumeForm({ ...volumeForm, volumeRef: e.target.value })}
+                />
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-medium">后端类型</span>
@@ -685,65 +921,127 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
               </label>
               <label className="space-y-1 text-sm sm:col-span-2">
                 <span className="font-medium">显示名称</span>
-                <Input value={volumeForm.displayName} placeholder="资产数据" onChange={(e) => setVolumeForm({ ...volumeForm, displayName: e.target.value })} />
+                <Input
+                  value={volumeForm.displayName}
+                  placeholder="资产数据"
+                  onChange={(e) => setVolumeForm({ ...volumeForm, displayName: e.target.value })}
+                />
               </label>
               <label className="space-y-1 text-sm sm:col-span-2">
                 <span className="font-medium">描述</span>
-                <Input value={volumeForm.description} placeholder="资产平台数据目录" onChange={(e) => setVolumeForm({ ...volumeForm, description: e.target.value })} />
+                <Input
+                  value={volumeForm.description}
+                  placeholder="资产平台数据目录"
+                  onChange={(e) => setVolumeForm({ ...volumeForm, description: e.target.value })}
+                />
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-medium">最大权限</span>
                 <SimpleStyledSelect
                   value={volumeForm.maxAccess}
-                  onChange={(value) => setVolumeForm({ ...volumeForm, maxAccess: value as AccessMode })}
-                  options={[{ value: 'read_only', label: '只读' }, { value: 'read_write', label: '读写' }]}
+                  onChange={(value) =>
+                    setVolumeForm({ ...volumeForm, maxAccess: value as AccessMode })
+                  }
+                  options={[
+                    { value: 'read_only', label: '只读' },
+                    { value: 'read_write', label: '读写' },
+                  ]}
                 />
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-medium">状态</span>
                 <SimpleStyledSelect
                   value={volumeForm.enabled ? 'enabled' : 'disabled'}
-                  onChange={(value) => setVolumeForm({ ...volumeForm, enabled: value === 'enabled' })}
-                  options={[{ value: 'enabled', label: '启用' }, { value: 'disabled', label: '禁用' }]}
+                  onChange={(value) =>
+                    setVolumeForm({ ...volumeForm, enabled: value === 'enabled' })
+                  }
+                  options={[
+                    { value: 'enabled', label: '启用' },
+                    { value: 'disabled', label: '禁用' },
+                  ]}
                 />
               </label>
               <label className="space-y-1 text-sm sm:col-span-2">
                 <span className="font-medium">允许前缀</span>
-                <Input value={volumeForm.allowedPrefixes} placeholder="强隔离模式下建议留空" onChange={(e) => setVolumeForm({ ...volumeForm, allowedPrefixes: e.target.value })} />
-                <p className="text-xs text-muted-foreground">如果 host_path/PVC 已经是项目独立目录，建议留空；只有共享大目录才需要填写子目录前缀。</p>
+                <Input
+                  value={volumeForm.allowedPrefixes}
+                  placeholder="强隔离模式下建议留空"
+                  onChange={(e) =>
+                    setVolumeForm({ ...volumeForm, allowedPrefixes: e.target.value })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  如果 host_path/PVC
+                  已经是项目独立目录，建议留空；只有共享大目录才需要填写子目录前缀。
+                </p>
               </label>
               <label className="space-y-1 text-sm sm:col-span-2">
                 <span className="font-medium">运行时类型</span>
                 <SimpleStyledSelect
                   value={volumeForm.runtimeMode}
-                  onChange={(value) => setVolumeForm({ ...volumeForm, runtimeMode: value as StorageRuntimeMode })}
-                  options={[{ value: 'docker', label: 'Docker 容器' }, { value: 'k8s', label: 'Kubernetes PVC' }]}
+                  onChange={(value) =>
+                    setVolumeForm({ ...volumeForm, runtimeMode: value as StorageRuntimeMode })
+                  }
+                  options={[
+                    { value: 'docker', label: 'Docker 容器' },
+                    { value: 'k8s', label: 'Kubernetes PVC' },
+                  ]}
                 />
-                <p className="text-xs text-muted-foreground">Docker 使用平台受控根目录下的项目独立目录；Kubernetes 使用项目独立 PVC。</p>
+                <p className="text-xs text-muted-foreground">
+                  Docker 使用平台受控根目录下的项目独立目录；Kubernetes 使用项目独立 PVC。
+                </p>
               </label>
               {volumeForm.runtimeMode === 'docker' ? (
                 <label className="space-y-1 text-sm sm:col-span-2">
                   <span className="font-medium">Docker 宿主路径</span>
-                  <Input value={volumeForm.dockerHostPath} placeholder="/mnt/joysafeter/storage/cubefs/org-a/project-a/assets" onChange={(e) => setVolumeForm({ ...volumeForm, dockerHostPath: e.target.value })} />
-                  <p className="text-xs text-muted-foreground">默认只允许 /mnt/joysafeter/storage 下的路径；不要配置 CubeFS 根目录或多项目共享目录。</p>
+                  <Input
+                    value={volumeForm.dockerHostPath}
+                    placeholder="/mnt/joysafeter/storage/cubefs/org-a/project-a/assets"
+                    onChange={(e) =>
+                      setVolumeForm({ ...volumeForm, dockerHostPath: e.target.value })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    默认只允许 /mnt/joysafeter/storage 下的路径；不要配置 CubeFS
+                    根目录或多项目共享目录。
+                  </p>
                 </label>
               ) : (
                 <>
                   <label className="space-y-1 text-sm">
                     <span className="font-medium">K8s Namespace</span>
-                    <Input value={volumeForm.k8sNamespace} onChange={(e) => setVolumeForm({ ...volumeForm, k8sNamespace: e.target.value })} />
+                    <Input
+                      value={volumeForm.k8sNamespace}
+                      onChange={(e) =>
+                        setVolumeForm({ ...volumeForm, k8sNamespace: e.target.value })
+                      }
+                    />
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="font-medium">K8s PVC</span>
-                    <Input value={volumeForm.k8sPvc} placeholder="cubefs-org-a-project-a-assets" onChange={(e) => setVolumeForm({ ...volumeForm, k8sPvc: e.target.value })} />
+                    <Input
+                      value={volumeForm.k8sPvc}
+                      placeholder="cubefs-org-a-project-a-assets"
+                      onChange={(e) => setVolumeForm({ ...volumeForm, k8sPvc: e.target.value })}
+                    />
                   </label>
                 </>
               )}
             </div>
           ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setVolumeForm(null)}>取消</Button>
-            <Button disabled={saveVolumeMutation.isPending || volumeRuntimeMissing || !volumeForm?.displayName.trim() || (volumeForm.mode === 'create' && !volumeForm.volumeRef.trim())} onClick={() => volumeForm && saveVolumeMutation.mutate(volumeForm)}>
+            <Button variant="outline" onClick={() => setVolumeForm(null)}>
+              取消
+            </Button>
+            <Button
+              disabled={
+                saveVolumeMutation.isPending ||
+                volumeRuntimeMissing ||
+                !volumeForm?.displayName.trim() ||
+                (volumeForm.mode === 'create' && !volumeForm.volumeRef.trim())
+              }
+              onClick={() => volumeForm && saveVolumeMutation.mutate(volumeForm)}
+            >
               {saveVolumeMutation.isPending ? '保存中...' : '保存'}
             </Button>
           </DialogFooter>
@@ -754,7 +1052,11 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{platformMode ? '组织授权' : '项目授权'}</DialogTitle>
-            <DialogDescription>{platformMode ? '平台管理员先把存储卷授权给组织；组织管理员再授权给本组织项目。' : '授权项目后，该项目下环境和 session 才能挂载此存储卷。'}</DialogDescription>
+            <DialogDescription>
+              {platformMode
+                ? '平台管理员先把存储卷授权给组织；组织管理员再授权给本组织项目。'
+                : '授权项目后，该项目下环境和 session 才能挂载此存储卷。'}
+            </DialogDescription>
           </DialogHeader>
           {grantTarget ? (
             <div className="space-y-4">
@@ -772,14 +1074,20 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                       if (!nextVolume) return
                       const existing = currentProjectGrant(nextVolume, currentProjectId)
                       setGrantTarget(nextVolume)
-                      setGrantForm(existing ? projectGrantToForm(existing) : defaultGrantFormForProject(currentProjectId))
+                      setGrantForm(
+                        existing
+                          ? projectGrantToForm(existing)
+                          : defaultGrantFormForProject(currentProjectId),
+                      )
                     }}
                     placeholder="选择平台存储卷"
                     searchPlaceholder="搜索存储卷、volume_ref 或后端"
                     emptyText="没有匹配的存储卷"
                     options={volumeOptions}
                   />
-                  <p className="text-xs text-muted-foreground">只能选择平台管理员已发布的存储卷；底层路径和 PVC 不会暴露给项目。</p>
+                  <p className="text-xs text-muted-foreground">
+                    只能选择平台管理员已发布的存储卷；底层路径和 PVC 不会暴露给项目。
+                  </p>
                 </label>
               ) : null}
               <div className="grid gap-4 sm:grid-cols-2">
@@ -789,16 +1097,38 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                     <SearchableGroupedSelect
                       value={grantForm.orgId}
                       onChange={(value) => {
-                        const existing = grantTarget.organization_grants?.find((grant) => grant.org_id === value)
-                        setGrantForm(existing ? organizationGrantToForm(existing) : { ...emptyGrantForm(), orgId: value })
+                        const existing = grantTarget.organization_grants?.find(
+                          (grant) => grant.org_id === value,
+                        )
+                        setGrantForm(
+                          existing
+                            ? organizationGrantToForm(existing)
+                            : { ...emptyGrantForm(), orgId: value },
+                        )
                       }}
-                      placeholder={organizationsQuery.isLoading ? '正在加载组织...' : organizationsQuery.isError ? '组织加载失败' : organizations.length ? '选择组织' : '暂无可授权组织'}
+                      placeholder={
+                        organizationsQuery.isLoading
+                          ? '正在加载组织...'
+                          : organizationsQuery.isError
+                            ? '组织加载失败'
+                            : organizations.length
+                              ? '选择组织'
+                              : '暂无可授权组织'
+                      }
                       searchPlaceholder="搜索组织、成员邮箱或 ID"
                       emptyText="没有匹配的组织"
                       options={organizationOptions}
-                      disabled={organizationsQuery.isLoading || organizationsQuery.isError || !organizations.length}
+                      disabled={
+                        organizationsQuery.isLoading ||
+                        organizationsQuery.isError ||
+                        !organizations.length
+                      }
                     />
-                    {organizationsQuery.isError ? <p className="text-xs text-destructive">组织列表加载失败，请确认后端已重启并且当前账号是平台管理员。</p> : null}
+                    {organizationsQuery.isError ? (
+                      <p className="text-xs text-destructive">
+                        组织列表加载失败，请确认后端已重启并且当前账号是平台管理员。
+                      </p>
+                    ) : null}
                   </label>
                 ) : (
                   <label className="space-y-1 text-sm sm:col-span-2">
@@ -806,8 +1136,14 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                     <SearchableGroupedSelect
                       value={grantForm.projectId}
                       onChange={(value) => {
-                        const existing = grantTarget.grants?.find((grant) => grant.project_id === value)
-                        setGrantForm(existing ? projectGrantToForm(existing) : { ...emptyGrantForm(), projectId: value })
+                        const existing = grantTarget.grants?.find(
+                          (grant) => grant.project_id === value,
+                        )
+                        setGrantForm(
+                          existing
+                            ? projectGrantToForm(existing)
+                            : { ...emptyGrantForm(), projectId: value },
+                        )
                       }}
                       placeholder="选择项目"
                       searchPlaceholder="搜索项目名称、slug 或 ID"
@@ -821,46 +1157,103 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                   <span className="font-medium">权限</span>
                   <SimpleStyledSelect
                     value={grantForm.maxAccess}
-                    onChange={(value) => setGrantForm({ ...grantForm, maxAccess: value as AccessMode })}
-                    options={[{ value: 'read_only', label: '只读' }, { value: 'read_write', label: '读写' }]}
+                    onChange={(value) =>
+                      setGrantForm({ ...grantForm, maxAccess: value as AccessMode })
+                    }
+                    options={[
+                      { value: 'read_only', label: '只读' },
+                      { value: 'read_write', label: '读写' },
+                    ]}
                   />
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-medium">状态</span>
                   <SimpleStyledSelect
                     value={grantForm.enabled ? 'enabled' : 'disabled'}
-                    onChange={(value) => setGrantForm({ ...grantForm, enabled: value === 'enabled' })}
-                    options={[{ value: 'enabled', label: '启用' }, { value: 'disabled', label: '禁用' }]}
+                    onChange={(value) =>
+                      setGrantForm({ ...grantForm, enabled: value === 'enabled' })
+                    }
+                    options={[
+                      { value: 'enabled', label: '启用' },
+                      { value: 'disabled', label: '禁用' },
+                    ]}
                   />
                 </label>
                 <label className="space-y-1 text-sm sm:col-span-2">
                   <span className="font-medium">允许前缀</span>
-                  <Input value={grantForm.allowedPrefixes} placeholder="默认继承 volume 前缀" onChange={(e) => setGrantForm({ ...grantForm, allowedPrefixes: e.target.value })} />
+                  <Input
+                    value={grantForm.allowedPrefixes}
+                    placeholder="默认继承 volume 前缀"
+                    onChange={(e) =>
+                      setGrantForm({ ...grantForm, allowedPrefixes: e.target.value })
+                    }
+                  />
                 </label>
               </div>
-              {platformMode ? <div className="space-y-2">
-                <div className="text-sm font-medium">已有组织授权</div>
-                <div className="max-h-44 overflow-auto rounded-md border">
-                  {(grantTarget.organization_grants || []).map((grant) => (
-                    <div key={grant.id} className="flex items-center justify-between gap-3 border-b p-3 last:border-0">
-                      <div>
-                        <div className="text-sm font-medium">{organizationNameById.get(grant.org_id) || grant.org_id}</div>
-                        <div className="text-xs text-muted-foreground">{grant.max_access === 'read_write' ? '读写' : '只读'} · {grant.enabled ? '启用' : '禁用'} · {joinLines(grant.allowed_prefixes) || '继承 volume 前缀'}</div>
+              {platformMode ? (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">已有组织授权</div>
+                  <div className="max-h-44 overflow-auto rounded-md border">
+                    {(grantTarget.organization_grants || []).map((grant) => (
+                      <div
+                        key={grant.id}
+                        className="flex items-center justify-between gap-3 border-b p-3 last:border-0"
+                      >
+                        <div>
+                          <div className="text-sm font-medium">
+                            {organizationNameById.get(grant.org_id) || grant.org_id}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {grant.max_access === 'read_write' ? '读写' : '只读'} ·{' '}
+                            {grant.enabled ? '启用' : '禁用'} ·{' '}
+                            {joinLines(grant.allowed_prefixes) || '继承 volume 前缀'}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setGrantForm(organizationGrantToForm(grant))}
+                          >
+                            编辑
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={deleteGrantMutation.isPending}
+                            onClick={() =>
+                              deleteGrantMutation.mutate({
+                                volume: grantTarget,
+                                orgId: grant.org_id,
+                              })
+                            }
+                          >
+                            删除
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setGrantForm(organizationGrantToForm(grant))}>编辑</Button>
-                        <Button size="sm" variant="destructive" disabled={deleteGrantMutation.isPending} onClick={() => deleteGrantMutation.mutate({ volume: grantTarget, orgId: grant.org_id })}>删除</Button>
-                      </div>
-                    </div>
-                  ))}
-                  {!grantTarget.organization_grants?.length ? <div className="p-4 text-sm text-muted-foreground">暂无组织授权</div> : null}
+                    ))}
+                    {!grantTarget.organization_grants?.length ? (
+                      <div className="p-4 text-sm text-muted-foreground">暂无组织授权</div>
+                    ) : null}
+                  </div>
                 </div>
-              </div> : null}
+              ) : null}
             </div>
           ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setGrantTarget(null)}>关闭</Button>
-            <Button disabled={saveGrantMutation.isPending || (platformMode ? !grantForm.orgId : !grantForm.projectId)} onClick={() => grantTarget && saveGrantMutation.mutate({ volume: grantTarget, form: grantForm })}>
+            <Button variant="outline" onClick={() => setGrantTarget(null)}>
+              关闭
+            </Button>
+            <Button
+              disabled={
+                saveGrantMutation.isPending ||
+                (platformMode ? !grantForm.orgId : !grantForm.projectId)
+              }
+              onClick={() =>
+                grantTarget && saveGrantMutation.mutate({ volume: grantTarget, form: grantForm })
+              }
+            >
               {saveGrantMutation.isPending ? '保存中...' : '保存授权'}
             </Button>
           </DialogFooter>

@@ -25,7 +25,6 @@ from app.joysafeter_domain.services.joysafeter_skill_service import (
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.config import settings as app_settings
 
-
 pytestmark = pytest.mark.no_db
 
 

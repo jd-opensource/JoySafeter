@@ -22,4 +22,3 @@ export function StatusBadge({ status }: { status: Status }) {
     </Badge>
   )
 }
-

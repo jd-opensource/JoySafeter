@@ -14,6 +14,7 @@ joysafeter_schedules, so every scheduled task INSERT fails with:
 
 Fix: point the FK back to joysafeter_schedules.
 """
+
 from typing import Union
 
 from alembic import op

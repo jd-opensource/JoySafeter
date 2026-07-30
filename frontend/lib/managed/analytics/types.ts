@@ -247,7 +247,7 @@ export interface AgentRankingItem {
 // --- Time Heatmap ---
 
 export interface HeatmapCell {
-  day: number  // 0=Sunday, 1=Monday...6=Saturday
+  day: number // 0=Sunday, 1=Monday...6=Saturday
   hour: number // 0-23
   count: number
   error_count: number

@@ -8,8 +8,9 @@ Create Date: 2026-07-23 00:00:00.000000+00:00
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "20260723_000013"
 down_revision: Union[str, None] = "20260723_000012"
@@ -79,8 +80,15 @@ def upgrade() -> None:
         """
     )
 
-    op.create_index("idx_joysafeter_triggers_cron_due", "joysafeter_triggers", ["next_run_at"], postgresql_where=sa.text("enabled IS TRUE AND type = 'cron'"))
-    op.drop_constraint(op.f("fk_joysafeter_tasks_schedule_id_joysafeter_schedules"), "joysafeter_tasks", type_="foreignkey")
+    op.create_index(
+        "idx_joysafeter_triggers_cron_due",
+        "joysafeter_triggers",
+        ["next_run_at"],
+        postgresql_where=sa.text("enabled IS TRUE AND type = 'cron'"),
+    )
+    op.drop_constraint(
+        op.f("fk_joysafeter_tasks_schedule_id_joysafeter_schedules"), "joysafeter_tasks", type_="foreignkey"
+    )
     op.create_foreign_key(
         op.f("fk_joysafeter_tasks_schedule_id_joysafeter_triggers"),
         "joysafeter_tasks",
@@ -95,7 +103,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.add_column("joysafeter_triggers", sa.Column("secret", sa.String(length=255), nullable=True))
     op.execute("UPDATE joysafeter_triggers SET secret = secret_ref WHERE type = 'webhook'")
-    op.drop_constraint(op.f("fk_joysafeter_tasks_schedule_id_joysafeter_triggers"), "joysafeter_tasks", type_="foreignkey")
+    op.drop_constraint(
+        op.f("fk_joysafeter_tasks_schedule_id_joysafeter_triggers"), "joysafeter_tasks", type_="foreignkey"
+    )
     op.create_foreign_key(
         op.f("fk_joysafeter_tasks_schedule_id_joysafeter_schedules"),
         "joysafeter_tasks",

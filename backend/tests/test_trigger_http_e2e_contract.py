@@ -162,7 +162,9 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
         assert runs[0]["chat_session_id"] == fired["session_id"]
 
         active_task = (
-            await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == uuid.UUID(trigger_id.removeprefix("trig_"))))
+            await db_session.execute(
+                select(JoySafeterTask).where(JoySafeterTask.trigger_id == uuid.UUID(trigger_id.removeprefix("trig_")))
+            )
         ).scalar_one()
         original_task_trigger_id = active_task.trigger_id
         assert redis.rpushed == [("joysafeter:global_queue", str(active_task.id))]
@@ -274,9 +276,13 @@ async def test_trigger_http_manual_type_create_list_run_and_history(db_session, 
     db_session.expire_all()
     stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
     stored_trigger = (
-        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == uuid.UUID(trigger_id.removeprefix("trig_"))))
+        await db_session.execute(
+            select(JoySafeterTrigger).where(JoySafeterTrigger.id == uuid.UUID(trigger_id.removeprefix("trig_")))
+        )
     ).scalar_one()
-    stored_session = (await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == stored_task.chat_session_id))).scalar_one()
+    stored_session = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == stored_task.chat_session_id))
+    ).scalar_one()
     assert stored_task.prompt == "run manual via manual"
     assert stored_task.trigger_id == stored_trigger.id
     assert stored_session.metadata_["trigger_type"] == "manual"
@@ -315,7 +321,9 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
     session_id = uuid.uuid4()
     captured: dict[str, object] = {}
 
-    async def fake_fire_webhook(self, trigger_arg, *, raw_body, payload, delivery_id, auth_fingerprint, ignore_enabled=False):
+    async def fake_fire_webhook(
+        self, trigger_arg, *, raw_body, payload, delivery_id, auth_fingerprint, ignore_enabled=False
+    ):
         captured["fire"] = {
             "trigger_id": trigger_arg.id,
             "raw_body": raw_body,
@@ -340,7 +348,7 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
         assert sample["url"] == f"http://test/api/v1/triggers/{trigger_id}/webhook"
         assert sample["signature_header"] == "X-JoySafeter-Signature"
         assert "X-JoySafeter-Signature: sha256=" in sample["curl"]
-        assert "-d '{\"example\":\"payload\"}'" in sample["curl"]
+        assert '-d \'{"example":"payload"}\'' in sample["curl"]
 
         test_resp = await client.post(
             f"/api/v1/triggers/{trigger_id}/test",
@@ -514,7 +522,9 @@ async def test_trigger_http_management_endpoints_are_project_scoped(db_session, 
         assert create_resp.json()["code"] == "TRIGGER_AGENT_NOT_FOUND"
 
     db_session.expire_all()
-    stored = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_b_uuid))).scalar_one()
+    stored = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_b_uuid))
+    ).scalar_one()
     assert stored.name == "Project B Webhook"
 
 

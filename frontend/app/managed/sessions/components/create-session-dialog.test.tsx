@@ -24,7 +24,11 @@ vi.mock('@/lib/managed/errors', () => ({
 }))
 
 vi.mock('@/components/managed/shared', () => ({
+  AdvancedSection: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   FieldHelp: () => null,
+  FormActionBar: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  FormFieldLabel: ({ children }: { children: ReactNode }) => <label>{children}</label>,
+  FormSectionCard: ({ children }: { children: ReactNode }) => <section>{children}</section>,
 }))
 
 vi.mock('@/components/ui/button', () => ({

@@ -29,7 +29,9 @@ import pytest
 from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth.context import ProjectCapability
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+from app.joysafeter_shared.common.skill_permissions import _effective_visibility, check_skill_access
+
+pytestmark = pytest.mark.no_db
 
 MODULE = "app.joysafeter_shared.common.skill_permissions"
 
@@ -73,6 +75,25 @@ def _patch_org_member(monkeypatch, *, is_member):
         return is_member
 
     monkeypatch.setattr(f"{MODULE}._is_org_member", _is_member)
+
+
+# ── visibility helper ──────────────────────────────────────────
+
+
+def test_effective_visibility_prefers_column():
+    s = _skill(visibility="public")
+    assert _effective_visibility(s) == "public"
+
+
+def test_effective_visibility_falls_back_to_project_when_null():
+    s = _skill(visibility="")
+    assert _effective_visibility(s) == "project"
+
+
+@pytest.mark.parametrize("v", ["project", "organization", "public"])
+def test_effective_visibility_passes_through(v):
+    s = _skill(visibility=v)
+    assert _effective_visibility(s) == v
 
 
 # ── project role -> capability threshold ────────────────────────

@@ -12,6 +12,8 @@ from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth.context import ProjectRole
 
+pytestmark = pytest.mark.no_db
+
 
 def _assert_forbidden(creator_role, creator_project_role, requested_role):
     with pytest.raises(AccessDeniedError) as exc_info:

@@ -201,7 +201,9 @@ function SearchableSecretSelect({
     const query = search.trim().toLowerCase()
     if (!query) return secrets
     return secrets.filter((secret) =>
-      `${secret.name} ${secret.provider || ''} ${secret.protocol || ''}`.toLowerCase().includes(query),
+      `${secret.name} ${secret.provider || ''} ${secret.protocol || ''}`
+        .toLowerCase()
+        .includes(query),
     )
   }, [secrets, search])
 
@@ -346,235 +348,239 @@ export function EgressServicesEditor({
             </div>
 
             {!isCollapsed && (
-            <div className="space-y-5 p-4">
-              {/* ── 基本信息 ── */}
-              <div className="space-y-3">
-                <SectionTitle>{t('managed.environments.egressSectionBasic')}</SectionTitle>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('managed.environments.egressName')}
-                    <RequiredMark />
-                  </Label>
-                  <Input
-                    placeholder="crm"
-                    value={service.name}
-                    aria-invalid={Boolean(errors[index]?.name)}
-                    onChange={(event) => changeService(index, { name: event.target.value }, 'name')}
-                  />
-                  {errors[index]?.name && (
-                    <p className="text-xs text-destructive">{errors[index]?.name}</p>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('managed.environments.egressBaseUrl')}
-                    <RequiredMark />
-                    <FieldHelp text={t('managed.environments.egressBaseUrlHint')} />
-                  </Label>
-                  <Input
-                    placeholder="https://crm.example.com/api/"
-                    value={service.baseUrl}
-                    aria-invalid={Boolean(errors[index]?.baseUrl)}
-                    onChange={(event) =>
-                      changeService(index, { baseUrl: event.target.value }, 'baseUrl')
-                    }
-                  />
-                  {errors[index]?.baseUrl && (
-                    <p className="text-xs text-destructive">{errors[index]?.baseUrl}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* ── 凭证 ── */}
-              <div className="space-y-3 border-t pt-4">
-                <SectionTitle>{t('managed.environments.egressSectionCredential')}</SectionTitle>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('managed.environments.egressCredential')}
-                    <RequiredMark />
-                    <FieldHelp text={t('managed.environments.egressCredentialTooltip')} />
-                  </Label>
-                  <SearchableSecretSelect
-                    value={service.credentialRef}
-                    secrets={customSecrets}
-                    placeholder={t('managed.environments.egressSelectCredential')}
-                    searchPlaceholder={t('managed.environments.egressSearchCredential')}
-                    emptyText={t('managed.environments.egressNoCredentialFound')}
-                    createText={t('managed.environments.egressCreateSecretOption')}
-                    invalid={Boolean(errors[index]?.credentialRef)}
-                    onCreate={() => window.open('/managed/secrets?create=custom', '_blank')}
-                    onChange={(value) => {
-                      const secret = customSecrets.find((item) => item.name === value)
-                      changeService(
-                        index,
-                        {
-                          credentialRef: value,
-                          secretKey: preferredSecretKey(secretKeysFor(secret), service.authType),
-                        },
-                        'credentialRef',
-                      )
-                    }}
-                  />
-                  {errors[index]?.credentialRef && (
-                    <p className="text-xs text-destructive">{errors[index]?.credentialRef}</p>
-                  )}
-                </div>
-
-                <p className="text-xs text-muted-foreground">
-                  {t('managed.environments.egressAuthHint')}
-                </p>
-                <div
-                  className={`grid gap-3 ${
-                    service.authType === 'api_key' ? 'md:grid-cols-3' : 'md:grid-cols-2'
-                  }`}
-                >
+              <div className="space-y-5 p-4">
+                {/* ── 基本信息 ── */}
+                <div className="space-y-3">
+                  <SectionTitle>{t('managed.environments.egressSectionBasic')}</SectionTitle>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">
-                      {t('managed.environments.egressAuthType')}
+                      {t('managed.environments.egressName')}
                       <RequiredMark />
                     </Label>
-                    <Select
-                      value={service.authType}
-                      onValueChange={(value) => {
-                        const authType = value as EgressServiceForm['authType']
-                        changeService(index, {
-                          ...defaultsForAuthType(authType),
-                          secretKey: preferredSecretKey(selectedSecretKeys, authType),
-                        })
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="bearer">Bearer Token</SelectItem>
-                        <SelectItem value="api_key">API Key</SelectItem>
-                        <SelectItem value="cookie">Cookie</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      placeholder="crm"
+                      value={service.name}
+                      aria-invalid={Boolean(errors[index]?.name)}
+                      onChange={(event) =>
+                        changeService(index, { name: event.target.value }, 'name')
+                      }
+                    />
+                    {errors[index]?.name && (
+                      <p className="text-xs text-destructive">{errors[index]?.name}</p>
+                    )}
                   </div>
-
-                  {service.authType === 'api_key' && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">
-                        {t('managed.environments.egressHeader')}
-                      </Label>
-                      <Input
-                        placeholder="x-api-key"
-                        value={service.header}
-                        onChange={(event) => changeService(index, { header: event.target.value })}
-                      />
-                    </div>
-                  )}
-
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">
-                      {t('managed.environments.egressSecretKey')}
-                      {service.authType === 'cookie' && <RequiredMark />}
-                      <FieldHelp
-                        text={
-                          service.authType === 'cookie'
-                            ? t('managed.environments.egressCookieSecretKeyTooltip')
-                            : t('managed.environments.egressSecretKeyTooltip')
-                        }
-                      />
-                      {service.authType !== 'cookie' && (
-                        <span className="ml-1 font-normal text-muted-foreground/70">
-                          {t('managed.environments.egressOptional')}
-                        </span>
-                      )}
+                      {t('managed.environments.egressBaseUrl')}
+                      <RequiredMark />
+                      <FieldHelp text={t('managed.environments.egressBaseUrlHint')} />
                     </Label>
-                    {selectedSecretKeys.length > 0 ? (
+                    <Input
+                      placeholder="https://crm.example.com/api/"
+                      value={service.baseUrl}
+                      aria-invalid={Boolean(errors[index]?.baseUrl)}
+                      onChange={(event) =>
+                        changeService(index, { baseUrl: event.target.value }, 'baseUrl')
+                      }
+                    />
+                    {errors[index]?.baseUrl && (
+                      <p className="text-xs text-destructive">{errors[index]?.baseUrl}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── 凭证 ── */}
+                <div className="space-y-3 border-t pt-4">
+                  <SectionTitle>{t('managed.environments.egressSectionCredential')}</SectionTitle>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">
+                      {t('managed.environments.egressCredential')}
+                      <RequiredMark />
+                      <FieldHelp text={t('managed.environments.egressCredentialTooltip')} />
+                    </Label>
+                    <SearchableSecretSelect
+                      value={service.credentialRef}
+                      secrets={customSecrets}
+                      placeholder={t('managed.environments.egressSelectCredential')}
+                      searchPlaceholder={t('managed.environments.egressSearchCredential')}
+                      emptyText={t('managed.environments.egressNoCredentialFound')}
+                      createText={t('managed.environments.egressCreateSecretOption')}
+                      invalid={Boolean(errors[index]?.credentialRef)}
+                      onCreate={() => window.open('/managed/secrets?create=custom', '_blank')}
+                      onChange={(value) => {
+                        const secret = customSecrets.find((item) => item.name === value)
+                        changeService(
+                          index,
+                          {
+                            credentialRef: value,
+                            secretKey: preferredSecretKey(secretKeysFor(secret), service.authType),
+                          },
+                          'credentialRef',
+                        )
+                      }}
+                    />
+                    {errors[index]?.credentialRef && (
+                      <p className="text-xs text-destructive">{errors[index]?.credentialRef}</p>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    {t('managed.environments.egressAuthHint')}
+                  </p>
+                  <div
+                    className={`grid gap-3 ${
+                      service.authType === 'api_key' ? 'md:grid-cols-3' : 'md:grid-cols-2'
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">
+                        {t('managed.environments.egressAuthType')}
+                        <RequiredMark />
+                      </Label>
                       <Select
-                        value={service.secretKey}
-                        onValueChange={(value) =>
-                          changeService(index, { secretKey: value }, 'secretKey')
-                        }
+                        value={service.authType}
+                        onValueChange={(value) => {
+                          const authType = value as EgressServiceForm['authType']
+                          changeService(index, {
+                            ...defaultsForAuthType(authType),
+                            secretKey: preferredSecretKey(selectedSecretKeys, authType),
+                          })
+                        }}
                       >
-                        <SelectTrigger aria-invalid={Boolean(errors[index]?.secretKey)}>
-                          <SelectValue
-                            placeholder={t('managed.environments.egressSelectSecretKey')}
-                          />
+                        <SelectTrigger>
+                          <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {selectedSecretKeys.map((key) => (
-                            <SelectItem key={key} value={key}>
-                              {key}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="bearer">Bearer Token</SelectItem>
+                          <SelectItem value="api_key">API Key</SelectItem>
+                          <SelectItem value="cookie">Cookie</SelectItem>
                         </SelectContent>
                       </Select>
-                    ) : (
-                      <Input
-                        placeholder={
-                          service.authType === 'cookie'
-                            ? 'COOKIE_HEADER'
-                            : service.authType === 'api_key'
-                              ? 'API_KEY'
-                              : 'ACCESS_TOKEN'
-                        }
-                        value={service.secretKey}
-                        aria-invalid={Boolean(errors[index]?.secretKey)}
-                        onChange={(event) =>
-                          changeService(index, { secretKey: event.target.value }, 'secretKey')
-                        }
-                      />
+                    </div>
+
+                    {service.authType === 'api_key' && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          {t('managed.environments.egressHeader')}
+                        </Label>
+                        <Input
+                          placeholder="x-api-key"
+                          value={service.header}
+                          onChange={(event) => changeService(index, { header: event.target.value })}
+                        />
+                      </div>
                     )}
-                    {errors[index]?.secretKey && (
-                      <p className="text-xs text-destructive">{errors[index]?.secretKey}</p>
-                    )}
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">
+                        {t('managed.environments.egressSecretKey')}
+                        {service.authType === 'cookie' && <RequiredMark />}
+                        <FieldHelp
+                          text={
+                            service.authType === 'cookie'
+                              ? t('managed.environments.egressCookieSecretKeyTooltip')
+                              : t('managed.environments.egressSecretKeyTooltip')
+                          }
+                        />
+                        {service.authType !== 'cookie' && (
+                          <span className="ml-1 font-normal text-muted-foreground/70">
+                            {t('managed.environments.egressOptional')}
+                          </span>
+                        )}
+                      </Label>
+                      {selectedSecretKeys.length > 0 ? (
+                        <Select
+                          value={service.secretKey}
+                          onValueChange={(value) =>
+                            changeService(index, { secretKey: value }, 'secretKey')
+                          }
+                        >
+                          <SelectTrigger aria-invalid={Boolean(errors[index]?.secretKey)}>
+                            <SelectValue
+                              placeholder={t('managed.environments.egressSelectSecretKey')}
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {selectedSecretKeys.map((key) => (
+                              <SelectItem key={key} value={key}>
+                                {key}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          placeholder={
+                            service.authType === 'cookie'
+                              ? 'COOKIE_HEADER'
+                              : service.authType === 'api_key'
+                                ? 'API_KEY'
+                                : 'ACCESS_TOKEN'
+                          }
+                          value={service.secretKey}
+                          aria-invalid={Boolean(errors[index]?.secretKey)}
+                          onChange={(event) =>
+                            changeService(index, { secretKey: event.target.value }, 'secretKey')
+                          }
+                        />
+                      )}
+                      {errors[index]?.secretKey && (
+                        <p className="text-xs text-destructive">{errors[index]?.secretKey}</p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* ── 访问控制 ── */}
-              <div className="space-y-3 border-t pt-4">
-                <SectionTitle>{t('managed.environments.egressSectionAccess')}</SectionTitle>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('managed.environments.egressAllowedPaths')}
-                    <span className="ml-1 font-normal text-muted-foreground/70">
-                      {t('managed.environments.egressOptional')}
-                    </span>
-                    <FieldHelp text={t('managed.environments.egressAllowedPathsHint')} />
-                  </Label>
-                  <Textarea
-                    rows={3}
-                    className="font-mono text-xs"
-                    placeholder={t('managed.environments.egressAllowedPathsPlaceholder')}
-                    value={service.allowedPaths}
-                    onChange={(event) => changeService(index, { allowedPaths: event.target.value })}
-                  />
+                {/* ── 访问控制 ── */}
+                <div className="space-y-3 border-t pt-4">
+                  <SectionTitle>{t('managed.environments.egressSectionAccess')}</SectionTitle>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">
+                      {t('managed.environments.egressAllowedPaths')}
+                      <span className="ml-1 font-normal text-muted-foreground/70">
+                        {t('managed.environments.egressOptional')}
+                      </span>
+                      <FieldHelp text={t('managed.environments.egressAllowedPathsHint')} />
+                    </Label>
+                    <Textarea
+                      rows={3}
+                      className="font-mono text-xs"
+                      placeholder={t('managed.environments.egressAllowedPathsPlaceholder')}
+                      value={service.allowedPaths}
+                      onChange={(event) =>
+                        changeService(index, { allowedPaths: event.target.value })
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {/* ── 预览 ── */}
-              <div className="space-y-2 border-t pt-4 text-xs">
-                <SectionTitle>{t('managed.environments.egressSectionPreview')}</SectionTitle>
-                <div>
-                  <p className="mb-1 font-medium text-muted-foreground">
-                    {t('managed.environments.egressSkillExample')}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <code className="block flex-1 truncate rounded bg-muted px-2 py-1 text-foreground">
-                      {egressHttpDirectUrl(service.baseUrl)}
+                {/* ── 预览 ── */}
+                <div className="space-y-2 border-t pt-4 text-xs">
+                  <SectionTitle>{t('managed.environments.egressSectionPreview')}</SectionTitle>
+                  <div>
+                    <p className="mb-1 font-medium text-muted-foreground">
+                      {t('managed.environments.egressSkillExample')}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <code className="block flex-1 truncate rounded bg-muted px-2 py-1 text-foreground">
+                        {egressHttpDirectUrl(service.baseUrl)}
+                      </code>
+                      <CopyButton value={egressHttpDirectUrl(service.baseUrl)} />
+                    </div>
+                    <p className="mt-1 text-muted-foreground/70">
+                      {t('managed.environments.egressSkillExampleHint')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="mb-1 font-medium text-muted-foreground">
+                      {t('managed.environments.egressInjectExample')}
+                    </p>
+                    <code className="block truncate rounded bg-muted px-2 py-1 text-foreground">
+                      {egressInjectedHeaderExample(service)}
                     </code>
-                    <CopyButton value={egressHttpDirectUrl(service.baseUrl)} />
                   </div>
-                  <p className="mt-1 text-muted-foreground/70">
-                    {t('managed.environments.egressSkillExampleHint')}
-                  </p>
-                </div>
-                <div>
-                  <p className="mb-1 font-medium text-muted-foreground">
-                    {t('managed.environments.egressInjectExample')}
-                  </p>
-                  <code className="block truncate rounded bg-muted px-2 py-1 text-foreground">
-                    {egressInjectedHeaderExample(service)}
-                  </code>
                 </div>
               </div>
-            </div>
             )}
           </div>
         )

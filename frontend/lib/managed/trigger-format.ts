@@ -48,7 +48,10 @@ export function fireResultToastMessage(
   name: string,
   reason?: string | null,
 ): string {
-  const key = status === 'skipped' && reason ? 'managed.triggers.fireSkippedWithReason' : fireResultToastKey(status)
+  const key =
+    status === 'skipped' && reason
+      ? 'managed.triggers.fireSkippedWithReason'
+      : fireResultToastKey(status)
   return t(key, { name, reason: reason ?? '' })
 }
 

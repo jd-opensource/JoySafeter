@@ -109,17 +109,21 @@ def test_soft_delete_migration_repairs_duplicate_global_trigger_names(postgres_u
         _run_alembic(postgres_url, database=database, target="head")
 
         with app_engine.connect() as conn:
-            rows = conn.execute(
-                text(
-                    """
+            rows = (
+                conn.execute(
+                    text(
+                        """
                     SELECT id::text AS id, enabled, next_run_at, locked_by, locked_at,
                            pending_slot_at, slot_attempts, deleted_at, disabled_reason, config
                       FROM joysafeter_triggers
                      WHERE name = 'dup-global'
                   ORDER BY deleted_at NULLS FIRST, id
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
 
             assert len(rows) == 2
             live_rows = [row for row in rows if row["deleted_at"] is None]

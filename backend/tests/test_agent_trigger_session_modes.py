@@ -9,7 +9,6 @@ from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig
 from app.joysafeter_shared.common.app_errors import AppError
 
-
 pytestmark = pytest.mark.no_db
 
 

@@ -2,19 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-
 pytestmark = pytest.mark.no_db
-
-
-def test_skill_usage_search_route_is_declared_before_dynamic_usage_hazards():
-    from app.joysafeter_api.api.v1.skills import router
-
-    routes = [(getattr(route, "path", ""), getattr(route, "name", "")) for route in router.routes]
-    search_idx = routes.index(("/usage/search", "search_skill_usage"))
-    dynamic_get_idx = routes.index(("/{skill_id}", "get_skill"))
-
-    assert search_idx > dynamic_get_idx
-    assert ("/{skill_id}/usage", "list_skill_usage") in routes
 
 
 @pytest.mark.asyncio

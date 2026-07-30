@@ -100,7 +100,7 @@ class TriggerFireService:
     async def _lock_trigger_for_fire(self, trigger: JoySafeterTrigger) -> JoySafeterTrigger:
         project_id = getattr(trigger, "project_id", None)
         result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger.id, project_id))
-        locked = result.scalar_one_or_none()
+        locked: Optional[JoySafeterTrigger] = result.scalar_one_or_none()
         if locked is None:
             raise TriggerRuntimeGate.trigger_not_found_error(trigger.id)
         return locked

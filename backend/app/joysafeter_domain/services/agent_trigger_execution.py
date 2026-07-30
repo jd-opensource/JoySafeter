@@ -156,7 +156,9 @@ class AgentTriggerExecutor:
             session = None
             if config.reusable_session_id is not None:
                 session = await session_svc.get_session(config.reusable_session_id, project_id=config.project_id)
-                if session is not None and (session.archived_at is not None or not same_id(session.agent_id, config.agent.id)):
+                if session is not None and (
+                    session.archived_at is not None or not same_id(session.agent_id, config.agent.id)
+                ):
                     session = None
             if session is not None and session.status == SessionStatus.IDLE.value:
                 return session, False
@@ -175,10 +177,7 @@ class AgentTriggerExecutor:
             if config.project_id is not None:
                 conditions.append(JoySafeterSession.project_id == config.project_id)
             result = await self.db.execute(
-                select(JoySafeterSession)
-                .where(*conditions)
-                .order_by(JoySafeterSession.created_at.desc())
-                .limit(1)
+                select(JoySafeterSession).where(*conditions).order_by(JoySafeterSession.created_at.desc()).limit(1)
             )
             keyed_session = result.scalar_one_or_none()
             if keyed_session is not None and keyed_session.status == SessionStatus.IDLE.value:
@@ -223,12 +222,14 @@ class AgentTriggerExecutor:
         )
         session, created_session = await self.resolve_session(config)
         active_result = await self.db.execute(
-            select(JoySafeterTask.id).where(
+            select(JoySafeterTask.id)
+            .where(
                 and_(
                     JoySafeterTask.chat_session_id == session.id,
                     JoySafeterTask.status.notin_([s.value for s in JOYSAFETER_TERMINAL_STATUSES]),
                 )
-            ).limit(1)
+            )
+            .limit(1)
         )
         if active_result.scalar_one_or_none() is not None:
             raise ConflictError(code="CONFLICT", message="Target session already has an active task")
@@ -264,7 +265,8 @@ class AgentTriggerExecutor:
             # auto-created for this attempt and returned the pre-existing task.
             # Return that task's real session so callers (mark_attempt.last_session_id)
             # never reference the deleted orphan row (FK violation).
-            existing = await session_svc.get_session(task.chat_session_id, project_id=config.project_id)
-            if existing is not None:
-                session = existing
+            if task.chat_session_id is not None:
+                existing = await session_svc.get_session(task.chat_session_id, project_id=config.project_id)
+                if existing is not None:
+                    session = existing
         return AgentTriggerRunResult(task=task, session=session, created=created)

@@ -24,7 +24,6 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     get_joysafeter_auth_context,
     require_joysafeter_platform_admin,
     require_joysafeter_user_admin,
-    require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
 
@@ -57,7 +56,11 @@ async def list_storage_volumes(
     data: list[StorageVolumeResponse] = []
     for volume in volumes:
         org_grants = await svc.list_organization_grants(volume.id) if auth_ctx.is_super_user else []
-        grants = await svc.list_grants(volume.id) if auth_ctx.is_super_user else await svc.list_project_grants_for_org(volume.id, auth_ctx.org_id)
+        grants = (
+            await svc.list_grants(volume.id)
+            if auth_ctx.is_super_user
+            else await svc.list_project_grants_for_org(volume.id, auth_ctx.org_id)
+        )
         data.append(volume_to_response(volume, grants, org_grants, include_runtime_specs=auth_ctx.is_super_user))
     return {"data": data}
 
@@ -105,11 +108,19 @@ async def get_storage_volume(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> StorageVolumeResponse:
     svc = StorageMountService(db)
-    volume = await svc.get_volume(volume_id) if auth_ctx.is_super_user else await svc.get_organization_volume(volume_id, auth_ctx.org_id)
+    volume = (
+        await svc.get_volume(volume_id)
+        if auth_ctx.is_super_user
+        else await svc.get_organization_volume(volume_id, auth_ctx.org_id)
+    )
     if not volume:
         raise NotFoundError(code="STORAGE_VOLUME_NOT_FOUND", message="Storage volume not found")
     org_grants = await svc.list_organization_grants(volume.id) if auth_ctx.is_super_user else []
-    grants = await svc.list_grants(volume.id) if auth_ctx.is_super_user else await svc.list_project_grants_for_org(volume.id, auth_ctx.org_id)
+    grants = (
+        await svc.list_grants(volume.id)
+        if auth_ctx.is_super_user
+        else await svc.list_project_grants_for_org(volume.id, auth_ctx.org_id)
+    )
     return volume_to_response(volume, grants, org_grants, include_runtime_specs=auth_ctx.is_super_user)
 
 
@@ -146,12 +157,13 @@ async def upsert_storage_volume_grant(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> StorageProjectGrantResponse:
-    return await StorageMountService(db).replace_grant(
+    row = await StorageMountService(db).replace_grant(
         volume_id,
         req,
         actor_user_id=auth_ctx.user_id,
         org_id_scope=None if auth_ctx.is_super_user else auth_ctx.org_id,
     )
+    return StorageProjectGrantResponse.model_validate(row)
 
 
 @router.delete("/{volume_id}/grants/{project_id}")
@@ -179,7 +191,8 @@ async def upsert_storage_volume_organization_grant(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
 ) -> StorageOrganizationGrantResponse:
-    return await StorageMountService(db).replace_organization_grant(volume_id, req, actor_user_id=auth_ctx.user_id)
+    row = await StorageMountService(db).replace_organization_grant(volume_id, req, actor_user_id=auth_ctx.user_id)
+    return StorageOrganizationGrantResponse.model_validate(row)
 
 
 @router.delete("/{volume_id}/organization-grants/{org_id}")

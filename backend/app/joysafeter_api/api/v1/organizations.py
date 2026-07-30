@@ -242,4 +242,3 @@ async def add_member(
         role=req.role,
     )
     return {"id": member.id, "user_id": member.user_id, "role": member.role}
-

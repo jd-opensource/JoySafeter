@@ -24,14 +24,54 @@ interface MetricRow {
 }
 
 const METRIC_ROWS: MetricRow[] = [
-  { labelKey: 'analytics.agentComparison.metrics.sessions', key: 'total_sessions', format: formatCompactNumber, bestFn: 'max' },
-  { labelKey: 'analytics.agentComparison.metrics.tasks', key: 'total_tasks', format: formatCompactNumber, bestFn: 'max' },
-  { labelKey: 'analytics.agentComparison.metrics.successRate', key: 'success_rate', format: formatPercent, bestFn: 'max' },
-  { labelKey: 'analytics.agentComparison.metrics.avgDuration', key: 'avg_duration_ms', format: formatDuration, bestFn: 'min' },
-  { labelKey: 'analytics.agentComparison.metrics.avgTtft', key: 'avg_ttft_ms', format: formatDuration, bestFn: 'min' },
-  { labelKey: 'analytics.agentComparison.metrics.avgCost', key: 'avg_cost', format: formatCost, bestFn: 'min' },
-  { labelKey: 'analytics.agentComparison.metrics.totalTokens', key: 'total_tokens', format: formatCompactNumber, bestFn: 'max' },
-  { labelKey: 'analytics.agentComparison.metrics.avgSteps', key: 'avg_agent_steps', format: (v: number) => v.toFixed(1), bestFn: 'min' },
+  {
+    labelKey: 'analytics.agentComparison.metrics.sessions',
+    key: 'total_sessions',
+    format: formatCompactNumber,
+    bestFn: 'max',
+  },
+  {
+    labelKey: 'analytics.agentComparison.metrics.tasks',
+    key: 'total_tasks',
+    format: formatCompactNumber,
+    bestFn: 'max',
+  },
+  {
+    labelKey: 'analytics.agentComparison.metrics.successRate',
+    key: 'success_rate',
+    format: formatPercent,
+    bestFn: 'max',
+  },
+  {
+    labelKey: 'analytics.agentComparison.metrics.avgDuration',
+    key: 'avg_duration_ms',
+    format: formatDuration,
+    bestFn: 'min',
+  },
+  {
+    labelKey: 'analytics.agentComparison.metrics.avgTtft',
+    key: 'avg_ttft_ms',
+    format: formatDuration,
+    bestFn: 'min',
+  },
+  {
+    labelKey: 'analytics.agentComparison.metrics.avgCost',
+    key: 'avg_cost',
+    format: formatCost,
+    bestFn: 'min',
+  },
+  {
+    labelKey: 'analytics.agentComparison.metrics.totalTokens',
+    key: 'total_tokens',
+    format: formatCompactNumber,
+    bestFn: 'max',
+  },
+  {
+    labelKey: 'analytics.agentComparison.metrics.avgSteps',
+    key: 'avg_agent_steps',
+    format: (v: number) => v.toFixed(1),
+    bestFn: 'min',
+  },
 ]
 
 function getBestIndex(values: number[], fn: 'max' | 'min'): number {
@@ -46,7 +86,7 @@ function getBestIndex(values: number[], fn: 'max' | 'min'): number {
 
 function LoadingSkeleton() {
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="overflow-hidden rounded-lg border border-border">
       <div className="bg-muted/30 px-4 py-2.5">
         <div className="h-3 w-24 animate-pulse rounded bg-muted" />
       </div>
@@ -63,11 +103,7 @@ function LoadingSkeleton() {
   )
 }
 
-export function AgentComparison({
-  data,
-  loading = false,
-  fetching = false,
-}: AgentComparisonProps) {
+export function AgentComparison({ data, loading = false, fetching = false }: AgentComparisonProps) {
   const { t } = useTranslation()
 
   if (loading) return <LoadingSkeleton />
@@ -83,7 +119,7 @@ export function AgentComparison({
   return (
     <div
       className={cn(
-        'rounded-lg border border-border overflow-hidden',
+        'overflow-hidden rounded-lg border border-border',
         fetching && 'opacity-50 transition-opacity',
       )}
     >
@@ -110,16 +146,12 @@ export function AgentComparison({
         </thead>
         <tbody>
           {METRIC_ROWS.map((row) => {
-            const values = data.map(
-              (a) => (a as unknown as Record<string, number>)[row.key] ?? 0,
-            )
+            const values = data.map((a) => (a as unknown as Record<string, number>)[row.key] ?? 0)
             const bestIdx = getBestIndex(values, row.bestFn)
 
             return (
               <tr key={row.key} className="border-t border-border hover:bg-accent/20">
-                <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                  {t(row.labelKey)}
-                </td>
+                <td className="px-4 py-2.5 text-xs text-muted-foreground">{t(row.labelKey)}</td>
                 {values.map((v, i) => (
                   <td
                     key={data[i].agent_id}

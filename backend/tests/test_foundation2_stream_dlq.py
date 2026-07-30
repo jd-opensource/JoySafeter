@@ -14,6 +14,8 @@ from app.joysafeter_worker.events.stream_consumer import (
     _ids_over_delivery_limit,
 )
 
+pytestmark = pytest.mark.no_db
+
 
 def test_ids_over_delivery_limit_selects_only_exhausted():
     pending = [

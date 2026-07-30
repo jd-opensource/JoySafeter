@@ -8,8 +8,9 @@ Create Date: 2026-07-23 00:00:00.000000+00:00
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "20260723_000012"
 down_revision: Union[str, None] = "20260720_000001"
@@ -101,12 +102,38 @@ def upgrade() -> None:
         sa.Column("last_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default="{}"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["agent_id"], ["joysafeter_agents.id"], name=op.f("fk_joysafeter_triggers_agent_id_joysafeter_agents")),
-        sa.ForeignKeyConstraint(["project_id"], ["joysafeter_organization_projects.id"], name=op.f("fk_joysafeter_triggers_project_id_joysafeter_organization_projects")),
-        sa.ForeignKeyConstraint(["pinned_session_id"], ["joysafeter_sessions.id"], name=op.f("fk_joysafeter_triggers_pinned_session_id_joysafeter_sessions"), ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["reusable_session_id"], ["joysafeter_sessions.id"], name=op.f("fk_joysafeter_triggers_reusable_session_id_joysafeter_sessions"), ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["last_task_id"], ["joysafeter_tasks.id"], name=op.f("fk_joysafeter_triggers_last_task_id_joysafeter_tasks"), ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["last_session_id"], ["joysafeter_sessions.id"], name=op.f("fk_joysafeter_triggers_last_session_id_joysafeter_sessions"), ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["agent_id"], ["joysafeter_agents.id"], name=op.f("fk_joysafeter_triggers_agent_id_joysafeter_agents")
+        ),
+        sa.ForeignKeyConstraint(
+            ["project_id"],
+            ["joysafeter_organization_projects.id"],
+            name=op.f("fk_joysafeter_triggers_project_id_joysafeter_organization_projects"),
+        ),
+        sa.ForeignKeyConstraint(
+            ["pinned_session_id"],
+            ["joysafeter_sessions.id"],
+            name=op.f("fk_joysafeter_triggers_pinned_session_id_joysafeter_sessions"),
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["reusable_session_id"],
+            ["joysafeter_sessions.id"],
+            name=op.f("fk_joysafeter_triggers_reusable_session_id_joysafeter_sessions"),
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["last_task_id"],
+            ["joysafeter_tasks.id"],
+            name=op.f("fk_joysafeter_triggers_last_task_id_joysafeter_tasks"),
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["last_session_id"],
+            ["joysafeter_sessions.id"],
+            name=op.f("fk_joysafeter_triggers_last_session_id_joysafeter_sessions"),
+            ondelete="SET NULL",
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_joysafeter_triggers")),
         sa.UniqueConstraint("project_id", "name", name="uq_joysafeter_triggers_project_name"),
     )
@@ -120,10 +147,22 @@ def downgrade() -> None:
     op.drop_table("joysafeter_triggers")
 
     op.drop_index("idx_joysafeter_schedules_session_mode", table_name="joysafeter_schedules")
-    op.drop_constraint(op.f("fk_joysafeter_schedules_last_session_id_joysafeter_sessions"), "joysafeter_schedules", type_="foreignkey")
-    op.drop_constraint(op.f("fk_joysafeter_schedules_last_task_id_joysafeter_tasks"), "joysafeter_schedules", type_="foreignkey")
-    op.drop_constraint(op.f("fk_joysafeter_schedules_reusable_session_id_joysafeter_sessions"), "joysafeter_schedules", type_="foreignkey")
-    op.drop_constraint(op.f("fk_joysafeter_schedules_pinned_session_id_joysafeter_sessions"), "joysafeter_schedules", type_="foreignkey")
+    op.drop_constraint(
+        op.f("fk_joysafeter_schedules_last_session_id_joysafeter_sessions"), "joysafeter_schedules", type_="foreignkey"
+    )
+    op.drop_constraint(
+        op.f("fk_joysafeter_schedules_last_task_id_joysafeter_tasks"), "joysafeter_schedules", type_="foreignkey"
+    )
+    op.drop_constraint(
+        op.f("fk_joysafeter_schedules_reusable_session_id_joysafeter_sessions"),
+        "joysafeter_schedules",
+        type_="foreignkey",
+    )
+    op.drop_constraint(
+        op.f("fk_joysafeter_schedules_pinned_session_id_joysafeter_sessions"),
+        "joysafeter_schedules",
+        type_="foreignkey",
+    )
     for column in (
         "last_payload",
         "last_session_id",

@@ -97,7 +97,10 @@ def patch_deps(monkeypatch):
 async def test_keyed_reuses_session_matching_the_key(patch_deps):
     agent = _agent()
     existing = SimpleNamespace(
-        id=uuid.uuid4(), agent_id=agent.id, status=SessionStatus.IDLE.value, archived_at=None,
+        id=uuid.uuid4(),
+        agent_id=agent.id,
+        status=SessionStatus.IDLE.value,
+        archived_at=None,
         metadata_={"trigger_session_key": "alpha"},
     )
     executor = AgentTriggerExecutor(_SequencedDb(keyed_session=existing))

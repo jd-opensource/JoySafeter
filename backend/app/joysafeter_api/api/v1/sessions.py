@@ -36,12 +36,12 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionRepoResourceResponse,
     SessionResourceResponse,
     SessionResponse,
-    SessionSkillUsageResponse,
     SessionStorageMountResponse,
     SessionUsage,
     SingleEventRequest,
     UpdateRepoResourceRequest,
 )
+from app.joysafeter_domain.schemas.joysafeter_skill import SkillUsageResponse as SessionSkillUsageResponse
 from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS
 from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
@@ -196,7 +196,9 @@ async def _load_session_storage_mounts(db: AsyncSession, session_id: uuid.UUID, 
     return list(result.scalars().all())
 
 
-def _session_to_response(session, agent=None, resources=None, repo_resources=None, storage_mounts=None) -> SessionResponse:
+def _session_to_response(
+    session, agent=None, resources=None, repo_resources=None, storage_mounts=None
+) -> SessionResponse:
     agent_snapshot = session.agent_snapshot or {}
     agent_data = SessionAgent(
         id=session.agent_id,
@@ -467,9 +469,7 @@ async def create_session(
 
     storage_mount_records = []
     if req.storage_mounts:
-        authorized = {
-            item["volume_ref"]: item for item in await storage_svc.catalog_for_project(auth_ctx.project_id)
-        }
+        authorized = {item["volume_ref"]: item for item in await storage_svc.catalog_for_project(auth_ctx.project_id)}
         for mount in req.storage_mounts:
             volume = await storage_svc.get_volume_by_ref(mount.volume_ref)
             if not volume:
@@ -560,7 +560,7 @@ async def list_sessions(
             agent_query = agent_query.where(JoySafeterAgent.project_id == auth_ctx.project_id)
         result = await db.execute(agent_query)
         agents_by_id = {agent.id: agent for agent in result.scalars().all()}
-    storage_mounts_by_session = {}
+    storage_mounts_by_session: dict[uuid.UUID, list[JoySafeterSessionStorageMount]] = {}
     if sessions:
         mount_query = select(JoySafeterSessionStorageMount).where(
             JoySafeterSessionStorageMount.session_id.in_([s.id for s in sessions])

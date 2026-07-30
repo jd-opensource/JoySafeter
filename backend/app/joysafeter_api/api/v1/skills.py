@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_skill_file_id, parse_skill_id, parse_skill_security_scan_id
-from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_api.services import (
     SkillLifecycleService,
     SkillPromotionService,
@@ -21,6 +20,7 @@ from app.joysafeter_api.services import (
 )
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillUsageLog
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_skill import (
     CreateSkillFileRequest,
     CreateSkillRequest,
@@ -90,6 +90,7 @@ def _validate_sha256_hex(value: str | None, field: str) -> str | None:
             user_action="fix_input",
         )
     return normalized
+
 
 FILE_TYPE_BY_EXT = {
     ".md": "markdown",
