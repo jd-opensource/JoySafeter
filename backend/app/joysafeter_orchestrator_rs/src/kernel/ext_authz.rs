@@ -34,7 +34,8 @@ use uuid::Uuid;
 
 use crate::kernel::credential_broker::CredentialBroker;
 use crate::kernel::credential_resolution::{
-    global_resolution_registry, EXT_AUTHZ_ROUTE_ID_KEY, EXT_AUTHZ_SANDBOX_ID_KEY,
+    global_resolution_registry, CREDENTIAL_RESOLVE_FAILED, EXT_AUTHZ_ROUTE_ID_KEY,
+    EXT_AUTHZ_SANDBOX_ID_KEY,
 };
 
 /// google.rpc.Code::Ok.
@@ -134,7 +135,7 @@ fn deny_response() -> CheckResponse {
     CheckResponse {
         status: Some(RpcStatus {
             code: RPC_PERMISSION_DENIED,
-            message: "credential resolution denied".to_string(),
+            message: format!("{CREDENTIAL_RESOLVE_FAILED}: credential resolution denied"),
             ..Default::default()
         }),
         ..Default::default()
@@ -215,5 +216,18 @@ mod tests {
             .expect("check")
             .into_inner();
         assert_eq!(status_code(&response), RPC_PERMISSION_DENIED);
+    }
+
+    #[test]
+    fn deny_response_carries_structured_error_code() {
+        // Both credential-plane faces surface the same structured code; the
+        // ext_authz denial embeds it in the gRPC status message.
+        let response = deny_response();
+        let message = response
+            .status
+            .as_ref()
+            .map(|s| s.message.clone())
+            .unwrap_or_default();
+        assert!(message.contains(CREDENTIAL_RESOLVE_FAILED));
     }
 }

@@ -29,8 +29,11 @@ use crate::kernel::credential_broker::CredentialBroker;
 
 /// Header the caller presents its service token in.
 const RESOLVE_TOKEN_HEADER: &str = "x-joysafeter-resolve-token";
-/// Structured error code returned on any resolution failure.
-const CREDENTIAL_RESOLVE_FAILED: &str = "CREDENTIAL_RESOLVE_FAILED";
+/// Structured error code returned on any resolution failure. Shared by the two
+/// orchestrator-side faces (this HTTP `/resolve` service and the ext_authz gRPC
+/// service) so the credential-plane denial carries one identifiable code. The
+/// K8s gateway (lib crate) emits a matching literal — it cannot import kernel.
+pub const CREDENTIAL_RESOLVE_FAILED: &str = "CREDENTIAL_RESOLVE_FAILED";
 
 /// Keys for the non-secret per-route data the Docker Envoy LDS passes to the
 /// orchestrator ext_authz `Check` via the filter's `context_extensions` map (it

@@ -9,7 +9,7 @@
 //! route_id)` and evicted on sandbox teardown.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -88,14 +88,23 @@ impl CredentialBroker {
             value: format_header_value(&route.inject_scheme, &secret),
         };
 
+        // Audit the resolution with non-secret coordinates only — never the
+        // resolved value. Fresh resolves are bounded by the cache TTL, so this
+        // is one line per sandbox/route per TTL window, not per request.
+        tracing::info!(
+            sandbox_id = %sandbox_id,
+            route_id = %route.id,
+            header = %route.inject_header,
+            "credential broker resolved route"
+        );
+
         self.cache_put(cache_key, header.clone());
         Ok(header)
     }
 
-    /// Drop all cached resolutions for a sandbox. Called on teardown so a
-    /// destroyed sandbox leaves no secret material resident. Wired into the
-    /// teardown path in SP-3 Task 6; remove this allow then.
-    #[allow(dead_code)]
+    /// Drop all cached resolutions for a sandbox. Called on teardown (via the
+    /// process-wide [`credential_broker`]) so a destroyed sandbox leaves no
+    /// secret material resident in the cache.
     pub fn evict(&self, sandbox_id: Uuid) {
         let mut cache = self.cache.lock().expect("credential cache poisoned");
         cache.retain(|(sid, _), _| *sid != sandbox_id);
@@ -252,6 +261,30 @@ impl CredentialBroker {
     }
 }
 
+/// Process-wide credential broker. There is one orchestrator, one DB, and one
+/// decrypt point, so a singleton lets the resolution HTTP service, the ext_authz
+/// gRPC service, and the teardown path share ONE cache — the same pattern as
+/// [`crate::kernel::credential_resolution::global_resolution_registry`]. Without
+/// this, each data-plane face would hold its own cache and teardown could evict
+/// neither.
+static GLOBAL_BROKER: OnceLock<Arc<CredentialBroker>> = OnceLock::new();
+
+/// Initialize (or return) the process-wide broker from the DB pool. Idempotent:
+/// the first caller's pool wins; later callers get the same instance. Called at
+/// startup by both data-plane services.
+pub fn init_credential_broker(pool: PgPool) -> Arc<CredentialBroker> {
+    GLOBAL_BROKER
+        .get_or_init(|| Arc::new(CredentialBroker::new(pool)))
+        .clone()
+}
+
+/// The process-wide broker, if startup initialized one. The teardown path uses
+/// this to evict a torn-down sandbox's cached secrets; returns `None` in unit
+/// tests that never call [`init_credential_broker`].
+pub fn credential_broker() -> Option<Arc<CredentialBroker>> {
+    GLOBAL_BROKER.get().cloned()
+}
+
 /// Format a resolved secret into a header value per the injection scheme.
 /// Mirrors the historical inline formatting so the byte-identical header is
 /// reconstructed from `(ref, scheme)`.
@@ -307,6 +340,23 @@ mod tests {
         assert!(rendered.contains("authorization"));
         assert!(rendered.contains("<redacted>"));
         assert!(!rendered.contains("super-secret"));
+    }
+
+    #[tokio::test]
+    async fn global_broker_is_a_shared_singleton() {
+        // The resolution service, ext_authz, and teardown must share ONE broker
+        // (hence one cache). init returns the same instance on repeat calls, and
+        // the teardown-path accessor sees it. Uses a lazy offline pool (no
+        // connection opened) — the singleton is never resolved against here.
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy("postgres://invalid:invalid@127.0.0.1:1/none")
+            .expect("lazy pool");
+        let first = init_credential_broker(pool.clone());
+        let second = init_credential_broker(pool);
+        assert!(Arc::ptr_eq(&first, &second));
+        let via_getter = credential_broker().expect("broker initialized");
+        assert!(Arc::ptr_eq(&first, &via_getter));
     }
 
     fn external_route(secret_name: &str, secret_key: &str) -> EgressCredentialRoute {

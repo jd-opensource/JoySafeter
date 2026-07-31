@@ -193,6 +193,14 @@ async fn main() -> anyhow::Result<()> {
         if let Err(e) = enforcer.recover(&db_pool).await {
             warn!("Egress enforcer recovery from DB failed: {e}");
         }
+        // Rebuild each live sandbox's credential routes into the resolution
+        // registry so per-request credential resolution survives a restart
+        // (provider-neutral: both data planes read this registry).
+        kernel::sandbox_resolver::recover_resolution_registry(
+            &db_pool,
+            &config.llm_egress_allowed_hosts,
+        )
+        .await;
     }
 
     // Initialize sandbox bridge registry
@@ -259,9 +267,7 @@ async fn main() -> anyhow::Result<()> {
     // the single decrypt point, and the route registry is populated as sandboxes
     // enforce their egress policy.
     let resolution_handle = if let Some(bind) = config.credential_resolution_bind.clone() {
-        let broker = Arc::new(kernel::credential_broker::CredentialBroker::new(
-            db_pool.clone(),
-        ));
+        let broker = kernel::credential_broker::init_credential_broker(db_pool.clone());
         let service_token_sha256 = config
             .credential_resolution_service_token
             .as_deref()
