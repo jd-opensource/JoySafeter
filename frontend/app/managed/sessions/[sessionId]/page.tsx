@@ -2054,8 +2054,8 @@ function EnvDrawer({
                     <code className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground" title={key}>
                       {key}
                     </code>
-                    <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground" title={String(value)}>
-                      {String(value)}
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+                      ••••••
                     </code>
                   </div>
                 ))}
