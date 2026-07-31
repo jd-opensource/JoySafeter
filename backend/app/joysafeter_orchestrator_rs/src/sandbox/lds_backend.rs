@@ -370,7 +370,7 @@ fn build_http_listener_json(
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
 ) -> Value {
-    let virtual_hosts = build_virtual_hosts_json(allowed_hosts, credentials);
+    let virtual_hosts = build_virtual_hosts_json(sandbox_id, allowed_hosts, credentials);
 
     json!({
         "@type": LISTENER_TYPE_URL,
@@ -409,6 +409,21 @@ fn build_http_listener_json(
                             }
                         },
                         {
+                            // Per-request credential resolution. The filter is a
+                            // no-op unless a route enables it (per-route
+                            // context_extensions); the orchestrator's ext_authz
+                            // service resolves the credential and returns the
+                            // header to inject. No secret is ever in this config.
+                            "name": "envoy.filters.http.ext_authz",
+                            "typed_config": {
+                                "@type": "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz",
+                                "transport_api_version": "V3",
+                                "grpc_service": {
+                                    "envoy_grpc": { "cluster_name": "orchestrator_grpc" }
+                                }
+                            }
+                        },
+                        {
                             "name": "envoy.filters.http.router",
                             "typed_config": {
                                 "@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"
@@ -421,6 +436,38 @@ fn build_http_listener_json(
     })
 }
 
+/// Per-route ext_authz config (JSON) that ENABLES the credential callout for a
+/// credential-injection route, passing its non-secret `(sandbox_id, route_id)`
+/// to the ext_authz service as `context_extensions`.
+fn ext_authz_enable_json(sandbox_id: &Uuid, route_id: &str) -> Value {
+    let mut context = serde_json::Map::new();
+    context.insert(
+        crate::kernel::credential_resolution::EXT_AUTHZ_SANDBOX_ID_KEY.to_string(),
+        json!(sandbox_id.to_string()),
+    );
+    context.insert(
+        crate::kernel::credential_resolution::EXT_AUTHZ_ROUTE_ID_KEY.to_string(),
+        json!(route_id),
+    );
+    json!({
+        "envoy.filters.http.ext_authz": {
+            "@type": "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute",
+            "check_settings": { "context_extensions": context }
+        }
+    })
+}
+
+/// Per-route ext_authz config (JSON) that DISABLES the callout — used on
+/// allowlist/deny traffic, which needs no platform credential.
+fn ext_authz_disabled_json() -> Value {
+    json!({
+        "envoy.filters.http.ext_authz": {
+            "@type": "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute",
+            "disabled": true
+        }
+    })
+}
+
 /// Build the virtual_hosts array for the HTTP listener.
 ///
 /// Order matters — Envoy evaluates virtual hosts by most-specific domain match,
@@ -429,6 +476,7 @@ fn build_http_listener_json(
 /// vhost (superseding the plain allowlist entry for that host); unmatched paths
 /// on that host still egress plainly.
 fn build_virtual_hosts_json(
+    sandbox_id: &Uuid,
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
 ) -> Vec<Value> {
@@ -482,7 +530,11 @@ fn build_virtual_hosts_json(
                     "match": match_json,
                     "route": route_json,
                     "request_headers_to_add": headers,
-                    "request_headers_to_remove": headers_to_remove
+                    "request_headers_to_remove": headers_to_remove,
+                    // Enable per-request credential resolution for this route,
+                    // passing its (sandbox_id, route_id) to the ext_authz service
+                    // via non-secret context_extensions.
+                    "typed_per_filter_config": ext_authz_enable_json(sandbox_id, &r.id)
                 })
             })
             .collect();
@@ -524,6 +576,8 @@ fn build_virtual_hosts_json(
         vhosts.push(json!({
             "name": "allowed",
             "domains": domains,
+            // Allowlist traffic needs no credential; skip the ext_authz callout.
+            "typed_per_filter_config": ext_authz_disabled_json(),
             "routes": [
                 {
                     "match": { "connect_matcher": {} },
@@ -547,6 +601,7 @@ fn build_virtual_hosts_json(
     vhosts.push(json!({
         "name": "deny_all",
         "domains": ["*"],
+        "typed_per_filter_config": ext_authz_disabled_json(),
         "routes": [{
             "match": { "prefix": "/" },
             "direct_response": {
@@ -1093,6 +1148,63 @@ fn pack_any<M: Message>(type_url: &str, msg: &M) -> Any {
     }
 }
 
+/// Type URL for the per-route ext_authz override, used in the proto renderer's
+/// `typed_per_filter_config` maps (mirror of the JSON `@type`).
+const EXT_AUTHZ_PER_ROUTE_TYPE_URL: &str =
+    "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute";
+
+/// Per-route ext_authz config (proto) that ENABLES the credential callout for a
+/// credential-injection route, passing its non-secret `(sandbox_id, route_id)`
+/// to the ext_authz service as `context_extensions`. Proto mirror of
+/// [`ext_authz_enable_json`]; returned as a `typed_per_filter_config` map keyed
+/// by the filter name.
+fn ext_authz_enable_proto(sandbox_id: &Uuid, route_id: &str) -> HashMap<String, Any> {
+    use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::{
+        ext_authz_per_route, CheckSettings, ExtAuthzPerRoute,
+    };
+    let mut context = HashMap::new();
+    context.insert(
+        crate::kernel::credential_resolution::EXT_AUTHZ_SANDBOX_ID_KEY.to_string(),
+        sandbox_id.to_string(),
+    );
+    context.insert(
+        crate::kernel::credential_resolution::EXT_AUTHZ_ROUTE_ID_KEY.to_string(),
+        route_id.to_string(),
+    );
+    let per_route = ExtAuthzPerRoute {
+        r#override: Some(ext_authz_per_route::Override::CheckSettings(
+            CheckSettings {
+                context_extensions: context,
+                ..Default::default()
+            },
+        )),
+    };
+    let mut map = HashMap::new();
+    map.insert(
+        "envoy.filters.http.ext_authz".to_string(),
+        pack_any(EXT_AUTHZ_PER_ROUTE_TYPE_URL, &per_route),
+    );
+    map
+}
+
+/// Per-route ext_authz config (proto) that DISABLES the callout — used on
+/// allowlist/deny traffic, which needs no platform credential. Proto mirror of
+/// [`ext_authz_disabled_json`].
+fn ext_authz_disabled_proto() -> HashMap<String, Any> {
+    use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::{
+        ext_authz_per_route, ExtAuthzPerRoute,
+    };
+    let per_route = ExtAuthzPerRoute {
+        r#override: Some(ext_authz_per_route::Override::Disabled(true)),
+    };
+    let mut map = HashMap::new();
+    map.insert(
+        "envoy.filters.http.ext_authz".to_string(),
+        pack_any(EXT_AUTHZ_PER_ROUTE_TYPE_URL, &per_route),
+    );
+    map
+}
+
 fn build_grpc_listener_proto(
     sandbox_id: &Uuid,
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
@@ -1161,6 +1273,30 @@ fn build_http_listener_proto(
         ..Default::default()
     };
 
+    // ext_authz HTTP filter: points at the always-present orchestrator_grpc
+    // bootstrap cluster over gRPC v3. Per-route context_extensions (set below)
+    // decide which routes actually invoke the callout; no secret lives here.
+    let ext_authz = {
+        use envoy_types::pb::envoy::config::core::v3::ApiVersion;
+        use envoy_types::pb::envoy::config::core::v3::{grpc_service, GrpcService};
+        use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::{
+            ext_authz, ExtAuthz,
+        };
+        ExtAuthz {
+            services: Some(ext_authz::Services::GrpcService(GrpcService {
+                target_specifier: Some(grpc_service::TargetSpecifier::EnvoyGrpc(
+                    grpc_service::EnvoyGrpc {
+                        cluster_name: "orchestrator_grpc".to_string(),
+                        ..Default::default()
+                    },
+                )),
+                ..Default::default()
+            })),
+            transport_api_version: ApiVersion::V3 as i32,
+            ..Default::default()
+        }
+    };
+
     let hcm = HttpConnectionManager {
         stat_prefix: format!("{sandbox_id}_http"),
         http_protocol_options: Some(Http1ProtocolOptions {
@@ -1173,7 +1309,7 @@ fn build_http_listener_proto(
         }],
         route_specifier: Some(http_connection_manager::RouteSpecifier::RouteConfig(
             RouteConfiguration {
-                virtual_hosts: build_virtual_hosts_proto(allowed_hosts, credentials),
+                virtual_hosts: build_virtual_hosts_proto(sandbox_id, allowed_hosts, credentials),
                 ..Default::default()
             },
         )),
@@ -1183,6 +1319,18 @@ fn build_http_listener_proto(
                 config_type: Some(http_filter::ConfigType::TypedConfig(pack_any(
                     "type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig",
                     &dfp_filter,
+                ))),
+                ..Default::default()
+            },
+            HttpFilter {
+                // Per-request credential resolution. A no-op unless a route
+                // enables it (per-route context_extensions); the orchestrator's
+                // ext_authz service resolves the credential and returns the
+                // header to inject. No secret is ever in this config.
+                name: "envoy.filters.http.ext_authz".to_string(),
+                config_type: Some(http_filter::ConfigType::TypedConfig(pack_any(
+                    "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz",
+                    &ext_authz,
                 ))),
                 ..Default::default()
             },
@@ -1221,6 +1369,7 @@ fn build_http_listener_proto(
 }
 
 fn build_virtual_hosts_proto(
+    sandbox_id: &Uuid,
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
 ) -> Vec<envoy_types::pb::envoy::config::route::v3::VirtualHost> {
@@ -1278,6 +1427,10 @@ fn build_virtual_hosts_proto(
                     })),
                     request_headers_to_add: headers,
                     request_headers_to_remove: headers_to_remove,
+                    // Enable per-request credential resolution for this route,
+                    // passing its (sandbox_id, route_id) to the ext_authz service
+                    // via non-secret context_extensions.
+                    typed_per_filter_config: ext_authz_enable_proto(sandbox_id, &r.id),
                     ..Default::default()
                 }
             })
@@ -1356,6 +1509,8 @@ fn build_virtual_hosts_proto(
             name: "allowed".to_string(),
             domains,
             routes: vec![connect_route, prefix_route],
+            // Allowlist traffic needs no credential; skip the ext_authz callout.
+            typed_per_filter_config: ext_authz_disabled_proto(),
             ..Default::default()
         });
     }
@@ -1380,6 +1535,7 @@ fn build_virtual_hosts_proto(
             })),
             ..Default::default()
         }],
+        typed_per_filter_config: ext_authz_disabled_proto(),
         ..Default::default()
     });
 
@@ -1762,7 +1918,8 @@ mod tests {
         // the listener the way it is actually assembled — transparent routes +
         // an allowlist that does NOT contain the transparent host — and assert
         // every exact domain is unique across vhosts (Envoy rejects duplicates).
-        let vh = build_virtual_hosts_json(&["other.example.com".to_string()], &routes);
+        let vh =
+            build_virtual_hosts_json(&Uuid::nil(), &["other.example.com".to_string()], &routes);
         assert!(vh.iter().any(|v| v["name"] == "egress_crm_example_com"));
 
         let mut seen = std::collections::HashSet::new();
@@ -1815,7 +1972,7 @@ mod tests {
             ],
         };
         let routes = creds.to_routes(&sid);
-        let vh = build_virtual_hosts_json(&[], &routes);
+        let vh = build_virtual_hosts_json(&Uuid::nil(), &[], &routes);
 
         // Exactly one credential vhost for the host, holding both routes.
         let host_vhosts: Vec<_> = vh
@@ -1880,7 +2037,7 @@ mod tests {
             ..exact.clone()
         };
 
-        let vh = build_virtual_hosts_json(&[], &[exact, prefix]);
+        let vh = build_virtual_hosts_json(&Uuid::nil(), &[], &[exact, prefix]);
         let routes = vh
             .iter()
             .find(|v| v["name"] == "egress_crm_example_com")
@@ -1910,11 +2067,11 @@ mod tests {
     #[test]
     fn http_vhosts_have_deny_all_last() {
         // With no allowlist, only the catch-all deny_all vhost exists.
-        let vh = build_virtual_hosts_json(&[], &[]);
+        let vh = build_virtual_hosts_json(&Uuid::nil(), &[], &[]);
         assert_eq!(vh.len(), 1);
         assert_eq!(vh[0]["name"], "deny_all");
         // With an allowlist, `allowed` precedes `deny_all`.
-        let vh = build_virtual_hosts_json(&["a.com".to_string()], &[]);
+        let vh = build_virtual_hosts_json(&Uuid::nil(), &["a.com".to_string()], &[]);
         assert_eq!(vh.len(), 2);
         assert_eq!(vh[0]["name"], "allowed");
         assert_eq!(vh[1]["name"], "deny_all");
@@ -1923,7 +2080,7 @@ mod tests {
     #[test]
     fn credential_vhosts_precede_allowlist_and_inject_headers() {
         let creds = vec![llm_route(), mcp_route("gitlab"), mcp_route("jira")];
-        let vh = build_virtual_hosts_json(&["a.com".to_string()], &creds);
+        let vh = build_virtual_hosts_json(&Uuid::nil(), &["a.com".to_string()], &creds);
         // Placeholder-host vhosts, then allowlist, then deny_all.
         assert_eq!(vh[0]["name"], "egress_llm-egress_internal");
         assert_eq!(vh[1]["name"], "egress_mcp-egress_internal");
@@ -2004,5 +2161,173 @@ mod tests {
             proto_names.iter().map(|s| s.as_str()).collect::<Vec<_>>()
         );
         assert_eq!(json_names[0], "egress_llm-egress_internal");
+    }
+
+    /// A spec with a non-nil sandbox id so tests can assert the id is threaded
+    /// into per-route context_extensions (nil would hide a threading bug).
+    fn http_spec_with_sandbox(sandbox_id: Uuid, creds: Vec<CredentialRoute>) -> ListenerSpec {
+        ListenerSpec {
+            sandbox_id,
+            kind: ListenerKind::Http,
+            allowed_hosts: vec!["a.com".to_string()],
+            credentials: creds,
+        }
+    }
+
+    #[test]
+    fn http_listener_json_wires_ext_authz_per_route() {
+        let sid = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let http = http_spec_with_sandbox(sid, vec![llm_route()]);
+        let json = render_listener_json(&http);
+
+        // The ext_authz HTTP filter sits between dynamic_forward_proxy and router
+        // and points at the orchestrator_grpc bootstrap cluster over gRPC v3.
+        let http_filters = json["filter_chains"][0]["filters"][0]["typed_config"]["http_filters"]
+            .as_array()
+            .unwrap();
+        let filter_names: Vec<&str> = http_filters
+            .iter()
+            .map(|f| f["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            filter_names,
+            vec![
+                "envoy.filters.http.dynamic_forward_proxy",
+                "envoy.filters.http.ext_authz",
+                "envoy.filters.http.router",
+            ]
+        );
+        let ext_authz = &http_filters[1]["typed_config"];
+        assert_eq!(ext_authz["transport_api_version"], "V3");
+        assert_eq!(
+            ext_authz["grpc_service"]["envoy_grpc"]["cluster_name"],
+            "orchestrator_grpc"
+        );
+
+        // The credential vhost's route ENABLES the callout, carrying the
+        // non-secret (sandbox_id, route_id) as context_extensions.
+        let vhosts = json["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]
+            ["virtual_hosts"]
+            .as_array()
+            .unwrap();
+        let cred_vhost = vhosts
+            .iter()
+            .find(|v| v["name"] == "egress_llm-egress_internal")
+            .unwrap();
+        let ctx = &cred_vhost["routes"][0]["typed_per_filter_config"]
+            ["envoy.filters.http.ext_authz"]["check_settings"]["context_extensions"];
+        assert_eq!(ctx["joysafeter_sandbox_id"], sid.to_string());
+        assert_eq!(ctx["joysafeter_route_id"], "llm");
+
+        // Allowlist and deny_all vhosts DISABLE the callout (no credential).
+        for name in ["allowed", "deny_all"] {
+            let v = vhosts.iter().find(|v| v["name"] == name).unwrap();
+            assert_eq!(
+                v["typed_per_filter_config"]["envoy.filters.http.ext_authz"]["disabled"],
+                serde_json::Value::Bool(true),
+                "{name} vhost should disable ext_authz"
+            );
+        }
+
+        // No secret name/key/value ever appears in the rendered listener; only
+        // the non-secret coordinates travel to the ext_authz service.
+        let serialized = serde_json::to_string(&json).unwrap();
+        assert!(!serialized.contains("test-secret"));
+        assert!(!serialized.contains("ANTHROPIC_API_KEY"));
+    }
+
+    #[test]
+    fn http_listener_proto_wires_ext_authz_per_route() {
+        use envoy_types::pb::envoy::config::core::v3::grpc_service;
+        use envoy_types::pb::envoy::config::listener::v3::{filter, Listener};
+        use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::{
+            ext_authz, ext_authz_per_route, ExtAuthz, ExtAuthzPerRoute,
+        };
+        use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
+            http_connection_manager, http_filter, HttpConnectionManager,
+        };
+
+        let sid = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let http = http_spec_with_sandbox(sid, vec![llm_route()]);
+        let any = encode_listener_any(&http).unwrap();
+
+        let l = Listener::decode(any.value.as_slice()).unwrap();
+        let hcm_any = match &l.filter_chains[0].filters[0].config_type {
+            Some(filter::ConfigType::TypedConfig(a)) => a,
+            _ => panic!("expected typed config"),
+        };
+        let hcm = HttpConnectionManager::decode(hcm_any.value.as_slice()).unwrap();
+
+        // Filter order: dynamic_forward_proxy, ext_authz, router.
+        let filter_names: Vec<&str> = hcm.http_filters.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            filter_names,
+            vec![
+                "envoy.filters.http.dynamic_forward_proxy",
+                "envoy.filters.http.ext_authz",
+                "envoy.filters.http.router",
+            ]
+        );
+
+        // The ext_authz filter targets orchestrator_grpc over gRPC v3.
+        let ext_authz_any = match &hcm.http_filters[1].config_type {
+            Some(http_filter::ConfigType::TypedConfig(a)) => a,
+            _ => panic!("expected ext_authz typed config"),
+        };
+        let ext_authz = ExtAuthz::decode(ext_authz_any.value.as_slice()).unwrap();
+        assert_eq!(ext_authz.transport_api_version, 2); // ApiVersion::V3
+        let cluster_name = match ext_authz.services {
+            Some(ext_authz::Services::GrpcService(gs)) => match gs.target_specifier {
+                Some(grpc_service::TargetSpecifier::EnvoyGrpc(e)) => e.cluster_name,
+                _ => panic!("expected envoy_grpc"),
+            },
+            _ => panic!("expected grpc_service"),
+        };
+        assert_eq!(cluster_name, "orchestrator_grpc");
+
+        // Credential route ENABLES the callout with the (sandbox_id, route_id)
+        // context_extensions; allowlist/deny vhosts DISABLE it.
+        let rc = match hcm.route_specifier {
+            Some(http_connection_manager::RouteSpecifier::RouteConfig(rc)) => rc,
+            _ => panic!("expected route config"),
+        };
+        let decode_per_route = |cfg: &HashMap<String, Any>| -> ExtAuthzPerRoute {
+            let a = cfg
+                .get("envoy.filters.http.ext_authz")
+                .expect("ext_authz cfg");
+            ExtAuthzPerRoute::decode(a.value.as_slice()).unwrap()
+        };
+
+        let cred_vhost = rc
+            .virtual_hosts
+            .iter()
+            .find(|v| v.name == "egress_llm-egress_internal")
+            .unwrap();
+        let route_cfg = decode_per_route(&cred_vhost.routes[0].typed_per_filter_config);
+        match route_cfg.r#override {
+            Some(ext_authz_per_route::Override::CheckSettings(cs)) => {
+                assert_eq!(
+                    cs.context_extensions.get("joysafeter_sandbox_id"),
+                    Some(&sid.to_string())
+                );
+                assert_eq!(
+                    cs.context_extensions.get("joysafeter_route_id"),
+                    Some(&"llm".to_string())
+                );
+            }
+            other => panic!("expected CheckSettings, got {other:?}"),
+        }
+
+        for name in ["allowed", "deny_all"] {
+            let v = rc.virtual_hosts.iter().find(|v| v.name == name).unwrap();
+            let cfg = decode_per_route(&v.typed_per_filter_config);
+            assert!(
+                matches!(
+                    cfg.r#override,
+                    Some(ext_authz_per_route::Override::Disabled(true))
+                ),
+                "{name} vhost should disable ext_authz"
+            );
+        }
     }
 }
