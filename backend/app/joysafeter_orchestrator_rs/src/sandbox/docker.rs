@@ -24,6 +24,7 @@ use super::provider::{
     SandboxCreateConfig, SandboxProvider, SandboxStatus,
 };
 use crate::config::JoySafeterConfig;
+use crate::egress::enforcer::{EgressEnforcer, EnvoyEnforcer};
 use crate::egress::policy::SandboxCredentials;
 
 /// S13: Retry wrapper for Docker operations that may fail due to transient errors.
@@ -83,6 +84,8 @@ pub struct DockerProvider {
     hardening: SandboxHardening,
     /// Envoy network isolation manager (None when envoy_enabled=false).
     envoy_manager: Option<Arc<EnvoyManager>>,
+    /// Egress enforcer built from the Envoy manager (None when Envoy disabled).
+    egress_enforcer: Option<Arc<EnvoyEnforcer>>,
     /// Delta xDS server for gRPC xDS mode (None when filesystem mode or Envoy disabled).
     xds_service: Option<Arc<DeltaXdsServer>>,
 }
@@ -153,6 +156,13 @@ impl DockerProvider {
             None
         };
 
+        let egress_enforcer = envoy_manager.clone().map(|m| {
+            Arc::new(EnvoyEnforcer::new(
+                m,
+                config.llm_egress_allowed_hosts.clone(),
+            ))
+        });
+
         Ok(Self {
             docker,
             config: config.clone(),
@@ -164,6 +174,7 @@ impl DockerProvider {
                 run_as_user: config.sandbox_run_as_user.clone(),
             },
             envoy_manager,
+            egress_enforcer,
             xds_service,
         })
     }
@@ -181,6 +192,7 @@ impl DockerProvider {
                 run_as_user: "1000:1000".to_string(),
             },
             envoy_manager: None,
+            egress_enforcer: None,
             xds_service: None,
         }
     }
@@ -793,15 +805,12 @@ impl SandboxProvider for DockerProvider {
     // =================================================================
 
     async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            if let Err(e) = manager.init().await {
+        if let Some(ref enforcer) = self.egress_enforcer {
+            if let Err(e) = enforcer.init().await {
                 warn!("EnvoyManager initialization failed: {e}");
                 return Ok(()); // non-fatal: sandboxes without Envoy still work
             }
-            if let Err(e) = manager
-                .recover_from_db(pool, &self.config.llm_egress_allowed_hosts)
-                .await
-            {
+            if let Err(e) = enforcer.recover(pool).await {
                 warn!("EnvoyManager LDS recovery from DB failed: {e}");
             }
             info!(
@@ -822,17 +831,22 @@ impl SandboxProvider for DockerProvider {
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            manager
-                .setup_for_sandbox(sandbox_id, networking, credentials)
-                .await?;
+        if let Some(e) = &self.egress_enforcer {
+            e.enforce(
+                sandbox_id,
+                _sandbox_token.unwrap_or(""),
+                networking,
+                credentials,
+            )
+            .await
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            manager.teardown_for_sandbox(sandbox_id).await?;
+        if let Some(e) = &self.egress_enforcer {
+            e.teardown(sandbox_id).await?;
         }
         Ok(())
     }

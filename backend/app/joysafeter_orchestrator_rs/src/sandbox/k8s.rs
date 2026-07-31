@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -15,12 +16,9 @@ use super::provider::{
     SandboxCreateConfig, SandboxProvider, SandboxStatus,
 };
 use crate::config::JoySafeterConfig;
-use crate::db::models::JoySafeterSandbox;
-use crate::db::queries;
-use crate::egress::k8s_manager::K8sEgressManager;
+use crate::egress::enforcer::{EgressEnforcer, GatewayEnforcer};
 use crate::egress::policy::{SandboxCredentials, LLM_EGRESS_HOST};
 use crate::kernel::llm_providers::is_real_llm_secret_env;
-use crate::kernel::sandbox_resolver::rebuild_sandbox_credentials;
 
 const K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV: &str = "JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN";
 const RUNNER_TOKEN_ENV: &str = "JOYSAFETER_RUNNER_TOKEN";
@@ -31,69 +29,35 @@ pub struct K8sProvider {
     kubectl_path: String,
     orchestrator_url: Option<String>,
     egress_gateway_url: Option<String>,
-    orchestrator_network_target: Option<K8sServiceTarget>,
-    egress_gateway_network_target: Option<K8sServiceTarget>,
-    llm_egress_allowed_hosts: Vec<String>,
-    egress_management_enabled: bool,
-    egress_manager: Option<K8sEgressManager>,
+    egress_enforcer: Option<Arc<GatewayEnforcer>>,
+    /// Whether a gateway egress manager is configured (gateway URL + control
+    /// token). Looser than `egress_enforcer`, which also requires the K8s enable
+    /// switch and NetworkPolicy targets. Gates the create-time Pod env rewrite,
+    /// preserving the pre-enforcer behavior where the rewrite only needed a
+    /// configured manager, not full production egress readiness.
+    has_egress_manager: bool,
 }
 
 impl K8sProvider {
     pub fn new(config: &JoySafeterConfig) -> Self {
-        let egress_manager = match K8sEgressManager::from_config(config) {
-            Ok(manager) => manager,
+        let egress_enforcer = match GatewayEnforcer::from_config(config) {
+            Ok(enforcer) => enforcer.map(Arc::new),
             Err(err) => {
-                warn!("K8s egress manager disabled: {err}");
+                warn!("K8s egress enforcer disabled: {err}");
                 None
             }
         };
-        let orchestrator_target_url = config
-            .k8s_orchestrator_url
-            .clone()
-            .unwrap_or_else(|| format!("http://joysafeter-orchestrator:{}", config.grpc_port));
-        let orchestrator_network_target =
-            match k8s_service_target_from_url(&orchestrator_target_url, &config.k8s_namespace) {
-                Ok(target) => Some(target),
-                Err(err) => {
-                    warn!("K8s orchestrator NetworkPolicy target disabled: {err}");
-                    None
-                }
-            };
-        let egress_gateway_network_target = config
-            .egress_gateway_url
-            .as_deref()
-            .map(|url| k8s_service_target_from_url(url, &config.k8s_namespace))
-            .transpose()
-            .unwrap_or_else(|err| {
-                warn!("K8s egress gateway NetworkPolicy target disabled: {err}");
-                None
-            });
-        let has_egress_manager = egress_manager.is_some();
-        let has_orchestrator_network_target = orchestrator_network_target.is_some();
-        let has_egress_gateway_network_target = egress_gateway_network_target.is_some();
-        let has_egress_gateway_url = config.egress_gateway_url.is_some();
-        info!(
-            egress_management_enabled = config.k8s_egress_management_enabled,
-            has_egress_gateway_url,
-            has_egress_manager,
-            has_orchestrator_network_target,
-            has_egress_gateway_network_target,
-            has_egress_management = config.k8s_egress_management_enabled
-                && has_egress_manager
-                && has_orchestrator_network_target
-                && has_egress_gateway_network_target,
-            "K8s provider egress capability check"
-        );
+        let has_egress_manager = crate::egress::k8s_manager::K8sEgressManager::from_config(config)
+            .ok()
+            .flatten()
+            .is_some();
         Self {
             namespace: config.k8s_namespace.clone(),
             kubectl_path: config.k8s_kubectl_path.clone(),
             orchestrator_url: config.k8s_orchestrator_url.clone(),
             egress_gateway_url: config.egress_gateway_url.clone(),
-            orchestrator_network_target,
-            egress_gateway_network_target,
-            llm_egress_allowed_hosts: config.llm_egress_allowed_hosts.clone(),
-            egress_management_enabled: config.k8s_egress_management_enabled,
-            egress_manager,
+            egress_enforcer,
+            has_egress_manager,
         }
     }
 
@@ -119,11 +83,6 @@ impl K8sProvider {
             );
         }
         Ok(())
-    }
-
-    async fn kubectl_apply(&self, manifest: &Value) -> anyhow::Result<()> {
-        self.kubectl_write_manifest(Self::kubectl_apply_args(), manifest)
-            .await
     }
 
     async fn kubectl_create(&self, manifest: &Value) -> anyhow::Result<()> {
@@ -158,16 +117,6 @@ impl K8sProvider {
             );
         }
         Ok(())
-    }
-
-    fn kubectl_apply_args() -> [&'static str; 5] {
-        [
-            "apply",
-            "--server-side",
-            "--field-manager=joysafeter-orchestrator",
-            "-f",
-            "-",
-        ]
     }
 
     fn kubectl_create_args() -> [&'static str; 5] {
@@ -305,61 +254,6 @@ impl K8sProvider {
         }))
     }
 
-    fn build_network_policy(&self, sandbox_id: Uuid) -> anyhow::Result<Value> {
-        let Some(orchestrator) = self.orchestrator_network_target.as_ref() else {
-            anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s NetworkPolicy requires a resolvable orchestrator service target"
-            );
-        };
-        let Some(gateway) = self.egress_gateway_network_target.as_ref() else {
-            anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s NetworkPolicy requires a resolvable egress gateway service target"
-            );
-        };
-
-        Ok(json!({
-            "apiVersion": "networking.k8s.io/v1",
-            "kind": "NetworkPolicy",
-            "metadata": {
-                "name": format!("joysafeter-egress-{sandbox_id}"),
-                "namespace": self.namespace,
-                "labels": {
-                    "app.kubernetes.io/name": "joysafeter-sandbox-egress",
-                    "app.kubernetes.io/part-of": "joysafeter",
-                    "joysafeter.sandbox_id": sandbox_id.to_string()
-                }
-            },
-            "spec": {
-                "podSelector": {
-                    "matchLabels": {
-                        "app.kubernetes.io/name": "joysafeter-sandbox",
-                        "joysafeter.sandbox_id": sandbox_id.to_string()
-                    }
-                },
-                "policyTypes": ["Egress"],
-                "egress": [
-                    {
-                        "to": [
-                            {
-                                "namespaceSelector": {
-                                    "matchLabels": {
-                                        "kubernetes.io/metadata.name": "kube-system"
-                                    }
-                                }
-                            }
-                        ],
-                        "ports": [
-                            { "protocol": "UDP", "port": 53 },
-                            { "protocol": "TCP", "port": 53 }
-                        ]
-                    },
-                    egress_rule_for_service(orchestrator),
-                    egress_rule_for_service(gateway)
-                ]
-            }
-        }))
-    }
-
     fn render_pod_env(
         &self,
         config: &SandboxCreateConfig,
@@ -384,7 +278,7 @@ impl K8sProvider {
                 "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s limited-networking LLM env requires JOYSAFETER_EGRESS_GATEWAY_URL"
             );
         };
-        if self.egress_manager.is_none() {
+        if !self.has_egress_manager {
             anyhow::bail!(
                 "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s limited-networking LLM env requires an egress manager"
             );
@@ -440,107 +334,6 @@ impl K8sProvider {
         );
         Ok(())
     }
-
-    async fn recover_networking_from_db(&self, pool: &PgPool) -> anyhow::Result<()> {
-        let Some(manager) = self.egress_manager.as_ref() else {
-            info!("K8s egress recovery skipped because egress manager is not configured");
-            return Ok(());
-        };
-
-        let sandboxes = queries::list_live_sandboxes_for_recovery(pool).await?;
-        let mut recovered = 0usize;
-        let mut skipped = 0usize;
-        for sandbox in &sandboxes {
-            let Some(networking) = recovery_networking(sandbox) else {
-                skipped += 1;
-                continue;
-            };
-            let Some(runner_token) = runner_token_from_sandbox_config(sandbox.config.as_ref())
-            else {
-                skipped += 1;
-                warn!(
-                    sandbox_id = %sandbox.id,
-                    "Skipping K8s egress recovery because sandbox config has no runner token"
-                );
-                continue;
-            };
-
-            let network_policy = self.build_network_policy(sandbox.id)?;
-            self.kubectl_apply(&network_policy).await?;
-            let credentials =
-                rebuild_sandbox_credentials(pool, sandbox, &self.llm_egress_allowed_hosts).await;
-            manager
-                .setup_for_sandbox(sandbox.id, runner_token, Some(networking), credentials)
-                .await?;
-            recovered += 1;
-        }
-
-        info!(
-            recovered_sandboxes = recovered,
-            skipped_sandboxes = skipped,
-            total_live = sandboxes.len(),
-            "K8s egress manager recovered sandbox policies from DB"
-        );
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct K8sServiceTarget {
-    service_name: String,
-    namespace: String,
-    port: u16,
-}
-
-fn k8s_service_target_from_url(
-    raw: &str,
-    fallback_namespace: &str,
-) -> anyhow::Result<K8sServiceTarget> {
-    let url = url::Url::parse(raw)?;
-    let host = url
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("URL has no host"))?;
-    let labels: Vec<&str> = host.split('.').filter(|part| !part.is_empty()).collect();
-    let service_name = labels
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("URL host has no service name"))?
-        .to_string();
-    let namespace = if labels.len() >= 3 && labels[2] == "svc" {
-        labels[1].to_string()
-    } else {
-        fallback_namespace.to_string()
-    };
-    let port = url.port_or_known_default().ok_or_else(|| {
-        anyhow::anyhow!("URL must include a port or use a scheme with a known default port")
-    })?;
-
-    Ok(K8sServiceTarget {
-        service_name,
-        namespace,
-        port,
-    })
-}
-
-fn egress_rule_for_service(target: &K8sServiceTarget) -> Value {
-    json!({
-        "to": [
-            {
-                "namespaceSelector": {
-                    "matchLabels": {
-                        "kubernetes.io/metadata.name": target.namespace
-                    }
-                },
-                "podSelector": {
-                    "matchLabels": {
-                        "app.kubernetes.io/name": target.service_name
-                    }
-                }
-            }
-        ],
-        "ports": [
-            { "protocol": "TCP", "port": target.port }
-        ]
-    })
 }
 
 fn has_llm_placeholder_base_url(env: &HashMap<String, String>) -> bool {
@@ -580,23 +373,6 @@ fn is_sandbox_token_llm_credential(name: &str, value: &str, runner_token: Option
     })
 }
 
-fn recovery_networking(sandbox: &JoySafeterSandbox) -> Option<&Value> {
-    let networking = sandbox
-        .config
-        .as_ref()?
-        .get("fingerprint")?
-        .get("networking")?;
-    (networking.get("type").and_then(|value| value.as_str()) == Some("limited"))
-        .then_some(networking)
-}
-
-fn runner_token_from_sandbox_config(config: Option<&Value>) -> Option<&str> {
-    config?
-        .get("runner_token")?
-        .as_str()
-        .filter(|token| !token.trim().is_empty())
-}
-
 fn sanitize_label_key(key: &str) -> String {
     key.chars()
         .map(|ch| {
@@ -612,7 +388,12 @@ fn sanitize_label_key(key: &str) -> String {
 #[async_trait]
 impl SandboxProvider for K8sProvider {
     async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
-        self.recover_networking_from_db(pool).await
+        if let Some(enforcer) = self.egress_enforcer.as_ref() {
+            enforcer.recover(pool).await
+        } else {
+            info!("K8s egress recovery skipped because egress enforcer is not configured");
+            Ok(())
+        }
     }
 
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
@@ -759,7 +540,7 @@ impl SandboxProvider for K8sProvider {
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
-        let Some(manager) = self.egress_manager.as_ref() else {
+        let Some(enforcer) = self.egress_enforcer.as_ref() else {
             anyhow::bail!("SANDBOX_EGRESS_MANAGER_REQUIRED: K8s egress manager is not configured");
         };
         let Some(sandbox_token) = sandbox_token else {
@@ -767,16 +548,14 @@ impl SandboxProvider for K8sProvider {
                 "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s egress manager requires a sandbox token"
             );
         };
-        let network_policy = self.build_network_policy(sandbox_id)?;
-        self.kubectl_apply(&network_policy).await?;
-        manager
-            .setup_for_sandbox(sandbox_id, sandbox_token, networking, credentials)
+        enforcer
+            .enforce(sandbox_id, sandbox_token, networking, credentials)
             .await
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        if let Some(manager) = self.egress_manager.as_ref() {
-            manager.teardown_for_sandbox(sandbox_id).await?;
+        if let Some(enforcer) = self.egress_enforcer.as_ref() {
+            enforcer.teardown(sandbox_id).await?;
         }
         Ok(())
     }
@@ -788,13 +567,9 @@ impl SandboxProvider for K8sProvider {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        let egress_ready = self.egress_management_enabled
-            && self.egress_manager.is_some()
-            && self.orchestrator_network_target.is_some()
-            && self.egress_gateway_network_target.is_some();
         ProviderCapabilities {
             has_host_mount: false,
-            isolation: if egress_ready {
+            isolation: if self.egress_enforcer.is_some() {
                 IsolationProfile::Mediated {
                     boundary: EgressBoundary::Gateway,
                 }
@@ -962,16 +737,6 @@ mod tests {
     }
 
     #[test]
-    fn k8s_runtime_apply_uses_server_side_apply_without_last_applied_annotation() {
-        let args = K8sProvider::kubectl_apply_args();
-
-        assert!(args.contains(&"--server-side"));
-        assert!(args.contains(&"--field-manager=joysafeter-orchestrator"));
-        assert!(!args.contains(&"--save-config"));
-        assert!(!args.contains(&"--record"));
-    }
-
-    #[test]
     fn k8s_runtime_pod_create_does_not_require_patch_permission() {
         let args = K8sProvider::kubectl_create_args();
 
@@ -1094,124 +859,5 @@ mod tests {
 
         assert!(format!("{err}").contains("JOYSAFETER_RUNNER_TOKEN"));
         assert!(format!("{err}").contains("SANDBOX_EGRESS_MANAGER_REQUIRED"));
-    }
-
-    #[test]
-    fn k8s_service_target_parses_in_cluster_service_dns() {
-        let target = k8s_service_target_from_url(
-            "http://joysafeter-egress-gateway.joysafeter-control.svc.cluster.local:8088",
-            "joysafeter-sandboxes",
-        )
-        .expect("service target");
-
-        assert_eq!(
-            target,
-            K8sServiceTarget {
-                service_name: "joysafeter-egress-gateway".to_string(),
-                namespace: "joysafeter-control".to_string(),
-                port: 8088,
-            }
-        );
-    }
-
-    #[test]
-    fn k8s_network_policy_allows_only_dns_orchestrator_and_gateway() {
-        let sandbox_id =
-            Uuid::parse_str("018ff000-0000-7000-8000-000000000023").expect("valid uuid");
-
-        let policy = provider_with_gateway()
-            .build_network_policy(sandbox_id)
-            .expect("network policy");
-        let rendered = serde_json::to_string(&policy).expect("policy json");
-
-        assert_eq!(
-            policy
-                .pointer("/apiVersion")
-                .and_then(|value| value.as_str()),
-            Some("networking.k8s.io/v1")
-        );
-        assert_eq!(
-            policy.pointer("/kind").and_then(|value| value.as_str()),
-            Some("NetworkPolicy")
-        );
-        assert_eq!(
-            policy
-                .pointer("/spec/podSelector/matchLabels/joysafeter.sandbox_id")
-                .and_then(|value| value.as_str()),
-            Some("018ff000-0000-7000-8000-000000000023")
-        );
-        assert_eq!(
-            policy
-                .pointer("/spec/egress")
-                .and_then(|value| value.as_array())
-                .map(Vec::len),
-            Some(3)
-        );
-        assert!(rendered.contains("kube-system"));
-        assert!(rendered.contains("joysafeter-orchestrator"));
-        assert!(rendered.contains("joysafeter-egress-gateway"));
-        assert!(!rendered.contains("ai-api.jdcloud.com"));
-        assert!(!rendered.contains("api.anthropic.com"));
-    }
-
-    #[test]
-    fn k8s_network_policy_requires_gateway_target() {
-        let sandbox_id =
-            Uuid::parse_str("018ff000-0000-7000-8000-000000000024").expect("valid uuid");
-
-        let err = provider()
-            .build_network_policy(sandbox_id)
-            .expect_err("gateway target is required");
-
-        assert!(format!("{err}").contains("egress gateway service target"));
-        assert!(format!("{err}").contains("SANDBOX_EGRESS_MANAGER_REQUIRED"));
-    }
-
-    #[test]
-    fn k8s_recovery_only_targets_limited_networking_sandboxes() {
-        let limited = JoySafeterSandbox {
-            id: Uuid::parse_str("018ff000-0000-7000-8000-000000000025").expect("valid uuid"),
-            external_id: Some("joysafeter-limited".to_string()),
-            status: "running".to_string(),
-            config: Some(json!({
-                "runner_token": "runner-token",
-                "fingerprint": {
-                    "networking": {
-                        "type": "limited",
-                        "allowed_hosts": ["api.anthropic.com"]
-                    }
-                }
-            })),
-            chat_session_id: None,
-            image: Some("joysafeter-claudecode:latest".to_string()),
-            disconnected_at: None,
-        };
-        let unrestricted = JoySafeterSandbox {
-            config: Some(json!({
-                "runner_token": "runner-token",
-                "fingerprint": {
-                    "networking": {
-                        "type": "unrestricted"
-                    }
-                }
-            })),
-            ..limited.clone()
-        };
-
-        assert!(recovery_networking(&limited).is_some());
-        assert!(recovery_networking(&unrestricted).is_none());
-    }
-
-    #[test]
-    fn k8s_recovery_requires_non_empty_runner_token() {
-        let good = json!({ "runner_token": "runner-token" });
-        let empty = json!({ "runner_token": " " });
-
-        assert_eq!(
-            runner_token_from_sandbox_config(Some(&good)),
-            Some("runner-token")
-        );
-        assert_eq!(runner_token_from_sandbox_config(Some(&empty)), None);
-        assert_eq!(runner_token_from_sandbox_config(None), None);
     }
 }
