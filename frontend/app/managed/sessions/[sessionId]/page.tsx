@@ -2136,6 +2136,65 @@ function EnvDrawer({
               </p>
             )}
           </section>
+
+          {/* Environment Variables */}
+          {env.config?.env_vars && Object.keys(env.config.env_vars).length > 0 && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">
+                {t('managed.sessions.envVars', '环境变量')}
+              </h3>
+              <div className="space-y-1.5">
+                {Object.entries(env.config.env_vars).map(([key, value]) => (
+                  <div key={key} className="flex items-start text-sm">
+                    <code className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground" title={key}>
+                      {key}
+                    </code>
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground" title={String(value)}>
+                      {String(value)}
+                    </code>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Egress Services (第三方服务) */}
+          {env.config?.egress_services && env.config.egress_services.length > 0 && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">
+                {t('managed.sessions.egressServices', '第三方服务')}
+              </h3>
+              <div className="space-y-2">
+                {env.config.egress_services.map((svc: { name?: string; base_url?: string }, i: number) => (
+                  <div key={i} className="rounded border border-border/60 px-3 py-2">
+                    {svc.name && (
+                      <div className="text-sm font-medium text-foreground">{svc.name}</div>
+                    )}
+                    {svc.base_url && (
+                      <code className="text-xs text-muted-foreground">{svc.base_url}</code>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Storage Volumes (数据卷挂载) */}
+          {env.config?.storage_volumes && env.config.storage_volumes.length > 0 && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">
+                {t('managed.sessions.storageVolumes', '数据卷挂载')}
+              </h3>
+              <div className="space-y-2">
+                {env.config.storage_volumes.map((vol: { name?: string; mount_path?: string; volume_id?: string }, i: number) => (
+                  <div key={i} className="flex items-center text-sm">
+                    <span className="w-28 shrink-0 text-muted-foreground">{vol.name || vol.volume_id || `vol-${i}`}</span>
+                    <code className="font-mono text-xs text-foreground">{vol.mount_path || '-'}</code>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>
