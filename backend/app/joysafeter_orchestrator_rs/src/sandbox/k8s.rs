@@ -916,7 +916,10 @@ mod tests {
     #[test]
     fn k8s_capability_requires_explicit_enablement_and_gateway_config() {
         assert!(!provider().capabilities().isolation.manages_egress());
-        assert!(!provider_with_gateway().capabilities().isolation.manages_egress());
+        assert!(!provider_with_gateway()
+            .capabilities()
+            .isolation
+            .manages_egress());
 
         let enabled = provider_with_enabled_gateway().capabilities();
         assert_eq!(

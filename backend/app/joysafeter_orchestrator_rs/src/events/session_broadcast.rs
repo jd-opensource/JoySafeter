@@ -40,11 +40,11 @@ impl SessionBroadcastSubscriber {
     }
 
     async fn handle(&self, envelope: &EventEnvelope) {
-        // Runner/status envelopes must only reach the UI after they have been
-        // persisted and assigned the canonical DB seq. Raw envelopes can carry
+        // Session events must only reach the UI after they have been persisted
+        // and assigned the canonical DB seq. Raw runner envelopes can carry
         // runner seq/no-seq values, which makes live ordering differ from the
         // refresh path that reads from DB.
-        if !envelope.is_status_change || !envelope.db_persisted || envelope.session_seq.is_none() {
+        if !envelope.db_persisted || envelope.session_seq.is_none() {
             return;
         }
 
@@ -60,7 +60,7 @@ impl SessionBroadcastSubscriber {
             if let Some(seq) = envelope.session_seq {
                 obj.insert("seq".to_string(), serde_json::json!(seq));
             }
-            if !obj.contains_key("stop_reason") {
+            if envelope.is_status_change && !obj.contains_key("stop_reason") {
                 obj.insert(
                     "stop_reason".to_string(),
                     envelope.stop_reason.clone().unwrap_or_default(),

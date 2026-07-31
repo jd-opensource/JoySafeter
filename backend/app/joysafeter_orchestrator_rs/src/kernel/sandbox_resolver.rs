@@ -1800,7 +1800,9 @@ mod egress_tests {
         }
 
         fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
-            use crate::sandbox::provider::{EgressBoundary, IsolationProfile, ProviderCapabilities};
+            use crate::sandbox::provider::{
+                EgressBoundary, IsolationProfile, ProviderCapabilities,
+            };
             ProviderCapabilities {
                 has_host_mount: false,
                 isolation: if self.egress_management_disabled {

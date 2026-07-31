@@ -90,6 +90,78 @@ pub async fn update_session_status_if_no_active_tasks_and_insert_event(
     .await
 }
 
+/// Append a task's final Result.output as an agent.message only when the task
+/// has not already emitted agent output after its running boundary.
+///
+/// This is part of the user-visible conversation state, not best-effort event
+/// telemetry. Keep the check and insert under the session advisory lock so a
+/// streamed agent.message and the Result.output fallback cannot race into
+/// duplicate visible replies.
+pub async fn insert_agent_message_from_task_output_if_missing(
+    pool: &PgPool,
+    session_id: Uuid,
+    task_id: Uuid,
+    payload: &serde_json::Value,
+) -> Result<Option<(Uuid, i64)>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    let lock_key = i64::from_be_bytes(session_id.as_bytes()[8..16].try_into().unwrap());
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(lock_key)
+        .execute(&mut *tx)
+        .await?;
+
+    let has_agent_output: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+          SELECT 1 FROM joysafeter_session_events
+          WHERE session_id = $1
+            AND event_type = 'agent.message'
+            AND seq > (
+              SELECT COALESCE(MAX(seq), 0) FROM joysafeter_session_events
+              WHERE session_id = $1
+                AND event_type = 'session.status_running'
+                AND payload->>'task_id' = $2
+            )
+        )
+        "#,
+    )
+    .bind(session_id)
+    .bind(task_id.to_string())
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if has_agent_output {
+        tx.commit().await?;
+        return Ok(None);
+    }
+
+    let seq: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(seq), 0) + 1 FROM joysafeter_session_events WHERE session_id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let event_id = Uuid::now_v7();
+    let inserted = sqlx::query_as::<_, (Uuid, i64)>(
+        r#"
+        INSERT INTO joysafeter_session_events (id, session_id, event_type, payload, seq, created_at)
+        VALUES ($1, $2, 'agent.message', $3, $4, NOW())
+        RETURNING id, seq
+        "#,
+    )
+    .bind(event_id)
+    .bind(session_id)
+    .bind(payload)
+    .bind(seq)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(Some(inserted))
+}
+
 async fn update_session_status_and_insert_event_inner(
     pool: &PgPool,
     session_id: Uuid,

@@ -1555,21 +1555,31 @@ async fn handle_task_message(
             // persist one fallback agent.message so the session conversation is not empty.
             if cas_ok && !harness_result.output.trim().is_empty() {
                 if let Some(sid) = session_id {
-                    let has_agent_output = queries::task_has_agent_output(pool, task_id, sid)
-                        .await
-                        .unwrap_or(false);
-                    if !has_agent_output {
-                        let envelope = EventEnvelope::new(
-                            sid,
-                            "agent.message",
-                            json!({
-                                "content": [{"type": "text", "text": harness_result.output}],
-                            }),
-                        )
-                        .with_task(task_id)
-                        .with_sandbox(sandbox_db_id)
-                        .flush_immediately();
-                        event_bus.publish(envelope).await;
+                    let payload = json!({
+                        "content": [{"type": "text", "text": harness_result.output}],
+                        "task_id": task_id.to_string(),
+                    });
+                    match queries::insert_agent_message_from_task_output_if_missing(
+                        pool, sid, task_id, &payload,
+                    )
+                    .await
+                    {
+                        Ok(Some((event_id, seq))) => {
+                            let envelope = EventEnvelope::new(sid, "agent.message", payload)
+                                .with_task(task_id)
+                                .with_sandbox(sandbox_db_id)
+                                .with_db_persisted(event_id, seq);
+                            event_bus.publish(envelope).await;
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            error!(
+                                task_id = %task_id,
+                                session_id = %sid,
+                                error = %error,
+                                "Failed to persist fallback agent.message from task output"
+                            );
+                        }
                     }
                 }
             }
@@ -3290,6 +3300,280 @@ mod tests {
             .await
             .expect("count late fallback messages");
             assert_eq!(late_agent_messages, 0);
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        cleanup(&pool, agent_id, session_id).await;
+        result
+    }
+
+    #[tokio::test]
+    async fn completed_runner_result_output_persists_visible_agent_message_before_idle() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let (agent_id, session_id) = create_agent_and_session(&pool).await;
+        let (sandbox_id, task_id) = create_running_sandbox_task(
+            &pool,
+            agent_id,
+            session_id,
+            "result-output-fallback",
+            0,
+            2,
+        )
+        .await;
+
+        let result = async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_session_events
+                    (id, session_id, event_type, payload, seq)
+                VALUES ($1, $2, 'session.status_running', $3, 1)
+                "#,
+            )
+            .bind(Uuid::now_v7())
+            .bind(session_id)
+            .bind(json!({"task_id": task_id.to_string()}))
+            .execute(&pool)
+            .await
+            .expect("insert running status event");
+
+            let event_bus = test_event_bus(pool.clone());
+            let (tx, _rx) = mpsc::channel(4);
+            let bridge = Arc::new(SandboxBridge::new(sandbox_id, tx.clone()));
+            let runner_result = RunnerMessage {
+                payload: Some(runner_message::Payload::Result(
+                    proto::RunnerHarnessResult {
+                        status: "completed".to_string(),
+                        output: "FORMAL_SESSION_K3S_OK".to_string(),
+                        ..Default::default()
+                    },
+                )),
+            };
+            let mut requires_action_pending = false;
+            let mut buffered_events = Vec::new();
+            let mut task_completed = false;
+            let mut task_error = false;
+            let custom_names = std::collections::HashSet::new();
+            let mcp_names = std::collections::HashSet::new();
+
+            let outcome = handle_task_message(
+                &runner_result,
+                &pool,
+                &event_bus,
+                &bridge,
+                task_id,
+                None,
+                Some(session_id),
+                sandbox_id,
+                &tx,
+                &mut requires_action_pending,
+                &mut buffered_events,
+                &mut task_completed,
+                &mut task_error,
+                &custom_names,
+                &mcp_names,
+                Arc::new(MemoryStoreSubscribers::new()),
+                &BridgeRegistry::new(),
+                2000,
+            )
+            .await;
+
+            assert!(outcome.task_done);
+            assert!(outcome.terminal_idle_handled);
+            assert!(task_completed);
+            assert!(!task_error);
+
+            let rows: Vec<(String, Value, i64)> = sqlx::query_as(
+                r#"
+                SELECT event_type, payload, seq
+                FROM joysafeter_session_events
+                WHERE session_id = $1
+                ORDER BY seq
+                "#,
+            )
+            .bind(session_id)
+            .fetch_all(&pool)
+            .await
+            .expect("load session events");
+
+            assert_eq!(rows.len(), 3);
+            assert_eq!(rows[0].0, "session.status_running");
+            assert_eq!(rows[1].0, "agent.message");
+            assert_eq!(rows[1].2, 2);
+            assert_eq!(
+                rows[1]
+                    .1
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .and_then(|items| {
+                        items
+                            .first()
+                            .and_then(|item| item.get("text"))
+                            .and_then(Value::as_str)
+                    }),
+                Some("FORMAL_SESSION_K3S_OK")
+            );
+            let task_id_text = task_id.to_string();
+            assert_eq!(
+                rows[1].1.get("task_id").and_then(Value::as_str),
+                Some(task_id_text.as_str())
+            );
+            assert_eq!(rows[2].0, "session.status_idle");
+            assert_eq!(rows[2].2, 3);
+            assert_eq!(
+                rows[2]
+                    .1
+                    .get("stop_reason")
+                    .and_then(|value| value.get("type"))
+                    .and_then(Value::as_str),
+                Some("end_turn")
+            );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        cleanup(&pool, agent_id, session_id).await;
+        result
+    }
+
+    #[tokio::test]
+    async fn completed_runner_result_output_does_not_duplicate_streamed_agent_message() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let (agent_id, session_id) = create_agent_and_session(&pool).await;
+        let (sandbox_id, task_id) =
+            create_running_sandbox_task(&pool, agent_id, session_id, "result-output-no-dup", 0, 2)
+                .await;
+
+        let result = async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_session_events
+                    (id, session_id, event_type, payload, seq)
+                VALUES
+                    ($1, $2, 'session.status_running', $3, 1),
+                    ($4, $2, 'agent.message', $5, 2)
+                "#,
+            )
+            .bind(Uuid::now_v7())
+            .bind(session_id)
+            .bind(json!({"task_id": task_id.to_string()}))
+            .bind(Uuid::now_v7())
+            .bind(json!({"content": [{"type": "text", "text": "streamed answer"}]}))
+            .execute(&pool)
+            .await
+            .expect("insert running status and streamed agent output");
+
+            let event_bus = test_event_bus(pool.clone());
+            let (tx, _rx) = mpsc::channel(4);
+            let bridge = Arc::new(SandboxBridge::new(sandbox_id, tx.clone()));
+            let runner_result = RunnerMessage {
+                payload: Some(runner_message::Payload::Result(
+                    proto::RunnerHarnessResult {
+                        status: "completed".to_string(),
+                        output: "fallback should not duplicate".to_string(),
+                        ..Default::default()
+                    },
+                )),
+            };
+            let mut requires_action_pending = false;
+            let mut buffered_events = Vec::new();
+            let mut task_completed = false;
+            let mut task_error = false;
+            let custom_names = std::collections::HashSet::new();
+            let mcp_names = std::collections::HashSet::new();
+
+            let outcome = handle_task_message(
+                &runner_result,
+                &pool,
+                &event_bus,
+                &bridge,
+                task_id,
+                None,
+                Some(session_id),
+                sandbox_id,
+                &tx,
+                &mut requires_action_pending,
+                &mut buffered_events,
+                &mut task_completed,
+                &mut task_error,
+                &custom_names,
+                &mcp_names,
+                Arc::new(MemoryStoreSubscribers::new()),
+                &BridgeRegistry::new(),
+                2000,
+            )
+            .await;
+
+            assert!(outcome.task_done);
+
+            let agent_messages: Vec<Value> = sqlx::query_scalar(
+                r#"
+                SELECT payload
+                FROM joysafeter_session_events
+                WHERE session_id = $1
+                  AND event_type = 'agent.message'
+                ORDER BY seq
+                "#,
+            )
+            .bind(session_id)
+            .fetch_all(&pool)
+            .await
+            .expect("load agent messages");
+
+            assert_eq!(agent_messages.len(), 1);
+            assert_eq!(
+                agent_messages[0]
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .and_then(|items| {
+                        items
+                            .first()
+                            .and_then(|item| item.get("text"))
+                            .and_then(Value::as_str)
+                    }),
+                Some("streamed answer")
+            );
+
+            let fallback_messages: i64 = sqlx::query_scalar(
+                r#"
+                SELECT COUNT(*)
+                FROM joysafeter_session_events
+                WHERE session_id = $1
+                  AND event_type = 'agent.message'
+                  AND payload::text LIKE '%fallback should not duplicate%'
+                "#,
+            )
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count fallback messages");
+            assert_eq!(fallback_messages, 0);
         }
         .await;
 
