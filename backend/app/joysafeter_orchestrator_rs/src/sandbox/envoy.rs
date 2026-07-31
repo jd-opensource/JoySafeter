@@ -33,7 +33,6 @@ pub struct EnvoyManager {
     docker: Arc<Docker>,
     config: EnvoyConfig,
     lds: Arc<dyn LdsBackend>,
-    cds: Arc<dyn CdsBackend>,
     sandbox_apply_locks: Mutex<HashMap<Uuid, Arc<Mutex<()>>>>,
 }
 
@@ -66,13 +65,11 @@ impl EnvoyManager {
         docker: Arc<Docker>,
         config: EnvoyConfig,
         lds: Arc<dyn LdsBackend>,
-        cds: Arc<dyn CdsBackend>,
     ) -> Self {
         Self {
             docker,
             config,
             lds,
-            cds,
             sandbox_apply_locks: Mutex::new(HashMap::new()),
         }
     }
@@ -320,8 +317,6 @@ impl EnvoyManager {
 
         // Reset LDS + CDS to empty initial state.
         self.lds.replace_all(vec![]).await?;
-        self.cds.replace_all(vec![]).await?;
-
         info!(
             xds_mode = %self.config.xds_mode,
             "EnvoyManager initialized (container={})",
@@ -348,7 +343,6 @@ impl EnvoyManager {
         let sandboxes = crate::db::queries::list_live_sandboxes_for_recovery(pool).await?;
 
         let mut specs = Vec::with_capacity(sandboxes.len() * 2);
-        let mut clusters = Vec::new();
         let mut recovered = 0usize;
         for sb in &sandboxes {
             // Only sandboxes provisioned with limited networking have Envoy
@@ -395,7 +389,6 @@ impl EnvoyManager {
                 .await;
                 continue;
             }
-            clusters.extend(policy.clusters(&sb.id));
 
             let policy_hash = sb
                 .networking_policy_hash
@@ -423,8 +416,7 @@ impl EnvoyManager {
             recovered += 1;
         }
 
-        // Clusters before listeners (make-before-break).
-        self.cds.replace_all(clusters).await?;
+        // Only LDS needed — clusters are shared via bootstrap.
         self.lds.replace_all(specs).await?;
         info!(
             recovered_sandboxes = recovered,

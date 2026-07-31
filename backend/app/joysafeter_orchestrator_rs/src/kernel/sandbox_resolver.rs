@@ -1265,12 +1265,16 @@ impl SandboxResolver {
             env.insert(placeholder_var.to_string(), placeholder_val.to_string());
         }
 
-        // Repoint the agent at the placeholder egress host (plaintext http://).
-        // The real host/port/path is only known to Envoy via the egress route.
-        env.insert(
-            base_url_var.to_string(),
-            format!("http://{LLM_EGRESS_HOST}"),
-        );
+        // Repoint the agent at the real upstream host but downgrade to plaintext
+        // http:// so the request goes through the HTTP proxy as a normal request
+        // (not a CONNECT tunnel). This lets Envoy see and inject headers. Envoy
+        // does TLS origination via the shared dynamic_forward_proxy_tls cluster.
+        let base_url_for_sandbox = if upstream_tls {
+            format!("http://{}:{}{}", upstream_host, upstream_port, upstream_prefix)
+        } else {
+            format!("http://{}:{}{}", upstream_host, upstream_port, upstream_prefix)
+        };
+        env.insert(base_url_var.to_string(), base_url_for_sandbox);
 
         let header_value = if spec.is_bearer {
             format!("Bearer {key_value}")
@@ -1281,8 +1285,8 @@ impl SandboxResolver {
         vec![EgressCredentialRoute {
             id: "llm".to_string(),
             kind: EgressKind::Llm,
-            exposure: EgressExposure::Placeholder,
-            match_host: LLM_EGRESS_HOST.to_string(),
+            exposure: EgressExposure::Transparent,
+            match_host: upstream_host.clone(),
             match_prefix: "/".to_string(),
             exact_path: false,
             upstream_host,
@@ -1409,9 +1413,9 @@ impl SandboxResolver {
             egress.push(EgressCredentialRoute {
                 id: format!("mcp:{name}"),
                 kind: EgressKind::Mcp,
-                exposure: EgressExposure::Placeholder,
-                match_host: MCP_EGRESS_HOST.to_string(),
-                match_prefix: format!("/mcp/{name}/"),
+                exposure: EgressExposure::Transparent,
+                match_host: upstream.host.clone(),
+                match_prefix: normalize_prefix(&upstream.prefix),
                 exact_path: false,
                 upstream_host: upstream.host,
                 upstream_port: upstream.port,
@@ -3078,7 +3082,7 @@ mod egress_tests {
         assert!(!e.contains_key("ANTHROPIC_AUTH_TOKEN"));
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
-            "http://llm-egress.internal"
+            "http://llm.internal.example.com:443/v1/"
         );
         // Non-LLM env var is untouched.
         assert_eq!(e.get("DB_PASSWORD").unwrap(), "keepme");
@@ -3169,7 +3173,7 @@ mod egress_tests {
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
             e.get("OPENAI_BASE_URL").unwrap(),
-            "http://llm-egress.internal"
+            "http://gw.internal:443/v1/"
         );
     }
 
@@ -3194,7 +3198,7 @@ mod egress_tests {
         assert!(!egress.upstream_tls);
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
-            "http://llm-egress.internal"
+            "http://llm.internal:8080/v1/"
         );
     }
 
@@ -3214,7 +3218,7 @@ mod egress_tests {
         // base URL is repointed at the plaintext egress placeholder host.
         assert_eq!(
             e.get("GOOGLE_GEMINI_BASE_URL").unwrap(),
-            "http://llm-egress.internal"
+            "http://generativelanguage.googleapis.com:443/"
         );
     }
 

@@ -763,15 +763,13 @@ impl HarnessInputBuilder {
                 if let Err(e) = self.maybe_refresh_oauth(cred, &vault_cipher).await {
                     warn!(credential_id = %cred.id, "OAuth refresh failed: {e}");
                 }
-                // Repoint the sandbox's MCP client at the placeholder egress host
-                // over plaintext http:// — the sandbox never learns the real MCP
-                // address. Envoy matches `/mcp/<name>/`, injects the real token,
-                // rewrites host+path to the true upstream, and forwards.
-                mcp.url = format!(
-                    "http://{}/mcp/{}/",
-                    crate::sandbox::lds_backend::MCP_EGRESS_HOST,
-                    mcp.name
-                );
+                // Downgrade the URL to plaintext http:// so the sandbox sends a
+                // normal HTTP proxy request (not a CONNECT tunnel). This lets Envoy
+                // see the request headers and inject the credential. Envoy then
+                // does TLS origination to the real upstream via the shared
+                // dynamic_forward_proxy_tls cluster. The real host is preserved so
+                // the DFP filter can resolve DNS directly.
+                mcp.url = mcp.url.replace("https://", "http://");
                 mcp.headers.clear();
             }
         }

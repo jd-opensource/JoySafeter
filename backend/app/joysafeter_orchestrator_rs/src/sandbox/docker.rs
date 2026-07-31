@@ -16,7 +16,7 @@ use uuid::Uuid;
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
 use super::lds_backend::{
-    CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
+    DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend,
     SandboxCredentials,
 };
 use super::mounts::SandboxMount;
@@ -144,20 +144,13 @@ impl DockerProvider {
         // Build Envoy manager + xDS service if Envoy is enabled
         let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
         let envoy_manager = if config.envoy_enabled {
-            let (lds, cds): (Arc<dyn LdsBackend>, Arc<dyn CdsBackend>) =
-                if config.envoy_xds_mode == "grpc" {
-                    let server = DeltaXdsServer::new();
-                    xds_service = Some(server.clone());
-                    (
-                        Arc::new(GrpcLds::new(server.clone())),
-                        Arc::new(GrpcCds::new(server)),
-                    )
-                } else {
-                    (
-                        Arc::new(FilesystemLds::new(config.envoy_config_dir.clone())),
-                        Arc::new(FilesystemCds::new(config.envoy_config_dir.clone())),
-                    )
-                };
+            let lds: Arc<dyn LdsBackend> = if config.envoy_xds_mode == "grpc" {
+                let server = DeltaXdsServer::new();
+                xds_service = Some(server.clone());
+                Arc::new(GrpcLds::new(server))
+            } else {
+                Arc::new(FilesystemLds::new(config.envoy_config_dir.clone()))
+            };
             Some(Arc::new(EnvoyManager::new(
                 docker.clone(),
                 EnvoyConfig {
@@ -176,7 +169,6 @@ impl DockerProvider {
                     health_failure_threshold: config.envoy_health_failure_threshold,
                 },
                 lds,
-                cds,
             )))
         } else {
             None

@@ -1043,15 +1043,22 @@ fn build_virtual_hosts_json(
                 {
                     headers_to_remove.push("proxy-authorization".to_string());
                 }
-                // host_rewrite → real upstream (fixes Host header + TLS SNI);
-                // prefix_rewrite → real upstream path; cluster → per-upstream
-                // LOGICAL_DNS cluster whose endpoint is the real host (resolved
-                // independently of the placeholder authority).
+                // For transparent routes (host is already real), no host_rewrite
+                // or prefix_rewrite needed. For placeholder routes (legacy),
+                // rewrite to the real upstream.
+                let is_transparent = r.exposure == EgressExposure::Transparent;
                 let prefix_rewrite = route_prefix_rewrite(r);
-                let route_json = if r.exact_path {
-                    // Exact path match: no prefix_rewrite (it only applies to
-                    // prefix matches). Transparent allowlist routes keep the path
-                    // as-is, so this is correct.
+                let route_json = if is_transparent {
+                    // Transparent: Host is real, path is real, just forward.
+                    json!({
+                        "cluster": r.cluster_name,
+                        "timeout": "0s",
+                        "retry_policy": {
+                            "retry_on": "5xx,reset,connect-failure",
+                            "num_retries": 2
+                        }
+                    })
+                } else if r.exact_path {
                     json!({
                         "cluster": r.cluster_name,
                         "host_rewrite_literal": r.upstream_host,
@@ -2499,12 +2506,18 @@ fn build_virtual_hosts_proto(
                 } else {
                     route_match::PathSpecifier::Prefix(r.match_prefix.clone())
                 };
-                // Exact path match: no prefix_rewrite (only valid for prefix
-                // matches). Transparent allowlist routes keep the path as-is.
-                let prefix_rewrite = if r.exact_path {
+                let is_transparent = r.exposure == EgressExposure::Transparent;
+                let prefix_rewrite = if is_transparent || r.exact_path {
                     String::new()
                 } else {
                     route_prefix_rewrite(r)
+                };
+                let host_rewrite = if is_transparent {
+                    None
+                } else {
+                    Some(route_action::HostRewriteSpecifier::HostRewriteLiteral(
+                        r.upstream_host.clone(),
+                    ))
                 };
                 Route {
                     r#match: Some(RouteMatch {
@@ -2516,13 +2529,7 @@ fn build_virtual_hosts_proto(
                         cluster_specifier: Some(route_action::ClusterSpecifier::Cluster(
                             r.cluster_name.clone(),
                         )),
-                        // host_rewrite → real upstream (Host header + TLS SNI);
-                        // prefix_rewrite → real upstream path.
-                        host_rewrite_specifier: Some(
-                            route_action::HostRewriteSpecifier::HostRewriteLiteral(
-                                r.upstream_host.clone(),
-                            ),
-                        ),
+                        host_rewrite_specifier: host_rewrite,
                         prefix_rewrite,
                         // Disable the default 15s route timeout — streaming
                         // responses (LLM, SSE MCP) can run for minutes.
@@ -3266,7 +3273,8 @@ mod tests {
             .find(|r| r["match"].get("prefix").is_some())
             .unwrap();
         assert_eq!(prefix_route["match"]["prefix"], "/api/work/");
-        assert_eq!(prefix_route["route"]["prefix_rewrite"], "/api/work/");
+        // Transparent routes don't need prefix_rewrite (path is already correct).
+        assert!(prefix_route["route"].get("prefix_rewrite").is_none());
     }
 
     #[test]
