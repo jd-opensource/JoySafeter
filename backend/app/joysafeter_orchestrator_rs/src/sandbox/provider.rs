@@ -280,4 +280,18 @@ mod provider_conformance_tests {
             IsolationProfile::PlatformManaged
         );
     }
+
+    #[test]
+    fn provider_conformance_only_mediated_profiles_manage_egress() {
+        assert!(IsolationProfile::Mediated {
+            boundary: EgressBoundary::Gateway
+        }
+        .manages_egress());
+        assert!(IsolationProfile::Mediated {
+            boundary: EgressBoundary::EnvoySocket
+        }
+        .manages_egress());
+        assert!(!IsolationProfile::Open.manages_egress());
+        assert!(!IsolationProfile::PlatformManaged.manages_egress());
+    }
 }

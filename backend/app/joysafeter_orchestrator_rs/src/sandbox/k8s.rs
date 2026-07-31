@@ -919,7 +919,12 @@ mod tests {
         assert!(!provider_with_gateway().capabilities().isolation.manages_egress());
 
         let enabled = provider_with_enabled_gateway().capabilities();
-        assert!(enabled.isolation.manages_egress());
+        assert_eq!(
+            enabled.isolation,
+            IsolationProfile::Mediated {
+                boundary: EgressBoundary::Gateway
+            }
+        );
     }
 
     #[test]
