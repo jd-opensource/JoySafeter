@@ -2,13 +2,18 @@
 //! credential plane, the counterpart to the K8s gateway's HTTP `/resolve`.
 //!
 //! Per-request, the Docker Envoy calls `envoy.service.auth.v3.Authorization/Check`
-//! on the orchestrator's gRPC server. The request carries the non-secret
-//! identity headers the LDS added to the matched credential route
-//! ([`SANDBOX_ID_HEADER`]/[`ROUTE_ID_HEADER`]); this handler maps them to the
+//! on the orchestrator's gRPC server. The LDS attaches the non-secret
+//! `(sandbox_id, route_id)` to each credential route via the ext_authz filter's
+//! per-route `context_extensions`; they arrive in
+//! `CheckRequest.attributes.context_extensions`. This handler maps them to the
 //! installed route, resolves the credential through the SAME [`CredentialBroker`]
-//! and [`ResolutionRegistry`] the HTTP `/resolve` uses, and returns an
-//! `OkHttpResponse` whose `headers` Envoy injects upstream (stripping the
-//! identity headers). One credential plane, two data planes.
+//! and `ResolutionRegistry` the HTTP `/resolve` uses, and returns an
+//! `OkHttpResponse` whose `headers` Envoy injects upstream. One credential
+//! plane, two data planes.
+//!
+//! `context_extensions` (not request headers) is the correct channel: a route's
+//! `request_headers_to_add` are applied by the router filter, which runs *after*
+//! ext_authz, so headers would never reach `Check`.
 //!
 //! Trust model: this rides the orchestrator's existing gRPC server, the same
 //! channel Envoy already uses for xDS — Envoy is an orchestrator-controlled
@@ -29,7 +34,7 @@ use uuid::Uuid;
 
 use crate::kernel::credential_broker::CredentialBroker;
 use crate::kernel::credential_resolution::{
-    global_resolution_registry, ROUTE_ID_HEADER, SANDBOX_ID_HEADER,
+    global_resolution_registry, EXT_AUTHZ_ROUTE_ID_KEY, EXT_AUTHZ_SANDBOX_ID_KEY,
 };
 
 /// google.rpc.Code::Ok.
@@ -55,19 +60,18 @@ impl Authorization for ExtAuthzService {
         &self,
         request: Request<CheckRequest>,
     ) -> Result<Response<CheckResponse>, Status> {
-        let headers = request
+        let context = request
             .into_inner()
             .attributes
-            .and_then(|attrs| attrs.request)
-            .and_then(|req| req.http)
-            .map(|http| http.headers)
+            .map(|attrs| attrs.context_extensions)
             .unwrap_or_default();
 
-        // Missing identity headers => not a credential-injection route (per-route
+        // No identity context => not a credential-injection route (per-route
         // ext_authz should prevent this, but be robust): allow with no injection.
-        let (Some(sandbox_id_raw), Some(route_id)) =
-            (headers.get(SANDBOX_ID_HEADER), headers.get(ROUTE_ID_HEADER))
-        else {
+        let (Some(sandbox_id_raw), Some(route_id)) = (
+            context.get(EXT_AUTHZ_SANDBOX_ID_KEY),
+            context.get(EXT_AUTHZ_ROUTE_ID_KEY),
+        ) else {
             return Ok(Response::new(ok_response(None)));
         };
 
@@ -97,8 +101,7 @@ impl Authorization for ExtAuthzService {
 }
 
 /// Build an OK CheckResponse. When `injected` is present, Envoy adds that header
-/// (overriding any sandbox-supplied one) and strips the identity headers before
-/// forwarding upstream.
+/// (overriding any sandbox-supplied one) before forwarding upstream.
 fn ok_response(injected: Option<(String, String)>) -> CheckResponse {
     let headers = injected
         .into_iter()
@@ -119,7 +122,6 @@ fn ok_response(injected: Option<(String, String)>) -> CheckResponse {
         }),
         http_response: Some(HttpResponse::OkResponse(OkHttpResponse {
             headers,
-            headers_to_remove: vec![SANDBOX_ID_HEADER.to_string(), ROUTE_ID_HEADER.to_string()],
             ..Default::default()
         })),
         ..Default::default()
@@ -142,38 +144,30 @@ fn deny_response() -> CheckResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use envoy_types::pb::envoy::service::auth::v3::attribute_context::{
-        HttpRequest, Request as AttrRequest,
-    };
     use envoy_types::pb::envoy::service::auth::v3::AttributeContext;
     use std::collections::HashMap;
 
-    fn check_request(headers: &[(&str, &str)]) -> Request<CheckRequest> {
-        let headers: HashMap<String, String> = headers
+    /// A CheckRequest carrying the given ext_authz `context_extensions`.
+    fn check_request(context: &[(&str, &str)]) -> Request<CheckRequest> {
+        let context_extensions: HashMap<String, String> = context
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         Request::new(CheckRequest {
             attributes: Some(AttributeContext {
-                request: Some(AttrRequest {
-                    http: Some(HttpRequest {
-                        headers,
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                }),
+                context_extensions,
                 ..Default::default()
             }),
         })
     }
 
-    fn ok_code(response: &CheckResponse) -> i32 {
+    fn status_code(response: &CheckResponse) -> i32 {
         response.status.as_ref().map(|s| s.code).unwrap_or(-1)
     }
 
     fn service() -> ExtAuthzService {
         // The DB pool is only touched on a registry hit; these tests exercise the
-        // no-identity and unknown-route paths, which never resolve.
+        // no-context and unknown-route paths, which never resolve.
         use sqlx::postgres::PgPoolOptions;
         let pool = PgPoolOptions::new()
             .max_connections(1)
@@ -183,13 +177,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_allows_without_injection_when_identity_headers_absent() {
+    async fn check_allows_without_injection_when_context_absent() {
         let response = service()
             .check(check_request(&[]))
             .await
             .expect("check")
             .into_inner();
-        assert_eq!(ok_code(&response), RPC_OK);
+        assert_eq!(status_code(&response), RPC_OK);
         // OK, but injects nothing.
         match response.http_response {
             Some(HttpResponse::OkResponse(ok)) => assert!(ok.headers.is_empty()),
@@ -201,25 +195,25 @@ mod tests {
     async fn check_denies_unknown_sandbox_or_route() {
         let response = service()
             .check(check_request(&[
-                (SANDBOX_ID_HEADER, &Uuid::now_v7().to_string()),
-                (ROUTE_ID_HEADER, "llm"),
+                (EXT_AUTHZ_SANDBOX_ID_KEY, &Uuid::now_v7().to_string()),
+                (EXT_AUTHZ_ROUTE_ID_KEY, "llm"),
             ]))
             .await
             .expect("check")
             .into_inner();
-        assert_eq!(ok_code(&response), RPC_PERMISSION_DENIED);
+        assert_eq!(status_code(&response), RPC_PERMISSION_DENIED);
     }
 
     #[tokio::test]
     async fn check_denies_malformed_sandbox_id() {
         let response = service()
             .check(check_request(&[
-                (SANDBOX_ID_HEADER, "not-a-uuid"),
-                (ROUTE_ID_HEADER, "llm"),
+                (EXT_AUTHZ_SANDBOX_ID_KEY, "not-a-uuid"),
+                (EXT_AUTHZ_ROUTE_ID_KEY, "llm"),
             ]))
             .await
             .expect("check")
             .into_inner();
-        assert_eq!(ok_code(&response), RPC_PERMISSION_DENIED);
+        assert_eq!(status_code(&response), RPC_PERMISSION_DENIED);
     }
 }
