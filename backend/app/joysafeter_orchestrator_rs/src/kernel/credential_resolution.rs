@@ -12,7 +12,7 @@
 //! `CREDENTIAL_RESOLVE_FAILED` error without leaking why.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -76,6 +76,16 @@ impl ResolutionRegistry {
             .get(route_id)
             .cloned()
     }
+}
+
+/// Process-wide credential-route registry. There is one orchestrator and one
+/// installed-policy set, so a singleton (initialized lazily, like
+/// `VaultCipher`'s key and the LLM provider registry) lets the enforce/teardown
+/// path and the resolution HTTP server share it without threading an `Arc`
+/// through every constructor in between.
+pub fn global_resolution_registry() -> &'static Arc<ResolutionRegistry> {
+    static REGISTRY: OnceLock<Arc<ResolutionRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Arc::new(ResolutionRegistry::new()))
 }
 
 /// Shared state for the resolution HTTP service.

@@ -93,7 +93,9 @@ impl CredentialBroker {
     }
 
     /// Drop all cached resolutions for a sandbox. Called on teardown so a
-    /// destroyed sandbox leaves no secret material resident.
+    /// destroyed sandbox leaves no secret material resident. Wired into the
+    /// teardown path in SP-3 Task 6; remove this allow then.
+    #[allow(dead_code)]
     pub fn evict(&self, sandbox_id: Uuid) {
         let mut cache = self.cache.lock().expect("credential cache poisoned");
         cache.retain(|(sid, _), _| *sid != sandbox_id);

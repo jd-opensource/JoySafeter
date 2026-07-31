@@ -1,10 +1,6 @@
 /// Kernel primitives — scheduler, sandbox management, task execution.
 pub mod command_listener;
-// The broker + resolution service are wired into main.rs (HTTP server) and the
-// resolver (registry population) in SP-3 Task 4; remove these allows then.
-#[allow(dead_code)]
 pub mod credential_broker;
-#[allow(dead_code)]
 pub mod credential_resolution;
 pub mod engine_adapter;
 pub mod harness_input_builder;

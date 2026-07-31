@@ -112,6 +112,12 @@ pub struct JoySafeterConfig {
     /// Explicit feature gate for K8s credential egress. Defaults false so K8s
     /// does not claim production egress capability until operators opt in.
     pub k8s_egress_management_enabled: bool,
+    /// Bind address for the credential resolution HTTP endpoint (`/resolve`).
+    /// `None` disables the endpoint (data planes then cannot resolve credentials).
+    pub credential_resolution_bind: Option<String>,
+    /// Shared service token the data planes present to `/resolve`. `None` makes
+    /// the endpoint fail closed (deny every request).
+    pub credential_resolution_service_token: Option<String>,
 
     // Image builder
     pub image_builder_enabled: bool,
@@ -255,6 +261,14 @@ impl JoySafeterConfig {
                 "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED",
                 false,
             ),
+            credential_resolution_bind: env::var("JOYSAFETER_CREDENTIAL_RESOLUTION_BIND")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            credential_resolution_service_token: env::var(
+                "JOYSAFETER_CREDENTIAL_RESOLUTION_SERVICE_TOKEN",
+            )
+            .ok()
+            .filter(|v| !v.trim().is_empty()),
 
             image_builder_enabled: env_bool("JOYSAFETER_IMAGE_BUILDER_ENABLED", false),
             image_builder_base: env_str(

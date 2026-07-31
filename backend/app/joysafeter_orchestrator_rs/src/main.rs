@@ -254,6 +254,48 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     info!(addr = %config.grpc_addr(), "gRPC server started");
 
+    // Start the credential resolution HTTP endpoint (`/resolve`). Data planes
+    // call it per request to obtain injectable credential headers; the broker is
+    // the single decrypt point, and the route registry is populated as sandboxes
+    // enforce their egress policy.
+    let resolution_handle = if let Some(bind) = config.credential_resolution_bind.clone() {
+        let broker = Arc::new(kernel::credential_broker::CredentialBroker::new(
+            db_pool.clone(),
+        ));
+        let service_token_sha256 = config
+            .credential_resolution_service_token
+            .as_deref()
+            .map(egress::gateway::hash_token);
+        if service_token_sha256.is_none() {
+            warn!(
+                "Credential resolution endpoint bound without a service token; \
+                 it will deny every request (fail closed)"
+            );
+        }
+        let state = kernel::credential_resolution::ResolutionState {
+            registry: kernel::credential_resolution::global_resolution_registry().clone(),
+            broker,
+            service_token_sha256,
+        };
+        let router = kernel::credential_resolution::resolution_router(state);
+        match tokio::net::TcpListener::bind(&bind).await {
+            Ok(listener) => {
+                info!(addr = %bind, "Credential resolution endpoint started");
+                Some(tokio::spawn(async move {
+                    if let Err(e) = axum::serve(listener, router).await {
+                        error!("Credential resolution server error: {e}");
+                    }
+                }))
+            }
+            Err(e) => {
+                error!(addr = %bind, "Failed to bind credential resolution endpoint: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Start task scheduler
     let scheduler_handle = kernel::scheduler::spawn_scheduler(
         db_pool.clone(),
@@ -385,6 +427,9 @@ async fn main() -> anyhow::Result<()> {
     grpc_handle.abort();
     // Give in-flight RPCs 5s to complete
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    if let Some(handle) = resolution_handle {
+        handle.abort();
+    }
     scheduler_handle.abort();
     task_ctrl_handle.abort();
     for h in sandbox_ctrl_handles {

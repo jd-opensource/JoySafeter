@@ -491,6 +491,10 @@ impl SandboxResolver {
                         context.credentials.clone(),
                     )
                     .await?;
+                // Make the sandbox's credential routes resolvable by the
+                // orchestrator resolution service (per-request injection).
+                crate::kernel::credential_resolution::global_resolution_registry()
+                    .install(sandbox_db_id, &context.credentials.routes);
             }
         }
 
@@ -964,6 +968,9 @@ impl SandboxResolver {
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        // Forget the sandbox's resolvable routes so a torn-down sandbox can no
+        // longer resolve credentials. (Broker cache eviction is wired in Task 6.)
+        crate::kernel::credential_resolution::global_resolution_registry().remove(sandbox_id);
         match self.enforcer.as_ref() {
             Some(e) => e.teardown(sandbox_id).await,
             None => Ok(()),
