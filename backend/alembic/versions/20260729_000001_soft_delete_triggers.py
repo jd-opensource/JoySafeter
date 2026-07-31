@@ -20,21 +20,22 @@ branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 
 TABLE_NAME = "joysafeter_triggers"
+TASKS_TABLE_NAME = "joysafeter_tasks"
 
 
-def _has_column(column_name: str) -> bool:
+def _has_column(column_name: str, table_name: str = TABLE_NAME) -> bool:
     if context.is_offline_mode():
         return False
     bind = op.get_bind()
-    columns = inspect(bind).get_columns(TABLE_NAME)
+    columns = inspect(bind).get_columns(table_name)
     return any(column["name"] == column_name for column in columns)
 
 
-def _has_index(index_name: str) -> bool:
+def _has_index(index_name: str, table_name: str = TABLE_NAME) -> bool:
     if context.is_offline_mode():
         return True
     bind = op.get_bind()
-    indexes = inspect(bind).get_indexes(TABLE_NAME)
+    indexes = inspect(bind).get_indexes(table_name)
     return any(index["name"] == index_name for index in indexes)
 
 
@@ -51,7 +52,23 @@ def _add_column_if_missing(column: sa.Column) -> None:
         op.add_column(TABLE_NAME, column)
 
 
+def _repair_task_trigger_column() -> None:
+    if _has_column("trigger_id", TASKS_TABLE_NAME):
+        pass
+    elif _has_column("schedule_id", TASKS_TABLE_NAME):
+        if _has_index("idx_ct_schedule", TASKS_TABLE_NAME):
+            op.drop_index("idx_ct_schedule", table_name=TASKS_TABLE_NAME)
+        op.alter_column(TASKS_TABLE_NAME, "schedule_id", new_column_name="trigger_id")
+    else:
+        op.add_column(TASKS_TABLE_NAME, sa.Column("trigger_id", sa.UUID(), nullable=True))
+
+    if not _has_index("idx_ct_trigger", TASKS_TABLE_NAME):
+        op.create_index("idx_ct_trigger", TASKS_TABLE_NAME, ["trigger_id"])
+
+
 def upgrade() -> None:
+    _repair_task_trigger_column()
+
     _add_column_if_missing(sa.Column("pending_slot_at", sa.DateTime(timezone=True), nullable=True))
     _add_column_if_missing(sa.Column("slot_attempts", sa.Integer(), nullable=False, server_default="0"))
     _add_column_if_missing(sa.Column("auto_disabled_at", sa.DateTime(timezone=True), nullable=True))
