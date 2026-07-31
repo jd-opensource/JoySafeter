@@ -885,6 +885,11 @@ fn render_cluster_json(spec: &ClusterSpec) -> Value {
         "type": "LOGICAL_DNS",
         "lb_policy": "ROUND_ROBIN",
         "dns_lookup_family": "V4_ONLY",
+        "dns_refresh_rate": "2s",
+        "dns_failure_refresh_rate": {
+            "base_interval": "0.5s",
+            "max_interval": "2s"
+        },
         "load_assignment": {
             "cluster_name": spec.name,
             "endpoints": [{
@@ -2252,6 +2257,24 @@ fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
         cluster_discovery_type: Some(cluster::ClusterDiscoveryType::Type(
             cluster::DiscoveryType::LogicalDns as i32,
         )),
+        // Accelerate DNS refresh so a freshly-created cluster resolves within
+        // ~0.5-2s (vs the default ~5.3s). dns_failure_refresh_rate specifically
+        // handles the case where the first DNS lookup fails — without it,
+        // LOGICAL_DNS would wait a full dns_refresh_rate cycle before retrying.
+        dns_refresh_rate: Some(envoy_types::pb::google::protobuf::Duration {
+            seconds: 2,
+            nanos: 0,
+        }),
+        dns_failure_refresh_rate: Some(cluster::RefreshRate {
+            base_interval: Some(envoy_types::pb::google::protobuf::Duration {
+                seconds: 0,
+                nanos: 500_000_000, // 0.5s
+            }),
+            max_interval: Some(envoy_types::pb::google::protobuf::Duration {
+                seconds: 2,
+                nanos: 0,
+            }),
+        }),
         load_assignment: Some(ClusterLoadAssignment {
             cluster_name: spec.name.clone(),
             endpoints: vec![LocalityLbEndpoints {
