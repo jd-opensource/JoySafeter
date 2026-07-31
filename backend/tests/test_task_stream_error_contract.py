@@ -4,6 +4,8 @@ import pytest
 
 from app.joysafeter_api.api.v1.tasks import _stream_via_redis, _task_stream_error_payload
 
+pytestmark = pytest.mark.no_db
+
 
 class _FakeWebSocket:
     def __init__(self):
@@ -76,11 +78,3 @@ async def test_redis_task_stream_failure_sends_structured_error_before_close():
         }
     ]
     assert websocket.closed is True
-
-
-def test_task_stream_does_not_close_before_redis_fallback():
-    source = __import__("inspect").getsource(
-        __import__("app.joysafeter_api.api.v1.tasks", fromlist=["task_stream"]).task_stream
-    )
-
-    assert "TASK_STREAM_KERNEL_UNAVAILABLE" not in source

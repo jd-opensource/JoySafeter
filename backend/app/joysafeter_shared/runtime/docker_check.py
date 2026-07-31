@@ -88,7 +88,7 @@ def get_docker_client(*, timeout: float = 10):
     import docker
 
     _ensure_docker_host()
-    return docker.from_env(timeout=timeout, version=_DEFAULT_API_VERSION)
+    return docker.from_env(timeout=timeout, version=_DEFAULT_API_VERSION)  # type: ignore[attr-defined]
 
 
 _docker_host_resolved = False

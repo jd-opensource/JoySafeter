@@ -34,6 +34,7 @@ from app.joysafeter_shared.common.app_errors import (
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.orchestrator_bridge.enqueue import enqueue_joysafeter_task
+from app.joysafeter_shared.utils.id_utils import same_id
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ class TaskSubmissionService:
         user_id: Optional[str],
         org_id: Optional[str],
         idempotency_key: Optional[str],
-        schedule_id: Optional[uuid.UUID] = None,
+        trigger_id: Optional[uuid.UUID] = None,
         auto_created_session_id: Optional[uuid.UUID] = None,
         enforce_admission: bool = True,
         enforce_user_quota: bool = True,
@@ -182,7 +183,7 @@ class TaskSubmissionService:
             idempotency_key=idempotency_key,
             user_id=user_id,
             org_id=org_id,
-            schedule_id=schedule_id,
+            trigger_id=trigger_id,
         )
 
         created = bool(getattr(task, "_created_by_create_task", True))
@@ -257,7 +258,7 @@ class TaskSubmissionService:
         # Idempotent replay: the key already produced a task. Drop the
         # session we auto-created for this attempt (if it isn't the one the
         # existing task uses) and return the existing task unchanged.
-        if auto_created_session_id is not None and task.chat_session_id != auto_created_session_id:
+        if auto_created_session_id is not None and not same_id(task.chat_session_id, auto_created_session_id):
             try:
                 await session_svc.delete_session(auto_created_session_id)
             except Exception as exc:
@@ -270,7 +271,7 @@ class TaskSubmissionService:
                     error=exc,
                     data={"session_id": str(auto_created_session_id), "task_id": str(task.id)},
                 )
-        elif auto_created_session_id is None and task.chat_session_id != chat_session_id:
+        elif auto_created_session_id is None and not same_id(task.chat_session_id, chat_session_id):
             raise ResourceConflictError(
                 code="TASK_IDEMPOTENCY_KEY_MISMATCH",
                 message="Idempotency-Key was already used for a different session",

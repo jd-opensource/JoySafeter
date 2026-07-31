@@ -8,7 +8,7 @@ import pytest
 
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
-
+from app.joysafeter_shared.config import settings as app_settings
 
 pytestmark = pytest.mark.no_db
 
@@ -94,6 +94,10 @@ async def test_agent_skill_ref_gate_rejects_runtime_blocked_skill(monkeypatch):
     skill_id = uuid.uuid4()
     svc = JoySafeterAgentService(_Db([_skill(skill_id, status="blocked")]))
 
+    # The security-status gate only runs when scanning is enabled; with it
+    # off, only lifecycle_status is checked. Turn it on to reach is_skill_usable.
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
+
     async def _latest_map(_repo, ids):
         return {ids[0]: "1.0.0"}
 
@@ -146,9 +150,7 @@ async def test_agent_skill_ref_gate_rejects_draft_version(monkeypatch):
         await svc._validate_skill_refs([{"skill_id": f"skill_{skill_id}", "version": "draft"}], "project-a")
 
     assert exc.value.code == "AGENT_SKILL_REF_NOT_RUNTIME_READY"
-    assert exc.value.data["skills"] == [
-        {"skill_id": str(skill_id), "version": "draft", "reason": "draft_not_allowed"}
-    ]
+    assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "version": "draft", "reason": "draft_not_allowed"}]
 
 
 async def test_agent_skill_ref_gate_rejects_missing_pinned_version(monkeypatch):
@@ -173,9 +175,7 @@ async def test_agent_skill_ref_gate_rejects_missing_pinned_version(monkeypatch):
             await svc._validate_skill_refs([{"skill_id": f"skill_{skill_id}", "version": "9.9.9"}], "project-a")
 
     assert exc.value.code == "AGENT_SKILL_REF_NOT_RUNTIME_READY"
-    assert exc.value.data["skills"] == [
-        {"skill_id": str(skill_id), "version": "9.9.9", "reason": "version_not_found"}
-    ]
+    assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "version": "9.9.9", "reason": "version_not_found"}]
 
 
 async def test_agent_skill_ref_gate_accepts_existing_pinned_version(monkeypatch):

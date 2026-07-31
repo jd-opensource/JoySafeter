@@ -32,7 +32,13 @@ import {
   ShieldCheck,
   AlertTriangle,
 } from 'lucide-react'
-import { MANAGED_API_BASE, managedGet, managedPost, managedDelete, managedPatch } from '@/lib/api-client'
+import {
+  managedDelete,
+  managedFetchResponse,
+  managedGet,
+  managedPatch,
+  managedPost,
+} from '@/lib/api-client'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
@@ -1662,12 +1668,16 @@ function AgentDrawer({
                             </div>
                             <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted-foreground">
                               {usage.skill_id && <div>id {usage.skill_id}</div>}
-                              {usage.skill_source_type && <div>source {usage.skill_source_type}</div>}
+                              {usage.skill_source_type && (
+                                <div>source {usage.skill_source_type}</div>
+                              )}
                               {usage.target && <div>target {usage.target}</div>}
                               {usage.artifact_hash && (
                                 <div>artifact {usage.artifact_hash.slice(0, 12)}</div>
                               )}
-                              {usage.target_hash && <div>target {usage.target_hash.slice(0, 12)}</div>}
+                              {usage.target_hash && (
+                                <div>target {usage.target_hash.slice(0, 12)}</div>
+                              )}
                               {usage.security_scan_id && <div>scan {usage.security_scan_id}</div>}
                             </div>
                           </div>
@@ -2286,18 +2296,7 @@ function SandboxFilesPanel({
         ['sandbox', 'files', archive ? 'archive' : 'raw'],
         { path: targetPath },
       )
-      const response = await fetch(`${MANAGED_API_BASE}${endpoint}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          ...(requestScope.orgId ? { 'X-Org-Id': requestScope.orgId } : {}),
-          ...(requestScope.projectId ? { 'X-Project-Id': requestScope.projectId } : {}),
-        },
-      })
-      if (!response.ok) {
-        const message = await response.text().catch(() => '')
-        throw new Error(message || response.statusText)
-      }
+      const response = await managedFetchResponse(endpoint, managedRequestOptions(requestScope))
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -2344,30 +2343,37 @@ function SandboxFilesPanel({
 
         {previewPath && (
           <div className="mt-4 rounded-lg border border-border bg-muted/20 p-3">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold">{t('managed.sessions.filePreview')}</h3>
-            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setPreviewPath(null)}>
-              {t('common.close')}
-            </Button>
-          </div>
-          {previewQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-          ) : previewQuery.error ? (
-            <p className="text-sm text-muted-foreground">{t('managed.sessions.previewUnavailable')}</p>
-          ) : selectedPreview?.encoding === 'base64' ? (
-            <div className="rounded-lg border border-dashed border-border bg-background p-3 text-sm text-muted-foreground">
-              {t('managed.sessions.binaryPreviewUnavailable')}
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">{t('managed.sessions.filePreview')}</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2"
+                onClick={() => setPreviewPath(null)}
+              >
+                {t('common.close')}
+              </Button>
             </div>
-          ) : (
-            <div className="flex max-h-64 flex-col overflow-hidden rounded-lg border border-border bg-background">
-              <div className="border-b border-border px-3 py-2 font-mono text-xs text-muted-foreground">
-                {previewPath}
+            {previewQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+            ) : previewQuery.error ? (
+              <p className="text-sm text-muted-foreground">
+                {t('managed.sessions.previewUnavailable')}
+              </p>
+            ) : selectedPreview?.encoding === 'base64' ? (
+              <div className="rounded-lg border border-dashed border-border bg-background p-3 text-sm text-muted-foreground">
+                {t('managed.sessions.binaryPreviewUnavailable')}
               </div>
-              <pre className="min-h-0 flex-1 overflow-auto p-3 text-xs leading-5">
-                {selectedPreview?.content || ''}
-              </pre>
-            </div>
-          )}
+            ) : (
+              <div className="flex max-h-64 flex-col overflow-hidden rounded-lg border border-border bg-background">
+                <div className="border-b border-border px-3 py-2 font-mono text-xs text-muted-foreground">
+                  {previewPath}
+                </div>
+                <pre className="min-h-0 flex-1 overflow-auto p-3 text-xs leading-5">
+                  {selectedPreview?.content || ''}
+                </pre>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2427,13 +2433,15 @@ function SandboxDirectoryTree({
         style={{ paddingLeft: 8 + level * 20 }}
         onClick={() => setExpanded((value) => !value)}
       >
-        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? '' : '-rotate-90'}`} />
+        <ChevronDown
+          className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? '' : '-rotate-90'}`}
+        />
         <Folder className="h-4 w-4 text-sky-500" />
         <span className="truncate font-medium text-foreground">{name}</span>
       </button>
 
       {expanded && (
-        <div className="border-l border-border/60" style={{ marginLeft: 18 + level * 20 }}>
+        <div className="border-border/60 border-l" style={{ marginLeft: 18 + level * 20 }}>
           {isLoading ? (
             <div className="px-3 py-2 text-sm text-muted-foreground">{t('common.loading')}</div>
           ) : error ? (
@@ -2516,7 +2524,152 @@ function FilesDrawer({
   onChanged: () => void
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [fileTab, setFileTab] = useState<'persistent' | 'sandbox'>('sandbox')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const operationScopeRef = useRef(operationScope)
+  const requestScopeRef = useRef(requestScope)
+  const mutationRunRef = useRef(0)
+  const pickerGenerationRef = useRef(0)
+
+  useEffect(() => {
+    if (operationScopeRef.current === operationScope) {
+      requestScopeRef.current = requestScope
+      return
+    }
+    operationScopeRef.current = operationScope
+    requestScopeRef.current = requestScope
+    mutationRunRef.current += 1
+    pickerGenerationRef.current += 1
+    setPickerOpen(false)
+  }, [operationScope, requestScope])
+
+  useEffect(
+    () => () => {
+      mutationRunRef.current += 1
+    },
+    [],
+  )
+
+  const isCurrentMutation = (runId: number, scope: string) =>
+    mutationRunRef.current === runId && operationScopeRef.current === scope && isScopeActive(scope)
+
+  const nextMutation = () => {
+    if (!isScopeActive(operationScopeRef.current)) return null
+    const runId = mutationRunRef.current + 1
+    mutationRunRef.current = runId
+    return { runId, scope: operationScopeRef.current }
+  }
+
+  const filesForAddQuery = useQuery({
+    queryKey: ['files-for-add', operationScope],
+    queryFn: () =>
+      managedGet<{ data: FileRecord[] }>('/files?limit=100', managedRequestOptions(requestScope)),
+    enabled: pickerOpen && hasManagedRequestScope(requestScope),
+    retry: false,
+  })
+
+  const addFileMutation = useMutation({
+    mutationFn: ({
+      file,
+      generation,
+      runId,
+      scope,
+    }: {
+      file: FileRecord
+      generation: number
+      runId: number
+      scope: string
+    }) => {
+      if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
+      return managedPost(
+        apiResourcePath('sessions', sessionId, 'resources'),
+        {
+          type: 'file',
+          file_id: file.id,
+          mount_path: `/workspace/${file.filename}`,
+        },
+        managedRequestOptions(requestScopeRef.current),
+      )
+    },
+    onSuccess: (_data, vars) => {
+      if (!isCurrentMutation(vars.runId, vars.scope)) return
+      onChanged()
+      if (pickerGenerationRef.current === vars.generation) {
+        setPickerOpen(false)
+      }
+    },
+    onError: (error, vars) => {
+      if (!isCurrentMutation(vars.runId, vars.scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    },
+  })
+
+  const removeFileMutation = useMutation({
+    mutationFn: ({
+      resource,
+      runId,
+      scope,
+    }: {
+      resource: SessionFileResource
+      runId: number
+      scope: string
+    }) => {
+      if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
+      return managedDelete(
+        apiResourcePath('sessions', sessionId, 'resources', resource.id),
+        managedRequestOptions(requestScopeRef.current),
+      )
+    },
+    onSuccess: (_data, vars) => {
+      if (!isCurrentMutation(vars.runId, vars.scope)) return
+      onChanged()
+    },
+    onError: (error, vars) => {
+      if (!isCurrentMutation(vars.runId, vars.scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    },
+  })
+
+  const openFilePicker = () => {
+    setFileTab('persistent')
+    pickerGenerationRef.current += 1
+    setPickerOpen(true)
+  }
+
+  const handleAddFile = (file: FileRecord) => {
+    if (!canMutate()) return
+    const currentFiles = queryClient.getQueryData<{ data?: FileRecord[] }>([
+      'files-for-add',
+      operationScopeRef.current,
+    ])
+    const currentFile = (currentFiles?.data || filesForAddQuery.data?.data || []).find(
+      (candidate) => candidate.id === file.id,
+    )
+    if (!currentFile) return
+    const action = nextMutation()
+    if (!action) return
+    addFileMutation.mutate({
+      file: currentFile,
+      generation: pickerGenerationRef.current,
+      ...action,
+    })
+  }
+
+  const handleRemoveFile = (resource: SessionFileResource) => {
+    if (!canMutate()) return
+    const currentResources = queryClient.getQueryData<{ data?: SessionResource[] }>([
+      'session-resources',
+      operationScopeRef.current,
+    ])
+    const currentFile = (currentResources?.data || files)
+      .filter((candidate): candidate is SessionFileResource => candidate.type === 'file')
+      .find((candidate) => candidate.id === resource.id)
+    if (!currentFile) return
+    const action = nextMutation()
+    if (!action) return
+    removeFileMutation.mutate({ resource: currentFile, ...action })
+  }
 
   const persistentFilesContent = (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -2529,7 +2682,41 @@ function FilesDrawer({
             {t('managed.sessions.persistentFilesDesc')}
           </p>
         </div>
+        <Button size="sm" disabled={!isIdle || !canMutate()} onClick={openFilePicker}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          {t('managed.sessions.addFile')}
+        </Button>
       </div>
+
+      {pickerOpen && (
+        <div className="mb-4 rounded-lg border border-border bg-muted/20 p-3">
+          {filesForAddQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          ) : filesForAddQuery.error ? (
+            <p className="text-sm text-muted-foreground">
+              {t('managed.sessions.filesUnavailable')}
+            </p>
+          ) : (filesForAddQuery.data?.data || []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {t('managed.sessions.noFilesAvailable')}
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {(filesForAddQuery.data?.data || []).map((file) => (
+                <button
+                  key={file.id}
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-background"
+                  onClick={() => handleAddFile(file)}
+                >
+                  <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">{file.filename}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {files.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('managed.sessions.noOutputFiles')}</p>
@@ -2539,7 +2726,16 @@ function FilesDrawer({
             <div key={f.id} className="space-y-1.5 rounded-lg border border-border p-3">
               <div className="flex items-center gap-2">
                 <FileIcon className="h-4 w-4 text-muted-foreground" />
-                <span className="font-mono text-sm font-medium">{f.file_id}</span>
+                <span className="min-w-0 flex-1 font-mono text-sm font-medium">{f.file_id}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  disabled={!isIdle || !canMutate()}
+                  onClick={() => handleRemoveFile(f)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
               <div className="flex items-center text-xs text-muted-foreground">
                 <span className="w-20 shrink-0">{t('managed.sessions.create.mountPath')}</span>
@@ -2575,19 +2771,19 @@ function FilesDrawer({
           className="flex min-h-0 flex-1 flex-col"
         >
           <div className="border-b border-border px-6 pb-0 pt-5">
-          <h2 className="text-xl font-semibold text-foreground">
-            {t('managed.sessions.fileList')}
-          </h2>
+            <h2 className="text-xl font-semibold text-foreground">
+              {t('managed.sessions.fileList')}
+            </h2>
             <TabsList className="mt-5 h-auto justify-start gap-6 rounded-none bg-transparent p-0">
               <TabsTrigger
                 value="persistent"
-                className="relative rounded-none bg-transparent px-0 pb-3 pt-0 text-base shadow-none data-[state=active]:bg-transparent data-[state=active]:shadow-none after:absolute after:inset-x-2 after:-bottom-px after:hidden after:h-1 after:rounded-full after:bg-foreground data-[state=active]:after:block"
+                className="relative rounded-none bg-transparent px-0 pb-3 pt-0 text-base shadow-none after:absolute after:inset-x-2 after:-bottom-px after:hidden after:h-1 after:rounded-full after:bg-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:after:block"
               >
                 {t('managed.sessions.persistentFiles')}
               </TabsTrigger>
               <TabsTrigger
                 value="sandbox"
-                className="relative rounded-none bg-transparent px-0 pb-3 pt-0 text-base shadow-none data-[state=active]:bg-transparent data-[state=active]:shadow-none after:absolute after:inset-x-2 after:-bottom-px after:hidden after:h-1 after:rounded-full after:bg-foreground data-[state=active]:after:block"
+                className="relative rounded-none bg-transparent px-0 pb-3 pt-0 text-base shadow-none after:absolute after:inset-x-2 after:-bottom-px after:hidden after:h-1 after:rounded-full after:bg-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:after:block"
               >
                 {t('managed.sessions.runtimeSandboxFiles')}
               </TabsTrigger>

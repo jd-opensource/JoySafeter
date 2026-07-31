@@ -37,7 +37,7 @@ export function TimeHeatmap({ data, loading }: TimeHeatmapProps) {
   if (loading) {
     return (
       <div className="rounded-lg border border-border bg-card p-4">
-        <div className="h-4 w-32 animate-pulse rounded bg-muted mb-3" />
+        <div className="mb-3 h-4 w-32 animate-pulse rounded bg-muted" />
         <div className="h-[140px] animate-pulse rounded bg-muted" />
       </div>
     )
@@ -47,17 +47,13 @@ export function TimeHeatmap({ data, loading }: TimeHeatmapProps) {
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium text-foreground mb-3">
-        {t('analytics.heatmap.title')}
-      </h3>
-      <p className="text-xs text-muted-foreground mb-3">
-        {t('analytics.heatmap.subtitle')}
-      </p>
+      <h3 className="mb-3 text-sm font-medium text-foreground">{t('analytics.heatmap.title')}</h3>
+      <p className="mb-3 text-xs text-muted-foreground">{t('analytics.heatmap.subtitle')}</p>
 
       <div className="overflow-x-auto">
         <div className="min-w-[600px]">
           {/* Hour labels */}
-          <div className="flex items-start gap-0.5 ml-8 mb-1">
+          <div className="mb-1 ml-8 flex items-start gap-0.5">
             {Array.from({ length: 24 }).map((_, h) => (
               <div key={h} className="flex-1 text-center">
                 {h % 6 === 0 && <span className="text-[10px] text-muted-foreground">{h}</span>}
@@ -68,8 +64,8 @@ export function TimeHeatmap({ data, loading }: TimeHeatmapProps) {
           {/* Grid rows */}
           <TooltipProvider delayDuration={100}>
             {grid.map((row, dayIdx) => (
-              <div key={dayIdx} className="flex items-center gap-0.5 mb-0.5">
-                <span className="text-[10px] text-muted-foreground w-7 shrink-0 text-right pr-1">
+              <div key={dayIdx} className="mb-0.5 flex items-center gap-0.5">
+                <span className="w-7 shrink-0 pr-1 text-right text-[10px] text-muted-foreground">
                   {t(DAY_LABELS_KEY[dayIdx])}
                 </span>
                 {row.map((cell, hourIdx) => {
@@ -80,12 +76,12 @@ export function TimeHeatmap({ data, loading }: TimeHeatmapProps) {
                       <TooltipTrigger asChild>
                         <div
                           className={cn(
-                            'flex-1 h-4 rounded-sm cursor-default transition-colors',
+                            'h-4 flex-1 cursor-default rounded-sm transition-colors',
                             !cell || cell.count === 0
                               ? 'bg-muted/20'
                               : hasErrors
                                 ? 'bg-red-500'
-                                : 'bg-[var(--chart-1)]'
+                                : 'bg-[var(--chart-1)]',
                           )}
                           style={{
                             opacity: cell && cell.count > 0 ? Math.max(0.2, intensity) : 1,
@@ -94,8 +90,15 @@ export function TimeHeatmap({ data, loading }: TimeHeatmapProps) {
                       </TooltipTrigger>
                       {cell && cell.count > 0 && (
                         <TooltipContent side="top" className="text-xs">
-                          <p>{t(DAY_LABELS_KEY[dayIdx])} {hourIdx}:00–{hourIdx + 1}:00</p>
-                          <p>{cell.count} {t('analytics.heatmap.calls')}{cell.error_count > 0 ? `, ${cell.error_count} ${t('analytics.heatmap.errors')}` : ''}</p>
+                          <p>
+                            {t(DAY_LABELS_KEY[dayIdx])} {hourIdx}:00–{hourIdx + 1}:00
+                          </p>
+                          <p>
+                            {cell.count} {t('analytics.heatmap.calls')}
+                            {cell.error_count > 0
+                              ? `, ${cell.error_count} ${t('analytics.heatmap.errors')}`
+                              : ''}
+                          </p>
                         </TooltipContent>
                       )}
                     </Tooltip>

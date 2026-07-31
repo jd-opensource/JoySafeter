@@ -117,6 +117,7 @@ Claude Managed Agents, only **self-hosted and security-specialized**:
 
 - The **orchestrator** + gRPC `AgentBridge` + in-sandbox Rust `sandbox-runner` decide when to call tools, manage context, and recover from errors
 - **DB-backed scheduling** — tasks claimed from Postgres with `FOR UPDATE SKIP LOCKED`, with retries and timeouts
+- **Triggers** — auto-run an agent on a **cron** schedule, a one-off time, or an **inbound signed webhook** (HMAC / bearer / token); per-fire session modes (fresh / reuse / pinned / keyed), retry/backoff, and dead-letter auto-disable — [usage docs](backend/README.md#triggers-触发器)
 - **Engine-agnostic** — Claude Code CLI, Codex app-server, or the self-developed `native` (`ccb`) harness, selected per agent
 
 </td>
@@ -387,6 +388,7 @@ JoySafeter ships today.
 | Memory stores | ✅ | Versioned, agent-writable memory stores with bi-directional sandbox sync |
 | Observability / session tracing | ✅ | OTel traces + `observations`, plus a live SSE event stream of every tool call & decision |
 | Deployment CLI + console | ✅ | `joysafeterctl` (declarative REST CLI) + the web workspace |
+| Scheduled & event triggers | ✅ | Cron / one-off `run_at` / inbound signed-webhook triggers auto-run an agent; retry/backoff, dead-letter auto-disable, per-fire session modes |
 | Multi-agent orchestration (lead → specialists) | 🟡 | Harness-driven sub-agents today, surfaced via `TaskNotification` events; first-class lead/specialist orchestration is on the roadmap |
 | Durable checkpointing | 🟡 | Session-level resume today; step-level durable checkpoints are planned |
 | Outcomes (rubric + grader self-correct loop) | ⬜ | Planned |

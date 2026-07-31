@@ -1,14 +1,6 @@
 'use client'
 
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import type { TokensTimePoint, TimeRange } from '@/lib/managed/analytics/types'
 import {
   formatAxisTimestamp,
@@ -30,19 +22,17 @@ function CustomTooltip({ active, payload, label }: Record<string, unknown>) {
 
   if (!active || !Array.isArray(payload) || !payload.length) return null
 
-  const input = ((payload as Record<string, unknown>[]).find(
-    (p) => p.dataKey === 'input_tokens',
-  )?.value as number) ?? 0
-  const output = ((payload as Record<string, unknown>[]).find(
-    (p) => p.dataKey === 'output_tokens',
-  )?.value as number) ?? 0
+  const input =
+    ((payload as Record<string, unknown>[]).find((p) => p.dataKey === 'input_tokens')
+      ?.value as number) ?? 0
+  const output =
+    ((payload as Record<string, unknown>[]).find((p) => p.dataKey === 'output_tokens')
+      ?.value as number) ?? 0
   const total = input + output
 
   return (
     <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-md">
-      <p className="mb-1.5 text-xs text-muted-foreground">
-        {String(label ?? '')}
-      </p>
+      <p className="mb-1.5 text-xs text-muted-foreground">{String(label ?? '')}</p>
       {(payload as Record<string, unknown>[]).map((entry) => (
         <div key={String(entry.dataKey)} className="flex items-center gap-2 text-sm">
           <span
@@ -58,9 +48,7 @@ function CustomTooltip({ active, payload, label }: Record<string, unknown>) {
       <div className="mt-1 border-t border-border pt-1 text-sm">
         <div className="flex items-center justify-between gap-4">
           <span className="text-muted-foreground">{t('analytics.charts.total')}</span>
-          <span className="font-medium text-foreground">
-            {formatTokens(total)}
-          </span>
+          <span className="font-medium text-foreground">{formatTokens(total)}</span>
         </div>
       </div>
     </div>
@@ -90,12 +78,7 @@ function ChartLegend() {
   )
 }
 
-export function TokenTrendChart({
-  data,
-  range,
-  loading,
-  fetching,
-}: TokenTrendChartProps) {
+export function TokenTrendChart({ data, range, loading, fetching }: TokenTrendChartProps) {
   const { t } = useTranslation()
 
   return (
@@ -109,11 +92,7 @@ export function TokenTrendChart({
     >
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data}>
-          <CartesianGrid
-            strokeDasharray="0"
-            stroke="var(--chart-grid)"
-            vertical={false}
-          />
+          <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={false} />
           <XAxis
             dataKey="timestamp"
             tick={{ fontSize: 12, fill: 'var(--chart-axis)' }}

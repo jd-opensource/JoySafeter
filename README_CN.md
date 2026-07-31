@@ -114,6 +114,7 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 
 - **Orchestrator** + gRPC `AgentBridge` + 沙箱内 Rust `sandbox-runner` 负责决定何时调用工具、管理上下文、从错误中恢复
 - **以 DB 为准的调度** —— 用 `FOR UPDATE SKIP LOCKED` 从 Postgres 认领任务，带重试与超时
+- **触发器（Triggers）** —— 按 **cron** 周期、一次性时间、或**入站签名 webhook**（HMAC / bearer / token）自动运行 Agent；支持每次触发的会话模式（fresh / reuse / pinned / keyed）、重试/退避与死信自动禁用 —— [使用文档](backend/README.md#triggers-触发器)
 - **引擎无关** —— Claude Code CLI、Codex app-server、自研 `native`（`ccb`）harness，按 Agent 选择
 
 </td>
@@ -377,6 +378,7 @@ JoySafeter 实现了 Anthropic 为
 | 记忆库（Memory Store） | ✅ | 版本化、Agent 可写的记忆库，与沙箱双向同步 |
 | 可观测性 / 会话追踪 | ✅ | OTel traces + `observations`，外加每个工具调用与决策的实时 SSE 事件流 |
 | 部署 CLI + 控制台 | ✅ | `joysafeterctl`（声明式 REST CLI）+ Web 工作台 |
+| 定时与事件触发器 | ✅ | Cron / 一次性 `run_at` / 入站签名 webhook 触发器自动运行 Agent；重试/退避、死信自动禁用、每次触发的会话模式 |
 | 多智能体编排（lead → specialists） | 🟡 | 目前为 harness 驱动的子 Agent，经 `TaskNotification` 事件呈现；一等公民式的 lead/specialist 编排在路线图中 |
 | 持久化 checkpoint | 🟡 | 目前为会话级恢复；步级持久 checkpoint 规划中 |
 | Outcomes（rubric + grader 自我纠错闭环） | ⬜ | 规划中 |

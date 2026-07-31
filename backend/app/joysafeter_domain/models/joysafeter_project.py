@@ -47,6 +47,7 @@ class Project(Base, TimestampMixin):
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    triggers_paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     # Per-project concurrent-task admission override. NULL => use the global
     # default (settings.max_concurrent_per_project). Lets paid/trusted tenants
     # carry a higher ceiling without a code change.

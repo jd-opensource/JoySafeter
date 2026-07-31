@@ -1639,7 +1639,11 @@ function SkillEditor({
 
 // -- Main SkillManager --
 
-export function SkillManagerPageContent({ initialSkillId = null }: { initialSkillId?: string | null }) {
+export function SkillManagerPageContent({
+  initialSkillId = null,
+}: {
+  initialSkillId?: string | null
+}) {
   const { t } = useTranslation()
   const { toast } = useToast()
   const queryClient = useQueryClient()
@@ -3316,10 +3320,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                     const current = currentSkillInList(selectedSkill.id)
                     if (!current || current.lifecycle_status !== selectedSkill.lifecycle_status)
                       return false
-                    if (
-                      endpoint === 'unarchive' &&
-                      publishRuntimeBlocked
-                    ) {
+                    if (endpoint === 'unarchive' && publishRuntimeBlocked) {
                       return false
                     }
                     return true
@@ -3480,7 +3481,7 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                   {t('managed.skills.impactAgents')}: {impactCounts.agents}
                 </span>
                 <span className="rounded-full border bg-background px-2 py-0.5 text-muted-foreground">
-                  {t('managed.skills.impactSchedules')}: {impactCounts.schedules}
+                  {t('managed.skills.impactTriggers')}: {impactCounts.triggers}
                 </span>
                 <span className="rounded-full border bg-background px-2 py-0.5 text-muted-foreground">
                   {t('managed.skills.impactActiveTasks')}: {impactCounts.active_tasks}
@@ -3623,9 +3624,9 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                   </div>
                 </div>
                 <div className="rounded-md border bg-background p-2">
-                  <div className="text-muted-foreground">{t('managed.skills.impactSchedules')}</div>
+                  <div className="text-muted-foreground">{t('managed.skills.impactTriggers')}</div>
                   <div className="mt-1 text-base font-semibold text-foreground">
-                    {impactCounts?.schedules || 0}
+                    {impactCounts?.triggers || 0}
                   </div>
                 </div>
                 <div className="rounded-md border bg-background p-2">
@@ -3905,7 +3906,8 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                         </div>
                       </div>
                       <div className="min-w-0 text-xs text-muted-foreground md:col-span-3">
-                        {t('managed.skills.securitySeverity')}: {scan.severity ? t(severityLabelKey(scan.severity)) : '-'} ·{' '}
+                        {t('managed.skills.securitySeverity')}:{' '}
+                        {scan.severity ? t(severityLabelKey(scan.severity)) : '-'} ·{' '}
                         {t('managed.skills.securityRecommendation')}: {scan.recommendation || '-'}
                         {scan.error_message ? (
                           <span className="ml-2 text-destructive">{scan.error_message}</span>
@@ -3918,7 +3920,8 @@ export function SkillManagerPageContent({ initialSkillId = null }: { initialSkil
                               {t('managed.skills.securityAggregateRisk')}
                             </span>
                             <span className="text-muted-foreground">
-                              {t('managed.skills.securitySeverity')}: {scan.severity ? t(severityLabelKey(scan.severity)) : '-'}
+                              {t('managed.skills.securitySeverity')}:{' '}
+                              {scan.severity ? t(severityLabelKey(scan.severity)) : '-'}
                             </span>
                             <span className="text-muted-foreground">
                               {t('managed.skills.securityRecommendation')}:{' '}

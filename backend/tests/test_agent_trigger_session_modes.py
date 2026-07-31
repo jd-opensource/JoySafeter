@@ -9,7 +9,6 @@ from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig
 from app.joysafeter_shared.common.app_errors import AppError
 
-
 pytestmark = pytest.mark.no_db
 
 
@@ -75,7 +74,7 @@ def _config(agent, **overrides):
         session_mode="fresh",
         pinned_session_id=None,
         reusable_session_id=None,
-        schedule_id=uuid.uuid4(),
+        trigger_id=uuid.uuid4(),
         metadata={"trigger_type": "cron"},
     )
     values.update(overrides)

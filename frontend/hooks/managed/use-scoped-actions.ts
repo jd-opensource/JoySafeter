@@ -7,7 +7,10 @@ import {
 } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 
-import { currentProjectAllowsWrite, useCurrentProjectReadOnly } from './use-current-project-read-only'
+import {
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from './use-current-project-read-only'
 
 export interface UseScopedActionsOptions {
   /**
@@ -68,7 +71,9 @@ export function useScopedActions(options: UseScopedActionsOptions = {}): ScopedA
 
   // Keep the latest onReset without re-arming the effects each render.
   const onResetRef = useRef(onReset)
-  onResetRef.current = onReset
+  useEffect(() => {
+    onResetRef.current = onReset
+  }, [onReset])
 
   const getCurrentManagedScope = () => {
     const { currentOrgId, currentProjectId } = useProjectStore.getState()

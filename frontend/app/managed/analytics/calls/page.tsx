@@ -8,12 +8,15 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n'
 import type { AnalyticsFilters, CallRecord } from '@/lib/managed/analytics/types'
 import { useCallsList, useAgentsForFilters } from '@/lib/managed/analytics/hooks'
-import {
-  formatCompactNumber,
-  formatDuration,
-} from '@/lib/managed/analytics/formatters'
+import { formatCompactNumber, formatDuration } from '@/lib/managed/analytics/formatters'
 import { AnalyticsFilterBar } from '@/components/managed/analytics/analytics-filter-bar'
-import { DataTable, StatusBadge, MonoId, RelativeTime, PageHeader } from '@/components/managed/shared'
+import {
+  DataTable,
+  StatusBadge,
+  MonoId,
+  RelativeTime,
+  PageHeader,
+} from '@/components/managed/shared'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { CallDetailDrawer } from '@/components/managed/analytics/call-detail-drawer'
@@ -56,17 +59,17 @@ export default function CallsPage() {
 
   const maxDuration = useMemo(() => {
     if (!calls.data?.data?.length) return 1
-    return Math.max(...calls.data.data.map(r => r.duration_ms || 0), 1)
+    return Math.max(...calls.data.data.map((r) => r.duration_ms || 0), 1)
   }, [calls.data])
 
   const engines = useMemo(() => {
     if (!agentsList.data) return undefined
-    return [...new Set(agentsList.data.map(a => a.engine_kind).filter(Boolean))]
+    return [...new Set(agentsList.data.map((a) => a.engine_kind).filter(Boolean))]
   }, [agentsList.data])
 
   const agents = useMemo(() => {
     if (!agentsList.data) return undefined
-    return agentsList.data.map(a => ({ id: stripIdPrefix(a.id), name: a.name }))
+    return agentsList.data.map((a) => ({ id: stripIdPrefix(a.id), name: a.name }))
   }, [agentsList.data])
 
   const columns: Column<CallRecord>[] = [
@@ -79,21 +82,30 @@ export default function CallsPage() {
     {
       key: 'session',
       header: t('analytics.calls.columns.session'),
-      render: (row) => row.session_id ? (
-        <Link href={`/managed/sessions/${row.session_id}`}>
-          <MonoId id={row.session_id} />
-        </Link>
-      ) : <span className="text-muted-foreground">—</span>,
+      render: (row) =>
+        row.session_id ? (
+          <Link href={`/managed/sessions/${row.session_id}`}>
+            <MonoId id={row.session_id} />
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
       width: '120px',
     },
     {
       key: 'agent',
       header: t('analytics.calls.columns.agent'),
-      render: (row) => row.agent_id ? (
-        <Link href={`/managed/agents/${row.agent_id}`} className="text-sm truncate hover:text-foreground transition-colors">
-          {row.agent_name}
-        </Link>
-      ) : <span className="text-sm text-muted-foreground">—</span>,
+      render: (row) =>
+        row.agent_id ? (
+          <Link
+            href={`/managed/agents/${row.agent_id}`}
+            className="truncate text-sm transition-colors hover:text-foreground"
+          >
+            {row.agent_name}
+          </Link>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        ),
       width: '120px',
     },
     {
@@ -109,9 +121,7 @@ export default function CallsPage() {
     {
       key: 'model',
       header: t('analytics.calls.columns.model'),
-      render: (row) => (
-        <span className="text-sm truncate text-muted-foreground">{row.model}</span>
-      ),
+      render: (row) => <span className="truncate text-sm text-muted-foreground">{row.model}</span>,
       width: '120px',
     },
     {
@@ -123,7 +133,9 @@ export default function CallsPage() {
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="cursor-help"><StatusBadge status={row.status} /></span>
+                  <span className="cursor-help">
+                    <StatusBadge status={row.status} />
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-[320px] text-xs">
                   {row.error}
@@ -142,10 +154,14 @@ export default function CallsPage() {
       render: (row) => {
         if (!row.retry_count) return <span className="text-muted-foreground">—</span>
         return (
-          <span className={cn(
-            'text-xs tabular-nums font-medium',
-            row.retry_count >= 3 ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'
-          )}>
+          <span
+            className={cn(
+              'text-xs font-medium tabular-nums',
+              row.retry_count >= 3
+                ? 'text-red-600 dark:text-red-400'
+                : 'text-amber-600 dark:text-amber-400',
+            )}
+          >
             {row.retry_count}×
           </span>
         )
@@ -183,11 +199,11 @@ export default function CallsPage() {
       header: t('analytics.calls.columns.duration'),
       render: (row) => (
         <div className="flex items-center gap-2">
-          <div className="w-16 h-1.5 bg-muted/30 rounded-full overflow-hidden shrink-0">
+          <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted/30">
             <div
               className={cn(
                 'h-full rounded-full',
-                row.duration_ms > 60000 ? 'bg-amber-500' : 'bg-[var(--chart-1)]'
+                row.duration_ms > 60000 ? 'bg-amber-500' : 'bg-[var(--chart-1)]',
               )}
               style={{ width: `${Math.min((row.duration_ms / maxDuration) * 100, 100)}%` }}
             />
@@ -201,10 +217,14 @@ export default function CallsPage() {
       key: 'queueWait',
       header: t('analytics.calls.columns.queueWait'),
       render: (row) => (
-        <span className={cn(
-          'text-sm tabular-nums',
-          row.queue_wait_ms > 30000 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
-        )}>
+        <span
+          className={cn(
+            'text-sm tabular-nums',
+            row.queue_wait_ms > 30000
+              ? 'text-amber-600 dark:text-amber-400'
+              : 'text-muted-foreground',
+          )}
+        >
           {formatDuration(row.queue_wait_ms)}
         </span>
       ),
@@ -212,16 +232,11 @@ export default function CallsPage() {
     },
   ]
 
-  const totalPages = calls.data
-    ? Math.ceil(calls.data.total / pageSize)
-    : 0
+  const totalPages = calls.data ? Math.ceil(calls.data.total / pageSize) : 0
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title={t('analytics.calls.title')}
-        subtitle={t('analytics.calls.subtitle')}
-      />
+      <PageHeader title={t('analytics.calls.title')} subtitle={t('analytics.calls.subtitle')} />
       <AnalyticsFilterBar
         filters={filters}
         onFiltersChange={handleFiltersChange}
@@ -246,7 +261,7 @@ export default function CallsPage() {
               'rounded-md px-2 py-1 transition-colors',
               sortBy === opt.key
                 ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
             )}
           >
             {opt.label} {sortBy === opt.key && (sortOrder === 'desc' ? '↓' : '↑')}

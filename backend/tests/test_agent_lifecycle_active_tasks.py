@@ -382,8 +382,10 @@ async def test_archive_agent_fails_closed_when_task_appears_after_active_check(d
         await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
     ).scalar_one()
     task_count = (
-        await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id))
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id)))
+        .scalars()
+        .all()
+    )
     assert agent_row.archived_at is None
     assert session_row.archived_at is None
     assert session_row.status == "idle"
@@ -512,9 +514,7 @@ async def test_delete_agent_rejects_destroy_ack_if_sandbox_external_id_changed(d
     assert redis.published[0][1]["external_id"] == old_external_id
 
     db_session.expire_all()
-    agent_row = (
-        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
-    ).scalar_one()
+    agent_row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     sandbox_row = (
         await db_session.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id))
     ).scalar_one()
@@ -638,7 +638,7 @@ async def test_force_delete_agent_cancels_and_destroys_sandbox_via_rust(db_sessi
 
     await delete_agent(agent_id, True, db_session, _auth_ctx())
 
-    command_types = [payload["type"] for _, payload in redis.published]
+    command_types = [payload["type"] for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")]
     assert command_types == ["cancel", "destroy"]
     assert redis.blpop_timeouts == [2, 30]
 

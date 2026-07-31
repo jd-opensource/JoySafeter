@@ -8,9 +8,7 @@
  * so the same state renders identically everywhere.
  *
  * - ``reason``      → a localized title + a short label (compact pills)
- * - ``next_action`` → a localized, LOCATION-NEUTRAL next-step hint + a "kind"
- *   the surface uses to pick its own affordance (existing toolbar buttons on
- *   the detail page, a deep link in the agent picker, etc.)
+ * - ``next_action`` → a localized, LOCATION-NEUTRAL next-step hint
  */
 
 // reason machine code → i18n slug (camelCase leaf under managed.skills.eligibility.*)
@@ -49,7 +47,9 @@ export interface EligibilityActionView {
   hintKey: string
 }
 
-export function eligibilityActionView(nextAction: string | null | undefined): EligibilityActionView {
+export function eligibilityActionView(
+  nextAction: string | null | undefined,
+): EligibilityActionView {
   const code = nextAction || 'review_skill'
   return {
     hintKey: `managed.skills.eligibility.action.${code}`,

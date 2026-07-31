@@ -19,7 +19,7 @@ import pytest
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillVersionService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.no_db]
 
 
 # ── #1 non-semver stored version → 400, not 500 ─────────────────

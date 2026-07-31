@@ -12,10 +12,10 @@ type ManagedResourceKind =
   | 'file'
   | 'memoryStore'
   | 'project'
-  | 'schedule'
   | 'secret'
   | 'session'
   | 'skill'
+  | 'trigger'
   | 'vault'
 
 type ErrorReason = 'forbidden' | 'notFound' | 'unknown'

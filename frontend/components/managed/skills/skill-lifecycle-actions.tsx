@@ -225,9 +225,9 @@ export function SkillLifecycleActions({
                   t('managed.skills.archiveImpactConfirm', {
                     count: impact.counts.total,
                     agents: impact.counts.agents,
-                    schedules: impact.counts.schedules,
+                    triggers: impact.counts.triggers,
                     activeTasks: impact.counts.active_tasks,
-                    defaultValue: `Archive this skill? It is referenced by ${impact.counts.total} item(s): ${impact.counts.agents} agent(s), ${impact.counts.schedules} schedule(s), ${impact.counts.active_tasks} active task(s).`,
+                    defaultValue: `Archive this skill? It is referenced by ${impact.counts.total} item(s): ${impact.counts.agents} agent(s), ${impact.counts.triggers} trigger(s), ${impact.counts.active_tasks} active task(s).`,
                   }),
                 )
                 if (!ok) return

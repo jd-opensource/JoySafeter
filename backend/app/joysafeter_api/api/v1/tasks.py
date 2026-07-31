@@ -33,6 +33,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.utils.id_utils import same_id
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +181,7 @@ async def _relay_task_cancel_to_orchestrator(task, db: AsyncSession, *, reason: 
 
 
 def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
-    if req.agent_id is not None and existing.agent_id != req.agent_id:
+    if req.agent_id is not None and not same_id(existing.agent_id, req.agent_id):
         raise _task_idempotency_conflict_error(
             existing=existing,
             field="agent_id",
@@ -188,7 +189,7 @@ def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
             requested_value=req.agent_id,
             existing_value=existing.agent_id,
         )
-    if req.chat_session_id is not None and existing.chat_session_id != req.chat_session_id:
+    if req.chat_session_id is not None and not same_id(existing.chat_session_id, req.chat_session_id):
         raise _task_idempotency_conflict_error(
             existing=existing,
             field="chat_session_id",
@@ -243,7 +244,7 @@ async def _validate_task_environment_matches_existing_session(
         effective_environment = await EnvironmentService(db).get_environment_by_ref(
             effective_ref, project_id=project_id
         )
-        if effective_environment and effective_environment.id == requested_environment.id:
+        if effective_environment and same_id(effective_environment.id, requested_environment.id):
             return
 
     raise ResourceConflictError(
@@ -403,7 +404,7 @@ async def create_task(
                 data={"session_id": str(chat_session_id)},
                 user_action="refresh",
             )
-        if existing_session.agent_id != agent.id:
+        if not same_id(existing_session.agent_id, agent.id):
             raise InvalidRequestError(
                 code="TASK_SESSION_AGENT_MISMATCH",
                 message="Session does not belong to the selected agent",

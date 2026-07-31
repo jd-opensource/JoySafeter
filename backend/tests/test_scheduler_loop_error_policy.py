@@ -1,3 +1,15 @@
+"""Scheduler fire-failure policy: transient vs permanent classification.
+
+A failed fire is routed through ``record_fire_failure`` with a ``transient``
+flag rather than the old release/advance split:
+  - Half-done REPLACE cancel errors and any retryable AppError are *transient*
+    (retried on the same slot with backoff).
+  - Any other exception is *permanent* (slot advanced, one failure counted).
+
+These are ``no_db`` unit tests: the service methods are stubbed so we assert only
+how the loop classifies and dispatches the failure.
+"""
+
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
@@ -33,19 +45,22 @@ class _FakeSubmission:
         return None
 
 
+class _ExplodingSubmission(_FakeSubmission):
+    async def enforce_admission(self, **kwargs):
+        raise AssertionError("paused project must skip before task admission")
+
+
+class _QuotaFullSubmission(_FakeSubmission):
+    async def enforce_admission(self, **kwargs):
+        raise AssertionError("idempotent same-slot replay must not be blocked by admission quota")
+
+
 class _FakeAgentService:
     def __init__(self, db):
         pass
 
     async def get_agent(self, agent_id, project_id=None):
-        return SimpleNamespace(
-            id=agent_id,
-            archived_at=None,
-            environment_ref=None,
-            version=1,
-            name="Agent",
-            model=None,
-        )
+        return SimpleNamespace(id=agent_id, archived_at=None, environment_ref=None, version=1, name="Agent", model=None)
 
 
 class _FakeEnvironmentService:
@@ -64,179 +79,92 @@ class _ExplodingSessionService:
         raise AssertionError("duplicate scheduled slot must not create an auto session")
 
 
-@pytest.mark.asyncio
-async def test_scheduler_retryable_replace_cancel_error_releases_claim_without_advancing(monkeypatch):
-    schedule = SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc))
-    calls: list[tuple[str, object]] = []
+def _install_common(monkeypatch, *, claimed, captured):
+    async def claim_due(self, **kwargs):
+        return claimed
 
-    async def claim_due_schedules(self, **kwargs):
-        return [schedule]
+    async def record_fire_failure(self, trigger_id, fired_slot, *, error, transient, expected_locked_by=None):
+        captured.append(("fail", trigger_id, transient, expected_locked_by))
+        return False
 
-    async def release_claim(self, schedule_id):
-        calls.append(("release", schedule_id))
-
-    async def advance_after_fire(self, schedule_id, fired_slot):
-        calls.append(("advance", schedule_id))
-
-    async def fail_fire(self, schedule_arg, fired_slot):
-        raise ServiceUnavailableError(
-            code="TASK_CANCEL_REDIS_RELAY_FAILED",
-            message="Failed to cancel task in sandbox runtime.",
-            source="runtime",
-            retryable=True,
-            user_action="retry",
-        )
+    async def advance_after_fire(self, trigger_id, fired_slot, **kwargs):
+        captured.append(("advance", trigger_id, kwargs.get("expected_locked_by")))
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr(
         "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.claim_due_cron_triggers",
-        claim_due_schedules,
+        claim_due,
     )
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.release_claim",
-        release_claim,
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.record_fire_failure",
+        record_fire_failure,
     )
     monkeypatch.setattr(
         "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.advance_after_fire",
         advance_after_fire,
     )
-    monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
-
-    await SchedulerLoop()._tick()
-
-    assert calls == [("release", schedule.id)]
 
 
+def _trigger():
+    return SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc), pending_slot_at=None)
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["TASK_CANCEL_REDIS_RELAY_FAILED", "TASK_CANCEL_STATE_SYNC_FAILED", "TASK_CANCEL_SESSION_SYNC_FAILED"],
+)
 @pytest.mark.asyncio
-async def test_scheduler_session_sync_cancel_error_releases_claim_without_advancing(monkeypatch):
-    # A REPLACE fire that cancels the prior run but then fails to mark the
-    # linked session idle raises TASK_CANCEL_SESSION_SYNC_FAILED. The prior run
-    # is already cancelled, so advancing here would skip the slot after killing
-    # the old run and never dispatch a replacement. The slot must be kept due.
-    schedule = SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc))
-    calls: list[tuple[str, object]] = []
+async def test_retryable_cancel_error_is_transient(monkeypatch, code):
+    trigger = _trigger()
+    captured: list = []
+    _install_common(monkeypatch, claimed=[trigger], captured=captured)
 
-    async def claim_due_schedules(self, **kwargs):
-        return [schedule]
-
-    async def release_claim(self, schedule_id):
-        calls.append(("release", schedule_id))
-
-    async def advance_after_fire(self, schedule_id, fired_slot):
-        calls.append(("advance", schedule_id))
-
-    async def fail_fire(self, schedule_arg, fired_slot):
+    async def fail_fire(self, trigger_arg, fired_slot):
         raise ServiceUnavailableError(
-            code="TASK_CANCEL_SESSION_SYNC_FAILED",
-            message="Task was cancelled, but failed to mark the linked session idle.",
-            source="api",
-            retryable=True,
-            user_action="refresh",
+            code=code, message="cancel half-done", source="runtime", retryable=True, user_action="retry"
         )
 
-    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.claim_due_cron_triggers",
-        claim_due_schedules,
-    )
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.release_claim",
-        release_claim,
-    )
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.advance_after_fire",
-        advance_after_fire,
-    )
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
+    await SchedulerLoop(worker_id="test-worker")._tick()
 
-    await SchedulerLoop()._tick()
-
-    assert calls == [("release", schedule.id)]
+    assert captured == [("fail", trigger.id, True, "test-worker")]
 
 
 @pytest.mark.asyncio
-async def test_scheduler_state_sync_cancel_error_releases_claim_without_advancing(monkeypatch):
-    schedule = SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc))
-    calls: list[tuple[str, object]] = []
+async def test_generic_retryable_apperror_is_transient(monkeypatch):
+    trigger = _trigger()
+    captured: list = []
+    _install_common(monkeypatch, claimed=[trigger], captured=captured)
 
-    async def claim_due_schedules(self, **kwargs):
-        return [schedule]
-
-    async def release_claim(self, schedule_id):
-        calls.append(("release", schedule_id))
-
-    async def advance_after_fire(self, schedule_id, fired_slot):
-        calls.append(("advance", schedule_id))
-
-    async def fail_fire(self, schedule_arg, fired_slot):
+    async def fail_fire(self, trigger_arg, fired_slot):
         raise ServiceUnavailableError(
-            code="TASK_CANCEL_STATE_SYNC_FAILED",
-            message="Task cancel could not be finalized because task ownership changed.",
-            source="api",
-            retryable=True,
-            user_action="refresh",
+            code="TASK_ENQUEUE_FAILED", message="redis down", source="runtime", retryable=True, user_action="retry"
         )
 
-    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.claim_due_cron_triggers",
-        claim_due_schedules,
-    )
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.release_claim",
-        release_claim,
-    )
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.advance_after_fire",
-        advance_after_fire,
-    )
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
+    await SchedulerLoop(worker_id="test-worker")._tick()
 
-    await SchedulerLoop()._tick()
-
-    assert calls == [("release", schedule.id)]
+    assert captured == [("fail", trigger.id, True, "test-worker")]
 
 
 @pytest.mark.asyncio
-async def test_scheduler_non_retryable_fire_error_advances_slot(monkeypatch):
-    schedule = SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc))
-    calls: list[tuple[str, object]] = []
+async def test_unexpected_error_is_permanent(monkeypatch):
+    trigger = _trigger()
+    captured: list = []
+    _install_common(monkeypatch, claimed=[trigger], captured=captured)
 
-    async def claim_due_schedules(self, **kwargs):
-        return [schedule]
-
-    async def release_claim(self, schedule_id):
-        calls.append(("release", schedule_id))
-
-    async def advance_after_fire(self, schedule_id, fired_slot):
-        calls.append(("advance", schedule_id))
-
-    async def fail_fire(self, schedule_arg, fired_slot):
+    async def fail_fire(self, trigger_arg, fired_slot):
         raise RuntimeError("unexpected scheduler failure")
 
-    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.claim_due_cron_triggers",
-        claim_due_schedules,
-    )
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.release_claim",
-        release_claim,
-    )
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.advance_after_fire",
-        advance_after_fire,
-    )
     monkeypatch.setattr(SchedulerLoop, "_fire", fail_fire)
+    await SchedulerLoop(worker_id="test-worker")._tick()
 
-    await SchedulerLoop()._tick()
-
-    assert calls == [("advance", schedule.id)]
+    assert captured == [("fail", trigger.id, False, "test-worker")]
 
 
 @pytest.mark.asyncio
-async def test_scheduler_idempotent_slot_precheck_skips_auto_session_creation(monkeypatch):
-    schedule = SimpleNamespace(
+async def test_idempotent_slot_precheck_skips_auto_session_creation(monkeypatch):
+    trigger = SimpleNamespace(
         id=uuid4(),
         agent_id=uuid4(),
         project_id="project-a",
@@ -244,11 +172,19 @@ async def test_scheduler_idempotent_slot_precheck_skips_auto_session_creation(mo
         org_id="org-a",
         name="Daily",
         prompt="summarize",
+        prompt_template="summarize",
         system_prompt=None,
         environment_ref=None,
         concurrency_policy="allow",
         timeout_sec=7200,
         max_retries=2,
+        slot_attempts=0,
+        cron_expr="0 0 * * *",
+        timezone="UTC",
+        last_fired_slot=None,
+        session_mode="fresh",
+        pinned_session_id=None,
+        reusable_session_id=None,
     )
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
@@ -257,4 +193,139 @@ async def test_scheduler_idempotent_slot_precheck_skips_auto_session_creation(mo
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.EnvironmentService", _FakeEnvironmentService)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.SessionService", _ExplodingSessionService)
 
-    await SchedulerLoop()._fire(schedule, datetime.now(timezone.utc))
+    async def trigger_runtime_block_reason(self, trigger_arg):
+        return None
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
+        trigger_runtime_block_reason,
+    )
+
+    outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
+    assert outcome.status == "deduped"
+
+
+@pytest.mark.parametrize("policy", ["forbid", "replace"])
+@pytest.mark.asyncio
+async def test_idempotent_slot_replay_precedes_concurrency_policy(monkeypatch, policy):
+    trigger = SimpleNamespace(
+        id=uuid4(),
+        agent_id=uuid4(),
+        project_id="project-a",
+        user_id="user-a",
+        org_id="org-a",
+        name="Daily",
+        prompt_template="summarize",
+        system_prompt=None,
+        environment_ref=None,
+        concurrency_policy=policy,
+        timeout_sec=7200,
+        max_retries=2,
+        slot_attempts=0,
+        cron_expr="0 0 * * *",
+        timezone="UTC",
+        last_fired_slot=None,
+        session_mode="fresh",
+        pinned_session_id=None,
+        reusable_session_id=None,
+    )
+
+    async def trigger_runtime_block_reason(self, trigger_arg):
+        return None
+
+    async def get_active_tasks(self, trigger_id):
+        raise AssertionError("same-slot idempotent replay must be resolved before concurrency policy")
+
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _FakeSubmission)
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
+        trigger_runtime_block_reason,
+    )
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.get_active_tasks",
+        get_active_tasks,
+    )
+
+    outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
+
+    assert outcome.status == "deduped"
+
+
+@pytest.mark.asyncio
+async def test_idempotent_slot_replay_precedes_admission_quota(monkeypatch):
+    trigger = SimpleNamespace(
+        id=uuid4(),
+        agent_id=uuid4(),
+        project_id="project-at-quota",
+        user_id="user-a",
+        org_id="org-a",
+        name="Daily",
+        prompt_template="summarize",
+        system_prompt=None,
+        environment_ref=None,
+        concurrency_policy="allow",
+        timeout_sec=7200,
+        max_retries=2,
+        slot_attempts=0,
+        cron_expr="0 0 * * *",
+        timezone="UTC",
+        last_fired_slot=None,
+        session_mode="fresh",
+        pinned_session_id=None,
+        reusable_session_id=None,
+    )
+
+    async def trigger_runtime_block_reason(self, trigger_arg):
+        return None
+
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _QuotaFullSubmission)
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
+        trigger_runtime_block_reason,
+    )
+
+    outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
+
+    assert outcome.status == "deduped"
+
+
+@pytest.mark.asyncio
+async def test_fire_rechecks_project_pause_after_claim_before_admission(monkeypatch):
+    trigger = SimpleNamespace(
+        id=uuid4(),
+        agent_id=uuid4(),
+        project_id="project-paused-after-claim",
+        user_id="user-a",
+        org_id="org-a",
+        name="Daily",
+        prompt_template="summarize",
+        system_prompt=None,
+        environment_ref=None,
+        concurrency_policy="allow",
+        timeout_sec=7200,
+        max_retries=2,
+        slot_attempts=0,
+        cron_expr="0 0 * * *",
+        timezone="UTC",
+        last_fired_slot=None,
+        session_mode="fresh",
+        pinned_session_id=None,
+        reusable_session_id=None,
+    )
+
+    async def trigger_runtime_block_reason(self, trigger_arg):
+        assert trigger_arg.project_id == "project-paused-after-claim"
+        return "triggers are paused for this project"
+
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _ExplodingSubmission)
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
+        trigger_runtime_block_reason,
+    )
+
+    outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
+
+    assert outcome.status == "skipped"

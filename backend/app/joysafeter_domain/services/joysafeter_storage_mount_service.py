@@ -6,6 +6,7 @@ from typing import Any, Optional
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_storage_mount import (
     JoySafeterSessionStorageMount,
     JoySafeterStorageMountAudit,
@@ -13,12 +14,12 @@ from app.joysafeter_domain.models.joysafeter_storage_mount import (
     JoySafeterStorageProjectGrant,
     JoySafeterStorageVolume,
 )
-from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.schemas.joysafeter_storage_mount import (
     CreateStorageVolumeRequest,
     StorageOrganizationGrantInput,
+    StorageOrganizationGrantResponse,
     StorageProjectGrantInput,
+    StorageProjectGrantResponse,
     StorageVolumeResponse,
     UpdateStorageVolumeRequest,
 )
@@ -85,7 +86,9 @@ class StorageMountService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def list_volumes_for_project(self, project_id: Optional[str], *, include_disabled: bool = False) -> list[JoySafeterStorageVolume]:
+    async def list_volumes_for_project(
+        self, project_id: Optional[str], *, include_disabled: bool = False
+    ) -> list[JoySafeterStorageVolume]:
         if not project_id:
             return []
         project = await self._get_project(project_id)
@@ -123,7 +126,9 @@ class StorageMountService:
         )
         return result.scalar_one_or_none()
 
-    async def get_project_volume(self, volume_id: uuid.UUID, project_id: Optional[str]) -> Optional[JoySafeterStorageVolume]:
+    async def get_project_volume(
+        self, volume_id: uuid.UUID, project_id: Optional[str]
+    ) -> Optional[JoySafeterStorageVolume]:
         if not project_id:
             return None
         project = await self._get_project(project_id)
@@ -170,7 +175,9 @@ class StorageMountService:
         )
         return result.scalar_one_or_none()
 
-    async def create_volume(self, req: CreateStorageVolumeRequest, *, actor_user_id: Optional[str] = None) -> JoySafeterStorageVolume:
+    async def create_volume(
+        self, req: CreateStorageVolumeRequest, *, actor_user_id: Optional[str] = None
+    ) -> JoySafeterStorageVolume:
         existing = await self.get_volume_by_ref(req.volume_ref)
         if existing:
             raise ResourceConflictError(
@@ -193,14 +200,16 @@ class StorageMountService:
         )
         self.db.add(volume)
         await self.db.flush()
-        for grant in req.organization_grants:
-            self._validate_policy_within_volume(volume, grant.max_access, grant.allowed_prefixes, grant.quota_bytes)
-            self.db.add(self._org_grant_model(volume.id, grant))
+        for org_grant in req.organization_grants:
+            self._validate_policy_within_volume(
+                volume, org_grant.max_access, org_grant.allowed_prefixes, org_grant.quota_bytes
+            )
+            self.db.add(self._org_grant_model(volume.id, org_grant))
         if req.organization_grants:
             await self.db.flush()
-        for grant in req.project_grants:
-            await self._validate_project_grant(volume, grant)
-            self.db.add(self._grant_model(volume.id, grant))
+        for project_grant in req.project_grants:
+            await self._validate_project_grant(volume, project_grant)
+            self.db.add(self._grant_model(volume.id, project_grant))
         self.db.add(
             JoySafeterStorageMountAudit(
                 volume_id=volume.id,
@@ -248,10 +257,12 @@ class StorageMountService:
         if not volume:
             return False
         active_mounts = await self.db.execute(
-            select(JoySafeterSessionStorageMount.id).where(
+            select(JoySafeterSessionStorageMount.id)
+            .where(
                 JoySafeterSessionStorageMount.volume_id == volume_id,
                 JoySafeterSessionStorageMount.detached_at.is_(None),
-            ).limit(1)
+            )
+            .limit(1)
         )
         if active_mounts.scalar_one_or_none():
             raise ResourceConflictError(
@@ -287,7 +298,9 @@ class StorageMountService:
         )
         return list(result.scalars().all())
 
-    async def list_project_grants_for_org(self, volume_id: uuid.UUID, org_id: str) -> list[JoySafeterStorageProjectGrant]:
+    async def list_project_grants_for_org(
+        self, volume_id: uuid.UUID, org_id: str
+    ) -> list[JoySafeterStorageProjectGrant]:
         result = await self.db.execute(
             select(JoySafeterStorageProjectGrant)
             .join(Project, Project.id == JoySafeterStorageProjectGrant.project_id)
@@ -299,10 +312,15 @@ class StorageMountService:
         )
         return list(result.scalars().all())
 
-    async def list_organization_volumes(self, org_id: str, *, include_disabled: bool = False) -> list[JoySafeterStorageVolume]:
+    async def list_organization_volumes(
+        self, org_id: str, *, include_disabled: bool = False
+    ) -> list[JoySafeterStorageVolume]:
         query = (
             select(JoySafeterStorageVolume)
-            .join(JoySafeterStorageOrganizationGrant, JoySafeterStorageOrganizationGrant.volume_id == JoySafeterStorageVolume.id)
+            .join(
+                JoySafeterStorageOrganizationGrant,
+                JoySafeterStorageOrganizationGrant.volume_id == JoySafeterStorageVolume.id,
+            )
             .where(
                 JoySafeterStorageVolume.deleted_at.is_(None),
                 JoySafeterStorageOrganizationGrant.org_id == org_id,
@@ -320,7 +338,10 @@ class StorageMountService:
     async def get_organization_volume(self, volume_id: uuid.UUID, org_id: str) -> Optional[JoySafeterStorageVolume]:
         result = await self.db.execute(
             select(JoySafeterStorageVolume)
-            .join(JoySafeterStorageOrganizationGrant, JoySafeterStorageOrganizationGrant.volume_id == JoySafeterStorageVolume.id)
+            .join(
+                JoySafeterStorageOrganizationGrant,
+                JoySafeterStorageOrganizationGrant.volume_id == JoySafeterStorageVolume.id,
+            )
             .where(
                 JoySafeterStorageVolume.id == volume_id,
                 JoySafeterStorageVolume.deleted_at.is_(None),
@@ -329,7 +350,9 @@ class StorageMountService:
         )
         return result.scalars().unique().one_or_none()
 
-    async def get_organization_grant(self, volume_id: uuid.UUID, org_id: str) -> Optional[JoySafeterStorageOrganizationGrant]:
+    async def get_organization_grant(
+        self, volume_id: uuid.UUID, org_id: str
+    ) -> Optional[JoySafeterStorageOrganizationGrant]:
         result = await self.db.execute(
             select(JoySafeterStorageOrganizationGrant).where(
                 JoySafeterStorageOrganizationGrant.volume_id == volume_id,
@@ -373,7 +396,9 @@ class StorageMountService:
         await self.db.refresh(row)
         return row
 
-    async def delete_organization_grant(self, volume_id: uuid.UUID, org_id: str, *, actor_user_id: Optional[str] = None) -> bool:
+    async def delete_organization_grant(
+        self, volume_id: uuid.UUID, org_id: str, *, actor_user_id: Optional[str] = None
+    ) -> bool:
         volume = await self.get_volume(volume_id)
         if not volume:
             raise NotFoundError(code="STORAGE_VOLUME_NOT_FOUND", message="Storage volume not found")
@@ -383,9 +408,7 @@ class StorageMountService:
         await self.db.execute(
             delete(JoySafeterStorageProjectGrant).where(
                 JoySafeterStorageProjectGrant.volume_id == volume_id,
-                JoySafeterStorageProjectGrant.project_id.in_(
-                    select(Project.id).where(Project.org_id == org_id)
-                ),
+                JoySafeterStorageProjectGrant.project_id.in_(select(Project.id).where(Project.org_id == org_id)),
             )
         )
         await self.db.delete(grant)
@@ -602,9 +625,7 @@ class StorageMountService:
         if org_id is not None:
             # Scope to all projects belonging to this organization.
             conditions.append(
-                JoySafeterStorageMountAudit.project_id.in_(
-                    select(Project.id).where(Project.org_id == org_id)
-                )
+                JoySafeterStorageMountAudit.project_id.in_(select(Project.id).where(Project.org_id == org_id))
             )
         if volume_id is not None:
             conditions.append(JoySafeterStorageMountAudit.volume_id == volume_id)
@@ -639,7 +660,9 @@ class StorageMountService:
             enabled=grant.enabled,
         )
 
-    def _org_grant_model(self, volume_id: uuid.UUID, grant: StorageOrganizationGrantInput) -> JoySafeterStorageOrganizationGrant:
+    def _org_grant_model(
+        self, volume_id: uuid.UUID, grant: StorageOrganizationGrantInput
+    ) -> JoySafeterStorageOrganizationGrant:
         return JoySafeterStorageOrganizationGrant(
             volume_id=volume_id,
             org_id=grant.org_id,
@@ -721,7 +744,9 @@ class StorageMountService:
                 data={"volume_ref": volume.volume_ref, "max_access": effective_org_access},
                 user_action="fix_input",
             )
-        effective_org_prefixes = _intersect_prefixes(list(volume.allowed_prefixes or []), list(org_grant.allowed_prefixes or []))
+        effective_org_prefixes = _intersect_prefixes(
+            list(volume.allowed_prefixes or []), list(org_grant.allowed_prefixes or [])
+        )
         if not _prefixes_within(grant.allowed_prefixes, effective_org_prefixes):
             raise InvalidRequestError(
                 code="STORAGE_PREFIX_DENIED",
@@ -730,7 +755,11 @@ class StorageMountService:
                 user_action="fix_input",
             )
         effective_org_quota = _quota_min(volume.quota_bytes, org_grant.quota_bytes)
-        if effective_org_quota is not None and grant.quota_bytes is not None and grant.quota_bytes > effective_org_quota:
+        if (
+            effective_org_quota is not None
+            and grant.quota_bytes is not None
+            and grant.quota_bytes > effective_org_quota
+        ):
             raise InvalidRequestError(
                 code="STORAGE_QUOTA_DENIED",
                 message="Project grant quota exceeds organization grant quota",
@@ -741,7 +770,13 @@ class StorageMountService:
     async def _authorized_volumes(
         self,
         project_id: Optional[str],
-    ) -> list[tuple[JoySafeterStorageVolume, Optional[JoySafeterStorageOrganizationGrant], Optional[JoySafeterStorageProjectGrant]]]:
+    ) -> list[
+        tuple[
+            JoySafeterStorageVolume,
+            Optional[JoySafeterStorageOrganizationGrant],
+            Optional[JoySafeterStorageProjectGrant],
+        ]
+    ]:
         if project_id is None:
             result = await self.db.execute(
                 select(JoySafeterStorageVolume).where(
@@ -778,7 +813,11 @@ class StorageMountService:
         org_grant: Optional[JoySafeterStorageOrganizationGrant],
         grant: Optional[JoySafeterStorageProjectGrant],
     ) -> str:
-        return _access_min(volume.max_access, org_grant.max_access if org_grant else "read_write", grant.max_access if grant else "read_write")
+        return _access_min(
+            volume.max_access,
+            org_grant.max_access if org_grant else "read_write",
+            grant.max_access if grant else "read_write",
+        )
 
     def _effective_prefixes(
         self,
@@ -798,7 +837,9 @@ class StorageMountService:
         org_grant: Optional[JoySafeterStorageOrganizationGrant],
         grant: Optional[JoySafeterStorageProjectGrant],
     ) -> Optional[int]:
-        return _quota_min(volume.quota_bytes, org_grant.quota_bytes if org_grant else None, grant.quota_bytes if grant else None)
+        return _quota_min(
+            volume.quota_bytes, org_grant.quota_bytes if org_grant else None, grant.quota_bytes if grant else None
+        )
 
     def _catalog_item(
         self,
@@ -841,8 +882,8 @@ def volume_to_response(
         used_bytes=volume.used_bytes,
         enabled=volume.enabled,
         metadata=volume.metadata_ or {},
-        grants=list(grants or []),
-        organization_grants=list(organization_grants or []),
+        grants=[StorageProjectGrantResponse.model_validate(g) for g in grants or []],
+        organization_grants=[StorageOrganizationGrantResponse.model_validate(g) for g in organization_grants or []],
         created_at=volume.created_at,
         updated_at=volume.updated_at,
     )

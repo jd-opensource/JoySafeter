@@ -22,6 +22,8 @@ import pytest
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
 
+pytestmark = pytest.mark.no_db
+
 
 def _make_service(monkeypatch, *, lifecycle_status="draft"):
     svc = SkillService.__new__(SkillService)

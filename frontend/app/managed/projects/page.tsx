@@ -16,7 +16,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Plus, Star, Pencil, Archive, RotateCcw, Users } from 'lucide-react'
+import {
+  Plus,
+  Star,
+  Pencil,
+  Archive,
+  RotateCcw,
+  Users,
+  PauseCircle,
+  PlayCircle,
+} from 'lucide-react'
 import {
   DataTable,
   FilterBar,
@@ -41,6 +50,7 @@ interface Project {
   name: string
   slug: string
   is_default: boolean
+  triggers_paused?: boolean
   archived_at?: string | null
   created_at?: string
 }
@@ -153,6 +163,15 @@ export default function ProjectsPage() {
     return current && !current.archived_at && !current.is_default ? current : null
   }
 
+  const currentActiveProject = (project: Project | null) => {
+    if (!project) return null
+    if (!currentOrgScopeIsActive()) return null
+    const current = queryClient
+      .getQueryData<Project[]>(['projects-list', orgScopeRef.current, showArchived])
+      ?.find((candidate) => candidate.id === project.id)
+    return current && !current.archived_at ? current : null
+  }
+
   const currentRestorableArchivedProject = (project: Project | null) => {
     if (!project) return null
     if (!currentOrgScopeIsActive()) return null
@@ -193,6 +212,28 @@ export default function ProjectsPage() {
       if (!isCurrentAction(variables.runId, variables.scope)) return
       resetProjectsPagination()
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+    },
+    onError: (error, variables) => {
+      if (!isCurrentAction(variables.runId, variables.scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    },
+  })
+
+  const setTriggersPaused = useMutation({
+    mutationFn: ({
+      projectId,
+      paused,
+      runId,
+      scope,
+    }: { projectId: string; paused: boolean } & ProjectScopedAction) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale project trigger-pause ignored')
+      }
+      return managedPatch(`/auth/projects/${projectId}`, { triggers_paused: paused })
+    },
+    onSuccess: (_data, variables) => {
+      if (!isCurrentAction(variables.runId, variables.scope)) return
+      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
     },
     onError: (error, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
@@ -320,6 +361,7 @@ export default function ProjectsPage() {
         p.name,
         p.slug,
         p.is_default ? 'default' : '',
+        p.triggers_paused ? 'paused' : '',
         p.archived_at ? 'archived' : 'active',
       ]),
   )
@@ -353,7 +395,11 @@ export default function ProjectsPage() {
     {
       key: 'status',
       header: t('manage.projects.status'),
-      render: (project) => <StatusBadge status={project.archived_at ? 'archived' : 'active'} />,
+      render: (project) => (
+        <StatusBadge
+          status={project.archived_at ? 'archived' : project.triggers_paused ? 'paused' : 'active'}
+        />
+      ),
     },
     {
       key: 'created',
@@ -487,6 +533,28 @@ export default function ProjectsPage() {
                     label: t('manage.projects.members'),
                     icon: <Users className="h-3.5 w-3.5" />,
                     onClick: () => router.push(`/managed/projects/${project.id}/members`),
+                  },
+                  {
+                    label: project.triggers_paused
+                      ? t('manage.projects.resumeTriggers')
+                      : t('manage.projects.pauseTriggers'),
+                    icon: project.triggers_paused ? (
+                      <PlayCircle className="h-3.5 w-3.5" />
+                    ) : (
+                      <PauseCircle className="h-3.5 w-3.5" />
+                    ),
+                    onClick: () => {
+                      const current = currentActiveProject(project)
+                      if (!current) return
+                      const action = nextScopedAction()
+                      if (action) {
+                        setTriggersPaused.mutate({
+                          projectId: current.id,
+                          paused: !current.triggers_paused,
+                          ...action,
+                        })
+                      }
+                    },
                   },
                 ]
 

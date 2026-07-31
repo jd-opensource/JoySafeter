@@ -635,30 +635,33 @@ export function useQuickstartChat(
     }
   }, [isStreaming, sendMessage])
 
-  const applyTemplate = useCallback((template: QuickstartTemplateConfig) => {
-    if (streamInFlightRef.current) return
-    const userMsg: ChatMessage = {
-      id: generateUUID(),
-      role: 'user',
-      content: template.message,
-    }
-    const assistantMsg: ChatMessage = {
-      id: generateUUID(),
-      role: 'assistant',
-      content: t('managed.quickstart.templateAppliedMessage', {
-        defaultValue:
-          'Structured template applied. Review the configuration on the right, then create this agent.',
-      }),
-    }
-    setMessages((prev) => {
-      const next = [...prev, userMsg, assistantMsg]
-      messagesRef.current = next
-      return next
-    })
-    setConfig((prev) => ({ ...prev, agent: template.agent }))
-    setPendingConfirmation({ step: 3, curl: '' })
-    setCurrentStep(3)
-  }, [t])
+  const applyTemplate = useCallback(
+    (template: QuickstartTemplateConfig) => {
+      if (streamInFlightRef.current) return
+      const userMsg: ChatMessage = {
+        id: generateUUID(),
+        role: 'user',
+        content: template.message,
+      }
+      const assistantMsg: ChatMessage = {
+        id: generateUUID(),
+        role: 'assistant',
+        content: t('managed.quickstart.templateAppliedMessage', {
+          defaultValue:
+            'Structured template applied. Review the configuration on the right, then create this agent.',
+        }),
+      }
+      setMessages((prev) => {
+        const next = [...prev, userMsg, assistantMsg]
+        messagesRef.current = next
+        return next
+      })
+      setConfig((prev) => ({ ...prev, agent: template.agent }))
+      setPendingConfirmation({ step: 3, curl: '' })
+      setCurrentStep(3)
+    },
+    [t],
+  )
 
   const advanceStep = useCallback(() => {
     const nextStep = Math.min(currentStep + 1, 6) as StepId

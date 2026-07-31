@@ -217,10 +217,14 @@ async def test_session_service_rejects_direct_memory_attach_for_running_session(
         "user_action": "retry",
     }
     mounts = (
-        await db_session.execute(
-            select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session.id)
+        (
+            await db_session.execute(
+                select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert mounts == []
 
 
@@ -251,10 +255,14 @@ async def test_session_service_rejects_direct_archived_memory_store_attach(db_se
         "user_action": "refresh",
     }
     mounts = (
-        await db_session.execute(
-            select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session.id)
+        (
+            await db_session.execute(
+                select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert mounts == []
 
 
@@ -296,10 +304,14 @@ async def test_session_service_rejects_batch_memory_attach_atomically_when_later
         "user_action": "refresh",
     }
     mounts = (
-        await db_session.execute(
-            select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session.id)
+        (
+            await db_session.execute(
+                select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert mounts == []
 
 
@@ -331,10 +343,14 @@ async def test_session_service_rejects_duplicate_memory_attach_before_unique_con
         "user_action": "fix_input",
     }
     mounts = (
-        await db_session.execute(
-            select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session.id)
+        (
+            await db_session.execute(
+                select(JoySafeterSessionMemoryStore).where(JoySafeterSessionMemoryStore.session_id == session.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(mounts) == 1
     assert mounts[0].store_id == store.id
 
@@ -685,9 +701,7 @@ async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_
         _auth_ctx(),
     )
 
-    row = (
-        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == response.id))
-    ).scalar_one()
+    row = (await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == response.id))).scalar_one()
     assert row.agent_version == 1
     assert row.environment_ref == pinned_ref
     assert row.agent_snapshot["environment_ref"] == pinned_ref
@@ -811,10 +825,10 @@ async def test_session_resource_service_rejects_file_mount_path_collision_before
         "user_action": "fix_input",
     }
     mounts = (
-        await db_session.execute(
-            select(JoySafeterSessionFile).where(JoySafeterSessionFile.session_id == session.id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterSessionFile).where(JoySafeterSessionFile.session_id == session.id)))
+        .scalars()
+        .all()
+    )
     assert len(mounts) == 1
     assert mounts[0].file_id == first_file.id
     assert mounts[0].mount_path == "/workspace/shared.txt"
@@ -901,10 +915,10 @@ async def test_session_resource_service_rejects_repo_effective_mount_path_collis
         "user_action": "fix_input",
     }
     repos = (
-        await db_session.execute(
-            select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.session_id == session.id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.session_id == session.id)))
+        .scalars()
+        .all()
+    )
     assert len(repos) == 1
     assert repos[0].url == "https://github.com/acme/api.git"
     assert repos[0].mount_path == ""
@@ -942,8 +956,10 @@ async def test_session_resource_service_rejects_repo_file_mount_path_collision_b
         "user_action": "fix_input",
     }
     repos = (
-        await db_session.execute(select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.session_id == session.id))
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterSessionRepo).where(JoySafeterSessionRepo.session_id == session.id)))
+        .scalars()
+        .all()
+    )
     assert repos == []
 
 

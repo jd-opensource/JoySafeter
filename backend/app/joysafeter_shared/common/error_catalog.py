@@ -81,6 +81,21 @@ CATALOG: dict[str, CatalogEntry] = {
     "AGENT_VERSION_CONFLICT": CatalogEntry(
         code="AGENT_VERSION_CONFLICT", error_class=ResourceConflictError, default_message="Agent version conflict"
     ),
+    "AGENT_SKILL_REF_INVALID": CatalogEntry(
+        code="AGENT_SKILL_REF_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid skill reference id",
+    ),
+    "AGENT_SKILL_REF_NOT_FOUND": CatalogEntry(
+        code="AGENT_SKILL_REF_NOT_FOUND",
+        error_class=InvalidRequestError,
+        default_message="Agent references skills that do not exist in this project",
+    ),
+    "AGENT_SKILL_REF_NOT_RUNTIME_READY": CatalogEntry(
+        code="AGENT_SKILL_REF_NOT_RUNTIME_READY",
+        error_class=InvalidRequestError,
+        default_message="Agent can only reference published, runtime-ready skills",
+    ),
     "API_KEY_NOT_FOUND": CatalogEntry(
         code="API_KEY_NOT_FOUND", error_class=NotFoundError, default_message="API key not found"
     ),
@@ -147,10 +162,10 @@ CATALOG: dict[str, CatalogEntry] = {
     "ENVIRONMENT_CONFLICT": CatalogEntry(
         code="ENVIRONMENT_CONFLICT", error_class=ResourceConflictError, default_message="Environment conflict"
     ),
-    "ENVIRONMENT_SCHEDULE_REFERENCE": CatalogEntry(
-        code="ENVIRONMENT_SCHEDULE_REFERENCE",
+    "ENVIRONMENT_TRIGGER_REFERENCE": CatalogEntry(
+        code="ENVIRONMENT_TRIGGER_REFERENCE",
         error_class=ResourceConflictError,
-        default_message="Environment schedule reference",
+        default_message="Environment cron trigger reference",
     ),
     "ENVIRONMENT_IMAGE_BUILD_FAILED": CatalogEntry(
         code="ENVIRONMENT_IMAGE_BUILD_FAILED",
@@ -181,6 +196,11 @@ CATALOG: dict[str, CatalogEntry] = {
     "FILE_NOT_FOUND": CatalogEntry(code="FILE_NOT_FOUND", error_class=NotFoundError, default_message="File not found"),
     "FILE_UPLOAD_FAILED": CatalogEntry(
         code="FILE_UPLOAD_FAILED", error_class=InternalServiceError, default_message="File upload failed"
+    ),
+    "FILE_IN_USE_BY_SESSION_RESOURCE": CatalogEntry(
+        code="FILE_IN_USE_BY_SESSION_RESOURCE",
+        error_class=ResourceConflictError,
+        default_message="File is attached to active session resources",
     ),
     "FORBIDDEN": CatalogEntry(code="FORBIDDEN", error_class=AccessDeniedError, default_message="无权限"),
     "IDEMPOTENCY_KEY_IN_PROGRESS": CatalogEntry(
@@ -347,11 +367,6 @@ CATALOG: dict[str, CatalogEntry] = {
     "ORGANIZATION_NOT_FOUND": CatalogEntry(
         code="ORGANIZATION_NOT_FOUND", error_class=NotFoundError, default_message="Organization not found"
     ),
-    "ORGANIZATION_OWNER_REMOVE_FORBIDDEN": CatalogEntry(
-        code="ORGANIZATION_OWNER_REMOVE_FORBIDDEN",
-        error_class=InvalidRequestError,
-        default_message="Cannot remove the owner",
-    ),
     "ORGANIZATION_OWNER_TRANSFER_SELF": CatalogEntry(
         code="ORGANIZATION_OWNER_TRANSFER_SELF",
         error_class=InvalidRequestError,
@@ -500,6 +515,41 @@ CATALOG: dict[str, CatalogEntry] = {
     ),
     "SANDBOX_NOT_FOUND": CatalogEntry(
         code="SANDBOX_NOT_FOUND", error_class=NotFoundError, default_message="Sandbox not found"
+    ),
+    "SANDBOX_FILE_NOT_FOUND": CatalogEntry(
+        code="SANDBOX_FILE_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Sandbox file path not found",
+    ),
+    "SANDBOX_FILE_PATH_HIDDEN": CatalogEntry(
+        code="SANDBOX_FILE_PATH_HIDDEN",
+        error_class=InvalidRequestError,
+        default_message="Sandbox hidden files are not accessible",
+    ),
+    "SANDBOX_FILE_PATH_INVALID": CatalogEntry(
+        code="SANDBOX_FILE_PATH_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid sandbox file path",
+    ),
+    "SANDBOX_FILE_PATH_OUTSIDE_WORKSPACE": CatalogEntry(
+        code="SANDBOX_FILE_PATH_OUTSIDE_WORKSPACE",
+        error_class=InvalidRequestError,
+        default_message="Sandbox file path must be under /workspace",
+    ),
+    "SANDBOX_FILE_PATH_TRAVERSAL": CatalogEntry(
+        code="SANDBOX_FILE_PATH_TRAVERSAL",
+        error_class=InvalidRequestError,
+        default_message="Sandbox file path cannot contain '..'",
+    ),
+    "SANDBOX_FILE_PAYLOAD_INVALID": CatalogEntry(
+        code="SANDBOX_FILE_PAYLOAD_INVALID",
+        error_class=ServiceUnavailableError,
+        default_message="Sandbox file payload is invalid",
+    ),
+    "SANDBOX_FILE_TOO_LARGE": CatalogEntry(
+        code="SANDBOX_FILE_TOO_LARGE",
+        error_class=InvalidRequestError,
+        default_message="Sandbox file exceeds download size limit",
     ),
     "SECRET_ACTIVE_TASK_DEPENDENCY": CatalogEntry(
         code="SECRET_ACTIVE_TASK_DEPENDENCY",
@@ -716,25 +766,55 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Session vault is archived",
     ),
-    "SCHEDULE_ENVIRONMENT_NOT_FOUND": CatalogEntry(
-        code="SCHEDULE_ENVIRONMENT_NOT_FOUND",
-        error_class=RequestValidationAppError,
-        default_message="Schedule environment not found",
-    ),
-    "SCHEDULE_AGENT_NOT_FOUND": CatalogEntry(
-        code="SCHEDULE_AGENT_NOT_FOUND",
-        error_class=NotFoundError,
-        default_message="Schedule agent not found",
-    ),
-    "SCHEDULE_NAME_EXISTS": CatalogEntry(
-        code="SCHEDULE_NAME_EXISTS",
+    "SESSION_FILE_MOUNT_PATH_CONFLICT": CatalogEntry(
+        code="SESSION_FILE_MOUNT_PATH_CONFLICT",
         error_class=ResourceConflictError,
-        default_message="A schedule with this name already exists in this project",
+        default_message="Session file mount path conflict",
     ),
-    "SCHEDULE_NOT_FOUND": CatalogEntry(
-        code="SCHEDULE_NOT_FOUND",
+    "SESSION_MEMORY_STORE_ALREADY_ATTACHED": CatalogEntry(
+        code="SESSION_MEMORY_STORE_ALREADY_ATTACHED",
+        error_class=ResourceConflictError,
+        default_message="Session memory store already attached",
+    ),
+    "SESSION_MEMORY_STORE_ARCHIVED": CatalogEntry(
+        code="SESSION_MEMORY_STORE_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Session memory store archived",
+    ),
+    "SESSION_REPO_MOUNT_PATH_CONFLICT": CatalogEntry(
+        code="SESSION_REPO_MOUNT_PATH_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="Session repo mount path conflict",
+    ),
+    "SESSION_REPO_MOUNT_PATH_INVALID": CatalogEntry(
+        code="SESSION_REPO_MOUNT_PATH_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Session repo mount path invalid",
+    ),
+    "SESSION_RESOURCE_MOUNT_PATH_CONFLICT": CatalogEntry(
+        code="SESSION_RESOURCE_MOUNT_PATH_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="Session resource mount path conflict",
+    ),
+    "SESSION_SANDBOX_FILE_RELAY_UNAVAILABLE": CatalogEntry(
+        code="SESSION_SANDBOX_FILE_RELAY_UNAVAILABLE",
+        error_class=ServiceUnavailableError,
+        default_message="Sandbox file service is not available",
+    ),
+    "SESSION_SANDBOX_NOT_AVAILABLE": CatalogEntry(
+        code="SESSION_SANDBOX_NOT_AVAILABLE",
+        error_class=ServiceUnavailableError,
+        default_message="Session sandbox is not available",
+    ),
+    "TRIGGER_ENVIRONMENT_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_ENVIRONMENT_NOT_FOUND",
+        error_class=RequestValidationAppError,
+        default_message="Trigger environment not found",
+    ),
+    "TRIGGER_AGENT_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_AGENT_NOT_FOUND",
         error_class=NotFoundError,
-        default_message="Schedule not found",
+        default_message="Trigger agent not found",
     ),
     "SKILL_ACCESS_DENIED": CatalogEntry(
         code="SKILL_ACCESS_DENIED",
@@ -931,6 +1011,31 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="A stored skill version is not valid semver; cannot compute the next version.",
     ),
+    "SKILL_DELETE_HAS_REFERENCES": CatalogEntry(
+        code="SKILL_DELETE_HAS_REFERENCES",
+        error_class=ResourceConflictError,
+        default_message="Skill is still referenced by agents, cron triggers, or active tasks. Remove references before deleting.",
+    ),
+    "SKILL_LIFECYCLE_NOT_RUNTIME_READY": CatalogEntry(
+        code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",
+        error_class=InvalidRequestError,
+        default_message="Skill must pass security scan before entering approved state.",
+    ),
+    "SKILL_USAGE_FILTER_REQUIRED": CatalogEntry(
+        code="SKILL_USAGE_FILTER_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="At least one usage filter is required.",
+    ),
+    "SKILL_USAGE_HASH_INVALID": CatalogEntry(
+        code="SKILL_USAGE_HASH_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Skill usage hash invalid",
+    ),
+    "SKILL_VERSION_NOT_RUNTIME_READY": CatalogEntry(
+        code="SKILL_VERSION_NOT_RUNTIME_READY",
+        error_class=InvalidRequestError,
+        default_message="Skill is not runtime-ready and cannot be published.",
+    ),
     "TASK_AGENT_NOT_FOUND": CatalogEntry(
         code="TASK_AGENT_NOT_FOUND", error_class=NotFoundError, default_message="Agent not found"
     ),
@@ -990,6 +1095,126 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InternalServiceError,
         default_message="Token refresh failed. Please login again.",
     ),
+    "TRIGGER_AUTH_METHODS_INVALID": CatalogEntry(
+        code="TRIGGER_AUTH_METHODS_INVALID",
+        error_class=RequestValidationAppError,
+        default_message="Webhook auth_methods contains unsupported values",
+    ),
+    "TRIGGER_AUTH_METHODS_REQUIRED": CatalogEntry(
+        code="TRIGGER_AUTH_METHODS_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Webhook auth_methods must not be empty",
+    ),
+    "TRIGGER_CONCURRENCY_POLICY_INVALID": CatalogEntry(
+        code="TRIGGER_CONCURRENCY_POLICY_INVALID",
+        error_class=RequestValidationAppError,
+        default_message="Invalid trigger concurrency policy",
+    ),
+    "TRIGGER_CRON_SCHEDULE_REQUIRED": CatalogEntry(
+        code="TRIGGER_CRON_SCHEDULE_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Cron trigger requires exactly one of cron_expr or run_at",
+    ),
+    "TRIGGER_INVALID_CRON_EXPR": CatalogEntry(
+        code="TRIGGER_INVALID_CRON_EXPR",
+        error_class=RequestValidationAppError,
+        default_message="Invalid cron expression",
+    ),
+    "TRIGGER_INVALID_TIMEZONE": CatalogEntry(
+        code="TRIGGER_INVALID_TIMEZONE",
+        error_class=RequestValidationAppError,
+        default_message="Invalid trigger timezone",
+    ),
+    "TRIGGER_NAME_EXISTS": CatalogEntry(
+        code="TRIGGER_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="Trigger name exists",
+    ),
+    "TRIGGER_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Trigger not found",
+    ),
+    "TRIGGER_NOT_WEBHOOK": CatalogEntry(
+        code="TRIGGER_NOT_WEBHOOK",
+        error_class=RequestValidationAppError,
+        default_message="Operation is only available for webhook triggers",
+    ),
+    "TRIGGER_PINNED_SESSION_AGENT_MISMATCH": CatalogEntry(
+        code="TRIGGER_PINNED_SESSION_AGENT_MISMATCH",
+        error_class=RequestValidationAppError,
+        default_message="Pinned session belongs to a different agent",
+    ),
+    "TRIGGER_PINNED_SESSION_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_PINNED_SESSION_NOT_FOUND",
+        error_class=RequestValidationAppError,
+        default_message="Pinned session not found",
+    ),
+    "TRIGGER_PINNED_SESSION_REQUIRED": CatalogEntry(
+        code="TRIGGER_PINNED_SESSION_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="pinned session mode requires pinned_session_id",
+    ),
+    "TRIGGER_RUN_AT_IN_PAST": CatalogEntry(
+        code="TRIGGER_RUN_AT_IN_PAST",
+        error_class=RequestValidationAppError,
+        default_message="run_at must be in the future",
+    ),
+    "TRIGGER_RUN_AT_NOT_ALLOWED": CatalogEntry(
+        code="TRIGGER_RUN_AT_NOT_ALLOWED",
+        error_class=RequestValidationAppError,
+        default_message="run_at is only valid for cron triggers",
+    ),
+    "TRIGGER_SECRET_KEY_REQUIRED": CatalogEntry(
+        code="TRIGGER_SECRET_KEY_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Webhook trigger requires secret_key",
+    ),
+    "TRIGGER_SECRET_KEY_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_SECRET_KEY_NOT_FOUND",
+        error_class=RequestValidationAppError,
+        default_message="Trigger secret key not found",
+    ),
+    "TRIGGER_SECRET_NOT_FOUND": CatalogEntry(
+        code="TRIGGER_SECRET_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Trigger secret not found",
+    ),
+    "TRIGGER_SECRET_REF_REQUIRED": CatalogEntry(
+        code="TRIGGER_SECRET_REF_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Webhook trigger requires secret_ref",
+    ),
+    "TRIGGER_SECRET_REQUIRED": CatalogEntry(
+        code="TRIGGER_SECRET_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="Webhook trigger requires secret_ref",
+    ),
+    "TRIGGER_SESSION_KEY_REQUIRED": CatalogEntry(
+        code="TRIGGER_SESSION_KEY_REQUIRED",
+        error_class=RequestValidationAppError,
+        default_message="keyed session mode requires session_key",
+    ),
+    "TRIGGER_SESSION_MODE_INVALID": CatalogEntry(
+        code="TRIGGER_SESSION_MODE_INVALID",
+        error_class=RequestValidationAppError,
+        default_message="Invalid trigger session mode",
+    ),
+    "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED": CatalogEntry(
+        code="TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
+        error_class=RequestValidationAppError,
+        default_message="Schedule fields are only valid for cron triggers",
+    ),
+    "TRIGGER_TYPE_UNSUPPORTED": CatalogEntry(
+        code="TRIGGER_TYPE_UNSUPPORTED",
+        error_class=RequestValidationAppError,
+        default_message="Unsupported trigger type",
+    ),
+    "TRIGGER_WEBHOOK_UNAUTHORIZED": CatalogEntry(
+        code="TRIGGER_WEBHOOK_UNAUTHORIZED",
+        error_class=RequestValidationAppError,
+        default_message="Invalid webhook signature or token",
+    ),
     "UNAUTHORIZED": CatalogEntry(code="UNAUTHORIZED", error_class=AuthenticationError, default_message="未认证"),
     "USER_ALREADY_EXISTS": CatalogEntry(
         code="USER_ALREADY_EXISTS", error_class=InvalidRequestError, default_message="Email already registered"
@@ -1026,6 +1251,16 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Vault is archived",
     ),
+    "VAULT_ACTIVE_SESSION_REFERENCE": CatalogEntry(
+        code="VAULT_ACTIVE_SESSION_REFERENCE",
+        error_class=ResourceConflictError,
+        default_message="Vault active session reference",
+    ),
+    "VAULT_CONFLICT": CatalogEntry(
+        code="VAULT_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="Vault conflict",
+    ),
     "VERIFICATION_TOKEN_EXPIRED": CatalogEntry(
         code="VERIFICATION_TOKEN_EXPIRED",
         error_class=InvalidRequestError,
@@ -1035,6 +1270,105 @@ CATALOG: dict[str, CatalogEntry] = {
         code="VERIFICATION_TOKEN_INVALID",
         error_class=InvalidRequestError,
         default_message="Invalid or expired verification token",
+    ),
+    # --- Platform administration / auth ---
+    "JOYSAFETER_PLATFORM_ADMIN_REQUIRED": CatalogEntry(
+        code="JOYSAFETER_PLATFORM_ADMIN_REQUIRED",
+        error_class=AccessDeniedError,
+        default_message="Platform admin access required",
+    ),
+    "PLATFORM_ADMIN_SELF_REVOKE_DENIED": CatalogEntry(
+        code="PLATFORM_ADMIN_SELF_REVOKE_DENIED",
+        error_class=InvalidRequestError,
+        default_message="You cannot revoke your own platform admin role",
+    ),
+    "PLATFORM_USER_NOT_FOUND": CatalogEntry(
+        code="PLATFORM_USER_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="User not found",
+    ),
+    # --- Secrets ---
+    "SECRET_NAME_EXISTS": CatalogEntry(
+        code="SECRET_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="Secret name exists",
+    ),
+    # --- Storage volumes / grants / mounts ---
+    "PROJECT_SCOPE_REQUIRED": CatalogEntry(
+        code="PROJECT_SCOPE_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Project scope is required for storage volume access",
+    ),
+    "SESSION_STORAGE_MOUNT_LIMIT_EXCEEDED": CatalogEntry(
+        code="SESSION_STORAGE_MOUNT_LIMIT_EXCEEDED",
+        error_class=InvalidRequestError,
+        default_message="Session storage mount limit exceeded",
+    ),
+    "STORAGE_ACCESS_DENIED": CatalogEntry(
+        code="STORAGE_ACCESS_DENIED",
+        error_class=InvalidRequestError,
+        default_message="Grant access exceeds volume maximum access",
+    ),
+    "STORAGE_GRANT_NOT_FOUND": CatalogEntry(
+        code="STORAGE_GRANT_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Storage grant not found",
+    ),
+    "STORAGE_ORGANIZATION_GRANT_NOT_FOUND": CatalogEntry(
+        code="STORAGE_ORGANIZATION_GRANT_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Storage organization grant not found",
+    ),
+    "STORAGE_ORG_GRANT_REQUIRED": CatalogEntry(
+        code="STORAGE_ORG_GRANT_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Storage volume must be granted to the organization before granting it to a project",
+    ),
+    "STORAGE_PREFIX_DENIED": CatalogEntry(
+        code="STORAGE_PREFIX_DENIED",
+        error_class=InvalidRequestError,
+        default_message="Grant allowed_prefixes exceed volume allowed prefixes",
+    ),
+    "STORAGE_QUOTA_DENIED": CatalogEntry(
+        code="STORAGE_QUOTA_DENIED",
+        error_class=InvalidRequestError,
+        default_message="Grant quota exceeds volume quota",
+    ),
+    "STORAGE_SUB_PATH_DENIED": CatalogEntry(
+        code="STORAGE_SUB_PATH_DENIED",
+        error_class=InvalidRequestError,
+        default_message="sub_path is outside allowed prefixes",
+    ),
+    "STORAGE_VOLUME_IN_USE": CatalogEntry(
+        code="STORAGE_VOLUME_IN_USE",
+        error_class=ResourceConflictError,
+        default_message="Storage volume has active session mounts",
+    ),
+    "STORAGE_VOLUME_NOT_ALLOWED": CatalogEntry(
+        code="STORAGE_VOLUME_NOT_ALLOWED",
+        error_class=InvalidRequestError,
+        default_message="Storage volume is not allowed for current project",
+    ),
+    "STORAGE_VOLUME_NOT_FOUND": CatalogEntry(
+        code="STORAGE_VOLUME_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Storage volume not found",
+    ),
+    "STORAGE_VOLUME_REF_EXISTS": CatalogEntry(
+        code="STORAGE_VOLUME_REF_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="Storage volume ref exists",
+    ),
+    # --- Triggers ---
+    "TRIGGER_FIRE_IN_PROGRESS": CatalogEntry(
+        code="TRIGGER_FIRE_IN_PROGRESS",
+        error_class=ResourceConflictError,
+        default_message="Trigger is currently being fired by the scheduler. Wait for it to finish before deleting.",
+    ),
+    "TRIGGER_HAS_ACTIVE_RUNS": CatalogEntry(
+        code="TRIGGER_HAS_ACTIVE_RUNS",
+        error_class=ResourceConflictError,
+        default_message="Trigger has active runs. Cancel or wait for them before deleting the trigger.",
     ),
 }
 

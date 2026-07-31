@@ -1,0 +1,198 @@
+import uuid
+
+import httpx
+import pytest
+from fastapi import FastAPI
+
+from app.joysafeter_api.api.v1 import triggers as trigger_api
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_shared.common.exceptions import register_exception_handlers
+from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+
+
+def _ctx(project_id: str = "proj-http", org_id: str = "org-http") -> JoySafeterAuthContext:
+    return JoySafeterAuthContext(
+        user_id="user-http",
+        org_id=org_id,
+        project_id=project_id,
+        role=JoySafeterRole.ADMIN,
+        project_role="admin",
+    )
+
+
+def _app(db, ctx: JoySafeterAuthContext) -> FastAPI:
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(trigger_api.router, prefix="/api/v1/triggers")
+    app.dependency_overrides[trigger_api.get_db] = lambda: db
+    app.dependency_overrides[trigger_api.require_joysafeter_write] = lambda: ctx
+    return app
+
+
+def _client(app: FastAPI) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+
+
+class _NoDb:
+    async def execute(self, *_args, **_kwargs):
+        raise AssertionError("invalid trigger payload should be rejected before DB access")
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_create_invalid_trigger_type_returns_semantic_error_without_db_access():
+    app = _app(_NoDb(), _ctx())
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "bad-type",
+                "type": "event",
+                "agent_id": str(uuid.uuid4()),
+                "prompt_template": "run",
+            },
+        )
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRIGGER_TYPE_UNSUPPORTED"
+    assert resp.json()["user_action"] == "fix_input"
+    assert resp.json()["data"]["type"] == "event"
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_create_invalid_webhook_auth_method_returns_semantic_error_without_db_access():
+    app = _app(_NoDb(), _ctx())
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "bad-auth",
+                "type": "webhook",
+                "agent_id": str(uuid.uuid4()),
+                "prompt_template": "run",
+                "secret_ref": "hook-secret",
+                "auth_methods": ["magic-link"],
+            },
+        )
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRIGGER_AUTH_METHODS_INVALID"
+    assert resp.json()["user_action"] == "fix_input"
+    assert resp.json()["data"] == {"type": "webhook"}
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_create_blank_webhook_secret_key_returns_semantic_error_without_db_access():
+    app = _app(_NoDb(), _ctx())
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "blank-secret-key",
+                "type": "webhook",
+                "agent_id": str(uuid.uuid4()),
+                "prompt_template": "run",
+                "secret_ref": "hook-secret",
+                "secret_key": "   ",
+            },
+        )
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRIGGER_SECRET_KEY_REQUIRED"
+    assert resp.json()["user_action"] == "fix_input"
+    assert resp.json()["data"] == {"type": "webhook"}
+
+
+@pytest.mark.asyncio
+async def test_update_invalid_session_mode_returns_semantic_error(db_session):
+    org = Organization(name=f"Trigger HTTP Org {uuid.uuid4()}", slug=f"trigger-http-org-{uuid.uuid4()}")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = Project(org_id=org.id, name="Trigger HTTP Project", slug=f"trigger-http-project-{uuid.uuid4()}")
+    db_session.add(project)
+    await db_session.flush()
+
+    agent = JoySafeterAgent(name=f"trigger-http-agent-{uuid.uuid4()}", project_id=project.id)
+    db_session.add(agent)
+    await db_session.flush()
+
+    trigger = JoySafeterTrigger(
+        name=f"trigger-http-{uuid.uuid4()}",
+        type="webhook",
+        agent_id=agent.id,
+        prompt_template="run",
+        enabled=True,
+        session_mode="fresh",
+        filter={},
+        secret_ref="hook-secret",
+        secret_key="WEBHOOK_SECRET",
+        config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
+        last_payload={},
+        project_id=project.id,
+        user_id="user-http",
+        org_id=org.id,
+    )
+    db_session.add(trigger)
+    await db_session.commit()
+
+    app = _app(db_session, _ctx(project_id=project.id, org_id=org.id))
+    async with _client(app) as client:
+        resp = await client.patch(f"/api/v1/triggers/trig_{trigger.id}", json={"session_mode": "loop"})
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRIGGER_SESSION_MODE_INVALID"
+    assert resp.json()["user_action"] == "fix_input"
+    assert resp.json()["data"]["session_mode"] == "loop"
+
+
+@pytest.mark.asyncio
+async def test_update_blank_webhook_secret_key_returns_semantic_error_without_persisting(db_session):
+    org = Organization(name=f"Trigger HTTP Secret Org {uuid.uuid4()}", slug=f"trigger-http-secret-org-{uuid.uuid4()}")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = Project(
+        org_id=org.id, name="Trigger HTTP Secret Project", slug=f"trigger-http-secret-project-{uuid.uuid4()}"
+    )
+    db_session.add(project)
+    await db_session.flush()
+
+    agent = JoySafeterAgent(name=f"trigger-http-secret-agent-{uuid.uuid4()}", project_id=project.id)
+    db_session.add(agent)
+    await db_session.flush()
+
+    trigger = JoySafeterTrigger(
+        name=f"trigger-http-secret-{uuid.uuid4()}",
+        type="webhook",
+        agent_id=agent.id,
+        prompt_template="run",
+        enabled=True,
+        session_mode="fresh",
+        filter={},
+        secret_ref="hook-secret",
+        secret_key="WEBHOOK_SECRET",
+        config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
+        last_payload={},
+        project_id=project.id,
+        user_id="user-http",
+        org_id=org.id,
+    )
+    db_session.add(trigger)
+    await db_session.commit()
+
+    app = _app(db_session, _ctx(project_id=project.id, org_id=org.id))
+    async with _client(app) as client:
+        resp = await client.patch(f"/api/v1/triggers/trig_{trigger.id}", json={"secret_key": "   "})
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRIGGER_SECRET_KEY_REQUIRED"
+    assert resp.json()["user_action"] == "fix_input"
+    assert resp.json()["data"] == {"type": "webhook"}
+    await db_session.refresh(trigger)
+    assert trigger.secret_key == "WEBHOOK_SECRET"

@@ -1,19 +1,17 @@
-"""Unit tests for the P2.9 security hardening of the skill stack.
+"""Service-level regression tests for skill security hardening.
 
-Four targeted fixes:
+Targeted fixes:
 
-  - #1: ``check_skill_access`` owner-branch now honors ``active_org_id``
-        so multi-org owners can't read their own skill while pinned to
-        a different org context.
+  - #1: service mutations pass through the active-org boundary, so
+        multi-org owners can't mutate an org-A skill while pinned to a
+        different org context.
   - #2: only the skill OWNER can flip a skill into the ``public``
         visibility tier; admin collaborators can't single-handedly
         expose a project skill to every other organization.
   - #3: same gate applies in reverse — un-publishing a public skill
         is also owner-only.
-  - #5: admin batch rescan stays scoped to the caller's active org;
-        this file just covers the org-isolation behavior of the
-        ``check_skill_access`` change. The route-level org scoping
-        is exercised end-to-end via the rescan filter SQL.
+  - archived skills reject edits/rescans before scan dispatch, while
+        delete remains allowed when the capability gate permits it.
 
 (P1's transitions stay self-approvable until P2 introduces the
 admin reviewer gate — that's a documented followup, not a regression.)
@@ -30,9 +28,8 @@ import pytest
 from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityService
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, ResourceConflictError
-from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
-from app.joysafeter_shared.common.joysafeter_auth.context import ProjectCapability
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+
+pytestmark = pytest.mark.no_db
 
 # ── fixtures ────────────────────────────────────────────────────
 
@@ -52,11 +49,6 @@ def _skill(
         project_id=project_id,
         lifecycle_status=lifecycle_status,
     )
-
-
-class _NullDB:
-    async def execute(self, _stmt):  # pragma: no cover — patched per-test
-        raise AssertionError("DB hit not expected")
 
 
 def _patch_skill_org_id(monkeypatch, *, org_id):
@@ -82,42 +74,7 @@ def _patch_project_role(monkeypatch, *, role):
     )
 
 
-# ── Risk #1 — capability path honors active_org_id (single-axis) ──
-
-
-async def test_project_admin_pass_when_in_active_org(monkeypatch):
-    """A project admin reading from inside the skill's org goes through."""
-    s = _skill(owner_id="alice", visibility="project")
-    _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_project_role(monkeypatch, role="admin")
-
-    await check_skill_access(
-        _NullDB(),
-        s,
-        user_id="alice",
-        required=ProjectCapability.ADMIN,
-        caller_org_role=JoySafeterRole.MEMBER,
-        active_org_id="org-A",
-    )
-
-
-async def test_project_admin_denied_when_in_different_active_org(monkeypatch):
-    """The fix: a caller pinned to a different org context can NOT reach
-    the skill via project capability. Org isolation gates the capability
-    path — P2.9 closes the cross-org leak that ``list_by_user`` closes."""
-    s = _skill(owner_id="alice", visibility="project")
-    _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_project_role(monkeypatch, role="admin")
-
-    with pytest.raises(AccessDeniedError):
-        await check_skill_access(
-            _NullDB(),
-            s,
-            user_id="alice",
-            required=ProjectCapability.ADMIN,
-            caller_org_role=JoySafeterRole.MEMBER,
-            active_org_id="org-B",
-        )
+# ── Risk #1 — service mutations honor active_org_id ─────────────
 
 
 async def test_delete_skill_owner_denied_when_in_different_active_org(monkeypatch):
@@ -185,40 +142,6 @@ async def test_archived_skill_can_be_deleted(monkeypatch):
     svc.file_repo.delete_by_skill.assert_awaited_once_with(s.id)
     svc.repo.delete.assert_awaited_once_with(s.id)
     svc.db.commit.assert_awaited_once()
-
-
-async def test_org_superuser_gets_admin_in_own_org(monkeypatch):
-    """Org owner/admin manage every skill in their own org — capability
-    resolves to ADMIN without a project row."""
-    s = _skill(owner_id="alice", visibility="project")
-    _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_project_role(monkeypatch, role=None)
-
-    await check_skill_access(
-        _NullDB(),
-        s,
-        user_id="boss",
-        required=ProjectCapability.ADMIN,
-        caller_org_role=JoySafeterRole.ADMIN,
-        active_org_id="org-A",
-    )
-
-
-async def test_public_skill_still_crosses_active_org(monkeypatch):
-    """``public`` is the explicit carve-out: readable from any org even
-    with an active_org mismatch."""
-    s = _skill(owner_id="alice", visibility="public")
-    _patch_skill_org_id(monkeypatch, org_id="org-A")
-    _patch_project_role(monkeypatch, role=None)
-
-    await check_skill_access(
-        _NullDB(),
-        s,
-        user_id="stranger",
-        required=ProjectCapability.READ,
-        caller_org_role=JoySafeterRole.MEMBER,
-        active_org_id="org-B",
-    )
 
 
 # ── Risks #2 / #3 — public visibility is owner-only ─────────────

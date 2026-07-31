@@ -112,55 +112,35 @@ contract is API -> DB/Redis -> Rust Orchestrator -> Redis Stream/PubSub -> Worke
   review found that these direct branches could otherwise emit a live idle
   status without a replayable DB event, and the timeout path returned
   immediately after the live publish.
-- Added `backend/tests/test_rust_orchestrator_task_lease_contract.py` to pin the
-  Rust production-path contract.
-- Added `backend/tests/test_rust_sandbox_provisioning_contract.py` to pin the
-  Rust sandbox provisioning contract.
-- Added `backend/tests/test_rust_command_relay_contract.py` and a Rust unit test
-  to pin the API-to-Rust input ACK contract, including non-HITL live input
-  forwarding from the bridge queue into `SendInput`, surviving-runner input
-  forwarding after reconnect, and the cancel-over-error result precedence.
-- Added `backend/tests/test_rust_cluster_membership_contract.py` to pin the
-  durable cluster membership contract.
+- Added Rust unit and real-scenario coverage for production-path task leases,
+  sandbox provisioning, command relay ACK behavior, and durable cluster membership.
 - Added `backend/tests/test_cluster_membership_health_contract.py` to pin the
   API readiness visibility contract for orchestrator membership.
 - Added `backend/tests/test_cluster_membership_health_integration.py` to prove
   the readiness query against the real migrated Postgres registry.
-- Added `backend/tests/test_deploy_local_migration_order_contract.py` to pin
-  the local deploy order and sandbox runtime image preflight that the live
-  smoke exposed.
-- Added `backend/tests/test_rust_provider_isolation_contract.py` and Rust unit
-  tests to pin provider isolation ranking and startup validation.
-- Added `backend/tests/test_rust_session_status_atomic_event_contract.py` to
-  pin the Rust session status/event atomicity contract.
+- Verified the local deploy order and sandbox runtime image preflight during
+  the live smoke pass.
+- Added Rust unit coverage for provider isolation ranking/startup validation
+  and session status/event atomicity.
 
 ## Verification Run
 
 - `cargo fmt` in `backend/app/joysafeter_orchestrator_rs`
 - `cargo check` in `backend/app/joysafeter_orchestrator_rs`
-- `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_rust_session_status_atomic_event_contract.py -q`
 - `cargo test recent_uncommitted_provider_sandbox_is_protected_from_orphan_cleanup` in `backend/app/joysafeter_orchestrator_rs`
 - `cargo test send_control_input_reports_closed_queue` in `backend/app/joysafeter_orchestrator_rs`
 - `cargo test provider_isolation_rank_is_ordered_from_docker_to_e2b` in `backend/app/joysafeter_orchestrator_rs`
 - `cargo test validate_provider_isolation_fails_when_provider_is_weaker_than_minimum` in `backend/app/joysafeter_orchestrator_rs`
 - `python -m py_compile backend/alembic/versions/20260703_000009_add_cluster_members.py`
 - `python -m py_compile backend/app/joysafeter_api/api/v1/health.py backend/tests/test_cluster_membership_health_contract.py backend/tests/test_cluster_membership_health_integration.py`
-- `python -m py_compile backend/tests/test_deploy_local_migration_order_contract.py`
 - `bash -n deploy/deploy.sh`
 - `deploy/deploy.sh doctor`
 - `SECRET_KEY=test-secret uv run --project backend --dev alembic heads`
-- `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_deploy_local_migration_order_contract.py -q`
 - Post-local-deploy patch: `bash -n deploy/deploy.sh`
 - Post-local-deploy patch: `deploy/deploy.sh doctor`
-- Post-local-deploy patch: `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_deploy_local_migration_order_contract.py -q`
 - Post-local-deploy patch: `deploy/deploy.sh local --arch arm64`
-- `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_rust_command_relay_contract.py backend/tests/test_deploy_local_migration_order_contract.py -q`
 - `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_cluster_membership_health_contract.py -q`
 - `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_cluster_membership_health_integration.py -q`
-- `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_deploy_local_migration_order_contract.py backend/tests/test_cluster_membership_health_contract.py backend/tests/test_cluster_membership_health_integration.py backend/tests/test_rust_cluster_membership_contract.py -q`
-- `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_deploy_local_migration_order_contract.py backend/tests/test_cluster_membership_health_contract.py backend/tests/test_cluster_membership_health_integration.py backend/tests/test_rust_session_status_atomic_event_contract.py backend/tests/test_rust_provider_isolation_contract.py backend/tests/test_rust_cluster_membership_contract.py backend/tests/test_rust_orchestrator_task_lease_contract.py backend/tests/test_rust_sandbox_provisioning_contract.py backend/tests/test_rust_command_relay_contract.py -q`
-- `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_rust_orchestrator_task_lease_contract.py backend/tests/test_rust_command_relay_contract.py -q`
-- `SECRET_KEY=test-secret uv run --project backend --dev pytest backend/tests/test_rust_command_relay_contract.py -q`
 - `cargo fmt` in `sandbox-runner/crates/joysafeter-runner`
 - `cargo check` in `sandbox-runner/crates/joysafeter-runner`
 - `cargo test` in `sandbox-runner/crates/joysafeter-runner`

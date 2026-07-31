@@ -5,6 +5,8 @@ import pytest
 from app.joysafeter_api.api.v1.sessions import _validate_sandbox_file_path
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 
+pytestmark = pytest.mark.no_db
+
 
 def test_sandbox_file_path_defaults_to_workspace() -> None:
     assert _validate_sandbox_file_path(None) == "/workspace"

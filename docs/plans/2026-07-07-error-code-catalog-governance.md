@@ -53,7 +53,7 @@ Expected: ruff clean; `mypy app` clean (`Success: no issues found`). If anything
 
 Run (cwd = repo root):
 ```bash
-backend/.venv/bin/pytest tests/test_api_error_architecture.py -q
+backend/.venv/bin/pytest tests/test_error_code_catalog_guard.py -q
 ```
 Expected: PASS.
 
@@ -850,7 +850,7 @@ Run (cwd = repo root):
 ```bash
 backend/.venv/bin/ruff check . && backend/.venv/bin/ruff format --check .
 (cd backend && .venv/bin/mypy app --ignore-missing-imports)
-backend/.venv/bin/pytest tests/test_error_code_catalog_guard.py tests/test_api_error_architecture.py tests/test_openai_stream_error_contract.py tests/test_async_boundary_failure_contract.py -q
+backend/.venv/bin/pytest tests/test_error_code_catalog_guard.py tests/test_openai_stream_error_contract.py tests/test_async_boundary_failure_contract.py -q
 ```
 Expected: all PASS / clean.
 

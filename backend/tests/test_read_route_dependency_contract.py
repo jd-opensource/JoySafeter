@@ -1,5 +1,6 @@
 import inspect
 
+import pytest
 from fastapi.params import Depends
 
 from app.joysafeter_api.api.v1 import (
@@ -10,23 +11,26 @@ from app.joysafeter_api.api.v1 import (
     memory_stores,
     quickstart,
     sandboxes,
-    schedules,
     secrets,
     sessions,
     skills,
     skills_ai_authoring,
     tasks,
+    triggers,
     vaults,
 )
 from app.joysafeter_shared.common.joysafeter_auth import (
     get_joysafeter_auth_context,
     require_joysafeter_admin,
+    require_joysafeter_platform_admin,
     require_joysafeter_project_admin,
     require_joysafeter_user_admin,
     require_joysafeter_user_context,
     require_joysafeter_user_write,
     require_joysafeter_write,
 )
+
+pytestmark = pytest.mark.no_db
 
 
 def _dependency_for(handler, parameter_name: str = "auth_ctx"):
@@ -54,9 +58,9 @@ def test_archived_project_read_routes_use_read_auth_context():
     assert _dependency_for(vaults.get_vault) is get_joysafeter_auth_context
     assert _dependency_for(vaults.list_credentials) is get_joysafeter_auth_context
     assert _dependency_for(vaults.get_credential) is get_joysafeter_auth_context
-    assert _dependency_for(schedules.list_schedules) is get_joysafeter_auth_context
-    assert _dependency_for(schedules.get_schedule) is get_joysafeter_auth_context
-    assert _dependency_for(schedules.list_schedule_runs) is get_joysafeter_auth_context
+    assert _dependency_for(triggers.list_triggers) is get_joysafeter_auth_context
+    assert _dependency_for(triggers.get_trigger) is get_joysafeter_auth_context
+    assert _dependency_for(triggers.list_trigger_runs) is get_joysafeter_auth_context
 
 
 def test_project_resource_write_routes_still_require_write_context():
@@ -66,12 +70,10 @@ def test_project_resource_write_routes_still_require_write_context():
     assert _dependency_for(vaults.update_credential) is require_joysafeter_write
     assert _dependency_for(vaults.archive_credential) is require_joysafeter_write
     assert _dependency_for(vaults.delete_credential) is require_joysafeter_write
-    assert _dependency_for(schedules.create_schedule) is require_joysafeter_write
-    assert _dependency_for(schedules.update_schedule) is require_joysafeter_write
-    assert _dependency_for(schedules.delete_schedule) is require_joysafeter_write
-    assert _dependency_for(schedules.enable_schedule) is require_joysafeter_write
-    assert _dependency_for(schedules.disable_schedule) is require_joysafeter_write
-    assert _dependency_for(schedules.trigger_schedule) is require_joysafeter_write
+    assert _dependency_for(triggers.create_trigger) is require_joysafeter_write
+    assert _dependency_for(triggers.update_trigger) is require_joysafeter_write
+    assert _dependency_for(triggers.delete_trigger) is require_joysafeter_write
+    assert _dependency_for(triggers.run_trigger_now) is require_joysafeter_write
 
 
 def test_all_project_resource_write_routes_require_project_write_context():
@@ -82,18 +84,24 @@ def test_all_project_resource_write_routes_require_project_write_context():
         memory_stores,
         quickstart,
         sandboxes,
-        schedules,
         secrets,
         sessions,
         skills,
         skills_ai_authoring,
         tasks,
+        triggers,
         vaults,
     ]
+
+    # Public ingress routes authed by request signature/secret rather than a
+    # project-write principal (deliberately not require_joysafeter_write).
+    public_write_routes = {"fire_webhook_trigger"}
 
     offenders = []
     for module in project_resource_modules:
         for route in _write_routes(module.router):
+            if route.endpoint.__name__ in public_write_routes:
+                continue
             dependencies = _dependencies_for(route.endpoint)
             if require_joysafeter_write not in dependencies:
                 methods = ",".join(sorted(route.methods or []))
@@ -109,6 +117,7 @@ def test_auth_management_context_routes_require_user_principal():
         require_joysafeter_user_context,
         require_joysafeter_user_write,
         require_joysafeter_user_admin,
+        require_joysafeter_platform_admin,
         require_joysafeter_project_admin,
     }
 

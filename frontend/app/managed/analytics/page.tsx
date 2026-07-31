@@ -77,16 +77,13 @@ export default function AnalyticsOverviewPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title={t('analytics.tabs.overview')}
-        subtitle={t('analytics.subtitle')}
-      />
+      <PageHeader title={t('analytics.tabs.overview')} subtitle={t('analytics.subtitle')} />
       <AnalyticsFilterBar filters={filters} onFiltersChange={setFilters} />
 
       <HealthStatusBar data={health.data} loading={health.isLoading} />
 
       {/* Main content: charts left, sidebar right */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_280px]">
         {/* Left: charts */}
         <div className="space-y-5">
           <CallsTrendChart
@@ -95,7 +92,7 @@ export default function AnalyticsOverviewPage() {
             loading={callsTs.isLoading}
             fetching={callsTs.isFetching}
           />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <TokenTrendChart
               data={tokensTs.data ?? []}
               range={filters.range}
@@ -110,7 +107,7 @@ export default function AnalyticsOverviewPage() {
             />
           </div>
           {/* Error distribution + Duration distribution */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <ErrorSummaryCard data={errorSummary.data} loading={errorSummary.isLoading} />
             <LatencyStatsCard data={latencyStats.data} loading={latencyStats.isLoading} />
           </div>
@@ -140,7 +137,7 @@ export default function AnalyticsOverviewPage() {
       <div className="flex justify-end">
         <Link
           href="/managed/analytics/calls"
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           {t('analytics.viewAllCalls')}
           <ArrowRight className="h-4 w-4" />

@@ -9,7 +9,6 @@ from app.joysafeter_api.api.v1 import skills as skills_api
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 
-
 pytestmark = pytest.mark.no_db
 
 

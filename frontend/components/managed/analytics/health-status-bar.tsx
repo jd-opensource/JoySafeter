@@ -58,7 +58,12 @@ export function HealthStatusBar({ data, loading }: HealthStatusBarProps) {
   const StatusIcon = config.icon
 
   return (
-    <div className={cn('mb-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border px-3 py-2.5', config.bg)}>
+    <div
+      className={cn(
+        'mb-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border px-3 py-2.5',
+        config.bg,
+      )}
+    >
       <div className="flex items-center gap-2">
         <StatusIcon className={cn('h-4 w-4', config.iconColor)} />
         <span className={cn('text-sm font-medium', config.textColor)}>
@@ -83,9 +88,11 @@ export function HealthStatusBar({ data, loading }: HealthStatusBarProps) {
       <div className="h-4 w-px bg-current opacity-20" />
 
       <span className="text-sm text-foreground">
-        {t('analytics.health.queueWait', { time: data.queue_wait.avg_sec > 60
-          ? `${Math.round(data.queue_wait.avg_sec / 60)}m`
-          : `${Math.round(data.queue_wait.avg_sec)}s`
+        {t('analytics.health.queueWait', {
+          time:
+            data.queue_wait.avg_sec > 60
+              ? `${Math.round(data.queue_wait.avg_sec / 60)}m`
+              : `${Math.round(data.queue_wait.avg_sec)}s`,
         })}
       </span>
 

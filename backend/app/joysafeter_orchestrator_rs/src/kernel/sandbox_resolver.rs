@@ -2926,9 +2926,9 @@ mod egress_tests {
     }
 
     fn database_url() -> Option<String> {
-        env::var("DATABASE_URL")
+        env::var("JOYSAFETER_TEST_DATABASE_URL")
             .ok()
-            .or_else(|| env::var("JOYSAFETER_TEST_DATABASE_URL").ok())
+            .or_else(|| env::var("DATABASE_URL").ok())
             .map(|url| url.replace("postgresql+asyncpg://", "postgres://"))
     }
 

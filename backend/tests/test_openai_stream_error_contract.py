@@ -1,6 +1,9 @@
 import httpx
+import pytest
 
 from app.joysafeter_shared.llm.openai_stream import _status_error_event, _transport_error_event
+
+pytestmark = pytest.mark.no_db
 
 
 def test_openai_stream_status_error_event_is_structured():

@@ -8,11 +8,13 @@ from app.joysafeter_api.api.v1.id_helpers import (
     parse_memory_id,
     parse_memory_store_id,
     parse_memory_version_id,
-    parse_schedule_id,
     parse_session_id,
+    parse_trigger_id,
     parse_vault_id,
 )
 from app.joysafeter_shared.common.app_errors import AppError
+
+pytestmark = pytest.mark.no_db
 
 
 @pytest.mark.asyncio
@@ -40,10 +42,10 @@ def test_parse_session_id_accepts_prefixed_uuid():
     assert parse_session_id(f"sess_{session_id}") == session_id
 
 
-def test_parse_schedule_id_accepts_prefixed_uuid():
-    schedule_id = uuid.uuid4()
+def test_parse_trigger_id_accepts_prefixed_uuid():
+    trigger_id = uuid.uuid4()
 
-    assert parse_schedule_id(f"sched_{schedule_id}") == schedule_id
+    assert parse_trigger_id(f"trig_{trigger_id}") == trigger_id
 
 
 def test_parse_memory_ids_accept_prefixed_uuid():

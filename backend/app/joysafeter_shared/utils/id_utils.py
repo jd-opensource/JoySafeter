@@ -5,6 +5,12 @@ These utilities handle bidirectional conversion.
 """
 
 import uuid
+from typing import Any
+
+
+def same_id(left: Any, right: Any) -> bool:
+    """Compare UUID-like identifiers by value across driver/uuid implementations."""
+    return left is not None and right is not None and str(left) == str(right)
 
 
 def parse_prefixed_id(value: str, prefix: str) -> uuid.UUID:

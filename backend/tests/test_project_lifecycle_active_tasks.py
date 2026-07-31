@@ -191,8 +191,10 @@ async def test_archive_project_fails_closed_when_task_appears_after_active_check
         await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
     ).scalar_one()
     task_rows = (
-        await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id))
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.chat_session_id == session_id)))
+        .scalars()
+        .all()
+    )
     assert project_row.archived_at is None
     assert session_row.archived_at is None
     assert session_row.status == "idle"
@@ -432,13 +434,18 @@ async def test_project_create_and_update_normalize_slug_at_service_boundary(db_s
 
     updated = await update_project(
         created.id,
-        UpdateProjectRequest(name=" Renamed ", slug=" Renamed Project "),
+        UpdateProjectRequest(name=" Renamed ", slug=" Renamed Project ", triggers_paused=True),
         db_session,
         _admin_ctx(current_project.id, org_id),
     )
 
     assert updated.name == "Renamed"
     assert updated.slug == "renamed-project"
+    assert updated.triggers_paused is True
+
+    db_session.expire_all()
+    project_row = (await db_session.execute(select(Project).where(Project.id == created.id))).scalar_one()
+    assert project_row.triggers_paused is True
 
 
 @pytest.mark.asyncio

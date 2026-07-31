@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import { enTree, zhTree, resolveKey as resolve } from '@/lib/i18n/test-utils'
 
-import { STATUS_TONE, statusBadgeClass, statusDotClass, statusLabelKey, statusToTone } from './status-tone'
+import {
+  STATUS_TONE,
+  statusBadgeClass,
+  statusDotClass,
+  statusLabelKey,
+  statusToTone,
+} from './status-tone'
 
 describe('statusToTone', () => {
   it('maps success-family statuses', () => {
@@ -56,9 +62,20 @@ describe('class helpers', () => {
 describe('statusLabelKey', () => {
   it('maps every task/session lifecycle status to an i18n key that resolves in both locales', () => {
     for (const s of [
-      'active', 'running', 'idle', 'terminated', 'archived',
-      'pending', 'scheduling', 'rescheduling', 'completed',
-      'aborted', 'timeout', 'cancelled', 'failed', 'error',
+      'active',
+      'running',
+      'idle',
+      'terminated',
+      'archived',
+      'pending',
+      'scheduling',
+      'rescheduling',
+      'completed',
+      'aborted',
+      'timeout',
+      'cancelled',
+      'failed',
+      'error',
     ]) {
       const key = statusLabelKey(s)
       expect(key, s).toBeTruthy()

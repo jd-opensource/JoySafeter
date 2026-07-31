@@ -4,16 +4,36 @@ IP-based and user-based rate limiting using in-memory storage.
 """
 
 import time
+from dataclasses import dataclass
 from functools import wraps
+from ipaddress import ip_address, ip_network
 from typing import Callable, Optional
 
 from fastapi import Request
+from loguru import logger
 
+from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.app_errors import RateLimitExceededError
+
+_REDIS_RATE_LIMIT_SCRIPT = """
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+local ttl = redis.call('TTL', KEYS[1])
+return {current, ttl}
+"""
+
+
+@dataclass(frozen=True)
+class RateLimitDecision:
+    allowed: bool
+    remaining: int
+    reset_at: int
 
 
 class RateLimiter:
-    """In-memory rate limiter (simple implementation; production should use Redis)."""
+    """In-memory fallback limiter used when Redis is unavailable."""
 
     def __init__(self):
         self._requests: dict[str, list[float]] = {}
@@ -62,28 +82,80 @@ class RateLimiter:
         used = len(self._requests[key])
         return max(0, max_requests - used)
 
+    def check(self, key: str, max_requests: int, window_seconds: int) -> RateLimitDecision:
+        allowed = self.is_allowed(key, max_requests, window_seconds)
+        return RateLimitDecision(
+            allowed=allowed,
+            remaining=self.get_remaining(key, max_requests, window_seconds),
+            reset_at=int(time.time() + window_seconds),
+        )
+
+
+class DistributedRateLimiter:
+    """Redis-backed limiter with in-memory fallback for degraded local/dev mode."""
+
+    def __init__(self, fallback: RateLimiter) -> None:
+        self._fallback = fallback
+
+    async def check(self, key: str, max_requests: int, window_seconds: int) -> RateLimitDecision:
+        redis = RedisClient.get_client()
+        if redis is None:
+            return self._fallback.check(key, max_requests, window_seconds)
+
+        try:
+            current_raw, ttl_raw = await redis.eval(_REDIS_RATE_LIMIT_SCRIPT, 1, key, window_seconds)
+            current = int(current_raw)
+            ttl = int(ttl_raw)
+            reset_after = ttl if ttl > 0 else window_seconds
+            return RateLimitDecision(
+                allowed=current <= max_requests,
+                remaining=max(0, max_requests - current),
+                reset_at=int(time.time() + reset_after),
+            )
+        except Exception as exc:
+            logger.warning("Redis rate limiter failed; falling back to in-memory limiter: {}", exc)
+            return self._fallback.check(key, max_requests, window_seconds)
+
 
 # global rate limiter instance
 _rate_limiter = RateLimiter()
+_distributed_rate_limiter = DistributedRateLimiter(_rate_limiter)
 
 
 def get_client_ip(request: Request) -> str:
     """Return the client IP address."""
-    # prefer X-Forwarded-For (behind proxy / load balancer)
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return str(forwarded).split(",")[0].strip()
+    from app.joysafeter_shared.config.settings import settings
 
-    # try X-Real-IP
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return str(real_ip)
+    direct_ip = str(request.client.host) if request.client else "unknown"
+    if settings.trust_forwarded_headers and _is_trusted_proxy(direct_ip, settings.trusted_proxy_cidrs):
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return str(forwarded).split(",")[0].strip()
 
-    # fall back to direct client address
-    if request.client:
-        return str(request.client.host)
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return str(real_ip)
 
-    return "unknown"
+    return direct_ip
+
+
+def _is_trusted_proxy(client_ip: str, cidrs: str) -> bool:
+    if not cidrs.strip() or client_ip == "unknown":
+        return False
+    try:
+        address = ip_address(client_ip)
+    except ValueError:
+        return False
+    for raw_cidr in cidrs.split(","):
+        cidr = raw_cidr.strip()
+        if not cidr:
+            continue
+        try:
+            if address in ip_network(cidr, strict=False):
+                return True
+        except ValueError:
+            logger.warning("Ignoring invalid trusted proxy CIDR: {}", cidr)
+    return False
 
 
 def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Optional[Callable[[Request], str]] = None):
@@ -132,22 +204,18 @@ def rate_limit(max_requests: int = 5, window_seconds: int = 60, key_func: Option
             else:
                 rate_limit_key = f"rate_limit:ip:{get_client_ip(request)}"
 
-            # check rate limit
-            if not _rate_limiter.is_allowed(rate_limit_key, max_requests, window_seconds):
-                remaining = _rate_limiter.get_remaining(rate_limit_key, max_requests, window_seconds)
+            decision = await _distributed_rate_limiter.check(rate_limit_key, max_requests, window_seconds)
+            if not decision.allowed:
                 raise RateLimitExceededError(
                     message=f"Rate limit exceeded. Try again in {window_seconds} seconds.",
                     data={
                         "headers": {
                             "X-RateLimit-Limit": str(max_requests),
-                            "X-RateLimit-Remaining": str(remaining),
-                            "X-RateLimit-Reset": str(int(time.time() + window_seconds)),
+                            "X-RateLimit-Remaining": str(decision.remaining),
+                            "X-RateLimit-Reset": str(decision.reset_at),
                         }
                     },
                 )
-
-            # add rate-limit response headers
-            remaining = _rate_limiter.get_remaining(rate_limit_key, max_requests, window_seconds)
 
             # execute the original function
             result = await func(*args, **kwargs)

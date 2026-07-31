@@ -7,6 +7,8 @@ from starlette.requests import Request
 from app.joysafeter_shared.common.app_errors import ServiceUnavailableError
 from app.joysafeter_shared.common.exceptions import app_error_handler, http_exception_handler
 
+pytestmark = pytest.mark.no_db
+
 
 def _request() -> Request:
     return Request({"type": "http", "method": "POST", "path": "/api/v1/tasks", "headers": []})

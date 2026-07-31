@@ -98,10 +98,8 @@ current repository, not older design notes.
 - Frontend runtime/server env was checked against `frontend/lib/core/config/env.ts`,
   `frontend/services/email/mailer.ts`, and `deploy/docker-compose.yml`; local and Compose
   examples now include the frontend server auth/email variables as well as `NEXT_PUBLIC_*`.
-- Deployment architecture contracts are covered by
-  `deploy/tests/test_local_deploy_architecture_contract.py` and
-  `deploy/tests/test_runtime_dockerfile_contract.py`; both pass under
-  `uv run --project backend --dev pytest ... -q`.
+- Deployment architecture notes were checked against `deploy/deploy.sh`,
+  `deploy/docker-compose.yml`, `deploy/.env.example`, and `deploy/docker/*.Dockerfile`.
 - `deploy/.env.example` variable reachability was checked against `deploy/**`,
   `backend/app/**`, `backend/joysafeter_skillspector/**`, and `frontend/**`; no completely
   unused env keys were found in that scope.

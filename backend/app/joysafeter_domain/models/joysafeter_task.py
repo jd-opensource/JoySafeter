@@ -75,10 +75,10 @@ class JoySafeterTask(JoySafeterBaseModel):
             "lease_expires_at",
             postgresql_where=text("status = 'running'"),
         ),
-        # Back-reference to the schedule that fired this task (NULL for
-        # interactive tasks). Backs the schedule run-history query and the
+        # Back-reference to the trigger that fired this task (NULL for
+        # interactive tasks). Backs the trigger run-history query and the
         # concurrency-policy "is a prior fire still active?" check.
-        Index("idx_ct_schedule", "schedule_id"),
+        Index("idx_ct_trigger", "trigger_id"),
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
@@ -124,10 +124,9 @@ class JoySafeterTask(JoySafeterBaseModel):
     owner_instance_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     owner_epoch: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    # Set when this task was created by a cron trigger fire; NULL for interactive
-    # tasks. The legacy column name stays for migration compatibility, but the
-    # value now references the unified joysafeter_triggers row.
-    schedule_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    # Set when this task was created by a trigger fire (cron/webhook/manual);
+    # NULL for interactive tasks. References the unified joysafeter_triggers row.
+    trigger_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("joysafeter_triggers.id", ondelete="SET NULL"),
         nullable=True,

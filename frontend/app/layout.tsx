@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
 import { headers } from 'next/headers'
 import { PublicEnvScript } from 'next-runtime-env'
 
@@ -9,21 +8,11 @@ import { Toaster } from '@/components/ui/toaster'
 import { I18nProvider } from '@/providers/i18n-provider'
 import { NotificationProvider } from '@/providers/notification-provider'
 import { PermissionsProvider } from '@/providers/permissions-provider'
-import { QueryProvider } from '@/providers/query-provider'
 import { ProjectProvider } from '@/providers/project-provider'
+import { QueryProvider } from '@/providers/query-provider'
 import { ThemeProvider } from '@/providers/theme-provider'
-import '@/styles/globals.css'
 import { ZoomPrevention } from '@/providers/zoom-prevention'
-
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-})
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-})
+import '@/styles/globals.css'
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -53,10 +42,7 @@ export default async function RootLayout({
       <head>
         <PublicEnvScript nonce={nonce} />
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
-        suppressHydrationWarning
-      >
+      <body className="font-sans antialiased" suppressHydrationWarning>
         <ThemeProvider nonce={nonce}>
           <I18nProvider>
             <QueryProvider>

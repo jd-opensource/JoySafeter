@@ -1,5 +1,6 @@
 """Database configuration."""
 
+import os
 from typing import AsyncGenerator
 
 from sqlalchemy import MetaData
@@ -46,9 +47,7 @@ _connect_args = {
 # POSTGRES_SSL controls this explicitly:
 #   unset / "" / "disable" / "false" → ssl=False (internal RDS, no SSL) [default]
 #   "require" / "true"               → ssl=True (encrypted, no client cert)
-import os as _os
-
-_pg_ssl = _os.getenv("POSTGRES_SSL", "").strip().lower()
+_pg_ssl = os.getenv("POSTGRES_SSL", "").strip().lower()
 if _pg_ssl in ("require", "true", "verify-ca", "verify-full"):
     _connect_args["ssl"] = True
 else:

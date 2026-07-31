@@ -16,12 +16,17 @@ interface TokenSummaryCardProps {
   loading?: boolean
 }
 
-export function TokenSummaryCard({ tokenSummary, engineShare, suggestions, loading }: TokenSummaryCardProps) {
+export function TokenSummaryCard({
+  tokenSummary,
+  engineShare,
+  suggestions,
+  loading,
+}: TokenSummaryCardProps) {
   const { t } = useTranslation()
 
   if (loading || !tokenSummary) {
     return (
-      <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div className="h-4 w-24 animate-pulse rounded bg-muted" />
         <div className="h-8 w-20 animate-pulse rounded bg-muted" />
         <div className="h-3 w-full animate-pulse rounded bg-muted" />
@@ -33,30 +38,38 @@ export function TokenSummaryCard({ tokenSummary, engineShare, suggestions, loadi
   const cacheHitPct = tokenSummary.cache_hit_rate * 100
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+    <div className="space-y-4 rounded-lg border border-border bg-card p-4">
       {/* Token totals */}
       <div>
-        <h3 className="text-sm font-medium text-foreground mb-3">
+        <h3 className="mb-3 text-sm font-medium text-foreground">
           {t('analytics.tokenSummary.title')}
         </h3>
         <p className="text-xl font-semibold text-foreground">
           {formatCompactNumber(tokenSummary.total)}
         </p>
         <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
-          <span>{t('analytics.tokenSummary.input')}: <strong className="text-foreground">{formatCompactNumber(tokenSummary.input)}</strong></span>
-          <span>{t('analytics.tokenSummary.output')}: <strong className="text-foreground">{formatCompactNumber(tokenSummary.output)}</strong></span>
+          <span>
+            {t('analytics.tokenSummary.input')}:{' '}
+            <strong className="text-foreground">{formatCompactNumber(tokenSummary.input)}</strong>
+          </span>
+          <span>
+            {t('analytics.tokenSummary.output')}:{' '}
+            <strong className="text-foreground">{formatCompactNumber(tokenSummary.output)}</strong>
+          </span>
         </div>
       </div>
 
       {/* Cache hit rate */}
       <div>
-        <div className="flex items-center justify-between text-xs mb-1.5">
+        <div className="mb-1.5 flex items-center justify-between text-xs">
           <span className="text-muted-foreground">{t('analytics.tokenSummary.cacheHitRate')}</span>
-          <span className="font-medium text-foreground">{formatPercent(tokenSummary.cache_hit_rate)}</span>
+          <span className="font-medium text-foreground">
+            {formatPercent(tokenSummary.cache_hit_rate)}
+          </span>
         </div>
-        <div className="h-2 w-full rounded-full bg-muted/30 overflow-hidden">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-muted/30">
           <div
-            className="h-full rounded-full bg-emerald-500 dark:bg-emerald-400 transition-all"
+            className="h-full rounded-full bg-emerald-500 transition-all dark:bg-emerald-400"
             style={{ width: `${Math.min(cacheHitPct, 100)}%` }}
           />
         </div>
@@ -68,12 +81,12 @@ export function TokenSummaryCard({ tokenSummary, engineShare, suggestions, loadi
       {/* Mini engine distribution */}
       {engineShare.length > 0 && (
         <div>
-          <h4 className="text-xs font-medium text-muted-foreground mb-2">
+          <h4 className="mb-2 text-xs font-medium text-muted-foreground">
             {t('analytics.tokenSummary.engineDistribution')}
           </h4>
 
           {/* Mini stacked bar */}
-          <div className="flex h-2 rounded-full overflow-hidden gap-px">
+          <div className="flex h-2 gap-px overflow-hidden rounded-full">
             {engineShare.map((item) => {
               const colorIdx = ENGINE_COLOR_MAP[item.engine as keyof typeof ENGINE_COLOR_MAP] ?? 7
               return (
@@ -96,12 +109,17 @@ export function TokenSummaryCard({ tokenSummary, engineShare, suggestions, loadi
               const colorIdx = ENGINE_COLOR_MAP[item.engine as keyof typeof ENGINE_COLOR_MAP] ?? 7
               const label = ENGINE_LABELS[item.engine as keyof typeof ENGINE_LABELS] ?? item.engine
               return (
-                <div key={item.engine} className="flex items-center gap-1 text-xs text-muted-foreground">
+                <div
+                  key={item.engine}
+                  className="flex items-center gap-1 text-xs text-muted-foreground"
+                >
                   <div
-                    className="h-2 w-2 rounded-full shrink-0"
+                    className="h-2 w-2 shrink-0 rounded-full"
                     style={{ backgroundColor: CHART_COLORS[colorIdx] }}
                   />
-                  <span>{label} {item.percentage}%</span>
+                  <span>
+                    {label} {item.percentage}%
+                  </span>
                 </div>
               )
             })}
@@ -111,15 +129,17 @@ export function TokenSummaryCard({ tokenSummary, engineShare, suggestions, loadi
 
       {/* Optimization suggestions */}
       {suggestions && suggestions.length > 0 && (
-        <div className="pt-3 border-t border-border">
-          <h4 className="text-xs font-medium text-muted-foreground mb-2">
+        <div className="border-t border-border pt-3">
+          <h4 className="mb-2 text-xs font-medium text-muted-foreground">
             {t('analytics.tokenSummary.suggestions')}
           </h4>
           <div className="space-y-1.5">
             {suggestions.map((s, i) => (
               <div key={i} className="flex items-start gap-2 text-xs">
-                <Lightbulb className="h-3 w-3 text-amber-500 shrink-0 mt-0.5" />
-                <span className="text-muted-foreground">{t(suggestionMessageKey(s.type), s.params)}</span>
+                <Lightbulb className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                <span className="text-muted-foreground">
+                  {t(suggestionMessageKey(s.type), s.params)}
+                </span>
               </div>
             ))}
           </div>

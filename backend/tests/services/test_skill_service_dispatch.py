@@ -21,6 +21,8 @@ import pytest
 
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 
+pytestmark = pytest.mark.no_db
+
 
 @pytest.fixture(autouse=True)
 def _enable_scanner(monkeypatch):

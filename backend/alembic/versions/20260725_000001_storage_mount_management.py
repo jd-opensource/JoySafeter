@@ -8,8 +8,9 @@ Create Date: 2026-07-25 00:00:00.000000+00:00
 from typing import Sequence, Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "20260725_000001"
 down_revision: Union[str, None] = "20260727_000001"
@@ -87,9 +88,13 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("session_id", "mount_path", name="uq_joysafeter_session_storage_mount_path"),
     )
-    op.create_index("idx_joysafeter_session_storage_mounts_session", "joysafeter_session_storage_mounts", ["session_id"])
+    op.create_index(
+        "idx_joysafeter_session_storage_mounts_session", "joysafeter_session_storage_mounts", ["session_id"]
+    )
     op.create_index("idx_joysafeter_session_storage_mounts_volume", "joysafeter_session_storage_mounts", ["volume_id"])
-    op.create_index("idx_joysafeter_session_storage_mounts_project", "joysafeter_session_storage_mounts", ["project_id"])
+    op.create_index(
+        "idx_joysafeter_session_storage_mounts_project", "joysafeter_session_storage_mounts", ["project_id"]
+    )
 
     op.create_table(
         "joysafeter_storage_mount_audit",
@@ -112,7 +117,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["volume_id"], ["joysafeter_storage_volumes.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("idx_joysafeter_storage_audit_project_created", "joysafeter_storage_mount_audit", ["project_id", "created_at"])
+    op.create_index(
+        "idx_joysafeter_storage_audit_project_created", "joysafeter_storage_mount_audit", ["project_id", "created_at"]
+    )
     op.create_index("idx_joysafeter_storage_audit_session", "joysafeter_storage_mount_audit", ["session_id"])
     op.create_index("idx_joysafeter_storage_audit_volume", "joysafeter_storage_mount_audit", ["volume_id"])
     op.create_index("idx_joysafeter_storage_audit_action", "joysafeter_storage_mount_audit", ["action"])

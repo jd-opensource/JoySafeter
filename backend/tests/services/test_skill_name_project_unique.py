@@ -13,10 +13,10 @@ the alembic migration's UNIQUE constraint is actually exercised:
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.exc import IntegrityError
-from unittest.mock import AsyncMock
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Organization
