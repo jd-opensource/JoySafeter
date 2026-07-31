@@ -76,6 +76,12 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
         if let Some(enforcer) = enforcer {
             let _ = enforcer.teardown(sandbox_id).await;
         }
+        // Forget the sandbox's credential-plane state on the steady-state destroy
+        // path (idle sweep, force-stop, TTL destroy, bridge-health cleanup): drop
+        // its resolvable routes and evict cached secrets. Without this, a
+        // successfully-created-then-destroyed sandbox leaks its registry entry
+        // (unbounded until restart) and its cached secret lingers up to the TTL.
+        crate::kernel::credential_resolution::forget_sandbox_credentials(sandbox_id);
     } else {
         warn!(
             sandbox_id = %sandbox_id,

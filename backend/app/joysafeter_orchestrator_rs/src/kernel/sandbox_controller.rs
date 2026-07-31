@@ -1187,6 +1187,10 @@ impl SandboxController {
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        // Forget the sandbox's credential-plane state (resolvable routes + cached
+        // secrets) alongside the enforcer teardown. Idempotent, so it is safe on
+        // paths that also reach the shared finalize.
+        crate::kernel::credential_resolution::forget_sandbox_credentials(sandbox_id);
         match self.enforcer.as_ref() {
             Some(e) => e.teardown(sandbox_id).await,
             None => Ok(()),

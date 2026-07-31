@@ -968,13 +968,11 @@ impl SandboxResolver {
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        // Forget the sandbox's resolvable routes so a torn-down sandbox can no
-        // longer resolve credentials, and evict any cached resolved secrets so
-        // none stay resident in memory past teardown.
-        crate::kernel::credential_resolution::global_resolution_registry().remove(sandbox_id);
-        if let Some(broker) = crate::kernel::credential_broker::credential_broker() {
-            broker.evict(sandbox_id);
-        }
+        // Forget the sandbox's resolvable routes and evict its cached secrets so
+        // a torn-down sandbox can no longer resolve credentials and none stay
+        // resident. This is the create-failure rollback path; the steady-state
+        // destroy path calls the same helper in sandbox_lifecycle.
+        crate::kernel::credential_resolution::forget_sandbox_credentials(sandbox_id);
         match self.enforcer.as_ref() {
             Some(e) => e.teardown(sandbox_id).await,
             None => Ok(()),

@@ -100,6 +100,22 @@ pub fn global_resolution_registry() -> &'static Arc<ResolutionRegistry> {
     REGISTRY.get_or_init(|| Arc::new(ResolutionRegistry::new()))
 }
 
+/// Forget a sandbox's credential-plane state on teardown: drop its resolvable
+/// routes from the registry (so a torn-down sandbox can no longer resolve a
+/// credential) and evict any cached resolved secrets from the broker (so none
+/// stay resident in memory past teardown). Idempotent — safe to call from every
+/// teardown path, including ones where the sandbox never had credential routes.
+///
+/// This must run on EVERY teardown path (create-failure rollback AND steady-state
+/// destroy), not just one, or a destroyed sandbox's `(sandbox_id → routes)` entry
+/// leaks and its cached secret lingers.
+pub fn forget_sandbox_credentials(sandbox_id: Uuid) {
+    global_resolution_registry().remove(sandbox_id);
+    if let Some(broker) = crate::kernel::credential_broker::credential_broker() {
+        broker.evict(sandbox_id);
+    }
+}
+
 /// Shared state for the resolution HTTP service.
 #[derive(Clone)]
 pub struct ResolutionState {
@@ -323,6 +339,24 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn forget_sandbox_credentials_drops_registry_entry() {
+        // A torn-down sandbox must no longer resolve: forget removes its routes
+        // from the registry (broker eviction is a no-op here — no cache entry).
+        let sandbox_id = Uuid::now_v7();
+        global_resolution_registry()
+            .install(sandbox_id, &[external_route("external:svc", "svc", "API_KEY")]);
+        assert!(global_resolution_registry()
+            .get(sandbox_id, "external:svc")
+            .is_some());
+
+        forget_sandbox_credentials(sandbox_id);
+
+        assert!(global_resolution_registry()
+            .get(sandbox_id, "external:svc")
+            .is_none());
     }
 
     #[tokio::test]
