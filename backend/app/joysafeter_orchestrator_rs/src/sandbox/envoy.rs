@@ -137,6 +137,11 @@ impl EnvoyManager {
                 llm_egress_allowed_hosts,
             )
             .await;
+            // Make these routes resolvable by the ext_authz data plane after a
+            // restart (same install the create path does), reusing the rebuild
+            // we already did here rather than a second recovery pass.
+            crate::kernel::credential_resolution::global_resolution_registry()
+                .install(sb.id, &creds.routes);
             let policy = creds.to_policy(&sb.id, allowed_hosts);
             clusters.extend(policy.clusters(&sb.id));
 

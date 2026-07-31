@@ -355,6 +355,11 @@ impl EgressEnforcer for GatewayEnforcer {
             self.kubectl_apply(&network_policy).await?;
             let credentials =
                 rebuild_sandbox_credentials(pool, sandbox, &self.llm_egress_allowed_hosts).await;
+            // Make these routes resolvable by the /resolve data plane after a
+            // restart (same install the create path does), reusing this rebuild
+            // rather than a second recovery pass.
+            crate::kernel::credential_resolution::global_resolution_registry()
+                .install(sandbox.id, &credentials.routes);
             self.manager
                 .setup_for_sandbox(sandbox.id, runner_token, Some(networking), credentials)
                 .await?;

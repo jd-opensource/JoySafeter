@@ -7184,8 +7184,6 @@ pub async fn start_grpc_server(
     // endpoint also uses.
     let ext_authz_svc = {
         use envoy_types::pb::envoy::service::auth::v3::authorization_server::AuthorizationServer;
-        // Process-wide broker shared with the HTTP /resolve service and the
-        // teardown eviction path (one cache, one decrypt point).
         let broker = crate::kernel::credential_broker::init_credential_broker(pool.clone());
         AuthorizationServer::new(crate::kernel::ext_authz::ExtAuthzService::new(broker))
     };

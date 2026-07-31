@@ -1331,38 +1331,6 @@ pub(crate) async fn rebuild_sandbox_credentials(
     SandboxCredentials { routes }
 }
 
-/// Rebuild each live sandbox's credential routes from the DB and re-install them
-/// into the process-wide resolution registry, so per-request credential
-/// resolution survives an orchestrator restart. Provider-neutral: both data
-/// planes (the K8s gateway `/resolve` and the Docker Envoy ext_authz `Check`)
-/// read this registry. Ref-only by construction — no secret is decrypted here;
-/// the broker resolves the actual value per request.
-pub async fn recover_resolution_registry(pool: &PgPool, llm_egress_allowed_hosts: &[String]) {
-    let sandboxes = match queries::list_live_sandboxes_for_recovery(pool).await {
-        Ok(sandboxes) => sandboxes,
-        Err(e) => {
-            warn!("Resolution registry recovery: listing live sandboxes failed: {e}");
-            return;
-        }
-    };
-    let total = sandboxes.len();
-    let mut recovered = 0usize;
-    for sandbox in &sandboxes {
-        let credentials =
-            rebuild_sandbox_credentials(pool, sandbox, llm_egress_allowed_hosts).await;
-        if credentials.routes.is_empty() {
-            continue;
-        }
-        crate::kernel::credential_resolution::global_resolution_registry()
-            .install(sandbox.id, &credentials.routes);
-        recovered += 1;
-    }
-    tracing::info!(
-        recovered_sandboxes = recovered,
-        total_live = total,
-        "Resolution registry recovered credential routes from DB"
-    );
-}
 async fn load_environment_row(
     pool: &PgPool,
     env_ref: &str,

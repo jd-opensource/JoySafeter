@@ -193,14 +193,6 @@ async fn main() -> anyhow::Result<()> {
         if let Err(e) = enforcer.recover(&db_pool).await {
             warn!("Egress enforcer recovery from DB failed: {e}");
         }
-        // Rebuild each live sandbox's credential routes into the resolution
-        // registry so per-request credential resolution survives a restart
-        // (provider-neutral: both data planes read this registry).
-        kernel::sandbox_resolver::recover_resolution_registry(
-            &db_pool,
-            &config.llm_egress_allowed_hosts,
-        )
-        .await;
     }
 
     // Initialize sandbox bridge registry
