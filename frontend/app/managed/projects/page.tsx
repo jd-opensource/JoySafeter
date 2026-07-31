@@ -233,7 +233,7 @@ export default function ProjectsPage() {
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: projectsQueryKey(variables.scope) })
+      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
     },
     onError: (error, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return

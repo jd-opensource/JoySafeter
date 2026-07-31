@@ -10,17 +10,53 @@ from __future__ import annotations
 from typing import Union
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260729_000001"
 down_revision: Union[str, None] = "20260728_000002"
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 
+TABLE_NAME = "joysafeter_triggers"
+
+
+def _has_column(column_name: str) -> bool:
+    if context.is_offline_mode():
+        return False
+    bind = op.get_bind()
+    columns = inspect(bind).get_columns(TABLE_NAME)
+    return any(column["name"] == column_name for column in columns)
+
+
+def _has_index(index_name: str) -> bool:
+    if context.is_offline_mode():
+        return True
+    bind = op.get_bind()
+    indexes = inspect(bind).get_indexes(TABLE_NAME)
+    return any(index["name"] == index_name for index in indexes)
+
+
+def _has_unique_constraint(constraint_name: str) -> bool:
+    if context.is_offline_mode():
+        return True
+    bind = op.get_bind()
+    constraints = inspect(bind).get_unique_constraints(TABLE_NAME)
+    return any(constraint["name"] == constraint_name for constraint in constraints)
+
+
+def _add_column_if_missing(column: sa.Column) -> None:
+    if not _has_column(column.name):
+        op.add_column(TABLE_NAME, column)
+
 
 def upgrade() -> None:
-    op.add_column("joysafeter_triggers", sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True))
+    _add_column_if_missing(sa.Column("pending_slot_at", sa.DateTime(timezone=True), nullable=True))
+    _add_column_if_missing(sa.Column("slot_attempts", sa.Integer(), nullable=False, server_default="0"))
+    _add_column_if_missing(sa.Column("auto_disabled_at", sa.DateTime(timezone=True), nullable=True))
+    _add_column_if_missing(sa.Column("disabled_reason", sa.Text(), nullable=True))
+    _add_column_if_missing(sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True))
 
     op.execute(
         """
@@ -71,7 +107,8 @@ def upgrade() -> None:
         """
     )
 
-    op.drop_index("idx_joysafeter_triggers_cron_due", table_name="joysafeter_triggers")
+    if _has_index("idx_joysafeter_triggers_cron_due"):
+        op.drop_index("idx_joysafeter_triggers_cron_due", table_name="joysafeter_triggers")
     op.create_index(
         "idx_joysafeter_triggers_cron_due",
         "joysafeter_triggers",
@@ -79,7 +116,10 @@ def upgrade() -> None:
         postgresql_where=sa.text("enabled IS TRUE AND type = 'cron' AND deleted_at IS NULL"),
     )
 
-    op.drop_constraint("uq_joysafeter_triggers_project_name", "joysafeter_triggers", type_="unique")
+    if _has_unique_constraint("uq_joysafeter_triggers_project_name"):
+        op.drop_constraint("uq_joysafeter_triggers_project_name", "joysafeter_triggers", type_="unique")
+    elif _has_index("uq_joysafeter_triggers_project_name"):
+        op.drop_index("uq_joysafeter_triggers_project_name", table_name="joysafeter_triggers")
     op.create_index(
         "uq_joysafeter_triggers_project_name",
         "joysafeter_triggers",

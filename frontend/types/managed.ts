@@ -231,6 +231,12 @@ export interface EnvironmentMountResource {
   required?: boolean
 }
 
+export interface EnvironmentStorageVolume {
+  name?: string
+  volume_id?: string
+  mount_path?: string
+}
+
 export interface StorageVolumeCatalogItem {
   volume_ref: string
   backend_type?: string
@@ -305,6 +311,7 @@ export interface EnvironmentConfig {
   env_vars?: Record<string, string>
   secret_refs?: string[]
   egress_services?: EnvironmentEgressService[]
+  storage_volumes?: EnvironmentStorageVolume[]
   mount_resources?: EnvironmentMountResource[]
 }
 
