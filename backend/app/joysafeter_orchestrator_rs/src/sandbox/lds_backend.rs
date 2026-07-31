@@ -92,26 +92,12 @@ fn route_prefix_rewrite(r: &CredentialRoute) -> String {
     }
 }
 
-fn auth_headers_to_remove(inject_headers: &[(String, String)]) -> Vec<String> {
+fn auth_headers_to_remove(inject_header: &str) -> Vec<String> {
     CREDENTIAL_AUTH_HEADERS
         .iter()
-        .filter(|candidate| {
-            !inject_headers
-                .iter()
-                .any(|(header, _)| header.eq_ignore_ascii_case(candidate))
-        })
+        .filter(|candidate| !inject_header.eq_ignore_ascii_case(candidate))
         .map(|header| header.to_string())
         .collect()
-}
-
-/// Escape `%` → `%%` in header values so Envoy treats them as literal
-/// characters instead of StreamInfo substitution format markers.
-///
-/// Without this, a credential value like `session_id=abc%7Cdef` causes
-/// Envoy to interpret `%7C` as a format variable and reject the listener
-/// with `Not supported field in StreamInfo: 7C`.
-fn escape_envoy_header_value(raw: &str) -> String {
-    raw.replace('%', "%%")
 }
 
 impl ListenerSpec {
@@ -455,18 +441,13 @@ fn build_virtual_hosts_json(
         let json_routes: Vec<Value> = routes
             .iter()
             .map(|r| {
-                let headers: Vec<Value> = r
-                    .inject_headers
-                    .iter()
-                    .map(|(k, v)| {
-                        json!({
-                            "header": { "key": k, "value": escape_envoy_header_value(v) },
-                            "append_action": "OVERWRITE_IF_EXISTS_OR_ADD"
-                        })
-                    })
-                    .collect();
+                // SP-3 Task 1: no secret is baked into the listener. Credential
+                // injection is performed per request via an ext_authz callout to
+                // the orchestrator (wired in Task 5); the listener carries only
+                // the non-secret ref + the auth-header strip set.
+                let headers: Vec<Value> = Vec::new();
                 let headers_to_remove = if r.remove_headers.is_empty() {
-                    auth_headers_to_remove(&r.inject_headers)
+                    auth_headers_to_remove(&r.inject_header)
                 } else {
                     r.remove_headers.clone()
                 };
@@ -1243,9 +1224,7 @@ fn build_virtual_hosts_proto(
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
 ) -> Vec<envoy_types::pb::envoy::config::route::v3::VirtualHost> {
-    use envoy_types::pb::envoy::config::core::v3::{
-        data_source, header_value_option, DataSource, HeaderValue, HeaderValueOption,
-    };
+    use envoy_types::pb::envoy::config::core::v3::{data_source, DataSource, HeaderValueOption};
     use envoy_types::pb::envoy::config::route::v3::{
         route, route_action, route_match, DirectResponseAction, Route, RouteAction, RouteMatch,
         VirtualHost,
@@ -1258,22 +1237,11 @@ fn build_virtual_hosts_proto(
         let proto_routes: Vec<Route> = routes
             .iter()
             .map(|r| {
-                let headers: Vec<HeaderValueOption> = r
-                    .inject_headers
-                    .iter()
-                    .map(|(k, v)| HeaderValueOption {
-                        header: Some(HeaderValue {
-                            key: k.clone(),
-                            value: escape_envoy_header_value(v),
-                            ..Default::default()
-                        }),
-                        append_action:
-                            header_value_option::HeaderAppendAction::OverwriteIfExistsOrAdd as i32,
-                        ..Default::default()
-                    })
-                    .collect();
+                // SP-3 Task 1: no secret baked; ext_authz injects per request
+                // (Task 5). Listener carries only the ref + auth-header strip set.
+                let headers: Vec<HeaderValueOption> = Vec::new();
                 let headers_to_remove = if r.remove_headers.is_empty() {
-                    auth_headers_to_remove(&r.inject_headers)
+                    auth_headers_to_remove(&r.inject_header)
                 } else {
                     r.remove_headers.clone()
                 };
@@ -1500,6 +1468,7 @@ pub async fn write_file_in_envoy(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::egress::policy::{CredentialRef, InjectScheme};
     use prost::Message;
 
     fn spec(kind: ListenerKind, hosts: &[&str]) -> ListenerSpec {
@@ -1537,7 +1506,13 @@ mod tests {
             upstream_prefix: "/v1".to_string(),
             upstream_tls: true,
             cluster_name: "up_test_llm".to_string(),
-            inject_headers: vec![("authorization".to_string(), "Bearer sk-secret".to_string())],
+            credential_ref: CredentialRef::Llm {
+                secret_name: "test-secret".to_string(),
+                secret_key: "ANTHROPIC_API_KEY".to_string(),
+                project_id: None,
+            },
+            inject_header: "authorization".to_string(),
+            inject_scheme: InjectScheme::Bearer,
             remove_headers: vec![],
         }
     }
@@ -1555,7 +1530,12 @@ mod tests {
             upstream_prefix: "/sse".to_string(),
             upstream_tls: true,
             cluster_name: "up_test_mcp".to_string(),
-            inject_headers: vec![("authorization".to_string(), "Bearer tok".to_string())],
+            credential_ref: CredentialRef::Mcp {
+                vault_id: Uuid::nil(),
+                mcp_server_url: "https://mcp.example.com/sse".to_string(),
+            },
+            inject_header: "authorization".to_string(),
+            inject_scheme: InjectScheme::Bearer,
             remove_headers: vec![],
         }
     }
@@ -1623,7 +1603,13 @@ mod tests {
                     upstream_prefix: "/v1/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
-                    inject_headers: vec![("authorization".to_string(), "Bearer sk".to_string())],
+                    credential_ref: CredentialRef::Llm {
+                        secret_name: "test-secret".to_string(),
+                        secret_key: "ANTHROPIC_API_KEY".to_string(),
+                        project_id: None,
+                    },
+                    inject_header: "authorization".to_string(),
+                    inject_scheme: InjectScheme::Bearer,
                     remove_headers: vec![],
                 },
                 EgressCredentialRoute {
@@ -1638,7 +1624,12 @@ mod tests {
                     upstream_prefix: "/sse".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
-                    inject_headers: vec![("authorization".to_string(), "Bearer t".to_string())],
+                    credential_ref: CredentialRef::Mcp {
+                        vault_id: Uuid::nil(),
+                        mcp_server_url: "https://mcp.example.com/sse".to_string(),
+                    },
+                    inject_header: "authorization".to_string(),
+                    inject_scheme: InjectScheme::Bearer,
                     remove_headers: vec![],
                 },
             ],
@@ -1712,7 +1703,13 @@ mod tests {
                     upstream_prefix: "/api/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
-                    inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
+                    credential_ref: CredentialRef::External {
+                        secret_name: "svc".to_string(),
+                        secret_key: "COOKIE_HEADER".to_string(),
+                        project_id: None,
+                    },
+                    inject_header: "cookie".to_string(),
+                    inject_scheme: InjectScheme::Raw,
                     remove_headers: vec!["cookie".to_string()],
                 },
                 EgressCredentialRoute {
@@ -1727,7 +1724,13 @@ mod tests {
                     upstream_prefix: "/api/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
-                    inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
+                    credential_ref: CredentialRef::External {
+                        secret_name: "svc".to_string(),
+                        secret_key: "COOKIE_HEADER".to_string(),
+                        project_id: None,
+                    },
+                    inject_header: "cookie".to_string(),
+                    inject_scheme: InjectScheme::Raw,
                     remove_headers: vec!["cookie".to_string()],
                 },
             ],
@@ -1796,7 +1799,13 @@ mod tests {
             upstream_prefix: prefix.to_string(),
             upstream_tls: true,
             cluster_name: String::new(),
-            inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
+            credential_ref: CredentialRef::External {
+                secret_name: "svc".to_string(),
+                secret_key: "COOKIE_HEADER".to_string(),
+                project_id: None,
+            },
+            inject_header: "cookie".to_string(),
+            inject_scheme: InjectScheme::Raw,
             remove_headers: vec!["cookie".to_string()],
         };
         let creds = SandboxCredentials {
@@ -1854,7 +1863,13 @@ mod tests {
             upstream_prefix: "/api/warning/getWarningDetailById".to_string(),
             upstream_tls: true,
             cluster_name: "up_test_crm".to_string(),
-            inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
+            credential_ref: CredentialRef::External {
+                secret_name: "svc".to_string(),
+                secret_key: "COOKIE_HEADER".to_string(),
+                project_id: None,
+            },
+            inject_header: "cookie".to_string(),
+            inject_scheme: InjectScheme::Raw,
             remove_headers: vec!["cookie".to_string()],
         };
         let prefix = EgressCredentialRoute {
@@ -1915,13 +1930,15 @@ mod tests {
         assert_eq!(vh[2]["name"], "allowed");
         assert_eq!(vh[3]["name"], "deny_all");
 
-        // LLM route injects Bearer + rewrites host/prefix to the real upstream,
-        // routing to its dedicated cluster.
+        // SP-3 Task 1: the listener bakes NO secret; credential injection is
+        // performed per request via an ext_authz callout (wired in Task 5). The
+        // route still rewrites host/prefix to the real upstream and strips
+        // sandbox-supplied auth headers.
         let llm_routes = vh[0]["routes"].as_array().unwrap();
-        let inj = &llm_routes[0]["request_headers_to_add"][0];
-        assert_eq!(inj["header"]["key"], "authorization");
-        assert_eq!(inj["header"]["value"], "Bearer sk-secret");
-        assert_eq!(inj["append_action"], "OVERWRITE_IF_EXISTS_OR_ADD");
+        assert!(llm_routes[0]["request_headers_to_add"]
+            .as_array()
+            .unwrap()
+            .is_empty());
         assert_eq!(
             llm_routes[0]["request_headers_to_remove"]
                 .as_array()
@@ -1987,42 +2004,5 @@ mod tests {
             proto_names.iter().map(|s| s.as_str()).collect::<Vec<_>>()
         );
         assert_eq!(json_names[0], "egress_llm-egress_internal");
-    }
-
-    #[test]
-    fn escape_envoy_header_value_escapes_percent() {
-        assert_eq!(escape_envoy_header_value("plain"), "plain");
-        assert_eq!(escape_envoy_header_value("a%7Cb"), "a%%7Cb");
-        assert_eq!(
-            escape_envoy_header_value("sid=x%3Dy%7Cz"),
-            "sid=x%%3Dy%%7Cz"
-        );
-        assert_eq!(escape_envoy_header_value("100%"), "100%%");
-        assert_eq!(escape_envoy_header_value("%%already"), "%%%%already");
-    }
-
-    #[test]
-    fn credential_header_values_with_percent_are_escaped_in_json() {
-        let cred = CredentialRoute {
-            id: "test".to_string(),
-            kind: EgressKind::External,
-            exposure: EgressExposure::Transparent,
-            match_host: "llm-egress.internal".to_string(),
-            match_prefix: "/v1/".to_string(),
-            upstream_host: "api.example.com".to_string(),
-            upstream_port: 443,
-            upstream_prefix: "/v1/".to_string(),
-            upstream_tls: true,
-            cluster_name: "up_test".to_string(),
-            exact_path: false,
-            inject_headers: vec![("cookie".to_string(), "session=abc%7Cdef%3Dxyz".to_string())],
-            remove_headers: vec![],
-        };
-        let vh = build_virtual_hosts_json(&[], &[cred]);
-        let header_val = vh[0]["routes"][0]["request_headers_to_add"][0]["header"]["value"]
-            .as_str()
-            .unwrap();
-        // % must be doubled so Envoy treats them as literal
-        assert_eq!(header_val, "session=abc%%7Cdef%%3Dxyz");
     }
 }

@@ -5,22 +5,44 @@ use tracing::warn;
 use url::Url;
 
 use crate::egress::policy::{
-    normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure, EgressKind,
-    LLM_EGRESS_HOST,
+    normalize_rewrite_base_prefix, CredentialRef, EgressCredentialRoute, EgressExposure,
+    EgressKind, InjectScheme, LLM_EGRESS_HOST,
 };
 use crate::kernel::llm_providers::llm_provider_registry;
 
-/// Extract LLM egress credentials from the resolved env, removing the real key
+/// Where a Secret-backed LLM credential env var came from. Built by the
+/// resolver's env merge (see `SandboxResolver::merge_secret_ref_into_env`) and
+/// consumed here so the credential value never rides the sandbox env: instead of
+/// injecting the decrypted key, we emit a non-secret [`CredentialRef::Llm`].
+#[derive(Debug, Clone)]
+pub(crate) struct LlmSecretSource {
+    pub secret_name: String,
+    pub project_id: Option<String>,
+}
+
+/// Maps an LLM credential env-var name (e.g. `"ANTHROPIC_API_KEY"`) to the
+/// managed Secret it was sourced from. A credential key absent from this map was
+/// not sourced from a Secret (a plaintext literal) and is refused.
+pub(crate) type LlmCredentialProvenance = HashMap<String, LlmSecretSource>;
+
+/// Extract the LLM egress route from the resolved env, removing any real key
 /// from the env map and repointing the base URL at the platform egress
-/// boundary. After this, the sandbox env holds no real LLM API key; the egress
-/// boundary injects it.
+/// boundary. After this, the sandbox env holds no real LLM API key — only a
+/// non-secret placeholder — and the returned route carries a non-secret
+/// [`CredentialRef::Llm`] that the `CredentialBroker` resolves at request time.
 ///
 /// Provider detection is data-driven via [`llm_provider_registry`]: the first
 /// spec whose detection key is present in `env` wins. The upstream host is
 /// derived from the corresponding `*_BASE_URL` (using the spec's default when
 /// unset), then the base URL is rewritten to the plaintext egress placeholder.
+///
+/// **LLM credentials must be Secret-backed.** If the matched credential key has
+/// no entry in `provenance` (it was a plaintext literal from `agent.env` /
+/// `environment.env_vars`, not a managed Secret), this refuses to inject and
+/// returns no route (fail closed) — the real key is still stripped from `env`.
 pub(crate) fn extract_llm_egress(
     env: &mut HashMap<String, String>,
+    provenance: &LlmCredentialProvenance,
     allowed_hosts: &[String],
 ) -> Vec<EgressCredentialRoute> {
     let registry = llm_provider_registry();
@@ -34,13 +56,25 @@ pub(crate) fn extract_llm_egress(
         None => return vec![],
     };
 
-    let Some(key_value) = env.remove(matched_key) else {
+    // Strip the real key (and provider aliases) from the sandbox env regardless
+    // of outcome: the sandbox must never hold the credential value.
+    if env.remove(matched_key).is_none() {
         return vec![];
-    };
-
+    }
     for extra in spec.extra_keys_to_remove {
         env.remove(*extra);
     }
+
+    // The LLM credential must come from a managed Secret so we can emit a
+    // non-secret reference. A plaintext literal has no resolvable identity.
+    let Some(source) = provenance.get(matched_key) else {
+        warn!(
+            credential_key = matched_key,
+            "LLM credential is not Secret-backed (plaintext literal); refusing to \
+             inject. Configure the model API key as a managed Secret."
+        );
+        return vec![];
+    };
 
     let base_url_var = spec.base_url_var;
     let default_host = spec.default_host;
@@ -104,10 +138,10 @@ pub(crate) fn extract_llm_egress(
         format!("http://{LLM_EGRESS_HOST}"),
     );
 
-    let header_value = if spec.is_bearer {
-        format!("Bearer {key_value}")
+    let inject_scheme = if spec.is_bearer {
+        InjectScheme::Bearer
     } else {
-        key_value
+        InjectScheme::Raw
     };
 
     vec![EgressCredentialRoute {
@@ -122,7 +156,13 @@ pub(crate) fn extract_llm_egress(
         upstream_prefix: normalize_rewrite_base_prefix(&upstream_prefix),
         upstream_tls,
         cluster_name: String::new(),
-        inject_headers: vec![(spec.header_name.to_string(), header_value)],
+        credential_ref: CredentialRef::Llm {
+            secret_name: source.secret_name.clone(),
+            secret_key: matched_key.to_string(),
+            project_id: source.project_id.clone(),
+        },
+        inject_header: spec.header_name.to_string(),
+        inject_scheme,
         remove_headers: vec![],
     }]
 }

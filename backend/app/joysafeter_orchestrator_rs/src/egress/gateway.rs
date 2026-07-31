@@ -592,24 +592,16 @@ fn build_upstream_request(
             .iter()
             .map(|(name, _)| name.as_str().to_string())
             .collect(),
-        injected_header_names: route
-            .inject_headers
-            .iter()
-            .map(|(name, _)| name.to_ascii_lowercase())
-            .collect(),
+        injected_header_names: vec![route.inject_header.to_ascii_lowercase()],
         sandbox_auth_header_names: sandbox_auth_header_names(headers),
     };
     let mut builder = client.request(reqwest_method, upstream_url);
     for (name, value) in forwarded_headers {
         builder = builder.header(name, value);
     }
-    for (name, value) in &route.inject_headers {
-        let name = HeaderName::from_bytes(name.as_bytes())
-            .map_err(|_| GatewayForwardError::InvalidRouteConfig)?;
-        let value =
-            HeaderValue::from_str(value).map_err(|_| GatewayForwardError::InvalidRouteConfig)?;
-        builder = builder.header(name, value);
-    }
+    // Credential injection resolves per request via the orchestrator's
+    // resolution service (wired in SP-3 Task 4). The gateway holds only the
+    // non-secret `route.credential_ref`; no secret is baked in here.
     let request = builder
         .body(body)
         .build()
@@ -925,7 +917,8 @@ fn env_u16(key: &str, default: u16) -> u16 {
 mod tests {
     use super::*;
     use crate::egress::policy::{
-        EgressCredentialRoute, EgressExposure, EgressKind, LLM_EGRESS_HOST,
+        CredentialRef, EgressCredentialRoute, EgressExposure, EgressKind, InjectScheme,
+        LLM_EGRESS_HOST,
     };
     use axum::http::Uri;
     use tokio::sync::{mpsc, oneshot};
@@ -1183,10 +1176,13 @@ mod tests {
                     upstream_prefix: "/api/".to_string(),
                     upstream_tls: false,
                     cluster_name: "up-local".to_string(),
-                    inject_headers: vec![(
-                        "authorization".to_string(),
-                        "Bearer platform-secret".to_string(),
-                    )],
+                    credential_ref: CredentialRef::Llm {
+                        secret_name: "test-secret".to_string(),
+                        secret_key: "ANTHROPIC_API_KEY".to_string(),
+                        project_id: None,
+                    },
+                    inject_header: "authorization".to_string(),
+                    inject_scheme: InjectScheme::Bearer,
                     remove_headers: vec![],
                 }],
             },
@@ -1220,7 +1216,11 @@ mod tests {
         assert_eq!(response.headers().get("x-upstream").unwrap(), "ok");
         let seen = seen_rx.recv().await.expect("upstream observed request");
         assert_eq!(seen.0, "/api/v1/messages?beta=true");
-        assert_eq!(seen.1.as_deref(), Some("Bearer platform-secret"));
+        // SP-3 Task 1: the gateway carries only the non-secret credential ref and
+        // no longer bakes a secret; per-request resolution is wired in Task 4, so
+        // the upstream currently sees no injected authorization header (the
+        // sandbox-supplied bearer is still stripped).
+        assert_eq!(seen.1.as_deref(), None);
         assert!(!seen.2);
         assert_eq!(seen.3, br#"{"ok":true}"#);
     }
@@ -1382,7 +1382,13 @@ mod tests {
             upstream_prefix: "/anthropic/".to_string(),
             upstream_tls: true,
             cluster_name: "up-test".to_string(),
-            inject_headers: vec![("authorization".to_string(), "Bearer platform".to_string())],
+            credential_ref: CredentialRef::Llm {
+                secret_name: "test-secret".to_string(),
+                secret_key: "ANTHROPIC_API_KEY".to_string(),
+                project_id: None,
+            },
+            inject_header: "authorization".to_string(),
+            inject_scheme: InjectScheme::Bearer,
             remove_headers: vec!["x-extra-secret".to_string()],
         };
         let mut headers = bearer("attacker");
@@ -1411,10 +1417,10 @@ mod tests {
             request.url().as_str(),
             "https://api.anthropic.com/anthropic/v1/messages?beta=true"
         );
-        assert_eq!(
-            request.headers().get("authorization").unwrap(),
-            "Bearer platform"
-        );
+        // SP-3 Task 1: no secret is baked at the gateway (resolution wired in
+        // Task 4); the sandbox-supplied authorization is stripped and nothing
+        // is injected in its place yet.
+        assert!(request.headers().get("authorization").is_none());
         assert!(request.headers().get("x-api-key").is_none());
         assert_eq!(request.headers().get("x-trace-id").unwrap(), "trace-1");
         assert!(request.headers().get("x-extra-secret").is_none());
@@ -1450,7 +1456,13 @@ mod tests {
             upstream_prefix: "/anthropic/".to_string(),
             upstream_tls: false,
             cluster_name: "up-jdcloud".to_string(),
-            inject_headers: vec![("x-api-key".to_string(), "platform-secret".to_string())],
+            credential_ref: CredentialRef::Llm {
+                secret_name: "test-secret".to_string(),
+                secret_key: "ANTHROPIC_API_KEY".to_string(),
+                project_id: None,
+            },
+            inject_header: "x-api-key".to_string(),
+            inject_scheme: InjectScheme::Raw,
             remove_headers: vec![],
         };
         let mut headers = bearer("runner-token");
@@ -1472,10 +1484,9 @@ mod tests {
             request.url().as_str(),
             "http://ai-api.jdcloud.com/anthropic/v1/messages"
         );
-        assert_eq!(
-            request.headers().get("x-api-key").unwrap(),
-            "platform-secret"
-        );
+        // SP-3 Task 1: gateway injects no secret yet (Task 4 resolves per
+        // request); only the non-secret ref is carried.
+        assert!(request.headers().get("x-api-key").is_none());
         assert_eq!(
             request.headers().get("anthropic-version").unwrap(),
             "2023-06-01"
@@ -1502,7 +1513,13 @@ mod tests {
             upstream_prefix: "/api/warning/getWarningDetailById".to_string(),
             upstream_tls: true,
             cluster_name: "up-crm".to_string(),
-            inject_headers: vec![("x-api-key".to_string(), "platform-key".to_string())],
+            credential_ref: CredentialRef::External {
+                secret_name: "crm".to_string(),
+                secret_key: "API_KEY".to_string(),
+                project_id: None,
+            },
+            inject_header: "x-api-key".to_string(),
+            inject_scheme: InjectScheme::Raw,
             remove_headers: vec!["x-api-key".to_string()],
         };
 
@@ -1556,7 +1573,13 @@ mod tests {
                 upstream_prefix: "/".to_string(),
                 upstream_tls: false,
                 cluster_name: "up-test".to_string(),
-                inject_headers: vec![("authorization".to_string(), "Bearer secret".to_string())],
+                credential_ref: CredentialRef::Llm {
+                    secret_name: "test-secret".to_string(),
+                    secret_key: "ANTHROPIC_API_KEY".to_string(),
+                    project_id: None,
+                },
+                inject_header: "authorization".to_string(),
+                inject_scheme: InjectScheme::Bearer,
                 remove_headers: vec!["authorization".to_string()],
             }],
         }

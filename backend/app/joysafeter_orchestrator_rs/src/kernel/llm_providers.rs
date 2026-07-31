@@ -124,3 +124,16 @@ pub fn is_real_llm_secret_env(key: &str, value: &str) -> bool {
     }
     false
 }
+
+/// Returns true when `key` names an LLM provider credential env var (a detection
+/// key or an extra key the registry always removes). Used by the resolver to
+/// record credential provenance: such a key sourced from a managed Secret is
+/// referenced (not decrypted into env), so its value never reaches the sandbox.
+pub fn is_llm_credential_key(key: &str) -> bool {
+    llm_provider_registry().iter().any(|spec| {
+        spec.detection_keys
+            .iter()
+            .chain(spec.extra_keys_to_remove.iter())
+            .any(|candidate| *candidate == key)
+    })
+}

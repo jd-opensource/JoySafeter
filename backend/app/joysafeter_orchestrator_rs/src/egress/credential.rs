@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use base64::Engine as _;
 use sqlx::PgPool;
 use tracing::warn;
 use uuid::Uuid;
@@ -8,14 +7,14 @@ use uuid::Uuid;
 use crate::db::models::JoySafeterAgent;
 use crate::db::queries;
 use crate::egress::policy::{
-    git_repo_slug, normalize_prefix, EgressCredentialRoute, EgressExposure, EgressKind,
-    UpstreamTarget, GIT_EGRESS_HOST, MCP_EGRESS_HOST,
+    git_repo_slug, normalize_prefix, CredentialRef, EgressCredentialRoute, EgressExposure,
+    EgressKind, InjectScheme, UpstreamTarget, GIT_EGRESS_HOST, MCP_EGRESS_HOST,
 };
-use crate::kernel::harness_input_builder::VaultCipher;
 
-/// Build MCP egress credentials for a sandbox: for each remote MCP server the
-/// agent references, match a vault credential by URL, decrypt its token, and
-/// produce a credential route keyed by the server name.
+/// Build MCP egress routes for a sandbox: for each remote MCP server the agent
+/// references, find the session vault credential that matches by URL and emit a
+/// non-secret [`CredentialRef::Mcp`] route. The token is never decrypted here —
+/// the broker resolves it at request time.
 pub(crate) async fn build_mcp_egress(
     pool: &PgPool,
     session_id: Option<Uuid>,
@@ -75,12 +74,15 @@ pub(crate) async fn build_mcp_egress(
         return Ok(vec![]);
     }
 
-    let cipher = VaultCipher::from_env();
-    let mut token_by_url: HashMap<String, String> = HashMap::new();
+    // Map each MCP server URL to the vault that holds its credential. We read
+    // only the (non-secret) URL column — the token stays encrypted in the DB and
+    // is resolved by the broker. Last vault wins per URL (matches the historical
+    // token-by-url override behavior).
+    let mut vault_by_url: HashMap<String, Uuid> = HashMap::new();
     for vault_id in ids {
-        let rows: Vec<(Option<String>, String)> = sqlx::query_as(
+        let rows: Vec<(Option<String>,)> = sqlx::query_as(
             r#"
-            SELECT c.mcp_server_url, c.token_value
+            SELECT c.mcp_server_url
             FROM joysafeter_vault_credentials c
             JOIN joysafeter_vaults v ON v.id = c.vault_id
             WHERE c.vault_id = $1
@@ -96,21 +98,16 @@ pub(crate) async fn build_mcp_egress(
         .map_err(|e| {
             anyhow::anyhow!("failed to load vault credentials for vault {vault_id}: {e}")
         })?;
-        for (url, token_value) in rows {
+        for (url,) in rows {
             if let Some(url) = url {
-                let tok = cipher.decrypt_or_passthrough(&token_value).map_err(|e| {
-                    anyhow::anyhow!(
-                        "failed to decrypt vault credential for MCP server '{url}' in vault {vault_id}: {e}"
-                    )
-                })?;
-                token_by_url.insert(url, tok);
+                vault_by_url.insert(url, vault_id);
             }
         }
     }
 
     let mut egress = Vec::new();
     for (name, url) in mcp_servers {
-        let Some(token) = token_by_url.get(&url) else {
+        let Some(&vault_id) = vault_by_url.get(&url) else {
             continue;
         };
         let upstream = UpstreamTarget::from_url(&url)
@@ -127,16 +124,22 @@ pub(crate) async fn build_mcp_egress(
             upstream_prefix: normalize_prefix(&upstream.prefix),
             upstream_tls: upstream.tls,
             cluster_name: String::new(),
-            inject_headers: vec![("authorization".to_string(), format!("Bearer {token}"))],
+            credential_ref: CredentialRef::Mcp {
+                vault_id,
+                mcp_server_url: url,
+            },
+            inject_header: "authorization".to_string(),
+            inject_scheme: InjectScheme::Bearer,
             remove_headers: vec![],
         });
     }
     Ok(egress)
 }
 
-/// Build Git egress credentials from session repos. The sandbox clones from a
+/// Build Git egress routes from session repos. The sandbox clones from a
 /// placeholder host; the egress boundary rewrites to the real repo URL and
-/// injects HTTP Basic auth.
+/// injects HTTP Basic auth resolved from a non-secret [`CredentialRef::Git`].
+/// The token is never decrypted here.
 pub(crate) async fn build_git_egress(
     pool: &PgPool,
     session_id: Option<Uuid>,
@@ -159,20 +162,11 @@ pub(crate) async fn build_git_egress(
         anyhow::anyhow!("failed to load session repos for Git egress in session {session_id}: {e}")
     })?;
 
-    let cipher = VaultCipher::from_env();
     let mut egress = Vec::new();
     for (idx, (url, mount_name, encrypted_token)) in rows.into_iter().enumerate() {
+        // Skip repos with no stored token (ciphertext empty) — same predicate as
+        // before, but checked without decrypting.
         if encrypted_token.is_empty() {
-            continue;
-        }
-        let token = cipher
-            .decrypt_or_passthrough(&encrypted_token)
-            .map_err(|e| {
-                anyhow::anyhow!(
-                "failed to decrypt Git token for repo '{mount_name}' in session {session_id}: {e}"
-            )
-            })?;
-        if token.is_empty() {
             continue;
         }
         let upstream = UpstreamTarget::from_url(&url)
@@ -181,8 +175,6 @@ pub(crate) async fn build_git_egress(
         if !prefix.ends_with('/') {
             prefix.push('/');
         }
-        let basic =
-            base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
         let slug = git_repo_slug(&mount_name, idx);
         egress.push(EgressCredentialRoute {
             id: format!("git:{slug}"),
@@ -196,7 +188,14 @@ pub(crate) async fn build_git_egress(
             upstream_prefix: prefix,
             upstream_tls: upstream.tls,
             cluster_name: String::new(),
-            inject_headers: vec![("authorization".to_string(), format!("Basic {basic}"))],
+            credential_ref: CredentialRef::Git {
+                session_id,
+                mount_name,
+            },
+            inject_header: "authorization".to_string(),
+            inject_scheme: InjectScheme::Basic {
+                username: "x-access-token".to_string(),
+            },
             remove_headers: vec![],
         });
     }
@@ -249,21 +248,31 @@ pub(crate) async fn build_external_egress(
             continue;
         };
 
-        let secret = match load_secret_data(pool, credential_ref, project_id).await {
-            Ok(Some(secret)) => secret,
-            Ok(None) => continue,
+        let (inject_header, inject_scheme, secret_key) = match resolve_external_inject_spec(inject)
+        {
+            Ok(spec) => spec,
+            Err(e) => {
+                warn!(service = %name, credential_ref, "Failed to build external egress inject spec: {e}");
+                continue;
+            }
+        };
+
+        // Emit a route only when the referenced Secret actually holds the key —
+        // the historical predicate, now checked by inspecting the (non-secret)
+        // key names without decrypting any value.
+        match external_secret_has_key(pool, credential_ref, project_id, &secret_key).await {
+            Ok(true) => {}
+            Ok(false) => continue,
             Err(e) => {
                 warn!(service = %name, credential_ref, "Failed to load external egress secret: {e}");
                 continue;
             }
-        };
-        let headers = match build_external_inject_headers(&secret, inject) {
-            Ok(headers) if !headers.is_empty() => headers,
-            Ok(_) => continue,
-            Err(e) => {
-                warn!(service = %name, credential_ref, "Failed to build external egress headers: {e}");
-                continue;
-            }
+        }
+
+        let cred_ref = CredentialRef::External {
+            secret_name: credential_ref.to_string(),
+            secret_key,
+            project_id: project_id.map(ToOwned::to_owned),
         };
 
         let remove_headers = vec![
@@ -300,7 +309,9 @@ pub(crate) async fn build_external_egress(
                 upstream_prefix: upstream_prefix.clone(),
                 upstream_tls: tls,
                 cluster_name: String::new(),
-                inject_headers: headers.clone(),
+                credential_ref: cred_ref.clone(),
+                inject_header: inject_header.clone(),
+                inject_scheme: inject_scheme.clone(),
                 remove_headers: remove_headers.clone(),
             });
         } else {
@@ -319,7 +330,9 @@ pub(crate) async fn build_external_egress(
                     upstream_prefix: full_path,
                     upstream_tls: tls,
                     cluster_name: String::new(),
-                    inject_headers: headers.clone(),
+                    credential_ref: cred_ref.clone(),
+                    inject_header: inject_header.clone(),
+                    inject_scheme: inject_scheme.clone(),
                     remove_headers: remove_headers.clone(),
                 });
             }
@@ -328,11 +341,15 @@ pub(crate) async fn build_external_egress(
     routes
 }
 
-async fn load_secret_data(
+/// Returns true when the referenced Secret exists and holds `secret_key`. Reads
+/// only the (non-secret) key names of the Secret's `data` object — no value is
+/// decrypted. The value itself is resolved by the broker at request time.
+async fn external_secret_has_key(
     pool: &PgPool,
     secret_ref: &str,
     project_id: Option<&str>,
-) -> anyhow::Result<Option<HashMap<String, String>>> {
+    secret_key: &str,
+) -> anyhow::Result<bool> {
     let secret: Option<(serde_json::Value,)> = sqlx::query_as(
         r#"
         SELECT data FROM joysafeter_secrets
@@ -348,21 +365,13 @@ async fn load_secret_data(
     .await?;
 
     let Some((data,)) = secret else {
-        return Ok(None);
+        return Ok(false);
     };
 
-    let cipher = VaultCipher::from_env();
-    let mut out = HashMap::new();
-    if let Some(obj) = data.as_object() {
-        for (key, value) in obj {
-            let value = value
-                .as_str()
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| value.to_string());
-            out.insert(key.clone(), cipher.decrypt_or_passthrough(&value)?);
-        }
-    }
-    Ok(Some(out))
+    Ok(data
+        .as_object()
+        .map(|obj| obj.contains_key(secret_key))
+        .unwrap_or(false))
 }
 
 fn parse_vault_ref(raw: &str) -> Option<Uuid> {
@@ -411,53 +420,50 @@ fn join_service_path(base_prefix: &str, entry: &str) -> String {
     format!("{base}/{entry}")
 }
 
-fn build_external_inject_headers(
-    secret: &HashMap<String, String>,
+/// Resolve an external service's `inject` spec into the header name, formatting
+/// scheme, and Secret key to reference. Mirrors the historical defaults so the
+/// broker reconstructs the byte-identical header from the resolved value.
+fn resolve_external_inject_spec(
     inject: &serde_json::Map<String, serde_json::Value>,
-) -> anyhow::Result<Vec<(String, String)>> {
+) -> anyhow::Result<(String, InjectScheme, String)> {
     let typ = inject
         .get("type")
         .and_then(|value| value.as_str())
         .unwrap_or("bearer");
     match typ {
         "bearer" => {
-            let key = inject
+            let secret_key = inject
                 .get("secret_key")
                 .and_then(|value| value.as_str())
-                .unwrap_or("ACCESS_TOKEN");
-            let token = secret
-                .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?;
+                .unwrap_or("ACCESS_TOKEN")
+                .to_string();
             let header = inject
                 .get("header")
                 .and_then(|value| value.as_str())
-                .unwrap_or("authorization");
-            Ok(vec![(header.to_string(), format!("Bearer {token}"))])
+                .unwrap_or("authorization")
+                .to_string();
+            Ok((header, InjectScheme::Bearer, secret_key))
         }
         "api_key" | "raw_header" => {
-            let key = inject
+            let secret_key = inject
                 .get("secret_key")
                 .and_then(|value| value.as_str())
-                .unwrap_or("API_KEY");
-            let value = secret
-                .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?;
+                .unwrap_or("API_KEY")
+                .to_string();
             let header = inject
                 .get("header")
                 .and_then(|value| value.as_str())
-                .unwrap_or("x-api-key");
-            Ok(vec![(header.to_string(), value.clone())])
+                .unwrap_or("x-api-key")
+                .to_string();
+            Ok((header, InjectScheme::Raw, secret_key))
         }
         "cookie" => {
-            let key = inject
+            let secret_key = inject
                 .get("secret_key")
                 .and_then(|value| value.as_str())
-                .unwrap_or("COOKIE_HEADER");
-            let cookie_header = secret
-                .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?
-                .clone();
-            Ok(vec![("cookie".to_string(), cookie_header)])
+                .unwrap_or("COOKIE_HEADER")
+                .to_string();
+            Ok(("cookie".to_string(), InjectScheme::Raw, secret_key))
         }
         other => anyhow::bail!("unsupported external egress inject type {other}"),
     }

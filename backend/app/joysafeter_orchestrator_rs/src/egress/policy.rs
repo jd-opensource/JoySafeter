@@ -27,12 +27,64 @@ pub enum EgressExposure {
     Transparent,
 }
 
+/// A non-secret reference to where a credential's secret material lives. The
+/// orchestrator's `CredentialBroker` resolves this to the actual secret at
+/// request time; it is safe to persist and log because it contains no secret
+/// values — only lookup coordinates (names, ids, urls).
+///
+/// This type lives in `egress::policy` (the lib-crate-safe subgraph) and must
+/// never gain a `VaultCipher` or secret-string field: the resolution logic
+/// lives outside this subgraph, in the orchestrator-only broker.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CredentialRef {
+    /// LLM model key sourced from a managed Secret (`joysafeter_secrets.data[key]`).
+    /// The credential value never enters the sandbox env; the resolver records
+    /// this identity instead of decrypting.
+    Llm {
+        secret_name: String,
+        secret_key: String,
+        project_id: Option<String>,
+    },
+    /// MCP server token from a session vault credential
+    /// (`joysafeter_vault_credentials.token_value`), matched by URL.
+    Mcp {
+        vault_id: Uuid,
+        mcp_server_url: String,
+    },
+    /// Git token from a session repo (`joysafeter_session_repos.encrypted_token`).
+    Git {
+        session_id: Uuid,
+        mount_name: String,
+    },
+    /// External-service secret field (`joysafeter_secrets.data[key]`).
+    External {
+        secret_name: String,
+        secret_key: String,
+        project_id: Option<String>,
+    },
+}
+
+/// How the broker formats a resolved secret into the injected header value.
+/// Mirrors the historical inline formatting (`Bearer {token}` / `Basic {b64}` /
+/// raw) so the byte-identical header can be reconstructed from a ref + scheme.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InjectScheme {
+    /// `<header>: Bearer <secret>`.
+    Bearer,
+    /// HTTP Basic with a fixed username: `<header>: Basic base64("{username}:{secret}")`.
+    Basic { username: String },
+    /// The resolved secret is used verbatim as the header value (api-key,
+    /// cookie, `x-goog-api-key`, …).
+    Raw,
+}
+
 /// A single credential-injection route in the provider-neutral egress policy.
 ///
 /// Renderers match `match_host` + `match_prefix`, remove any sandbox-supplied
-/// auth headers, inject platform credentials, rewrite the upstream authority and
-/// path when needed, and forward to `upstream_host:upstream_port`. This type may
-/// hold plaintext secrets in `inject_headers`; never persist or log it.
+/// auth headers, inject the platform credential (resolved from `credential_ref`
+/// at request time), rewrite the upstream authority and path when needed, and
+/// forward to `upstream_host:upstream_port`. This type carries only a
+/// **non-secret** `credential_ref`; it is safe to persist and log.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EgressCredentialRoute {
     /// Stable route id scoped by the owning sandbox policy.
@@ -62,8 +114,14 @@ pub struct EgressCredentialRoute {
     /// Provider-rendered cluster/upstream name. Empty means the renderer should
     /// derive one from sandbox id + upstream.
     pub cluster_name: String,
-    /// Headers to inject. Values are plaintext secrets.
-    pub inject_headers: Vec<(String, String)>,
+    /// Non-secret reference to the credential's secret material. Resolved to the
+    /// formatted header value by the `CredentialBroker` at request time.
+    pub credential_ref: CredentialRef,
+    /// Header NAME the resolved credential is injected into, e.g.
+    /// `"authorization"`, `"x-api-key"`, `"cookie"`.
+    pub inject_header: String,
+    /// How the broker formats the resolved secret into the header value.
+    pub inject_scheme: InjectScheme,
     /// Headers to remove before injection.
     pub remove_headers: Vec<String>,
 }
@@ -132,8 +190,9 @@ pub fn upstream_cluster_name(sandbox_id: &Uuid, upstream_host: &str, upstream_po
 
 /// Unified egress policy for one sandbox.
 ///
-/// `allowlist_hosts` is non-sensitive. `credential_routes` can contain plaintext
-/// secrets in injected headers and must never be persisted or logged.
+/// `allowlist_hosts` is non-sensitive. `credential_routes` carry only non-secret
+/// `credential_ref`s (no decrypted secrets), so this policy is safe to persist
+/// and log.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SandboxEgressPolicy {
     pub allowlist_hosts: Vec<String>,
@@ -163,10 +222,9 @@ impl SandboxEgressPolicy {
     }
 }
 
-/// Legacy orchestrator-facing description of the real secrets for one sandbox,
-/// built from decrypted DB rows. Converted to [`SandboxEgressPolicy`] before it
-/// reaches provider-specific rendering. This type holds plaintext secrets and
-/// must never be persisted or logged.
+/// Orchestrator-facing set of credential routes for one sandbox, built from DB
+/// rows. Converted to [`SandboxEgressPolicy`] before it reaches provider-specific
+/// rendering. Routes carry only non-secret `credential_ref`s.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SandboxCredentials {
     pub routes: Vec<EgressCredentialRoute>,
@@ -285,7 +343,13 @@ mod tests {
             upstream_prefix: "/".to_string(),
             upstream_tls: true,
             cluster_name: String::new(),
-            inject_headers: vec![("authorization".to_string(), "Bearer test".to_string())],
+            credential_ref: CredentialRef::Llm {
+                secret_name: "test-secret".to_string(),
+                secret_key: "ANTHROPIC_API_KEY".to_string(),
+                project_id: None,
+            },
+            inject_header: "authorization".to_string(),
+            inject_scheme: InjectScheme::Bearer,
             remove_headers: vec!["authorization".to_string()],
         }
     }

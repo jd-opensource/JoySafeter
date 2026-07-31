@@ -61,7 +61,9 @@ mod tests {
     use crate::egress::gateway::{
         app_with_policy_store, GatewayConfig, GatewayPolicyStore, InMemoryGatewayPolicyStore,
     };
-    use crate::egress::policy::{EgressCredentialRoute, EgressExposure, EgressKind};
+    use crate::egress::policy::{
+        CredentialRef, EgressCredentialRoute, EgressExposure, EgressKind, InjectScheme,
+    };
 
     #[tokio::test]
     async fn k8s_egress_manager_installs_and_revokes_gateway_policy() {
@@ -115,10 +117,13 @@ mod tests {
                         upstream_prefix: "/".to_string(),
                         upstream_tls: true,
                         cluster_name: String::new(),
-                        inject_headers: vec![(
-                            "authorization".to_string(),
-                            "Bearer secret".to_string(),
-                        )],
+                        credential_ref: CredentialRef::Llm {
+                            secret_name: "test-secret".to_string(),
+                            secret_key: "ANTHROPIC_API_KEY".to_string(),
+                            project_id: None,
+                        },
+                        inject_header: "authorization".to_string(),
+                        inject_scheme: InjectScheme::Bearer,
                         remove_headers: vec!["authorization".to_string()],
                     }],
                 },

@@ -12,7 +12,7 @@ use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
 use crate::egress::credential::{build_external_egress, build_git_egress, build_mcp_egress};
 use crate::egress::enforcer::EgressEnforcer;
-use crate::egress::llm::extract_llm_egress;
+use crate::egress::llm::{extract_llm_egress, LlmCredentialProvenance, LlmSecretSource};
 #[cfg(test)]
 use crate::egress::policy::EgressCredentialRoute;
 use crate::egress::policy::SandboxCredentials;
@@ -646,7 +646,7 @@ impl SandboxResolver {
             .as_ref()
             .and_then(|env| env.image_tag.clone())
             .unwrap_or_else(|| self.config.image_for_provider(&engine_kind));
-        let mut env =
+        let (mut env, llm_provenance) =
             Self::resolve_agent_env_from(&self.pool, agent.as_ref(), environment.as_ref()).await?;
         let configured_networking = environment
             .as_ref()
@@ -673,6 +673,7 @@ impl SandboxResolver {
             let mut routes = Vec::new();
             routes.extend(extract_llm_egress(
                 &mut env,
+                &llm_provenance,
                 &self.config.llm_egress_allowed_hosts,
             ));
             routes.extend(build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?);
@@ -830,14 +831,21 @@ impl SandboxResolver {
         Ok(serde_json::Value::Object(map))
     }
 
+    /// Resolve the sandbox env plus the provenance of any Secret-backed LLM
+    /// credential env vars. The provenance map (credential key → managed Secret)
+    /// lets `extract_llm_egress` emit a non-secret `CredentialRef::Llm` instead
+    /// of injecting a decrypted key; a credential key absent from it was a
+    /// plaintext literal and will be refused (fail closed). The map holds no
+    /// secret values — only Secret names + key names.
     async fn resolve_agent_env_from(
         pool: &PgPool,
         agent: Option<&JoySafeterAgent>,
         environment: Option<&EnvironmentRow>,
-    ) -> anyhow::Result<HashMap<String, String>> {
+    ) -> anyhow::Result<(HashMap<String, String>, LlmCredentialProvenance)> {
         let mut env = HashMap::new();
+        let mut provenance = LlmCredentialProvenance::new();
         let Some(agent) = agent else {
-            return Ok(env);
+            return Ok((env, provenance));
         };
 
         if let Some(environment) = environment {
@@ -864,6 +872,7 @@ impl SandboxResolver {
                     Self::merge_secret_ref_into_env(
                         pool,
                         &mut env,
+                        &mut provenance,
                         secret_ref,
                         agent.project_id.as_deref(),
                         false,
@@ -877,6 +886,7 @@ impl SandboxResolver {
             Self::merge_secret_ref_into_env(
                 pool,
                 &mut env,
+                &mut provenance,
                 secret_ref,
                 agent.project_id.as_deref(),
                 true,
@@ -896,12 +906,13 @@ impl SandboxResolver {
 
         apply_provider_aliases(&mut env);
 
-        Ok(env)
+        Ok((env, provenance))
     }
 
     async fn merge_secret_ref_into_env(
         pool: &PgPool,
         env: &mut HashMap<String, String>,
+        provenance: &mut LlmCredentialProvenance,
         secret_ref: &str,
         project_id: Option<&str>,
         override_existing: bool,
@@ -933,6 +944,18 @@ impl SandboxResolver {
                         .map(ToOwned::to_owned)
                         .unwrap_or_else(|| value.to_string());
                     env.insert(key.clone(), cipher.decrypt_or_passthrough(&value)?);
+                    // Record that this LLM credential key came from a managed
+                    // Secret so `extract_llm_egress` can reference it instead of
+                    // shipping the decrypted value.
+                    if crate::kernel::llm_providers::is_llm_credential_key(key) {
+                        provenance.insert(
+                            key.clone(),
+                            LlmSecretSource {
+                                secret_name: secret_ref.to_string(),
+                                project_id: project_id.map(ToOwned::to_owned),
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -1268,11 +1291,15 @@ pub(crate) async fn rebuild_sandbox_credentials(
                 None => None,
             }
         };
-        if let Ok(mut env) =
+        if let Ok((mut env, llm_provenance)) =
             SandboxResolver::resolve_agent_env_from(pool, agent.as_ref(), environment.as_ref())
                 .await
         {
-            routes.extend(extract_llm_egress(&mut env, llm_egress_allowed_hosts));
+            routes.extend(extract_llm_egress(
+                &mut env,
+                &llm_provenance,
+                llm_egress_allowed_hosts,
+            ));
         }
     }
 
@@ -1619,6 +1646,7 @@ fn effective_prefixes(prefix_sets: Vec<Vec<serde_json::Value>>) -> Vec<serde_jso
 #[cfg(test)]
 mod egress_tests {
     use super::*;
+    use crate::egress::policy::{CredentialRef, InjectScheme};
     use async_trait::async_trait;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
@@ -1637,6 +1665,34 @@ mod egress_tests {
         hosts.iter().map(|host| host.to_string()).collect()
     }
 
+    /// Build LLM credential provenance for every LLM credential key present in
+    /// `env`, simulating that each was sourced from a managed Secret. Lets these
+    /// unit tests exercise detection/allowlist/base-url logic without a DB.
+    fn secret_backed(env: &HashMap<String, String>) -> LlmCredentialProvenance {
+        env.keys()
+            .filter(|k| crate::kernel::llm_providers::is_llm_credential_key(k))
+            .map(|k| {
+                (
+                    k.clone(),
+                    LlmSecretSource {
+                        secret_name: "test-secret".to_string(),
+                        project_id: None,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// Run `extract_llm_egress` with Secret-backed provenance for all present
+    /// LLM credential keys.
+    fn extract_llm_routes(
+        env: &mut HashMap<String, String>,
+        allowed_hosts: &[String],
+    ) -> Vec<EgressCredentialRoute> {
+        let provenance = secret_backed(env);
+        extract_llm_egress(env, &provenance, allowed_hosts)
+    }
+
     /// Run `extract_llm_egress` and return the single LLM route it emits, if any.
     /// The builder now returns a `Vec<EgressCredentialRoute>`; LLM egress is
     /// always zero or one route.
@@ -1644,7 +1700,27 @@ mod egress_tests {
         env: &mut HashMap<String, String>,
         allowed_hosts: &[String],
     ) -> Option<EgressCredentialRoute> {
-        extract_llm_egress(env, allowed_hosts).into_iter().next()
+        extract_llm_routes(env, allowed_hosts).into_iter().next()
+    }
+
+    /// Assert an LLM route carries the expected non-secret ref, inject header,
+    /// and scheme (no secret value — that is the broker's job at request time).
+    fn assert_llm_ref(
+        route: &EgressCredentialRoute,
+        header: &str,
+        scheme: InjectScheme,
+        secret_key: &str,
+    ) {
+        assert_eq!(route.inject_header, header);
+        assert_eq!(route.inject_scheme, scheme);
+        assert_eq!(
+            route.credential_ref,
+            CredentialRef::Llm {
+                secret_name: "test-secret".to_string(),
+                secret_key: secret_key.to_string(),
+                project_id: None,
+            }
+        );
     }
 
     fn resolve_context_for_env(env: HashMap<String, String>) -> ResolveContext {
@@ -1845,9 +1921,11 @@ mod egress_tests {
         assert_eq!(egress.upstream_port, 443);
         assert_eq!(egress.upstream_prefix, "/v1/");
         assert!(egress.upstream_tls);
-        assert_eq!(
-            egress.inject_headers,
-            vec![("authorization".to_string(), "Bearer tok-123".to_string())]
+        assert_llm_ref(
+            &egress,
+            "authorization",
+            InjectScheme::Bearer,
+            "ANTHROPIC_AUTH_TOKEN",
         );
 
         // No real LLM key remains in the container env; Claude Code only gets a
@@ -1873,10 +1951,7 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
         let egress = extract_llm_route(&mut e, &allow(&["api.anthropic.com"])).expect("egress");
-        assert_eq!(
-            egress.inject_headers,
-            vec![("x-api-key".to_string(), "sk-ant-xyz".to_string())]
-        );
+        assert_llm_ref(&egress, "x-api-key", InjectScheme::Raw, "ANTHROPIC_API_KEY");
         assert_eq!(
             e.get("ANTHROPIC_API_KEY").unwrap(),
             CLAUDE_CODE_PLACEHOLDER_API_KEY
@@ -1890,7 +1965,7 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
 
-        assert!(extract_llm_egress(&mut e, &[]).is_empty());
+        assert!(extract_llm_routes(&mut e, &[]).is_empty());
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
@@ -1906,7 +1981,7 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://evil.example.com/v1"),
         ]);
 
-        assert!(extract_llm_egress(&mut e, &allow(&["api.anthropic.com"])).is_empty());
+        assert!(extract_llm_routes(&mut e, &allow(&["api.anthropic.com"])).is_empty());
         assert!(!e.contains_key("ANTHROPIC_AUTH_TOKEN"));
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
@@ -1937,9 +2012,11 @@ mod egress_tests {
         let egress = extract_llm_route(&mut e, &allow(&["gw.internal"])).expect("egress");
         assert_eq!(egress.upstream_host, "gw.internal");
         assert_eq!(egress.upstream_prefix, "/v1/");
-        assert_eq!(
-            egress.inject_headers,
-            vec![("authorization".to_string(), "Bearer sk-oai".to_string())]
+        assert_llm_ref(
+            &egress,
+            "authorization",
+            InjectScheme::Bearer,
+            "OPENAI_API_KEY",
         );
         assert_eq!(
             e.get("OPENAI_API_KEY").unwrap(),
@@ -1955,8 +2032,23 @@ mod egress_tests {
     #[test]
     fn no_llm_key_returns_none() {
         let mut e = env(&[("DB_PASSWORD", "x")]);
-        assert!(extract_llm_egress(&mut e, &[]).is_empty());
+        assert!(extract_llm_routes(&mut e, &[]).is_empty());
         assert_eq!(e.get("DB_PASSWORD").unwrap(), "x");
+    }
+
+    #[test]
+    fn llm_literal_key_without_secret_provenance_fails_closed() {
+        // A plaintext LLM key that did not come from a managed Secret has no
+        // resolvable credential ref, so it is refused (fail closed) and still
+        // stripped from env so it cannot leak into the sandbox.
+        let mut e = env(&[
+            ("ANTHROPIC_API_KEY", "sk-literal"),
+            ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+        ]);
+        let no_provenance = LlmCredentialProvenance::new();
+        let routes = extract_llm_egress(&mut e, &no_provenance, &allow(&["api.anthropic.com"]));
+        assert!(routes.is_empty());
+        assert!(!e.contains_key("ANTHROPIC_API_KEY"));
     }
 
     #[test]
@@ -1985,9 +2077,11 @@ mod egress_tests {
             .expect("egress");
         assert_eq!(egress.upstream_host, "generativelanguage.googleapis.com");
         assert!(egress.upstream_tls);
-        assert_eq!(
-            egress.inject_headers,
-            vec![("x-goog-api-key".to_string(), "AIzaXYZ".to_string())]
+        assert_llm_ref(
+            &egress,
+            "x-goog-api-key",
+            InjectScheme::Raw,
+            "GEMINI_API_KEY",
         );
         assert!(!e.contains_key("GEMINI_API_KEY"));
         // base URL is repointed at the plaintext egress placeholder host.
@@ -2002,9 +2096,11 @@ mod egress_tests {
         let mut e = env(&[("GOOGLE_API_KEY", "AIzaABC")]);
         let egress = extract_llm_route(&mut e, &allow(&["generativelanguage.googleapis.com"]))
             .expect("egress");
-        assert_eq!(
-            egress.inject_headers,
-            vec![("x-goog-api-key".to_string(), "AIzaABC".to_string())]
+        assert_llm_ref(
+            &egress,
+            "x-goog-api-key",
+            InjectScheme::Raw,
+            "GOOGLE_API_KEY",
         );
         assert!(!e.contains_key("GOOGLE_API_KEY"));
     }
@@ -2019,9 +2115,11 @@ mod egress_tests {
         let egress = extract_llm_route(&mut e, &allow(&["*.openai.azure.com"])).expect("egress");
         assert_eq!(egress.upstream_host, "my-res.openai.azure.com");
         assert!(egress.upstream_tls);
-        assert_eq!(
-            egress.inject_headers,
-            vec![("api-key".to_string(), "az-secret".to_string())]
+        assert_llm_ref(
+            &egress,
+            "api-key",
+            InjectScheme::Raw,
+            "AZURE_OPENAI_API_KEY",
         );
         assert!(!e.contains_key("AZURE_OPENAI_API_KEY"));
     }
@@ -2033,7 +2131,7 @@ mod egress_tests {
             ("AZURE_OPENAI_BASE_URL", "https://openai.azure.com"),
         ]);
 
-        assert!(extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_empty());
+        assert!(extract_llm_routes(&mut e, &allow(&["*.openai.azure.com"])).is_empty());
         assert!(!e.contains_key("AZURE_OPENAI_API_KEY"));
     }
 
@@ -2042,7 +2140,7 @@ mod egress_tests {
         // Azure has no fixed endpoint; without a base URL we must not inject the
         // key toward an unknown host.
         let mut e = env(&[("AZURE_OPENAI_API_KEY", "az-secret")]);
-        assert!(extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_empty());
+        assert!(extract_llm_routes(&mut e, &allow(&["*.openai.azure.com"])).is_empty());
     }
 
     #[test]
@@ -2054,7 +2152,7 @@ mod egress_tests {
             ]);
 
             assert!(
-                extract_llm_egress(&mut e, &allow(&[host])).is_empty(),
+                extract_llm_routes(&mut e, &allow(&[host])).is_empty(),
                 "host should be rejected: {host}"
             );
             assert!(!e.contains_key("OPENAI_API_KEY"));
@@ -2068,7 +2166,7 @@ mod egress_tests {
             ("OPENAI_BASE_URL", "file:///tmp/socket"),
         ]);
 
-        assert!(extract_llm_egress(&mut e, &allow(&["api.openai.com"])).is_empty());
+        assert!(extract_llm_routes(&mut e, &allow(&["api.openai.com"])).is_empty());
         assert!(!e.contains_key("OPENAI_API_KEY"));
     }
 
@@ -2923,12 +3021,14 @@ mod egress_tests {
             assert_eq!(egress[0].upstream_port, 443);
             assert_eq!(egress[0].upstream_prefix, "/api");
             assert!(egress[0].upstream_tls);
+            assert_eq!(egress[0].inject_header, "authorization");
+            assert_eq!(egress[0].inject_scheme, InjectScheme::Bearer);
             assert_eq!(
-                egress[0].inject_headers,
-                vec![(
-                    "authorization".to_string(),
-                    "Bearer vault-token".to_string()
-                )]
+                egress[0].credential_ref,
+                CredentialRef::Mcp {
+                    vault_id,
+                    mcp_server_url: mcp_url.to_string(),
+                }
             );
         }
         .await;
