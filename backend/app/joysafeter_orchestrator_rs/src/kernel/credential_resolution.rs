@@ -32,6 +32,14 @@ const RESOLVE_TOKEN_HEADER: &str = "x-joysafeter-resolve-token";
 /// Structured error code returned on any resolution failure.
 const CREDENTIAL_RESOLVE_FAILED: &str = "CREDENTIAL_RESOLVE_FAILED";
 
+/// Non-secret headers the Docker Envoy LDS adds to a credential route so the
+/// orchestrator ext_authz `Check` handler can map a request back to its
+/// `(sandbox_id, route_id)` and resolve the credential. Envoy strips them before
+/// the upstream. Must stay in sync between the LDS renderer and the ext_authz
+/// service.
+pub const SANDBOX_ID_HEADER: &str = "x-joysafeter-sandbox-id";
+pub const ROUTE_ID_HEADER: &str = "x-joysafeter-route-id";
+
 /// Orchestrator-side registry mapping `(sandbox_id, route_id)` to the sandbox's
 /// installed credential routes. Populated when the enforcer installs a
 /// sandbox's egress policy (SP-3 Task 4); read by the resolution service to map

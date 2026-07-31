@@ -7178,6 +7178,18 @@ pub async fn start_grpc_server(
     runtime_config: Arc<RuntimeConfig>,
     xds_service: Option<Arc<crate::sandbox::lds_backend::DeltaXdsServer>>,
 ) -> anyhow::Result<JoinHandle<()>> {
+    // Docker Envoy ext_authz credential resolution shares the orchestrator's
+    // gRPC server (same trust boundary as xDS). The broker is the single decrypt
+    // point; the route registry is the process-wide singleton the HTTP /resolve
+    // endpoint also uses.
+    let ext_authz_svc = {
+        use envoy_types::pb::envoy::service::auth::v3::authorization_server::AuthorizationServer;
+        let broker = Arc::new(crate::kernel::credential_broker::CredentialBroker::new(
+            pool.clone(),
+        ));
+        AuthorizationServer::new(crate::kernel::ext_authz::ExtAuthzService::new(broker))
+    };
+
     let service = AgentBridgeService::new(
         bridge_registry,
         event_bus,
@@ -7211,9 +7223,18 @@ pub async fn start_grpc_server(
         let serve_result = if let Some(xds) = xds_service {
             use envoy_types::pb::envoy::service::discovery::v3::aggregated_discovery_service_server::AggregatedDiscoveryServiceServer;
             let ads = AggregatedDiscoveryServiceServer::from_arc(xds);
-            builder.add_service(svc).add_service(ads).serve(addr).await
+            builder
+                .add_service(svc)
+                .add_service(ads)
+                .add_service(ext_authz_svc)
+                .serve(addr)
+                .await
         } else {
-            builder.add_service(svc).serve(addr).await
+            builder
+                .add_service(svc)
+                .add_service(ext_authz_svc)
+                .serve(addr)
+                .await
         };
 
         if let Err(e) = serve_result {
