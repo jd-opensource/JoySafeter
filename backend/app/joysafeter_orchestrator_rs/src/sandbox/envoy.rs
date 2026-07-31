@@ -489,8 +489,6 @@ impl EnvoyManager {
                 tokio::time::timeout(std::time::Duration::from_secs(5), sandbox_lock.lock())
                     .await
                     .map_err(|_| anyhow::anyhow!("timed out acquiring Envoy sandbox apply lock"))?;
-            let cred_clusters = policy.clusters(&sandbox_id);
-            let cluster_prefix = format!("up_{sandbox_id}_");
             let listener = ListenerSpec {
                 sandbox_id,
                 kind: ListenerKind::Http,
@@ -499,44 +497,16 @@ impl EnvoyManager {
                 proxy_auth_token: policy.proxy_auth_token.clone(),
             };
 
-            // Prefer a single atomic CDS+LDS batch (grpc xDS): one version tick,
-            // one stream wake, Clusters applied before Listeners
-            // (make-before-break). Falls back to separate CDS-then-LDS writes for
-            // the filesystem backend, which has no batch primitive.
-            let applied_batch = tokio::time::timeout(
+            // Only push the per-sandbox LDS listener. No CDS needed: all
+            // credential-injection routes point to the global shared
+            // dynamic_forward_proxy / dynamic_forward_proxy_tls clusters
+            // (pre-created in bootstrap, always healthy, zero warming).
+            tokio::time::timeout(
                 std::time::Duration::from_secs(10),
-                self.lds.apply_sandbox_batch(
-                    cred_clusters.clone(),
-                    vec![listener.clone()],
-                    cluster_prefix.clone(),
-                ),
+                self.lds.upsert(vec![listener]),
             )
             .await
-            .map_err(|_| anyhow::anyhow!("timed out applying Envoy xDS batch"))??;
-
-            if !applied_batch {
-                // Push this sandbox's full cluster set BEFORE listeners
-                // (make-before-break): a listener whose routes reference a
-                // not-yet-known cluster would fail to warm. Replacing by prefix
-                // also removes clusters for credentials deleted since the last
-                // policy refresh.
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    self.cds.replace_by_prefix(&cluster_prefix, cred_clusters),
-                )
-                .await
-                .map_err(|_| anyhow::anyhow!("timed out applying Envoy CDS update"))??;
-
-                // Push only the egress HTTP listener for this sandbox. Runner
-                // gRPC is control-plane traffic served directly by the
-                // orchestrator's Unix socket, not proxied through Envoy.
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    self.lds.upsert(vec![listener]),
-                )
-                .await
-                .map_err(|_| anyhow::anyhow!("timed out applying Envoy LDS update"))??;
-            }
+            .map_err(|_| anyhow::anyhow!("timed out applying Envoy LDS update"))??;
             drop(_guard);
             self.cleanup_sandbox_apply_lock(sandbox_id, &sandbox_lock)
                 .await;
@@ -635,17 +605,14 @@ impl EnvoyManager {
     async fn remove_sandbox_unlocked(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
         // Drop the current HTTP egress listener plus the historical gRPC listener
         // name so rolling upgrades clean up any Envoy-proxied runner control
-        // resources left by older versions. Then remove per-upstream clusters.
+        // resources left by older versions. No per-sandbox clusters to remove —
+        // all routes point to the shared dynamic_forward_proxy clusters.
         self.lds
             .remove(vec![
                 format!("{sandbox_id}_grpc"),
                 format!("{sandbox_id}_http"),
             ])
             .await?;
-        let _ = self
-            .cds
-            .remove_by_prefix(&format!("up_{sandbox_id}_"))
-            .await;
 
         // Release retained per-sandbox ACK/NACK bookkeeping (grpc xDS backend)
         // so apply_status cannot grow unboundedly over the orchestrator's life.
@@ -686,7 +653,7 @@ impl EnvoyManager {
     async fn write_bootstrap_config(&self) -> anyhow::Result<()> {
         let mut clusters = vec![json!({
             "name": "dynamic_forward_proxy",
-            "connect_timeout": "5s",
+            "connect_timeout": "10s",
             "lb_policy": "CLUSTER_PROVIDED",
             "cluster_type": {
                 "name": "envoy.clusters.dynamic_forward_proxy",
@@ -695,6 +662,31 @@ impl EnvoyManager {
                     "dns_cache_config": {
                         "name": "dynamic_forward_proxy_cache",
                         "dns_lookup_family": "V4_ONLY"
+                    }
+                }
+            }
+        }), json!({
+            "name": "dynamic_forward_proxy_tls",
+            "connect_timeout": "10s",
+            "lb_policy": "CLUSTER_PROVIDED",
+            "cluster_type": {
+                "name": "envoy.clusters.dynamic_forward_proxy",
+                "typed_config": {
+                    "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
+                    "dns_cache_config": {
+                        "name": "dynamic_forward_proxy_cache",
+                        "dns_lookup_family": "V4_ONLY"
+                    }
+                }
+            },
+            "transport_socket": {
+                "name": "envoy.transport_sockets.tls",
+                "typed_config": {
+                    "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
+                    "common_tls_context": {
+                        "validation_context": {
+                            "trusted_ca": { "filename": "/etc/ssl/certs/ca-certificates.crt" }
+                        }
                     }
                 }
             }

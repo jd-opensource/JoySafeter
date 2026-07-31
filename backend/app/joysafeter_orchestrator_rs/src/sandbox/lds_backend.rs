@@ -332,38 +332,21 @@ impl SandboxEgressPolicy {
         self
     }
 
-    pub fn clusters(&self, sandbox_id: &Uuid) -> Vec<ClusterSpec> {
-        let mut seen = std::collections::HashSet::new();
-        let mut clusters = Vec::new();
-        for route in &self.credential_routes {
-            let name = if route.cluster_name.is_empty() {
-                upstream_cluster_name(sandbox_id, &route.upstream_host, route.upstream_port)
-            } else {
-                route.cluster_name.clone()
-            };
-            if seen.insert(name.clone()) {
-                clusters.push(ClusterSpec {
-                    name,
-                    upstream_host: route.upstream_host.clone(),
-                    upstream_port: route.upstream_port,
-                    upstream_tls: route.upstream_tls,
-                });
-            }
-        }
-        clusters
+    pub fn clusters(&self, _sandbox_id: &Uuid) -> Vec<ClusterSpec> {
+        // No per-sandbox clusters needed — all credential-injection routes point
+        // to the shared dynamic_forward_proxy / dynamic_forward_proxy_tls clusters.
+        Vec::new()
     }
 }
 
 pub fn validate_egress_policy(
-    sandbox_id: &Uuid,
+    _sandbox_id: &Uuid,
     policy: &SandboxEgressPolicy,
 ) -> anyhow::Result<()> {
     let mut route_ids = std::collections::HashSet::new();
-    let clusters = policy.clusters(sandbox_id);
-    let cluster_names: std::collections::HashSet<&str> = clusters
-        .iter()
-        .map(|cluster| cluster.name.as_str())
-        .collect();
+    // All credential-injection routes use the shared dynamic_forward_proxy
+    // clusters (TLS or plain); no per-sandbox clusters to validate against.
+    const SHARED_CLUSTERS: &[&str] = &["dynamic_forward_proxy", "dynamic_forward_proxy_tls"];
 
     for host in &policy.allowlist_hosts {
         validate_route_host(host)
@@ -388,9 +371,11 @@ pub fn validate_egress_policy(
                 route.upstream_prefix
             )
         })?;
-        if route.cluster_name.is_empty() || !cluster_names.contains(route.cluster_name.as_str()) {
+        if route.cluster_name.is_empty()
+            || !SHARED_CLUSTERS.contains(&route.cluster_name.as_str())
+        {
             anyhow::bail!(
-                "egress route {} references missing cluster {}",
+                "egress route {} references unknown cluster {}",
                 route.id,
                 route.cluster_name
             );
@@ -545,21 +530,21 @@ impl SandboxCredentials {
         }
     }
 
-    /// Flatten into credential routes, filling each route's `cluster_name` from
-    /// its upstream host/port when the builder left it empty. All families
-    /// (LLM/MCP/Git/External) already carry fully-formed routes; this is the
-    /// single point where the per-sandbox cluster name is resolved.
-    pub fn to_routes(&self, sandbox_id: &Uuid) -> Vec<CredentialRoute> {
+    /// Flatten into credential routes, filling each route's `cluster_name` to
+    /// point at the shared dynamic_forward_proxy cluster (TLS or plain) based on
+    /// the route's `upstream_tls`. No per-sandbox clusters are created; the DFP
+    /// cluster resolves DNS on-demand from the `host_rewrite_literal` target.
+    pub fn to_routes(&self, _sandbox_id: &Uuid) -> Vec<CredentialRoute> {
         self.routes
             .iter()
             .map(|r| {
                 let mut route = r.clone();
                 if route.cluster_name.is_empty() {
-                    route.cluster_name = upstream_cluster_name(
-                        sandbox_id,
-                        &route.upstream_host,
-                        route.upstream_port,
-                    );
+                    route.cluster_name = if route.upstream_tls {
+                        "dynamic_forward_proxy_tls".to_string()
+                    } else {
+                        "dynamic_forward_proxy".to_string()
+                    };
                 }
                 route
             })
@@ -2902,7 +2887,7 @@ mod tests {
             upstream_port: 443,
             upstream_prefix: "/v1".to_string(),
             upstream_tls: true,
-            cluster_name: "up_test_llm".to_string(),
+            cluster_name: "dynamic_forward_proxy_tls".to_string(),
             inject_headers: vec![("authorization".to_string(), "Bearer sk-secret".to_string())],
             remove_headers: vec![],
         }
@@ -2920,7 +2905,7 @@ mod tests {
             upstream_port: 443,
             upstream_prefix: "/sse".to_string(),
             upstream_tls: true,
-            cluster_name: "up_test_mcp".to_string(),
+            cluster_name: "dynamic_forward_proxy_tls".to_string(),
             inject_headers: vec![("authorization".to_string(), "Bearer tok".to_string())],
             remove_headers: vec![],
         }
@@ -3044,13 +3029,18 @@ mod tests {
         let routes = creds.to_routes(&sid);
         let clusters = creds.to_clusters(&sid);
 
-        // Every route's cluster_name must exist in the cluster set.
-        let cluster_names: std::collections::HashSet<&str> =
-            clusters.iter().map(|c| c.name.as_str()).collect();
+        // No per-sandbox clusters — routes point to shared DFP clusters.
+        assert!(
+            clusters.is_empty(),
+            "per-sandbox clusters should not be created; routes use shared DFP"
+        );
+
+        // Every route's cluster_name must be one of the shared DFP clusters.
         for r in &routes {
             assert!(
-                cluster_names.contains(r.cluster_name.as_str()),
-                "route cluster {} missing from CDS",
+                r.cluster_name == "dynamic_forward_proxy_tls"
+                    || r.cluster_name == "dynamic_forward_proxy",
+                "route cluster {} must be a shared DFP cluster",
                 r.cluster_name
             );
         }
@@ -3063,28 +3053,16 @@ mod tests {
         assert_eq!(llm.match_prefix, "/");
         assert_eq!(llm.upstream_host, "llm.internal.example.com");
         assert_eq!(llm.upstream_prefix, "/v1/");
+        assert_eq!(llm.cluster_name, "dynamic_forward_proxy_tls");
 
-        // MCP route scoped by name; cluster carries the non-443 port.
+        // MCP route scoped by name.
         let mcp = routes
             .iter()
             .find(|r| r.match_host == MCP_EGRESS_HOST)
             .unwrap();
         assert_eq!(mcp.match_prefix, "/mcp/gitlab/");
         assert_eq!(mcp.upstream_prefix, "/sse");
-        let mcp_cluster = clusters
-            .iter()
-            .find(|c| c.name == mcp.cluster_name)
-            .unwrap();
-        assert_eq!(mcp_cluster.upstream_port, 8443);
-        assert!(mcp_cluster.upstream_tls);
-
-        // The TLS cluster JSON carries SNI + CA trust; the listener JSON renders.
-        let cj = render_cluster_json(mcp_cluster);
-        assert_eq!(cj["type"], "LOGICAL_DNS");
-        assert_eq!(
-            cj["transport_socket"]["typed_config"]["sni"],
-            "mcp.example.com"
-        );
+        assert_eq!(mcp.cluster_name, "dynamic_forward_proxy_tls");
     }
 
     #[test]
@@ -3092,9 +3070,8 @@ mod tests {
         // An external service emits two routes: a placeholder-host route
         // (external-egress.internal/services/<name>/) and a transparent route on
         // the real host so a skill can call http://crm.example.com/api/ directly.
-        // Both target the same upstream, so CDS must dedupe to a single cluster.
+        // Both now point to the shared dynamic_forward_proxy_tls cluster.
         let sid = Uuid::nil();
-        let cluster = upstream_cluster_name(&sid, "crm.example.com", 443);
         let creds = SandboxCredentials {
             routes: vec![
                 EgressCredentialRoute {
@@ -3134,10 +3111,11 @@ mod tests {
         let routes = creds.to_routes(&sid);
         let clusters = creds.to_clusters(&sid);
 
-        // Two routes, one deduped cluster.
+        // No per-sandbox clusters; both routes use shared DFP.
         assert_eq!(routes.len(), 2);
-        assert_eq!(clusters.len(), 1);
-        assert_eq!(clusters[0].name, cluster);
+        assert!(clusters.is_empty());
+        assert_eq!(routes[0].cluster_name, "dynamic_forward_proxy_tls");
+        assert_eq!(routes[1].cluster_name, "dynamic_forward_proxy_tls");
 
         // Transparent route matches the real host and rewrites are no-ops.
         let direct = routes
@@ -3149,7 +3127,7 @@ mod tests {
         assert_eq!(direct.upstream_host, "crm.example.com");
         assert_eq!(direct.upstream_prefix, "/api/");
         assert!(direct.upstream_tls);
-        assert_eq!(direct.cluster_name, cluster);
+        assert_eq!(direct.cluster_name, "dynamic_forward_proxy_tls");
 
         // The transparent host gets its own credential vhost keyed on the real
         // host. In production the real host is NOT added to allowed_hosts (see
@@ -3252,7 +3230,7 @@ mod tests {
             upstream_port: 443,
             upstream_prefix: "/api/warning/getWarningDetailById".to_string(),
             upstream_tls: true,
-            cluster_name: "up_test_crm".to_string(),
+            cluster_name: "dynamic_forward_proxy_tls".to_string(),
             inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
             remove_headers: vec!["cookie".to_string()],
         };
@@ -3337,7 +3315,7 @@ mod tests {
             "llm.internal.example.com"
         );
         assert_eq!(llm_routes[0]["route"]["prefix_rewrite"], "/v1/");
-        assert_eq!(llm_routes[0]["route"]["cluster"], "up_test_llm");
+        assert_eq!(llm_routes[0]["route"]["cluster"], "dynamic_forward_proxy_tls");
 
         // MCP vhost: two servers on the placeholder host, each its own prefix.
         let mcp_routes = vh[1]["routes"].as_array().unwrap();
@@ -3481,7 +3459,7 @@ mod tests {
             upstream_port: 443,
             upstream_prefix: "/v1/".to_string(),
             upstream_tls: true,
-            cluster_name: "up_test".to_string(),
+            cluster_name: "dynamic_forward_proxy_tls".to_string(),
             exact_path: false,
             inject_headers: vec![("cookie".to_string(), "session=abc%7Cdef%3Dxyz".to_string())],
             remove_headers: vec![],
