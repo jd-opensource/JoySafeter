@@ -40,6 +40,14 @@ use envoy_types::pb::envoy::service::discovery::v3::{
 };
 use envoy_types::pb::google::protobuf::Any;
 
+use crate::egress::policy::normalize_rewrite_base_prefix;
+#[cfg(test)]
+use crate::egress::policy::{
+    upstream_cluster_name, EgressExposure, EgressKind, SandboxCredentials, EXTERNAL_EGRESS_HOST,
+    MCP_EGRESS_HOST,
+};
+use crate::egress::policy::{ClusterSpec, CredentialRoute, EgressCredentialRoute, LLM_EGRESS_HOST};
+
 /// The Envoy type URL for a Listener resource. Delta responses tag each resource
 /// with this so Envoy routes it to LDS.
 const LISTENER_TYPE_URL: &str = "type.googleapis.com/envoy.config.listener.v3.Listener";
@@ -73,292 +81,8 @@ pub struct ListenerSpec {
     pub credentials: Vec<EgressCredentialRoute>,
 }
 
-/// Credential family used for diagnostics and future policy decisions. Envoy
-/// rendering is intentionally generic: all kinds reduce to the same route +
-/// injected-header shape so LLM, MCP, Git, and external services share one
-/// egress boundary implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EgressKind {
-    Llm,
-    Mcp,
-    Git,
-    External,
-}
-
-/// How the sandbox discovers the route.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EgressExposure {
-    /// The sandbox calls a platform placeholder host; Envoy rewrites to the real
-    /// upstream. This is required for credential injection without TLS MITM when
-    /// the upstream is HTTPS.
-    Placeholder,
-    /// The sandbox calls the real upstream host and Envoy injects credentials
-    /// transparently. This only works for plaintext HTTP unless Envoy terminates
-    /// TLS for that upstream.
-    Transparent,
-}
-
-/// A single credential-injection route rendered into the HTTP listener.
-///
-/// Envoy matches `match_host` + `match_prefix` on the sandbox's own listener,
-/// removes any sandbox-supplied auth headers, injects the real secret headers,
-/// rewrites the authority/path when needed, and forwards via a per-upstream
-/// STRICT_DNS cluster (`cluster_name`). Because the cluster endpoint is the real
-/// host (resolved independently of request authority), `host_rewrite` only fixes
-/// the Host header + TLS SNI.
-#[derive(Debug, Clone)]
-pub struct EgressCredentialRoute {
-    /// Stable route id scoped by the owning sandbox policy.
-    pub id: String,
-    /// Credential family. Not used by Envoy rendering.
-    pub kind: EgressKind,
-    /// Placeholder vs transparent exposure. Not used by Envoy rendering yet, but
-    /// kept on the route so external-service policies can validate HTTPS rules.
-    pub exposure: EgressExposure,
-    /// Host the sandbox targets or the transparent upstream host.
-    pub match_host: String,
-    /// Path prefix the sandbox uses, e.g. `/`, `/mcp/<name>/`, `/git/<slug>/`,
-    /// or `/services/<name>/`. When `exact_path` is true this is matched as an
-    /// exact path instead of a prefix.
-    pub match_prefix: String,
-    /// When true, `match_prefix` is matched as an exact path (Envoy `path`)
-    /// rather than a prefix (Envoy `prefix`). Used by the external-service path
-    /// allowlist so only whitelisted endpoints get credential injection.
-    pub exact_path: bool,
-    /// Real upstream authority to rewrite the Host header + SNI to.
-    pub upstream_host: String,
-    /// Real upstream port.
-    pub upstream_port: u16,
-    /// Prefix to substitute for `match_prefix` on the upstream, e.g. `/` or the
-    /// real MCP/git base path.
-    pub upstream_prefix: String,
-    /// Whether to TLS-originate to the upstream.
-    pub upstream_tls: bool,
-    /// Name of the per-upstream STRICT_DNS cluster to route to.
-    pub cluster_name: String,
-    /// Headers to inject (real secret). Overwrites any client-provided value.
-    pub inject_headers: Vec<(String, String)>,
-    /// Headers to remove before injection. This prevents sandbox-supplied auth
-    /// from shadowing or mixing with platform credentials.
-    pub remove_headers: Vec<String>,
-}
-
-/// Backward-compatible alias while call sites migrate to the unified egress
-/// policy vocabulary.
-pub type CredentialRoute = EgressCredentialRoute;
-
-/// A per-upstream STRICT_DNS cluster spec, delivered via CDS. One per unique
-/// real upstream host so credential routes can `host_rewrite` + forward with the
-/// correct TLS SNI. The sandbox never sees this — it only knows the placeholder.
-#[derive(Debug, Clone)]
-pub struct ClusterSpec {
-    /// Cluster name referenced by [`EgressCredentialRoute::cluster_name`].
-    pub name: String,
-    /// Real upstream host to resolve + connect to.
-    pub upstream_host: String,
-    /// Upstream port (443 for TLS, 80 otherwise unless the URL specified one).
-    pub upstream_port: u16,
-    /// Whether to TLS-originate to the upstream.
-    pub upstream_tls: bool,
-}
-
-/// Placeholder host the sandbox uses for LLM API calls.
-pub const LLM_EGRESS_HOST: &str = "llm-egress.internal";
-/// Placeholder host the sandbox uses for MCP server calls.
-pub const MCP_EGRESS_HOST: &str = "mcp-egress.internal";
-/// Placeholder host the sandbox uses for git remote operations.
-pub const GIT_EGRESS_HOST: &str = "git-egress.internal";
-/// Placeholder host the sandbox uses for external service calls.
-pub const EXTERNAL_EGRESS_HOST: &str = "external-egress.internal";
-
 const CREDENTIAL_AUTH_HEADERS: &[&str] =
     &["authorization", "x-api-key", "api-key", "x-goog-api-key"];
-
-/// Stable slug for a session repo, used in the `/git/<slug>/` egress path. Both
-/// the egress-route builder and the clone-URL rewrite must agree on this.
-pub fn git_repo_slug(mount_name: &str, idx: usize) -> String {
-    let trimmed = mount_name.trim();
-    if trimmed.is_empty() {
-        format!("repo{idx}")
-    } else {
-        trimmed
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '-'
-                }
-            })
-            .collect()
-    }
-}
-
-/// Deterministic cluster name for a sandbox's upstream host. Scoped per sandbox
-/// so cluster sets never collide across sandboxes sharing the Envoy.
-pub fn upstream_cluster_name(sandbox_id: &Uuid, upstream_host: &str, upstream_port: u16) -> String {
-    // Envoy cluster names must be simple; sanitise host to alnum/_/-.
-    let safe: String = upstream_host
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    format!("up_{sandbox_id}_{safe}_{upstream_port}")
-}
-
-/// Unified egress policy for one sandbox. This is the Envoy-facing abstraction:
-/// allowlist hosts for ordinary egress plus credential-injection routes for any
-/// credential family. The routes hold plaintext secrets and must never be
-/// persisted or logged.
-#[derive(Debug, Clone, Default)]
-pub struct SandboxEgressPolicy {
-    pub allowlist_hosts: Vec<String>,
-    pub credential_routes: Vec<EgressCredentialRoute>,
-}
-
-impl SandboxEgressPolicy {
-    pub fn clusters(&self, sandbox_id: &Uuid) -> Vec<ClusterSpec> {
-        let mut seen = std::collections::HashSet::new();
-        let mut clusters = Vec::new();
-        for route in &self.credential_routes {
-            let name = if route.cluster_name.is_empty() {
-                upstream_cluster_name(sandbox_id, &route.upstream_host, route.upstream_port)
-            } else {
-                route.cluster_name.clone()
-            };
-            if seen.insert(name.clone()) {
-                clusters.push(ClusterSpec {
-                    name,
-                    upstream_host: route.upstream_host.clone(),
-                    upstream_port: route.upstream_port,
-                    upstream_tls: route.upstream_tls,
-                });
-            }
-        }
-        clusters
-    }
-}
-
-/// Legacy orchestrator-facing description of the real secrets for one sandbox,
-/// built from decrypted DB rows. Converted to [`SandboxEgressPolicy`] before it
-/// reaches Envoy rendering. This type holds plaintext secrets and must never be
-/// persisted or logged.
-///
-/// All credential families (LLM, MCP, Git, External) are unified as a flat list
-/// of [`EgressCredentialRoute`]. Builders emit routes directly; the `kind` field
-/// on each route is diagnostic. To add a new credential type, write a builder
-/// that returns `Vec<EgressCredentialRoute>` and `extend` this list — no
-/// intermediate struct or `to_routes` change needed.
-#[derive(Debug, Clone, Default)]
-pub struct SandboxCredentials {
-    pub routes: Vec<EgressCredentialRoute>,
-}
-
-
-impl SandboxCredentials {
-    pub fn to_policy(
-        &self,
-        sandbox_id: &Uuid,
-        allowlist_hosts: Vec<String>,
-    ) -> SandboxEgressPolicy {
-        SandboxEgressPolicy {
-            allowlist_hosts,
-            credential_routes: self.to_routes(sandbox_id),
-        }
-    }
-
-    /// Flatten into credential routes, filling each route's `cluster_name` from
-    /// its upstream host/port when the builder left it empty. All families
-    /// (LLM/MCP/Git/External) already carry fully-formed routes; this is the
-    /// single point where the per-sandbox cluster name is resolved.
-    pub fn to_routes(&self, sandbox_id: &Uuid) -> Vec<CredentialRoute> {
-        self.routes
-            .iter()
-            .map(|r| {
-                let mut route = r.clone();
-                if route.cluster_name.is_empty() {
-                    route.cluster_name = upstream_cluster_name(
-                        sandbox_id,
-                        &route.upstream_host,
-                        route.upstream_port,
-                    );
-                }
-                route
-            })
-            .collect()
-    }
-
-    /// The per-upstream STRICT_DNS clusters this sandbox needs, de-duplicated by
-    /// cluster name (multiple MCP servers may share a host).
-    pub fn to_clusters(&self, sandbox_id: &Uuid) -> Vec<ClusterSpec> {
-        self.to_policy(sandbox_id, vec![]).clusters(sandbox_id)
-    }
-}
-
-/// Ensure a path prefix is non-empty and starts with `/`.
-pub(crate) fn normalize_prefix(p: &str) -> String {
-    if p.is_empty() {
-        "/".to_string()
-    } else if p.starts_with('/') {
-        p.to_string()
-    } else {
-        format!("/{p}")
-    }
-}
-
-pub(crate) fn normalize_rewrite_base_prefix(p: &str) -> String {
-    let mut prefix = normalize_prefix(p);
-    if prefix != "/" && !prefix.ends_with('/') {
-        prefix.push('/');
-    }
-    prefix
-}
-
-/// Parsed upstream target from a URL. Eliminates the redundant
-/// `Url::parse` → host/port/prefix/tls extraction duplicated across the
-/// LLM/MCP/Git/External credential builders. `prefix` is the raw URL path
-/// (`/` when empty); callers apply their own prefix normalization on top.
-#[derive(Debug, Clone)]
-pub struct UpstreamTarget {
-    pub host: String,
-    pub port: u16,
-    pub prefix: String,
-    pub tls: bool,
-}
-
-impl UpstreamTarget {
-    /// Parse a URL into upstream target components. Errors on unsupported
-    /// schemes (only http/https) or a missing host.
-    pub fn from_url(raw: &str) -> anyhow::Result<Self> {
-        let url = url::Url::parse(raw)?;
-        let tls = match url.scheme() {
-            "https" => true,
-            "http" => false,
-            other => anyhow::bail!("unsupported scheme: {other}"),
-        };
-        let host = url
-            .host_str()
-            .ok_or_else(|| anyhow::anyhow!("URL has no host"))?
-            .to_string();
-        let port = url.port().unwrap_or(if tls { 443 } else { 80 });
-        let prefix = if url.path().is_empty() {
-            "/".to_string()
-        } else {
-            url.path().to_string()
-        };
-        Ok(Self {
-            host,
-            port,
-            prefix,
-            tls,
-        })
-    }
-}
 
 fn route_prefix_rewrite(r: &CredentialRoute) -> String {
     if r.match_host == LLM_EGRESS_HOST {
@@ -1899,10 +1623,7 @@ mod tests {
                     upstream_prefix: "/v1/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
-                    inject_headers: vec![(
-                        "authorization".to_string(),
-                        "Bearer sk".to_string(),
-                    )],
+                    inject_headers: vec![("authorization".to_string(), "Bearer sk".to_string())],
                     remove_headers: vec![],
                 },
                 EgressCredentialRoute {
@@ -2294,10 +2015,7 @@ mod tests {
             upstream_tls: true,
             cluster_name: "up_test".to_string(),
             exact_path: false,
-            inject_headers: vec![(
-                "cookie".to_string(),
-                "session=abc%7Cdef%3Dxyz".to_string(),
-            )],
+            inject_headers: vec![("cookie".to_string(), "session=abc%7Cdef%3Dxyz".to_string())],
             remove_headers: vec![],
         };
         let vh = build_virtual_hosts_json(&[], &[cred]);

@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: skillspector
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: skillspector
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  ports:
+    - name: http
+      port: 8010
+      targetPort: 8010
+  selector:
+    app.kubernetes.io/name: skillspector
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skillspector
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: skillspector
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: skillspector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: skillspector
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      containers:
+        - name: skillspector
+          image: joysafeter-skillspector:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: joysafeter-config
+                  key: TZ
+            - name: SKILLSPECTOR_VERSION
+              value: local
+            - name: SKILLSPECTOR_SERVICE_SCAN_TIMEOUT
+              value: "120"
+            - name: SKILLSPECTOR_SERVICE_MAX_FILES
+              value: "100"
+            - name: SKILLSPECTOR_SERVICE_MAX_FILE_BYTES
+              value: "1048576"
+            - name: SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES
+              value: "5242880"
+            - name: SKILLSPECTOR_WORKERS
+              value: "2"
+            - name: SKILLSPECTOR_LIMIT_CONCURRENCY
+              value: "4"
+          ports:
+            - containerPort: 8010
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8010
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+            requests:
+              cpu: 250m
+              memory: 512Mi

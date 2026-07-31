@@ -5,6 +5,8 @@
 
 mod config;
 mod db;
+#[allow(dead_code)]
+mod egress;
 mod events;
 mod grpc;
 mod kernel;

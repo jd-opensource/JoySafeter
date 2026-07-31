@@ -17,7 +17,6 @@ use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
 use super::lds_backend::{
     CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
-    SandboxCredentials,
 };
 use super::mounts::SandboxMount;
 use super::provider::{
@@ -25,6 +24,7 @@ use super::provider::{
     SandboxProvider, SandboxStatus,
 };
 use crate::config::JoySafeterConfig;
+use crate::egress::policy::SandboxCredentials;
 
 /// S13: Retry wrapper for Docker operations that may fail due to transient errors.
 /// Retries up to `max_retries` times with 1s delay on 500/503 or connection errors.
@@ -818,6 +818,7 @@ impl SandboxProvider for DockerProvider {
         &self,
         sandbox_id: Uuid,
         _sandbox_external_id: &str,
+        _sandbox_token: Option<&str>,
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {

@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: joysafeter-config
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/part-of: joysafeter
+data:
+  TZ: Asia/Shanghai
+  DEBUG: "false"
+  LOG_LEVEL: info
+  RUST_LOG: info
+  FRONTEND_URL: http://localhost:3000
+  BACKEND_URL: http://localhost:8000
+  CORS_ORIGINS: '["http://localhost:3000"]'
+  BACKEND_CORS_ORIGINS: '["http://localhost:3000"]'
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: postgres
+  POSTGRES_DB: joysafeter
+  DATABASE_URL: postgres://postgres:postgres@postgres:5432/joysafeter
+  REDIS_URL: redis://redis:6379/0
+  STORAGE_LOCAL_PATH: /app/data/files
+  SKILL_SECURITY_SCAN_ENABLED: "true"
+  SKILL_SECURITY_SCANNER_URL: http://skillspector:8010
+  JOYSAFETER_EVENT_STREAM_ENABLED: "true"
+  JOYSAFETER_SANDBOX_PROVIDER: k8s
+  JOYSAFETER_K8S_NAMESPACE: joysafeter-sandboxes
+  JOYSAFETER_K8S_KUBECTL_PATH: /usr/local/bin/kubectl
+  JOYSAFETER_K8S_ORCHESTRATOR_URL: http://joysafeter-orchestrator.joysafeter-control.svc.cluster.local:9090
+  JOYSAFETER_ENVOY_ENABLED: "false"
+  JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: api.anthropic.com,api.openai.com,generativelanguage.googleapis.com,ai-api.jdcloud.com,*.jdcloud.com
+  JOYSAFETER_EGRESS_GATEWAY_HOST: 0.0.0.0
+  JOYSAFETER_EGRESS_GATEWAY_PORT: "8088"
+  JOYSAFETER_EGRESS_GATEWAY_REQUIRE_SANDBOX_TOKEN: "true"
+  JOYSAFETER_EGRESS_GATEWAY_URL: http://joysafeter-egress-gateway.joysafeter-control.svc.cluster.local:8088
+  JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED: "false"
+  JOYSAFETER_SANDBOX_POOL_ENABLED: "false"
+  JOYSAFETER_SANDBOX_IDLE_TIMEOUT: "300"
+  JOYSAFETER_SANDBOX_STOPPED_TTL: "600"
+  JOYSAFETER_SANDBOX_HARD_TIMEOUT: "21600"
+  JOYSAFETER_SANDBOX_CPU: "1"
+  JOYSAFETER_SANDBOX_MEMORY_MB: "2048"
+  JOYSAFETER_IMAGE_CLAUDE: joysafeter-claudecode:latest
+  JOYSAFETER_IMAGE_CODEX: joysafeter-codex:latest
+  JOYSAFETER_IMAGE_NATIVE: joysafeter-native:latest
+  JOYSAFETER_SANDBOX_IMAGE: joysafeter-claudecode:latest
+  NEXT_PUBLIC_API_URL: http://localhost:8000
+  NEXT_PUBLIC_APP_URL: http://localhost:3000
+  NEXT_PUBLIC_CSP_NECESSARY_DOMAIN: "http://localhost:* http://127.0.0.1:*"
+  NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: "true"
+  NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: "52428800"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: joysafeter-secret
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/part-of: joysafeter
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: postgres
+  SECRET_KEY: local-dev-secret-key-change-before-prod
+  JWT_SECRET_KEY: local-dev-jwt-secret-key-change-before-prod
+  JOYSAFETER_VAULT_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN: local-dev-egress-gateway-control-token-change-before-prod

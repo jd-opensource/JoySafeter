@@ -343,7 +343,75 @@ docker compose --profile rust-orchestrator up -d --no-build
 ## 注意
 
 - Python orchestrator 已移除；Rust `orchestrator-rs` 当前只暴露 gRPC `9090`，API/Worker 仍有 HTTP healthcheck。
-- `orchestrator` 会挂载 Docker socket 创建 sandbox，生产只能放在可信机器。
+- Compose/Docker provider 下 `orchestrator` 会挂载 Docker socket 创建 sandbox，生产只能放在可信机器；k3s provider 不挂 Docker socket，而是通过 Kubernetes RBAC 创建 sandbox Pod。
 - 如果 sandbox 需要跨机器回连，修改 `deploy/.env` 里的 `JOYSAFETER_GRPC_PUBLIC_URL`。
 
 当前仓库只保留 `deploy/docker-compose.yml` 这一份 Compose 文件。云 Redis / 云 PostgreSQL 场景仍使用同一文件，通过 `deploy/.env` 覆盖 `POSTGRES_*`、`REDIS_URL`、镜像名、端口和 `JOYSAFETER_GRPC_PUBLIC_URL`。
+
+## k3s 动态沙箱 smoke
+
+k3s 路径在 `deploy/k8s/`。本机推荐用 k3d 在 Colima/Docker 上启动 k3s：
+
+```bash
+k3d cluster create --config deploy/k8s/k3d-cluster.yaml
+cd deploy
+./deploy.sh build --all --arch arm64   # amd64 Docker daemon 改 --arch amd64
+cd ..
+deploy/k8s/k3s-smoke.sh
+```
+
+这条路径会把 `JOYSAFETER_SANDBOX_PROVIDER` 设为 `k8s`，让 Rust orchestrator 通过
+`kubectl` 在 `joysafeter-sandboxes` namespace 创建动态 sandbox Pod。当前 K8s provider
+不复用 Docker/Envoy 的 per-sandbox egress manager；K8s 路径使用独立的
+`joysafeter-egress-gateway` 加每个 sandbox 一条 `NetworkPolicy`，验证 sandbox namespace
+的 deny-by-default 基线和受控模型出口。
+
+这条 k3s 路径现在分两层验证：
+
+- `deploy/k8s/k3s-task-smoke.sh`：非密钥 API -> worker -> Rust orchestrator ->
+  k3s Pod -> runner 回连验证。
+- `deploy/k8s/k3s-egress-smoke.sh`：真实 Secret 通过 `joysafeter-egress-gateway`
+  的 limited-networking 验证。
+
+网关路径必须显式开启。base manifests 会部署 `joysafeter-egress-gateway`，但
+`JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED` 默认是 `false`；egress smoke 会把它
+patch 成 `true` 并只重启 gateway/orchestrator Deployment。真实
+`ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等不能出现在 Pod spec，Pod annotation 也不能通过
+`kubectl.kubernetes.io/last-applied-configuration` 持久化沙箱 token 或 env。
+
+这条 smoke 路径不删业务数据：不删除 namespace、Pod、PVC、数据库行、用户、Agent、Task
+或历史迁移 Job。迁移每次使用唯一 Job 名，保留现场证据。
+
+真实 API 驱动验证：
+
+```bash
+deploy/k8s/k3s-task-smoke.sh
+```
+
+真实 Secret-backed egress 验证：
+
+```bash
+ANTHROPIC_API_KEY=... \
+ANTHROPIC_BASE_URL=https://ai-api.jdcloud.com/anthropic \
+deploy/k8s/k3s-egress-smoke.sh
+```
+
+完整 egress smoke 默认要求任务输出包含 `K3S_EGRESS_OK`。如果 Secret 的 key 能打到网关但
+没有当前模型授权，只能用 `ALLOW_UPSTREAM_MODEL_ERROR=true` 做连通性证明，不能算完整生产验证。
+
+长周期验证：
+
+```bash
+DURATION_SECONDS=21600 INTERVAL_SECONDS=300 deploy/k8s/k3s-long-run.sh
+```
+
+长周期脚本默认 6 小时、每 5 分钟提交一轮真实 Task，并把每轮 Task/Sandbox/Pod
+证据写到 `/tmp/joysafeter-k3s-long-run-*`，同样只追加验证数据，不做回收。
+
+egress 长周期验证加 `VALIDATION_MODE=egress`，并带同样的 Anthropic/JDCloud Secret
+环境变量。
+
+生产裸 k3s 复用这些 manifests 的结构，但不要使用本地 `emptyDir` PostgreSQL/Redis、
+不要使用 `latest` 镜像 tag，并应改成私有 registry digest、托管/HA PostgreSQL、托管/HA Redis。
+生产级 secret-backed Agent 还必须部署平台 egress gateway，由 orchestrator 下发
+per-sandbox policy，并让 NetworkPolicy 只允许 sandbox 访问 orchestrator 和 gateway。

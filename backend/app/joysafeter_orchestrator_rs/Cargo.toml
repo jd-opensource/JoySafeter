@@ -9,6 +9,10 @@ description = "JoySafeter Orchestrator — Rust implementation"
 name = "joysafeter-orchestrator"
 path = "src/main.rs"
 
+[[bin]]
+name = "joysafeter-egress-gateway"
+path = "src/bin/egress_gateway.rs"
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -43,6 +47,7 @@ redis = { version = "0.27", features = ["tokio-comp", "aio"] }
 bollard = "0.18"
 
 # HTTP client (for Daytona/E2B providers)
+axum = "0.7"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "rustls"] }
 aws-credential-types = "1"

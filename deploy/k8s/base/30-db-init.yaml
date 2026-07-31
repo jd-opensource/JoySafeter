@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: joysafeter-db-init
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-db-init
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: joysafeter-db-init
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: db-init
+          image: joysafeter-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "alembic upgrade head"]
+          envFrom:
+            - configMapRef:
+                name: joysafeter-config
+            - secretRef:
+                name: joysafeter-secret
+          volumeMounts:
+            - name: backend-files
+              mountPath: /app/data/files
+            - name: backend-logs
+              mountPath: /app/app/logs
+      volumes:
+        - name: backend-files
+          emptyDir: {}
+        - name: backend-logs
+          emptyDir: {}

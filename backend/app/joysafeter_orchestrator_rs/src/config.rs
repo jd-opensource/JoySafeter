@@ -58,7 +58,6 @@ pub struct JoySafeterConfig {
     /// "use the image's default USER" (less safe).
     pub sandbox_run_as_user: String,
 
-
     // Multi-image map
     pub image_claude: String,
     pub image_codex: String,
@@ -105,6 +104,14 @@ pub struct JoySafeterConfig {
     /// Envoy-side key injection path from sending credentials to arbitrary
     /// user-controlled base URLs.
     pub llm_egress_allowed_hosts: Vec<String>,
+    /// Base URL for the Rust egress gateway control plane.
+    pub egress_gateway_url: Option<String>,
+    /// Shared control-plane token used by orchestrator to install/revoke
+    /// per-sandbox gateway policy. This is not exposed to sandboxes.
+    pub egress_gateway_control_token: Option<String>,
+    /// Explicit feature gate for K8s credential egress. Defaults false so K8s
+    /// does not claim production egress capability until operators opt in.
+    pub k8s_egress_management_enabled: bool,
 
     // Image builder
     pub image_builder_enabled: bool,
@@ -238,6 +245,16 @@ impl JoySafeterConfig {
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
             envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", "filesystem"),
             llm_egress_allowed_hosts: env_list("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS"),
+            egress_gateway_url: env::var("JOYSAFETER_EGRESS_GATEWAY_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            egress_gateway_control_token: env::var("JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            k8s_egress_management_enabled: env_bool(
+                "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED",
+                false,
+            ),
 
             image_builder_enabled: env_bool("JOYSAFETER_IMAGE_BUILDER_ENABLED", false),
             image_builder_base: env_str(

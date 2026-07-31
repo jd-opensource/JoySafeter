@@ -100,3 +100,27 @@ pub fn llm_provider_registry() -> &'static [LlmProviderSpec] {
     ];
     REGISTRY
 }
+
+/// Returns true when an environment entry contains a real LLM provider secret
+/// that must not be serialized into sandbox manifests. Non-secret placeholders
+/// are explicitly allowed so CLIs can avoid interactive login while the egress
+/// boundary injects real credentials.
+pub fn is_real_llm_secret_env(key: &str, value: &str) -> bool {
+    for spec in llm_provider_registry() {
+        let sensitive = spec
+            .detection_keys
+            .iter()
+            .chain(spec.extra_keys_to_remove.iter())
+            .any(|candidate| *candidate == key);
+        if !sensitive {
+            continue;
+        }
+        if let Some((placeholder_key, placeholder_value)) = spec.placeholder {
+            if key == placeholder_key && value == placeholder_value {
+                return false;
+            }
+        }
+        return true;
+    }
+    false
+}

@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/name: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      containers:
+        - name: postgres
+          image: public.ecr.aws/docker/library/postgres:15
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: joysafeter-config
+            - secretRef:
+                name: joysafeter-secret
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+              name: postgres
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "joysafeter"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  selector:
+    app.kubernetes.io/name: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      containers:
+        - name: redis
+          image: public.ecr.aws/docker/library/redis:alpine3.22
+          imagePullPolicy: IfNotPresent
+          args: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - containerPort: 6379
+              name: redis
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}

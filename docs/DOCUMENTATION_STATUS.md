@@ -28,6 +28,7 @@ current repository, not older design notes.
 | `docs/assets/README.md` | Updated committed asset inventory and screenshot TODOs for the current `/managed/**` UI. |
 | `docs/plans/*.md` | Added status banners marking historical implementation plans and the missing Rust orchestrator source directory where relevant. |
 | `docs/production-hardening-plan.md` | Added current implementation status: task lease/fencing/idempotency/dead-letter pieces landed; outbox, durable membership, provider chain, tenant quotas, and full failure matrix remain open. |
+| `docs/plans/2026-07-30-k8s-sandbox-egress-security-architecture.md` | Added proposed architecture for production-grade K8s sandbox egress and secret boundaries, including current Docker/K8s gap analysis, provider-neutral security contracts, egress gateway design, migration phases, validation matrix, and acceptance criteria. |
 | Governance docs (`CONTRIBUTING.md`, `SECURITY.md`, `.pre-commit-setup.md`, `.github/*`) | Updated current dependency expectations, Bun commands, pre-commit checks, supported version line, and issue-template version example. |
 
 ## Reviewed, No Code-Dependent Changes Needed

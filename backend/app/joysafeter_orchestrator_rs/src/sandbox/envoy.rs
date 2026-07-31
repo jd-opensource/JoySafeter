@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use super::lds_backend::{
     exec_in_envoy, write_file_in_envoy, CdsBackend, LdsBackend, ListenerKind, ListenerSpec,
-    SandboxCredentials, SandboxEgressPolicy,
 };
+use crate::egress::policy::{SandboxCredentials, SandboxEgressPolicy};
 
 /// Per-sandbox network isolation via a shared Envoy proxy sidecar container.
 ///

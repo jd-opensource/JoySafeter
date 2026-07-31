@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::egress::policy::SandboxCredentials;
 use crate::sandbox::file_injection::{FileToInject, InjectionStrategy};
-use crate::sandbox::lds_backend::SandboxCredentials;
 use crate::sandbox::mounts::SandboxMount;
 
 /// Status of a sandbox container.
@@ -149,6 +149,7 @@ pub trait SandboxProvider: Send + Sync + 'static {
         &self,
         _sandbox_id: Uuid,
         _sandbox_external_id: &str,
+        _sandbox_token: Option<&str>,
         _networking: Option<&serde_json::Value>,
         _credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
@@ -212,5 +213,55 @@ pub trait SandboxProvider: Send + Sync + 'static {
     /// Daytona/E2B: `[ProviderFallback]`
     fn supported_injection_strategies(&self) -> Vec<InjectionStrategy> {
         vec![InjectionStrategy::ProviderFallback]
+    }
+}
+
+#[cfg(test)]
+mod provider_conformance_tests {
+    use super::*;
+    use crate::config::JoySafeterConfig;
+    use crate::sandbox::daytona::DaytonaProvider;
+    use crate::sandbox::e2b::E2bProvider;
+    use crate::sandbox::k8s::K8sProvider;
+
+    fn assert_no_credential_egress_boundary(provider: &impl SandboxProvider) {
+        let capabilities = provider.capabilities();
+
+        assert!(
+            !capabilities.has_egress_management,
+            "{} must not claim egress management until it can enforce allowlist + credential injection",
+            provider.provider_name()
+        );
+    }
+
+    #[test]
+    fn provider_conformance_k8s_does_not_claim_egress_management_until_gateway_exists() {
+        let mut config = JoySafeterConfig::from_env();
+        config.k8s_namespace = "joysafeter-sandboxes".to_string();
+        config.k8s_kubectl_path = "kubectl".to_string();
+        let provider = K8sProvider::new(&config);
+
+        assert_no_credential_egress_boundary(&provider);
+        assert_eq!(
+            provider.capabilities().network_isolation,
+            NetworkIsolation::None
+        );
+    }
+
+    #[test]
+    fn provider_conformance_remote_platforms_do_not_claim_credential_egress_yet() {
+        let daytona = DaytonaProvider::new("https://daytona.example", "test-key", "", "");
+        let e2b = E2bProvider::new("https://e2b.example", "test-key", "template");
+
+        assert_no_credential_egress_boundary(&daytona);
+        assert_no_credential_egress_boundary(&e2b);
+        assert_eq!(
+            daytona.capabilities().network_isolation,
+            NetworkIsolation::Platform
+        );
+        assert_eq!(
+            e2b.capabilities().network_isolation,
+            NetworkIsolation::Platform
+        );
     }
 }

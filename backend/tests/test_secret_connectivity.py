@@ -91,6 +91,29 @@ async def test_secret_connectivity_anthropic_preserves_prefix_and_uses_auth_toke
 
 
 @pytest.mark.asyncio
+async def test_secret_connectivity_allows_jdcloud_anthropic_gateway(monkeypatch):
+    monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "*.jdcloud.com")
+    monkeypatch.setattr(secrets.httpx, "AsyncClient", FakeAsyncClient)
+    FakeAsyncClient.captured = {}
+    FakeAsyncClient.response = httpx.Response(200, json={"ok": True})
+
+    result = await secrets._test_secret_connectivity(
+        SecretConnectivityRequest(
+            provider="claude",
+            protocol="anthropic_messages",
+            data={
+                "ANTHROPIC_API_KEY": "sk-test",
+                "ANTHROPIC_BASE_URL": "https://ai-api.jdcloud.com/anthropic",
+                "ANTHROPIC_MODEL": "Claude-Opus-4.6",
+            },
+        )
+    )
+
+    assert result.ok is True
+    assert FakeAsyncClient.captured["endpoint"] == "https://ai-api.jdcloud.com/anthropic/v1/messages"
+
+
+@pytest.mark.asyncio
 async def test_secret_connectivity_returns_upstream_error_detail(monkeypatch):
     monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "127.0.0.1")
     monkeypatch.setattr(secrets.httpx, "AsyncClient", FakeAsyncClient)

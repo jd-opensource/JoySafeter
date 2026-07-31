@@ -736,7 +736,7 @@ impl HarnessInputBuilder {
                 // rewrites host+path to the true upstream, and forwards.
                 mcp.url = format!(
                     "http://{}/mcp/{}/",
-                    crate::sandbox::lds_backend::MCP_EGRESS_HOST,
+                    crate::egress::policy::MCP_EGRESS_HOST,
                     mcp.name
                 );
                 mcp.headers.clear();
@@ -992,10 +992,10 @@ impl HarnessInputBuilder {
                 // per-repo slug over plaintext http:// — the sandbox never learns
                 // the real git host. Envoy matches `/git/<slug>/`, injects the
                 // credential, and rewrites host+path to the real remote.
-                let slug = crate::sandbox::lds_backend::git_repo_slug(&row.mount_name, idx);
+                let slug = crate::egress::policy::git_repo_slug(&row.mount_name, idx);
                 format!(
                     "http://{}/git/{}/",
-                    crate::sandbox::lds_backend::GIT_EGRESS_HOST,
+                    crate::egress::policy::GIT_EGRESS_HOST,
                     slug
                 )
             } else {
@@ -1890,7 +1890,7 @@ mod tests {
                 input.mcp_servers[0].url,
                 format!(
                     "http://{}/mcp/secure-mcp/",
-                    crate::sandbox::lds_backend::MCP_EGRESS_HOST
+                    crate::egress::policy::MCP_EGRESS_HOST
                 )
             );
             assert!(input.mcp_servers[0].headers.is_empty());

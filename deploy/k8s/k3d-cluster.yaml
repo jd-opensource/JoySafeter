@@ -1,0 +1,29 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: joysafeter
+servers: 1
+agents: 2
+image: rancher/k3s:v1.33.3-k3s1
+ports:
+  - port: 8000:30080
+    nodeFilters:
+      - server:0
+  - port: 3000:30000
+    nodeFilters:
+      - server:0
+options:
+  k3d:
+    wait: true
+    timeout: 180s
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+      - arg: --disable=servicelb
+        nodeFilters:
+          - server:*
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true

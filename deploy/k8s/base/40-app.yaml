@@ -1,0 +1,348 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-egress-gateway
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-gateway
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  ports:
+    - name: http
+      port: 8088
+      targetPort: 8088
+  selector:
+    app.kubernetes.io/name: joysafeter-egress-gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: joysafeter-egress-gateway
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-gateway
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-egress-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: joysafeter-egress-gateway
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      containers:
+        - name: egress-gateway
+          image: joysafeter-orchestrator-rs:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - joysafeter-egress-gateway
+          envFrom:
+            - configMapRef:
+                name: joysafeter-config
+            - secretRef:
+                name: joysafeter-secret
+          ports:
+            - containerPort: 8088
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8088
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 10
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      nodePort: 30080
+  selector:
+    app.kubernetes.io/name: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      containers:
+        - name: api
+          image: joysafeter-backend:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: joysafeter-config
+            - secretRef:
+                name: joysafeter-secret
+          env:
+            - name: JOYSAFETER_SERVICE_ROLE
+              value: api
+            - name: BACKEND_APP_MODULE
+              value: app.joysafeter_api.main:app
+            - name: BACKEND_PORT
+              value: "8000"
+            - name: WORKERS
+              value: "1"
+          ports:
+            - containerPort: 8000
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          volumeMounts:
+            - name: backend-files
+              mountPath: /app/data/files
+            - name: backend-logs
+              mountPath: /app/app/logs
+      volumes:
+        - name: backend-files
+          emptyDir: {}
+        - name: backend-logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  ports:
+    - name: http
+      port: 8002
+      targetPort: 8002
+  selector:
+    app.kubernetes.io/name: worker
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      containers:
+        - name: worker
+          image: joysafeter-backend:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: joysafeter-config
+            - secretRef:
+                name: joysafeter-secret
+          env:
+            - name: JOYSAFETER_SERVICE_ROLE
+              value: worker
+            - name: BACKEND_APP_MODULE
+              value: app.joysafeter_worker.main:app
+            - name: BACKEND_PORT
+              value: "8002"
+            - name: WORKER_HTTP_HOST
+              value: 0.0.0.0
+            - name: WORKERS
+              value: "1"
+          ports:
+            - containerPort: 8002
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          volumeMounts:
+            - name: backend-files
+              mountPath: /app/data/files
+            - name: backend-logs
+              mountPath: /app/app/logs
+      volumes:
+        - name: backend-files
+          emptyDir: {}
+        - name: backend-logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-orchestrator
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-orchestrator
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+  selector:
+    app.kubernetes.io/name: joysafeter-orchestrator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: joysafeter-orchestrator
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-orchestrator
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-orchestrator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: joysafeter-orchestrator
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      serviceAccountName: joysafeter-orchestrator
+      containers:
+        - name: orchestrator
+          image: joysafeter-orchestrator-rs:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: joysafeter-config
+            - secretRef:
+                name: joysafeter-secret
+          env:
+            - name: JOYSAFETER_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: JOYSAFETER_GRPC_HOST
+              value: 0.0.0.0
+            - name: JOYSAFETER_GRPC_PORT
+              value: "9090"
+          ports:
+            - containerPort: 9090
+              name: grpc
+          readinessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30000
+  selector:
+    app.kubernetes.io/name: frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      containers:
+        - name: frontend
+          image: joysafeter-frontend:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: joysafeter-config
+          env:
+            - name: NODE_ENV
+              value: production
+          ports:
+            - containerPort: 3000
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10

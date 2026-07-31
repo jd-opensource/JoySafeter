@@ -13,5 +13,6 @@ Use the repository code as the source of truth when updating these files.
 ## Supporting Docs
 
 - [Production hardening plan](./production-hardening-plan.md) - implemented reliability pieces and remaining production work.
+- [K8s sandbox egress and secret boundary architecture](./plans/2026-07-30-k8s-sandbox-egress-security-architecture.md) - proposed design for production-grade K8s sandbox egress, credential isolation, and multi-provider execution-plane parity.
 - [Historical plans](./plans/) - implementation plans and parity notes; each file may include a current status banner.
 - [Assets inventory](./assets/README.md) - committed images and screenshot refresh notes.
