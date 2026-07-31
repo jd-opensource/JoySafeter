@@ -27,6 +27,13 @@ pub struct GatewayConfig {
     pub port: u16,
     pub require_sandbox_token: bool,
     pub control_token_sha256: Option<[u8; 32]>,
+    /// Base URL of the orchestrator credential resolution endpoint. When set,
+    /// the gateway resolves each route's credential per request (POST
+    /// `{resolve_url}/resolve`) instead of holding any secret. `None` disables
+    /// injection (the gateway forwards without a platform credential).
+    pub resolve_url: Option<String>,
+    /// Service token presented to the resolution endpoint.
+    pub resolve_token: Option<String>,
 }
 
 impl GatewayConfig {
@@ -42,6 +49,12 @@ impl GatewayConfig {
                 .ok()
                 .filter(|token| !token.trim().is_empty())
                 .map(|token| hash_token(&token)),
+            resolve_url: std::env::var("JOYSAFETER_EGRESS_GATEWAY_RESOLVE_URL")
+                .ok()
+                .filter(|url| !url.trim().is_empty()),
+            resolve_token: std::env::var("JOYSAFETER_EGRESS_GATEWAY_RESOLVE_TOKEN")
+                .ok()
+                .filter(|token| !token.trim().is_empty()),
         }
     }
 
@@ -406,6 +419,12 @@ async fn proxy_entrypoint(
         );
     };
 
+    let injected =
+        match resolve_injected_header(&state.client, &state.config, sandbox_id, &route_id).await {
+            Ok(injected) => injected,
+            Err(error) => return gateway_forward_error(error),
+        };
+
     match build_upstream_request(
         sandbox_id,
         &state.client,
@@ -415,6 +434,7 @@ async fn proxy_entrypoint(
         body,
         &rest_path,
         uri.query(),
+        injected,
     ) {
         Ok(request) => match forward_upstream_request(&state.client, request).await {
             Ok(response) => response,
@@ -540,6 +560,8 @@ enum GatewayForwardError {
     InvalidRequestHeader,
     #[error("upstream request failed")]
     UpstreamRequest(#[from] reqwest::Error),
+    #[error("credential resolution failed")]
+    CredentialResolveFailed,
 }
 
 #[derive(Debug)]
@@ -573,6 +595,7 @@ fn build_upstream_request(
     body: Bytes,
     rest_path: &str,
     query: Option<&str>,
+    injected: Option<(String, String)>,
 ) -> Result<BuiltUpstreamRequest, GatewayForwardError> {
     let upstream_url = upstream_url_for_route(route, rest_path, query)?;
     let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
@@ -592,21 +615,85 @@ fn build_upstream_request(
             .iter()
             .map(|(name, _)| name.as_str().to_string())
             .collect(),
-        injected_header_names: vec![route.inject_header.to_ascii_lowercase()],
+        injected_header_names: injected
+            .iter()
+            .map(|(name, _)| name.to_ascii_lowercase())
+            .collect(),
         sandbox_auth_header_names: sandbox_auth_header_names(headers),
     };
     let mut builder = client.request(reqwest_method, upstream_url);
     for (name, value) in forwarded_headers {
         builder = builder.header(name, value);
     }
-    // Credential injection resolves per request via the orchestrator's
-    // resolution service (wired in SP-3 Task 4). The gateway holds only the
-    // non-secret `route.credential_ref`; no secret is baked in here.
+    // Inject the credential resolved per request from the orchestrator (the
+    // gateway never holds the secret; `route.credential_ref` is non-secret).
+    if let Some((name, value)) = injected {
+        let name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|_| GatewayForwardError::InvalidRouteConfig)?;
+        let value =
+            HeaderValue::from_str(&value).map_err(|_| GatewayForwardError::InvalidRouteConfig)?;
+        builder = builder.header(name, value);
+    }
     let request = builder
         .body(body)
         .build()
         .map_err(GatewayForwardError::UpstreamRequest)?;
     Ok(BuiltUpstreamRequest { request, audit })
+}
+
+/// Wire types for the credential resolution call. Kept local to the gateway so
+/// the lib-crate boundary holds (no dependency on the kernel resolution
+/// service); these must match `kernel::credential_resolution`'s JSON shape.
+#[derive(Serialize)]
+struct ResolveRequestBody<'a> {
+    sandbox_id: Uuid,
+    route_id: &'a str,
+}
+
+#[derive(Deserialize)]
+struct ResolveResponseBody {
+    header: String,
+    value: String,
+}
+
+/// Header the gateway presents its service token to `/resolve` in. Must match
+/// `kernel::credential_resolution::RESOLVE_TOKEN_HEADER`.
+const RESOLVE_TOKEN_HEADER: &str = "x-joysafeter-resolve-token";
+
+/// Resolve the credential header for a route by calling the orchestrator's
+/// `/resolve` endpoint. Returns `Ok(None)` when no resolution endpoint is
+/// configured (the gateway then forwards without injecting a platform
+/// credential). Any configured-but-failing resolution is a fail-closed error so
+/// the sandbox never reaches the upstream without the intended credential.
+async fn resolve_injected_header(
+    client: &Client,
+    config: &GatewayConfig,
+    sandbox_id: Uuid,
+    route_id: &str,
+) -> Result<Option<(String, String)>, GatewayForwardError> {
+    let Some(resolve_url) = config.resolve_url.as_deref() else {
+        return Ok(None);
+    };
+    let url = format!("{}/resolve", resolve_url.trim_end_matches('/'));
+    let mut request = client.post(url).json(&ResolveRequestBody {
+        sandbox_id,
+        route_id,
+    });
+    if let Some(token) = config.resolve_token.as_deref() {
+        request = request.header(RESOLVE_TOKEN_HEADER, token);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|_| GatewayForwardError::CredentialResolveFailed)?;
+    if !response.status().is_success() {
+        return Err(GatewayForwardError::CredentialResolveFailed);
+    }
+    let body: ResolveResponseBody = response
+        .json()
+        .await
+        .map_err(|_| GatewayForwardError::CredentialResolveFailed)?;
+    Ok(Some((body.header, body.value)))
 }
 
 async fn forward_upstream_request(
@@ -685,6 +772,11 @@ fn gateway_forward_error(error: GatewayForwardError) -> Response {
             StatusCode::BAD_GATEWAY,
             "GATEWAY_UPSTREAM_REQUEST_FAILED",
             "egress upstream request failed",
+        ),
+        GatewayForwardError::CredentialResolveFailed => json_error(
+            StatusCode::BAD_GATEWAY,
+            "CREDENTIAL_RESOLVE_FAILED",
+            "egress credential could not be resolved for this route",
         ),
     }
 }
@@ -930,6 +1022,8 @@ mod tests {
             port: 8088,
             require_sandbox_token: true,
             control_token_sha256: Some(hash_token("control-token")),
+            resolve_url: None,
+            resolve_token: None,
         };
 
         assert_eq!(
@@ -946,6 +1040,8 @@ mod tests {
                 port: 8088,
                 require_sandbox_token: true,
                 control_token_sha256: Some(hash_token("control-token")),
+                resolve_url: None,
+                resolve_token: None,
             },
             policy_store: None,
             client: Client::new(),
@@ -1000,6 +1096,8 @@ mod tests {
                 port: 8088,
                 require_sandbox_token: true,
                 control_token_sha256: None,
+                resolve_url: None,
+                resolve_token: None,
             },
             policy_store: Some(Arc::new(InMemoryGatewayPolicyStore::new())),
             client: Client::new(),
@@ -1158,6 +1256,31 @@ mod tests {
         });
 
         let sandbox_id = Uuid::parse_str("018ff000-0000-7000-8000-000000000006").unwrap();
+
+        // Stub the orchestrator resolution endpoint: it returns the credential
+        // header the gateway must inject. The gateway holds no secret itself.
+        let resolve_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind resolve");
+        let resolve_port = resolve_listener.local_addr().expect("resolve addr").port();
+        let (resolve_shutdown_tx, resolve_shutdown_rx) = oneshot::channel::<()>();
+        let resolve_app = Router::new().fallback(any(|| async {
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "header": "authorization",
+                    "value": "Bearer platform-from-resolve",
+                })),
+            )
+        }));
+        let resolve_server = tokio::spawn(async move {
+            let _ = axum::serve(resolve_listener, resolve_app)
+                .with_graceful_shutdown(async {
+                    let _ = resolve_shutdown_rx.await;
+                })
+                .await;
+        });
+
         let store = Arc::new(InMemoryGatewayPolicyStore::new());
         store.insert(GatewaySandboxPolicy::new(
             sandbox_id,
@@ -1188,7 +1311,11 @@ mod tests {
             },
         ));
         let state = AppState {
-            config: test_config(),
+            config: GatewayConfig {
+                resolve_url: Some(format!("http://127.0.0.1:{resolve_port}")),
+                resolve_token: Some("svc".to_string()),
+                ..test_config()
+            },
             policy_store: Some(store),
             client: Client::new(),
         };
@@ -1212,15 +1339,15 @@ mod tests {
 
         let _ = shutdown_tx.send(());
         let _ = server.await;
+        let _ = resolve_shutdown_tx.send(());
+        let _ = resolve_server.await;
         assert_eq!(response.status(), StatusCode::CREATED);
         assert_eq!(response.headers().get("x-upstream").unwrap(), "ok");
         let seen = seen_rx.recv().await.expect("upstream observed request");
         assert_eq!(seen.0, "/api/v1/messages?beta=true");
-        // SP-3 Task 1: the gateway carries only the non-secret credential ref and
-        // no longer bakes a secret; per-request resolution is wired in Task 4, so
-        // the upstream currently sees no injected authorization header (the
-        // sandbox-supplied bearer is still stripped).
-        assert_eq!(seen.1.as_deref(), None);
+        // The credential is resolved per request from the stubbed /resolve
+        // endpoint and injected; the sandbox-supplied bearer was stripped first.
+        assert_eq!(seen.1.as_deref(), Some("Bearer platform-from-resolve"));
         assert!(!seen.2);
         assert_eq!(seen.3, br#"{"ok":true}"#);
     }
@@ -1409,6 +1536,7 @@ mod tests {
             Bytes::from_static(br#"{"model":"Claude-Opus-4.6"}"#),
             "/v1/messages",
             Some("beta=true"),
+            Some(("authorization".to_string(), "Bearer platform".to_string())),
         )
         .expect("request builds");
 
@@ -1417,10 +1545,12 @@ mod tests {
             request.url().as_str(),
             "https://api.anthropic.com/anthropic/v1/messages?beta=true"
         );
-        // SP-3 Task 1: no secret is baked at the gateway (resolution wired in
-        // Task 4); the sandbox-supplied authorization is stripped and nothing
-        // is injected in its place yet.
-        assert!(request.headers().get("authorization").is_none());
+        // The resolved credential is injected; the sandbox-supplied auth headers
+        // (authorization/x-api-key) and stripped extras are removed first.
+        assert_eq!(
+            request.headers().get("authorization").unwrap(),
+            "Bearer platform"
+        );
         assert!(request.headers().get("x-api-key").is_none());
         assert_eq!(request.headers().get("x-trace-id").unwrap(), "trace-1");
         assert!(request.headers().get("x-extra-secret").is_none());
@@ -1477,6 +1607,7 @@ mod tests {
             Bytes::from_static(br#"{"model":"Claude-Opus-4.6","messages":[]}"#),
             "/v1/messages",
             None,
+            Some(("x-api-key".to_string(), "platform-secret".to_string())),
         )
         .expect("request builds");
 
@@ -1484,9 +1615,11 @@ mod tests {
             request.url().as_str(),
             "http://ai-api.jdcloud.com/anthropic/v1/messages"
         );
-        // SP-3 Task 1: gateway injects no secret yet (Task 4 resolves per
-        // request); only the non-secret ref is carried.
-        assert!(request.headers().get("x-api-key").is_none());
+        // The resolved x-api-key credential is injected.
+        assert_eq!(
+            request.headers().get("x-api-key").unwrap(),
+            "platform-secret"
+        );
         assert_eq!(
             request.headers().get("anthropic-version").unwrap(),
             "2023-06-01"
@@ -1540,6 +1673,8 @@ mod tests {
             port: 8088,
             require_sandbox_token: true,
             control_token_sha256: Some(hash_token("control-token")),
+            resolve_url: None,
+            resolve_token: None,
         }
     }
 

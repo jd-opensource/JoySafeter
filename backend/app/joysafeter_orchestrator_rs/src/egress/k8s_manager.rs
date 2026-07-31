@@ -81,6 +81,8 @@ mod tests {
                 port: 8088,
                 require_sandbox_token: true,
                 control_token_sha256: Some(crate::egress::gateway::hash_token("control-token")),
+                resolve_url: None,
+                resolve_token: None,
             },
             Some(policy_store),
         );
