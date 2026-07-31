@@ -43,6 +43,63 @@ use envoy_types::pb::envoy::service::discovery::v3::{
 };
 use envoy_types::pb::google::protobuf::Any;
 
+fn protobuf_string_value(value: impl Into<String>) -> envoy_types::pb::google::protobuf::Value {
+    envoy_types::pb::google::protobuf::Value {
+        kind: Some(envoy_types::pb::google::protobuf::value::Kind::StringValue(
+            value.into(),
+        )),
+    }
+}
+
+fn access_log_json_format(listener: String) -> envoy_types::pb::google::protobuf::Struct {
+    envoy_types::pb::google::protobuf::Struct {
+        fields: HashMap::from([
+            ("ts".to_string(), protobuf_string_value("%START_TIME%")),
+            (
+                "method".to_string(),
+                protobuf_string_value("%REQ(:METHOD)%"),
+            ),
+            (
+                "authority".to_string(),
+                protobuf_string_value("%REQ(:AUTHORITY)%"),
+            ),
+            (
+                "path".to_string(),
+                protobuf_string_value("%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"),
+            ),
+            (
+                "status".to_string(),
+                protobuf_string_value("%RESPONSE_CODE%"),
+            ),
+            (
+                "flags".to_string(),
+                protobuf_string_value("%RESPONSE_FLAGS%"),
+            ),
+            (
+                "upstream".to_string(),
+                protobuf_string_value("%UPSTREAM_HOST%"),
+            ),
+            (
+                "cluster".to_string(),
+                protobuf_string_value("%UPSTREAM_CLUSTER%"),
+            ),
+            (
+                "duration_ms".to_string(),
+                protobuf_string_value("%DURATION%"),
+            ),
+            (
+                "bytes_in".to_string(),
+                protobuf_string_value("%BYTES_RECEIVED%"),
+            ),
+            (
+                "bytes_out".to_string(),
+                protobuf_string_value("%BYTES_SENT%"),
+            ),
+            ("listener".to_string(), protobuf_string_value(listener)),
+        ]),
+    }
+}
+
 /// The Envoy type URL for a Listener resource. Delta responses tag each resource
 /// with this so Envoy routes it to LDS.
 const LISTENER_TYPE_URL: &str = "type.googleapis.com/envoy.config.listener.v3.Listener";
@@ -2311,9 +2368,9 @@ fn build_http_listener_proto(
                 &StdoutAccessLog {
                     access_log_format: Some(stdout_access_log::AccessLogFormat::LogFormat(
                         SubstitutionFormatString {
-                            format: Some(substitution_format_string::Format::TextFormat(format!(
-                                "[%START_TIME%] listener={sandbox_id}_http method=%REQ(:METHOD)% authority=%REQ(:AUTHORITY)% path=%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% status=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% upstream=%UPSTREAM_HOST% cluster=%UPSTREAM_CLUSTER% duration_ms=%DURATION% bytes_in=%BYTES_RECEIVED% bytes_out=%BYTES_SENT%\\n"
-                            ))),
+                            format: Some(substitution_format_string::Format::JsonFormat(
+                                access_log_json_format(format!("{sandbox_id}_http")),
+                            )),
                             ..Default::default()
                         },
                     )),
