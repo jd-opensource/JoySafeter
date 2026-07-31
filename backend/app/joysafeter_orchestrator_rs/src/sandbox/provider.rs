@@ -19,7 +19,12 @@ pub enum SandboxStatus {
 /// What egress isolation a provider can actually enforce for a sandbox.
 ///
 /// Only `Mediated` is a credential boundary; it is the sole profile permitted to
-/// run secret-backed or limited-networking sandboxes.
+/// run secret-backed or limited-networking sandboxes. Reported by
+/// [`crate::egress::enforcer::EgressEnforcer::isolation`]. The SP-2 fail-closed
+/// gate keys on enforcer *presence*, so `Open`/`PlatformManaged` and
+/// [`IsolationProfile::manages_egress`] currently have no runtime caller outside
+/// tests; retained for the enforcer contract and SP-3 (credential brokering).
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IsolationProfile {
     /// No isolation — sandbox has full outbound access.
@@ -42,21 +47,13 @@ pub enum EgressBoundary {
 }
 
 impl IsolationProfile {
-    /// True when this profile mediates credentialed egress — the replacement for
-    /// the former `has_egress_management` boolean.
+    /// True when this profile mediates credentialed egress. See the enum doc:
+    /// retained for the `EgressEnforcer` contract and SP-3; the SP-2 gate keys on
+    /// enforcer presence, so this has no runtime caller outside tests.
+    #[allow(dead_code)]
     pub fn manages_egress(&self) -> bool {
         matches!(self, IsolationProfile::Mediated { .. })
     }
-}
-
-/// Capabilities declared by a provider, used by the framework to select
-/// strategies (e.g., file injection, networking) without provider-specific
-/// branching.
-#[derive(Debug, Clone)]
-pub struct ProviderCapabilities {
-    /// Provider supports host filesystem bind-mounts (Docker volumes).
-    /// When true, the HostMount file injection strategy is available.
-    pub has_host_mount: bool,
 }
 
 /// Configuration for creating a sandbox container.
@@ -165,18 +162,6 @@ pub trait SandboxProvider: Send + Sync + 'static {
     /// a publicly routable address).
     fn orchestrator_url(&self, grpc_port: u16) -> String {
         format!("http://host.docker.internal:{grpc_port}")
-    }
-
-    /// Declare provider capabilities so the framework can select strategies
-    /// (file injection, networking) without provider-specific branching.
-    ///
-    /// Egress isolation is no longer declared here — the [`crate::egress::enforcer::EgressEnforcer`]
-    /// (owned by the orchestrator, not the provider) is the authority for whether
-    /// credentialed egress can be mediated.
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities {
-            has_host_mount: false,
-        }
     }
 
     // =====================================================================

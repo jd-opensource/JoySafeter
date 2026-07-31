@@ -4,9 +4,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use super::file_injection::FileToInject;
-use super::provider::{
-    ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus,
-};
+use super::provider::{ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
 /// E2B cloud sandbox provider.
 ///
@@ -180,12 +178,6 @@ impl SandboxProvider for E2bProvider {
         // E2B sandboxes run remotely — must use a publicly routable address.
         std::env::var("JOYSAFETER_GRPC_PUBLIC_URL")
             .unwrap_or_else(|_| format!("http://localhost:{grpc_port}"))
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities {
-            has_host_mount: false,
-        }
     }
 
     async fn inject_files(&self, external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {

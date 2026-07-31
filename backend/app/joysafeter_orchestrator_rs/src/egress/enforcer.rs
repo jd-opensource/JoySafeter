@@ -131,8 +131,10 @@ pub fn build_enforcer(
 ) -> anyhow::Result<Option<std::sync::Arc<dyn EgressEnforcer>>> {
     Ok(match provider_name {
         "docker" | "" => envoy_manager.map(|m| {
-            std::sync::Arc::new(EnvoyEnforcer::new(m, config.llm_egress_allowed_hosts.clone()))
-                as std::sync::Arc<dyn EgressEnforcer>
+            std::sync::Arc::new(EnvoyEnforcer::new(
+                m,
+                config.llm_egress_allowed_hosts.clone(),
+            )) as std::sync::Arc<dyn EgressEnforcer>
         }),
         "k8s" | "kubernetes" => GatewayEnforcer::from_config(config)?
             .map(|g| std::sync::Arc::new(g) as std::sync::Arc<dyn EgressEnforcer>),
@@ -493,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn envoy_enforcer_declares_envoy_socket_mediation() {
+    fn isolation_profile_manages_egress_only_when_mediated() {
         // Build against a dummy EnvoyManager is heavy; assert the const isolation directly.
         // Instead assert the trait contract via the type-level isolation the impl returns.
         // GatewayEnforcer/EnvoyEnforcer isolation() are constant; verify the variants.

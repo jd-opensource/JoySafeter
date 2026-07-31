@@ -14,10 +14,10 @@ use crate::db::{
     models::{JoySafeterAgent, JoySafeterSession},
     queries,
 };
+use crate::egress::enforcer::EgressEnforcer;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::kernel::sandbox_resolver::SandboxResolver;
-use crate::egress::enforcer::EgressEnforcer;
 use crate::sandbox::provider::SandboxProvider;
 
 const QUEUE_POP_TIMEOUT: Duration = Duration::from_secs(1);

@@ -2525,11 +2525,11 @@ mod egress_tests {
             config.image_claude = image.clone();
             config.sandbox_image = image.clone();
             let resolver = SandboxResolver::new(
-            pool.clone(),
-            provider.clone(),
-            Some(Arc::new(RecordingEnforcer::default())),
-            config,
-        );
+                pool.clone(),
+                provider.clone(),
+                Some(Arc::new(RecordingEnforcer::default())),
+                config,
+            );
 
             let resolved = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -2653,11 +2653,11 @@ mod egress_tests {
             config.image_claude = image.clone();
             config.sandbox_image = image.clone();
             let resolver = SandboxResolver::new(
-            pool.clone(),
-            provider.clone(),
-            Some(Arc::new(RecordingEnforcer::default())),
-            config,
-        );
+                pool.clone(),
+                provider.clone(),
+                Some(Arc::new(RecordingEnforcer::default())),
+                config,
+            );
 
             let resolved = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -2785,11 +2785,11 @@ mod egress_tests {
             config.image_claude = image.clone();
             config.sandbox_image = image.clone();
             let resolver = SandboxResolver::new(
-            pool.clone(),
-            provider.clone(),
-            Some(Arc::new(RecordingEnforcer::default())),
-            config,
-        );
+                pool.clone(),
+                provider.clone(),
+                Some(Arc::new(RecordingEnforcer::default())),
+                config,
+            );
 
             let err = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -3050,7 +3050,7 @@ mod egress_tests {
             config.sandbox_image = image.clone();
             config.image_claude = image.clone();
 
-                let resolver = SandboxResolver::new(
+            let resolver = SandboxResolver::new(
                 pool.clone(),
                 provider,
                 Some(Arc::new(RecordingEnforcer::default())),
@@ -3677,11 +3677,11 @@ mod egress_tests {
             config.sandbox_pool_enabled = false;
             config.sandbox_workspace_root = Some(workspace_root.to_string_lossy().to_string());
             let resolver = SandboxResolver::new(
-            pool.clone(),
-            provider.clone(),
-            Some(Arc::new(RecordingEnforcer::default())),
-            config,
-        );
+                pool.clone(),
+                provider.clone(),
+                Some(Arc::new(RecordingEnforcer::default())),
+                config,
+            );
 
             let err = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)

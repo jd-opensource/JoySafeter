@@ -9,9 +9,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use super::mounts::SandboxMount;
-use super::provider::{
-    ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus,
-};
+use super::provider::{ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus};
 use crate::config::JoySafeterConfig;
 use crate::egress::policy::LLM_EGRESS_HOST;
 use crate::kernel::llm_providers::is_real_llm_secret_env;
@@ -513,12 +511,6 @@ impl SandboxProvider for K8sProvider {
         self.orchestrator_url
             .clone()
             .unwrap_or_else(|| format!("http://joysafeter-orchestrator:{grpc_port}"))
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities {
-            has_host_mount: false,
-        }
     }
 }
 

@@ -18,9 +18,7 @@ use super::lds_backend::{
     CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
 };
 use super::mounts::SandboxMount;
-use super::provider::{
-    ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus,
-};
+use super::provider::{ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus};
 use crate::config::JoySafeterConfig;
 
 /// S13: Retry wrapper for Docker operations that may fail due to transient errors.
@@ -803,12 +801,6 @@ impl SandboxProvider for DockerProvider {
             .grpc_public_url
             .clone()
             .unwrap_or_else(|| format!("http://host.docker.internal:{grpc_port}"))
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities {
-            has_host_mount: true,
-        }
     }
 
     fn supported_injection_strategies(&self) -> Vec<InjectionStrategy> {

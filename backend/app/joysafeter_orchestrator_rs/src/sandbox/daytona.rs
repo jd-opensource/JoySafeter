@@ -4,9 +4,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use super::file_injection::FileToInject;
-use super::provider::{
-    ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus,
-};
+use super::provider::{ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
 /// Daytona cloud sandbox provider.
 ///
@@ -193,12 +191,6 @@ impl SandboxProvider for DaytonaProvider {
         // JOYSAFETER_GRPC_PUBLIC_URL.
         std::env::var("JOYSAFETER_GRPC_PUBLIC_URL")
             .unwrap_or_else(|_| format!("http://localhost:{grpc_port}"))
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities {
-            has_host_mount: false,
-        }
     }
 
     async fn inject_files(&self, external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {

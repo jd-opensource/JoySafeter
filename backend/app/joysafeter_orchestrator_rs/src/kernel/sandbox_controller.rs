@@ -10,11 +10,11 @@ use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::egress::enforcer::EgressEnforcer;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
-use crate::egress::enforcer::EgressEnforcer;
 use crate::sandbox::provider::SandboxProvider;
 
 const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;

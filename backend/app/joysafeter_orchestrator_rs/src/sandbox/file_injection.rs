@@ -122,18 +122,6 @@ pub fn select_strategies(
     strategies
 }
 
-/// Select strategies using provider capabilities (preferred over bool overload).
-pub fn select_strategies_from_capabilities(
-    runner_capabilities: &[String],
-    capabilities: &super::provider::ProviderCapabilities,
-    has_workspace_context: bool,
-) -> Vec<InjectionStrategy> {
-    select_strategies(
-        runner_capabilities,
-        capabilities.has_host_mount && has_workspace_context,
-    )
-}
-
 fn has_capability(runner_capabilities: &[String], capability: &str) -> bool {
     runner_capabilities.iter().any(|item| item == capability)
 }

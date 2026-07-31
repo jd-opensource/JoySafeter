@@ -176,11 +176,8 @@ async fn main() -> anyhow::Result<()> {
     // Build the orchestrator-owned egress enforcer. It is the authority for
     // whether credentialed egress can be mediated; a `None` enforcer means the
     // resolver fails closed for secret-backed / limited-networking sandboxes.
-    let egress_enforcer = egress::enforcer::build_enforcer(
-        &config,
-        &config.sandbox_provider,
-        docker_envoy_manager,
-    )?;
+    let egress_enforcer =
+        egress::enforcer::build_enforcer(&config, &config.sandbox_provider, docker_envoy_manager)?;
 
     // Provider startup: ImageBuilder, provider-specific health, etc.
     if let Err(e) = sandbox_provider.on_startup(&db_pool).await {
