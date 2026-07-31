@@ -1,5 +1,9 @@
 /// Kernel primitives — scheduler, sandbox management, task execution.
 pub mod command_listener;
+// The broker is consumed by the CredentialResolutionService in SP-3 Task 3;
+// remove this allow when that wiring lands.
+#[allow(dead_code)]
+pub mod credential_broker;
 pub mod engine_adapter;
 pub mod harness_input_builder;
 pub mod llm_providers;
