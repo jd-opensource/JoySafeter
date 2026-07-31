@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use super::mounts::SandboxMount;
 use super::provider::{
-    NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
-    SandboxProvider, SandboxStatus,
+    EgressBoundary, IsolationProfile, ProviderCapabilities, ProviderSandboxInfo,
+    SandboxCreateConfig, SandboxProvider, SandboxStatus,
 };
 use crate::config::JoySafeterConfig;
 use crate::db::models::JoySafeterSandbox;
@@ -794,11 +794,12 @@ impl SandboxProvider for K8sProvider {
             && self.egress_gateway_network_target.is_some();
         ProviderCapabilities {
             has_host_mount: false,
-            has_egress_management: egress_ready,
-            network_isolation: if egress_ready {
-                NetworkIsolation::Platform
+            isolation: if egress_ready {
+                IsolationProfile::Mediated {
+                    boundary: EgressBoundary::Gateway,
+                }
             } else {
-                NetworkIsolation::None
+                IsolationProfile::Open
             },
         }
     }
@@ -914,12 +915,11 @@ mod tests {
 
     #[test]
     fn k8s_capability_requires_explicit_enablement_and_gateway_config() {
-        assert!(!provider().capabilities().has_egress_management);
-        assert!(!provider_with_gateway().capabilities().has_egress_management);
+        assert!(!provider().capabilities().isolation.manages_egress());
+        assert!(!provider_with_gateway().capabilities().isolation.manages_egress());
 
         let enabled = provider_with_enabled_gateway().capabilities();
-        assert!(enabled.has_egress_management);
-        assert_eq!(enabled.network_isolation, NetworkIsolation::Platform);
+        assert!(enabled.isolation.manages_egress());
     }
 
     #[test]

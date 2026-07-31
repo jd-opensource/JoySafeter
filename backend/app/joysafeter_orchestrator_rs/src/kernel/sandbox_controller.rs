@@ -975,7 +975,7 @@ impl SandboxController {
     }
 
     async fn manage_pool_inner(&self) -> anyhow::Result<()> {
-        if self.provider.capabilities().has_egress_management {
+        if self.provider.capabilities().isolation.manages_egress() {
             debug!("Skipping warm pool provisioning while default sandbox networking is limited");
             return Ok(());
         }

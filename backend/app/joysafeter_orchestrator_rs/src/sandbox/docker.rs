@@ -20,8 +20,8 @@ use super::lds_backend::{
 };
 use super::mounts::SandboxMount;
 use super::provider::{
-    NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
-    SandboxProvider, SandboxStatus,
+    EgressBoundary, IsolationProfile, ProviderCapabilities, ProviderSandboxInfo,
+    SandboxCreateConfig, SandboxProvider, SandboxStatus,
 };
 use crate::config::JoySafeterConfig;
 use crate::egress::policy::SandboxCredentials;
@@ -847,11 +847,12 @@ impl SandboxProvider for DockerProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: true,
-            has_egress_management: self.envoy_manager.is_some(),
-            network_isolation: if self.envoy_manager.is_some() {
-                NetworkIsolation::Envoy
+            isolation: if self.envoy_manager.is_some() {
+                IsolationProfile::Mediated {
+                    boundary: EgressBoundary::EnvoySocket,
+                }
             } else {
-                NetworkIsolation::None
+                IsolationProfile::Open
             },
         }
     }

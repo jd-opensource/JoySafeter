@@ -578,7 +578,7 @@ impl SandboxResolver {
 
     fn ensure_egress_capability(&self, context: &ResolveContext) -> anyhow::Result<()> {
         let capabilities = self.provider.capabilities();
-        if context.requires_egress_management() && !capabilities.has_egress_management {
+        if context.requires_egress_management() && !capabilities.isolation.manages_egress() {
             anyhow::bail!(
                 "SANDBOX_EGRESS_MANAGER_REQUIRED: provider '{}' cannot safely run secret-backed or limited-networking sandboxes (capabilities={:?})",
                 self.provider.provider_name(),
@@ -1800,10 +1800,16 @@ mod egress_tests {
         }
 
         fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
-            crate::sandbox::provider::ProviderCapabilities {
+            use crate::sandbox::provider::{EgressBoundary, IsolationProfile, ProviderCapabilities};
+            ProviderCapabilities {
                 has_host_mount: false,
-                has_egress_management: !self.egress_management_disabled,
-                network_isolation: crate::sandbox::provider::NetworkIsolation::Envoy,
+                isolation: if self.egress_management_disabled {
+                    IsolationProfile::Open
+                } else {
+                    IsolationProfile::Mediated {
+                        boundary: EgressBoundary::EnvoySocket,
+                    }
+                },
             }
         }
     }

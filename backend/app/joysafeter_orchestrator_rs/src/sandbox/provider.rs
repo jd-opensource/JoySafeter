@@ -17,15 +17,37 @@ pub enum SandboxStatus {
     Unknown(String),
 }
 
-/// Network isolation level provided by this sandbox backend.
+/// What egress isolation a provider can actually enforce for a sandbox.
+///
+/// Only `Mediated` is a credential boundary; it is the sole profile permitted to
+/// run secret-backed or limited-networking sandboxes.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NetworkIsolation {
-    /// No network isolation — sandbox has full outbound access.
-    None,
-    /// Platform-managed isolation (E2B/Daytona handle it internally).
-    Platform,
-    /// Envoy sidecar proxy with per-sandbox listeners (Docker provider).
-    Envoy,
+pub enum IsolationProfile {
+    /// No isolation — sandbox has full outbound access.
+    Open,
+    /// The platform (E2B/Daytona) isolates the sandbox internally, but JoySafeter
+    /// does not mediate credentialed egress. Not a credential boundary.
+    PlatformManaged,
+    /// JoySafeter mediates credentialed egress (allowlist + credential injection)
+    /// through the given boundary.
+    Mediated { boundary: EgressBoundary },
+}
+
+/// Where and how a sandbox reaches its mediated egress boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EgressBoundary {
+    /// Docker: per-sandbox Envoy listeners over a Unix socket volume.
+    EnvoySocket,
+    /// K8s: an in-cluster egress gateway HTTP(S) service.
+    Gateway,
+}
+
+impl IsolationProfile {
+    /// True when this profile mediates credentialed egress — the replacement for
+    /// the former `has_egress_management` boolean.
+    pub fn manages_egress(&self) -> bool {
+        matches!(self, IsolationProfile::Mediated { .. })
+    }
 }
 
 /// Capabilities declared by a provider, used by the framework to select
@@ -36,10 +58,8 @@ pub struct ProviderCapabilities {
     /// Provider supports host filesystem bind-mounts (Docker volumes).
     /// When true, the HostMount file injection strategy is available.
     pub has_host_mount: bool,
-    /// Provider manages egress networking (allowlist + credential injection).
-    pub has_egress_management: bool,
-    /// Network isolation mechanism.
-    pub network_isolation: NetworkIsolation,
+    /// Egress isolation this provider can enforce.
+    pub isolation: IsolationProfile,
 }
 
 /// Configuration for creating a sandbox container.
@@ -182,8 +202,7 @@ pub trait SandboxProvider: Send + Sync + 'static {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: false,
-            has_egress_management: false,
-            network_isolation: NetworkIsolation::None,
+            isolation: IsolationProfile::Open,
         }
     }
 
@@ -228,7 +247,7 @@ mod provider_conformance_tests {
         let capabilities = provider.capabilities();
 
         assert!(
-            !capabilities.has_egress_management,
+            !capabilities.isolation.manages_egress(),
             "{} must not claim egress management until it can enforce allowlist + credential injection",
             provider.provider_name()
         );
@@ -242,10 +261,7 @@ mod provider_conformance_tests {
         let provider = K8sProvider::new(&config);
 
         assert_no_credential_egress_boundary(&provider);
-        assert_eq!(
-            provider.capabilities().network_isolation,
-            NetworkIsolation::None
-        );
+        assert_eq!(provider.capabilities().isolation, IsolationProfile::Open);
     }
 
     #[test]
@@ -256,12 +272,12 @@ mod provider_conformance_tests {
         assert_no_credential_egress_boundary(&daytona);
         assert_no_credential_egress_boundary(&e2b);
         assert_eq!(
-            daytona.capabilities().network_isolation,
-            NetworkIsolation::Platform
+            daytona.capabilities().isolation,
+            IsolationProfile::PlatformManaged
         );
         assert_eq!(
-            e2b.capabilities().network_isolation,
-            NetworkIsolation::Platform
+            e2b.capabilities().isolation,
+            IsolationProfile::PlatformManaged
         );
     }
 }
