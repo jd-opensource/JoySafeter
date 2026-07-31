@@ -1010,7 +1010,7 @@ fn build_virtual_hosts_json(
                         "host_rewrite_literal": r.upstream_host,
                         "timeout": "0s",
                         "retry_policy": {
-                            "retry_on": "reset,connect-failure",
+                            "retry_on": "5xx,reset,connect-failure",
                             "num_retries": 2
                         }
                     })
@@ -1021,7 +1021,7 @@ fn build_virtual_hosts_json(
                         "prefix_rewrite": prefix_rewrite,
                         "timeout": "0s",
                         "retry_policy": {
-                            "retry_on": "reset,connect-failure",
+                            "retry_on": "5xx,reset,connect-failure",
                             "num_retries": 2
                         }
                     })
@@ -1095,7 +1095,7 @@ fn build_virtual_hosts_json(
                     "route": {
                         "cluster": "dynamic_forward_proxy",
                         "retry_policy": {
-                            "retry_on": "reset,connect-failure",
+                            "retry_on": "5xx,reset,connect-failure",
                             "num_retries": 2
                         }
                     },
@@ -2459,9 +2459,15 @@ fn build_virtual_hosts_proto(
                             ),
                         ),
                         prefix_rewrite,
+                        // Disable the default 15s route timeout — streaming
+                        // responses (LLM, SSE MCP) can run for minutes.
+                        timeout: Some(envoy_types::pb::google::protobuf::Duration {
+                            seconds: 0,
+                            nanos: 0,
+                        }),
                         retry_policy: Some(
                             envoy_types::pb::envoy::config::route::v3::RetryPolicy {
-                                retry_on: "reset,connect-failure".to_string(),
+                                retry_on: "5xx,reset,connect-failure".to_string(),
                                 num_retries: Some(envoy_types::pb::google::protobuf::UInt32Value {
                                     value: 2,
                                 }),
@@ -2544,8 +2550,12 @@ fn build_virtual_hosts_proto(
                 cluster_specifier: Some(route_action::ClusterSpecifier::Cluster(
                     "dynamic_forward_proxy".to_string(),
                 )),
+                timeout: Some(envoy_types::pb::google::protobuf::Duration {
+                    seconds: 0,
+                    nanos: 0,
+                }),
                 retry_policy: Some(envoy_types::pb::envoy::config::route::v3::RetryPolicy {
-                    retry_on: "reset,connect-failure".to_string(),
+                    retry_on: "5xx,reset,connect-failure".to_string(),
                     num_retries: Some(envoy_types::pb::google::protobuf::UInt32Value { value: 2 }),
                     ..Default::default()
                 }),
