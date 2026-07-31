@@ -11,6 +11,7 @@ use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
 use crate::egress::credential::{build_external_egress, build_git_egress, build_mcp_egress};
+use crate::egress::enforcer::EgressEnforcer;
 use crate::egress::llm::extract_llm_egress;
 #[cfg(test)]
 use crate::egress::policy::EgressCredentialRoute;
@@ -34,16 +35,26 @@ use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OP
 pub struct SandboxResolver {
     pool: PgPool,
     provider: Arc<dyn SandboxProvider>,
+    /// Orchestrator-owned egress enforcer. `None` means egress cannot be
+    /// mediated for this provider — the resolver then fails closed for
+    /// secret-backed / limited-networking sandboxes.
+    enforcer: Option<Arc<dyn EgressEnforcer>>,
     config: JoySafeterConfig,
     /// Per-session locks to prevent concurrent resolution
     session_locks: dashmap::DashMap<Uuid, Arc<tokio::sync::Mutex<()>>>,
 }
 
 impl SandboxResolver {
-    pub fn new(pool: PgPool, provider: Arc<dyn SandboxProvider>, config: JoySafeterConfig) -> Self {
+    pub fn new(
+        pool: PgPool,
+        provider: Arc<dyn SandboxProvider>,
+        enforcer: Option<Arc<dyn EgressEnforcer>>,
+        config: JoySafeterConfig,
+    ) -> Self {
         Self {
             pool,
             provider,
+            enforcer,
             config,
             session_locks: dashmap::DashMap::new(),
         }
@@ -471,16 +482,16 @@ impl SandboxResolver {
 
         if create_config.network.as_deref() == Some("none") {
             self.ensure_egress_capability(context)?;
-            let external_id = format!("joysafeter-{}", sandbox_db_id);
-            self.provider
-                .setup_networking(
-                    sandbox_db_id,
-                    &external_id,
-                    Some(&runner_token),
-                    context.networking.as_ref(),
-                    context.credentials.clone(),
-                )
-                .await?;
+            if let Some(enforcer) = self.enforcer.as_ref() {
+                enforcer
+                    .enforce(
+                        sandbox_db_id,
+                        &runner_token,
+                        context.networking.as_ref(),
+                        context.credentials.clone(),
+                    )
+                    .await?;
+            }
         }
 
         // #13: File injection — write local session files to workspace before start.
@@ -577,12 +588,10 @@ impl SandboxResolver {
     }
 
     fn ensure_egress_capability(&self, context: &ResolveContext) -> anyhow::Result<()> {
-        let capabilities = self.provider.capabilities();
-        if context.requires_egress_management() && !capabilities.isolation.manages_egress() {
+        if context.requires_egress_management() && self.enforcer.is_none() {
             anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: provider '{}' cannot safely run secret-backed or limited-networking sandboxes (capabilities={:?})",
-                self.provider.provider_name(),
-                capabilities
+                "SANDBOX_EGRESS_MANAGER_REQUIRED: no egress enforcer configured for provider '{}'; cannot run secret-backed or limited-networking sandboxes",
+                self.provider.provider_name()
             );
         }
         Ok(())
@@ -932,7 +941,10 @@ impl SandboxResolver {
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        self.provider.teardown_networking(sandbox_id).await
+        match self.enforcer.as_ref() {
+            Some(e) => e.teardown(sandbox_id).await,
+            None => Ok(()),
+        }
     }
 
     async fn destroy_observed_sandbox(
@@ -943,6 +955,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
+            self.enforcer.as_ref(),
             sandbox.id,
             &sandbox.status,
             sandbox.external_id.as_deref(),
@@ -974,6 +987,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
             &self.pool,
             &self.provider,
+            self.enforcer.as_ref(),
             sandbox.id,
             sandbox.external_id.as_deref(),
             &previous_status,
@@ -1700,9 +1714,7 @@ mod egress_tests {
 
     #[derive(Default)]
     struct RecordingProvider {
-        egress_management_disabled: bool,
         created: Mutex<Vec<SandboxCreateConfig>>,
-        networking: Mutex<Vec<(Uuid, Option<serde_json::Value>)>>,
         start_status_probe: Mutex<Option<(PgPool, Uuid)>>,
         start_observed_statuses: Mutex<Vec<String>>,
         start_marks_error: Mutex<Option<(PgPool, Uuid)>>,
@@ -1712,6 +1724,42 @@ mod egress_tests {
         destroy_status_probe: Mutex<Option<(PgPool, Uuid)>>,
         destroy_observed_statuses: Mutex<Vec<String>>,
         destroyed: Mutex<Vec<String>>,
+    }
+
+    /// Test double for [`EgressEnforcer`]. Reports Envoy-socket mediation and
+    /// records the per-sandbox `enforce` calls so tests can assert the resolver
+    /// drove egress setup. Passing `Some(RecordingEnforcer)` models "egress
+    /// enabled"; passing `None` models "no enforcer configured" (fail-closed).
+    #[derive(Default)]
+    struct RecordingEnforcer {
+        networking: Mutex<Vec<(Uuid, Option<serde_json::Value>)>>,
+    }
+
+    #[async_trait]
+    impl crate::egress::enforcer::EgressEnforcer for RecordingEnforcer {
+        fn isolation(&self) -> crate::sandbox::provider::IsolationProfile {
+            crate::sandbox::provider::IsolationProfile::Mediated {
+                boundary: crate::sandbox::provider::EgressBoundary::EnvoySocket,
+            }
+        }
+
+        async fn enforce(
+            &self,
+            sandbox_id: Uuid,
+            _sandbox_token: &str,
+            networking: Option<&serde_json::Value>,
+            _credentials: SandboxCredentials,
+        ) -> anyhow::Result<()> {
+            self.networking
+                .lock()
+                .await
+                .push((sandbox_id, networking.cloned()));
+            Ok(())
+        }
+
+        async fn teardown(&self, _sandbox_id: Uuid) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -1780,39 +1828,8 @@ mod egress_tests {
             Ok(String::new())
         }
 
-        async fn setup_networking(
-            &self,
-            sandbox_id: Uuid,
-            _sandbox_external_id: &str,
-            _sandbox_token: Option<&str>,
-            networking: Option<&serde_json::Value>,
-            _credentials: SandboxCredentials,
-        ) -> anyhow::Result<()> {
-            self.networking
-                .lock()
-                .await
-                .push((sandbox_id, networking.cloned()));
-            Ok(())
-        }
-
         fn provider_name(&self) -> &'static str {
             "recording"
-        }
-
-        fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
-            use crate::sandbox::provider::{
-                EgressBoundary, IsolationProfile, ProviderCapabilities,
-            };
-            ProviderCapabilities {
-                has_host_mount: false,
-                isolation: if self.egress_management_disabled {
-                    IsolationProfile::Open
-                } else {
-                    IsolationProfile::Mediated {
-                        boundary: EgressBoundary::EnvoySocket,
-                    }
-                },
-            }
         }
     }
 
@@ -2074,7 +2091,12 @@ mod egress_tests {
         config.sandbox_workspace_root = None;
         config.envoy_enabled = false;
 
-        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+        let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
         let sandbox_id = resolver
             .provision_pool_sandbox(&image)
             .await
@@ -2156,16 +2178,13 @@ mod egress_tests {
             .await
             .expect("insert no-egress session");
 
-            let provider = Arc::new(RecordingProvider {
-                egress_management_disabled: true,
-                ..Default::default()
-            });
+            let provider = Arc::new(RecordingProvider::default());
             let mut config = JoySafeterConfig::from_env();
             config.sandbox_provider = "recording".to_string();
             config.sandbox_pool_enabled = false;
             config.sandbox_workspace_root = None;
             config.envoy_enabled = false;
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), None, config);
 
             let err = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -2249,7 +2268,12 @@ mod egress_tests {
         config.sandbox_provider = "recording".to_string();
         config.sandbox_workspace_root = None;
         config.envoy_enabled = false;
-        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+        let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
 
         let result = resolver.provision_pool_sandbox(&image).await;
         let destroyed = provider.destroyed.lock().await.clone();
@@ -2363,7 +2387,12 @@ mod egress_tests {
         config.envoy_enabled = false;
         config.image_claude = image.clone();
         config.sandbox_image = image.clone();
-        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+        let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
 
         let result = resolver
             .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -2495,7 +2524,12 @@ mod egress_tests {
             config.envoy_enabled = false;
             config.image_claude = image.clone();
             config.sandbox_image = image.clone();
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
 
             let resolved = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -2618,7 +2652,12 @@ mod egress_tests {
             config.envoy_enabled = false;
             config.image_claude = image.clone();
             config.sandbox_image = image.clone();
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
 
             let resolved = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -2745,7 +2784,12 @@ mod egress_tests {
             config.envoy_enabled = false;
             config.image_claude = image.clone();
             config.sandbox_image = image.clone();
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
 
             let err = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -3006,7 +3050,12 @@ mod egress_tests {
             config.sandbox_image = image.clone();
             config.image_claude = image.clone();
 
-            let resolver = SandboxResolver::new(pool.clone(), provider, config);
+                let resolver = SandboxResolver::new(
+                pool.clone(),
+                provider,
+                Some(Arc::new(RecordingEnforcer::default())),
+                config,
+            );
             let err = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
                 .await
@@ -3141,7 +3190,12 @@ mod egress_tests {
             config.sandbox_image = image.clone();
             config.image_claude = image.clone();
 
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
             let resolved = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
                 .await
@@ -3266,7 +3320,12 @@ mod egress_tests {
             config.sandbox_image = image.clone();
             config.image_claude = image.clone();
 
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
             let (resolved_sandbox_id, _resolved_external_id) = resolver
                 .resolve(task_id, Some(session_id), Some(agent_id), None)
                 .await
@@ -3411,7 +3470,13 @@ mod egress_tests {
             config.sandbox_workspace_root = None;
             config.image_claude = "fallback-claude:latest".to_string();
             config.image_codex = "fallback-codex:latest".to_string();
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let enforcer = Arc::new(RecordingEnforcer::default());
+            let resolver = SandboxResolver::new(
+                pool.clone(),
+                provider.clone(),
+                Some(enforcer.clone()),
+                config,
+            );
 
             let (sandbox_id, _external_id) = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
@@ -3435,7 +3500,7 @@ mod egress_tests {
             assert!(!create_config.env.contains_key("LIVE_AGENT_ONLY"));
             drop(created);
 
-            let networking = provider.networking.lock().await;
+            let networking = enforcer.networking.lock().await;
             assert_eq!(networking.len(), 1);
             assert_eq!(networking[0].0, sandbox_id);
             assert_eq!(
@@ -3611,7 +3676,12 @@ mod egress_tests {
             config.sandbox_provider = "recording".to_string();
             config.sandbox_pool_enabled = false;
             config.sandbox_workspace_root = Some(workspace_root.to_string_lossy().to_string());
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = SandboxResolver::new(
+            pool.clone(),
+            provider.clone(),
+            Some(Arc::new(RecordingEnforcer::default())),
+            config,
+        );
 
             let err = resolver
                 .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)

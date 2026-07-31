@@ -5,8 +5,7 @@ use tracing::{info, warn};
 
 use super::file_injection::FileToInject;
 use super::provider::{
-    IsolationProfile, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
-    SandboxProvider, SandboxStatus,
+    ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus,
 };
 
 /// E2B cloud sandbox provider.
@@ -186,7 +185,6 @@ impl SandboxProvider for E2bProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: false,
-            isolation: IsolationProfile::PlatformManaged,
         }
     }
 

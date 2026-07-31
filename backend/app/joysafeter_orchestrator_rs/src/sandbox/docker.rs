@@ -11,7 +11,6 @@ use bollard::Docker;
 use futures::StreamExt;
 use sqlx::PgPool;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
@@ -20,12 +19,9 @@ use super::lds_backend::{
 };
 use super::mounts::SandboxMount;
 use super::provider::{
-    EgressBoundary, IsolationProfile, ProviderCapabilities, ProviderSandboxInfo,
-    SandboxCreateConfig, SandboxProvider, SandboxStatus,
+    ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus,
 };
 use crate::config::JoySafeterConfig;
-use crate::egress::enforcer::{EgressEnforcer, EnvoyEnforcer};
-use crate::egress::policy::SandboxCredentials;
 
 /// S13: Retry wrapper for Docker operations that may fail due to transient errors.
 /// Retries up to `max_retries` times with 1s delay on 500/503 or connection errors.
@@ -84,8 +80,6 @@ pub struct DockerProvider {
     hardening: SandboxHardening,
     /// Envoy network isolation manager (None when envoy_enabled=false).
     envoy_manager: Option<Arc<EnvoyManager>>,
-    /// Egress enforcer built from the Envoy manager (None when Envoy disabled).
-    egress_enforcer: Option<Arc<EnvoyEnforcer>>,
     /// Delta xDS server for gRPC xDS mode (None when filesystem mode or Envoy disabled).
     xds_service: Option<Arc<DeltaXdsServer>>,
 }
@@ -156,13 +150,6 @@ impl DockerProvider {
             None
         };
 
-        let egress_enforcer = envoy_manager.clone().map(|m| {
-            Arc::new(EnvoyEnforcer::new(
-                m,
-                config.llm_egress_allowed_hosts.clone(),
-            ))
-        });
-
         Ok(Self {
             docker,
             config: config.clone(),
@@ -174,7 +161,6 @@ impl DockerProvider {
                 run_as_user: config.sandbox_run_as_user.clone(),
             },
             envoy_manager,
-            egress_enforcer,
             xds_service,
         })
     }
@@ -192,7 +178,6 @@ impl DockerProvider {
                 run_as_user: "1000:1000".to_string(),
             },
             envoy_manager: None,
-            egress_enforcer: None,
             xds_service: None,
         }
     }
@@ -804,49 +789,11 @@ impl SandboxProvider for DockerProvider {
     // New execution-plane trait methods
     // =================================================================
 
-    async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
-        if let Some(ref enforcer) = self.egress_enforcer {
-            if let Err(e) = enforcer.init().await {
-                warn!("EnvoyManager initialization failed: {e}");
-                return Ok(()); // non-fatal: sandboxes without Envoy still work
-            }
-            if let Err(e) = enforcer.recover(pool).await {
-                warn!("EnvoyManager LDS recovery from DB failed: {e}");
-            }
-            info!(
-                xds_mode = %self.config.envoy_xds_mode,
-                "EnvoyManager initialized"
-            );
-        } else {
+    async fn on_startup(&self, _pool: &PgPool) -> anyhow::Result<()> {
+        // Envoy init + LDS recovery is now performed by the orchestrator-owned
+        // EgressEnforcer in main.rs; the provider no longer owns egress state.
+        if self.envoy_manager.is_none() {
             info!("Envoy network isolation disabled");
-        }
-        Ok(())
-    }
-
-    async fn setup_networking(
-        &self,
-        sandbox_id: Uuid,
-        _sandbox_external_id: &str,
-        _sandbox_token: Option<&str>,
-        networking: Option<&serde_json::Value>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        if let Some(e) = &self.egress_enforcer {
-            e.enforce(
-                sandbox_id,
-                _sandbox_token.unwrap_or(""),
-                networking,
-                credentials,
-            )
-            .await
-        } else {
-            Ok(())
-        }
-    }
-
-    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        if let Some(e) = &self.egress_enforcer {
-            e.teardown(sandbox_id).await?;
         }
         Ok(())
     }
@@ -861,13 +808,6 @@ impl SandboxProvider for DockerProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: true,
-            isolation: if self.envoy_manager.is_some() {
-                IsolationProfile::Mediated {
-                    boundary: EgressBoundary::EnvoySocket,
-                }
-            } else {
-                IsolationProfile::Open
-            },
         }
     }
 

@@ -113,6 +113,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Session broadcaster initialized");
 
     // Initialize sandbox provider (select based on config)
+    let mut docker_envoy_manager: Option<Arc<sandbox::envoy::EnvoyManager>> = None;
     let (sandbox_provider, xds_service): (
         Arc<dyn sandbox::provider::SandboxProvider>,
         Option<Arc<sandbox::lds_backend::DeltaXdsServer>>,
@@ -154,6 +155,7 @@ async fn main() -> anyhow::Result<()> {
         "docker" | "" => {
             let docker_provider = sandbox::docker::DockerProvider::new(&config).await?;
             let xds = docker_provider.xds_service();
+            docker_envoy_manager = docker_provider.envoy_manager().cloned();
             (
                 Arc::new(docker_provider) as Arc<dyn sandbox::provider::SandboxProvider>,
                 xds,
@@ -171,9 +173,29 @@ async fn main() -> anyhow::Result<()> {
         "Sandbox provider initialized"
     );
 
-    // Provider startup: Envoy init, DB recovery, ImageBuilder, etc.
+    // Build the orchestrator-owned egress enforcer. It is the authority for
+    // whether credentialed egress can be mediated; a `None` enforcer means the
+    // resolver fails closed for secret-backed / limited-networking sandboxes.
+    let egress_enforcer = egress::enforcer::build_enforcer(
+        &config,
+        &config.sandbox_provider,
+        docker_envoy_manager,
+    )?;
+
+    // Provider startup: ImageBuilder, provider-specific health, etc.
     if let Err(e) = sandbox_provider.on_startup(&db_pool).await {
         warn!("Provider on_startup failed: {e}");
+    }
+
+    // Egress data-plane startup: init (Docker: Envoy container) + recover
+    // per-sandbox egress state from the DB for still-live sandboxes.
+    if let Some(enforcer) = &egress_enforcer {
+        if let Err(e) = enforcer.init().await {
+            warn!("Egress enforcer init failed: {e}");
+        }
+        if let Err(e) = enforcer.recover(&db_pool).await {
+            warn!("Egress enforcer recovery from DB failed: {e}");
+        }
     }
 
     // Initialize sandbox bridge registry
@@ -207,6 +229,7 @@ async fn main() -> anyhow::Result<()> {
             queue.clone(),
             bridge_registry.clone(),
             sandbox_provider.clone(),
+            egress_enforcer.clone(),
             redis_coordinator.clone(),
             config.clone(),
             runtime_config.clone(),
@@ -240,6 +263,7 @@ async fn main() -> anyhow::Result<()> {
         queue.clone(),
         bridge_registry.clone(),
         sandbox_provider.clone(),
+        egress_enforcer.clone(),
         config.clone(),
     );
     info!("Task scheduler started");
@@ -254,6 +278,7 @@ async fn main() -> anyhow::Result<()> {
         queue.clone(),
         bridge_registry.clone(),
         sandbox_provider.clone(),
+        egress_enforcer.clone(),
         redis_coordinator.clone(),
         config.clone(),
         runtime_config.clone(),

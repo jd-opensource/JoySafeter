@@ -14,6 +14,7 @@ use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
+use crate::egress::enforcer::EgressEnforcer;
 use crate::sandbox::provider::SandboxProvider;
 
 const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;
@@ -30,6 +31,7 @@ pub struct SandboxController {
     queue: TaskQueue,
     bridge_registry: BridgeRegistry,
     provider: Arc<dyn SandboxProvider>,
+    enforcer: Option<Arc<dyn EgressEnforcer>>,
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
@@ -41,6 +43,7 @@ impl SandboxController {
         queue: TaskQueue,
         bridge_registry: BridgeRegistry,
         provider: Arc<dyn SandboxProvider>,
+        enforcer: Option<Arc<dyn EgressEnforcer>>,
         redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
         config: JoySafeterConfig,
         runtime_config: Arc<RuntimeConfig>,
@@ -50,6 +53,7 @@ impl SandboxController {
             queue,
             bridge_registry,
             provider,
+            enforcer,
             redis_coordinator,
             config,
             runtime_config,
@@ -975,7 +979,7 @@ impl SandboxController {
     }
 
     async fn manage_pool_inner(&self) -> anyhow::Result<()> {
-        if self.provider.capabilities().isolation.manages_egress() {
+        if self.enforcer.is_some() {
             debug!("Skipping warm pool provisioning while default sandbox networking is limited");
             return Ok(());
         }
@@ -1005,6 +1009,7 @@ impl SandboxController {
                 let resolver = SandboxResolver::new(
                     self.pool.clone(),
                     self.provider.clone(),
+                    self.enforcer.clone(),
                     self.config.clone(),
                 );
                 for _ in 0..to_create {
@@ -1182,7 +1187,10 @@ impl SandboxController {
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        self.provider.teardown_networking(sandbox_id).await
+        match self.enforcer.as_ref() {
+            Some(e) => e.teardown(sandbox_id).await,
+            None => Ok(()),
+        }
     }
 
     async fn destroy_observed_sandbox(
@@ -1195,6 +1203,7 @@ impl SandboxController {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
+            self.enforcer.as_ref(),
             sandbox_id,
             observed_status,
             external_id,
@@ -1769,6 +1778,7 @@ mod tests {
                 bridge_registry,
                 provider.clone(),
                 None,
+                None,
                 config,
                 runtime_config,
             );
@@ -1870,6 +1880,7 @@ mod tests {
                 queue,
                 bridge_registry,
                 provider.clone(),
+                None,
                 None,
                 config,
                 runtime_config,
@@ -2013,6 +2024,7 @@ mod tests {
                 queue,
                 bridge_registry,
                 provider.clone(),
+                None,
                 None,
                 config,
                 runtime_config,
@@ -2207,6 +2219,7 @@ mod tests {
             bridge_registry,
             provider,
             None,
+            None,
             config,
             runtime_config,
         )
@@ -2399,6 +2412,7 @@ mod tests {
                 bridge_registry.clone(),
                 provider.clone(),
                 None,
+                None,
                 config,
                 runtime_config,
             );
@@ -2504,6 +2518,7 @@ mod tests {
                 bridge_registry.clone(),
                 provider.clone(),
                 None,
+                None,
                 config,
                 runtime_config,
             );
@@ -2580,6 +2595,7 @@ mod tests {
                 queue,
                 bridge_registry,
                 provider.clone(),
+                None,
                 None,
                 config,
                 runtime_config,
@@ -2680,6 +2696,7 @@ mod tests {
                 bridge_registry,
                 provider.clone(),
                 None,
+                None,
                 config,
                 runtime_config,
             );
@@ -2762,6 +2779,7 @@ mod tests {
                 queue,
                 bridge_registry,
                 provider.clone(),
+                None,
                 None,
                 config,
                 runtime_config,
@@ -2918,6 +2936,7 @@ mod tests {
                 bridge_registry,
                 provider.clone(),
                 None,
+                None,
                 config,
                 runtime_config,
             );
@@ -3027,6 +3046,7 @@ mod tests {
                 queue,
                 bridge_registry,
                 provider,
+                None,
                 None,
                 config,
                 runtime_config,

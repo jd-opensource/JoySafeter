@@ -5,8 +5,7 @@ use tracing::{info, warn};
 
 use super::file_injection::FileToInject;
 use super::provider::{
-    IsolationProfile, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
-    SandboxProvider, SandboxStatus,
+    ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus,
 };
 
 /// Daytona cloud sandbox provider.
@@ -199,7 +198,6 @@ impl SandboxProvider for DaytonaProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: false,
-            isolation: IsolationProfile::PlatformManaged,
         }
     }
 

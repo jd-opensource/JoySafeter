@@ -20,6 +20,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::db::queries;
+use crate::egress::enforcer::EgressEnforcer;
 use crate::sandbox::provider::SandboxProvider;
 
 /// Finalize a sandbox destroy after the caller has already CAS-claimed the row
@@ -42,6 +43,7 @@ use crate::sandbox::provider::SandboxProvider;
 pub(crate) async fn finalize_claimed_sandbox_destroy(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
+    enforcer: Option<&Arc<dyn EgressEnforcer>>,
     sandbox_id: Uuid,
     external_id: Option<&str>,
     restore_status: &str,
@@ -71,7 +73,9 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
     )
     .await?;
     if destroyed {
-        let _ = provider.teardown_networking(sandbox_id).await;
+        if let Some(enforcer) = enforcer {
+            let _ = enforcer.teardown(sandbox_id).await;
+        }
     } else {
         warn!(
             sandbox_id = %sandbox_id,
@@ -92,6 +96,7 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
 pub(crate) async fn destroy_observed_sandbox(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
+    enforcer: Option<&Arc<dyn EgressEnforcer>>,
     sandbox_id: Uuid,
     observed_status: &str,
     external_id: Option<&str>,
@@ -114,6 +119,7 @@ pub(crate) async fn destroy_observed_sandbox(
     finalize_claimed_sandbox_destroy(
         pool,
         provider,
+        enforcer,
         sandbox_id,
         external_id,
         observed_status,

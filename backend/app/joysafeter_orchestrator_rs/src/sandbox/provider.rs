@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::egress::policy::SandboxCredentials;
 use crate::sandbox::file_injection::{FileToInject, InjectionStrategy};
 use crate::sandbox::mounts::SandboxMount;
 
@@ -58,8 +57,6 @@ pub struct ProviderCapabilities {
     /// Provider supports host filesystem bind-mounts (Docker volumes).
     /// When true, the HostMount file injection strategy is available.
     pub has_host_mount: bool,
-    /// Egress isolation this provider can enforce.
-    pub isolation: IsolationProfile,
 }
 
 /// Configuration for creating a sandbox container.
@@ -157,33 +154,6 @@ pub trait SandboxProvider: Send + Sync + 'static {
     }
 
     // =====================================================================
-    // Networking / Egress
-    // =====================================================================
-
-    /// Configure sandbox egress networking (allowlist + credential injection).
-    ///
-    /// Docker: calls EnvoyManager.setup_for_sandbox() to create per-sandbox
-    /// listeners with credential-injecting routes.
-    /// Daytona/E2B: platform-managed or no-op.
-    async fn setup_networking(
-        &self,
-        _sandbox_id: Uuid,
-        _sandbox_external_id: &str,
-        _sandbox_token: Option<&str>,
-        _networking: Option<&serde_json::Value>,
-        _credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    /// Tear down sandbox networking configuration.
-    ///
-    /// Docker: calls EnvoyManager.teardown_for_sandbox() to remove listeners.
-    async fn teardown_networking(&self, _sandbox_id: Uuid) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    // =====================================================================
     // Runtime
     // =====================================================================
 
@@ -199,10 +169,13 @@ pub trait SandboxProvider: Send + Sync + 'static {
 
     /// Declare provider capabilities so the framework can select strategies
     /// (file injection, networking) without provider-specific branching.
+    ///
+    /// Egress isolation is no longer declared here — the [`crate::egress::enforcer::EgressEnforcer`]
+    /// (owned by the orchestrator, not the provider) is the authority for whether
+    /// credentialed egress can be mediated.
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: false,
-            isolation: IsolationProfile::Open,
         }
     }
 
@@ -239,45 +212,36 @@ pub trait SandboxProvider: Send + Sync + 'static {
 mod provider_conformance_tests {
     use super::*;
     use crate::config::JoySafeterConfig;
-    use crate::sandbox::daytona::DaytonaProvider;
-    use crate::sandbox::e2b::E2bProvider;
-    use crate::sandbox::k8s::K8sProvider;
-
-    fn assert_no_credential_egress_boundary(provider: &impl SandboxProvider) {
-        let capabilities = provider.capabilities();
-
-        assert!(
-            !capabilities.isolation.manages_egress(),
-            "{} must not claim egress management until it can enforce allowlist + credential injection",
-            provider.provider_name()
-        );
-    }
 
     #[test]
     fn provider_conformance_k8s_does_not_claim_egress_management_until_gateway_exists() {
         let mut config = JoySafeterConfig::from_env();
         config.k8s_namespace = "joysafeter-sandboxes".to_string();
         config.k8s_kubectl_path = "kubectl".to_string();
-        let provider = K8sProvider::new(&config);
 
-        assert_no_credential_egress_boundary(&provider);
-        assert_eq!(provider.capabilities().isolation, IsolationProfile::Open);
+        // Without gateway configuration + explicit enablement, no enforcer is
+        // built — the resolver then fails closed for secret-backed sandboxes.
+        assert!(
+            crate::egress::enforcer::build_enforcer(&config, "k8s", None)
+                .expect("build_enforcer")
+                .is_none()
+        );
     }
 
     #[test]
     fn provider_conformance_remote_platforms_do_not_claim_credential_egress_yet() {
-        let daytona = DaytonaProvider::new("https://daytona.example", "test-key", "", "");
-        let e2b = E2bProvider::new("https://e2b.example", "test-key", "template");
+        let config = JoySafeterConfig::from_env();
 
-        assert_no_credential_egress_boundary(&daytona);
-        assert_no_credential_egress_boundary(&e2b);
-        assert_eq!(
-            daytona.capabilities().isolation,
-            IsolationProfile::PlatformManaged
+        // Remote platforms never get an enforcer → fail-closed for secrets.
+        assert!(
+            crate::egress::enforcer::build_enforcer(&config, "daytona", None)
+                .expect("build_enforcer")
+                .is_none()
         );
-        assert_eq!(
-            e2b.capabilities().isolation,
-            IsolationProfile::PlatformManaged
+        assert!(
+            crate::egress::enforcer::build_enforcer(&config, "e2b", None)
+                .expect("build_enforcer")
+                .is_none()
         );
     }
 

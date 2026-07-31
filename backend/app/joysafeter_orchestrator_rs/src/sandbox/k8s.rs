@@ -1,23 +1,19 @@
 use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use sqlx::PgPool;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tracing::{info, warn};
+use tracing::warn;
 use uuid::Uuid;
 
 use super::mounts::SandboxMount;
 use super::provider::{
-    EgressBoundary, IsolationProfile, ProviderCapabilities, ProviderSandboxInfo,
-    SandboxCreateConfig, SandboxProvider, SandboxStatus,
+    ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus,
 };
 use crate::config::JoySafeterConfig;
-use crate::egress::enforcer::{EgressEnforcer, GatewayEnforcer};
-use crate::egress::policy::{SandboxCredentials, LLM_EGRESS_HOST};
+use crate::egress::policy::LLM_EGRESS_HOST;
 use crate::kernel::llm_providers::is_real_llm_secret_env;
 
 const K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV: &str = "JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN";
@@ -29,24 +25,15 @@ pub struct K8sProvider {
     kubectl_path: String,
     orchestrator_url: Option<String>,
     egress_gateway_url: Option<String>,
-    egress_enforcer: Option<Arc<GatewayEnforcer>>,
     /// Whether a gateway egress manager is configured (gateway URL + control
-    /// token). Looser than `egress_enforcer`, which also requires the K8s enable
-    /// switch and NetworkPolicy targets. Gates the create-time Pod env rewrite,
-    /// preserving the pre-enforcer behavior where the rewrite only needed a
-    /// configured manager, not full production egress readiness.
+    /// token). Gates the create-time Pod env rewrite, preserving the
+    /// pre-enforcer behavior where the rewrite only needed a configured
+    /// manager, not full production egress readiness.
     has_egress_manager: bool,
 }
 
 impl K8sProvider {
     pub fn new(config: &JoySafeterConfig) -> Self {
-        let egress_enforcer = match GatewayEnforcer::from_config(config) {
-            Ok(enforcer) => enforcer.map(Arc::new),
-            Err(err) => {
-                warn!("K8s egress enforcer disabled: {err}");
-                None
-            }
-        };
         let has_egress_manager = crate::egress::k8s_manager::K8sEgressManager::from_config(config)
             .ok()
             .flatten()
@@ -56,7 +43,6 @@ impl K8sProvider {
             kubectl_path: config.k8s_kubectl_path.clone(),
             orchestrator_url: config.k8s_orchestrator_url.clone(),
             egress_gateway_url: config.egress_gateway_url.clone(),
-            egress_enforcer,
             has_egress_manager,
         }
     }
@@ -387,15 +373,6 @@ fn sanitize_label_key(key: &str) -> String {
 
 #[async_trait]
 impl SandboxProvider for K8sProvider {
-    async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
-        if let Some(enforcer) = self.egress_enforcer.as_ref() {
-            enforcer.recover(pool).await
-        } else {
-            info!("K8s egress recovery skipped because egress enforcer is not configured");
-            Ok(())
-        }
-    }
-
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
         let pod_name = Self::pod_name(config.sandbox_id);
         let manifest = self.build_manifest(config, &pod_name)?;
@@ -532,34 +509,6 @@ impl SandboxProvider for K8sProvider {
         "k8s"
     }
 
-    async fn setup_networking(
-        &self,
-        sandbox_id: Uuid,
-        _sandbox_external_id: &str,
-        sandbox_token: Option<&str>,
-        networking: Option<&serde_json::Value>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        let Some(enforcer) = self.egress_enforcer.as_ref() else {
-            anyhow::bail!("SANDBOX_EGRESS_MANAGER_REQUIRED: K8s egress manager is not configured");
-        };
-        let Some(sandbox_token) = sandbox_token else {
-            anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s egress manager requires a sandbox token"
-            );
-        };
-        enforcer
-            .enforce(sandbox_id, sandbox_token, networking, credentials)
-            .await
-    }
-
-    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        if let Some(enforcer) = self.egress_enforcer.as_ref() {
-            enforcer.teardown(sandbox_id).await?;
-        }
-        Ok(())
-    }
-
     fn orchestrator_url(&self, grpc_port: u16) -> String {
         self.orchestrator_url
             .clone()
@@ -569,13 +518,6 @@ impl SandboxProvider for K8sProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: false,
-            isolation: if self.egress_enforcer.is_some() {
-                IsolationProfile::Mediated {
-                    boundary: EgressBoundary::Gateway,
-                }
-            } else {
-                IsolationProfile::Open
-            },
         }
     }
 }
@@ -603,7 +545,7 @@ mod tests {
         K8sProvider::new(&config)
     }
 
-    fn provider_with_gateway() -> K8sProvider {
+    fn config_with_gateway() -> JoySafeterConfig {
         let mut config = JoySafeterConfig::from_env();
         config.k8s_namespace = "joysafeter-sandboxes".to_string();
         config.k8s_kubectl_path = "kubectl".to_string();
@@ -613,21 +555,11 @@ mod tests {
         config.egress_gateway_url =
             Some("http://joysafeter-egress-gateway.joysafeter-control.svc:8088".to_string());
         config.egress_gateway_control_token = Some("control-token".to_string());
-        K8sProvider::new(&config)
+        config
     }
 
-    fn provider_with_enabled_gateway() -> K8sProvider {
-        let mut config = JoySafeterConfig::from_env();
-        config.k8s_namespace = "joysafeter-sandboxes".to_string();
-        config.k8s_kubectl_path = "kubectl".to_string();
-        config.k8s_orchestrator_url = Some(
-            "http://joysafeter-orchestrator.joysafeter-control.svc.cluster.local:9090".to_string(),
-        );
-        config.egress_gateway_url =
-            Some("http://joysafeter-egress-gateway.joysafeter-control.svc:8088".to_string());
-        config.egress_gateway_control_token = Some("control-token".to_string());
-        config.k8s_egress_management_enabled = true;
-        K8sProvider::new(&config)
+    fn provider_with_gateway() -> K8sProvider {
+        K8sProvider::new(&config_with_gateway())
     }
 
     fn create_config(env: HashMap<String, String>) -> SandboxCreateConfig {
@@ -690,19 +622,27 @@ mod tests {
 
     #[test]
     fn k8s_capability_requires_explicit_enablement_and_gateway_config() {
-        assert!(!provider().capabilities().isolation.manages_egress());
-        assert!(!provider_with_gateway()
-            .capabilities()
-            .isolation
-            .manages_egress());
+        use crate::egress::enforcer::build_enforcer;
 
-        let enabled = provider_with_enabled_gateway().capabilities();
-        assert_eq!(
-            enabled.isolation,
-            IsolationProfile::Mediated {
-                boundary: EgressBoundary::Gateway
-            }
-        );
+        // No gateway config → no enforcer (fail-closed).
+        let mut bare = JoySafeterConfig::from_env();
+        bare.k8s_namespace = "joysafeter-sandboxes".to_string();
+        bare.k8s_kubectl_path = "kubectl".to_string();
+        assert!(build_enforcer(&bare, "k8s", None)
+            .expect("build_enforcer")
+            .is_none());
+
+        // Gateway configured but egress management not explicitly enabled → no enforcer.
+        assert!(build_enforcer(&config_with_gateway(), "k8s", None)
+            .expect("build_enforcer")
+            .is_none());
+
+        // Gateway configured + explicit enablement → an enforcer is built.
+        let mut enabled = config_with_gateway();
+        enabled.k8s_egress_management_enabled = true;
+        assert!(build_enforcer(&enabled, "k8s", None)
+            .expect("build_enforcer")
+            .is_some());
     }
 
     #[test]

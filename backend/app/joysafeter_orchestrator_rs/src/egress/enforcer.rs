@@ -5,9 +5,10 @@
 //! (Docker per-sandbox Envoy listeners over a Unix socket volume) and
 //! [`GatewayEnforcer`] (K8s NetworkPolicy + in-cluster egress gateway).
 //!
-//! Task 1 of SP-2 is a behavior-preserving relocation: the enforcers are created
-//! and held by the providers, which delegate their existing
-//! `setup_networking`/`teardown_networking`/recovery to them.
+//! The enforcer is owned by the orchestrator (built in `main.rs` via
+//! [`build_enforcer`]) and threaded into the resolver, controller, and
+//! scheduler. Its presence is the authority for whether credentialed egress can
+//! be mediated for a sandbox.
 
 use std::process::Stdio;
 
@@ -114,6 +115,29 @@ impl EgressEnforcer for EnvoyEnforcer {
     async fn init(&self) -> anyhow::Result<()> {
         self.manager.init().await
     }
+}
+
+/// Build the egress enforcer for the configured provider.
+///
+/// The enforcer is the authority for whether credentialed egress can be
+/// mediated: `docker` yields an [`EnvoyEnforcer`] when an Envoy manager is
+/// available, `k8s` yields a [`GatewayEnforcer`] when egress management is fully
+/// configured, and all other providers (daytona/e2b) yield `None` — which the
+/// resolver treats as fail-closed for secret-backed sandboxes.
+pub fn build_enforcer(
+    config: &JoySafeterConfig,
+    provider_name: &str,
+    envoy_manager: Option<std::sync::Arc<crate::sandbox::envoy::EnvoyManager>>,
+) -> anyhow::Result<Option<std::sync::Arc<dyn EgressEnforcer>>> {
+    Ok(match provider_name {
+        "docker" | "" => envoy_manager.map(|m| {
+            std::sync::Arc::new(EnvoyEnforcer::new(m, config.llm_egress_allowed_hosts.clone()))
+                as std::sync::Arc<dyn EgressEnforcer>
+        }),
+        "k8s" | "kubernetes" => GatewayEnforcer::from_config(config)?
+            .map(|g| std::sync::Arc::new(g) as std::sync::Arc<dyn EgressEnforcer>),
+        _ => None, // daytona/e2b: no enforcer → fail-closed for secret sandboxes
+    })
 }
 
 // =====================================================================

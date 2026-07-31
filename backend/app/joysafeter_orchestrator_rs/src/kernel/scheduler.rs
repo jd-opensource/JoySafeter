@@ -17,6 +17,7 @@ use crate::db::{
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::kernel::sandbox_resolver::SandboxResolver;
+use crate::egress::enforcer::EgressEnforcer;
 use crate::sandbox::provider::SandboxProvider;
 
 const QUEUE_POP_TIMEOUT: Duration = Duration::from_secs(1);
@@ -52,9 +53,15 @@ pub fn spawn_scheduler(
     queue: TaskQueue,
     bridge_registry: BridgeRegistry,
     provider: Arc<dyn SandboxProvider>,
+    enforcer: Option<Arc<dyn EgressEnforcer>>,
     config: JoySafeterConfig,
 ) -> JoinHandle<()> {
-    let resolver = Arc::new(SandboxResolver::new(pool.clone(), provider, config.clone()));
+    let resolver = Arc::new(SandboxResolver::new(
+        pool.clone(),
+        provider,
+        enforcer,
+        config.clone(),
+    ));
     let scheduling_semaphore = Arc::new(Semaphore::new(config.max_scheduling_tasks));
 
     tokio::spawn(async move {
@@ -784,7 +791,8 @@ mod tests {
         let queue = test_queue();
         let bridge_registry = BridgeRegistry::new();
         let config = JoySafeterConfig::from_env();
-        let resolver = SandboxResolver::new(pool.clone(), Arc::new(NeverProvider), config.clone());
+        let resolver =
+            SandboxResolver::new(pool.clone(), Arc::new(NeverProvider), None, config.clone());
         (queue, bridge_registry, config, resolver)
     }
 
