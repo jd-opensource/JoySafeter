@@ -16,46 +16,6 @@ pub enum SandboxStatus {
     Unknown(String),
 }
 
-/// What egress isolation a provider can actually enforce for a sandbox.
-///
-/// Only `Mediated` is a credential boundary; it is the sole profile permitted to
-/// run secret-backed or limited-networking sandboxes. Reported by
-/// [`crate::egress::enforcer::EgressEnforcer::isolation`]. The SP-2 fail-closed
-/// gate keys on enforcer *presence*, so `Open`/`PlatformManaged` and
-/// [`IsolationProfile::manages_egress`] currently have no runtime caller outside
-/// tests; retained for the enforcer contract and SP-3 (credential brokering).
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum IsolationProfile {
-    /// No isolation — sandbox has full outbound access.
-    Open,
-    /// The platform (E2B/Daytona) isolates the sandbox internally, but JoySafeter
-    /// does not mediate credentialed egress. Not a credential boundary.
-    PlatformManaged,
-    /// JoySafeter mediates credentialed egress (allowlist + credential injection)
-    /// through the given boundary.
-    Mediated { boundary: EgressBoundary },
-}
-
-/// Where and how a sandbox reaches its mediated egress boundary.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EgressBoundary {
-    /// Docker: per-sandbox Envoy listeners over a Unix socket volume.
-    EnvoySocket,
-    /// K8s: an in-cluster egress gateway HTTP(S) service.
-    Gateway,
-}
-
-impl IsolationProfile {
-    /// True when this profile mediates credentialed egress. See the enum doc:
-    /// retained for the `EgressEnforcer` contract and SP-3; the SP-2 gate keys on
-    /// enforcer presence, so this has no runtime caller outside tests.
-    #[allow(dead_code)]
-    pub fn manages_egress(&self) -> bool {
-        matches!(self, IsolationProfile::Mediated { .. })
-    }
-}
-
 /// Configuration for creating a sandbox container.
 #[derive(Debug, Clone)]
 pub struct SandboxCreateConfig {
@@ -228,19 +188,5 @@ mod provider_conformance_tests {
                 .expect("build_enforcer")
                 .is_none()
         );
-    }
-
-    #[test]
-    fn provider_conformance_only_mediated_profiles_manage_egress() {
-        assert!(IsolationProfile::Mediated {
-            boundary: EgressBoundary::Gateway
-        }
-        .manages_egress());
-        assert!(IsolationProfile::Mediated {
-            boundary: EgressBoundary::EnvoySocket
-        }
-        .manages_egress());
-        assert!(!IsolationProfile::Open.manages_egress());
-        assert!(!IsolationProfile::PlatformManaged.manages_egress());
     }
 }

@@ -25,18 +25,15 @@ use crate::db::queries;
 use crate::egress::k8s_manager::K8sEgressManager;
 use crate::egress::policy::SandboxCredentials;
 use crate::kernel::sandbox_resolver::rebuild_sandbox_credentials;
-use crate::sandbox::provider::{EgressBoundary, IsolationProfile};
 
 /// Provider-neutral egress enforcement boundary.
 ///
 /// An enforcer configures, tears down, and recovers the mediated egress path for
-/// a sandbox. It reports which [`IsolationProfile`] it enforces so the framework
-/// never needs provider-specific branching.
+/// a sandbox. Its *presence* (the orchestrator builds one only when the provider
+/// can enforce credentialed egress) is the authority for the resolver's
+/// fail-closed gate — there is no capability flag to consult.
 #[async_trait::async_trait]
 pub trait EgressEnforcer: Send + Sync + 'static {
-    /// The isolation profile this enforcer provides.
-    fn isolation(&self) -> IsolationProfile;
-
     /// Configure sandbox egress (allowlist + credential injection).
     async fn enforce(
         &self,
@@ -84,12 +81,6 @@ impl EnvoyEnforcer {
 
 #[async_trait::async_trait]
 impl EgressEnforcer for EnvoyEnforcer {
-    fn isolation(&self) -> IsolationProfile {
-        IsolationProfile::Mediated {
-            boundary: EgressBoundary::EnvoySocket,
-        }
-    }
-
     async fn enforce(
         &self,
         sandbox_id: Uuid,
@@ -323,12 +314,6 @@ impl GatewayEnforcer {
 
 #[async_trait::async_trait]
 impl EgressEnforcer for GatewayEnforcer {
-    fn isolation(&self) -> IsolationProfile {
-        IsolationProfile::Mediated {
-            boundary: EgressBoundary::Gateway,
-        }
-    }
-
     async fn enforce(
         &self,
         sandbox_id: Uuid,
@@ -468,7 +453,6 @@ pub(crate) fn runner_token_from_sandbox_config(config: Option<&Value>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sandbox::provider::{EgressBoundary, IsolationProfile};
 
     fn gateway_enforcer_from(config: &JoySafeterConfig) -> Option<GatewayEnforcer> {
         GatewayEnforcer::from_config(config).expect("from_config")
@@ -495,38 +479,11 @@ mod tests {
     }
 
     #[test]
-    fn isolation_profile_manages_egress_only_when_mediated() {
-        // Build against a dummy EnvoyManager is heavy; assert the const isolation directly.
-        // Instead assert the trait contract via the type-level isolation the impl returns.
-        // GatewayEnforcer/EnvoyEnforcer isolation() are constant; verify the variants.
-        assert_eq!(
-            IsolationProfile::Mediated {
-                boundary: EgressBoundary::EnvoySocket
-            }
-            .manages_egress(),
-            true
-        );
-        assert_eq!(
-            IsolationProfile::Mediated {
-                boundary: EgressBoundary::Gateway
-            }
-            .manages_egress(),
-            true
-        );
-    }
-
-    #[test]
     fn gateway_enforcer_from_config_requires_enablement_and_targets() {
         assert!(gateway_enforcer_from(&gateway_config_without_enablement()).is_none());
 
-        let enforcer = gateway_enforcer_from(&enabled_gateway_config())
+        gateway_enforcer_from(&enabled_gateway_config())
             .expect("enabled gateway yields an enforcer");
-        assert_eq!(
-            enforcer.isolation(),
-            IsolationProfile::Mediated {
-                boundary: EgressBoundary::Gateway
-            }
-        );
     }
 
     #[test]

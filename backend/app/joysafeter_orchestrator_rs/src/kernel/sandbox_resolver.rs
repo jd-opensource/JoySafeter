@@ -1737,12 +1737,6 @@ mod egress_tests {
 
     #[async_trait]
     impl crate::egress::enforcer::EgressEnforcer for RecordingEnforcer {
-        fn isolation(&self) -> crate::sandbox::provider::IsolationProfile {
-            crate::sandbox::provider::IsolationProfile::Mediated {
-                boundary: crate::sandbox::provider::EgressBoundary::EnvoySocket,
-            }
-        }
-
         async fn enforce(
             &self,
             sandbox_id: Uuid,
