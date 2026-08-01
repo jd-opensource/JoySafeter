@@ -42,6 +42,10 @@ redis = { version = "0.27", features = ["tokio-comp", "aio"] }
 # Docker
 bollard = "0.18"
 
+# Kubernetes
+kube = { version = "0.98", features = ["client", "runtime", "ws"] }
+k8s-openapi = { version = "0.24", features = ["v1_32"] }
+
 # HTTP client (for Daytona/E2B providers)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "rustls"] }
