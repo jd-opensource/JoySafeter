@@ -1,0 +1,42 @@
+# Docker egress smoke overlay (Plan 2 / C-2).
+#
+# Layers onto docker-compose.yml to run a tamper-evident, mock-upstream
+# end-to-end egress test of the unified controller path on Docker:
+#   controller SOURCE=postgres + Docker Envoy in `controller` mode (ADS to the
+#   Go controller) + orchestrator ext_authz + a mock upstream echo server.
+# Driven by deploy/egress-compose-smoke.sh. Uses a mock upstream so NO real
+# API key is needed (mock echoes received headers to prove credential injection
+# and that sandbox-supplied auth was stripped).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.egress-smoke.yml up -d --wait
+services:
+  # Mock upstream: echoes the request (method, path, headers) as JSON so the
+  # smoke can prove the platform credential header arrived and cross-correlate
+  # the Envoy x-request-id. Pinned by digest; no build, no external key.
+  joysafeter-egress-mock-upstream:
+    image: ${MOCK_UPSTREAM_IMAGE:-docker.m.daocloud.io/mendhak/http-https-echo:37}
+    container_name: joysafeter-egress-mock-upstream
+    restart: unless-stopped
+    environment:
+      HTTP_PORT: "8080"
+      LOG_WITHOUT_NEWLINE: "true"
+      LOG_IGNORE_PATH: "/ping"
+    expose:
+      - "8080"
+    networks:
+      - joysafeter-network
+
+  # Controller reads the REAL Postgres desired-state (not the file snapshot).
+  joysafeter-egress-controller:
+    environment:
+      JOYSAFETER_EGRESS_CONTROLLER_SOURCE: postgres
+
+  # Orchestrator drives the durable authority + points Docker Envoy at the controller.
+  orchestrator-rs:
+    environment:
+      JOYSAFETER_ENVOY_XDS_MODE: controller
+      JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED: "true"
+      JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST: joysafeter-egress-controller
+      JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT: "18000"
+      JOYSAFETER_EGRESS_POLICY_HOST_ID: docker-local
