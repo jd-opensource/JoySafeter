@@ -119,6 +119,11 @@ impl DockerProvider {
                         Arc::new(GrpcCds::new(server)),
                     )
                 } else {
+                    // `controller` mode falls here too: the Go egress-controller
+                    // serves xDS over ADS, so we build no in-process DeltaXdsServer
+                    // (xds_service stays None). The Filesystem backends are never
+                    // contacted in controller mode — the listener-free
+                    // DockerEnvoyNetworkPreparer only ensures the socket dir.
                     (
                         Arc::new(FilesystemLds::new(
                             docker.clone(),

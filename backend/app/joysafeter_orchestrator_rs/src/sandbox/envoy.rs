@@ -245,6 +245,21 @@ impl EnvoyManager {
         Ok(())
     }
 
+    /// Create only the per-sandbox socket directory (no listener push). Used by
+    /// the controller-mode Docker preparer, where the Go controller owns LDS/CDS.
+    pub async fn ensure_sandbox_socket_dir(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        let socket_dir = format!("/sockets/{sandbox_id}");
+        self.exec_in_envoy(&format!("mkdir -p {socket_dir} && chmod 777 {socket_dir}"))
+            .await?;
+        Ok(())
+    }
+
+    /// Remove only the per-sandbox socket directory (no listener removal).
+    pub async fn remove_sandbox_socket_dir(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        let _ = self.exec_in_envoy(&format!("rm -rf /sockets/{sandbox_id}")).await;
+        Ok(())
+    }
+
     /// Rebuild the LDS state for all live sandboxes from the database.
     ///
     /// The listener set is never persisted — it lives only in the filesystem
@@ -369,8 +384,7 @@ impl EnvoyManager {
     ) -> anyhow::Result<()> {
         // Create socket directory inside container
         let socket_dir = format!("/sockets/{sandbox_id}");
-        self.exec_in_envoy(&format!("mkdir -p {socket_dir} && chmod 777 {socket_dir}"))
-            .await?;
+        self.ensure_sandbox_socket_dir(sandbox_id).await?;
 
         // Write a per-sandbox entry file for crash-recovery/debugging visibility.
         // NOTE: never include secrets here — only the non-sensitive allowlist.
@@ -461,9 +475,7 @@ impl EnvoyManager {
             .await;
 
         // Remove socket dir
-        let _ = self
-            .exec_in_envoy(&format!("rm -rf /sockets/{sandbox_id}"))
-            .await;
+        self.remove_sandbox_socket_dir(sandbox_id).await?;
 
         // Remove entry file
         let _ = self

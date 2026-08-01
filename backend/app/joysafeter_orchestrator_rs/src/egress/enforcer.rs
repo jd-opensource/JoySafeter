@@ -1,9 +1,8 @@
 //! Provider-neutral egress enforcement.
 //!
 //! [`EgressEnforcer`] is the boundary abstraction that a sandbox provider uses to
-//! mediate credentialed egress. Two implementations exist: [`EnvoyEnforcer`]
-//! (Docker per-sandbox Envoy listeners over a Unix socket volume) and
-//! [`GatewayEnforcer`] (K8s NetworkPolicy + in-cluster egress gateway).
+//! mediate credentialed egress. Implementations cover Docker per-sandbox Envoy,
+//! the legacy K8s gateway, and shared-fleet K8s Envoy network preparation.
 //!
 //! The enforcer is owned by the orchestrator (built in `main.rs` via
 //! [`build_enforcer`]) and threaded into the resolver, controller, and
@@ -11,17 +10,19 @@
 //! be mediated for a sandbox.
 
 use std::process::Stdio;
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::models::JoySafeterSandbox;
 use crate::db::queries;
+use crate::egress::authority::{AuthorityConfig, NodeSelector, PostgresEgressPolicyAuthority};
 use crate::egress::k8s_manager::K8sEgressManager;
 use crate::egress::policy::SandboxCredentials;
 use crate::kernel::sandbox_resolver::rebuild_sandbox_credentials;
@@ -54,6 +55,11 @@ pub trait EgressEnforcer: Send + Sync + 'static {
     /// One-time initialization at orchestrator startup.
     async fn init(&self) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    /// Stable label identifying the concrete preparer; used in tests/telemetry.
+    fn kind_label(&self) -> &'static str {
+        "generic"
     }
 }
 
@@ -106,6 +112,51 @@ impl EgressEnforcer for EnvoyEnforcer {
     async fn init(&self) -> anyhow::Result<()> {
         self.manager.init().await
     }
+
+    fn kind_label(&self) -> &'static str {
+        "docker-envoy"
+    }
+}
+
+/// Docker network preparer for `controller` xDS mode. Prepares the sandbox
+/// (socket dir + one-time Envoy bootstrap) but does NOT push listeners — the Go
+/// egress-controller serves them over ADS. Pairs with `AuthoritativeEnforcer`,
+/// which declares the desired policy to Postgres and waits for the controller ACK.
+struct DockerEnvoyNetworkPreparer {
+    envoy: std::sync::Arc<crate::sandbox::envoy::EnvoyManager>,
+}
+
+#[async_trait::async_trait]
+impl EgressEnforcer for DockerEnvoyNetworkPreparer {
+    fn kind_label(&self) -> &'static str {
+        "docker-controller"
+    }
+
+    async fn init(&self) -> anyhow::Result<()> {
+        // Writes the controller-mode bootstrap and resets nothing else.
+        self.envoy.init().await
+    }
+
+    async fn enforce(
+        &self,
+        sandbox_id: Uuid,
+        _sandbox_token: &str,
+        _networking: Option<&serde_json::Value>,
+        _credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        // Controller owns listeners; we only guarantee the socket dir exists so
+        // Envoy can bind the pipe once the controller pushes the listener.
+        self.envoy.ensure_sandbox_socket_dir(sandbox_id).await
+    }
+
+    async fn teardown(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        self.envoy.remove_sandbox_socket_dir(sandbox_id).await
+    }
+
+    async fn recover(&self, _pool: &PgPool) -> anyhow::Result<()> {
+        // Listener recovery is the controller's job (Postgres desired-state).
+        Ok(())
+    }
 }
 
 /// Build the egress enforcer for the configured provider.
@@ -120,17 +171,303 @@ pub fn build_enforcer(
     provider_name: &str,
     envoy_manager: Option<std::sync::Arc<crate::sandbox::envoy::EnvoyManager>>,
 ) -> anyhow::Result<Option<std::sync::Arc<dyn EgressEnforcer>>> {
-    Ok(match provider_name {
+    build_enforcer_with_pool(config, None, provider_name, envoy_manager)
+}
+
+pub fn build_enforcer_with_pool(
+    config: &JoySafeterConfig,
+    pool: Option<PgPool>,
+    provider_name: &str,
+    envoy_manager: Option<std::sync::Arc<crate::sandbox::envoy::EnvoyManager>>,
+) -> anyhow::Result<Option<std::sync::Arc<dyn EgressEnforcer>>> {
+    let preparer = match provider_name {
         "docker" | "" => envoy_manager.map(|m| {
-            std::sync::Arc::new(EnvoyEnforcer::new(
-                m,
-                config.llm_egress_allowed_hosts.clone(),
-            )) as std::sync::Arc<dyn EgressEnforcer>
+            if config.envoy_xds_mode == "controller" {
+                std::sync::Arc::new(DockerEnvoyNetworkPreparer { envoy: m })
+                    as std::sync::Arc<dyn EgressEnforcer>
+            } else {
+                std::sync::Arc::new(EnvoyEnforcer::new(
+                    m,
+                    config.llm_egress_allowed_hosts.clone(),
+                )) as std::sync::Arc<dyn EgressEnforcer>
+            }
         }),
+        "k8s" | "kubernetes" if config.egress_policy_authority_enabled => {
+            K8sEnvoyNetworkPreparer::from_config(config)?
+                .map(|value| std::sync::Arc::new(value) as std::sync::Arc<dyn EgressEnforcer>)
+        }
         "k8s" | "kubernetes" => GatewayEnforcer::from_config(config)?
-            .map(|g| std::sync::Arc::new(g) as std::sync::Arc<dyn EgressEnforcer>),
+            .map(|value| std::sync::Arc::new(value) as std::sync::Arc<dyn EgressEnforcer>),
         _ => None, // daytona/e2b: no enforcer → fail-closed for secret sandboxes
-    })
+    };
+    if !config.egress_policy_authority_enabled {
+        return Ok(preparer);
+    }
+
+    let preparer = preparer.ok_or_else(|| {
+        anyhow::anyhow!(
+            "durable egress policy authority requires a provider network preparer for {provider_name}"
+        )
+    })?;
+    let provider = match provider_name {
+        "" | "docker" => "docker",
+        "k8s" | "kubernetes" => "k8s",
+        other => anyhow::bail!("unsupported durable egress authority provider {other}"),
+    };
+    let host_id = if provider == "docker" {
+        Some(
+            config
+                .egress_policy_host_id
+                .clone()
+                .unwrap_or_else(|| gethostname::gethostname().to_string_lossy().into_owned()),
+        )
+    } else {
+        None
+    };
+    let authority = PostgresEgressPolicyAuthority::new(
+        pool.ok_or_else(|| {
+            anyhow::anyhow!("durable egress policy authority requires a PostgreSQL pool")
+        })?,
+        AuthorityConfig {
+            selector: NodeSelector {
+                deployment_id: config.egress_policy_deployment_id.clone(),
+                environment: config.egress_policy_environment.clone(),
+                region: config.egress_policy_region.clone(),
+                provider: provider.to_string(),
+                shard_id: config.egress_policy_shard_id.clone(),
+                host_id,
+                envoy_version: config.egress_policy_envoy_version.clone(),
+                config_schema_version: config.egress_policy_config_schema_version.clone(),
+            },
+            denied_cidrs: config.envoy_egress_denied_cidrs.clone(),
+            apply_timeout: Duration::from_millis(config.egress_policy_apply_timeout_ms),
+            poll_interval: Duration::from_millis(config.egress_policy_poll_interval_ms),
+        },
+    )?;
+    info!(
+        group_key = authority.group_key(),
+        provider, "Durable Envoy egress policy authority enabled"
+    );
+    Ok(Some(std::sync::Arc::new(AuthoritativeEnforcer {
+        preparer,
+        authority,
+    })))
+}
+
+struct AuthoritativeEnforcer {
+    preparer: std::sync::Arc<dyn EgressEnforcer>,
+    authority: std::sync::Arc<PostgresEgressPolicyAuthority>,
+}
+
+#[async_trait::async_trait]
+impl EgressEnforcer for AuthoritativeEnforcer {
+    async fn enforce(
+        &self,
+        sandbox_id: Uuid,
+        sandbox_token: &str,
+        networking: Option<&serde_json::Value>,
+        credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        self.preparer
+            .enforce(sandbox_id, sandbox_token, networking, credentials.clone())
+            .await?;
+        let result = async {
+            let handle = self
+                .authority
+                .declare(sandbox_id, networking, &credentials)
+                .await?;
+            self.authority.wait_applied(&handle).await?;
+            anyhow::Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            if let Err(teardown_error) = self.preparer.teardown(sandbox_id).await {
+                warn!(%sandbox_id, %teardown_error, "failed to roll back provider egress preparation");
+            }
+            if let Err(revoke_error) = self.authority.revoke(sandbox_id).await {
+                warn!(%sandbox_id, %revoke_error, "failed to enqueue egress policy rollback");
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    async fn teardown(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        let preparer_result = self.preparer.teardown(sandbox_id).await;
+        let authority_result = async {
+            if let Some(handle) = self.authority.revoke(sandbox_id).await? {
+                self.authority.wait_applied(&handle).await?;
+            }
+            anyhow::Ok(())
+        }
+        .await;
+
+        match (preparer_result, authority_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(preparer_error), Ok(())) => Err(preparer_error),
+            (Ok(()), Err(authority_error)) => Err(authority_error),
+            (Err(preparer_error), Err(authority_error)) => anyhow::bail!(
+                "provider egress teardown failed: {preparer_error}; durable policy revoke failed: {authority_error}"
+            ),
+        }
+    }
+
+    async fn recover(&self, pool: &PgPool) -> anyhow::Result<()> {
+        self.preparer.recover(pool).await
+    }
+
+    async fn init(&self) -> anyhow::Result<()> {
+        self.preparer.init().await
+    }
+}
+
+// =====================================================================
+// K8sEnvoyNetworkPreparer
+// =====================================================================
+
+#[derive(Clone, Debug)]
+pub struct K8sEnvoyNetworkPreparer {
+    namespace: String,
+    kubectl_path: String,
+    orchestrator_network_target: K8sServiceTarget,
+    credential_network_target: K8sServiceTarget,
+    forward_proxy_network_target: K8sServiceTarget,
+}
+
+impl K8sEnvoyNetworkPreparer {
+    pub fn from_config(config: &JoySafeterConfig) -> anyhow::Result<Option<Self>> {
+        if !config.k8s_egress_management_enabled {
+            return Ok(None);
+        }
+        let orchestrator_url = config
+            .k8s_orchestrator_url
+            .clone()
+            .unwrap_or_else(|| format!("http://joysafeter-orchestrator:{}", config.grpc_port));
+        let credential_url = config
+            .egress_envoy_credential_url
+            .as_deref()
+            .ok_or_else(|| {
+                anyhow::anyhow!("K8s Envoy egress requires JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL")
+            })?;
+        let forward_proxy_url = config
+            .egress_envoy_forward_proxy_url
+            .as_deref()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "K8s Envoy egress requires JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL"
+                )
+            })?;
+        Ok(Some(Self {
+            namespace: config.k8s_namespace.clone(),
+            kubectl_path: config.k8s_kubectl_path.clone(),
+            orchestrator_network_target: k8s_service_target_from_url(
+                &orchestrator_url,
+                &config.k8s_namespace,
+            )?,
+            credential_network_target: k8s_service_target_from_url(
+                credential_url,
+                &config.k8s_namespace,
+            )?,
+            forward_proxy_network_target: k8s_service_target_from_url(
+                forward_proxy_url,
+                &config.k8s_namespace,
+            )?,
+        }))
+    }
+
+    fn network_policy_name(sandbox_id: Uuid) -> String {
+        format!("joysafeter-egress-{sandbox_id}")
+    }
+
+    fn build_network_policy(&self, sandbox_id: Uuid) -> Value {
+        json!({
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {
+                "name": Self::network_policy_name(sandbox_id),
+                "namespace": self.namespace,
+                "labels": {
+                    "app.kubernetes.io/name": "joysafeter-sandbox-egress",
+                    "app.kubernetes.io/part-of": "joysafeter",
+                    "joysafeter.sandbox_id": sandbox_id.to_string(),
+                    "joysafeter.egress-data-plane": "envoy"
+                }
+            },
+            "spec": {
+                "podSelector": {
+                    "matchLabels": {
+                        "app.kubernetes.io/name": "joysafeter-sandbox",
+                        "joysafeter.sandbox_id": sandbox_id.to_string()
+                    }
+                },
+                "policyTypes": ["Egress"],
+                "egress": [
+                    {
+                        "to": [{
+                            "namespaceSelector": {
+                                "matchLabels": {
+                                    "kubernetes.io/metadata.name": "kube-system"
+                                }
+                            }
+                        }],
+                        "ports": [
+                            { "protocol": "UDP", "port": 53 },
+                            { "protocol": "TCP", "port": 53 }
+                        ]
+                    },
+                    egress_rule_for_service(&self.orchestrator_network_target),
+                    egress_rule_for_service(&self.credential_network_target),
+                    egress_rule_for_service(&self.forward_proxy_network_target)
+                ]
+            }
+        })
+    }
+
+    async fn apply_network_policy(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        kubectl_apply_manifest(&self.kubectl_path, &self.build_network_policy(sandbox_id)).await
+    }
+}
+
+#[async_trait::async_trait]
+impl EgressEnforcer for K8sEnvoyNetworkPreparer {
+    async fn enforce(
+        &self,
+        sandbox_id: Uuid,
+        _sandbox_token: &str,
+        _networking: Option<&serde_json::Value>,
+        _credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        self.apply_network_policy(sandbox_id).await
+    }
+
+    async fn teardown(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        debug!(
+            %sandbox_id,
+            network_policy = %Self::network_policy_name(sandbox_id),
+            "Retaining sandbox NetworkPolicy tombstone after teardown"
+        );
+        Ok(())
+    }
+
+    async fn recover(&self, pool: &PgPool) -> anyhow::Result<()> {
+        let sandboxes = queries::list_live_sandboxes_for_recovery(pool).await?;
+        let mut recovered = 0usize;
+        for sandbox in sandboxes {
+            if recovery_networking(&sandbox).is_some() {
+                self.apply_network_policy(sandbox.id).await?;
+                recovered += 1;
+            }
+        }
+        info!(
+            recovered_sandboxes = recovered,
+            "Recovered K8s Envoy sandbox NetworkPolicies"
+        );
+        Ok(())
+    }
+
+    fn kind_label(&self) -> &'static str {
+        "k8s-envoy"
+    }
 }
 
 // =====================================================================
@@ -221,29 +558,7 @@ impl GatewayEnforcer {
     }
 
     async fn kubectl_apply(&self, manifest: &Value) -> anyhow::Result<()> {
-        let args = Self::kubectl_apply_args();
-        let mut child = Command::new(&self.kubectl_path)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("failed to open kubectl stdin"))?;
-        let bytes = serde_json::to_vec(manifest)?;
-        stdin.write_all(&bytes).await?;
-        drop(stdin);
-        let output = child.wait_with_output().await?;
-        if !output.status.success() {
-            anyhow::bail!(
-                "kubectl {:?} failed: {}",
-                args,
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        Ok(())
+        kubectl_apply_manifest(&self.kubectl_path, manifest).await
     }
 
     fn kubectl_apply_args() -> [&'static str; 5] {
@@ -310,6 +625,31 @@ impl GatewayEnforcer {
             }
         }))
     }
+}
+
+async fn kubectl_apply_manifest(kubectl_path: &str, manifest: &Value) -> anyhow::Result<()> {
+    let args = GatewayEnforcer::kubectl_apply_args();
+    let mut child = Command::new(kubectl_path)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("failed to open kubectl stdin"))?;
+    stdin.write_all(&serde_json::to_vec(manifest)?).await?;
+    drop(stdin);
+    let output = child.wait_with_output().await?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "kubectl {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -459,6 +799,82 @@ pub(crate) fn runner_token_from_sandbox_config(config: Option<&Value>) -> Option
 mod tests {
     use super::*;
 
+    /// Construct an `EnvoyManager` mirroring `docker.rs`'s non-grpc wiring.
+    ///
+    /// Requires a reachable Docker daemon (`Docker::connect_with_local_defaults`),
+    /// so callers must gate the test with `#[ignore]`.
+    fn test_envoy_manager(
+        config: &JoySafeterConfig,
+    ) -> std::sync::Arc<crate::sandbox::envoy::EnvoyManager> {
+        use crate::sandbox::envoy::{EnvoyConfig, EnvoyManager};
+        use crate::sandbox::lds_backend::{
+            CdsBackend, DeniedCidr, FilesystemCds, FilesystemLds, LdsBackend,
+        };
+
+        let docker =
+            std::sync::Arc::new(bollard::Docker::connect_with_local_defaults().expect("docker"));
+        let lds: std::sync::Arc<dyn LdsBackend> = std::sync::Arc::new(FilesystemLds::new(
+            docker.clone(),
+            config.envoy_container_name.clone(),
+        ));
+        let cds: std::sync::Arc<dyn CdsBackend> = std::sync::Arc::new(FilesystemCds::new(
+            docker.clone(),
+            config.envoy_container_name.clone(),
+        ));
+        std::sync::Arc::new(EnvoyManager::new(
+            docker,
+            EnvoyConfig {
+                envoy_image: config.envoy_image.clone(),
+                socket_volume: config.envoy_socket_volume.clone(),
+                config_dir: config.envoy_config_dir.clone(),
+                envoy_network: config.envoy_network.clone(),
+                grpc_target_host: config.envoy_grpc_host.clone(),
+                grpc_target_port: config.envoy_grpc_port,
+                container_name: config.envoy_container_name.clone(),
+                xds_mode: config.envoy_xds_mode.clone(),
+                controller_xds_host: config.egress_controller_xds_host.clone(),
+                controller_xds_port: config.egress_controller_xds_port,
+                denied_cidrs: config
+                    .envoy_egress_denied_cidrs
+                    .iter()
+                    .map(|cidr| cidr.parse::<DeniedCidr>())
+                    .collect::<anyhow::Result<Vec<_>>>()
+                    .expect("denied cidrs"),
+            },
+            lds,
+            cds,
+        ))
+    }
+
+    /// requires Docker daemon; run with --include-ignored
+    #[test]
+    #[ignore = "requires Docker daemon; run with --include-ignored"]
+    fn controller_mode_docker_uses_listener_free_preparer() {
+        // In controller mode, the Docker preparer must not be the in-process
+        // EnvoyEnforcer (which pushes LDS/CDS). We assert the builder returns a
+        // preparer whose type name is the listener-free one.
+        let mut config = JoySafeterConfig::from_env();
+        config.egress_policy_authority_enabled = false; // isolate preparer selection from authority wrap
+        config.envoy_enabled = true;
+        config.envoy_xds_mode = "controller".to_string();
+        let mgr = test_envoy_manager(&config); // helper above
+        let preparer = build_enforcer(&config, "docker", Some(mgr))
+            .expect("build_enforcer")
+            .expect("preparer present");
+        assert_eq!(preparer.kind_label(), "docker-controller");
+    }
+
+    /// Docker-free assertion of the preparer labels: `K8sEnvoyNetworkPreparer`
+    /// constructs without a Docker daemon, so this runs in plain CI and locks in
+    /// the `kind_label` contract the ignored builder test relies on.
+    #[test]
+    fn kind_labels_are_stable() {
+        let preparer = K8sEnvoyNetworkPreparer::from_config(&enabled_envoy_config())
+            .expect("from config")
+            .expect("preparer enabled");
+        assert_eq!(preparer.kind_label(), "k8s-envoy");
+    }
+
     fn gateway_enforcer_from(config: &JoySafeterConfig) -> Option<GatewayEnforcer> {
         GatewayEnforcer::from_config(config).expect("from_config")
     }
@@ -480,6 +896,18 @@ mod tests {
     fn gateway_config_without_enablement() -> JoySafeterConfig {
         let mut config = enabled_gateway_config();
         config.k8s_egress_management_enabled = false;
+        config
+    }
+
+    fn enabled_envoy_config() -> JoySafeterConfig {
+        let mut config = enabled_gateway_config();
+        config.egress_policy_authority_enabled = true;
+        config.egress_envoy_credential_url = Some(
+            "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443".to_string(),
+        );
+        config.egress_envoy_forward_proxy_url = Some(
+            "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8080".to_string(),
+        );
         config
     }
 
@@ -531,6 +959,31 @@ mod tests {
         assert!(rendered.contains("joysafeter-egress-gateway"));
         assert!(!rendered.contains("ai-api.jdcloud.com"));
         assert!(!rendered.contains("api.anthropic.com"));
+    }
+
+    #[test]
+    fn envoy_preparer_network_policy_allows_only_dns_orchestrator_and_envoy() {
+        let sandbox_id =
+            Uuid::parse_str("018ff000-0000-7000-8000-000000000024").expect("valid uuid");
+        let preparer = K8sEnvoyNetworkPreparer::from_config(&enabled_envoy_config())
+            .expect("from config")
+            .expect("preparer enabled");
+        let policy = preparer.build_network_policy(sandbox_id);
+        let rendered = serde_json::to_string(&policy).expect("policy json");
+
+        assert_eq!(
+            policy
+                .pointer("/spec/egress")
+                .and_then(|value| value.as_array())
+                .map(Vec::len),
+            Some(4)
+        );
+        assert!(rendered.contains("joysafeter-orchestrator"));
+        assert!(rendered.contains("joysafeter-egress-envoy"));
+        assert!(rendered.contains("8443"));
+        assert!(rendered.contains("8080"));
+        assert!(!rendered.contains("joysafeter-egress-gateway"));
+        assert!(!rendered.contains("0.0.0.0/0"));
     }
 
     #[test]
