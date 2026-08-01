@@ -15,7 +15,8 @@ use tracing::{info, warn};
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
 use super::lds_backend::{
-    CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
+    CdsBackend, DeltaXdsServer, DeniedCidr, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds,
+    LdsBackend,
 };
 use super::mounts::SandboxMount;
 use super::provider::{ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus};
@@ -140,6 +141,13 @@ impl DockerProvider {
                     grpc_target_port: config.envoy_grpc_port,
                     container_name: config.envoy_container_name.clone(),
                     xds_mode: config.envoy_xds_mode.clone(),
+                    controller_xds_host: config.egress_controller_xds_host.clone(),
+                    controller_xds_port: config.egress_controller_xds_port,
+                    denied_cidrs: config
+                        .envoy_egress_denied_cidrs
+                        .iter()
+                        .map(|cidr| cidr.parse::<DeniedCidr>())
+                        .collect::<anyhow::Result<Vec<_>>>()?,
                 },
                 lds,
                 cds,

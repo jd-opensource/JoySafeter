@@ -6,7 +6,8 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::lds_backend::{
-    exec_in_envoy, write_file_in_envoy, CdsBackend, LdsBackend, ListenerKind, ListenerSpec,
+    dynamic_forward_proxy_dns_cache_json, exec_in_envoy, write_file_in_envoy, CdsBackend,
+    DeniedCidr, LdsBackend, ListenerKind, ListenerSpec,
 };
 use crate::egress::policy::{SandboxCredentials, SandboxEgressPolicy};
 
@@ -36,13 +37,174 @@ pub struct EnvoyConfig {
     pub grpc_target_host: String,
     pub grpc_target_port: u16,
     pub container_name: String,
-    /// `"filesystem"` (default, `lds.json`) or `"grpc"` (Delta xDS).
+    /// `"filesystem"` (default, `lds.json`), `"grpc"` (Delta xDS to the
+    /// orchestrator), or `"controller"` (Delta xDS to the Go egress controller).
     pub xds_mode: String,
+    /// Controller xDS host, used when `xds_mode == "controller"`.
+    pub controller_xds_host: String,
+    /// Controller xDS port, used when `xds_mode == "controller"`.
+    pub controller_xds_port: u16,
+    pub denied_cidrs: Vec<DeniedCidr>,
 }
 
 impl EnvoyConfig {
     fn is_grpc_mode(&self) -> bool {
         self.xds_mode == "grpc"
+    }
+
+    fn is_controller_mode(&self) -> bool {
+        self.xds_mode == "controller"
+    }
+
+    /// Build the bootstrap JSON value for the active mode (pure; no I/O).
+    ///
+    /// * filesystem: `dynamic_resources.lds_config.path_config_source`.
+    /// * grpc / controller: `lds_config.ads` + `ads_config { DELTA_GRPC }` + a
+    ///   static `xds_cluster`. In `grpc` mode that cluster points at the
+    ///   orchestrator gRPC server (same host:port as `orchestrator_grpc`, since
+    ///   the xDS service shares that server); in `controller` mode it points at
+    ///   the Go egress controller (`controller_xds_host:controller_xds_port`).
+    ///
+    /// The static `orchestrator_grpc` cluster is unchanged across all modes and
+    /// keeps pointing at `grpc_target_host:grpc_target_port` — it is the
+    /// control-channel upstream the emitted `grpc.sock` listener routes to.
+    pub fn render_bootstrap_value(&self) -> serde_json::Value {
+        let dns_cache_config = dynamic_forward_proxy_dns_cache_json(&self.denied_cidrs);
+        let mut clusters = vec![
+            json!({
+                "name": "orchestrator_grpc",
+                "connect_timeout": "5s",
+                "type": "STRICT_DNS",
+                "lb_policy": "ROUND_ROBIN",
+                "typed_extension_protocol_options": {
+                    "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
+                        "@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+                        "explicit_http_config": {
+                            "http2_protocol_options": {}
+                        }
+                    }
+                },
+                "load_assignment": {
+                    "cluster_name": "orchestrator_grpc",
+                    "endpoints": [{
+                        "lb_endpoints": [{
+                            "endpoint": {
+                                "address": {
+                                    "socket_address": {
+                                        "address": self.grpc_target_host,
+                                        "port_value": self.grpc_target_port
+                                    }
+                                }
+                            }
+                        }]
+                    }]
+                }
+            }),
+            json!({
+                "name": "dynamic_forward_proxy",
+                "connect_timeout": "5s",
+                "lb_policy": "CLUSTER_PROVIDED",
+                "cluster_type": {
+                    "name": "envoy.clusters.dynamic_forward_proxy",
+                    "typed_config": {
+                        "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
+                        "dns_cache_config": dns_cache_config
+                    }
+                }
+            }),
+        ];
+
+        // Dynamic resources differ by mode. Both `grpc` and `controller` add a
+        // static `xds_cluster` and drive LDS/CDS over ADS Delta gRPC; they
+        // differ only in the `xds_cluster` endpoint address.
+        let dynamic_resources = if self.is_grpc_mode() || self.is_controller_mode() {
+            // xds_cluster endpoint: controller mode → the Go controller;
+            // grpc mode → the orchestrator gRPC server.
+            let (xds_host, xds_port) = if self.is_controller_mode() {
+                (self.controller_xds_host.clone(), self.controller_xds_port)
+            } else {
+                (self.grpc_target_host.clone(), self.grpc_target_port)
+            };
+            clusters.push(json!({
+                "name": "xds_cluster",
+                "connect_timeout": "5s",
+                "type": "STRICT_DNS",
+                "lb_policy": "ROUND_ROBIN",
+                "typed_extension_protocol_options": {
+                    "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
+                        "@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+                        "explicit_http_config": {
+                            "http2_protocol_options": {}
+                        }
+                    }
+                },
+                "load_assignment": {
+                    "cluster_name": "xds_cluster",
+                    "endpoints": [{
+                        "lb_endpoints": [{
+                            "endpoint": {
+                                "address": {
+                                    "socket_address": {
+                                        "address": xds_host,
+                                        "port_value": xds_port
+                                    }
+                                }
+                            }
+                        }]
+                    }]
+                }
+            }));
+
+            json!({
+                "cds_config": { "ads": {} },
+                "lds_config": { "ads": {} },
+                "ads_config": {
+                    "api_type": "DELTA_GRPC",
+                    "transport_api_version": "V3",
+                    "grpc_services": [{
+                        "envoy_grpc": { "cluster_name": "xds_cluster" }
+                    }]
+                }
+            })
+        } else {
+            json!({
+                "lds_config": {
+                    "path_config_source": {
+                        "path": "/envoy-config/lds.json",
+                        "watched_directory": {
+                            "path": "/envoy-config"
+                        }
+                    }
+                },
+                "cds_config": {
+                    "path_config_source": {
+                        "path": "/envoy-config/cds.json",
+                        "watched_directory": {
+                            "path": "/envoy-config"
+                        }
+                    }
+                }
+            })
+        };
+
+        json!({
+            "node": {
+                "cluster": "joysafeter-proxy",
+                "id": "joysafeter-envoy"
+            },
+            "dynamic_resources": dynamic_resources,
+            "static_resources": {
+                "clusters": clusters
+            },
+            "admin": {
+                "address": {
+                    "socket_address": {
+                        "address": "127.0.0.1",
+                        "port_value": 9901
+                    }
+                }
+            }
+        })
     }
 }
 
@@ -150,12 +312,14 @@ impl EnvoyManager {
                 kind: ListenerKind::Grpc,
                 allowed_hosts: vec![],
                 credentials: vec![],
+                denied_cidrs: self.config.denied_cidrs.clone(),
             });
             specs.push(ListenerSpec {
                 sandbox_id: sb.id,
                 kind: ListenerKind::Http,
                 allowed_hosts: policy.allowlist_hosts,
                 credentials: policy.credential_routes,
+                denied_cidrs: self.config.denied_cidrs.clone(),
             });
             recovered += 1;
         }
@@ -234,12 +398,14 @@ impl EnvoyManager {
                     kind: ListenerKind::Grpc,
                     allowed_hosts: vec![],
                     credentials: vec![],
+                    denied_cidrs: self.config.denied_cidrs.clone(),
                 },
                 ListenerSpec {
                     sandbox_id,
                     kind: ListenerKind::Http,
                     allowed_hosts: policy.allowlist_hosts.clone(),
                     credentials: policy.credential_routes.clone(),
+                    denied_cidrs: self.config.denied_cidrs.clone(),
                 },
             ])
             .await?;
@@ -310,143 +476,10 @@ impl EnvoyManager {
 
     /// Write Envoy bootstrap config as JSON, matching the active xDS mode.
     ///
-    /// * filesystem: `dynamic_resources.lds_config.path_config_source`.
-    /// * grpc: `lds_config.ads` + `ads_config { DELTA_GRPC }` + a static
-    ///   `xds_cluster` pointing at the orchestrator gRPC server (same host:port
-    ///   as `orchestrator_grpc`, since the xDS service shares that server).
+    /// The bootstrap JSON is built by the pure [`EnvoyConfig::render_bootstrap_value`];
+    /// this method only performs the container-side file write.
     async fn write_bootstrap_config(&self) -> anyhow::Result<()> {
-        let mut clusters = vec![
-            json!({
-                "name": "orchestrator_grpc",
-                "connect_timeout": "5s",
-                "type": "STRICT_DNS",
-                "lb_policy": "ROUND_ROBIN",
-                "typed_extension_protocol_options": {
-                    "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
-                        "@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
-                        "explicit_http_config": {
-                            "http2_protocol_options": {}
-                        }
-                    }
-                },
-                "load_assignment": {
-                    "cluster_name": "orchestrator_grpc",
-                    "endpoints": [{
-                        "lb_endpoints": [{
-                            "endpoint": {
-                                "address": {
-                                    "socket_address": {
-                                        "address": self.config.grpc_target_host,
-                                        "port_value": self.config.grpc_target_port
-                                    }
-                                }
-                            }
-                        }]
-                    }]
-                }
-            }),
-            json!({
-                "name": "dynamic_forward_proxy",
-                "connect_timeout": "5s",
-                "lb_policy": "CLUSTER_PROVIDED",
-                "cluster_type": {
-                    "name": "envoy.clusters.dynamic_forward_proxy",
-                    "typed_config": {
-                        "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
-                        "dns_cache_config": {
-                            "name": "dynamic_forward_proxy_cache",
-                            "dns_lookup_family": "V4_ONLY"
-                        }
-                    }
-                }
-            }),
-        ];
-
-        // Dynamic resources differ by mode.
-        let dynamic_resources = if self.config.is_grpc_mode() {
-            // Add a static cluster for the xDS control plane (H2 gRPC to the
-            // orchestrator). Reuses the same host:port as orchestrator_grpc.
-            clusters.push(json!({
-                "name": "xds_cluster",
-                "connect_timeout": "5s",
-                "type": "STRICT_DNS",
-                "lb_policy": "ROUND_ROBIN",
-                "typed_extension_protocol_options": {
-                    "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
-                        "@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
-                        "explicit_http_config": {
-                            "http2_protocol_options": {}
-                        }
-                    }
-                },
-                "load_assignment": {
-                    "cluster_name": "xds_cluster",
-                    "endpoints": [{
-                        "lb_endpoints": [{
-                            "endpoint": {
-                                "address": {
-                                    "socket_address": {
-                                        "address": self.config.grpc_target_host,
-                                        "port_value": self.config.grpc_target_port
-                                    }
-                                }
-                            }
-                        }]
-                    }]
-                }
-            }));
-
-            json!({
-                "cds_config": { "ads": {} },
-                "lds_config": { "ads": {} },
-                "ads_config": {
-                    "api_type": "DELTA_GRPC",
-                    "transport_api_version": "V3",
-                    "grpc_services": [{
-                        "envoy_grpc": { "cluster_name": "xds_cluster" }
-                    }]
-                }
-            })
-        } else {
-            json!({
-                "lds_config": {
-                    "path_config_source": {
-                        "path": "/envoy-config/lds.json",
-                        "watched_directory": {
-                            "path": "/envoy-config"
-                        }
-                    }
-                },
-                "cds_config": {
-                    "path_config_source": {
-                        "path": "/envoy-config/cds.json",
-                        "watched_directory": {
-                            "path": "/envoy-config"
-                        }
-                    }
-                }
-            })
-        };
-
-        let bootstrap = json!({
-            "node": {
-                "cluster": "joysafeter-proxy",
-                "id": "joysafeter-envoy"
-            },
-            "dynamic_resources": dynamic_resources,
-            "static_resources": {
-                "clusters": clusters
-            },
-            "admin": {
-                "address": {
-                    "socket_address": {
-                        "address": "127.0.0.1",
-                        "port_value": 9901
-                    }
-                }
-            }
-        });
-
+        let bootstrap = self.config.render_bootstrap_value();
         let bootstrap_json = serde_json::to_string_pretty(&bootstrap)?;
         self.write_file_in_envoy("/envoy-config/bootstrap.json", &bootstrap_json)
             .await?;
@@ -494,4 +527,48 @@ fn extract_allowed_hosts(networking_config: Option<&serde_json::Value>) -> Vec<S
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod bootstrap_tests {
+    use super::*;
+
+    fn cfg(mode: &str) -> EnvoyConfig {
+        EnvoyConfig {
+            envoy_image: "img".into(),
+            socket_volume: "vol".into(),
+            config_dir: "/envoy-config".into(),
+            envoy_network: "net".into(),
+            grpc_target_host: "joysafeter-orchestrator".into(),
+            grpc_target_port: 9090,
+            container_name: "joysafeter-envoy".into(),
+            xds_mode: mode.into(),
+            controller_xds_host: "joysafeter-egress-controller".into(),
+            controller_xds_port: 18000,
+            denied_cidrs: vec![],
+        }
+    }
+
+    #[test]
+    fn controller_mode_points_ads_at_controller() {
+        let bootstrap = cfg("controller").render_bootstrap_value();
+        let clusters = bootstrap["static_resources"]["clusters"].as_array().unwrap();
+        // orchestrator_grpc still targets the orchestrator (control channel upstream).
+        let orch = clusters.iter().find(|c| c["name"] == "orchestrator_grpc").unwrap();
+        let orch_addr = &orch["load_assignment"]["endpoints"][0]["lb_endpoints"][0]
+            ["endpoint"]["address"]["socket_address"];
+        assert_eq!(orch_addr["address"], "joysafeter-orchestrator");
+        assert_eq!(orch_addr["port_value"], 9090);
+        // xds_cluster targets the Go controller.
+        let xds = clusters.iter().find(|c| c["name"] == "xds_cluster").unwrap();
+        let xds_addr = &xds["load_assignment"]["endpoints"][0]["lb_endpoints"][0]
+            ["endpoint"]["address"]["socket_address"];
+        assert_eq!(xds_addr["address"], "joysafeter-egress-controller");
+        assert_eq!(xds_addr["port_value"], 18000);
+        // ADS is configured.
+        assert_eq!(
+            bootstrap["dynamic_resources"]["ads_config"]["grpc_services"][0]["envoy_grpc"]["cluster_name"],
+            "xds_cluster"
+        );
+    }
 }
