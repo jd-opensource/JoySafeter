@@ -157,6 +157,13 @@ pub struct JoySafeterConfig {
     pub k8s_kubectl_path: String,
     pub k8s_orchestrator_url: Option<String>,
 
+    // Leader Election (K8s Lease-based HA)
+    pub leader_election_enabled: bool,
+    pub leader_lease_name: String,
+    pub leader_lease_duration_sec: u64,
+    pub leader_renew_interval_sec: u64,
+    pub leader_identity: String,
+
     // Database
     pub database_url: String,
 
@@ -313,6 +320,14 @@ impl JoySafeterConfig {
             k8s_orchestrator_url: env::var("JOYSAFETER_K8S_ORCHESTRATOR_URL")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
+
+            leader_election_enabled: env_bool("JOYSAFETER_LEADER_ELECTION_ENABLED", false),
+            leader_lease_name: env_str("JOYSAFETER_LEADER_LEASE_NAME", "joysafeter-orchestrator-leader"),
+            leader_lease_duration_sec: env_u64("JOYSAFETER_LEADER_LEASE_DURATION_SEC", 10),
+            leader_renew_interval_sec: env_u64("JOYSAFETER_LEADER_RENEW_INTERVAL_SEC", 3),
+            leader_identity: env::var("POD_NAME")
+                .or_else(|_| env::var("HOSTNAME"))
+                .unwrap_or_else(|_| format!("orch-{}", uuid::Uuid::now_v7())),
 
             database_url: build_database_url(),
             redis_url: env::var("REDIS_URL").ok(),
