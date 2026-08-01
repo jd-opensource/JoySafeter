@@ -404,18 +404,32 @@ async fn main() -> anyhow::Result<()> {
     } else {
         shutdown_signal().await;
     }
-    info!("Stopping services...");
 
-    // Graceful shutdown
-    // 1. Send shutdown to all connected runners
+    // ── Graceful drain ─────────────────────────────────────────────────────
+    // Mark not-ready FIRST so K8s Service stops sending new traffic, then
+    // drain in-flight work before stopping services.
+    ready_flag.store(false, Ordering::Release);
+    info!("Marked not-ready; draining in-flight work...");
+
+    // Stop scheduler immediately (no new tasks claimed).
+    scheduler_handle.abort();
+
+    // Give in-flight runner streams and gRPC calls time to finish.
+    // Runners that are mid-task will continue autonomously (agent runs locally);
+    // they reconnect to the new leader and report results there.
+    const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+    let active_bridges = bridge_registry.all_bridges().len();
+    if active_bridges > 0 {
+        info!(active_bridges, "Waiting up to {DRAIN_TIMEOUT:?} for active bridges to finish");
+        tokio::time::sleep(DRAIN_TIMEOUT).await;
+    }
+
+    // Send shutdown to remaining connected runners
     bridge_registry.shutdown_all().await;
 
-    // 2. Stop background tasks
-    // #26: gRPC graceful shutdown with 5s grace period (Python L448: stop(grace=5))
+    // Stop remaining background tasks
     grpc_handle.abort();
-    // Give in-flight RPCs 5s to complete
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    scheduler_handle.abort();
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     task_ctrl_handle.abort();
     for h in sandbox_ctrl_handles {
         h.abort();
