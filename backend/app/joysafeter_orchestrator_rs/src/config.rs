@@ -100,6 +100,13 @@ pub struct JoySafeterConfig {
     pub envoy_container_name: String,
     /// LDS transport: `"filesystem"` (default, `lds.json`) or `"grpc"` (Delta xDS).
     pub envoy_xds_mode: String,
+    /// Host of the Go egress-controller's xDS server, used when
+    /// `envoy_xds_mode == "controller"`. Docker only.
+    pub egress_controller_xds_host: String,
+    /// Port of the Go egress-controller's xDS server (ADS). Default 18000.
+    pub egress_controller_xds_port: u16,
+    /// CIDRs removed from dynamic-forward-proxy DNS answers before connecting.
+    pub envoy_egress_denied_cidrs: Vec<String>,
     /// Hosts that LLM egress credential routes may target. This protects the
     /// Envoy-side key injection path from sending credentials to arbitrary
     /// user-controlled base URLs.
@@ -109,6 +116,33 @@ pub struct JoySafeterConfig {
     /// Shared control-plane token used by orchestrator to install/revoke
     /// per-sandbox gateway policy. This is not exposed to sandboxes.
     pub egress_gateway_control_token: Option<String>,
+    /// Shared Envoy credential-listener URL used by Kubernetes sandboxes.
+    pub egress_envoy_credential_url: Option<String>,
+    /// Shared Envoy forward-proxy URL used by Kubernetes sandboxes.
+    pub egress_envoy_forward_proxy_url: Option<String>,
+    /// Public CA ConfigMap and mount path used to extend sandbox trust for the
+    /// shared Envoy downstream TLS listeners.
+    pub egress_downstream_ca_config_map: String,
+    pub egress_downstream_ca_mount_path: String,
+    /// Enable the durable PostgreSQL desired-state writer and Envoy ACK gate.
+    pub egress_policy_authority_enabled: bool,
+    pub egress_policy_deployment_id: String,
+    pub egress_policy_environment: String,
+    pub egress_policy_region: String,
+    pub egress_policy_shard_id: String,
+    pub egress_policy_host_id: Option<String>,
+    pub egress_policy_envoy_version: String,
+    pub egress_policy_config_schema_version: String,
+    pub egress_policy_apply_timeout_ms: u64,
+    pub egress_policy_poll_interval_ms: u64,
+    /// Dedicated Envoy ext_authz listener. `None` keeps only the legacy
+    /// orchestrator gRPC registration for Docker compatibility.
+    pub egress_authz_bind: Option<String>,
+    pub egress_authz_mtls: bool,
+    pub egress_authz_cert_file: String,
+    pub egress_authz_key_file: String,
+    pub egress_authz_client_ca_file: String,
+    pub egress_authz_client_dns_san: String,
     /// Explicit feature gate for K8s credential egress. Defaults false so K8s
     /// does not claim production egress capability until operators opt in.
     pub k8s_egress_management_enabled: bool,
@@ -239,7 +273,10 @@ impl JoySafeterConfig {
             scheduler_batch_size: env_usize("JOYSAFETER_SCHEDULER_BATCH_SIZE", 10),
 
             envoy_enabled: env_bool("JOYSAFETER_ENVOY_ENABLED", false),
-            envoy_image: env_str("JOYSAFETER_ENVOY_IMAGE", "envoyproxy/envoy:v1.31-latest"),
+            envoy_image: env_str(
+                "JOYSAFETER_ENVOY_IMAGE",
+                "envoyproxy/envoy:v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66",
+            ),
             envoy_socket_volume: env_str("JOYSAFETER_ENVOY_SOCKET_VOLUME", "joysafeter-sockets"),
             envoy_config_dir: env_str(
                 "JOYSAFETER_ENVOY_CONFIG_DIR",
@@ -250,6 +287,36 @@ impl JoySafeterConfig {
             envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 9090),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
             envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", "filesystem"),
+            egress_controller_xds_host: env_str(
+                "JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST",
+                "joysafeter-egress-controller",
+            ),
+            egress_controller_xds_port: env_u16("JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT", 18000),
+            envoy_egress_denied_cidrs: env_list_or_default(
+                "JOYSAFETER_ENVOY_EGRESS_DENIED_CIDRS",
+                &[
+                    "0.0.0.0/8",
+                    "10.0.0.0/8",
+                    "100.64.0.0/10",
+                    "127.0.0.0/8",
+                    "169.254.0.0/16",
+                    "172.16.0.0/12",
+                    "192.0.0.0/24",
+                    "192.0.2.0/24",
+                    "192.168.0.0/16",
+                    "198.18.0.0/15",
+                    "198.51.100.0/24",
+                    "203.0.113.0/24",
+                    "224.0.0.0/4",
+                    "240.0.0.0/4",
+                    "::/128",
+                    "::1/128",
+                    "fc00::/7",
+                    "fe80::/10",
+                    "ff00::/8",
+                    "2001:db8::/32",
+                ],
+            ),
             llm_egress_allowed_hosts: env_list("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS"),
             egress_gateway_url: env::var("JOYSAFETER_EGRESS_GATEWAY_URL")
                 .ok()
@@ -257,6 +324,75 @@ impl JoySafeterConfig {
             egress_gateway_control_token: env::var("JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
+            egress_envoy_credential_url: env::var("JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            egress_envoy_forward_proxy_url: env::var(
+                "JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL",
+            )
+            .ok()
+            .filter(|v| !v.trim().is_empty()),
+            egress_downstream_ca_config_map: env_str(
+                "JOYSAFETER_EGRESS_DOWNSTREAM_CA_CONFIG_MAP",
+                "joysafeter-egress-downstream-ca",
+            ),
+            egress_downstream_ca_mount_path: env_str(
+                "JOYSAFETER_EGRESS_DOWNSTREAM_CA_MOUNT_PATH",
+                "/var/run/joysafeter-egress/trust",
+            ),
+            egress_policy_authority_enabled: env_bool(
+                "JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED",
+                false,
+            ),
+            egress_policy_deployment_id: env_str(
+                "JOYSAFETER_EGRESS_POLICY_DEPLOYMENT_ID",
+                "joysafeter",
+            ),
+            egress_policy_environment: env_str(
+                "JOYSAFETER_EGRESS_POLICY_ENVIRONMENT",
+                "local",
+            ),
+            egress_policy_region: env_str("JOYSAFETER_EGRESS_POLICY_REGION", "local"),
+            egress_policy_shard_id: env_str("JOYSAFETER_EGRESS_POLICY_SHARD_ID", "0"),
+            egress_policy_host_id: env::var("JOYSAFETER_EGRESS_POLICY_HOST_ID")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            egress_policy_envoy_version: env_str(
+                "JOYSAFETER_EGRESS_POLICY_ENVOY_VERSION",
+                "1.39.0",
+            ),
+            egress_policy_config_schema_version: env_str(
+                "JOYSAFETER_EGRESS_POLICY_CONFIG_SCHEMA_VERSION",
+                "1",
+            ),
+            egress_policy_apply_timeout_ms: env_u64(
+                "JOYSAFETER_EGRESS_POLICY_APPLY_TIMEOUT_MS",
+                30_000,
+            ),
+            egress_policy_poll_interval_ms: env_u64(
+                "JOYSAFETER_EGRESS_POLICY_POLL_INTERVAL_MS",
+                250,
+            ),
+            egress_authz_bind: env::var("JOYSAFETER_EGRESS_AUTHZ_BIND")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            egress_authz_mtls: env_bool("JOYSAFETER_EGRESS_AUTHZ_MTLS", true),
+            egress_authz_cert_file: env_str(
+                "JOYSAFETER_EGRESS_AUTHZ_CERT_FILE",
+                "/var/run/joysafeter-egress/authz-server-tls/tls.crt",
+            ),
+            egress_authz_key_file: env_str(
+                "JOYSAFETER_EGRESS_AUTHZ_KEY_FILE",
+                "/var/run/joysafeter-egress/authz-server-tls/tls.key",
+            ),
+            egress_authz_client_ca_file: env_str(
+                "JOYSAFETER_EGRESS_AUTHZ_CLIENT_CA_FILE",
+                "/var/run/joysafeter-egress/authz-server-tls/ca.crt",
+            ),
+            egress_authz_client_dns_san: env_str(
+                "JOYSAFETER_EGRESS_AUTHZ_CLIENT_DNS_SAN",
+                "joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local",
+            ),
             k8s_egress_management_enabled: env_bool(
                 "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED",
                 false,
@@ -380,6 +516,15 @@ fn env_list(key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn env_list_or_default(key: &str, defaults: &[&str]) -> Vec<String> {
+    let configured = env_list(key);
+    if configured.is_empty() {
+        defaults.iter().map(|value| (*value).to_string()).collect()
+    } else {
+        configured
+    }
+}
+
 fn parse_env_list(value: &str) -> Vec<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -447,5 +592,15 @@ mod tests {
     fn ignores_empty_list_items() {
         assert_eq!(parse_env_list(r#"["", "codex"]"#), vec!["codex"]);
         assert_eq!(parse_env_list(" , codex, "), vec!["codex"]);
+    }
+
+    #[test]
+    fn controller_xds_endpoint_has_defaults() {
+        // Ensure the env is clean for a defaults check.
+        std::env::remove_var("JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST");
+        std::env::remove_var("JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT");
+        let config = super::JoySafeterConfig::from_env();
+        assert_eq!(config.egress_controller_xds_host, "joysafeter-egress-controller");
+        assert_eq!(config.egress_controller_xds_port, 18000);
     }
 }
