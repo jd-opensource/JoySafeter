@@ -588,21 +588,26 @@ spec:
         - protocol: TCP
           port: 18090
     - to:
+        # L7 is authoritative for egress: the credential listener only forwards to
+        # the single configured upstream host of each sandbox's secret, the
+        # forward-proxy honors the per-sandbox host allowlist, and ext_authz gates
+        # identity. So this L3 rule does NOT try to approximate "public internet
+        # only" by excluding all RFC1918 space (which wrongly blocks legitimately
+        # allowlisted model gateways that live on internal IPs, e.g. an
+        # ai-api.*.internal on 10.0.0.0/8). It blocks ONLY the genuinely dangerous
+        # SSRF targets: cloud metadata / link-local, this cluster's own pod and
+        # service CIDRs (lateral movement), loopback, and multicast/reserved.
+        # NOTE: the pod/service CIDRs below are THIS cluster's (colima k3s:
+        # pods 10.42.0.0/16, services 10.43.0.0/16) — set them to the target
+        # cluster's CIDRs; k8s NetworkPolicy is IP-based and cannot match DNS.
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
               - 0.0.0.0/8
-              - 10.0.0.0/8
-              - 100.64.0.0/10
               - 127.0.0.0/8
               - 169.254.0.0/16
-              - 172.16.0.0/12
-              - 192.0.0.0/24
-              - 192.0.2.0/24
-              - 192.168.0.0/16
-              - 198.18.0.0/15
-              - 198.51.100.0/24
-              - 203.0.113.0/24
+              - 10.42.0.0/16
+              - 10.43.0.0/16
               - 224.0.0.0/4
               - 240.0.0.0/4
       ports:
