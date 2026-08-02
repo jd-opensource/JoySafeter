@@ -19,7 +19,10 @@
 //! Listener config differs.
 
 use std::collections::HashMap;
+use std::fmt;
+use std::net::IpAddr;
 use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -79,6 +82,59 @@ pub struct ListenerSpec {
     /// egress boundary, and forward (optionally over TLS) to the true upstream.
     /// The sandbox itself never holds these secrets.
     pub credentials: Vec<EgressCredentialRoute>,
+    /// Resolved addresses matching these ranges are removed from dynamic
+    /// forward proxy DNS results before a connection is attempted.
+    pub denied_cidrs: Vec<DeniedCidr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeniedCidr {
+    pub address_prefix: String,
+    pub prefix_len: u32,
+}
+
+impl fmt::Display for DeniedCidr {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}/{}", self.address_prefix, self.prefix_len)
+    }
+}
+
+impl FromStr for DeniedCidr {
+    type Err = anyhow::Error;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        let (address, prefix) = raw
+            .trim()
+            .split_once('/')
+            .ok_or_else(|| anyhow::anyhow!("egress denied CIDR must include a prefix: {raw}"))?;
+        let address: IpAddr = address
+            .parse()
+            .map_err(|error| anyhow::anyhow!("invalid egress denied CIDR {raw}: {error}"))?;
+        let prefix_len: u32 = prefix
+            .parse()
+            .map_err(|error| anyhow::anyhow!("invalid egress denied CIDR {raw}: {error}"))?;
+        let max_prefix = if address.is_ipv4() { 32 } else { 128 };
+        if prefix_len > max_prefix {
+            anyhow::bail!("invalid egress denied CIDR {raw}: prefix exceeds {max_prefix}");
+        }
+        Ok(Self {
+            address_prefix: address.to_string(),
+            prefix_len,
+        })
+    }
+}
+
+pub(crate) fn dynamic_forward_proxy_dns_cache_json(denied_cidrs: &[DeniedCidr]) -> Value {
+    json!({
+        "name": "dynamic_forward_proxy_cache",
+        "dns_lookup_family": "V4_ONLY",
+        "resolved_address_filter": {
+            "ranges": denied_cidrs.iter().map(|cidr| json!({
+                "address_prefix": cidr.address_prefix,
+                "prefix_len": cidr.prefix_len
+            })).collect::<Vec<_>>()
+        }
+    })
 }
 
 const CREDENTIAL_AUTH_HEADERS: &[&str] =
@@ -284,7 +340,8 @@ impl CdsBackend for FilesystemCds {
 
 /// Render a [`ClusterSpec`] to canonical Envoy Cluster JSON: a STRICT_DNS cluster
 /// with one endpoint at the real upstream host:port, plus a TLS transport socket
-/// (auto-SNI + system CA trust) when the upstream is HTTPS.
+/// (explicit SNI + system CA trust + exact DNS SAN validation) when the upstream
+/// is HTTPS.
 fn render_cluster_json(spec: &ClusterSpec) -> Value {
     let mut cluster = json!({
         "@type": CLUSTER_TYPE_URL,
@@ -317,7 +374,11 @@ fn render_cluster_json(spec: &ClusterSpec) -> Value {
                 "sni": spec.upstream_host,
                 "common_tls_context": {
                     "validation_context": {
-                        "trusted_ca": { "filename": "/etc/ssl/certs/ca-certificates.crt" }
+                        "trusted_ca": { "filename": "/etc/ssl/certs/ca-certificates.crt" },
+                        "match_typed_subject_alt_names": [{
+                            "san_type": "DNS",
+                            "matcher": { "exact": spec.upstream_host }
+                        }]
                     }
                 }
             }
@@ -334,9 +395,12 @@ fn render_cluster_json(spec: &ClusterSpec) -> Value {
 fn render_listener_json(spec: &ListenerSpec) -> Value {
     match spec.kind {
         ListenerKind::Grpc => build_grpc_listener_json(&spec.sandbox_id),
-        ListenerKind::Http => {
-            build_http_listener_json(&spec.sandbox_id, &spec.allowed_hosts, &spec.credentials)
-        }
+        ListenerKind::Http => build_http_listener_json(
+            &spec.sandbox_id,
+            &spec.allowed_hosts,
+            &spec.credentials,
+            &spec.denied_cidrs,
+        ),
     }
 }
 
@@ -369,6 +433,7 @@ fn build_http_listener_json(
     sandbox_id: &Uuid,
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
+    denied_cidrs: &[DeniedCidr],
 ) -> Value {
     let virtual_hosts = build_virtual_hosts_json(sandbox_id, allowed_hosts, credentials);
 
@@ -402,10 +467,7 @@ fn build_http_listener_json(
                             "name": "envoy.filters.http.dynamic_forward_proxy",
                             "typed_config": {
                                 "@type": "type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig",
-                                "dns_cache_config": {
-                                    "name": "dynamic_forward_proxy_cache",
-                                    "dns_lookup_family": "V4_ONLY"
-                                }
+                                "dns_cache_config": dynamic_forward_proxy_dns_cache_json(denied_cidrs)
                             }
                         },
                         {
@@ -1034,9 +1096,12 @@ fn encode_listener_any(spec: &ListenerSpec) -> anyhow::Result<Any> {
 
     let listener: Listener = match spec.kind {
         ListenerKind::Grpc => build_grpc_listener_proto(&spec.sandbox_id),
-        ListenerKind::Http => {
-            build_http_listener_proto(&spec.sandbox_id, &spec.allowed_hosts, &spec.credentials)
-        }
+        ListenerKind::Http => build_http_listener_proto(
+            &spec.sandbox_id,
+            &spec.allowed_hosts,
+            &spec.credentials,
+            &spec.denied_cidrs,
+        ),
     };
     let mut buf = Vec::new();
     listener.encode(&mut buf)?;
@@ -1098,9 +1163,11 @@ fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
             data_source, transport_socket, DataSource, TransportSocket,
         };
         use envoy_types::pb::envoy::extensions::transport_sockets::tls::v3::{
-            common_tls_context::ValidationContextType, CertificateValidationContext,
-            CommonTlsContext, UpstreamTlsContext,
+            common_tls_context::ValidationContextType, subject_alt_name_matcher,
+            CertificateValidationContext, CommonTlsContext, SubjectAltNameMatcher,
+            UpstreamTlsContext,
         };
+        use envoy_types::pb::envoy::r#type::matcher::v3::{string_matcher, StringMatcher};
 
         let tls = UpstreamTlsContext {
             sni: spec.upstream_host.clone(),
@@ -1113,6 +1180,16 @@ fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
                             )),
                             ..Default::default()
                         }),
+                        match_typed_subject_alt_names: vec![SubjectAltNameMatcher {
+                            san_type: subject_alt_name_matcher::SanType::Dns as i32,
+                            matcher: Some(StringMatcher {
+                                ignore_case: false,
+                                match_pattern: Some(string_matcher::MatchPattern::Exact(
+                                    spec.upstream_host.clone(),
+                                )),
+                            }),
+                            oid: String::new(),
+                        }],
                         ..Default::default()
                     },
                 )),
@@ -1146,6 +1223,45 @@ fn pack_any<M: Message>(type_url: &str, msg: &M) -> Any {
         type_url: type_url.to_string(),
         value: buf,
     }
+}
+
+// `envoy-types` 0.5.1 predates Envoy 1.39's DnsCacheConfig field 16. These
+// minimal wire-compatible messages let both filesystem and Delta xDS modes emit
+// the same resolved-address SSRF filter without upgrading the crate's entire
+// tonic/prost graph. Remove them when the production control plane replaces the
+// in-process xDS prototype.
+#[derive(Clone, PartialEq, prost::Message)]
+struct DynamicForwardProxyFilterConfigV139 {
+    #[prost(message, optional, tag = "1")]
+    dns_cache_config: Option<DnsCacheConfigV139>,
+    #[prost(bool, tag = "2")]
+    save_upstream_address: bool,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct DnsCacheConfigV139 {
+    #[prost(string, tag = "1")]
+    name: String,
+    #[prost(int32, tag = "2")]
+    dns_lookup_family: i32,
+    #[prost(message, optional, tag = "16")]
+    resolved_address_filter: Option<AddressMatcherV139>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AddressMatcherV139 {
+    #[prost(message, repeated, tag = "1")]
+    ranges: Vec<CidrRangeV139>,
+    #[prost(bool, tag = "2")]
+    invert_match: bool,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct CidrRangeV139 {
+    #[prost(string, tag = "1")]
+    address_prefix: String,
+    #[prost(message, optional, tag = "2")]
+    prefix_len: Option<envoy_types::pb::google::protobuf::UInt32Value>,
 }
 
 /// Type URL for the per-route ext_authz override, used in the proto renderer's
@@ -1248,29 +1364,34 @@ fn build_http_listener_proto(
     sandbox_id: &Uuid,
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
+    denied_cidrs: &[DeniedCidr],
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
     use envoy_types::pb::envoy::config::core::v3::{address, Address, Http1ProtocolOptions, Pipe};
     use envoy_types::pb::envoy::config::listener::v3::{filter, Filter, FilterChain, Listener};
     use envoy_types::pb::envoy::config::route::v3::RouteConfiguration;
-    use envoy_types::pb::envoy::extensions::common::dynamic_forward_proxy::v3::DnsCacheConfig;
-    use envoy_types::pb::envoy::extensions::filters::http::dynamic_forward_proxy::v3::{
-        filter_config, FilterConfig,
-    };
     use envoy_types::pb::envoy::extensions::filters::http::router::v3::Router;
     use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
         http_connection_manager, http_filter, HttpConnectionManager, HttpFilter,
     };
 
-    let dfp_filter = FilterConfig {
-        implementation_specifier: Some(filter_config::ImplementationSpecifier::DnsCacheConfig(
-            DnsCacheConfig {
-                name: "dynamic_forward_proxy_cache".to_string(),
-                // dns_lookup_family: V4_ONLY == 0 (default enum value), so we
-                // leave it at Default to match the JSON path.
-                ..Default::default()
-            },
-        )),
-        ..Default::default()
+    let dfp_filter = DynamicForwardProxyFilterConfigV139 {
+        dns_cache_config: Some(DnsCacheConfigV139 {
+            name: "dynamic_forward_proxy_cache".to_string(),
+            dns_lookup_family: 1,
+            resolved_address_filter: Some(AddressMatcherV139 {
+                ranges: denied_cidrs
+                    .iter()
+                    .map(|cidr| CidrRangeV139 {
+                        address_prefix: cidr.address_prefix.clone(),
+                        prefix_len: Some(envoy_types::pb::google::protobuf::UInt32Value {
+                            value: cidr.prefix_len,
+                        }),
+                    })
+                    .collect(),
+                invert_match: false,
+            }),
+        }),
+        save_upstream_address: false,
     };
 
     // ext_authz HTTP filter: points at the always-present orchestrator_grpc
@@ -1627,12 +1748,34 @@ mod tests {
     use crate::egress::policy::{CredentialRef, InjectScheme};
     use prost::Message;
 
+    fn denied_cidrs() -> Vec<DeniedCidr> {
+        vec![
+            "10.0.0.0/8".parse().unwrap(),
+            "169.254.0.0/16".parse().unwrap(),
+        ]
+    }
+
+    #[test]
+    fn denied_cidr_parser_validates_address_family_prefixes() {
+        assert_eq!(
+            "10.0.0.0/8".parse::<DeniedCidr>().unwrap(),
+            DeniedCidr {
+                address_prefix: "10.0.0.0".to_string(),
+                prefix_len: 8,
+            }
+        );
+        assert!("10.0.0.0/33".parse::<DeniedCidr>().is_err());
+        assert!("not-an-ip/8".parse::<DeniedCidr>().is_err());
+        assert!("10.0.0.0".parse::<DeniedCidr>().is_err());
+    }
+
     fn spec(kind: ListenerKind, hosts: &[&str]) -> ListenerSpec {
         ListenerSpec {
             sandbox_id: Uuid::nil(),
             kind,
             allowed_hosts: hosts.iter().map(|s| s.to_string()).collect(),
             credentials: vec![],
+            denied_cidrs: denied_cidrs(),
         }
     }
 
@@ -1646,6 +1789,7 @@ mod tests {
             kind,
             allowed_hosts: hosts.iter().map(|s| s.to_string()).collect(),
             credentials: creds,
+            denied_cidrs: denied_cidrs(),
         }
     }
 
@@ -1835,6 +1979,38 @@ mod tests {
             cj["transport_socket"]["typed_config"]["sni"],
             "mcp.example.com"
         );
+        assert_eq!(
+            cj["transport_socket"]["typed_config"]["common_tls_context"]["validation_context"]
+                ["match_typed_subject_alt_names"][0]["matcher"]["exact"],
+            "mcp.example.com"
+        );
+
+        let any = encode_cluster_any(mcp_cluster).unwrap();
+        use envoy_types::pb::envoy::config::cluster::v3::Cluster;
+        use envoy_types::pb::envoy::config::core::v3::transport_socket;
+        use envoy_types::pb::envoy::extensions::transport_sockets::tls::v3::{
+            common_tls_context, UpstreamTlsContext,
+        };
+        use envoy_types::pb::envoy::r#type::matcher::v3::string_matcher;
+        let cluster = Cluster::decode(any.value.as_slice()).unwrap();
+        let tls_any = match cluster.transport_socket.unwrap().config_type.unwrap() {
+            transport_socket::ConfigType::TypedConfig(any) => any,
+        };
+        let tls = UpstreamTlsContext::decode(tls_any.value.as_slice()).unwrap();
+        let validation = match tls
+            .common_tls_context
+            .unwrap()
+            .validation_context_type
+            .unwrap()
+        {
+            common_tls_context::ValidationContextType::ValidationContext(context) => context,
+            _ => panic!("expected inline validation context"),
+        };
+        let san = &validation.match_typed_subject_alt_names[0];
+        assert!(matches!(
+            san.matcher.as_ref().unwrap().match_pattern.as_ref().unwrap(),
+            string_matcher::MatchPattern::Exact(host) if host == "mcp.example.com"
+        ));
     }
 
     #[test]
@@ -2171,6 +2347,7 @@ mod tests {
             kind: ListenerKind::Http,
             allowed_hosts: vec!["a.com".to_string()],
             credentials: creds,
+            denied_cidrs: denied_cidrs(),
         }
     }
 
@@ -2197,6 +2374,16 @@ mod tests {
                 "envoy.filters.http.router",
             ]
         );
+        let denied_ranges = http_filters[0]["typed_config"]["dns_cache_config"]
+            ["resolved_address_filter"]["ranges"]
+            .as_array()
+            .unwrap();
+        assert!(denied_ranges
+            .iter()
+            .any(|range| { range["address_prefix"] == "10.0.0.0" && range["prefix_len"] == 8 }));
+        assert!(denied_ranges.iter().any(|range| {
+            range["address_prefix"] == "169.254.0.0" && range["prefix_len"] == 16
+        }));
         let ext_authz = &http_filters[1]["typed_config"];
         assert_eq!(ext_authz["transport_api_version"], "V3");
         assert_eq!(
@@ -2257,6 +2444,23 @@ mod tests {
             _ => panic!("expected typed config"),
         };
         let hcm = HttpConnectionManager::decode(hcm_any.value.as_slice()).unwrap();
+
+        let dfp_any = match &hcm.http_filters[0].config_type {
+            Some(http_filter::ConfigType::TypedConfig(any)) => any,
+            _ => panic!("expected dynamic forward proxy typed config"),
+        };
+        let dfp = DynamicForwardProxyFilterConfigV139::decode(dfp_any.value.as_slice()).unwrap();
+        let dns = dfp.dns_cache_config.unwrap();
+        assert_eq!(dns.dns_lookup_family, 1);
+        let ranges = dns.resolved_address_filter.unwrap().ranges;
+        assert!(ranges.iter().any(|range| {
+            range.address_prefix == "10.0.0.0"
+                && range.prefix_len.as_ref().map(|prefix| prefix.value) == Some(8)
+        }));
+        assert!(ranges.iter().any(|range| {
+            range.address_prefix == "169.254.0.0"
+                && range.prefix_len.as_ref().map(|prefix| prefix.value) == Some(16)
+        }));
 
         // Filter order: dynamic_forward_proxy, ext_authz, router.
         let filter_names: Vec<&str> = hcm.http_filters.iter().map(|f| f.name.as_str()).collect();

@@ -52,7 +52,7 @@ struct CacheEntry {
 pub struct CredentialBroker {
     pool: PgPool,
     ttl: Duration,
-    cache: Mutex<HashMap<(Uuid, String), CacheEntry>>,
+    cache: Mutex<HashMap<(Uuid, String, String), CacheEntry>>,
 }
 
 impl CredentialBroker {
@@ -77,7 +77,20 @@ impl CredentialBroker {
         sandbox_id: Uuid,
         route: &EgressCredentialRoute,
     ) -> anyhow::Result<ResolvedHeader> {
-        let cache_key = (sandbox_id, route.id.clone());
+        self.resolve_versioned(sandbox_id, route, None).await
+    }
+
+    pub async fn resolve_versioned(
+        &self,
+        sandbox_id: Uuid,
+        route: &EgressCredentialRoute,
+        policy_identity: Option<&str>,
+    ) -> anyhow::Result<ResolvedHeader> {
+        let cache_key = (
+            sandbox_id,
+            route.id.clone(),
+            policy_identity.unwrap_or_default().to_string(),
+        );
         if let Some(header) = self.cache_get(&cache_key) {
             return Ok(header);
         }
@@ -107,10 +120,10 @@ impl CredentialBroker {
     /// secret material resident in the cache.
     pub fn evict(&self, sandbox_id: Uuid) {
         let mut cache = self.cache.lock().expect("credential cache poisoned");
-        cache.retain(|(sid, _), _| *sid != sandbox_id);
+        cache.retain(|(sid, _, _), _| *sid != sandbox_id);
     }
 
-    fn cache_get(&self, key: &(Uuid, String)) -> Option<ResolvedHeader> {
+    fn cache_get(&self, key: &(Uuid, String, String)) -> Option<ResolvedHeader> {
         let mut cache = self.cache.lock().expect("credential cache poisoned");
         match cache.get(key) {
             Some(entry) if entry.expires_at > Instant::now() => Some(entry.header.clone()),
@@ -122,7 +135,7 @@ impl CredentialBroker {
         }
     }
 
-    fn cache_put(&self, key: (Uuid, String), header: ResolvedHeader) {
+    fn cache_put(&self, key: (Uuid, String, String), header: ResolvedHeader) {
         let mut cache = self.cache.lock().expect("credential cache poisoned");
         cache.insert(
             key,
@@ -425,21 +438,21 @@ mod tests {
         assert_eq!(header.value, "plain-key-123");
 
         // Second resolve is a cache hit for the same (sandbox_id, route_id).
-        assert!(broker
-            .cache
-            .lock()
-            .unwrap()
-            .contains_key(&(sandbox_id, route.id.clone())));
+        assert!(broker.cache.lock().unwrap().contains_key(&(
+            sandbox_id,
+            route.id.clone(),
+            String::new()
+        )));
         let again = broker.resolve(sandbox_id, &route).await.expect("cache hit");
         assert_eq!(again.value, "plain-key-123");
 
         // Eviction drops the cached material for that sandbox.
         broker.evict(sandbox_id);
-        assert!(!broker
-            .cache
-            .lock()
-            .unwrap()
-            .contains_key(&(sandbox_id, route.id.clone())));
+        assert!(!broker.cache.lock().unwrap().contains_key(&(
+            sandbox_id,
+            route.id.clone(),
+            String::new()
+        )));
 
         sqlx::query("DELETE FROM joysafeter_secrets WHERE name = $1")
             .bind(&secret_name)

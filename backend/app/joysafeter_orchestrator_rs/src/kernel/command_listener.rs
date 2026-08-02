@@ -7,11 +7,11 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::queries;
+use crate::egress::enforcer::EgressEnforcer;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::redis_coordinator::RedisCoordinator;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
-use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::image_builder::{EnvironmentPackages, ImageBuilder};
 use crate::sandbox::provider::SandboxProvider;
 
@@ -32,7 +32,7 @@ pub struct CommandListener {
     pool: PgPool,
     bridge_registry: BridgeRegistry,
     provider: Arc<dyn SandboxProvider>,
-    envoy_manager: Option<Arc<EnvoyManager>>,
+    egress_enforcer: Option<Arc<dyn EgressEnforcer>>,
     image_builder: Option<Arc<ImageBuilder>>,
     redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -45,7 +45,7 @@ impl CommandListener {
         pool: PgPool,
         bridge_registry: BridgeRegistry,
         provider: Arc<dyn SandboxProvider>,
-        envoy_manager: Option<Arc<EnvoyManager>>,
+        egress_enforcer: Option<Arc<dyn EgressEnforcer>>,
         image_builder: Option<Arc<ImageBuilder>>,
         redis_coordinator: Option<Arc<RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -56,7 +56,7 @@ impl CommandListener {
             pool,
             bridge_registry,
             provider,
-            envoy_manager,
+            egress_enforcer,
             image_builder,
             redis_coordinator,
             memory_subscribers,
@@ -268,6 +268,7 @@ impl CommandListener {
                     .as_deref()
                     .is_none_or(|ext_id| row.external_id.as_deref() == Some(ext_id));
                 if command_matches {
+                    self.cleanup_destroyed_sandbox(sandbox_id).await?;
                     info!(sandbox_id = %sandbox_id, "Destroy command already finalized");
                     return Ok(());
                 }
@@ -320,12 +321,6 @@ impl CommandListener {
             }
         }
 
-        if let Some(ref envoy) = self.envoy_manager {
-            if let Err(e) = envoy.remove_sandbox(sandbox_id).await {
-                warn!(sandbox_id = %sandbox_id, "Failed to remove sandbox from Envoy during destroy command: {e}");
-            }
-        }
-
         if restore_status.is_some() {
             let finalized = queries::destroy_sandbox_if_status_and_external_id(
                 &self.pool,
@@ -343,13 +338,29 @@ impl CommandListener {
             queries::destroy_sandbox(&self.pool, sandbox_id).await?;
         }
 
+        self.cleanup_destroyed_sandbox(sandbox_id).await?;
+
+        info!(sandbox_id = %sandbox_id, "Destroyed sandbox via command listener");
+        Ok(())
+    }
+
+    async fn cleanup_destroyed_sandbox(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        let teardown_result = match &self.egress_enforcer {
+            Some(enforcer) => enforcer.teardown(sandbox_id).await,
+            None => Ok(()),
+        };
+        crate::kernel::credential_resolution::forget_sandbox_credentials(sandbox_id);
+
         if let Some(ref coord) = self.redis_coordinator {
             let _ = coord.remove_sandbox(sandbox_id).await;
             let _ = coord.remove_sandbox_queue(sandbox_id).await;
         }
 
-        info!(sandbox_id = %sandbox_id, "Destroyed sandbox via command listener");
-        Ok(())
+        teardown_result.map_err(|error| {
+            anyhow::anyhow!(
+                "failed to tear down sandbox {sandbox_id} egress after destroy command: {error}"
+            )
+        })
     }
 
     async fn handle_build_environment_image(&self, cmd: &serde_json::Value) {
@@ -589,6 +600,10 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::*;
+    use crate::egress::policy::{
+        CredentialRef, EgressCredentialRoute, EgressExposure, EgressKind, InjectScheme,
+        SandboxCredentials,
+    };
     use crate::kernel::memory_sync::MemoryStoreSubscribers;
     use crate::kernel::sandbox_bridge::BridgeRegistry;
     use crate::sandbox::provider::{SandboxCreateConfig, SandboxStatus};
@@ -619,6 +634,33 @@ mod tests {
         destroyed: Mutex<Vec<String>>,
         destroy_status_probe: Mutex<Option<(PgPool, Uuid)>>,
         destroy_observed_statuses: Mutex<Vec<String>>,
+    }
+
+    #[derive(Default)]
+    struct CommandRecordingEnforcer {
+        torn_down: Mutex<Vec<Uuid>>,
+        fail_teardown: bool,
+    }
+
+    #[async_trait]
+    impl EgressEnforcer for CommandRecordingEnforcer {
+        async fn enforce(
+            &self,
+            _sandbox_id: Uuid,
+            _sandbox_token: &str,
+            _networking: Option<&serde_json::Value>,
+            _credentials: SandboxCredentials,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn teardown(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+            self.torn_down.lock().await.push(sandbox_id);
+            if self.fail_teardown {
+                anyhow::bail!("injected teardown failure");
+            }
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -664,18 +706,76 @@ mod tests {
         }
     }
 
-    fn command_listener(pool: PgPool, provider: Arc<dyn SandboxProvider>) -> CommandListener {
+    fn command_listener(
+        pool: PgPool,
+        provider: Arc<dyn SandboxProvider>,
+        egress_enforcer: Option<Arc<dyn EgressEnforcer>>,
+    ) -> CommandListener {
         CommandListener::new(
             redis::Client::open("redis://127.0.0.1:1/").expect("redis url"),
             "test-instance",
             pool,
             BridgeRegistry::new(),
             provider,
-            None,
+            egress_enforcer,
             None,
             None,
             Arc::new(MemoryStoreSubscribers::new()),
         )
+    }
+
+    fn test_credential_route() -> EgressCredentialRoute {
+        EgressCredentialRoute {
+            id: "external:test".to_string(),
+            kind: EgressKind::External,
+            exposure: EgressExposure::Placeholder,
+            match_host: "egress.test".to_string(),
+            match_prefix: "/".to_string(),
+            exact_path: false,
+            upstream_host: "example.com".to_string(),
+            upstream_port: 443,
+            upstream_prefix: "/".to_string(),
+            upstream_tls: true,
+            cluster_name: String::new(),
+            credential_ref: CredentialRef::External {
+                secret_name: "test".to_string(),
+                secret_key: "API_KEY".to_string(),
+                project_id: None,
+            },
+            inject_header: "authorization".to_string(),
+            inject_scheme: InjectScheme::Bearer,
+            remove_headers: vec!["authorization".to_string()],
+        }
+    }
+
+    #[tokio::test]
+    async fn destroyed_cleanup_forgets_credentials_and_surfaces_enforcer_failure() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@127.0.0.1:1/joysafeter")
+            .expect("lazy test pool");
+        let sandbox_id = Uuid::now_v7();
+        let provider = Arc::new(CommandRecordingProvider::default());
+        let enforcer = Arc::new(CommandRecordingEnforcer {
+            torn_down: Mutex::new(Vec::new()),
+            fail_teardown: true,
+        });
+        let listener = command_listener(
+            pool,
+            provider,
+            Some(enforcer.clone() as Arc<dyn EgressEnforcer>),
+        );
+        crate::kernel::credential_resolution::global_resolution_registry()
+            .install(sandbox_id, &[test_credential_route()]);
+
+        let result = listener.cleanup_destroyed_sandbox(sandbox_id).await;
+
+        assert!(result.is_err());
+        assert_eq!(enforcer.torn_down.lock().await.as_slice(), &[sandbox_id]);
+        assert!(
+            crate::kernel::credential_resolution::global_resolution_registry()
+                .get(sandbox_id, "external:test")
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -705,7 +805,7 @@ mod tests {
             .expect("mark sandbox idle");
 
         let provider = Arc::new(CommandRecordingProvider::default());
-        let listener = command_listener(pool.clone(), provider.clone());
+        let listener = command_listener(pool.clone(), provider.clone(), None);
         let cmd = json!({
             "type": "destroy",
             "sandbox_id": sandbox_id.to_string(),
@@ -765,8 +865,15 @@ mod tests {
             .expect("mark sandbox idle");
 
         let provider = Arc::new(CommandRecordingProvider::default());
+        let enforcer = Arc::new(CommandRecordingEnforcer::default());
         *provider.destroy_status_probe.lock().await = Some((pool.clone(), sandbox_id));
-        let listener = command_listener(pool.clone(), provider.clone());
+        let listener = command_listener(
+            pool.clone(),
+            provider.clone(),
+            Some(enforcer.clone() as Arc<dyn EgressEnforcer>),
+        );
+        crate::kernel::credential_resolution::global_resolution_registry()
+            .install(sandbox_id, &[test_credential_route()]);
         let cmd = json!({
             "type": "destroy",
             "sandbox_id": sandbox_id.to_string(),
@@ -778,8 +885,13 @@ mod tests {
             .handle_destroy_sandbox(&cmd, sandbox_id)
             .await
             .expect("destroy matching command");
+        listener
+            .handle_destroy_sandbox(&cmd, sandbox_id)
+            .await
+            .expect("repeat finalized destroy cleanup");
         let destroyed = provider.destroyed.lock().await.clone();
         let observed = provider.destroy_observed_statuses.lock().await.clone();
+        let torn_down = enforcer.torn_down.lock().await.clone();
         let row: (String, bool) = sqlx::query_as(
             "SELECT status, destroyed_at IS NOT NULL FROM joysafeter_sandboxes WHERE id = $1",
         )
@@ -795,6 +907,12 @@ mod tests {
 
         assert_eq!(destroyed, vec![external_id]);
         assert_eq!(observed, vec!["stopping".to_string()]);
+        assert_eq!(torn_down, vec![sandbox_id, sandbox_id]);
+        assert!(
+            crate::kernel::credential_resolution::global_resolution_registry()
+                .get(sandbox_id, "external:test")
+                .is_none()
+        );
         assert_eq!(row, ("destroyed".to_string(), true));
     }
 }

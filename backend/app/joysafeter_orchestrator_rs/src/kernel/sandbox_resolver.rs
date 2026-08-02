@@ -10,7 +10,9 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
-use crate::egress::credential::{build_external_egress, build_git_egress, build_mcp_egress};
+use crate::egress::credential::{
+    build_external_egress, build_git_egress, build_mcp_egress, rewrite_shared_external_egress_env,
+};
 use crate::egress::enforcer::EgressEnforcer;
 use crate::egress::llm::{extract_llm_egress, LlmCredentialProvenance, LlmSecretSource};
 #[cfg(test)]
@@ -434,6 +436,27 @@ impl SandboxResolver {
             sandbox_db_id.to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
+        if self.config.egress_policy_authority_enabled
+            && matches!(self.config.sandbox_provider.as_str(), "k8s" | "kubernetes")
+        {
+            let base_url = self
+                .config
+                .egress_envoy_credential_url
+                .as_deref()
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "shared Envoy external routing requires JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL"
+                    )
+                })?;
+            rewrite_shared_external_egress_env(
+                &mut env,
+                &context.credentials.routes,
+                context.environment_config.as_ref(),
+                base_url,
+                sandbox_db_id,
+                &runner_token,
+            );
+        }
 
         let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());
@@ -661,37 +684,45 @@ impl SandboxResolver {
             agent.as_ref(),
             environment.as_ref(),
         )?;
-        let network = if networking_type(networking.as_ref()) == Some("limited") {
+        // SP-4: credential mediation is decoupled from the networking MODE. Any
+        // sandbox that carries a real credential (or is limited) routes its
+        // credentialed egress through the boundary so the real key never enters
+        // the sandbox — regardless of limited vs unrestricted. The networking
+        // mode only controls allowlist / L3 breadth (applied by the enforcer in
+        // SP-4 Task 2), not whether mediation happens.
+        let is_limited = networking_type(networking.as_ref()) == Some("limited");
+        let has_llm_secret = env
+            .iter()
+            .any(|(key, value)| is_real_llm_secret_env(key, value));
+        let mut routes = Vec::new();
+        routes.extend(extract_llm_egress(
+            &mut env,
+            &llm_provenance,
+            &self.config.llm_egress_allowed_hosts,
+        ));
+        routes.extend(build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?);
+        routes.extend(build_git_egress(&self.pool, session_id).await?);
+        routes.extend(
+            build_external_egress(
+                &self.pool,
+                environment.as_ref().map(|env| &env.config),
+                project_id.as_deref(),
+            )
+            .await,
+        );
+        let should_mediate = is_limited || has_llm_secret || !routes.is_empty();
+        // `network == "none"` now means "mediated / routed through the boundary".
+        let network = if should_mediate {
             Some("none".to_string())
         } else {
             None
         };
 
-        // Egress credential injection only applies to limited-networking sandboxes
-        // (those routed through Envoy). For those, pull the LLM key out of the
-        // container env and repoint the base URL at the egress boundary so the
-        // real key never enters the sandbox. Non-limited sandboxes keep the
-        // legacy behaviour (key stays in env) since they have no proxy.
-        let mut credentials = SandboxCredentials::default();
-        if network.as_deref() == Some("none") {
-            let mut routes = Vec::new();
-            routes.extend(extract_llm_egress(
-                &mut env,
-                &llm_provenance,
-                &self.config.llm_egress_allowed_hosts,
-            ));
-            routes.extend(build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?);
-            routes.extend(build_git_egress(&self.pool, session_id).await?);
-            routes.extend(
-                build_external_egress(
-                    &self.pool,
-                    environment.as_ref().map(|env| &env.config),
-                    project_id.as_deref(),
-                )
-                .await,
-            );
-            credentials = SandboxCredentials { routes };
-        }
+        let credentials = if should_mediate {
+            SandboxCredentials { routes }
+        } else {
+            SandboxCredentials::default()
+        };
 
         let storage_catalog = self
             .load_storage_volume_catalog(project_id.as_deref())
@@ -705,6 +736,7 @@ impl SandboxResolver {
         Ok(ResolveContext {
             session_id,
             project_id,
+            environment_config: environment.as_ref().map(|value| value.config.clone()),
             networking: networking.clone(),
             network,
             expected: ExpectedFingerprint {
@@ -1275,6 +1307,7 @@ pub(crate) async fn rebuild_sandbox_credentials(
     };
     let snapshot_environment = environment_for_execution(Some(&session));
     let agent = agent_for_execution(live_agent, Some(&session));
+    let mut recovery_environment_config = None;
 
     // Re-resolve the agent env (with decrypted secrets) exactly as at creation,
     // then extract the LLM egress from it. We discard the env itself — only the
@@ -1300,6 +1333,7 @@ pub(crate) async fn rebuild_sandbox_credentials(
                 None => None,
             }
         };
+        recovery_environment_config = environment.as_ref().map(|value| value.config.clone());
         if let Ok((mut env, llm_provenance)) =
             SandboxResolver::resolve_agent_env_from(pool, agent.as_ref(), environment.as_ref())
                 .await
@@ -1328,6 +1362,17 @@ pub(crate) async fn rebuild_sandbox_credentials(
             "Failed to rebuild Git egress credentials during sandbox recovery: {e}"
         ),
     }
+    routes.extend(
+        build_external_egress(
+            pool,
+            recovery_environment_config.as_ref(),
+            session
+                .project_id
+                .as_deref()
+                .or_else(|| agent.as_ref().and_then(|value| value.project_id.as_deref())),
+        )
+        .await,
+    );
     SandboxCredentials { routes }
 }
 
@@ -1365,6 +1410,7 @@ struct ExpectedFingerprint {
 struct ResolveContext {
     session_id: Option<Uuid>,
     project_id: Option<String>,
+    environment_config: Option<serde_json::Value>,
     networking: Option<serde_json::Value>,
     network: Option<String>,
     expected: ExpectedFingerprint,
@@ -1735,6 +1781,7 @@ mod egress_tests {
         ResolveContext {
             session_id: None,
             project_id: None,
+            environment_config: None,
             networking: None,
             network: None,
             expected: ExpectedFingerprint {

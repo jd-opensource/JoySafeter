@@ -176,8 +176,12 @@ async fn main() -> anyhow::Result<()> {
     // Build the orchestrator-owned egress enforcer. It is the authority for
     // whether credentialed egress can be mediated; a `None` enforcer means the
     // resolver fails closed for secret-backed / limited-networking sandboxes.
-    let egress_enforcer =
-        egress::enforcer::build_enforcer(&config, &config.sandbox_provider, docker_envoy_manager)?;
+    let egress_enforcer = egress::enforcer::build_enforcer_with_pool(
+        &config,
+        Some(db_pool.clone()),
+        &config.sandbox_provider,
+        docker_envoy_manager,
+    )?;
 
     // Provider startup: ImageBuilder, provider-specific health, etc.
     if let Err(e) = sandbox_provider.on_startup(&db_pool).await {
@@ -253,6 +257,28 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     info!(addr = %config.grpc_addr(), "gRPC server started");
+
+    let ext_authz_handle = if let Some(bind) = config.egress_authz_bind.as_deref() {
+        let addr = bind.parse().map_err(|error| {
+            anyhow::anyhow!("invalid JOYSAFETER_EGRESS_AUTHZ_BIND {bind}: {error}")
+        })?;
+        Some(
+            kernel::ext_authz::start_ext_authz_server(
+                addr,
+                db_pool.clone(),
+                kernel::ext_authz::ExtAuthzTlsConfig {
+                    enabled: config.egress_authz_mtls,
+                    cert_file: config.egress_authz_cert_file.clone(),
+                    key_file: config.egress_authz_key_file.clone(),
+                    client_ca_file: config.egress_authz_client_ca_file.clone(),
+                    client_dns_san: config.egress_authz_client_dns_san.clone(),
+                },
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
 
     // Start the credential resolution HTTP endpoint (`/resolve`). Data planes
     // call it per request to obtain injectable credential headers; the broker is
@@ -367,7 +393,7 @@ async fn main() -> anyhow::Result<()> {
             db_pool.clone(),
             bridge_registry.clone(),
             sandbox_provider.clone(),
-            None, // envoy_manager
+            egress_enforcer.clone(),
             None, // image_builder
             redis_coordinator.clone(),
             memory_subscribers.clone(),
@@ -423,6 +449,9 @@ async fn main() -> anyhow::Result<()> {
     // 2. Stop background tasks
     // #26: gRPC graceful shutdown with 5s grace period (Python L448: stop(grace=5))
     grpc_handle.abort();
+    if let Some(handle) = ext_authz_handle {
+        handle.abort();
+    }
     // Give in-flight RPCs 5s to complete
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     if let Some(handle) = resolution_handle {

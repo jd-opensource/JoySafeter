@@ -174,6 +174,29 @@ pub fn build_enforcer(
     build_enforcer_with_pool(config, None, provider_name, envoy_manager)
 }
 
+/// The shared-Docker-Envoy [`NodeSelector`], built from the policy identity
+/// config. This is the single source of truth for the Docker group identity:
+/// the durable authority uses it to compute the group key it writes generations
+/// under, and the Envoy bootstrap uses its [`NodeSelector::metadata_value`] so
+/// the connecting Envoy hashes into that same group. `host_id` falls back to the
+/// container hostname when unset, matching `provider == "docker"`'s requirement.
+pub fn shared_docker_node_selector(config: &JoySafeterConfig) -> NodeSelector {
+    let host_id = config
+        .egress_policy_host_id
+        .clone()
+        .unwrap_or_else(|| gethostname::gethostname().to_string_lossy().into_owned());
+    NodeSelector {
+        deployment_id: config.egress_policy_deployment_id.clone(),
+        environment: config.egress_policy_environment.clone(),
+        region: config.egress_policy_region.clone(),
+        provider: "docker".to_string(),
+        shard_id: config.egress_policy_shard_id.clone(),
+        host_id: Some(host_id),
+        envoy_version: config.egress_policy_envoy_version.clone(),
+        config_schema_version: config.egress_policy_config_schema_version.clone(),
+    }
+}
+
 pub fn build_enforcer_with_pool(
     config: &JoySafeterConfig,
     pool: Option<PgPool>,
@@ -214,31 +237,27 @@ pub fn build_enforcer_with_pool(
         "k8s" | "kubernetes" => "k8s",
         other => anyhow::bail!("unsupported durable egress authority provider {other}"),
     };
-    let host_id = if provider == "docker" {
-        Some(
-            config
-                .egress_policy_host_id
-                .clone()
-                .unwrap_or_else(|| gethostname::gethostname().to_string_lossy().into_owned()),
-        )
+    let selector = if provider == "docker" {
+        // Single source of truth shared with the Envoy bootstrap node.metadata.
+        shared_docker_node_selector(config)
     } else {
-        None
+        NodeSelector {
+            deployment_id: config.egress_policy_deployment_id.clone(),
+            environment: config.egress_policy_environment.clone(),
+            region: config.egress_policy_region.clone(),
+            provider: provider.to_string(),
+            shard_id: config.egress_policy_shard_id.clone(),
+            host_id: None,
+            envoy_version: config.egress_policy_envoy_version.clone(),
+            config_schema_version: config.egress_policy_config_schema_version.clone(),
+        }
     };
     let authority = PostgresEgressPolicyAuthority::new(
         pool.ok_or_else(|| {
             anyhow::anyhow!("durable egress policy authority requires a PostgreSQL pool")
         })?,
         AuthorityConfig {
-            selector: NodeSelector {
-                deployment_id: config.egress_policy_deployment_id.clone(),
-                environment: config.egress_policy_environment.clone(),
-                region: config.egress_policy_region.clone(),
-                provider: provider.to_string(),
-                shard_id: config.egress_policy_shard_id.clone(),
-                host_id,
-                envoy_version: config.egress_policy_envoy_version.clone(),
-                config_schema_version: config.egress_policy_config_schema_version.clone(),
-            },
+            selector,
             denied_cidrs: config.envoy_egress_denied_cidrs.clone(),
             apply_timeout: Duration::from_millis(config.egress_policy_apply_timeout_ms),
             poll_interval: Duration::from_millis(config.egress_policy_poll_interval_ms),
@@ -834,6 +853,11 @@ mod tests {
                 xds_mode: config.envoy_xds_mode.clone(),
                 controller_xds_host: config.egress_controller_xds_host.clone(),
                 controller_xds_port: config.egress_controller_xds_port,
+                node_metadata: if config.envoy_xds_mode == "controller" {
+                    Some(shared_docker_node_selector(config).metadata_value())
+                } else {
+                    None
+                },
                 denied_cidrs: config
                     .envoy_egress_denied_cidrs
                     .iter()

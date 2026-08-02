@@ -244,7 +244,7 @@ impl AgentBridge for AgentBridgeService {
 
             // Send SetupSandbox if not reconnect
             if !ready.is_reconnect {
-                match send_setup(&pool, &bridge, sandbox_db_id, &tx).await {
+                match send_setup(&pool, &bridge, sandbox_db_id, &tx, &config).await {
                     Ok(true) => bridge.setup_done.store(true, Ordering::Relaxed),
                     Ok(false) => {
                         bridge.setup_done.store(false, Ordering::Relaxed);
@@ -665,7 +665,7 @@ async fn multi_task_loop(
 
         // Send SetupSandbox if not done yet (pool containers)
         if !bridge.setup_done.load(Ordering::Relaxed) {
-            match send_setup(pool, bridge, sandbox_db_id, tx).await {
+            match send_setup(pool, bridge, sandbox_db_id, tx, config).await {
                 Ok(true) => bridge.setup_done.store(true, Ordering::Relaxed),
                 Ok(false) if session_id.is_none() => {
                     bridge.setup_done.store(true, Ordering::Relaxed)
@@ -2305,9 +2305,15 @@ mod tests {
                     .expect("link sandbox to session");
             });
 
-            let sent = send_setup(&pool, &bridge, sandbox_id, &tx)
-                .await
-                .expect("send setup after late session link");
+            let sent = send_setup(
+                &pool,
+                &bridge,
+                sandbox_id,
+                &tx,
+                &JoySafeterConfig::from_env(),
+            )
+            .await
+            .expect("send setup after late session link");
             link_task.await.expect("late link task joined");
             assert!(sent);
             assert!(!bridge.setup_done.load(Ordering::Relaxed));
@@ -5844,6 +5850,7 @@ async fn send_setup(
     _bridge: &Arc<SandboxBridge>,
     sandbox_db_id: Uuid,
     tx: &mpsc::Sender<OrchestratorMessage>,
+    config: &JoySafeterConfig,
 ) -> anyhow::Result<bool> {
     let mut session_id = None;
     for attempt in 0..50 {
@@ -5890,7 +5897,7 @@ async fn send_setup(
         owner_epoch: None,
     };
 
-    let builder = HarnessInputBuilder::new(pool.clone());
+    let builder = HarnessInputBuilder::with_config(pool.clone(), config);
     let input = builder
         .build(&setup_task, &sandbox_db_id.to_string(), sandbox_db_id)
         .await?;
@@ -7118,7 +7125,7 @@ async fn build_start_task_full(
     let timeout_seconds = task
         .timeout_sec
         .unwrap_or(config.task_default_timeout as i32) as u64;
-    let builder = HarnessInputBuilder::new(pool.clone());
+    let builder = HarnessInputBuilder::with_config(pool.clone(), config);
     let input = builder
         .build(task, &sandbox_db_id.to_string(), sandbox_db_id)
         .await?;

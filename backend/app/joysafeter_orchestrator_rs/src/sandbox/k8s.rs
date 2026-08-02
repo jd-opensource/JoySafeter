@@ -11,7 +11,7 @@ use uuid::Uuid;
 use super::mounts::SandboxMount;
 use super::provider::{ProviderSandboxInfo, SandboxCreateConfig, SandboxProvider, SandboxStatus};
 use crate::config::JoySafeterConfig;
-use crate::egress::policy::LLM_EGRESS_HOST;
+use crate::egress::policy::{synthetic_credential_route_url, LLM_EGRESS_HOST};
 use crate::kernel::llm_providers::is_real_llm_secret_env;
 
 const K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV: &str = "JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN";
@@ -23,6 +23,10 @@ pub struct K8sProvider {
     kubectl_path: String,
     orchestrator_url: Option<String>,
     egress_gateway_url: Option<String>,
+    egress_envoy_credential_url: Option<String>,
+    egress_downstream_ca_config_map: String,
+    egress_downstream_ca_mount_path: String,
+    use_shared_envoy: bool,
     /// Whether a gateway egress manager is configured (gateway URL + control
     /// token). Gates the create-time Pod env rewrite, preserving the
     /// pre-enforcer behavior where the rewrite only needed a configured
@@ -41,6 +45,10 @@ impl K8sProvider {
             kubectl_path: config.k8s_kubectl_path.clone(),
             orchestrator_url: config.k8s_orchestrator_url.clone(),
             egress_gateway_url: config.egress_gateway_url.clone(),
+            egress_envoy_credential_url: config.egress_envoy_credential_url.clone(),
+            egress_downstream_ca_config_map: config.egress_downstream_ca_config_map.clone(),
+            egress_downstream_ca_mount_path: config.egress_downstream_ca_mount_path.clone(),
+            use_shared_envoy: config.egress_policy_authority_enabled,
             has_egress_manager,
         }
     }
@@ -135,7 +143,76 @@ impl K8sProvider {
             config.sandbox_id.to_string(),
         );
 
-        let env_map = self.render_pod_env(config)?;
+        let mut env_map = self.render_pod_env(config)?;
+        let mut volumes = Vec::new();
+        let mut volume_mounts = Vec::new();
+        let mut init_containers = Vec::new();
+        if self.shared_envoy_uses_tls() {
+            anyhow::ensure!(
+                !self.egress_downstream_ca_config_map.trim().is_empty(),
+                "shared Envoy TLS requires JOYSAFETER_EGRESS_DOWNSTREAM_CA_CONFIG_MAP"
+            );
+            anyhow::ensure!(
+                self.egress_downstream_ca_mount_path.starts_with('/')
+                    && self.egress_downstream_ca_mount_path != "/",
+                "shared Envoy TLS requires an absolute non-root downstream CA mount path"
+            );
+            let bundle_path = format!(
+                "{}/ca-bundle.crt",
+                self.egress_downstream_ca_mount_path.trim_end_matches('/')
+            );
+            for name in [
+                "SSL_CERT_FILE",
+                "REQUESTS_CA_BUNDLE",
+                "CURL_CA_BUNDLE",
+                "GIT_SSL_CAINFO",
+                "NODE_EXTRA_CA_CERTS",
+            ] {
+                env_map.insert(name.to_string(), bundle_path.clone());
+            }
+            volumes.push(json!({
+                "name": "egress-downstream-ca",
+                "configMap": {
+                    "name": self.egress_downstream_ca_config_map,
+                    "items": [{ "key": "ca.crt", "path": "ca.crt" }]
+                }
+            }));
+            volumes.push(json!({
+                "name": "egress-trust-bundle",
+                "emptyDir": {}
+            }));
+            volume_mounts.push(json!({
+                "name": "egress-trust-bundle",
+                "mountPath": self.egress_downstream_ca_mount_path,
+                "readOnly": true
+            }));
+            init_containers.push(json!({
+                "name": "build-egress-trust-bundle",
+                "image": config.image,
+                "imagePullPolicy": "IfNotPresent",
+                "command": ["/bin/sh", "-ec"],
+                "args": ["system_ca=''; for candidate in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem; do if [ -s \"$candidate\" ]; then system_ca=\"$candidate\"; break; fi; done; test -n \"$system_ca\"; cat \"$system_ca\" /joysafeter-private-ca/ca.crt > /joysafeter-trust/ca-bundle.crt; chmod 0444 /joysafeter-trust/ca-bundle.crt"],
+                "securityContext": {
+                    "allowPrivilegeEscalation": false,
+                    "readOnlyRootFilesystem": true,
+                    "runAsNonRoot": true,
+                    "runAsUser": 1000,
+                    "runAsGroup": 1000,
+                    "capabilities": { "drop": ["ALL"] }
+                },
+                "volumeMounts": [
+                    {
+                        "name": "egress-downstream-ca",
+                        "mountPath": "/joysafeter-private-ca",
+                        "readOnly": true
+                    },
+                    {
+                        "name": "egress-trust-bundle",
+                        "mountPath": "/joysafeter-trust"
+                    }
+                ]
+            }));
+        }
         let mut env = Vec::with_capacity(env_map.len());
         let runner_token = env_map.get(RUNNER_TOKEN_ENV).map(String::as_str);
         for (name, value) in &env_map {
@@ -149,8 +226,6 @@ impl K8sProvider {
             env.push(json!({ "name": name, "value": value }));
         }
 
-        let mut volumes = Vec::new();
-        let mut volume_mounts = Vec::new();
         for (index, mount) in config.mounts.iter().enumerate() {
             match mount {
                 SandboxMount::K8sPvc {
@@ -232,10 +307,19 @@ impl K8sProvider {
                     "fsGroup": 1000,
                     "fsGroupChangePolicy": "OnRootMismatch"
                 },
+                "initContainers": init_containers,
                 "containers": [container],
                 "volumes": volumes
             }
         }))
+    }
+
+    fn shared_envoy_uses_tls(&self) -> bool {
+        self.use_shared_envoy
+            && self
+                .egress_envoy_credential_url
+                .as_deref()
+                .is_some_and(|url| url.starts_with("https://"))
     }
 
     fn render_pod_env(
@@ -257,16 +341,29 @@ impl K8sProvider {
         if !has_llm_placeholder_base_url(env) {
             return Ok(());
         }
-        let Some(gateway_url) = self.egress_gateway_url.as_deref() else {
-            anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s limited-networking LLM env requires JOYSAFETER_EGRESS_GATEWAY_URL"
-            );
+        let route_url = if self.use_shared_envoy {
+            let base_url = self.egress_envoy_credential_url.as_deref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "SANDBOX_EGRESS_MANAGER_REQUIRED: shared Envoy requires JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL"
+                )
+            })?;
+            synthetic_credential_route_url(base_url, sandbox_id, "llm")
+        } else {
+            let gateway_url = self.egress_gateway_url.as_deref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s limited-networking LLM env requires JOYSAFETER_EGRESS_GATEWAY_URL"
+                )
+            })?;
+            if !self.has_egress_manager {
+                anyhow::bail!(
+                    "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s limited-networking LLM env requires an egress manager"
+                );
+            }
+            format!(
+                "{}/sandbox/{sandbox_id}/egress/llm",
+                gateway_url.trim_end_matches('/')
+            )
         };
-        if !self.has_egress_manager {
-            anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s limited-networking LLM env requires an egress manager"
-            );
-        }
         let Some(sandbox_token) = env.get(RUNNER_TOKEN_ENV).cloned().filter(|v| !v.is_empty())
         else {
             anyhow::bail!(
@@ -282,10 +379,6 @@ impl K8sProvider {
         let azure =
             is_llm_placeholder_base_url(env.get("AZURE_OPENAI_BASE_URL").map(String::as_str));
 
-        let gateway_route = format!(
-            "{}/sandbox/{sandbox_id}/egress/llm",
-            gateway_url.trim_end_matches('/')
-        );
         for base_url_var in [
             "ANTHROPIC_BASE_URL",
             "OPENAI_BASE_URL",
@@ -293,7 +386,7 @@ impl K8sProvider {
             "AZURE_OPENAI_BASE_URL",
         ] {
             if is_llm_placeholder_base_url(env.get(base_url_var).map(String::as_str)) {
-                env.insert(base_url_var.to_string(), gateway_route.clone());
+                env.insert(base_url_var.to_string(), route_url.clone());
             }
         }
 
@@ -312,10 +405,12 @@ impl K8sProvider {
             env.insert("AZURE_OPENAI_API_KEY".to_string(), sandbox_token.clone());
         }
 
-        env.insert(
-            K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV.to_string(),
-            sandbox_token,
-        );
+        if !self.use_shared_envoy {
+            env.insert(
+                K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV.to_string(),
+                sandbox_token,
+            );
+        }
         Ok(())
     }
 }
@@ -554,6 +649,15 @@ mod tests {
         K8sProvider::new(&config_with_gateway())
     }
 
+    fn provider_with_envoy() -> K8sProvider {
+        let mut config = config_with_gateway();
+        config.egress_policy_authority_enabled = true;
+        config.egress_envoy_credential_url = Some(
+            "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443".to_string(),
+        );
+        K8sProvider::new(&config)
+    }
+
     fn create_config(env: HashMap<String, String>) -> SandboxCreateConfig {
         SandboxCreateConfig {
             sandbox_id: Uuid::now_v7(),
@@ -669,6 +773,35 @@ mod tests {
     }
 
     #[test]
+    fn shared_envoy_tls_mounts_combined_trust_bundle() {
+        let manifest = provider_with_envoy()
+            .build_manifest(&create_config(HashMap::new()), "joysafeter-test")
+            .expect("shared Envoy TLS manifest");
+        let env = pod_env(&manifest);
+        let expected_bundle = "/var/run/joysafeter-egress/trust/ca-bundle.crt";
+        assert_eq!(
+            env.get("SSL_CERT_FILE").map(String::as_str),
+            Some(expected_bundle)
+        );
+        assert_eq!(
+            env.get("NODE_EXTRA_CA_CERTS").map(String::as_str),
+            Some(expected_bundle)
+        );
+        assert_eq!(
+            manifest
+                .pointer("/spec/initContainers/0/name")
+                .and_then(Value::as_str),
+            Some("build-egress-trust-bundle")
+        );
+        assert_eq!(
+            manifest
+                .pointer("/spec/volumes/0/configMap/name")
+                .and_then(Value::as_str),
+            Some("joysafeter-egress-downstream-ca")
+        );
+    }
+
+    #[test]
     fn k8s_runtime_pod_create_does_not_require_patch_permission() {
         let args = K8sProvider::kubectl_create_args();
 
@@ -769,6 +902,42 @@ mod tests {
             env.get("AZURE_OPENAI_API_KEY").map(String::as_str),
             Some("runner-token")
         );
+    }
+
+    #[test]
+    fn k8s_manifest_rewrites_llm_placeholder_to_shared_envoy_synthetic_route() {
+        let sandbox_id =
+            Uuid::parse_str("018ff000-0000-7000-8000-000000000025").expect("valid uuid");
+        let mut env = HashMap::new();
+        env.insert(RUNNER_TOKEN_ENV.to_string(), "runner-token".to_string());
+        env.insert(
+            "ANTHROPIC_API_KEY".to_string(),
+            CLAUDE_CODE_PLACEHOLDER_API_KEY.to_string(),
+        );
+        env.insert(
+            "ANTHROPIC_BASE_URL".to_string(),
+            format!("http://{LLM_EGRESS_HOST}"),
+        );
+        let mut config = create_config(env);
+        config.sandbox_id = sandbox_id;
+        config.network = Some("none".to_string());
+
+        let manifest = provider_with_envoy()
+            .build_manifest(&config, "joysafeter-test")
+            .expect("manifest builds");
+        let env = pod_env(&manifest);
+
+        assert_eq!(
+            env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+            Some(
+                "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443/v1/sandbox/018ff000-0000-7000-8000-000000000025/route/bGxt"
+            )
+        );
+        assert_eq!(
+            env.get("ANTHROPIC_API_KEY").map(String::as_str),
+            Some("runner-token")
+        );
+        assert!(!env.contains_key(K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV));
     }
 
     #[test]

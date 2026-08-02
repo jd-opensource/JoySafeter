@@ -14,6 +14,7 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::db::queries;
+use crate::egress::credential::{build_external_egress, rewrite_shared_external_egress_env};
 use crate::grpc::proto;
 use crate::kernel::run_spec::{
     agent_for_execution, environment_for_execution, SnapshotEnvironment,
@@ -29,6 +30,7 @@ const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
 /// conversation history, custom tools, and permission mode all flow through one builder.
 pub struct HarnessInputBuilder {
     pool: PgPool,
+    credential_route_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -60,15 +62,45 @@ pub struct HarnessInput {
 
 impl HarnessInputBuilder {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            credential_route_base_url: None,
+        }
+    }
+
+    pub fn with_config(pool: PgPool, config: &crate::config::JoySafeterConfig) -> Self {
+        let credential_route_base_url = (config.egress_policy_authority_enabled
+            && matches!(config.sandbox_provider.as_str(), "k8s" | "kubernetes"))
+        .then(|| config.egress_envoy_credential_url.clone())
+        .flatten();
+        Self {
+            pool,
+            credential_route_base_url,
+        }
     }
 
     pub async fn build(
         &self,
         task: &crate::db::models::JoySafeterTask,
         sandbox_external_id: &str,
-        _sandbox_db_id: Uuid,
+        sandbox_db_id: Uuid,
     ) -> anyhow::Result<HarnessInput> {
+        let runner_token = if self.credential_route_base_url.is_some() {
+            let sandbox = queries::get_sandbox(&self.pool, sandbox_db_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_db_id} not found"))?;
+            Some(
+                crate::egress::enforcer::runner_token_from_sandbox_config(sandbox.config.as_ref())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "shared Envoy credential routing requires sandbox runner token"
+                        )
+                    })?
+                    .to_string(),
+            )
+        } else {
+            None
+        };
         let live_agent = match task.agent_id {
             Some(aid) => queries::get_agent(&self.pool, aid).await?,
             None => None,
@@ -79,6 +111,10 @@ impl HarnessInputBuilder {
         };
         let snapshot_environment = environment_for_execution(session.as_ref());
         let agent = agent_for_execution(live_agent, session.as_ref());
+        let project_id = session
+            .as_ref()
+            .and_then(|value| value.project_id.as_deref())
+            .or_else(|| agent.as_ref().and_then(|value| value.project_id.as_deref()));
 
         let mut input = HarnessInput {
             provider: agent
@@ -115,7 +151,8 @@ impl HarnessInputBuilder {
                 .setup_commands
                 .extend(extract_setup_commands(agent.metadata.as_ref()));
 
-            self.resolve_environment_env(agent, snapshot_environment.as_ref(), &mut input)
+            let environment_config = self
+                .resolve_environment_env(agent, snapshot_environment.as_ref(), &mut input)
                 .await?;
             self.resolve_agent_secret(agent, &mut input).await?;
             apply_provider_aliases(&mut input.secrets);
@@ -123,17 +160,51 @@ impl HarnessInputBuilder {
             input
                 .env
                 .extend(json_object_to_string_map(agent.env.as_ref()));
+            if let (Some(base_url), Some(runner_token), Some(environment_config)) = (
+                self.credential_route_base_url.as_deref(),
+                runner_token.as_deref(),
+                environment_config.as_ref(),
+            ) {
+                let external_routes =
+                    build_external_egress(&self.pool, Some(environment_config), project_id).await;
+                rewrite_shared_external_egress_env(
+                    &mut input.env,
+                    &external_routes,
+                    Some(environment_config),
+                    base_url,
+                    sandbox_db_id,
+                    runner_token,
+                );
+                for route in &external_routes {
+                    if let crate::egress::policy::CredentialRef::External { secret_key, .. } =
+                        &route.credential_ref
+                    {
+                        input.secrets.remove(secret_key);
+                    }
+                }
+            }
             self.resolve_skill_archives(agent, task, &mut input).await?;
         }
 
         if let Some(ref session) = session {
             if let Some(ref vault_ids) = session.vault_ids {
-                self.resolve_vault_credentials(vault_ids, &mut input.mcp_servers)
-                    .await?;
+                self.resolve_vault_credentials(
+                    vault_ids,
+                    &mut input.mcp_servers,
+                    sandbox_db_id,
+                    runner_token.as_deref(),
+                )
+                .await?;
             }
             self.load_memory_stores(session.id, &mut input).await?;
             self.load_session_files(session.id, &mut input).await?;
-            self.load_session_repos(session.id, &mut input).await?;
+            self.load_session_repos(
+                session.id,
+                &mut input,
+                sandbox_db_id,
+                runner_token.as_deref(),
+            )
+            .await?;
             input.work_dir = session_container_work_dir(session.last_work_dir.as_deref());
         }
 
@@ -310,7 +381,7 @@ impl HarnessInputBuilder {
         agent: &crate::db::models::JoySafeterAgent,
         snapshot_environment: Option<&SnapshotEnvironment>,
         input: &mut HarnessInput,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<serde_json::Value>> {
         let environment_config = if let Some(environment) = snapshot_environment {
             Some(environment.config.clone())
         } else {
@@ -319,7 +390,7 @@ impl HarnessInputBuilder {
                 .as_deref()
                 .filter(|v| !v.trim().is_empty())
             else {
-                return Ok(());
+                return Ok(None);
             };
 
             self.load_environment(env_ref, agent.project_id.as_deref())
@@ -328,7 +399,7 @@ impl HarnessInputBuilder {
         };
 
         let Some(environment_config) = environment_config else {
-            return Ok(());
+            return Ok(None);
         };
 
         input.env.extend(json_object_to_string_map(
@@ -350,7 +421,7 @@ impl HarnessInputBuilder {
             }
         }
 
-        Ok(())
+        Ok(Some(environment_config))
     }
 
     async fn resolve_secret_ref_into_input(
@@ -676,6 +747,8 @@ impl HarnessInputBuilder {
         &self,
         vault_ids: &serde_json::Value,
         mcp_servers: &mut Vec<proto::McpConfig>,
+        sandbox_id: Uuid,
+        runner_token: Option<&str>,
     ) -> anyhow::Result<()> {
         let ids: Vec<Uuid> = match vault_ids.as_array() {
             Some(arr) => arr
@@ -730,16 +803,30 @@ impl HarnessInputBuilder {
                 if let Err(e) = self.maybe_refresh_oauth(cred, &vault_cipher).await {
                     warn!(credential_id = %cred.id, "OAuth refresh failed: {e}");
                 }
-                // Repoint the sandbox's MCP client at the placeholder egress host
-                // over plaintext http:// — the sandbox never learns the real MCP
-                // address. Envoy matches `/mcp/<name>/`, injects the real token,
-                // rewrites host+path to the true upstream, and forwards.
-                mcp.url = format!(
-                    "http://{}/mcp/{}/",
-                    crate::egress::policy::MCP_EGRESS_HOST,
-                    mcp.name
-                );
                 mcp.headers.clear();
+                if let Some(base_url) = self.credential_route_base_url.as_deref() {
+                    let runner_token = runner_token.ok_or_else(|| {
+                        anyhow::anyhow!("shared Envoy MCP routing requires runner token")
+                    })?;
+                    let route_id = format!("mcp:{}", mcp.name);
+                    mcp.url = format!(
+                        "{}/mcp/{}/",
+                        crate::egress::policy::synthetic_credential_route_url(
+                            base_url, sandbox_id, &route_id
+                        ),
+                        mcp.name
+                    );
+                    mcp.headers.insert(
+                        "authorization".to_string(),
+                        format!("Bearer {runner_token}"),
+                    );
+                } else {
+                    mcp.url = format!(
+                        "http://{}/mcp/{}/",
+                        crate::egress::policy::MCP_EGRESS_HOST,
+                        mcp.name
+                    );
+                }
             }
         }
         Ok(())
@@ -949,6 +1036,8 @@ impl HarnessInputBuilder {
         &self,
         session_id: Uuid,
         input: &mut HarnessInput,
+        sandbox_id: Uuid,
+        runner_token: Option<&str>,
     ) -> anyhow::Result<()> {
         let rows: Vec<SessionRepoRow> = sqlx::query_as(
             r#"
@@ -987,26 +1076,44 @@ impl HarnessInputBuilder {
                     )
                     })?;
             }
-            let url = if has_token {
+            let (url, authorization_token) = if has_token {
                 // Repoint the clone URL at the placeholder egress host + a stable
                 // per-repo slug over plaintext http:// — the sandbox never learns
                 // the real git host. Envoy matches `/git/<slug>/`, injects the
                 // credential, and rewrites host+path to the real remote.
                 let slug = crate::egress::policy::git_repo_slug(&row.mount_name, idx);
-                format!(
-                    "http://{}/git/{}/",
-                    crate::egress::policy::GIT_EGRESS_HOST,
-                    slug
-                )
+                if let Some(base_url) = self.credential_route_base_url.as_deref() {
+                    let runner_token = runner_token.ok_or_else(|| {
+                        anyhow::anyhow!("shared Envoy Git routing requires runner token")
+                    })?;
+                    let route_id = format!("git:{slug}");
+                    (
+                        format!(
+                            "{}/git/{slug}/",
+                            crate::egress::policy::synthetic_credential_route_url(
+                                base_url, sandbox_id, &route_id
+                            )
+                        ),
+                        runner_token.to_string(),
+                    )
+                } else {
+                    (
+                        format!(
+                            "http://{}/git/{}/",
+                            crate::egress::policy::GIT_EGRESS_HOST,
+                            slug
+                        ),
+                        String::new(),
+                    )
+                }
             } else {
-                row.url
+                (row.url, String::new())
             };
             input.repos.push(proto::RepoConfig {
                 url,
                 branch: row.branch,
                 path: row.mount_path,
-                // Token never enters the sandbox — injected at the egress boundary.
-                authorization_token: String::new(),
+                authorization_token,
                 mount_name: row.mount_name,
             });
         }
@@ -1781,6 +1888,188 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn harness_input_rewrites_external_service_for_shared_envoy() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let environment_id = Uuid::now_v7();
+        let agent_id = Uuid::now_v7();
+        let session_id = Uuid::now_v7();
+        let task_id = Uuid::now_v7();
+        let sandbox_id = Uuid::now_v7();
+        let secret_id = Uuid::now_v7();
+        let unique = agent_id.simple().to_string();
+        let environment_name = format!("external-env-{unique}");
+        let secret_name = format!("external-secret-{unique}");
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_secrets (id, name, data)
+                VALUES ($1, $2, $3)
+                "#,
+            )
+            .bind(secret_id)
+            .bind(&secret_name)
+            .bind(json!({"ACCESS_TOKEN": "real-access-token"}))
+            .execute(&pool)
+            .await
+            .expect("insert external secret");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_environments
+                    (id, name, description, config, image_tag, image_version)
+                VALUES ($1, $2, 'external egress test', $3, 'test-image', 1)
+                "#,
+            )
+            .bind(environment_id)
+            .bind(&environment_name)
+            .bind(json!({
+                "env_vars": {"CRM_BASE_URL": "https://crm.example.com/api/"},
+                "secret_refs": [secret_name],
+                "egress_services": [{
+                    "name": "crm-prod",
+                    "base_url": "https://crm.example.com/api/",
+                    "credential_ref": secret_name,
+                    "inject": {"type": "bearer", "secret_key": "ACCESS_TOKEN"}
+                }]
+            }))
+            .execute(&pool)
+            .await
+            .expect("insert external environment");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    skills, tools, agents, commands, permission_mode, metadata,
+                    version, environment_ref
+                )
+                VALUES (
+                    $1, $2, 'claude', $3, '', '{}'::jsonb, '[]'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    'bypassPermissions', '{}'::jsonb, 1, $4
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(format!("external-agent-{unique}"))
+            .bind(json!({"id": "claude-sonnet"}))
+            .bind(format!("env_{environment_id}"))
+            .execute(&pool)
+            .await
+            .expect("insert external agent");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, status)
+                VALUES ($1, $2, 'idle')
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert external session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sandboxes (
+                    id, external_id, provider, status, config, image
+                ) VALUES ($1, $2, 'k8s', 'running', $3, 'test-image')
+                "#,
+            )
+            .bind(sandbox_id)
+            .bind(format!("external-sandbox-{sandbox_id}"))
+            .bind(json!({"runner_token": "runner-token"}))
+            .execute(&pool)
+            .await
+            .expect("insert external sandbox");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_tasks (
+                    id, agent_id, chat_session_id, status, prompt, output,
+                    timeout_sec, retry_count, max_retries
+                )
+                VALUES ($1, $2, $3, 'running', 'call crm', '', 7200, 0, 2)
+                "#,
+            )
+            .bind(task_id)
+            .bind(agent_id)
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("insert external task");
+
+            let task = crate::db::queries::get_task(&pool, task_id)
+                .await
+                .expect("load external task")
+                .expect("external task exists");
+            let mut config = crate::config::JoySafeterConfig::from_env();
+            config.sandbox_provider = "k8s".to_string();
+            config.egress_policy_authority_enabled = true;
+            config.egress_envoy_credential_url =
+                Some("https://joysafeter-egress-envoy:8443".to_string());
+            let input = HarnessInputBuilder::with_config(pool.clone(), &config)
+                .build(&task, "sandbox-ext", sandbox_id)
+                .await
+                .expect("build external shared Envoy harness input");
+            let expected_url = format!(
+                "{}/api/",
+                crate::egress::policy::synthetic_credential_route_url(
+                    config.egress_envoy_credential_url.as_deref().unwrap(),
+                    sandbox_id,
+                    "external-direct:crm-prod"
+                )
+            );
+
+            assert_eq!(input.env.get("CRM_BASE_URL"), Some(&expected_url));
+            assert_eq!(
+                input.env.get("ACCESS_TOKEN").map(String::as_str),
+                Some("runner-token")
+            );
+            assert_eq!(
+                input
+                    .env
+                    .get("JOYSAFETER_EGRESS_SERVICE_CRM_PROD_HEADER_VALUE")
+                    .map(String::as_str),
+                Some("Bearer runner-token")
+            );
+            assert!(!input.secrets.contains_key("ACCESS_TOKEN"));
+            assert!(!input.env.values().any(|value| value == "real-access-token"));
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
+            .bind(environment_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_secrets WHERE id = $1")
+            .bind(secret_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
     async fn harness_input_resolves_vlt_prefixed_vault_ids_for_mcp_egress() {
         let Some(pool) = test_pool().await else {
             return;
@@ -1789,6 +2078,7 @@ mod tests {
         let agent_id = Uuid::now_v7();
         let session_id = Uuid::now_v7();
         let task_id = Uuid::now_v7();
+        let sandbox_id = Uuid::now_v7();
         let vault_id = Uuid::now_v7();
         let credential_id = Uuid::now_v7();
         let unique = agent_id.simple().to_string();
@@ -1861,6 +2151,34 @@ mod tests {
 
             sqlx::query(
                 r#"
+                INSERT INTO joysafeter_session_repos (
+                    id, session_id, url, branch, mount_path, mount_name, encrypted_token
+                ) VALUES ($1, $2, 'https://github.com/example/repo.git', 'main',
+                          '/workspace/repo', 'repo', 'repo-token')
+                "#,
+            )
+            .bind(Uuid::now_v7())
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("insert session repo");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sandboxes (
+                    id, external_id, provider, status, config, image
+                ) VALUES ($1, $2, 'k8s', 'running', $3, 'test-image')
+                "#,
+            )
+            .bind(sandbox_id)
+            .bind(format!("harness-egress-{sandbox_id}"))
+            .bind(json!({"runner_token": "runner-token"}))
+            .execute(&pool)
+            .await
+            .expect("insert sandbox");
+
+            sqlx::query(
+                r#"
                 INSERT INTO joysafeter_tasks (
                     id, agent_id, chat_session_id, status, prompt, output,
                     timeout_sec, retry_count, max_retries
@@ -1894,8 +2212,63 @@ mod tests {
                 )
             );
             assert!(input.mcp_servers[0].headers.is_empty());
+            assert_eq!(input.repos.len(), 1);
+            assert_eq!(
+                input.repos[0].url,
+                format!(
+                    "http://{}/git/repo/",
+                    crate::egress::policy::GIT_EGRESS_HOST
+                )
+            );
+            assert!(input.repos[0].authorization_token.is_empty());
+
+            let mut config = crate::config::JoySafeterConfig::from_env();
+            config.sandbox_provider = "k8s".to_string();
+            config.egress_policy_authority_enabled = true;
+            config.egress_envoy_credential_url = Some(
+                "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443"
+                    .to_string(),
+            );
+            let shared = HarnessInputBuilder::with_config(pool.clone(), &config)
+                .build(&task, "sandbox-ext", sandbox_id)
+                .await
+                .expect("build shared Envoy harness input");
+            let base_url = config.egress_envoy_credential_url.as_deref().unwrap();
+            assert_eq!(
+                shared.mcp_servers[0].url,
+                format!(
+                    "{}/mcp/secure-mcp/",
+                    crate::egress::policy::synthetic_credential_route_url(
+                        base_url,
+                        sandbox_id,
+                        "mcp:secure-mcp"
+                    )
+                )
+            );
+            assert_eq!(
+                shared.mcp_servers[0]
+                    .headers
+                    .get("authorization")
+                    .map(String::as_str),
+                Some("Bearer runner-token")
+            );
+            assert_eq!(
+                shared.repos[0].url,
+                format!(
+                    "{}/git/repo/",
+                    crate::egress::policy::synthetic_credential_route_url(
+                        base_url, sandbox_id, "git:repo"
+                    )
+                )
+            );
+            assert_eq!(shared.repos[0].authorization_token, "runner-token");
         }
         .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
 
         let _ =
             sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")

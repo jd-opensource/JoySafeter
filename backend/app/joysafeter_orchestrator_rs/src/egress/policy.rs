@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -151,6 +152,28 @@ pub const MCP_EGRESS_HOST: &str = "mcp-egress.internal";
 pub const GIT_EGRESS_HOST: &str = "git-egress.internal";
 /// Placeholder host the sandbox uses for external service calls.
 pub const EXTERNAL_EGRESS_HOST: &str = "external-egress.internal";
+
+pub fn synthetic_credential_route_url(base_url: &str, sandbox_id: Uuid, route_id: &str) -> String {
+    let route_segment = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(route_id);
+    format!(
+        "{}/v1/sandbox/{sandbox_id}/route/{route_segment}",
+        base_url.trim_end_matches('/')
+    )
+}
+
+pub fn credential_consumer_route_id(route: &EgressCredentialRoute) -> &str {
+    if route.kind != EgressKind::External {
+        return &route.id;
+    }
+    let Some((base, suffix)) = route.id.rsplit_once(':') else {
+        return &route.id;
+    };
+    if suffix.chars().all(|value| value.is_ascii_digit()) {
+        base
+    } else {
+        &route.id
+    }
+}
 
 /// Stable slug for a session repo, used in the `/git/<slug>/` egress path. Both
 /// the egress-route builder and the clone-URL rewrite must agree on this.

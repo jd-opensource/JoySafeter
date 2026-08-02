@@ -44,6 +44,12 @@ pub struct EnvoyConfig {
     pub controller_xds_host: String,
     /// Controller xDS port, used when `xds_mode == "controller"`.
     pub controller_xds_port: u16,
+    /// structpb `node.metadata` emitted into the bootstrap in `controller` mode
+    /// so the Go egress-controller hashes this Envoy into the same group the
+    /// durable authority writes generations under. `None` in filesystem/grpc
+    /// modes (no group hashing). Built from
+    /// [`crate::egress::enforcer::shared_docker_node_selector`].
+    pub node_metadata: Option<serde_json::Value>,
     pub denied_cidrs: Vec<DeniedCidr>,
 }
 
@@ -187,11 +193,21 @@ impl EnvoyConfig {
             })
         };
 
+        // In controller mode the Go egress-controller groups Envoys by
+        // node.metadata; without it the controller cannot match this Envoy to a
+        // desired generation and serves an empty snapshot (apply never ACKs).
+        let mut node = json!({
+            "cluster": "joysafeter-proxy",
+            "id": "joysafeter-envoy"
+        });
+        if self.is_controller_mode() {
+            if let Some(metadata) = &self.node_metadata {
+                node["metadata"] = metadata.clone();
+            }
+        }
+
         json!({
-            "node": {
-                "cluster": "joysafeter-proxy",
-                "id": "joysafeter-envoy"
-            },
+            "node": node,
             "dynamic_resources": dynamic_resources,
             "static_resources": {
                 "clusters": clusters
@@ -256,7 +272,9 @@ impl EnvoyManager {
 
     /// Remove only the per-sandbox socket directory (no listener removal).
     pub async fn remove_sandbox_socket_dir(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        let _ = self.exec_in_envoy(&format!("rm -rf /sockets/{sandbox_id}")).await;
+        let _ = self
+            .exec_in_envoy(&format!("rm -rf /sockets/{sandbox_id}"))
+            .await;
         Ok(())
     }
 
@@ -557,6 +575,16 @@ mod bootstrap_tests {
             xds_mode: mode.into(),
             controller_xds_host: "joysafeter-egress-controller".into(),
             controller_xds_port: 18000,
+            node_metadata: Some(json!({
+                "deployment_id": "joysafeter",
+                "environment": "production",
+                "region": "local",
+                "provider": "docker",
+                "shard_id": "0",
+                "host_id": "docker-local",
+                "envoy_version": "1.39.0",
+                "config_schema_version": "1"
+            })),
             denied_cidrs: vec![],
         }
     }
@@ -564,23 +592,53 @@ mod bootstrap_tests {
     #[test]
     fn controller_mode_points_ads_at_controller() {
         let bootstrap = cfg("controller").render_bootstrap_value();
-        let clusters = bootstrap["static_resources"]["clusters"].as_array().unwrap();
+        let clusters = bootstrap["static_resources"]["clusters"]
+            .as_array()
+            .unwrap();
         // orchestrator_grpc still targets the orchestrator (control channel upstream).
-        let orch = clusters.iter().find(|c| c["name"] == "orchestrator_grpc").unwrap();
-        let orch_addr = &orch["load_assignment"]["endpoints"][0]["lb_endpoints"][0]
-            ["endpoint"]["address"]["socket_address"];
+        let orch = clusters
+            .iter()
+            .find(|c| c["name"] == "orchestrator_grpc")
+            .unwrap();
+        let orch_addr = &orch["load_assignment"]["endpoints"][0]["lb_endpoints"][0]["endpoint"]
+            ["address"]["socket_address"];
         assert_eq!(orch_addr["address"], "joysafeter-orchestrator");
         assert_eq!(orch_addr["port_value"], 9090);
         // xds_cluster targets the Go controller.
-        let xds = clusters.iter().find(|c| c["name"] == "xds_cluster").unwrap();
-        let xds_addr = &xds["load_assignment"]["endpoints"][0]["lb_endpoints"][0]
-            ["endpoint"]["address"]["socket_address"];
+        let xds = clusters
+            .iter()
+            .find(|c| c["name"] == "xds_cluster")
+            .unwrap();
+        let xds_addr = &xds["load_assignment"]["endpoints"][0]["lb_endpoints"][0]["endpoint"]
+            ["address"]["socket_address"];
         assert_eq!(xds_addr["address"], "joysafeter-egress-controller");
         assert_eq!(xds_addr["port_value"], 18000);
         // ADS is configured.
         assert_eq!(
-            bootstrap["dynamic_resources"]["ads_config"]["grpc_services"][0]["envoy_grpc"]["cluster_name"],
+            bootstrap["dynamic_resources"]["ads_config"]["grpc_services"][0]["envoy_grpc"]
+                ["cluster_name"],
             "xds_cluster"
         );
+        // node.metadata carries the group-selector fields so the Go controller
+        // hashes this Envoy into the durable authority's group. Without it the
+        // controller serves an empty snapshot and the apply never ACKs.
+        let meta = &bootstrap["node"]["metadata"];
+        assert_eq!(meta["provider"], "docker");
+        assert_eq!(meta["host_id"], "docker-local");
+        assert_eq!(meta["envoy_version"], "1.39.0");
+        assert_eq!(meta["config_schema_version"], "1");
+    }
+
+    #[test]
+    fn non_controller_modes_omit_node_metadata() {
+        // filesystem/grpc modes do not group by node.metadata; keep the node
+        // block minimal so their behavior is unchanged.
+        for mode in ["filesystem", "grpc"] {
+            let bootstrap = cfg(mode).render_bootstrap_value();
+            assert!(
+                bootstrap["node"].get("metadata").is_none(),
+                "{mode} bootstrap must not emit node.metadata"
+            );
+        }
     }
 }

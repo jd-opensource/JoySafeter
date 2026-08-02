@@ -600,7 +600,10 @@ mod tests {
         std::env::remove_var("JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST");
         std::env::remove_var("JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT");
         let config = super::JoySafeterConfig::from_env();
-        assert_eq!(config.egress_controller_xds_host, "joysafeter-egress-controller");
+        assert_eq!(
+            config.egress_controller_xds_host,
+            "joysafeter-egress-controller"
+        );
         assert_eq!(config.egress_controller_xds_port, 18000);
     }
 }

@@ -1,14 +1,17 @@
 use std::collections::HashMap;
 
+use base64::Engine as _;
 use sqlx::PgPool;
 use tracing::warn;
+use url::Url;
 use uuid::Uuid;
 
 use crate::db::models::JoySafeterAgent;
 use crate::db::queries;
 use crate::egress::policy::{
-    git_repo_slug, normalize_prefix, CredentialRef, EgressCredentialRoute, EgressExposure,
-    EgressKind, InjectScheme, UpstreamTarget, GIT_EGRESS_HOST, MCP_EGRESS_HOST,
+    credential_consumer_route_id, git_repo_slug, normalize_prefix, synthetic_credential_route_url,
+    CredentialRef, EgressCredentialRoute, EgressExposure, EgressKind, InjectScheme, UpstreamTarget,
+    GIT_EGRESS_HOST, MCP_EGRESS_HOST,
 };
 
 /// Build MCP egress routes for a sandbox: for each remote MCP server the agent
@@ -341,6 +344,118 @@ pub(crate) async fn build_external_egress(
     routes
 }
 
+pub(crate) fn rewrite_shared_external_egress_env(
+    env: &mut HashMap<String, String>,
+    routes: &[EgressCredentialRoute],
+    environment_config: Option<&serde_json::Value>,
+    credential_route_base_url: &str,
+    sandbox_id: Uuid,
+    runner_token: &str,
+) {
+    let Some(services) = environment_config
+        .and_then(|config| config.get("egress_services"))
+        .and_then(|value| value.as_array())
+    else {
+        return;
+    };
+    for service in services {
+        let Some(service_name) = service
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let Some(configured_base_url) = service
+            .get("base_url")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let Some(route) = routes.iter().find(|route| {
+            route.kind == EgressKind::External
+                && external_route_service_name(&route.id) == Some(service_name)
+        }) else {
+            continue;
+        };
+        let Ok(parsed_base_url) = Url::parse(configured_base_url) else {
+            continue;
+        };
+        let route_url = format!(
+            "{}{}",
+            synthetic_credential_route_url(
+                credential_route_base_url,
+                sandbox_id,
+                credential_consumer_route_id(route),
+            ),
+            normalize_prefix(parsed_base_url.path())
+        );
+        for value in env.values_mut() {
+            if external_urls_equivalent(value, configured_base_url) {
+                *value = route_url.clone();
+            }
+        }
+
+        if let CredentialRef::External { secret_key, .. } = &route.credential_ref {
+            env.insert(secret_key.clone(), runner_token.to_string());
+        }
+
+        let service_key = service_name
+            .chars()
+            .map(|value| {
+                if value.is_ascii_alphanumeric() {
+                    value.to_ascii_uppercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        let prefix = format!("JOYSAFETER_EGRESS_SERVICE_{service_key}");
+        env.insert(format!("{prefix}_URL"), route_url);
+        env.insert(format!("{prefix}_HEADER"), route.inject_header.clone());
+        env.insert(format!("{prefix}_TOKEN"), runner_token.to_string());
+        env.insert(
+            format!("{prefix}_HEADER_VALUE"),
+            external_placeholder_header_value(&route.inject_scheme, runner_token),
+        );
+    }
+}
+
+fn external_route_service_name(route_id: &str) -> Option<&str> {
+    route_id
+        .strip_prefix("external-direct:")
+        .and_then(|value| value.split(':').next())
+        .filter(|value| !value.is_empty())
+}
+
+fn external_urls_equivalent(left: &str, right: &str) -> bool {
+    let (Ok(left), Ok(right)) = (Url::parse(left.trim()), Url::parse(right.trim())) else {
+        return false;
+    };
+    left.scheme().eq_ignore_ascii_case(right.scheme())
+        && left
+            .host_str()
+            .zip(right.host_str())
+            .is_some_and(|(left, right)| left.eq_ignore_ascii_case(right))
+        && left.port_or_known_default() == right.port_or_known_default()
+        && left.path().trim_end_matches('/') == right.path().trim_end_matches('/')
+        && left.query() == right.query()
+}
+
+fn external_placeholder_header_value(scheme: &InjectScheme, runner_token: &str) -> String {
+    match scheme {
+        InjectScheme::Bearer => format!("Bearer {runner_token}"),
+        InjectScheme::Basic { username } => format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{username}:{runner_token}"))
+        ),
+        InjectScheme::Raw => runner_token.to_string(),
+    }
+}
+
 /// Returns true when the referenced Secret exists and holds `secret_key`. Reads
 /// only the (non-secret) key names of the Secret's `data` object — no value is
 /// decrypted. The value itself is resolved by the broker at request time.
@@ -413,11 +528,15 @@ fn normalize_external_upstream_prefix(path: &str) -> String {
 
 /// Join a service base prefix with an allowlist entry into a full host path.
 fn join_service_path(base_prefix: &str, entry: &str) -> String {
-    if entry.starts_with('/') {
-        return entry.to_string();
+    let trimmed_entry = entry.trim_start_matches('/');
+    if trimmed_entry.is_empty() {
+        return normalize_external_upstream_prefix(base_prefix);
+    }
+    if base_prefix == "/" {
+        return format!("/{trimmed_entry}");
     }
     let base = base_prefix.strip_suffix('/').unwrap_or(base_prefix);
-    format!("{base}/{entry}")
+    format!("{base}/{trimmed_entry}")
 }
 
 /// Resolve an external service's `inject` spec into the header name, formatting
@@ -466,5 +585,195 @@ fn resolve_external_inject_spec(
             Ok(("cookie".to_string(), InjectScheme::Raw, secret_key))
         }
         other => anyhow::bail!("unsupported external egress inject type {other}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn external_route(
+        id: &str,
+        secret_key: &str,
+        inject_header: &str,
+        inject_scheme: InjectScheme,
+    ) -> EgressCredentialRoute {
+        EgressCredentialRoute {
+            id: id.to_string(),
+            kind: EgressKind::External,
+            exposure: EgressExposure::Transparent,
+            match_host: "crm.example.com".to_string(),
+            match_prefix: "/api/".to_string(),
+            exact_path: false,
+            upstream_host: "crm.example.com".to_string(),
+            upstream_port: 443,
+            upstream_prefix: "/api/".to_string(),
+            upstream_tls: true,
+            cluster_name: String::new(),
+            credential_ref: CredentialRef::External {
+                secret_name: "crm-secret".to_string(),
+                secret_key: secret_key.to_string(),
+                project_id: None,
+            },
+            inject_header: inject_header.to_string(),
+            inject_scheme,
+            remove_headers: vec![inject_header.to_string()],
+        }
+    }
+
+    #[test]
+    fn shared_external_rewrite_binds_url_and_placeholder_identity() {
+        let sandbox_id =
+            Uuid::parse_str("018ff000-0000-7000-8000-000000000031").expect("valid uuid");
+        let routes = vec![external_route(
+            "external-direct:crm-prod",
+            "ACCESS_TOKEN",
+            "authorization",
+            InjectScheme::Bearer,
+        )];
+        let mut env = HashMap::from([
+            (
+                "CRM_BASE_URL".to_string(),
+                "https://crm.example.com/api/".to_string(),
+            ),
+            ("ACCESS_TOKEN".to_string(), "real-secret".to_string()),
+        ]);
+
+        rewrite_shared_external_egress_env(
+            &mut env,
+            &routes,
+            Some(&serde_json::json!({
+                "egress_services": [{
+                    "name": "crm-prod",
+                    "base_url": "https://crm.example.com/api/"
+                }]
+            })),
+            "https://joysafeter-egress-envoy:8443",
+            sandbox_id,
+            "runner-token",
+        );
+
+        let expected_url = format!(
+            "{}/api/",
+            synthetic_credential_route_url(
+                "https://joysafeter-egress-envoy:8443",
+                sandbox_id,
+                "external-direct:crm-prod"
+            )
+        );
+        assert_eq!(env.get("CRM_BASE_URL"), Some(&expected_url));
+        assert_eq!(
+            env.get("ACCESS_TOKEN").map(String::as_str),
+            Some("runner-token")
+        );
+        assert_eq!(
+            env.get("JOYSAFETER_EGRESS_SERVICE_CRM_PROD_URL"),
+            Some(&expected_url)
+        );
+        assert_eq!(
+            env.get("JOYSAFETER_EGRESS_SERVICE_CRM_PROD_HEADER_VALUE")
+                .map(String::as_str),
+            Some("Bearer runner-token")
+        );
+        assert!(!env.values().any(|value| value == "real-secret"));
+    }
+
+    #[test]
+    fn shared_external_rewrite_supports_raw_api_key_identity() {
+        let sandbox_id = Uuid::now_v7();
+        let routes = vec![external_route(
+            "external-direct:erp",
+            "API_KEY",
+            "x-api-key",
+            InjectScheme::Raw,
+        )];
+        let mut env = HashMap::new();
+
+        rewrite_shared_external_egress_env(
+            &mut env,
+            &routes,
+            Some(&serde_json::json!({
+                "egress_services": [{
+                    "name": "erp",
+                    "base_url": "https://crm.example.com/api/"
+                }]
+            })),
+            "https://joysafeter-egress-envoy:8443",
+            sandbox_id,
+            "runner-token",
+        );
+
+        assert_eq!(env.get("API_KEY").map(String::as_str), Some("runner-token"));
+        assert_eq!(
+            env.get("JOYSAFETER_EGRESS_SERVICE_ERP_HEADER_VALUE")
+                .map(String::as_str),
+            Some("runner-token")
+        );
+    }
+
+    #[test]
+    fn shared_external_rewrite_uses_one_consumer_url_for_multiple_allowed_paths() {
+        let sandbox_id = Uuid::now_v7();
+        let mut exact = external_route(
+            "external-direct:crm:0",
+            "ACCESS_TOKEN",
+            "authorization",
+            InjectScheme::Bearer,
+        );
+        exact.match_prefix = "/api/customers/current".to_string();
+        exact.upstream_prefix = exact.match_prefix.clone();
+        exact.exact_path = true;
+        let mut prefix = exact.clone();
+        prefix.id = "external-direct:crm:1".to_string();
+        prefix.match_prefix = "/api/orders/".to_string();
+        prefix.upstream_prefix = prefix.match_prefix.clone();
+        prefix.exact_path = false;
+        let mut env = HashMap::from([(
+            "CRM_BASE_URL".to_string(),
+            "https://crm.example.com/api/".to_string(),
+        )]);
+
+        rewrite_shared_external_egress_env(
+            &mut env,
+            &[exact, prefix],
+            Some(&serde_json::json!({
+                "egress_services": [{
+                    "name": "crm",
+                    "base_url": "https://crm.example.com/api/",
+                    "allowed_paths": ["/customers/current", "/orders/"]
+                }]
+            })),
+            "https://joysafeter-egress-envoy:8443",
+            sandbox_id,
+            "runner-token",
+        );
+
+        let expected_url = format!(
+            "{}/api/",
+            synthetic_credential_route_url(
+                "https://joysafeter-egress-envoy:8443",
+                sandbox_id,
+                "external-direct:crm"
+            )
+        );
+        assert_eq!(env.get("CRM_BASE_URL"), Some(&expected_url));
+        assert_eq!(
+            env.get("JOYSAFETER_EGRESS_SERVICE_CRM_URL"),
+            Some(&expected_url)
+        );
+    }
+
+    #[test]
+    fn allowed_paths_are_relative_to_service_base_path() {
+        assert_eq!(
+            join_service_path("/api/", "/customers/current"),
+            "/api/customers/current"
+        );
+        assert_eq!(join_service_path("/api/", "/orders/"), "/api/orders/");
+        assert_eq!(join_service_path("/api/v1/", "/"), "/api/v1/");
+        assert_eq!(
+            join_service_path("/", "/customers/current"),
+            "/customers/current"
+        );
     }
 }

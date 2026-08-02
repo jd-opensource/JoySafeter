@@ -148,6 +148,17 @@ impl DockerProvider {
                     xds_mode: config.envoy_xds_mode.clone(),
                     controller_xds_host: config.egress_controller_xds_host.clone(),
                     controller_xds_port: config.egress_controller_xds_port,
+                    // Controller mode groups Envoys by node.metadata; use the
+                    // same selector the durable authority hashes the group key
+                    // from so this Envoy joins that group.
+                    node_metadata: if config.envoy_xds_mode == "controller" {
+                        Some(
+                            crate::egress::enforcer::shared_docker_node_selector(config)
+                                .metadata_value(),
+                        )
+                    } else {
+                        None
+                    },
                     denied_cidrs: config
                         .envoy_egress_denied_cidrs
                         .iter()

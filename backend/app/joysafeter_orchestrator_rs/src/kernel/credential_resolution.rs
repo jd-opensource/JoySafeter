@@ -346,8 +346,10 @@ mod tests {
         // A torn-down sandbox must no longer resolve: forget removes its routes
         // from the registry (broker eviction is a no-op here — no cache entry).
         let sandbox_id = Uuid::now_v7();
-        global_resolution_registry()
-            .install(sandbox_id, &[external_route("external:svc", "svc", "API_KEY")]);
+        global_resolution_registry().install(
+            sandbox_id,
+            &[external_route("external:svc", "svc", "API_KEY")],
+        );
         assert!(global_resolution_registry()
             .get(sandbox_id, "external:svc")
             .is_some());

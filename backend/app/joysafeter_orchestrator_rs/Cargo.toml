@@ -21,9 +21,10 @@ tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 
 # gRPC
-tonic = "0.12"
+tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13"
 prost-types = "0.13"
+x509-parser = "0.18.1"
 # Pre-generated Envoy xDS protobuf types (Listener, ADS server, filter configs).
 # Pinned to =0.5.1: it targets tonic ">=0.12.3, <0.13" / prost 0.13, matching this
 # crate's tonic 0.12. 0.6.0+ require tonic 0.13, which would fork the tonic graph.

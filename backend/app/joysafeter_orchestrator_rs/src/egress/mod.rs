@@ -8,6 +8,7 @@
 //!
 //! Only [`policy`] and [`gateway`] are dependency-light (no DB/kernel) and are
 //! re-exposed by `lib.rs` for the standalone `joysafeter-egress-gateway` binary.
+pub mod authority;
 pub mod credential;
 pub mod enforcer;
 pub mod gateway;
