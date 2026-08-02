@@ -10,6 +10,70 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
+  egress-controller:
+    name: Egress Controller CI
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: joysafeter
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: egress-controller/go.sum
+
+      - name: Verify formatting
+        working-directory: egress-controller
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run tests
+        working-directory: egress-controller
+        run: go test -race ./...
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install migration dependencies
+        working-directory: backend
+        run: uv sync --dev
+
+      - name: Apply database migrations
+        working-directory: backend
+        env:
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: "5432"
+          POSTGRES_PORT_HOST: "5432"
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: joysafeter
+        run: uv run alembic upgrade head
+
+      - name: Run PostgreSQL integration tests
+        working-directory: egress-controller
+        env:
+          JOYSAFETER_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/joysafeter?sslmode=disable
+        run: go test -p 1 -race -tags=integration ./internal/source ./internal/status ./internal/xds
+
   # Pre-commit: 强制校验（与本地 hook 一致，失败则 CI 失败）
   pre-commit:
     name: Pre-commit

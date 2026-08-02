@@ -29,6 +29,9 @@ jobs:
           - name: joysafeter-frontend
             context: ./frontend
             dockerfile: ./deploy/docker/frontend.Dockerfile
+          - name: joysafeter-egress-controller
+            context: ./egress-controller
+            dockerfile: ./egress-controller/Dockerfile
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
