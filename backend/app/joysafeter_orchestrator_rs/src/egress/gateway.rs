@@ -314,7 +314,7 @@ async fn install_policy(
     headers: HeaderMap,
     Json(payload): Json<InstallPolicyRequest>,
 ) -> Response {
-    if let Err(response) = authorize_control_request(&state, &headers) {
+    if let Some(response) = control_auth_error(&state, &headers) {
         return response;
     }
     let Some(store) = state.policy_store.as_ref() else {
@@ -345,7 +345,7 @@ async fn revoke_policy(
     Path(sandbox_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(response) = authorize_control_request(&state, &headers) {
+    if let Some(response) = control_auth_error(&state, &headers) {
         return response;
     }
     let Some(store) = state.policy_store.as_ref() else {
@@ -426,15 +426,17 @@ async fn proxy_entrypoint(
         };
 
     match build_upstream_request(
-        sandbox_id,
         &state.client,
         route,
-        method,
-        &headers,
-        body,
-        &rest_path,
-        uri.query(),
-        injected,
+        GatewayForwardRequest {
+            sandbox_id,
+            method,
+            headers: &headers,
+            body,
+            rest_path: &rest_path,
+            query: uri.query(),
+            injected,
+        },
     ) {
         Ok(request) => match forward_upstream_request(&state.client, request).await {
             Ok(response) => response,
@@ -500,16 +502,16 @@ fn extract_sandbox_token(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-fn authorize_control_request(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
+fn control_auth_error(state: &AppState, headers: &HeaderMap) -> Option<Response> {
     let Some(expected) = state.config.control_token_sha256 else {
-        return Err(json_error(
+        return Some(json_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "GATEWAY_CONTROL_AUTH_NOT_CONFIGURED",
             "egress gateway control API is disabled because no control token is configured",
         ));
     };
     let Some(presented) = extract_control_token(headers) else {
-        return Err(json_error(
+        return Some(json_error(
             StatusCode::UNAUTHORIZED,
             "GATEWAY_CONTROL_TOKEN_REQUIRED",
             "egress gateway control request did not include a bearer token",
@@ -517,9 +519,9 @@ fn authorize_control_request(state: &AppState, headers: &HeaderMap) -> Result<()
     };
     let actual = hash_token(&presented);
     if bool::from(expected.ct_eq(&actual)) {
-        Ok(())
+        None
     } else {
-        Err(json_error(
+        Some(json_error(
             StatusCode::UNAUTHORIZED,
             "GATEWAY_CONTROL_TOKEN_INVALID",
             "egress gateway control request token is invalid",
@@ -586,40 +588,45 @@ struct GatewayForwardAudit {
     sandbox_auth_header_names: Vec<String>,
 }
 
-fn build_upstream_request(
+struct GatewayForwardRequest<'a> {
     sandbox_id: Uuid,
+    method: Method,
+    headers: &'a HeaderMap,
+    body: Bytes,
+    rest_path: &'a str,
+    query: Option<&'a str>,
+    injected: Option<(String, String)>,
+}
+
+fn build_upstream_request(
     client: &Client,
     route: &EgressCredentialRoute,
-    method: Method,
-    headers: &HeaderMap,
-    body: Bytes,
-    rest_path: &str,
-    query: Option<&str>,
-    injected: Option<(String, String)>,
+    forward: GatewayForwardRequest<'_>,
 ) -> Result<BuiltUpstreamRequest, GatewayForwardError> {
-    let upstream_url = upstream_url_for_route(route, rest_path, query)?;
-    let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
+    let upstream_url = upstream_url_for_route(route, forward.rest_path, forward.query)?;
+    let reqwest_method = reqwest::Method::from_bytes(forward.method.as_str().as_bytes())
         .map_err(|_| GatewayForwardError::InvalidRouteConfig)?;
-    let forwarded_headers = sanitized_forward_headers(headers, route)?;
+    let forwarded_headers = sanitized_forward_headers(forward.headers, route)?;
     let audit = GatewayForwardAudit {
-        sandbox_id,
+        sandbox_id: forward.sandbox_id,
         route_id: route.id.clone(),
-        method: method.as_str().to_string(),
+        method: forward.method.as_str().to_string(),
         upstream_host: route.upstream_host.clone(),
         upstream_port: route.upstream_port,
         upstream_tls: route.upstream_tls,
         upstream_path: upstream_url.path().to_string(),
         upstream_query: upstream_url.query().map(ToOwned::to_owned),
-        request_model: json_string_field(&body, "model"),
+        request_model: json_string_field(&forward.body, "model"),
         forwarded_header_names: forwarded_headers
             .iter()
             .map(|(name, _)| name.as_str().to_string())
             .collect(),
-        injected_header_names: injected
+        injected_header_names: forward
+            .injected
             .iter()
             .map(|(name, _)| name.to_ascii_lowercase())
             .collect(),
-        sandbox_auth_header_names: sandbox_auth_header_names(headers),
+        sandbox_auth_header_names: sandbox_auth_header_names(forward.headers),
     };
     let mut builder = client.request(reqwest_method, upstream_url);
     for (name, value) in forwarded_headers {
@@ -627,7 +634,7 @@ fn build_upstream_request(
     }
     // Inject the credential resolved per request from the orchestrator (the
     // gateway never holds the secret; `route.credential_ref` is non-secret).
-    if let Some((name, value)) = injected {
+    if let Some((name, value)) = forward.injected {
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|_| GatewayForwardError::InvalidRouteConfig)?;
         let value =
@@ -635,7 +642,7 @@ fn build_upstream_request(
         builder = builder.header(name, value);
     }
     let request = builder
-        .body(body)
+        .body(forward.body)
         .build()
         .map_err(GatewayForwardError::UpstreamRequest)?;
     Ok(BuiltUpstreamRequest { request, audit })
@@ -1528,15 +1535,17 @@ mod tests {
         headers.insert("x-trace-id", "trace-1".parse().unwrap());
 
         let BuiltUpstreamRequest { request, audit } = build_upstream_request(
-            sandbox_id,
             &Client::new(),
             &route,
-            Method::POST,
-            &headers,
-            Bytes::from_static(br#"{"model":"Claude-Opus-4.6"}"#),
-            "/v1/messages",
-            Some("beta=true"),
-            Some(("authorization".to_string(), "Bearer platform".to_string())),
+            GatewayForwardRequest {
+                sandbox_id,
+                method: Method::POST,
+                headers: &headers,
+                body: Bytes::from_static(br#"{"model":"Claude-Opus-4.6"}"#),
+                rest_path: "/v1/messages",
+                query: Some("beta=true"),
+                injected: Some(("authorization".to_string(), "Bearer platform".to_string())),
+            },
         )
         .expect("request builds");
 
@@ -1599,15 +1608,17 @@ mod tests {
         headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
 
         let BuiltUpstreamRequest { request, audit } = build_upstream_request(
-            sandbox_id,
             &Client::new(),
             &route,
-            Method::POST,
-            &headers,
-            Bytes::from_static(br#"{"model":"Claude-Opus-4.6","messages":[]}"#),
-            "/v1/messages",
-            None,
-            Some(("x-api-key".to_string(), "platform-secret".to_string())),
+            GatewayForwardRequest {
+                sandbox_id,
+                method: Method::POST,
+                headers: &headers,
+                body: Bytes::from_static(br#"{"model":"Claude-Opus-4.6","messages":[]}"#),
+                rest_path: "/v1/messages",
+                query: None,
+                injected: Some(("x-api-key".to_string(), "platform-secret".to_string())),
+            },
         )
         .expect("request builds");
 

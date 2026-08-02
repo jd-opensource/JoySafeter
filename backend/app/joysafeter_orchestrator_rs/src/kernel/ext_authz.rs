@@ -125,7 +125,8 @@ impl Authorization for ExtAuthzService {
         request: Request<CheckRequest>,
     ) -> Result<Response<CheckResponse>, Status> {
         if let Some(expected_dns_san) = self.required_client_dns_san.as_deref() {
-            verify_peer_dns_san(&request, expected_dns_san)?;
+            verify_peer_dns_san(&request, expected_dns_san)
+                .map_err(PeerDnsSanError::into_status)?;
         }
         let attributes = request.into_inner().attributes.unwrap_or_default();
         let headers = attributes
@@ -351,24 +352,47 @@ pub async fn start_ext_authz_server(
     }))
 }
 
-fn verify_peer_dns_san<T>(request: &Request<T>, expected_dns_san: &str) -> Result<(), Status> {
+enum PeerDnsSanError {
+    Unauthenticated(&'static str),
+    PermissionDenied(&'static str),
+}
+
+impl PeerDnsSanError {
+    fn into_status(self) -> Status {
+        match self {
+            Self::Unauthenticated(message) => Status::unauthenticated(message),
+            Self::PermissionDenied(message) => Status::permission_denied(message),
+        }
+    }
+}
+
+fn verify_peer_dns_san<T>(
+    request: &Request<T>,
+    expected_dns_san: &str,
+) -> Result<(), PeerDnsSanError> {
     let certificates = request
         .peer_certs()
-        .ok_or_else(|| Status::unauthenticated("Envoy client certificate is required"))?;
+        .ok_or(PeerDnsSanError::Unauthenticated(
+            "Envoy client certificate is required",
+        ))?;
     let certificate = certificates
         .first()
-        .ok_or_else(|| Status::unauthenticated("Envoy client certificate is required"))?;
+        .ok_or(PeerDnsSanError::Unauthenticated(
+            "Envoy client certificate is required",
+        ))?;
     let (_, certificate) = parse_x509_certificate(certificate.as_ref())
-        .map_err(|_| Status::unauthenticated("Envoy client certificate is invalid"))?;
+        .map_err(|_| PeerDnsSanError::Unauthenticated("Envoy client certificate is invalid"))?;
     let subject_alt_name = certificate
         .subject_alternative_name()
-        .map_err(|_| Status::unauthenticated("Envoy client certificate SAN is invalid"))?
-        .ok_or_else(|| Status::permission_denied("Envoy client certificate has no DNS SAN"))?;
+        .map_err(|_| PeerDnsSanError::Unauthenticated("Envoy client certificate SAN is invalid"))?
+        .ok_or(PeerDnsSanError::PermissionDenied(
+            "Envoy client certificate has no DNS SAN",
+        ))?;
     let allowed = has_exact_dns_san(&subject_alt_name.value.general_names, expected_dns_san);
     if allowed {
         Ok(())
     } else {
-        Err(Status::permission_denied(
+        Err(PeerDnsSanError::PermissionDenied(
             "Envoy client certificate identity is not allowed",
         ))
     }

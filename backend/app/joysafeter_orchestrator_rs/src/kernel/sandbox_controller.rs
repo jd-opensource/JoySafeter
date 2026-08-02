@@ -1794,7 +1794,7 @@ mod tests {
 
             assert_eq!(
                 provider.destroyed.lock().await.as_slice(),
-                &[external_id.clone()]
+                std::slice::from_ref(&external_id)
             );
             assert_eq!(
                 provider.observed_statuses.lock().await.as_slice(),
@@ -2429,7 +2429,7 @@ mod tests {
             assert!(bridge_registry.get(&external_id).is_none());
             assert_eq!(
                 provider.destroyed.lock().await.as_slice(),
-                &[external_id.clone()]
+                std::slice::from_ref(&external_id)
             );
 
             let task: (String, i32, Option<Uuid>) = sqlx::query_as(
@@ -2539,7 +2539,7 @@ mod tests {
             );
             assert_eq!(
                 provider.destroyed.lock().await.as_slice(),
-                &[external_id.clone()]
+                std::slice::from_ref(&external_id)
             );
         }
         .await;

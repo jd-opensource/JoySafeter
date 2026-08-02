@@ -88,6 +88,10 @@ jobs:
             context: ./egress-controller
             dockerfile: ./egress-controller/Dockerfile
             push_dockerhub: true
+          - name: joysafeter-orchestrator-rs
+            context: .
+            dockerfile: ./deploy/docker/orchestrator-rs.Dockerfile
+            push_dockerhub: true
 
     steps:
       - name: Checkout code

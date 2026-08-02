@@ -1,9 +1,9 @@
-/// Data-driven LLM provider credential registry.
-///
-/// Each entry describes how to detect, extract, and route an LLM provider's
-/// credentials through the Envoy egress boundary. Adding a new provider
-/// (Mistral, DeepSeek, etc.) is a one-line table entry rather than a new
-/// if/else branch in `extract_llm_egress`.
+//! Data-driven LLM provider credential registry.
+//!
+//! Each entry describes how to detect, extract, and route an LLM provider's
+//! credentials through the Envoy egress boundary. Adding a new provider
+//! (Mistral, DeepSeek, etc.) is a one-line table entry rather than a new
+//! if/else branch in `extract_llm_egress`.
 
 /// Specification for a single LLM provider's credential handling.
 pub struct LlmProviderSpec {

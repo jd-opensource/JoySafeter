@@ -1,6 +1,6 @@
 # Rust orchestrator production image
 
-ARG RUST_IMAGE=public.ecr.aws/docker/library/rust:1-bookworm
+ARG RUST_IMAGE=public.ecr.aws/docker/library/rust:1.97.1-bookworm
 ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.34.0
 ARG CARGO_REGISTRIES_CRATES_IO_INDEX=sparse+https://index.crates.io/

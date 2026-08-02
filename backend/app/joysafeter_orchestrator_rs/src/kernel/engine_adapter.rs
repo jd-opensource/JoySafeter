@@ -1,9 +1,9 @@
-/// Data-driven engine adapter registry.
-///
-/// Engine-specific (claude / codex / native) decisions that were previously
-/// scattered across multiple match arms are now encoded in a single registry.
-/// Adding a new engine adapter is a table entry rather than touching multiple
-/// files.
+//! Data-driven engine adapter registry.
+//!
+//! Engine-specific (claude / codex / native) decisions that were previously
+//! scattered across multiple match arms are now encoded in a single registry.
+//! Adding a new engine adapter is a table entry rather than touching multiple
+//! files.
 
 /// Specification for a single engine adapter.
 pub struct EngineSpec {

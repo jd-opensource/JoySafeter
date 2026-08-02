@@ -5,9 +5,9 @@ use std::path::{Component, Path};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// Strategy-based file injection into sandbox containers — full Python parity.
-///
-/// Implements the complete chain: DB loading → strategy selection → fallback execution.
+// Strategy-based file injection into sandbox containers — full Python parity.
+//
+// Implements the complete chain: DB loading → strategy selection → fallback execution.
 
 /// A file to inject into a sandbox.
 #[derive(Debug, Clone)]

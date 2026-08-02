@@ -74,6 +74,84 @@ jobs:
           JOYSAFETER_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/joysafeter?sslmode=disable
         run: go test -p 1 -race -tags=integration ./internal/source ./internal/status ./internal/xds
 
+  orchestrator-rs:
+    name: Rust Orchestrator CI
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: joysafeter
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/joysafeter
+      JOYSAFETER_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/joysafeter
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend/app/joysafeter_orchestrator_rs -> target
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install migration dependencies
+        working-directory: backend
+        run: uv sync --dev
+
+      - name: Apply database migrations
+        working-directory: backend
+        env:
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: "5432"
+          POSTGRES_PORT_HOST: "5432"
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: joysafeter
+        run: uv run alembic upgrade head
+
+      - name: Verify formatting
+        working-directory: backend/app/joysafeter_orchestrator_rs
+        run: cargo fmt --all -- --check
+
+      - name: Check all targets
+        working-directory: backend/app/joysafeter_orchestrator_rs
+        run: cargo check --locked --all-targets
+
+      - name: Run Clippy
+        working-directory: backend/app/joysafeter_orchestrator_rs
+        run: cargo clippy --locked --all-targets -- -D clippy::correctness -D clippy::suspicious -D clippy::perf
+
+      - name: Run tests
+        working-directory: backend/app/joysafeter_orchestrator_rs
+        run: cargo test --locked --all-targets
+
+      - name: Build release binaries
+        working-directory: backend/app/joysafeter_orchestrator_rs
+        run: cargo build --locked --release --bins
+
   # Pre-commit: 强制校验（与本地 hook 一致，失败则 CI 失败）
   pre-commit:
     name: Pre-commit
@@ -168,14 +246,15 @@ jobs:
         run: |
           uv run pytest tests/test_error_code_catalog_guard.py -q
 
-#      - name: Run tests
-#        working-directory: backend
-#        env:
-#          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_db
-#          SECRET_KEY: test-secret-key-for-ci
-#          ENVIRONMENT: test
-#        run: |
-#          uv run pytest tests/ -v --tb=short
+      - name: Run tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_db
+          JOYSAFETER_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          SECRET_KEY: test-secret-key-for-ci
+          ENVIRONMENT: test
+        run: |
+          uv run pytest tests/ -v --tb=short
 
   # Frontend Tests and Linting
   frontend:
@@ -234,4 +313,5 @@ jobs:
           scan-type: 'fs'
           scan-ref: '.'
           severity: 'CRITICAL,HIGH'
-          exit-code: '0'  # Don't fail on vulnerabilities for now
+          ignore-unfixed: true
+          exit-code: '1'

@@ -32,6 +32,9 @@ jobs:
           - name: joysafeter-egress-controller
             context: ./egress-controller
             dockerfile: ./egress-controller/Dockerfile
+          - name: joysafeter-orchestrator-rs
+            context: .
+            dockerfile: ./deploy/docker/orchestrator-rs.Dockerfile
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

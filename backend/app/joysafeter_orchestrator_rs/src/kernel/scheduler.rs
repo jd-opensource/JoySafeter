@@ -32,12 +32,12 @@ struct SchedulerEnvironmentSnapshot {
     image_version: i32,
 }
 
-/// Task scheduler — consumes Redis task candidates, claims them in DB, resolves
-/// sandboxes, and dispatches.
-///
-/// Redis is the scheduling wakeup/candidate channel; the DB state transition is
-/// still authoritative. A bounded DB repair sweep recovers pending rows that
-/// predate the queue cutover or whose queue message was lost during an outage.
+// Task scheduler — consumes Redis task candidates, claims them in DB, resolves
+// sandboxes, and dispatches.
+//
+// Redis is the scheduling wakeup/candidate channel; the DB state transition is
+// still authoritative. A bounded DB repair sweep recovers pending rows that
+// predate the queue cutover or whose queue message was lost during an outage.
 
 /// Spawn the scheduler as a background tokio task.
 ///
