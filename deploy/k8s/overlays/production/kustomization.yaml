@@ -43,6 +43,12 @@ patches:
         template:
           spec:
             enableServiceLinks: false
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65532
+              runAsGroup: 65532
+              seccompProfile:
+                type: RuntimeDefault
             topologySpreadConstraints:
               - maxSkew: 1
                 topologyKey: kubernetes.io/hostname
@@ -52,6 +58,11 @@ patches:
                     app.kubernetes.io/name: joysafeter-orchestrator
             containers:
               - name: orchestrator
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                      - ALL
                 readinessProbe:
                   exec:
                     command:

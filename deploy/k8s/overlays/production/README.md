@@ -52,6 +52,8 @@ rg 'JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED: "true"' \
 
 The rendered manifest must contain three orchestrator replicas, three
 egress-controller replicas, three shared Envoy replicas, and no legacy gateway.
+The production orchestrator runs as UID/GID `65532` with RuntimeDefault seccomp,
+no privilege escalation, and all Linux capabilities dropped.
 
 ## Rollout Order
 
