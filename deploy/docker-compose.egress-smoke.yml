@@ -11,28 +11,39 @@
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.egress-smoke.yml up -d --wait
 services:
-  # Mock upstream: echoes the request (method, path, headers) as JSON so the
-  # smoke can prove the platform credential header arrived and cross-correlate
-  # the Envoy x-request-id. Pinned by digest; no build, no external key.
+  # Mock upstream: echoes the request (method, path, headers, body) as JSON so
+  # the smoke can prove the platform credential header arrived and cross-correlate
+  # the Envoy x-request-id. Built from deploy/mock-upstream (a ~60-line Go echo
+  # server on a pinned Go base) so CI never pulls a third-party echo image — the
+  # daocloud mirror 403s docker.m.daocloud.io/mendhak/http-https-echo. No key.
   joysafeter-egress-mock-upstream:
-    image: ${MOCK_UPSTREAM_IMAGE:-docker.m.daocloud.io/mendhak/http-https-echo:37}
+    image: ${MOCK_UPSTREAM_IMAGE:-joysafeter-egress-mock-upstream:latest}
+    build:
+      context: ./mock-upstream
+      args:
+        GO_IMAGE: ${MOCK_UPSTREAM_GO_IMAGE:-docker.m.daocloud.io/library/golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651}
     container_name: joysafeter-egress-mock-upstream
     restart: unless-stopped
     environment:
       HTTP_PORT: "8080"
-      LOG_WITHOUT_NEWLINE: "true"
-      LOG_IGNORE_PATH: "/ping"
     expose:
       - "8080"
     networks:
       - joysafeter-network
 
   # Controller reads the REAL Postgres desired-state (not the file snapshot).
+  # On Docker's isolated bridge the ext_authz plane is PLAINTEXT (like XDS),
+  # pointing at the orchestrator's ext_authz server — the K8s defaults reference
+  # mTLS cert paths that do not exist in the Docker Envoy, which Envoy NACKs.
   joysafeter-egress-controller:
     environment:
       JOYSAFETER_EGRESS_CONTROLLER_SOURCE: postgres
+      JOYSAFETER_EGRESS_AUTHZ_HOST: joysafeter-orchestrator
+      JOYSAFETER_EGRESS_AUTHZ_PORT: "18090"
+      JOYSAFETER_EGRESS_AUTHZ_MTLS: "false"
 
-  # Orchestrator drives the durable authority + points Docker Envoy at the controller.
+  # Orchestrator drives the durable authority + points Docker Envoy at the
+  # controller + runs the ext_authz credential server (plaintext on the bridge).
   orchestrator-rs:
     environment:
       JOYSAFETER_ENVOY_XDS_MODE: controller
@@ -40,3 +51,10 @@ services:
       JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST: joysafeter-egress-controller
       JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT: "18000"
       JOYSAFETER_EGRESS_POLICY_HOST_ID: docker-local
+      JOYSAFETER_EGRESS_AUTHZ_BIND: 0.0.0.0:18090
+      JOYSAFETER_EGRESS_AUTHZ_MTLS: "false"
+      # Platform allowlist of model hosts eligible for credential injection —
+      # distinct from an Environment's networking allowed_hosts. The mock
+      # upstream must be here or extract_llm_egress skips injection and leaves
+      # the sandbox pointed at the raw upstream.
+      JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: joysafeter-egress-mock-upstream
