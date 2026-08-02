@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- Feature flag `JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED` defaults **false**; every change here is inert unless it is set. Legacy `filesystem`/`grpc` xDS modes and the in-process `DeltaXdsServer` remain fully functional and are the default. — `config.rs:333`
-- `sandbox/lds_backend.rs` (the in-process Rust Delta xDS) is **kept and untouched** except where explicitly noted; deletion is parent-spec Phase 5, out of scope.
+- **Effective refactor, no backwards-compat (user directive "有效重构,不用兼容").** Docker egress has exactly ONE real path: through the Go controller. Do NOT preserve `filesystem`/`grpc` xDS-mode coexistence for Docker as a supported/rollback option, and do NOT build flag-off rollback scaffolding. `JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED` is retained as the *whole-feature* switch (K8s uses it too — it is not a Docker compat shim), not as a "default to legacy" gate.
+- **`sandbox/lds_backend.rs` (`DeltaXdsServer` + `filesystem`/`grpc` backends) becomes dead code** once Docker's calls converge onto the controller (this plan). Per the user's decision, this plan **converges the callers** (Docker no longer references the in-process xDS) but leaves the **physical deletion** of `lds_backend.rs`'s `DeltaXdsServer`/`Filesystem*`/`Grpc*` and their `grpc/server.rs`/`main.rs`/`docker.rs` registration to a **dedicated cleanup pass** (physical delete must first extract the still-needed `DeniedCidr`/`dynamic_forward_proxy_dns_cache_json`/`exec_in_envoy` helpers that `envoy.rs` depends on). Do not physically delete it in this plan.
 - The Rust `group_key()` (`egress/authority.rs:102-120`) and the Go controller `group.FromNode` (`egress-controller/internal/group/group.go:101-121`) must produce byte-identical keys; the golden test `v1:9YMnDnoG41rXIUgdMrKfL8IqwNSJU9j8EZTNkQ1fQv8` (`authority.rs:935-941`) must keep passing. Do not change grouping.
 - No real credential may enter the Envoy bootstrap, any xDS resource, container env, or logs. Bootstrap carries only cluster addresses and node metadata.
 - Envoy image stays pinned to `v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66` — `docker-compose.yml:102`.
@@ -718,14 +718,19 @@ docker exec joysafeter-postgres psql -U postgres -d joysafeter -c \
 ```
 Expected: `state = applied`, `acked_acks = required_acks`.
 
-- [ ] **Step 5: Confirm flag-off restores the legacy path (rollback proof)**
+- [ ] **Step 5: Confirm the legacy Docker in-process xDS is no longer referenced (dead-code convergence proof)**
+
+Per "有效重构,不用兼容", Docker no longer routes to the in-process xDS. Confirm the callers have converged away from it (physical deletion is a separate cleanup pass):
 
 Run:
 ```bash
-cd deploy && ./deploy.sh local   # no controller env → defaults: filesystem mode, authority off
-docker exec joysafeter-envoy sh -c 'test -s /envoy-config/bootstrap.json && grep -q path_config_source /envoy-config/bootstrap.json && echo LEGACY_OK'
+cd backend/app/joysafeter_orchestrator_rs
+# The Docker provider must no longer construct DeltaXdsServer / Filesystem*/Grpc* backends.
+grep -n 'DeltaXdsServer::new\|FilesystemLds::new\|GrpcLds::new' src/sandbox/docker.rs || echo "NO_INPROCESS_XDS_IN_DOCKER"
+# The bootstrap the orchestrator writes for Docker must be ADS (controller), not a filesystem path source.
+docker exec joysafeter-envoy sh -c 'grep -q "\"ads\"" /envoy-config/bootstrap.json && ! grep -q path_config_source /envoy-config/bootstrap.json && echo CONTROLLER_ONLY_OK'
 ```
-Expected: `LEGACY_OK` — bootstrap uses the filesystem path source; the controller is present but not in the data path.
+Expected: `NO_INPROCESS_XDS_IN_DOCKER` and `CONTROLLER_ONLY_OK` — Docker's egress data path is the controller only; the `filesystem`/`grpc`/`DeltaXdsServer` code is now unreferenced dead code awaiting the dedicated cleanup pass.
 
 - [ ] **Step 6: Record the evidence**
 
