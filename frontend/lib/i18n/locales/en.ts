@@ -907,13 +907,13 @@ const en = {
         storageMounts: 'Storage Mounts',
         egressServices: 'Third-party Services',
         egressServicesHint:
-          'Skills call the real service URL directly; credentials are injected automatically and never exposed to the sandbox.',
+          'Skills read the injected JOYSAFETER_EGRESS_SERVICE_<NAME>_URL variable; credentials are injected automatically and never exposed to the sandbox.',
         addEgressService: 'Add Service',
         removeEgressService: 'Remove Service',
         egressName: 'Service name',
         egressBaseUrl: 'Base URL',
         egressBaseUrlHint:
-          'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform injects the credential at the gateway and re-originates to https.',
+          'The real third-party HTTPS endpoint. The platform publishes a sandbox-scoped synthetic URL and originates requests to this address.',
         egressAllowedPaths: 'Allowed paths',
         egressAllowedPathsHint:
           'One path per line. A trailing / means prefix match (everything under it); otherwise exact match (that endpoint only). Leave empty = allow every endpoint under this address; for high-privilege secrets, list paths explicitly to prevent unintended access.',
@@ -949,7 +949,7 @@ const en = {
         egressCookies: 'Cookie header field',
         egressSkillExample: 'Skill uses',
         egressSkillExampleHint:
-          'Use this address in your skill; the credential is injected automatically.',
+          'Read this environment variable in your skill; it contains the sandbox-scoped service URL.',
         egressInjectExample: 'Injected',
         validation: {
           required: 'This field is required',

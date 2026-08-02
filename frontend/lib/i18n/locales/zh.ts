@@ -965,13 +965,14 @@ const zh = {
           '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感凭证。',
         storageMounts: '数据卷挂载',
         egressServices: '第三方服务',
-        egressServicesHint: 'Skill 直接使用真实服务地址访问，凭证自动注入，不暴露给沙箱。',
+        egressServicesHint:
+          'Skill 读取注入的 JOYSAFETER_EGRESS_SERVICE_<NAME>_URL 环境变量；凭证自动注入且不暴露给沙箱。',
         addEgressService: '添加服务',
         removeEgressService: '移除服务',
         egressName: '服务名',
         egressBaseUrl: '真实地址',
         egressBaseUrlHint:
-          '填写第三方接口的真实地址（含 https）。skill 内改用 http 访问同一地址，平台在网关注入凭证并回源到 https。',
+          '填写第三方 HTTPS 接口真实地址。平台会向沙箱发布隔离的合成 URL，并回源到此地址。',
         egressAllowedPaths: '允许的接口路径',
         egressAllowedPathsHint:
           '一行一个路径。以 / 结尾为前缀匹配（该目录下全部），否则为精确匹配（仅该接口）。留空 = 放行该地址下所有接口；高权限凭证建议逐条列出以防越权。',
@@ -1004,7 +1005,7 @@ const zh = {
         egressCookieNameTooltip: '密钥中保存完整 Cookie header 字符串的字段。',
         egressCookies: 'Cookie Header 字段',
         egressSkillExample: 'Skill 使用',
-        egressSkillExampleHint: '在 skill 中用此地址访问，凭证会自动注入。',
+        egressSkillExampleHint: '在 skill 中读取此环境变量，值为当前沙箱专属的服务 URL。',
         egressInjectExample: '动态注入',
         validation: {
           required: '此项为必填项',

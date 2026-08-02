@@ -57,11 +57,12 @@ const egressInjectedHeaderExample = (service: EgressServiceForm) => {
   return `Authorization: Bearer <value>`
 }
 
-// Skill 可直接用 http 真实地址访问（scheme 用 http，Envoy 明文侧注入凭证再 TLS 回源）。
-const egressHttpDirectUrl = (baseUrl: string) => {
-  const trimmed = baseUrl.trim()
-  if (!trimmed) return 'http://crm.example.com/api/'
-  return trimmed.replace(/^https:\/\//i, 'http://')
+const egressServiceUrlEnvName = (serviceName: string) => {
+  const suffix = serviceName
+    .trim()
+    .replace(/[^A-Za-z0-9]/g, '_')
+    .toUpperCase()
+  return `JOYSAFETER_EGRESS_SERVICE_${suffix || 'SERVICE'}_URL`
 }
 
 const defaultsForAuthType = (authType: EgressServiceForm['authType']) => {
@@ -563,9 +564,9 @@ export function EgressServicesEditor({
                     </p>
                     <div className="flex items-center gap-1">
                       <code className="block flex-1 truncate rounded bg-muted px-2 py-1 text-foreground">
-                        {egressHttpDirectUrl(service.baseUrl)}
+                        {egressServiceUrlEnvName(service.name)}
                       </code>
-                      <CopyButton value={egressHttpDirectUrl(service.baseUrl)} />
+                      <CopyButton value={egressServiceUrlEnvName(service.name)} />
                     </div>
                     <p className="mt-1 text-muted-foreground/70">
                       {t('managed.environments.egressSkillExampleHint')}
