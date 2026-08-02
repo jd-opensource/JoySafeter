@@ -57,6 +57,14 @@ spec:
         app.kubernetes.io/name: joysafeter-egress-controller
         app.kubernetes.io/part-of: joysafeter
     spec:
+      # k8s auto-injects docker-link-style service env vars (default
+      # enableServiceLinks=true). The `joysafeter-egress-authz` Service would
+      # then set JOYSAFETER_EGRESS_AUTHZ_PORT=tcp://<clusterIP>:<port>, which
+      # collides with this controller's integer JOYSAFETER_EGRESS_AUTHZ_PORT
+      # config var and crashes config load ("must be a port between 1 and
+      # 65535"). The controller resolves peers via DNS/explicit config and does
+      # not need service-link vars, so disable them.
+      enableServiceLinks: false
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:
