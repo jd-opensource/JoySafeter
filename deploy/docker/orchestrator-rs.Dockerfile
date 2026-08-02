@@ -3,21 +3,24 @@
 ARG RUST_IMAGE=public.ecr.aws/docker/library/rust:1.97.1-bookworm
 ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.34.0
-ARG CARGO_REGISTRIES_CRATES_IO_INDEX=sparse+https://index.crates.io/
-ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+ARG CARGO_REGISTRY_MIRROR=sparse+https://rsproxy.cn/index/
 
 FROM ${RUST_IMAGE} AS builder
 
-ARG CARGO_REGISTRIES_CRATES_IO_INDEX
-ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL
+ARG CARGO_REGISTRY_MIRROR
 
 WORKDIR /src
 
 ENV CARGO_HTTP_TIMEOUT=600 \
     CARGO_HTTP_MULTIPLEXING=false \
-    CARGO_NET_RETRY=10 \
-    CARGO_REGISTRIES_CRATES_IO_INDEX=${CARGO_REGISTRIES_CRATES_IO_INDEX} \
-    CARGO_REGISTRIES_CRATES_IO_PROTOCOL=${CARGO_REGISTRIES_CRATES_IO_PROTOCOL}
+    CARGO_NET_RETRY=10
+
+RUN set -eux; \
+    if [ -n "${CARGO_REGISTRY_MIRROR}" ]; then \
+      mkdir -p /usr/local/cargo; \
+      printf '[source.crates-io]\nreplace-with = "joysafeter-mirror"\n\n[source.joysafeter-mirror]\nregistry = "%s"\n' \
+        "${CARGO_REGISTRY_MIRROR}" > /usr/local/cargo/config.toml; \
+    fi
 
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
@@ -36,7 +39,7 @@ WORKDIR /src/backend/app/joysafeter_orchestrator_rs
 ENV CARGO_BUILD_JOBS=1
 ENV CARGO_PROFILE_RELEASE_LTO=false
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-RUN cargo build --release
+RUN cargo build --locked --release
 
 FROM ${RUNTIME_IMAGE} AS runner
 

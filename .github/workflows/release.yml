@@ -142,3 +142,4 @@ jobs:
             GIT_COMMIT_SHA=${{ github.sha }}
             PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
             UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+            CARGO_REGISTRY_MIRROR=sparse+https://rsproxy.cn/index/

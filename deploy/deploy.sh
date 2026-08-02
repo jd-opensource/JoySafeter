@@ -94,6 +94,8 @@ NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
+# Cargo source replacement（不仅替换索引，也替换 crate 下载端点）
+CARGO_REGISTRY_MIRROR="${CARGO_REGISTRY_MIRROR:-sparse+https://rsproxy.cn/index/}"
 # Rust 镜像从 BASE_IMAGE_REGISTRY 派生
 RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1-bookworm}"
 RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
@@ -1190,8 +1192,10 @@ build_image() {
     if [ "$service" = "Rust Orchestrator" ]; then
         build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
         build_args+=("--build-arg" "RUNTIME_IMAGE=${RUNTIME_IMAGE}")
+        build_args+=("--build-arg" "CARGO_REGISTRY_MIRROR=${CARGO_REGISTRY_MIRROR}")
         log_info "Rust builder 镜像: ${RUST_IMAGE}"
         log_info "Rust runtime 镜像: ${RUNTIME_IMAGE}"
+        log_info "Cargo registry mirror: ${CARGO_REGISTRY_MIRROR:-disabled}"
     fi
 
     # 推送前再次检查 BuildKit 容器 DNS 连通性
