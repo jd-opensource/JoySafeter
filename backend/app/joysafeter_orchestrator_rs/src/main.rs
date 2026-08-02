@@ -23,6 +23,13 @@ async fn main() -> anyhow::Result<()> {
     // Load .env if present
     let _ = dotenvy::dotenv();
 
+    // rustls 0.23 refuses to auto-pick a CryptoProvider when both `ring` and
+    // `aws-lc-rs` are present in the dependency tree (they are, transitively).
+    // The mTLS ext_authz server builds a rustls ServerConfig via tonic, which
+    // panics without a process-default provider. Install one explicitly before
+    // any TLS is constructed. Idempotent: a later install by a dep is harmless.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
