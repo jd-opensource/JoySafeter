@@ -38,7 +38,7 @@ async def publish_command_and_wait_for_ack_payload(
     try:
         ack = await redis_client.blpop(ack_key, timeout=ack_timeout_seconds)
     except Exception as exc:
-        logger.debug(
+        logger.warning(
             "Redis command ACK wait failed for %s",
             command_id,
             extra={

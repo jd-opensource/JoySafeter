@@ -494,7 +494,7 @@ async def test_user_session_auth_skips_archived_default_project(db_session, monk
     await db_session.refresh(active_project)
 
     async def fake_get_current_user(*, token, request, db):  # noqa: ARG001
-        return SimpleNamespace(id=user_id, name=user.name)
+        return SimpleNamespace(id=user_id, name=user.name, is_super_user=False)
 
     monkeypatch.setattr(auth_dependencies, "get_current_user", fake_get_current_user)
     request = Request(

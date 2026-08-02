@@ -230,15 +230,13 @@ func (r *PostgresRecorder) writePublished(ctx context.Context, value event) erro
 			ON CONFLICT (group_key, generation) DO UPDATE SET
 				xds_version = EXCLUDED.xds_version,
 				required_type_urls = EXCLUDED.required_type_urls,
-				state = CASE
-					WHEN joysafeter_egress_apply_status.state = 'failed' THEN 'failed'
-					ELSE 'applied'
-				END,
+				state = 'applied',
 				first_published_at = COALESCE(
 					joysafeter_egress_apply_status.first_published_at, EXCLUDED.first_published_at
 				),
 				applied_at = COALESCE(joysafeter_egress_apply_status.applied_at, EXCLUDED.applied_at),
 				updated_at = now()
+			WHERE joysafeter_egress_apply_status.state IN ('pending', 'published')
 		`, uuid.New(), value.groupKey, value.generation, value.version, requiredTypes)
 		return err
 	}
@@ -250,15 +248,13 @@ func (r *PostgresRecorder) writePublished(ctx context.Context, value event) erro
 		ON CONFLICT (group_key, generation) DO UPDATE SET
 			xds_version = EXCLUDED.xds_version,
 			required_type_urls = EXCLUDED.required_type_urls,
-			state = CASE
-				WHEN joysafeter_egress_apply_status.state = 'applied' THEN 'applied'
-				ELSE 'published'
-			END,
+			state = 'published',
 			first_published_at = COALESCE(
 				joysafeter_egress_apply_status.first_published_at,
 				EXCLUDED.first_published_at
 			),
 			updated_at = now()
+		WHERE joysafeter_egress_apply_status.state IN ('pending', 'published')
 	`, uuid.New(), value.groupKey, value.generation, value.version, requiredTypes)
 	return err
 }
@@ -316,6 +312,8 @@ func (r *PostgresRecorder) writeACK(ctx context.Context, value event) error {
 			error_summary = EXCLUDED.error_summary,
 			observed_at = now(),
 			updated_at = now()
+		WHERE joysafeter_egress_node_apply_status.status <> 'nack'
+		   OR EXCLUDED.status = 'nack'
 	`, uuid.New(), value.identity.GroupKey, value.generation, value.identity.NodeID, value.typeURL,
 		value.version, status, hashNonce(value.nonce), r.instanceID, errorSummary)
 	if err != nil {
@@ -327,6 +325,7 @@ func (r *PostgresRecorder) writeACK(ctx context.Context, value event) error {
 			SET state = 'failed', reason_code = 'ENVOY_NACK', error_summary = $4,
 				failed_at = now(), updated_at = now()
 			WHERE group_key = $1 AND generation = $2 AND xds_version = $3
+			  AND state IN ('pending', 'published', 'applied')
 		`, value.identity.GroupKey, value.generation, value.version, value.reason)
 	} else {
 		_, err = tx.Exec(ctx, `
@@ -357,6 +356,7 @@ func (r *PostgresRecorder) writeACK(ctx context.Context, value event) error {
 				required_acks = counts.connected_nodes * jsonb_array_length(apply_status.required_type_urls),
 				acked_acks = counts.acked_acks,
 				state = CASE
+					WHEN apply_status.state = 'applied' THEN 'applied'
 					WHEN counts.connected_nodes > 0
 					 AND counts.acked_acks >= counts.connected_nodes * jsonb_array_length(apply_status.required_type_urls)
 					THEN 'applied'
@@ -373,6 +373,7 @@ func (r *PostgresRecorder) writeACK(ctx context.Context, value event) error {
 			WHERE apply_status.group_key = $1
 			  AND apply_status.generation = $2
 			  AND apply_status.xds_version = $3
+			  AND apply_status.state IN ('pending', 'published', 'applied')
 		`, value.identity.GroupKey, value.generation, value.version)
 	}
 	if err != nil {

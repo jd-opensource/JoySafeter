@@ -12,14 +12,19 @@ from app.joysafeter_shared.common.app_errors import AppError
 pytestmark = pytest.mark.no_db
 
 
-class _NoActiveTaskResult:
+class _ScalarResult:
+    def __init__(self, value):
+        self.value = value
+
     def scalar_one_or_none(self):
-        return None
+        return self.value
 
 
 class _FakeDb:
-    async def execute(self, _stmt):
-        return _NoActiveTaskResult()
+    async def execute(self, stmt):
+        if "joysafeter_triggers" in str(stmt):
+            return _ScalarResult(uuid.uuid4())
+        return _ScalarResult(None)
 
 
 class _FakeSubmission:

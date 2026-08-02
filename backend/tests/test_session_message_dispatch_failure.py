@@ -351,20 +351,27 @@ async def test_command_ack_wait_requires_matching_success_payload():
 
 
 @pytest.mark.asyncio
-async def test_command_ack_wait_failure_logs_structured_boundary_error(caplog):
-    with caplog.at_level("DEBUG", logger="app.joysafeter_shared.orchestrator_bridge.runtime_commands"):
-        result = await _publish_command_and_wait_for_ack(
-            _AckWaitFailingRedis({"command_id": "cmd-1", "ok": True}),
-            "joysafeter:cmd:owner-1",
-            {"type": "cancel"},
-            command_id="cmd-1",
-            ack_key="joysafeter:cmd_ack:cmd-1",
-        )
+async def test_command_ack_wait_failure_logs_structured_boundary_error(monkeypatch):
+    warnings = []
+
+    def capture_warning(message, *args, **kwargs):
+        warnings.append((message, args, kwargs))
+
+    monkeypatch.setattr(
+        "app.joysafeter_shared.orchestrator_bridge.runtime_commands.logger.warning",
+        capture_warning,
+    )
+    result = await _publish_command_and_wait_for_ack(
+        _AckWaitFailingRedis({"command_id": "cmd-1", "ok": True}),
+        "joysafeter:cmd:owner-1",
+        {"type": "cancel"},
+        command_id="cmd-1",
+        ack_key="joysafeter:cmd_ack:cmd-1",
+    )
 
     assert result is False
-    errors = [getattr(record, "error", None) for record in caplog.records if getattr(record, "error", None)]
-    assert errors
-    error = errors[0]
+    assert warnings
+    error = warnings[0][2]["extra"]["error"]
     assert error["code"] == "SESSION_REDIS_COMMAND_ACK_WAIT_FAILED"
     assert error["data"]["boundary"] == "session_api"
     assert error["data"]["operation"] == "wait_command_ack"

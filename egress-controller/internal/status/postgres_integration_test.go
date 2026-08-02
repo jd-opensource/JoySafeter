@@ -28,15 +28,7 @@ func TestPostgresRecorderLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if _, err := pool.Exec(ctx, `
-		TRUNCATE joysafeter_egress_node_apply_status,
-		         joysafeter_egress_apply_status,
-		         joysafeter_egress_node_connections,
-		         joysafeter_egress_outbox_events,
-		         joysafeter_egress_group_generations CASCADE
-	`); err != nil {
-		t.Fatal(err)
-	}
+	truncateStatusTables(t, pool)
 
 	groupKey := "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	insertGeneration(t, pool, groupKey, 1)
@@ -103,6 +95,118 @@ func TestPostgresRecorderLifecycle(t *testing.T) {
 	}
 	if nonceHash == "" || nonceHash == "raw-nonce-cds" || len(nonceHash) != 64 {
 		t.Fatalf("nonce was not safely hashed: %q", nonceHash)
+	}
+}
+
+func TestPostgresRecorderTerminalStatesAreMonotonicAcrossControllers(t *testing.T) {
+	databaseURL := os.Getenv("JOYSAFETER_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("JOYSAFETER_TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	truncateStatusTables(t, pool)
+
+	groupKey := "v1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	insertGeneration(t, pool, groupKey, 1)
+	insertGeneration(t, pool, groupKey, 2)
+	requiredType := "type.googleapis.com/envoy.config.listener.v3.Listener"
+	identity := group.Identity{
+		NodeID: "envoy-monotonic-1", GroupKey: groupKey,
+		Metadata: group.Metadata{EnvoyVersion: "1.39.0"},
+	}
+
+	first := newTestRecorder(t, ctx, databaseURL, "controller-first")
+	first.Connected(identity)
+	first.Published(groupKey, 1, "g1-monotonic", []string{requiredType}, false)
+	first.NACK(identity, 1, "g1-monotonic", requiredType, "nonce-g1-nack", "invalid listener")
+	first.Published(groupKey, 2, "g2-monotonic", []string{requiredType}, false)
+	closeTestRecorder(t, ctx, first)
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE joysafeter_egress_apply_status
+		SET state = 'superseded', updated_at = now()
+		WHERE group_key = $1 AND generation = 2
+	`, groupKey); err != nil {
+		t.Fatal(err)
+	}
+
+	second := newTestRecorder(t, ctx, databaseURL, "controller-second")
+	second.Connected(identity)
+	second.Published(groupKey, 1, "g1-monotonic", []string{requiredType}, false)
+	second.Published(groupKey, 1, "g1-monotonic", []string{requiredType}, true)
+	second.ACK(identity, 1, "g1-monotonic", requiredType, "nonce-g1-late-ack")
+	second.Published(groupKey, 2, "g2-monotonic", []string{requiredType}, true)
+	second.ACK(identity, 2, "g2-monotonic", requiredType, "nonce-g2-late-ack")
+	second.NACK(identity, 2, "g2-monotonic", requiredType, "nonce-g2-late-nack", "late nack")
+	closeTestRecorder(t, ctx, second)
+
+	assertApplyState(t, pool, groupKey, 1, "failed")
+	assertApplyState(t, pool, groupKey, 2, "superseded")
+
+	var nodeStatus string
+	if err := pool.QueryRow(ctx, `
+		SELECT status
+		FROM joysafeter_egress_node_apply_status
+		WHERE group_key = $1 AND generation = 1 AND node_id = $2 AND type_url = $3
+	`, groupKey, identity.NodeID, requiredType).Scan(&nodeStatus); err != nil {
+		t.Fatal(err)
+	}
+	if nodeStatus != "nack" {
+		t.Fatalf("late ACK overwrote terminal node NACK: %s", nodeStatus)
+	}
+}
+
+func newTestRecorder(t *testing.T, ctx context.Context, databaseURL, instanceID string) *PostgresRecorder {
+	t.Helper()
+	recorder, err := NewPostgresRecorder(
+		ctx, databaseURL, instanceID, 128, 30*time.Second, 10*time.Second,
+		slog.Default(), telemetry.New(prometheus.NewRegistry()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return recorder
+}
+
+func closeTestRecorder(t *testing.T, ctx context.Context, recorder *PostgresRecorder) {
+	t.Helper()
+	closeContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := recorder.Close(closeContext); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertApplyState(t *testing.T, pool *pgxpool.Pool, groupKey string, generation uint64, expected string) {
+	t.Helper()
+	var actual string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT state
+		FROM joysafeter_egress_apply_status
+		WHERE group_key = $1 AND generation = $2
+	`, groupKey, generation).Scan(&actual); err != nil {
+		t.Fatal(err)
+	}
+	if actual != expected {
+		t.Fatalf("generation %d state regressed: got %s want %s", generation, actual, expected)
+	}
+}
+
+func truncateStatusTables(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+		TRUNCATE joysafeter_egress_node_apply_status,
+		         joysafeter_egress_apply_status,
+		         joysafeter_egress_node_connections,
+		         joysafeter_egress_outbox_events,
+		         joysafeter_egress_group_generations CASCADE
+	`); err != nil {
+		t.Fatal(err)
 	}
 }
 
