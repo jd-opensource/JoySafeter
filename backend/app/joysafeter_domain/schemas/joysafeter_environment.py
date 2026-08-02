@@ -184,6 +184,7 @@ class EgressService(BaseModel):
     base_url: str
     credential_ref: str
     inject: EgressServiceInject = Field(default_factory=EgressServiceInject)
+    allowed_paths: list[str] = Field(default_factory=list)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -220,6 +221,8 @@ class EgressService(BaseModel):
             raise ValueError("egress service base_url must include a host")
         if parsed.username or parsed.password:
             raise ValueError("egress service base_url must not include credentials")
+        if parsed.query or parsed.fragment:
+            raise ValueError("egress service base_url must not include query or fragment")
         return raw
 
     @field_validator("credential_ref", mode="before")
@@ -229,6 +232,34 @@ class EgressService(BaseModel):
         if not ref:
             raise ValueError("egress service credential_ref is required")
         return ref
+
+    @field_validator("allowed_paths", mode="before")
+    @classmethod
+    def validate_allowed_paths(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("egress service allowed_paths must be a list")
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            path = str(item or "").strip()
+            if not path:
+                continue
+            if not path.startswith("/"):
+                raise ValueError("egress service allowed path must start with /")
+            if "?" in path or "#" in path or "\\" in path:
+                raise ValueError("egress service allowed path must be a plain URL path")
+            if any(segment in {".", ".."} for segment in path.split("/")):
+                raise ValueError("egress service allowed path must not contain dot segments")
+            if any(ord(char) < 0x20 or ord(char) == 0x7F for char in path):
+                raise ValueError("egress service allowed path contains control characters")
+            if path not in seen:
+                seen.add(path)
+                cleaned.append(path)
+        if len(cleaned) > 128:
+            raise ValueError("egress service allowed_paths exceeds 128 entries")
+        return cleaned
 
 
 class MountResource(BaseModel):
@@ -287,10 +318,14 @@ class EnvironmentConfig(BaseModel):
     @model_validator(mode="after")
     def validate_egress_services(self) -> "EnvironmentConfig":
         names: set[str] = set()
+        route_count = 0
         for service in self.egress_services:
             if service.name in names:
                 raise ValueError(f"duplicate egress service name: {service.name}")
             names.add(service.name)
+            route_count += max(1, len(service.allowed_paths))
+        if route_count > 128:
+            raise ValueError("egress services exceed 128 credential routes")
         return self
 
     @model_validator(mode="after")

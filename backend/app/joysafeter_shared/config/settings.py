@@ -776,7 +776,10 @@ class JoySafeterConfig(BaseSettings):
 
     # Envoy network isolation
     envoy_enabled: bool = False
-    envoy_image: str = "envoyproxy/envoy:v1.31-latest"
+    envoy_image: str = (
+        "envoyproxy/envoy:v1.39.0@sha256:"
+        "d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66"
+    )
     envoy_socket_volume: str = "joysafeter-sockets"
     envoy_config_dir: str = "/tmp/joysafeter-envoy-config"
     envoy_network: str = "joysafeter-net"

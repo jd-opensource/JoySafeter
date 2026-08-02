@@ -14,6 +14,7 @@ def test_environment_egress_service_accepts_bearer_api_key_and_cookie_shapes():
                 "base_url": "https://crm.example.com/api/",
                 "credential_ref": "crm-prod",
                 "inject": {"type": "bearer", "secret_key": "ACCESS_TOKEN"},
+                "allowed_paths": ["/customers/current", "/orders/", "/orders/"],
             },
             {
                 "name": "erp",
@@ -31,6 +32,7 @@ def test_environment_egress_service_accepts_bearer_api_key_and_cookie_shapes():
     )
 
     assert [service.name for service in config.egress_services] == ["crm_prod", "erp", "legacy-cookie"]
+    assert config.egress_services[0].allowed_paths == ["/customers/current", "/orders/"]
     assert config.egress_services[2].inject.secret_key == "COOKIE_HEADER"
 
 
@@ -74,6 +76,17 @@ def test_environment_egress_service_accepts_bearer_api_key_and_cookie_shapes():
             "base_url": "https://crm.example.com/api/",
             "credential_ref": "crm-prod",
             "inject": {"type": "cookie", "cookies": {"SESSION": "SESSION"}},
+        },
+        {
+            "name": "crm",
+            "base_url": "https://crm.example.com/api/?tenant=1",
+            "credential_ref": "crm-prod",
+        },
+        {
+            "name": "crm",
+            "base_url": "https://crm.example.com/api/",
+            "credential_ref": "crm-prod",
+            "allowed_paths": ["customers", "/safe/../admin"],
         },
     ],
 )
