@@ -26,6 +26,7 @@ REGISTRY="${DOCKER_REGISTRY:-}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-joysafeter-backend}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-joysafeter-frontend}"
 ORCHESTRATOR_RS_IMAGE="${ORCHESTRATOR_RS_IMAGE:-joysafeter-orchestrator-rs}"
+EGRESS_CONTROLLER_IMAGE="${EGRESS_CONTROLLER_IMAGE:-joysafeter-egress-controller}"
 SKILLSPECTOR_IMAGE="${SKILLSPECTOR_IMAGE:-joysafeter-skillspector}"
 CLAUDECODE_IMAGE="${CLAUDECODE_IMAGE:-joysafeter-claudecode}"
 CODEX_IMAGE="${CODEX_IMAGE:-joysafeter-codex}"
@@ -136,13 +137,14 @@ show_usage() {
 命令:
   doctor             本地部署环境预检（不启动容器）
   local              本地 Docker Compose 一键部署（自动按 Docker CPU 架构选择平台）
-  build              构建核心部署镜像（backend, frontend, orchestrator-rs, skillspector）
+  build              构建核心部署镜像（backend, frontend, orchestrator-rs, egress-controller, skillspector）
   push               构建并推送多架构镜像到仓库
   pull               拉取镜像，并把拉取到的镜像名同步到 deploy/.env
   down               停止并移除本地 Compose 服务（保留数据卷）
   logs               跟随查看服务日志（可跟服务名，如 logs api worker）
   restart            重启本地 Compose 服务（可跟服务名）
   status             查看本地 Compose 服务状态
+  k8s <子命令>       Kubernetes(k3s) 部署方式：deploy/verify/status/logs/down（详见 $0 k8s help）
 
 选项:
   -h, --help             显示帮助信息
@@ -155,6 +157,7 @@ show_usage() {
   --backend-only         只处理后端镜像
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
+  --egress-controller-only 只处理 Envoy egress-controller 镜像
   --skillspector-only    只处理 SkillSpector 镜像
   --runtime-only         只处理 agent 运行镜像（claudecode, codex, native）
   --claudecode-only      只处理 Claude Code 运行镜像
@@ -171,6 +174,7 @@ show_usage() {
   BACKEND_IMAGE          后端镜像名称（默认: joysafeter-backend）
   FRONTEND_IMAGE         前端镜像名称（默认: joysafeter-frontend）
   ORCHESTRATOR_RS_IMAGE  Rust orchestrator 镜像名称（默认: joysafeter-orchestrator-rs）
+  EGRESS_CONTROLLER_IMAGE Envoy egress-controller 镜像名称（默认: joysafeter-egress-controller）
   SKILLSPECTOR_IMAGE     SkillSpector 镜像名称（默认: joysafeter-skillspector）
   CLAUDECODE_IMAGE       Claude Code 运行镜像名称（默认: joysafeter-claudecode）
   CODEX_IMAGE            Codex 运行镜像名称（默认: joysafeter-codex）
@@ -246,6 +250,12 @@ show_usage() {
 
   # 停止并移除本地栈（保留数据卷）
   $0 down
+
+  # Kubernetes(k3s) 部署：先构建镜像，再部署，最后端到端真实验证
+  $0 build --all
+  $0 k8s deploy
+  $0 k8s verify
+  $0 k8s status
 EOF
 }
 
@@ -676,11 +686,13 @@ sync_local_core_image_env() {
         set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "${normalized_registry}/${BACKEND_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "${normalized_registry}/${FRONTEND_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "${normalized_registry}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "EGRESS_CONTROLLER_FULL_IMAGE" "${normalized_registry}/${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "${normalized_registry}/${SKILLSPECTOR_IMAGE}:${TAG}"
     else
         set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "${BACKEND_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "${FRONTEND_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        set_env_value "$deploy_env" "EGRESS_CONTROLLER_FULL_IMAGE" "${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "${SKILLSPECTOR_IMAGE}:${TAG}"
     fi
 }
@@ -766,7 +778,7 @@ configure_local_compose_env() {
     set_env_value "$deploy_env" "RUNTIME_IMAGE" "$RUNTIME_IMAGE"
     set_env_value "$deploy_env" "DB_IMAGE" "${DB_IMAGE:-${BASE_IMAGE_REGISTRY}postgres:15}"
     set_env_value "$deploy_env" "REDIS_IMAGE" "${REDIS_IMAGE:-${BASE_IMAGE_REGISTRY}redis:alpine3.22}"
-    set_env_value "$deploy_env" "JOYSAFETER_ENVOY_IMAGE" "${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR}/envoyproxy/envoy:v1.37.1}"
+    set_env_value "$deploy_env" "JOYSAFETER_ENVOY_IMAGE" "${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR}/envoyproxy/envoy:v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66}"
     set_env_value "$deploy_env" "DOCKER_DEFAULT_PLATFORM" "$PLATFORMS"
 
     ensure_skillspector_source "$deploy_env"
@@ -856,6 +868,196 @@ run_restart() {
 
 run_status() {
     compose_lifecycle ps "$@"
+}
+
+# ---- Kubernetes (k3s) 部署命令 ----
+# deploy.sh 的 k8s 子命令是 K8sProvider 部署方式的统一入口，复用 deploy/k8s/ 下
+# 已构建的清单与脚本，避免重复实现：
+#   deploy   应用 base 清单、等待滚动、校验 orchestrator sandbox RBAC（委托 k3s-smoke.sh，非破坏性）
+#   verify   端到端真实验证：API→worker→orchestrator→k8s Pod→runner（委托 k3s-task-smoke.sh）
+#   status   查看 control/sandboxes 两个命名空间的 Pod/Service/NetworkPolicy
+#   logs     跟随某个 control-plane Deployment 日志（默认 orchestrator）
+#   down     删除 JoySafeter 命名空间（破坏性，需输入 yes 确认）
+K8S_DIR="$SCRIPT_DIR/k8s"
+KUBECTL_BIN="${KUBECTL:-kubectl}"
+K8S_CONTROL_NS="${JOYSAFETER_CONTROL_NAMESPACE:-joysafeter-control}"
+K8S_SANDBOX_NS="${JOYSAFETER_K8S_NAMESPACE:-joysafeter-sandboxes}"
+
+# base 清单固定引用 :latest（含 ConfigMap 里的 JOYSAFETER_IMAGE_* 与各 Deployment），
+# 因此本地镜像集也固定用 :latest，与 k3s-smoke.sh 保持一致。
+K8S_CORE_IMAGES=(
+    "joysafeter-backend:latest"
+    "joysafeter-frontend:latest"
+    "joysafeter-orchestrator-rs:latest"
+    "joysafeter-egress-controller:latest"
+    "joysafeter-skillspector:latest"
+)
+K8S_RUNTIME_IMAGES=(
+    "joysafeter-claudecode:latest"
+    "joysafeter-codex:latest"
+    "joysafeter-native:latest"
+)
+
+k8s_usage() {
+    cat << EOF
+使用方法: $0 k8s <子命令> [选项]
+
+k8s 子命令:
+  deploy     应用清单并等待滚动就绪（幂等、非破坏性），自动按集群类型导入本地镜像
+  verify     端到端真实验证：创建 user/agent/task，等待 sandbox Pod Ready 并校验 runner 握手
+  status     查看 control/sandboxes 命名空间的 Pod、Service、NetworkPolicy
+  logs [名]  跟随 control-plane Deployment 日志（默认 joysafeter-orchestrator）
+  down       删除 JoySafeter 命名空间（破坏性，需输入 yes 确认）
+
+前置条件:
+  - kubectl 已指向目标 k3s 集群（colima / kind / k3d / 生产 k3s 均可）
+  - 已构建部署镜像：$0 build --all
+  - 集群类型的镜像可达性由 deploy 自动处理（kind: kind load；colima: 共享 Docker 运行时；k3d: 由 k3s-smoke.sh 导入）
+
+示例:
+  $0 k8s deploy            # 应用/更新 k8s 栈
+  $0 k8s verify            # 端到端真实验证
+  $0 k8s status
+  $0 k8s logs worker
+EOF
+}
+
+require_k8s_context() {
+    check_command "$KUBECTL_BIN" || {
+        log_error "未找到 kubectl；k8s 部署需要 kubectl 指向目标 k3s 集群"
+        exit 1
+    }
+    if ! "$KUBECTL_BIN" cluster-info >/dev/null 2>&1; then
+        log_error "kubectl 无法连接集群（context=$("$KUBECTL_BIN" config current-context 2>/dev/null || echo none)）。请先创建/选择 k3s 集群。"
+        exit 1
+    fi
+}
+
+# 打印 "类型:名称"：kind:<cluster> / colima: / k3d:<cluster> / other:<context>
+k8s_detect_cluster() {
+    local ctx
+    ctx="$("$KUBECTL_BIN" config current-context 2>/dev/null || echo "")"
+    case "$ctx" in
+        kind-*) echo "kind:${ctx#kind-}" ;;
+        k3d-*)  echo "k3d:${ctx#k3d-}" ;;
+        colima) echo "colima:" ;;
+        *)      echo "other:${ctx}" ;;
+    esac
+}
+
+k8s_warn_missing_core_images() {
+    local missing=false img
+    for img in "${K8S_CORE_IMAGES[@]}"; do
+        if ! docker image inspect "$img" >/dev/null 2>&1; then
+            log_warning "本地缺少部署镜像: $img"
+            missing=true
+        fi
+    done
+    if [ "$missing" = true ]; then
+        log_warning "请先构建镜像：cd $(basename "$SCRIPT_DIR") && ./deploy.sh build --all"
+    fi
+}
+
+# 按集群类型确保本地镜像对集群可见。
+# colima docker+k3s 共享 Docker 运行时，镜像可被 k3s 直接使用（IfNotPresent），无需导入；
+# kind 使用独立 containerd，必须 kind load；k3d 的导入交给 k3s-smoke.sh（避免重复实现）。
+k8s_load_images() {
+    local detected type name img
+    detected="$(k8s_detect_cluster)"
+    type="${detected%%:*}"
+    name="${detected#*:}"
+    case "$type" in
+        kind)
+            if ! command -v kind >/dev/null 2>&1; then
+                log_warning "检测到 kind 集群但未找到 kind 命令，跳过镜像导入；请确保节点能拉取所需镜像"
+                return
+            fi
+            for img in "${K8S_CORE_IMAGES[@]}" "${K8S_RUNTIME_IMAGES[@]}"; do
+                if docker image inspect "$img" >/dev/null 2>&1; then
+                    log_info "导入镜像到 kind 集群($name): $img"
+                    kind load docker-image "$img" --name "$name"
+                else
+                    log_warning "本地缺少镜像，跳过导入: $img"
+                fi
+            done
+            ;;
+        colima)
+            log_info "colima docker+k3s 共享 Docker 运行时，镜像可被 k3s 直接使用（imagePullPolicy: IfNotPresent），无需导入"
+            ;;
+        k3d)
+            log_info "k3d 集群镜像导入由 k3s-smoke.sh 处理"
+            ;;
+        *)
+            log_warning "未识别的集群类型（context=$name），跳过本地镜像导入；请确保集群可拉取所需镜像"
+            ;;
+    esac
+}
+
+k8s_deploy() {
+    require_k8s_context
+    log_info "当前 Kubernetes context: $("$KUBECTL_BIN" config current-context)"
+    k8s_warn_missing_core_images
+    k8s_load_images
+    log_info "应用 JoySafeter k8s 清单并等待滚动就绪（委托 k3s-smoke.sh，非破坏性）..."
+    KUBECTL="$KUBECTL_BIN" "$K8S_DIR/k3s-smoke.sh"
+}
+
+k8s_verify() {
+    require_k8s_context
+    log_info "端到端真实验证：API→worker→orchestrator→k8s Pod→runner（委托 k3s-task-smoke.sh）..."
+    KUBECTL="$KUBECTL_BIN" "$K8S_DIR/k3s-task-smoke.sh" "$@"
+}
+
+k8s_status() {
+    require_k8s_context
+    log_info "control-plane 命名空间: $K8S_CONTROL_NS"
+    "$KUBECTL_BIN" -n "$K8S_CONTROL_NS" get pods,svc
+    echo ""
+    log_info "sandbox 命名空间: $K8S_SANDBOX_NS"
+    "$KUBECTL_BIN" -n "$K8S_SANDBOX_NS" get pods -l app.kubernetes.io/name=joysafeter-sandbox 2>/dev/null \
+        || log_info "（当前无活动 sandbox Pod）"
+    "$KUBECTL_BIN" -n "$K8S_SANDBOX_NS" get networkpolicy 2>/dev/null || true
+}
+
+k8s_logs() {
+    require_k8s_context
+    local target="${1:-joysafeter-orchestrator}"
+    log_info "跟随 $K8S_CONTROL_NS/deployment/$target 日志（Ctrl-C 退出）"
+    "$KUBECTL_BIN" -n "$K8S_CONTROL_NS" logs -f "deployment/$target" --all-containers=true
+}
+
+k8s_down() {
+    require_k8s_context
+    log_warning "这将删除命名空间 $K8S_CONTROL_NS 与 $K8S_SANDBOX_NS 及其中所有 Pod/Service/PVC/数据（不可恢复）。"
+    printf "确认删除？输入 yes 继续: "
+    local reply
+    read -r reply
+    if [ "$reply" != "yes" ]; then
+        log_info "已取消。"
+        return
+    fi
+    "$KUBECTL_BIN" delete namespace "$K8S_SANDBOX_NS" "$K8S_CONTROL_NS" --ignore-not-found
+    log_success "命名空间已删除。"
+}
+
+run_k8s() {
+    local sub="${1:-}"
+    if [ "$#" -gt 0 ]; then
+        shift
+    fi
+    case "$sub" in
+        deploy|up|apply)  k8s_deploy "$@" ;;
+        verify|smoke|test) k8s_verify "$@" ;;
+        status|ps)        k8s_status "$@" ;;
+        logs)             k8s_logs "$@" ;;
+        down|delete)      k8s_down "$@" ;;
+        ""|help|-h|--help) k8s_usage ;;
+        *)
+            log_error "未知 k8s 子命令: $sub"
+            k8s_usage
+            exit 1
+            ;;
+    esac
 }
 
 # 初始化 Docker Buildx
@@ -1236,6 +1438,7 @@ build_all_images() {
     local BUILD_BACKEND=${BUILD_BACKEND:-true}
     local BUILD_FRONTEND=${BUILD_FRONTEND:-true}
     local BUILD_ORCHESTRATOR=${BUILD_ORCHESTRATOR:-true}
+    local BUILD_EGRESS_CONTROLLER=${BUILD_EGRESS_CONTROLLER:-true}
     local BUILD_SKILLSPECTOR=${BUILD_SKILLSPECTOR:-true}
     local BUILD_CLAUDECODE=${BUILD_CLAUDECODE:-false}
     local BUILD_CODEX=${BUILD_CODEX:-false}
@@ -1244,6 +1447,7 @@ build_all_images() {
     if [ "$BACKEND_ONLY" = true ]; then
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1251,6 +1455,7 @@ build_all_images() {
     elif [ "$FRONTEND_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1259,6 +1464,16 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=true
+        BUILD_EGRESS_CONTROLLER=false
+        BUILD_SKILLSPECTOR=false
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+        BUILD_NATIVE=false
+    elif [ "$EGRESS_CONTROLLER_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=true
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1267,6 +1482,7 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1275,6 +1491,7 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
@@ -1283,6 +1500,7 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=false
@@ -1291,6 +1509,7 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=true
@@ -1299,6 +1518,7 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1307,11 +1527,13 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
+        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
     elif [ "$BUILD_ALL" = true ]; then
         BUILD_BACKEND=true
         BUILD_FRONTEND=true
         BUILD_ORCHESTRATOR=true
+        BUILD_EGRESS_CONTROLLER=true
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
@@ -1326,6 +1548,7 @@ build_all_images() {
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
         ORCHESTRATOR_RS_FULL_IMAGE="${NORMALIZED_REGISTRY}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        EGRESS_CONTROLLER_FULL_IMAGE="${NORMALIZED_REGISTRY}/${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         SKILLSPECTOR_FULL_IMAGE="${NORMALIZED_REGISTRY}/${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
@@ -1334,6 +1557,7 @@ build_all_images() {
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
         ORCHESTRATOR_RS_FULL_IMAGE="${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        EGRESS_CONTROLLER_FULL_IMAGE="${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         SKILLSPECTOR_FULL_IMAGE="${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
@@ -1389,6 +1613,14 @@ build_all_images() {
         echo ""
     fi
 
+    if [ "$BUILD_EGRESS_CONTROLLER" = true ]; then
+        build_image "Envoy Egress Controller" \
+            "$PROJECT_ROOT/egress-controller/Dockerfile" \
+            "$PROJECT_ROOT/egress-controller" \
+            "$EGRESS_CONTROLLER_FULL_IMAGE"
+        echo ""
+    fi
+
     if [ "$BUILD_SKILLSPECTOR" = true ]; then
         if [ "$USE_BUILDX" != true ]; then
             log_error "SkillSpector 镜像构建需要 Docker Buildx，以传入 skillspector named build context"
@@ -1427,6 +1659,7 @@ build_all_images() {
     [ "$BUILD_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$BUILD_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
     [ "$BUILD_ORCHESTRATOR" = true ] && echo "   Rust Orchestrator: $ORCHESTRATOR_RS_FULL_IMAGE"
+    [ "$BUILD_EGRESS_CONTROLLER" = true ] && echo "   Envoy Egress Controller: $EGRESS_CONTROLLER_FULL_IMAGE"
     [ "$BUILD_SKILLSPECTOR" = true ] && echo "   SkillSpector: $SKILLSPECTOR_FULL_IMAGE"
     [ "$BUILD_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$BUILD_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
@@ -1453,6 +1686,7 @@ pull_images() {
     local PULL_BACKEND=true
     local PULL_FRONTEND=true
     local PULL_ORCHESTRATOR=true
+    local PULL_EGRESS_CONTROLLER=true
     local PULL_SKILLSPECTOR=true
     local PULL_CLAUDECODE=false
     local PULL_CODEX=false
@@ -1461,23 +1695,34 @@ pull_images() {
     if [ "$BACKEND_ONLY" = true ]; then
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
+        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
     elif [ "$FRONTEND_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_ORCHESTRATOR=false
+        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
     elif [ "$ORCHESTRATOR_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
+        PULL_EGRESS_CONTROLLER=false
+        PULL_SKILLSPECTOR=false
+    elif [ "$EGRESS_CONTROLLER_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_EGRESS_CONTROLLER=true
         PULL_SKILLSPECTOR=false
     elif [ "$SKILLSPECTOR_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
+        PULL_EGRESS_CONTROLLER=false
     elif [ "$RUNTIME_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
+        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
         PULL_CLAUDECODE=true
         PULL_CODEX=true
@@ -1486,18 +1731,21 @@ pull_images() {
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
+        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
         PULL_CLAUDECODE=true
     elif [ "$CODEX_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
+        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
         PULL_CODEX=true
     elif [ "$NATIVE_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
+        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
         PULL_NATIVE=true
     elif [ "$BUILD_ALL" = true ]; then
@@ -1510,6 +1758,7 @@ pull_images() {
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
         ORCHESTRATOR_RS_FULL_IMAGE="${NORMALIZED_REGISTRY}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        EGRESS_CONTROLLER_FULL_IMAGE="${NORMALIZED_REGISTRY}/${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         SKILLSPECTOR_FULL_IMAGE="${NORMALIZED_REGISTRY}/${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
@@ -1518,6 +1767,7 @@ pull_images() {
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
         ORCHESTRATOR_RS_FULL_IMAGE="${ORCHESTRATOR_RS_IMAGE}:${TAG}"
+        EGRESS_CONTROLLER_FULL_IMAGE="${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         SKILLSPECTOR_FULL_IMAGE="${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
@@ -1539,6 +1789,7 @@ pull_images() {
     [ "$PULL_BACKEND" = true ] && pull_one_image "后端" "$BACKEND_FULL_IMAGE"
     [ "$PULL_FRONTEND" = true ] && pull_one_image "前端" "$FRONTEND_FULL_IMAGE"
     [ "$PULL_ORCHESTRATOR" = true ] && pull_one_image "Rust Orchestrator" "$ORCHESTRATOR_RS_FULL_IMAGE"
+    [ "$PULL_EGRESS_CONTROLLER" = true ] && pull_one_image "Envoy Egress Controller" "$EGRESS_CONTROLLER_FULL_IMAGE"
     [ "$PULL_SKILLSPECTOR" = true ] && pull_one_image "SkillSpector" "$SKILLSPECTOR_FULL_IMAGE"
     [ "$PULL_CLAUDECODE" = true ] && pull_one_image "Claude Code 运行" "$CLAUDECODE_FULL_IMAGE"
     [ "$PULL_CODEX" = true ] && pull_one_image "Codex 运行" "$CODEX_FULL_IMAGE"
@@ -1549,6 +1800,7 @@ pull_images() {
     [ "$PULL_BACKEND" = true ] && set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "$BACKEND_FULL_IMAGE"
     [ "$PULL_FRONTEND" = true ] && set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "$FRONTEND_FULL_IMAGE"
     [ "$PULL_ORCHESTRATOR" = true ] && set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "$ORCHESTRATOR_RS_FULL_IMAGE"
+    [ "$PULL_EGRESS_CONTROLLER" = true ] && set_env_value "$deploy_env" "EGRESS_CONTROLLER_FULL_IMAGE" "$EGRESS_CONTROLLER_FULL_IMAGE"
     [ "$PULL_SKILLSPECTOR" = true ] && set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "$SKILLSPECTOR_FULL_IMAGE"
     if [ "$PULL_CLAUDECODE" = true ]; then
         set_env_value "$deploy_env" "JOYSAFETER_SANDBOX_IMAGE" "$CLAUDECODE_FULL_IMAGE"
@@ -1564,6 +1816,7 @@ pull_images() {
     [ "$PULL_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$PULL_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
     [ "$PULL_ORCHESTRATOR" = true ] && echo "   Rust Orchestrator: $ORCHESTRATOR_RS_FULL_IMAGE"
+    [ "$PULL_EGRESS_CONTROLLER" = true ] && echo "   Envoy Egress Controller: $EGRESS_CONTROLLER_FULL_IMAGE"
     [ "$PULL_SKILLSPECTOR" = true ] && echo "   SkillSpector: $SKILLSPECTOR_FULL_IMAGE"
     [ "$PULL_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$PULL_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
@@ -1579,6 +1832,7 @@ main() {
     local BACKEND_ONLY=false
     local FRONTEND_ONLY=false
     local ORCHESTRATOR_ONLY=false
+    local EGRESS_CONTROLLER_ONLY=false
     local SKILLSPECTOR_ONLY=false
     local RUNTIME_ONLY=false
     local CLAUDECODE_ONLY=false
@@ -1685,6 +1939,10 @@ main() {
                 ORCHESTRATOR_ONLY=true
                 shift
                 ;;
+            --egress-controller-only)
+                EGRESS_CONTROLLER_ONLY=true
+                shift
+                ;;
             --skillspector-only)
                 SKILLSPECTOR_ONLY=true
                 shift
@@ -1713,16 +1971,34 @@ main() {
                 NO_CACHE=true
                 shift
                 ;;
-            doctor|local|build|push|pull|down|logs|restart|status)
-                COMMAND="$1"
-                shift
+            doctor|local|build|push|pull|down|logs|restart|status|k8s)
+                # 仅当尚未确定命令时，才把该 token 当作命令名。
+                # 否则它是已选命令的子命令/服务名（例如 `k8s status`、`logs status`），
+                # 必须透传，不能覆盖 COMMAND。
+                if [ -z "$COMMAND" ]; then
+                    COMMAND="$1"
+                    shift
+                else
+                    case "$COMMAND" in
+                        down|logs|restart|status|k8s)
+                            SERVICE_ARGS+=("$1")
+                            shift
+                            ;;
+                        *)
+                            log_error "未知选项: $1"
+                            show_usage
+                            exit 1
+                            ;;
+                    esac
+                fi
                 ;;
             *)
                 # 生命周期命令（down/logs/restart/status）后面可跟服务名或原生
                 # compose 选项（如 --tail=100），原样透传给 docker compose。
+                # k8s 后面跟子命令（deploy/verify/...）及其参数，原样透传给 run_k8s。
                 # COMMAND 为空（尚未识别命令）时落入下方 *)，保持未知选项报错。
                 case "$COMMAND" in
-                    down|logs|restart|status)
+                    down|logs|restart|status|k8s)
                         SERVICE_ARGS+=("$1")
                         shift
                         ;;
@@ -1772,11 +2048,17 @@ main() {
     echo ""
 
     # 检查前置条件
-    log_info "检查前置条件..."
-    check_command docker || exit 1
-    check_docker_running
-    log_success "前置条件检查通过"
-    echo ""
+    # k8s 子命令面向 kubectl 集群，不强制要求本机 Docker：
+    # 只读子命令（help/status/logs/down）完全不需要 Docker；deploy 仅在按集群类型
+    # 导入本地镜像时才用到 Docker，由 k8s_load_images 自行处理并优雅降级。
+    # 其余命令（本地 compose / 镜像构建推送拉取）仍要求 Docker 就绪。
+    if [ "$COMMAND" != "k8s" ]; then
+        log_info "检查前置条件..."
+        check_command docker || exit 1
+        check_docker_running
+        log_success "前置条件检查通过"
+        echo ""
+    fi
 
     # 处理简化架构参数
     if [ -n "$ARCH_LIST_STR" ]; then
@@ -1813,6 +2095,9 @@ main() {
             ;;
         (status)
             run_status "${SERVICE_ARGS[@]}"
+            ;;
+        (k8s)
+            run_k8s "${SERVICE_ARGS[@]}"
             ;;
         (*)
             log_error "未知命令: $COMMAND"

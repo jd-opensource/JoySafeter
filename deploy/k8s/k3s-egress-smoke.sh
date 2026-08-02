@@ -2,9 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 KUBECTL="${KUBECTL:-kubectl}"
 CONTROL_NS="${JOYSAFETER_CONTROL_NAMESPACE:-joysafeter-control}"
+EGRESS_NS="${JOYSAFETER_EGRESS_NAMESPACE:-joysafeter-egress}"
 SANDBOX_NS="${JOYSAFETER_K8S_NAMESPACE:-joysafeter-sandboxes}"
 API_URL="${API_URL:-http://127.0.0.1:8000}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d%H%M%S)}"
@@ -22,26 +24,36 @@ WAIT_SECONDS="${WAIT_SECONDS:-180}"
 TASK_WAIT_SECONDS="${TASK_WAIT_SECONDS:-600}"
 ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-https://api.anthropic.com}"
 PATCH_EGRESS_CONFIG="${PATCH_EGRESS_CONFIG:-true}"
+RESTORE_EGRESS_CONFIG="${RESTORE_EGRESS_CONFIG:-true}"
+BUILD_EGRESS_IMAGES="${BUILD_EGRESS_IMAGES:-false}"
+K3D_CLUSTER_NAME="${K3D_CLUSTER_NAME:-joysafeter}"
 RUN_SECRET_CONNECTIVITY_TEST="${RUN_SECRET_CONNECTIVITY_TEST:-true}"
 EXPECTED_OUTPUT_FRAGMENT="${EXPECTED_OUTPUT_FRAGMENT:-K3S_EGRESS_OK}"
 ALLOW_UPSTREAM_MODEL_ERROR="${ALLOW_UPSTREAM_MODEL_ERROR:-false}"
 
 PORT_FORWARD_PID=""
-GATEWAY_PORT_FORWARD_PID=""
+CONTROLLER_PORT_FORWARD_PID=""
+ORIGINAL_EGRESS_CONFIG=""
 
 log() { printf '\033[0;36m▶ %s\033[0m\n' "$*"; }
 ok() { printf '\033[0;32m✅ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$*" >&2; }
 
-stop_port_forwards_on_exit() {
+cleanup_on_exit() {
   if [[ -n "$PORT_FORWARD_PID" ]]; then
     kill "$PORT_FORWARD_PID" >/dev/null 2>&1 || true
   fi
-  if [[ -n "$GATEWAY_PORT_FORWARD_PID" ]]; then
-    kill "$GATEWAY_PORT_FORWARD_PID" >/dev/null 2>&1 || true
+  if [[ -n "$CONTROLLER_PORT_FORWARD_PID" ]]; then
+    kill "$CONTROLLER_PORT_FORWARD_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ "$RESTORE_EGRESS_CONFIG" == "true" && -n "$ORIGINAL_EGRESS_CONFIG" ]]; then
+    "$KUBECTL" -n "$CONTROL_NS" patch configmap joysafeter-config \
+      --type merge -p "$ORIGINAL_EGRESS_CONFIG" >/dev/null 2>&1 || true
+    "$KUBECTL" -n "$CONTROL_NS" rollout restart deployment/joysafeter-orchestrator \
+      >/dev/null 2>&1 || true
   fi
 }
-trap stop_port_forwards_on_exit EXIT
+trap cleanup_on_exit EXIT
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -156,7 +168,52 @@ assert_success() {
 
 wait_rollout() {
   local deployment="$1"
-  "$KUBECTL" -n "$CONTROL_NS" rollout status "deployment/$deployment" --timeout=300s
+  local namespace="${2:-$CONTROL_NS}"
+  "$KUBECTL" -n "$namespace" rollout status "deployment/$deployment" --timeout=300s
+}
+
+build_and_import_egress_images() {
+  if [[ "$BUILD_EGRESS_IMAGES" != "true" ]]; then
+    return
+  fi
+  require_cmd docker
+  log "Building Rust orchestrator and Go egress controller images"
+  "$ROOT/deploy/deploy.sh" build --orchestrator-only
+  docker build -t joysafeter-egress-controller:latest "$ROOT/egress-controller"
+  if command -v k3d >/dev/null 2>&1 && \
+     k3d cluster list -o json 2>/dev/null | grep -q "\"name\":\"${K3D_CLUSTER_NAME}\""; then
+    log "Importing egress images into k3d cluster ${K3D_CLUSTER_NAME}"
+    k3d image import joysafeter-orchestrator-rs:latest joysafeter-egress-controller:latest \
+      -c "$K3D_CLUSTER_NAME"
+  else
+    warn "No matching k3d cluster found; the Kubernetes cluster must pull the built images itself"
+  fi
+}
+
+install_shared_egress_plane() {
+  log "Installing ephemeral three-domain egress PKI"
+  KUBECTL="$KUBECTL" \
+    JOYSAFETER_CONTROL_NAMESPACE="$CONTROL_NS" \
+    JOYSAFETER_EGRESS_NAMESPACE="$EGRESS_NS" \
+    JOYSAFETER_K8S_NAMESPACE="$SANDBOX_NS" \
+    "$SCRIPT_DIR/pki/bootstrap-egress-pki.sh"
+
+  log "Applying TLS-enabled shared Envoy control/data-plane manifests"
+  "$KUBECTL" apply -f "$SCRIPT_DIR/base/25-egress-controller.yaml"
+  "$KUBECTL" apply -f "$SCRIPT_DIR/base/26-egress-authz.yaml"
+  "$KUBECTL" apply -f "$SCRIPT_DIR/base/27-egress-envoy.yaml"
+  "$KUBECTL" -n "$CONTROL_NS" scale deployment/joysafeter-egress-controller --replicas=1 >/dev/null
+  "$KUBECTL" -n "$EGRESS_NS" scale deployment/joysafeter-egress-envoy --replicas=1 >/dev/null
+  "$KUBECTL" -n "$CONTROL_NS" patch poddisruptionbudget joysafeter-egress-controller \
+    --type merge -p '{"spec":{"minAvailable":1}}' >/dev/null
+  "$KUBECTL" -n "$EGRESS_NS" patch poddisruptionbudget joysafeter-egress-envoy \
+    --type merge -p '{"spec":{"minAvailable":1}}' >/dev/null
+  "$KUBECTL" -n "$EGRESS_NS" patch horizontalpodautoscaler joysafeter-egress-envoy \
+    --type merge -p '{"spec":{"minReplicas":1,"maxReplicas":3}}' >/dev/null
+  "$KUBECTL" -n "$CONTROL_NS" rollout restart deployment/joysafeter-egress-controller >/dev/null
+  "$KUBECTL" -n "$EGRESS_NS" rollout restart deployment/joysafeter-egress-envoy >/dev/null
+  wait_rollout joysafeter-egress-controller "$CONTROL_NS"
+  wait_rollout joysafeter-egress-envoy "$EGRESS_NS"
 }
 
 patch_egress_config() {
@@ -164,13 +221,28 @@ patch_egress_config() {
     return
   fi
 
-  log "Patching k3s egress config on ConfigMap/Secret"
-  local host control_token cm_patch
-  host="$(base_host)"
-  control_token="${JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN:-}"
+  local current_config host cm_patch
+  current_config="$("$KUBECTL" -n "$CONTROL_NS" get configmap joysafeter-config -o json)"
+  ORIGINAL_EGRESS_CONFIG="$(CONFIG_JSON="$current_config" python3 <<'PY'
+import json
+import os
 
-  cm_patch="$(
-    python3 - "$host" <<'PY'
+data = json.loads(os.environ["CONFIG_JSON"]).get("data", {})
+keys = [
+    "JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED",
+    "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED",
+    "JOYSAFETER_EGRESS_AUTHZ_MTLS",
+    "JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL",
+    "JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL",
+    "JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS",
+]
+print(json.dumps({"data": {key: data.get(key, "") for key in keys}}, separators=(",", ":")))
+PY
+)"
+
+  log "Enabling durable authority and Envoy-only K8s egress for this validation"
+  host="$(base_host)"
+  cm_patch="$(python3 - "$host" <<'PY'
 import json
 import sys
 
@@ -183,90 +255,64 @@ allowed = [
     "*.jdcloud.com",
     host,
 ]
-deduped = []
-for item in allowed:
-    if item and item not in deduped:
-        deduped.append(item)
-
-print(json.dumps({
-    "data": {
-        "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED": "true",
-        "JOYSAFETER_EGRESS_GATEWAY_URL": "http://joysafeter-egress-gateway.joysafeter-control.svc.cluster.local:8088",
-        "JOYSAFETER_EGRESS_GATEWAY_HOST": "0.0.0.0",
-        "JOYSAFETER_EGRESS_GATEWAY_PORT": "8088",
-        "JOYSAFETER_EGRESS_GATEWAY_REQUIRE_SANDBOX_TOKEN": "true",
-        "JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS": ",".join(deduped),
-    }
-}, separators=(",", ":")))
+deduped = list(dict.fromkeys(item for item in allowed if item))
+print(json.dumps({"data": {
+    "JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED": "true",
+    "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED": "true",
+    "JOYSAFETER_EGRESS_AUTHZ_MTLS": "true",
+    "JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL": "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443",
+    "JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL": "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8080",
+    "JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS": ",".join(deduped),
+}}, separators=(",", ":")))
 PY
-  )"
+)"
   "$KUBECTL" -n "$CONTROL_NS" patch configmap joysafeter-config --type merge -p "$cm_patch" >/dev/null
-
-  if [[ -n "$control_token" ]]; then
-    local secret_patch
-    secret_patch="$(
-      JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN="$control_token" python3 <<'PY'
-import base64
-import json
-import os
-
-token = os.environ["JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN"].strip()
-if not token:
-    raise SystemExit("control token must not be empty")
-print(json.dumps({
-    "data": {
-        "JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN": base64.b64encode(token.encode()).decode()
-    }
-}, separators=(",", ":")))
-PY
-    )"
-    "$KUBECTL" -n "$CONTROL_NS" patch secret joysafeter-secret --type merge -p "$secret_patch" >/dev/null
-  fi
-
-  log "Restarting egress gateway and orchestrator to pick up egress config"
-  "$KUBECTL" -n "$CONTROL_NS" rollout restart deployment/joysafeter-egress-gateway >/dev/null
   "$KUBECTL" -n "$CONTROL_NS" rollout restart deployment/joysafeter-orchestrator >/dev/null
-  wait_rollout joysafeter-egress-gateway
-  wait_rollout joysafeter-orchestrator
+  wait_rollout joysafeter-orchestrator "$CONTROL_NS"
 }
 
 assert_egress_config() {
-  local enabled gateway_url gateway_token
+  local authority enabled credential_url forward_url
+  authority="$("$KUBECTL" -n "$CONTROL_NS" get configmap joysafeter-config -o jsonpath='{.data.JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED}')"
   enabled="$("$KUBECTL" -n "$CONTROL_NS" get configmap joysafeter-config -o jsonpath='{.data.JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED}')"
-  gateway_url="$("$KUBECTL" -n "$CONTROL_NS" get configmap joysafeter-config -o jsonpath='{.data.JOYSAFETER_EGRESS_GATEWAY_URL}')"
-  gateway_token="$("$KUBECTL" -n "$CONTROL_NS" get secret joysafeter-secret -o jsonpath='{.data.JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN}' || true)"
-  if [[ "$enabled" != "true" ]]; then
-    echo "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED is not true in ${CONTROL_NS}/joysafeter-config" >&2
-    exit 1
-  fi
-  if [[ "$gateway_url" != "http://joysafeter-egress-gateway.joysafeter-control.svc.cluster.local:8088" ]]; then
-    echo "JOYSAFETER_EGRESS_GATEWAY_URL is not the expected in-cluster gateway URL: ${gateway_url}" >&2
-    exit 1
-  fi
-  if [[ -z "$gateway_token" ]]; then
-    echo "JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN is missing in ${CONTROL_NS}/joysafeter-secret" >&2
-    exit 1
-  fi
+  credential_url="$("$KUBECTL" -n "$CONTROL_NS" get configmap joysafeter-config -o jsonpath='{.data.JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL}')"
+  forward_url="$("$KUBECTL" -n "$CONTROL_NS" get configmap joysafeter-config -o jsonpath='{.data.JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL}')"
+  [[ "$authority" == "true" ]] || { echo "durable egress authority is not enabled" >&2; exit 1; }
+  [[ "$enabled" == "true" ]] || { echo "K8s egress management is not enabled" >&2; exit 1; }
+  [[ "$credential_url" == https://joysafeter-egress-envoy.*:8443 ]] || { echo "unexpected credential URL: $credential_url" >&2; exit 1; }
+  [[ "$forward_url" == https://joysafeter-egress-envoy.*:8080 ]] || { echo "unexpected forward URL: $forward_url" >&2; exit 1; }
 }
 
-assert_gateway_ready() {
-  if curl -fsS "http://127.0.0.1:18088/readyz" >/dev/null 2>&1; then
-    return
+assert_shared_envoy_ready() {
+  if ! curl -fsS "http://127.0.0.1:18080/readyz" >/dev/null 2>&1; then
+    log "Starting temporary port-forward svc/joysafeter-egress-controller 18080:18080"
+    "$KUBECTL" -n "$CONTROL_NS" port-forward svc/joysafeter-egress-controller 18080:18080 \
+      >/tmp/joysafeter-k3s-egress-controller-port-forward.log 2>&1 &
+    CONTROLLER_PORT_FORWARD_PID="$!"
   fi
-
-  log "Starting temporary port-forward svc/joysafeter-egress-gateway 18088:8088"
-  "$KUBECTL" -n "$CONTROL_NS" port-forward svc/joysafeter-egress-gateway 18088:8088 >/tmp/joysafeter-k3s-egress-gateway-port-forward.log 2>&1 &
-  GATEWAY_PORT_FORWARD_PID="$!"
   for _ in $(seq 1 30); do
-    if curl -fsS "http://127.0.0.1:18088/readyz" >/dev/null 2>&1; then
-      return
+    if curl -fsS "http://127.0.0.1:18080/readyz" >/dev/null 2>&1; then
+      break
     fi
     sleep 1
   done
-  warn "egress gateway port-forward log:"
-  sed -n '1,80p' /tmp/joysafeter-k3s-egress-gateway-port-forward.log >&2 || true
-  echo "egress gateway /readyz did not become healthy" >&2
-  exit 1
+  curl -fsS "http://127.0.0.1:18080/readyz" >/dev/null || {
+    sed -n '1,80p' /tmp/joysafeter-k3s-egress-controller-port-forward.log >&2 || true
+    echo "egress controller did not become ready" >&2
+    exit 1
+  }
+  local metrics
+  metrics="$(curl -fsS "http://127.0.0.1:18080/metrics")"
+  METRICS="$metrics" python3 <<'PY'
+import os
+
+connected = 0.0
+for line in os.environ["METRICS"].splitlines():
+    if line.startswith("joysafeter_egress_controller_connected_nodes "):
+        connected = float(line.rsplit(" ", 1)[1])
+if connected < 1:
+    raise SystemExit("no Envoy node is connected to ADS over mTLS")
+PY
 }
 
 wait_for_task_sandbox() {
@@ -368,10 +414,18 @@ for name, value in env.items():
 base_url = env.get("ANTHROPIC_BASE_URL", "")
 expected_fragment = f"/sandbox/{sandbox_id}/egress/llm"
 if expected_fragment not in base_url:
-    raise SystemExit(f"ANTHROPIC_BASE_URL was not rewritten to gateway route: {base_url}")
+    raise SystemExit(f"ANTHROPIC_BASE_URL was not rewritten to Envoy route: {base_url}")
+if not base_url.startswith("https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443/"):
+    raise SystemExit(f"ANTHROPIC_BASE_URL does not use the TLS shared Envoy listener: {base_url}")
 
 if not env.get("JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN"):
     raise SystemExit("JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN missing from pod env")
+if env.get("SSL_CERT_FILE") != "/var/run/joysafeter-egress/trust/ca-bundle.crt":
+    raise SystemExit(f"sandbox combined CA bundle is not configured: {env.get('SSL_CERT_FILE')}")
+
+init_names = [item.get("name") for item in pod.get("spec", {}).get("initContainers", [])]
+if "build-egress-trust-bundle" not in init_names:
+    raise SystemExit("sandbox trust-bundle init container is missing")
 PY
 }
 
@@ -397,11 +451,67 @@ for forbidden in ["ai-api.jdcloud.com", "api.anthropic.com", "ANTHROPIC_API_KEY"
 
 if "joysafeter-orchestrator" not in text:
     raise SystemExit("NetworkPolicy does not allow orchestrator service")
-if "joysafeter-egress-gateway" not in text:
-    raise SystemExit("NetworkPolicy does not allow egress gateway service")
+if "joysafeter-egress" not in text or "joysafeter-egress-envoy" not in text:
+    raise SystemExit("NetworkPolicy does not allow only the shared Envoy service")
+if "joysafeter-egress-gateway" in text:
+    raise SystemExit("NetworkPolicy still references the legacy egress gateway")
 if "ipBlock" in text:
     raise SystemExit("NetworkPolicy must not use ipBlock upstream egress")
 PY
+}
+
+assert_generation_applied() {
+  local sandbox_id="$1"
+  local ready_replicas row generation state connected required acked nacks
+  ready_replicas="$("$KUBECTL" -n "$EGRESS_NS" get deployment joysafeter-egress-envoy -o jsonpath='{.status.readyReplicas}')"
+  ready_replicas="${ready_replicas:-0}"
+  for _ in $(seq 1 "$WAIT_SECONDS"); do
+    row="$("$KUBECTL" -n "$CONTROL_NS" exec deployment/postgres -- \
+      psql -U postgres -d joysafeter -Atc \
+      "SELECT g.generation || '|' || COALESCE(a.state, '') || '|' || COALESCE(a.connected_nodes, 0) || '|' || COALESCE(a.required_acks, 0) || '|' || COALESCE(a.acked_acks, 0) FROM joysafeter_egress_group_generations g LEFT JOIN joysafeter_egress_apply_status a ON a.group_key = g.group_key AND a.generation = g.generation WHERE g.desired_policies @> '[{\"sandbox_id\":\"${sandbox_id}\"}]'::jsonb ORDER BY g.generation DESC LIMIT 1" 2>/dev/null || true)"
+    if [[ -n "$row" ]]; then
+      IFS='|' read -r generation state connected required acked <<<"$row"
+      if [[ "$state" == "applied" && "$connected" -ge "$ready_replicas" && "$required" -gt 0 && "$acked" -eq "$required" ]]; then
+        nacks="$("$KUBECTL" -n "$CONTROL_NS" exec deployment/postgres -- \
+          psql -U postgres -d joysafeter -Atc \
+          "SELECT count(*) FROM joysafeter_egress_node_apply_status n JOIN joysafeter_egress_group_generations g ON g.group_key = n.group_key AND g.generation = n.generation WHERE n.generation = ${generation} AND n.status = 'nack' AND g.desired_policies @> '[{\"sandbox_id\":\"${sandbox_id}\"}]'::jsonb" 2>/dev/null || true)"
+        [[ "$nacks" == "0" ]] || { echo "generation ${generation} contains xDS NACKs" >&2; exit 1; }
+        printf '%s\n' "$generation"
+        return
+      fi
+    fi
+    sleep 1
+  done
+  echo "timed out waiting for an all-node applied generation for sandbox ${sandbox_id}; last=${row:-none}" >&2
+  exit 1
+}
+
+assert_wrong_token_denied() {
+  local pod_name="$1"
+  local base_url
+  base_url="$("$KUBECTL" -n "$SANDBOX_NS" get "pod/${pod_name}" -o jsonpath='{.spec.containers[0].env[?(@.name=="ANTHROPIC_BASE_URL")].value}')"
+  "$KUBECTL" -n "$SANDBOX_NS" exec "pod/${pod_name}" -- /bin/sh -ec '
+    command -v curl >/dev/null
+    base_url="$1"
+    code="$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 15 \
+      -X POST \
+      -H "authorization: Bearer wrong-sandbox-token" \
+      -H "x-api-key: wrong-sandbox-token" \
+      -H "anthropic-version: 2023-06-01" \
+      -H "content-type: application/json" \
+      --data "{}" "${base_url%/}/v1/messages" || true)"
+    test "$code" = "403"
+  ' sh "$base_url"
+}
+
+assert_direct_bypass_denied() {
+  local pod_name="$1"
+  local upstream_host="$2"
+  if "$KUBECTL" -n "$SANDBOX_NS" exec "pod/${pod_name}" -- \
+    /bin/sh -ec 'command -v curl >/dev/null; curl -sS -o /dev/null --connect-timeout 3 --max-time 5 "https://$1/"' sh "$upstream_host"; then
+    echo "sandbox reached ${upstream_host} directly and bypassed Envoy" >&2
+    exit 1
+  fi
 }
 
 main() {
@@ -421,6 +531,7 @@ main() {
 
   log "Current Kubernetes context: $("$KUBECTL" config current-context)"
   echo "Control namespace: $CONTROL_NS"
+  echo "Egress namespace:  $EGRESS_NS"
   echo "Sandbox namespace: $SANDBOX_NS"
   echo "API URL:           $API_URL"
   echo "Run ID:            $RUN_ID"
@@ -428,9 +539,11 @@ main() {
   echo "This script preserves validation data. It does not delete users, agents, secrets, environments, tasks, pods, jobs, namespaces, PVCs, or database rows."
   echo ""
 
+  build_and_import_egress_images
+  install_shared_egress_plane
   patch_egress_config
   assert_egress_config
-  assert_gateway_ready
+  assert_shared_envoy_ready
   ensure_api
 
   local password_hash
@@ -630,11 +743,21 @@ PY
   log "Waiting for sandbox pod ${pod_name}"
   "$KUBECTL" -n "$SANDBOX_NS" wait --for=condition=Ready "pod/${pod_name}" --timeout="${WAIT_SECONDS}s"
 
-  log "Verifying Pod env has gateway placeholders, not real model credentials"
+  log "Verifying Pod env has Envoy placeholders, trust bundle, and no real credentials"
   assert_pod_env_sanitized "$sandbox_id" "$pod_name"
 
-  log "Verifying per-sandbox NetworkPolicy shape"
+  log "Verifying Envoy-only per-sandbox NetworkPolicy shape"
   assert_network_policy_shape "$sandbox_id"
+
+  log "Verifying durable generation is ACKed by every ready Envoy node"
+  local generation
+  generation="$(assert_generation_applied "$sandbox_id")"
+
+  log "Verifying a wrong sandbox token is denied by ext_authz"
+  assert_wrong_token_denied "$pod_name"
+
+  log "Verifying direct upstream bypass is denied by NetworkPolicy"
+  assert_direct_bypass_denied "$pod_name" "$(base_host)"
 
   log "Waiting for model-backed task completion"
   local final_task final_output
@@ -667,6 +790,7 @@ PY
   echo "Task:      ${task_id}"
   echo "Sandbox:   ${sandbox_id}"
   echo "Pod:       ${SANDBOX_NS}/${pod_name}"
+  echo "Generation:${generation}"
   if [[ -n "$final_output" ]]; then
     echo "Output:    ${final_output}"
   fi
@@ -674,7 +798,9 @@ PY
   echo "Inspect:"
   echo "  $KUBECTL -n $SANDBOX_NS get pod $pod_name -o yaml"
   echo "  $KUBECTL -n $SANDBOX_NS get networkpolicy joysafeter-egress-$sandbox_id -o yaml"
-  echo "  $KUBECTL -n $CONTROL_NS logs deployment/joysafeter-egress-gateway --tail=200"
+  echo "  $KUBECTL -n $CONTROL_NS logs deployment/joysafeter-egress-controller --tail=200"
+  echo "  $KUBECTL -n $CONTROL_NS logs deployment/joysafeter-orchestrator --tail=200"
+  echo "  $KUBECTL -n $EGRESS_NS logs deployment/joysafeter-egress-envoy --tail=200"
 }
 
 main "$@"

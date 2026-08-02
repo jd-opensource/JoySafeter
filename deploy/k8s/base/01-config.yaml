@@ -34,6 +34,25 @@ data:
   JOYSAFETER_EGRESS_GATEWAY_PORT: "8088"
   JOYSAFETER_EGRESS_GATEWAY_REQUIRE_SANDBOX_TOKEN: "true"
   JOYSAFETER_EGRESS_GATEWAY_URL: http://joysafeter-egress-gateway.joysafeter-control.svc.cluster.local:8088
+  JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL: https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443
+  JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL: https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8080
+  JOYSAFETER_EGRESS_DOWNSTREAM_CA_CONFIG_MAP: joysafeter-egress-downstream-ca
+  JOYSAFETER_EGRESS_DOWNSTREAM_CA_MOUNT_PATH: /var/run/joysafeter-egress/trust
+  JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED: "false"
+  JOYSAFETER_EGRESS_POLICY_DEPLOYMENT_ID: joysafeter
+  JOYSAFETER_EGRESS_POLICY_ENVIRONMENT: production
+  JOYSAFETER_EGRESS_POLICY_REGION: local
+  JOYSAFETER_EGRESS_POLICY_SHARD_ID: "0"
+  JOYSAFETER_EGRESS_POLICY_ENVOY_VERSION: 1.39.0
+  JOYSAFETER_EGRESS_POLICY_CONFIG_SCHEMA_VERSION: "1"
+  JOYSAFETER_EGRESS_POLICY_APPLY_TIMEOUT_MS: "30000"
+  JOYSAFETER_EGRESS_POLICY_POLL_INTERVAL_MS: "250"
+  JOYSAFETER_EGRESS_AUTHZ_BIND: 0.0.0.0:18090
+  JOYSAFETER_EGRESS_AUTHZ_MTLS: "true"
+  JOYSAFETER_EGRESS_AUTHZ_CERT_FILE: /var/run/joysafeter-egress/authz-server-tls/tls.crt
+  JOYSAFETER_EGRESS_AUTHZ_KEY_FILE: /var/run/joysafeter-egress/authz-server-tls/tls.key
+  JOYSAFETER_EGRESS_AUTHZ_CLIENT_CA_FILE: /var/run/joysafeter-egress/authz-server-tls/ca.crt
+  JOYSAFETER_EGRESS_AUTHZ_CLIENT_DNS_SAN: joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local
   JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED: "false"
   JOYSAFETER_SANDBOX_POOL_ENABLED: "false"
   JOYSAFETER_SANDBOX_IDLE_TIMEOUT: "300"
@@ -65,3 +84,4 @@ stringData:
   JWT_SECRET_KEY: local-dev-jwt-secret-key-change-before-prod
   JOYSAFETER_VAULT_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
   JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN: local-dev-egress-gateway-control-token-change-before-prod
+  JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/joysafeter?sslmode=disable

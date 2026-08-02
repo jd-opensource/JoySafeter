@@ -1,0 +1,51 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: Deployment
+      name: joysafeter-egress-controller
+      namespace: joysafeter-control
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: PodDisruptionBudget
+      name: joysafeter-egress-controller
+      namespace: joysafeter-control
+    patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 1
+  - target:
+      kind: Deployment
+      name: joysafeter-egress-envoy
+      namespace: joysafeter-egress
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints/0/whenUnsatisfiable
+        value: ScheduleAnyway
+  - target:
+      kind: PodDisruptionBudget
+      name: joysafeter-egress-envoy
+      namespace: joysafeter-egress
+    patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 1
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: joysafeter-egress-envoy
+      namespace: joysafeter-egress
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3

@@ -1,0 +1,620 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: joysafeter-egress-envoy
+  namespace: joysafeter-egress
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+    app.kubernetes.io/part-of: joysafeter
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: joysafeter-egress-envoy-bootstrap
+  namespace: joysafeter-egress
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+    app.kubernetes.io/part-of: joysafeter
+data:
+  bootstrap.yaml: |
+    node:
+      id: replaced-by-service-node
+      cluster: joysafeter-egress
+      metadata:
+        deployment_id: joysafeter
+        environment: production
+        region: local
+        provider: k8s
+        shard_id: "0"
+        envoy_version: 1.39.0
+        config_schema_version: "1"
+    dynamic_resources:
+      lds_config:
+        ads: {}
+        resource_api_version: V3
+      cds_config:
+        ads: {}
+        resource_api_version: V3
+      ads_config:
+        api_type: DELTA_GRPC
+        transport_api_version: V3
+        grpc_services:
+          - envoy_grpc:
+              cluster_name: xds_cluster
+    static_resources:
+      listeners:
+        - name: restricted_observability
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 9902
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: restricted_observability
+                    route_config:
+                      name: restricted_observability
+                      virtual_hosts:
+                        - name: local_admin
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                path: /healthz
+                              direct_response:
+                                status: 200
+                                body:
+                                  inline_string: "ok\n"
+                            - match:
+                                path: /ready
+                              route:
+                                cluster: envoy_admin
+                            - match:
+                                path: /stats/prometheus
+                              route:
+                                cluster: envoy_admin
+                            - match:
+                                prefix: /
+                              direct_response:
+                                status: 404
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+      clusters:
+        - name: xds_cluster
+          type: STRICT_DNS
+          connect_timeout: 5s
+          dns_lookup_family: V4_PREFERRED
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
+          load_assignment:
+            cluster_name: xds_cluster
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: joysafeter-egress-controller.joysafeter-control.svc.cluster.local
+                          port_value: 18000
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+              sni: joysafeter-egress-controller.joysafeter-control.svc.cluster.local
+              common_tls_context:
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_3
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /var/run/joysafeter-egress/xds-client-tls/tls.crt
+                    private_key:
+                      filename: /var/run/joysafeter-egress/xds-client-tls/tls.key
+                validation_context:
+                  trusted_ca:
+                    filename: /var/run/joysafeter-egress/xds-client-tls/ca.crt
+                  match_typed_subject_alt_names:
+                    - san_type: DNS
+                      matcher:
+                        exact: joysafeter-egress-controller.joysafeter-control.svc.cluster.local
+        - name: envoy_admin
+          type: STATIC
+          connect_timeout: 1s
+          load_assignment:
+            cluster_name: envoy_admin
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 9901
+    admin:
+      address:
+        socket_address:
+          address: 127.0.0.1
+          port_value: 9901
+    overload_manager:
+      refresh_interval: 0.25s
+      resource_monitors:
+        - name: envoy.resource_monitors.fixed_heap
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.resource_monitors.fixed_heap.v3.FixedHeapConfig
+            max_heap_size_bytes: 805306368
+      actions:
+        - name: envoy.overload_actions.shrink_heap
+          triggers:
+            - name: envoy.resource_monitors.fixed_heap
+              threshold:
+                value: 0.85
+        - name: envoy.overload_actions.stop_accepting_requests
+          triggers:
+            - name: envoy.resource_monitors.fixed_heap
+              threshold:
+                value: 0.95
+  bootstrap-plaintext.yaml: |
+    node:
+      id: replaced-by-service-node
+      cluster: joysafeter-egress
+      metadata:
+        deployment_id: joysafeter
+        environment: production
+        region: local
+        provider: k8s
+        shard_id: "0"
+        envoy_version: 1.39.0
+        config_schema_version: "1"
+    dynamic_resources:
+      lds_config:
+        ads: {}
+        resource_api_version: V3
+      cds_config:
+        ads: {}
+        resource_api_version: V3
+      ads_config:
+        api_type: DELTA_GRPC
+        transport_api_version: V3
+        grpc_services:
+          - envoy_grpc:
+              cluster_name: xds_cluster
+    static_resources:
+      listeners:
+        - name: restricted_observability
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 9902
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: restricted_observability
+                    route_config:
+                      name: restricted_observability
+                      virtual_hosts:
+                        - name: local_admin
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                path: /healthz
+                              direct_response:
+                                status: 200
+                                body:
+                                  inline_string: "ok\n"
+                            - match:
+                                path: /ready
+                              route:
+                                cluster: envoy_admin
+                            - match:
+                                path: /stats/prometheus
+                              route:
+                                cluster: envoy_admin
+                            - match:
+                                prefix: /
+                              direct_response:
+                                status: 404
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+      clusters:
+        - name: xds_cluster
+          type: STRICT_DNS
+          connect_timeout: 5s
+          dns_lookup_family: V4_PREFERRED
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
+          load_assignment:
+            cluster_name: xds_cluster
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: joysafeter-egress-controller.joysafeter-control.svc.cluster.local
+                          port_value: 18000
+        - name: envoy_admin
+          type: STATIC
+          connect_timeout: 1s
+          load_assignment:
+            cluster_name: envoy_admin
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 9901
+    admin:
+      address:
+        socket_address:
+          address: 127.0.0.1
+          port_value: 9901
+    overload_manager:
+      refresh_interval: 0.25s
+      resource_monitors:
+        - name: envoy.resource_monitors.fixed_heap
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.resource_monitors.fixed_heap.v3.FixedHeapConfig
+            max_heap_size_bytes: 805306368
+      actions:
+        - name: envoy.overload_actions.shrink_heap
+          triggers:
+            - name: envoy.resource_monitors.fixed_heap
+              threshold:
+                value: 0.85
+        - name: envoy.overload_actions.stop_accepting_requests
+          triggers:
+            - name: envoy.resource_monitors.fixed_heap
+              threshold:
+                value: 0.95
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-egress-envoy
+  namespace: joysafeter-egress
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+  ports:
+    - name: credential-https
+      port: 8443
+      targetPort: credential
+    - name: forward-https
+      port: 8080
+      targetPort: forward
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-egress-envoy-metrics
+  namespace: joysafeter-egress
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+  ports:
+    - name: metrics
+      port: 9902
+      targetPort: observability
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: joysafeter-egress-envoy
+  namespace: joysafeter-egress
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-egress-envoy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: joysafeter-egress-envoy
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      serviceAccountName: joysafeter-egress-envoy
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: joysafeter-egress-envoy
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: joysafeter-egress-envoy
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: joysafeter-egress-envoy
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/envoy"]
+          args:
+            - --config-path
+            - /etc/joysafeter-egress-envoy/bootstrap.yaml
+            - --service-node
+            - $(POD_NAME)
+            - --service-cluster
+            - joysafeter-egress
+            - --log-level
+            - info
+            - --concurrency
+            - "2"
+            - --disable-hot-restart
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: credential
+              containerPort: 8443
+            - name: forward
+              containerPort: 8080
+            - name: observability
+              containerPort: 9902
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: observability
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: observability
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: observability
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /etc/joysafeter-egress-envoy
+              readOnly: true
+            - name: xds-client-tls
+              mountPath: /var/run/joysafeter-egress/xds-client-tls
+              readOnly: true
+            - name: authz-client-tls
+              mountPath: /var/run/joysafeter-egress/authz-tls
+              readOnly: true
+            - name: downstream-server-tls
+              mountPath: /var/run/joysafeter-egress/downstream-tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: joysafeter-egress-envoy-bootstrap
+        - name: xds-client-tls
+          secret:
+            secretName: joysafeter-egress-envoy-xds-client-tls
+        - name: authz-client-tls
+          secret:
+            secretName: joysafeter-egress-authz-client-tls
+        - name: downstream-server-tls
+          secret:
+            secretName: joysafeter-egress-downstream-server-tls
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: joysafeter-egress-envoy
+  namespace: joysafeter-egress
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-egress-envoy
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: joysafeter-egress-envoy
+  namespace: joysafeter-egress
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: joysafeter-egress-envoy
+  minReplicas: 3
+  maxReplicas: 12
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: joysafeter-egress-envoy
+  namespace: joysafeter-egress
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-envoy
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-egress-envoy
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: joysafeter-sandboxes
+      ports:
+        - protocol: TCP
+          port: 8443
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9902
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: joysafeter-control
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: joysafeter-egress-controller
+      ports:
+        - protocol: TCP
+          port: 18000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: joysafeter-control
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: joysafeter-orchestrator
+      ports:
+        - protocol: TCP
+          port: 18090
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - ::/128
+              - ::1/128
+              - 2001:db8::/32
+              - fc00::/7
+              - fe80::/10
+              - ff00::/8
+      ports:
+        - protocol: TCP

@@ -1,0 +1,197 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: joysafeter-egress-controller-snapshots
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-controller
+    app.kubernetes.io/part-of: joysafeter
+data:
+  snapshots.json: |
+    {
+      "schema_version": 1,
+      "groups": []
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-egress-controller
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-controller
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  selector:
+    app.kubernetes.io/name: joysafeter-egress-controller
+  ports:
+    - name: xds
+      port: 18000
+      targetPort: xds
+    - name: http
+      port: 18080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: joysafeter-egress-controller
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-controller
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-egress-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: joysafeter-egress-controller
+        app.kubernetes.io/part-of: joysafeter
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: joysafeter-egress-controller
+      containers:
+        - name: controller
+          image: joysafeter-egress-controller:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: JOYSAFETER_EGRESS_CONTROLLER_XDS_ADDR
+              value: :18000
+            - name: JOYSAFETER_EGRESS_CONTROLLER_HTTP_ADDR
+              value: :18080
+            - name: JOYSAFETER_EGRESS_CONTROLLER_SOURCE
+              value: postgres
+            - name: JOYSAFETER_EGRESS_CONTROLLER_SNAPSHOT_FILE
+              value: /etc/joysafeter-egress-controller/snapshots.json
+            - name: JOYSAFETER_EGRESS_CONTROLLER_RECONCILE_INTERVAL
+              value: 30s
+            - name: JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: joysafeter-secret
+                  key: JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL
+            - name: JOYSAFETER_EGRESS_XDS_MTLS
+              value: "true"
+            - name: JOYSAFETER_EGRESS_XDS_CERT_FILE
+              value: /var/run/joysafeter/tls/tls.crt
+            - name: JOYSAFETER_EGRESS_XDS_KEY_FILE
+              value: /var/run/joysafeter/tls/tls.key
+            - name: JOYSAFETER_EGRESS_XDS_CLIENT_CA_FILE
+              value: /var/run/joysafeter/tls/ca.crt
+            - name: JOYSAFETER_EGRESS_XDS_CLIENT_DNS_SAN
+              value: joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local
+            - name: JOYSAFETER_EGRESS_AUTHZ_MTLS
+              value: "true"
+            - name: JOYSAFETER_EGRESS_DOWNSTREAM_TLS
+              value: "true"
+          ports:
+            - name: xds
+              containerPort: 18000
+            - name: http
+              containerPort: 18080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: snapshots
+              mountPath: /etc/joysafeter-egress-controller
+              readOnly: true
+            - name: xds-tls
+              mountPath: /var/run/joysafeter/tls
+              readOnly: true
+      volumes:
+        - name: snapshots
+          configMap:
+            name: joysafeter-egress-controller-snapshots
+        - name: xds-tls
+          secret:
+            secretName: joysafeter-egress-controller-tls
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: joysafeter-egress-controller
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-controller
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-egress-controller
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: joysafeter-egress-controller-ingress
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-egress-controller
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-egress-controller
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: joysafeter-egress
+      ports:
+        - protocol: TCP
+          port: 18000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: joysafeter-control
+      ports:
+        - protocol: TCP
+          port: 18080

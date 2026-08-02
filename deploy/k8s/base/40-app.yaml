@@ -279,6 +279,8 @@ spec:
           ports:
             - containerPort: 9090
               name: grpc
+            - containerPort: 18090
+              name: authz
           readinessProbe:
             tcpSocket:
               port: 9090
@@ -289,6 +291,14 @@ spec:
               port: 9090
             initialDelaySeconds: 30
             periodSeconds: 30
+          volumeMounts:
+            - name: authz-server-tls
+              mountPath: /var/run/joysafeter-egress/authz-server-tls
+              readOnly: true
+      volumes:
+        - name: authz-server-tls
+          secret:
+            secretName: joysafeter-egress-authz-server-tls
 ---
 apiVersion: v1
 kind: Service

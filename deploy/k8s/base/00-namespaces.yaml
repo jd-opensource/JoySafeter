@@ -10,6 +10,16 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: joysafeter-egress
+  labels:
+    app.kubernetes.io/part-of: joysafeter
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: joysafeter-sandboxes
   labels:
     app.kubernetes.io/part-of: joysafeter

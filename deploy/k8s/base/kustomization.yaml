@@ -6,6 +6,9 @@ resources:
   - 02-rbac.yaml
   - 10-infra.yaml
   - 20-skillspector.yaml
+  - 25-egress-controller.yaml
+  - 26-egress-authz.yaml
+  - 27-egress-envoy.yaml
   - 30-db-init.yaml
   - 40-app.yaml
   - 50-sandbox-policy.yaml
