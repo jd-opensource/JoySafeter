@@ -412,14 +412,24 @@ for name, value in env.items():
         raise SystemExit(f"real model credential leaked into pod env: {name}")
 
 base_url = env.get("ANTHROPIC_BASE_URL", "")
-expected_fragment = f"/sandbox/{sandbox_id}/egress/llm"
+# Durable-authority egress rewrites the sandbox base URL to the per-sandbox
+# Envoy route: <envoy>/v1/sandbox/<id>/route/<base64url(route_id)> (e.g. the
+# "llm" route encodes to .../route/bGxt). The legacy gateway used the
+# /sandbox/<id>/egress/llm form; assert the authority format here.
+expected_fragment = f"/v1/sandbox/{sandbox_id}/route/"
 if expected_fragment not in base_url:
-    raise SystemExit(f"ANTHROPIC_BASE_URL was not rewritten to Envoy route: {base_url}")
+    raise SystemExit(f"ANTHROPIC_BASE_URL was not rewritten to the Envoy authority route: {base_url}")
 if not base_url.startswith("https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443/"):
     raise SystemExit(f"ANTHROPIC_BASE_URL does not use the TLS shared Envoy listener: {base_url}")
 
-if not env.get("JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN"):
-    raise SystemExit("JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN missing from pod env")
+runner_token = env.get("JOYSAFETER_RUNNER_TOKEN", "")
+if not runner_token:
+    raise SystemExit("JOYSAFETER_RUNNER_TOKEN missing from pod env")
+for name in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]:
+    if env.get(name) != runner_token:
+        raise SystemExit(f"{name} was not rewritten to the sandbox runner token")
+if env.get("JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN"):
+    raise SystemExit("legacy gateway sandbox token must not be injected in shared Envoy mode")
 if env.get("SSL_CERT_FILE") != "/var/run/joysafeter-egress/trust/ca-bundle.crt":
     raise SystemExit(f"sandbox combined CA bundle is not configured: {env.get('SSL_CERT_FILE')}")
 
