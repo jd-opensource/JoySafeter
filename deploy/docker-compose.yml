@@ -21,7 +21,7 @@ x-orchestrator-rs-build: &orchestrator-rs-build
   context: ..
   dockerfile: deploy/docker/orchestrator-rs.Dockerfile
   args:
-    RUST_IMAGE: ${RUST_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}
+    RUST_IMAGE: ${RUST_IMAGE:-public.ecr.aws/docker/library/rust:1.97.1-bookworm}
     RUNTIME_IMAGE: ${RUNTIME_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}
 
 x-egress-controller-build: &egress-controller-build
@@ -50,13 +50,13 @@ x-backend-common-env: &backend-common-env
   CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
   JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66}
   JOYSAFETER_ENVOY_EGRESS_DENIED_CIDRS: ${JOYSAFETER_ENVOY_EGRESS_DENIED_CIDRS:-0.0.0.0/8,10.0.0.0/8,100.64.0.0/10,127.0.0.0/8,169.254.0.0/16,172.16.0.0/12,192.0.0.0/24,192.0.2.0/24,192.168.0.0/16,198.18.0.0/15,198.51.100.0/24,203.0.113.0/24,224.0.0.0/4,240.0.0.0/4,::/128,::1/128,fc00::/7,fe80::/10,ff00::/8,2001:db8::/32}
-  # Docker egress data-plane mode. "filesystem" (default, legacy in-process xDS) or
-  # "controller" (Docker Envoy consumes ADS from the Go egress-controller).
-  JOYSAFETER_ENVOY_XDS_MODE: ${JOYSAFETER_ENVOY_XDS_MODE:-filesystem}
+  # Docker egress data-plane mode. The unified Go controller is the default;
+  # "filesystem" remains an explicit rollback-only compatibility mode.
+  JOYSAFETER_ENVOY_XDS_MODE: ${JOYSAFETER_ENVOY_XDS_MODE:-controller}
   JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST: ${JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST:-joysafeter-egress-controller}
   JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT: ${JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT:-18000}
   # Whole-feature switch for the durable egress policy authority (Docker + K8s).
-  JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED: ${JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED:-false}
+  JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED: ${JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED:-true}
   # Docker node identity (required for provider=docker desired-policy generations).
   JOYSAFETER_EGRESS_POLICY_HOST_ID: ${JOYSAFETER_EGRESS_POLICY_HOST_ID:-docker-local}
 
@@ -86,7 +86,7 @@ services:
     environment:
       JOYSAFETER_EGRESS_CONTROLLER_XDS_ADDR: :18000
       JOYSAFETER_EGRESS_CONTROLLER_HTTP_ADDR: :18080
-      JOYSAFETER_EGRESS_CONTROLLER_SOURCE: ${JOYSAFETER_EGRESS_CONTROLLER_SOURCE:-file}
+      JOYSAFETER_EGRESS_CONTROLLER_SOURCE: ${JOYSAFETER_EGRESS_CONTROLLER_SOURCE:-postgres}
       JOYSAFETER_EGRESS_CONTROLLER_SNAPSHOT_FILE: /etc/joysafeter-egress-controller/snapshots.json
       JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-joysafeter}?sslmode=disable
       JOYSAFETER_EGRESS_XDS_MTLS: "false"
@@ -249,6 +249,8 @@ services:
       - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
     depends_on:
       <<: *backend-depends
+      joysafeter-egress-controller:
+        condition: service_healthy
       joysafeter-envoy:
         condition: service_started
     volumes:

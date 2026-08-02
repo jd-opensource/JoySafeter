@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: joysafeter-orchestrator
+  namespace: joysafeter-control
+  labels:
+    app.kubernetes.io/name: joysafeter-orchestrator
+    app.kubernetes.io/part-of: joysafeter
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-orchestrator
