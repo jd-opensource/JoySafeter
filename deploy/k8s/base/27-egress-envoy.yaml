@@ -110,6 +110,7 @@ data:
               common_tls_context:
                 tls_params:
                   tls_minimum_protocol_version: TLSv1_3
+                  tls_maximum_protocol_version: TLSv1_3
                 tls_certificates:
                   - certificate_chain:
                       filename: /var/run/joysafeter-egress/xds-client-tls/tls.crt
