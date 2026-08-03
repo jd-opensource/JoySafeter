@@ -179,6 +179,7 @@ func emptyCompiler() CompilerFunc {
 
 func truncateEgressControlPlane(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
+	lockEgressIntegrationTables(t, pool)
 	_, err := pool.Exec(context.Background(), `
 		TRUNCATE joysafeter_egress_node_apply_status,
 		         joysafeter_egress_apply_status,
@@ -189,6 +190,36 @@ func truncateEgressControlPlane(t *testing.T, pool *pgxpool.Pool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func lockEgressIntegrationTables(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	const lockKey = "joysafeter-egress-integration-tests"
+	ctx := context.Background()
+	lockConfig := pool.Config()
+	lockConfig.MinConns = 0
+	lockConfig.MaxConns = 1
+	lockPool, err := pgxpool.NewWithConfig(ctx, lockConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := lockPool.Acquire(ctx)
+	if err != nil {
+		lockPool.Close()
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, lockKey); err != nil {
+		conn.Release()
+		lockPool.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, lockKey); err != nil {
+			t.Errorf("release egress integration DB lock: %v", err)
+		}
+		conn.Release()
+		lockPool.Close()
+	})
 }
 
 func insertDesiredGeneration(t *testing.T, pool *pgxpool.Pool, groupKey string, metadata group.Metadata, generation uint64, notify bool) {

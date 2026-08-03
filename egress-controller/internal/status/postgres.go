@@ -263,7 +263,10 @@ func (r *PostgresRecorder) writePublished(ctx context.Context, value event) erro
 			updated_at = now()
 		WHERE joysafeter_egress_apply_status.state IN ('pending', 'published')
 	`, uuid.New(), value.groupKey, value.generation, value.version, requiredTypes)
-	return err
+	if err != nil {
+		return err
+	}
+	return r.recomputeGeneration(ctx, value.groupKey, value.generation, "publish")
 }
 
 func (r *PostgresRecorder) writeConnected(ctx context.Context, identity group.Identity) error {
