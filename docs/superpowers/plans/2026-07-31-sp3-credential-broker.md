@@ -3,20 +3,20 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 > **Controller note:** implementer subagents in this workspace frequently cannot run `cargo`/`git` (Bash safety-classifier outage). The controller must build/test/commit every task itself before trusting it; never commit a subagent's code on its word. Preserve exact predicates in behavior-preserving refactors.
 
-**Goal:** Remove standing decrypted secrets from both egress data planes. Policies carry `credential_ref` (non-secret) instead of plaintext `inject_headers`; a `CredentialBroker` in the orchestrator resolves ref→secret on demand; the K8s gateway and Docker Envoy each resolve **per request** by calling the orchestrator's `CredentialResolutionService`.
+**Goal:** Remove standing decrypted secrets from both egress data planes. Policies carry `credential_ref` (non-secret) instead of plaintext `inject_headers`; a `CredentialBroker` in the orchestrator resolves ref→secret on demand; shared K8s Envoy and Docker Envoy each resolve **per request** by calling the orchestrator's credential service.
 
 **Architecture (decisions locked with the user):**
 - The **orchestrator** owns the `CredentialBroker` (it has Vault/DB); it is the single decrypt point.
-- Both data planes resolve **per request**: the K8s `joysafeter-egress-gateway` (a separate, dependency-light binary with **no** DB/Vault) calls the orchestrator's resolution endpoint; Docker's Envoy calls the **same** endpoint via an **ext_authz** filter. The spec's "gateway resolves in-process" is impossible (lib-crate boundary) and is superseded by this.
+- Both data planes resolve **per request**: K8s shared Envoy and Docker Envoy call the orchestrator through the same **ext_authz** credential path. Older in-process proxy-resolution designs are superseded by this.
 - The control plane pushes **refs only** (`SandboxEgressPolicy` becomes safe to persist/log).
 - `EgressEnforcer::isolation()` etc. from SP-2 are unaffected; this builds on SP-1/SP-2.
 
-**Tech Stack:** Rust, axum (gateway + resolution HTTP), tonic/`ext_authz` proto (Envoy callout), reqwest, sqlx, `VaultCipher`. Crate dir: `backend/app/joysafeter_orchestrator_rs`.
+**Tech Stack:** Rust, tonic/`ext_authz` proto (Envoy callout), reqwest, sqlx, `VaultCipher`. Crate dir: `backend/app/joysafeter_orchestrator_rs`.
 
 ## Global Constraints
 
-- **Lib-crate boundary is inviolable.** `egress::policy` + `egress::gateway` must remain compilable without DB/Vault/kernel (the `joysafeter-egress-gateway` binary depends only on them). The `CredentialBroker` and `CredentialResolutionService` live OUTSIDE that subgraph (in `kernel`/orchestrator-only modules). `EgressCredentialRoute` must carry only a **non-secret** `CredentialRef` — no `VaultCipher`, no secret strings.
-- **Zero standing secret:** after this, no `SandboxEgressPolicy`, gateway store, Envoy LDS config, DB row, or log line contains a decrypted provider/MCP/Git/external secret. Secrets exist only transiently in the broker at resolution time (short-TTL memory cache, evicted on teardown).
+- **Lib-crate boundary is inviolable.** `egress::policy` must remain compilable without DB/Vault/kernel. The `CredentialBroker` and credential service live OUTSIDE that subgraph (in `kernel`/orchestrator-only modules). `EgressCredentialRoute` must carry only a **non-secret** `CredentialRef` — no `VaultCipher`, no secret strings.
+- **Zero standing secret:** after this, no `SandboxEgressPolicy`, policy store, Envoy LDS config, DB row, or log line contains a decrypted provider/MCP/Git/external secret. Secrets exist only transiently in the broker at resolution time (short-TTL memory cache, evicted on teardown).
 - **Behavior-preserving at the boundary:** for a given sandbox+route, the header injected upstream (name + value) must be byte-identical to today's; sandbox-supplied auth stripping unchanged.
 - No new standing infra beyond the resolution endpoint (reuse the existing orchestrator gRPC/HTTP server where possible). Structured error `CREDENTIAL_RESOLVE_FAILED` on resolution failure.
 - Conventional commits; `cargo fmt`; warning-clean.
@@ -66,22 +66,22 @@ This makes the "provenance loss" that made LLM thorny structurally impossible: t
 ## Components
 
 1. **`CredentialBroker`** (`src/kernel/credential_broker.rs`, orchestrator-only): `async fn resolve(&self, cred_ref: &CredentialRef, scope: &SandboxScope) -> anyhow::Result<SecretMaterial>`. Backed by the existing DB queries + `VaultCipher`; short-TTL in-memory cache keyed by `(sandbox_id, route_id)`; `evict(sandbox_id)` on teardown. Returns the *formatted header value* (applies `InjectScheme`).
-2. **`CredentialResolutionService`** (orchestrator gRPC/HTTP): (a) an Envoy-compatible **ext_authz** gRPC server, and (b) a plain `POST /resolve` HTTP endpoint for the K8s gateway. Both authenticate the caller (sandbox token / mTLS / service token), map `(sandbox_id, route_id)` → `CredentialRef` via the installed policy, call the broker, and return the header to inject. Never logs secret values.
-3. **K8s gateway** (`egress/gateway.rs`): replace the in-store plaintext injection (`gateway.rs:596-606`) with a call to `CredentialResolutionService` (`/resolve`) using the route's `credential_ref`/scheme carried in the pushed policy. Gateway still holds refs (non-secret) in its store.
+2. **`CredentialResolutionService`** (orchestrator gRPC): an Envoy-compatible **ext_authz** gRPC server. It authenticates the caller (sandbox token / mTLS / service token), maps `(sandbox_id, route_id)` → `CredentialRef` via the installed policy, calls the broker, and returns the header to inject. Never logs secret values.
+3. **K8s shared Envoy**: calls `CredentialResolutionService` through ext_authz using the route's `credential_ref`/scheme carried in durable policy. Envoy and policy state hold refs only.
 4. **Docker Envoy** (`sandbox/lds_backend.rs`): replace baked `inject_headers` (`lds_backend.rs:459,1262`) with an `ext_authz` filter pointing at the orchestrator; Envoy injects the header from the ext_authz OK response.
 
 ## Data flow (target)
 
-K8s: sandbox → gateway (authz route) → `POST orchestrator/resolve {sandbox_id, route_id}` → broker resolves ref → returns `{header, value}` → gateway injects, strips sandbox auth, forwards.
+K8s: sandbox → shared Envoy (route match) → ext_authz → orchestrator resolution service → broker resolves ref → returns `{header, value}` → Envoy injects, strips sandbox auth, forwards.
 Docker: sandbox → Envoy (route match) → ext_authz → orchestrator resolution service → OK + `headers_to_add` → Envoy injects → forwards.
 
 ## Task decomposition (each its own spec→impl→review; both providers green after each)
 
-- **Task 1 — `CredentialRef` + policy schema + builders.** Add `CredentialRef`/`InjectScheme` to `egress/policy.rs`; change `EgressCredentialRoute` (drop `inject_headers`, add ref/header/scheme). Rewrite the four builders (`egress/llm.rs`, `egress/credential.rs`) to emit refs instead of decrypting. For LLM, implement the DECIDED clean-slate design above: make `kernel/sandbox_resolver.rs`'s env merge provenance-aware (LLM credential key → ref, never decrypted into env; Secret-backed only, else fail closed). Update `lds_backend.rs`/`gateway.rs`/tests to the new fields at the type level (data planes still functionally inject in later tasks — here just make it compile + carry refs). Behavior temporarily broken for real injection is acceptable *only within this task*; end state of the task keeps tests compiling with refs.
+- **Task 1 — `CredentialRef` + policy schema + builders.** Add `CredentialRef`/`InjectScheme` to `egress/policy.rs`; change `EgressCredentialRoute` (drop `inject_headers`, add ref/header/scheme). Rewrite the four builders (`egress/llm.rs`, `egress/credential.rs`) to emit refs instead of decrypting. For LLM, implement the DECIDED clean-slate design above: make `kernel/sandbox_resolver.rs`'s env merge provenance-aware (LLM credential key → ref, never decrypted into env; Secret-backed only, else fail closed). Update Envoy/xDS/tests to the new fields at the type level (data planes still functionally inject in later tasks — here just make it compile + carry refs). Behavior temporarily broken for real injection is acceptable *only within this task*; end state of the task keeps tests compiling with refs.
   - Risk: this is a schema change touching every builder + the resolver env merge + both data planes + many tests. Largest task.
 - **Task 2 — `CredentialBroker`.** New `src/kernel/credential_broker.rs`: `resolve` for all four ref kinds (move the decrypt logic out of the builders into here), cache + eviction, `SecretMaterial`/`InjectScheme` formatting. Unit-tested against the DB (guarded like existing `test_pool` tests) + a pure formatting test.
 - **Task 3 — `CredentialResolutionService` (orchestrator).** HTTP `POST /resolve` + auth; map `(sandbox_id, route_id)`→ref via a policy registry (the enforcer already installs per-sandbox policy — extend it to keep refs queryable orchestrator-side); call broker; structured errors. Tests: authorized resolve returns the formatted header; missing policy/route → deny; unknown sandbox → deny.
-- **Task 4 — K8s gateway resolves per request.** Replace `gateway.rs` in-store injection with a `/resolve` call (the gateway gets the resolution endpoint URL + a service token via config/policy). Gateway store now holds refs only. Tests: proxy forwards with the injected header obtained from a stubbed resolution endpoint; no secret in the gateway store.
+- **Task 4 — K8s shared Envoy resolves per request.** Wire K8s shared Envoy to the same ext_authz resolution service. Durable policy now holds refs only. Tests: proxy forwards with the injected header obtained from a stubbed resolution endpoint; no secret in Envoy config or policy state.
 - **Task 5 — Docker Envoy ext_authz.** Add the ext_authz gRPC server to the resolution service; rework `lds_backend.rs` LDS to reference the ext_authz filter instead of baked headers; the Envoy config carries no secret. Tests: generated LDS contains the ext_authz cluster/filter and no injected secret values; an integration-style test of the ext_authz handler returning `headers_to_add`.
 - **Task 6 — Teardown/recovery/observability.** `evict` on sandbox teardown; restart recovery rebuilds refs (already ref-only, so recovery no longer decrypts); add `CREDENTIAL_RESOLVE_FAILED` to the structured error set; metrics/audit without secret values.
 
@@ -89,9 +89,9 @@ Order 1→2→3→4→5→6. Tasks 4 and 5 can be reviewed independently once 3 
 
 ## Verification (end-to-end, per the workspace's "real chain, not forged" bar)
 
-- **Static:** grep the whole tree — no `inject_headers` plaintext on `EgressCredentialRoute`; `egress::policy`/`egress::gateway` still compile in the lib crate (`cargo build --bin joysafeter-egress-gateway`); `VaultCipher` not referenced from `egress::policy`.
-- **Unit/integration:** `cargo test` green; broker resolve/evict tests; resolution-service authz tests; gateway proxy-with-resolution test; Envoy LDS-has-ext_authz-no-secret test.
-- **Live zero-standing-secret proof (Colima k3s, per project_colima_k3s_sandbox.md recipe):** exec into a sandbox pod → confirm it holds only a placeholder key; `kubectl get pod -o yaml` + the gateway's installed policy contain **no** real secret; a runtime-random model challenge succeeds through the gateway; the orchestrator resolution-service log shows a resolve for that `sandbox_id`+`route_id` at the matching timestamp; cross-correlate. Negative control: direct upstream from the pod is blocked.
+- **Static:** grep the whole tree — no `inject_headers` plaintext on `EgressCredentialRoute`; `egress::policy` still compiles in the lib crate; `VaultCipher` not referenced from `egress::policy`.
+- **Unit/integration:** `cargo test` green; broker resolve/evict tests; resolution-service authz tests; ext_authz proxy-with-resolution test; Envoy LDS-has-ext_authz-no-secret test.
+- **Live zero-standing-secret proof (Colima k3s, per project_colima_k3s_sandbox.md recipe):** exec into a sandbox pod → confirm it holds only a placeholder key; `kubectl get pod -o yaml` + the shared Envoy policy contain **no** real secret; a runtime-random model challenge succeeds through shared Envoy; the orchestrator credential-service log shows a resolve for that `sandbox_id`+`route_id` at the matching timestamp; cross-correlate. Negative control: direct upstream from the pod is blocked.
 
 ## Open items to resolve during tasks
 - ~~Task 1: LLM-secret-identity recovery~~ **DECIDED** (see "Task 1 LLM design" above): clean-slate provenance-aware env merge; LLM must be Secret-backed; literal LLM keys fail closed. Task 1 now legitimately edits `kernel/sandbox_resolver.rs`.

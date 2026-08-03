@@ -29,7 +29,7 @@ Access points:
 
 The backend runtime is split into Python `api`, Rust `orchestrator-rs`, and Python `worker`
 services, alongside PostgreSQL, Redis, Envoy, and SkillSpector. The Python orchestrator profile
-has been removed; use the `rust-orchestrator` profile through `deploy.sh local`.
+has been removed; use the `sandbox` profile through `deploy.sh local`.
 
 `deploy.sh local` starts the control-plane services only. It does not build the agent runtime
 image (`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native`), so the control plane
@@ -56,7 +56,7 @@ cd deploy
 # Pull writes BACKEND_FULL_IMAGE, FRONTEND_FULL_IMAGE, ORCHESTRATOR_RS_FULL_IMAGE,
 # and SKILLSPECTOR_FULL_IMAGE into deploy/.env after the images are pulled.
 ./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
-docker compose --profile local-redis --profile rust-orchestrator up -d --no-build
+docker compose --profile local-redis --profile sandbox up -d --no-build
 ```
 
 ## Local Test One-Command Startup
@@ -151,8 +151,8 @@ bun run dev
 - If you are on Apple Silicon or Colima, let `deploy.sh local` auto-detect the Docker daemon
   architecture, or force it with `./deploy.sh local --arch arm64`.
 - If database tables are missing after a manual Compose start with local Redis, run
-  `docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init`.
+  `docker compose --profile local-redis --profile sandbox --profile init run --rm db-init`.
 - If you use cloud Redis, leave off the `local-redis` profile and set `REDIS_URL` in `deploy/.env`.
   For cloud Redis migrations, use
-  `docker compose --profile rust-orchestrator --profile init run --rm db-init`. For cloud PostgreSQL,
+  `docker compose --profile sandbox --profile init run --rm db-init`. For cloud PostgreSQL,
   override the `POSTGRES_*` variables there as well.

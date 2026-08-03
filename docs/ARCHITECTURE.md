@@ -100,7 +100,7 @@ flowchart TB
 | Component | Compose service | Role | Key responsibility |
 |---|---|---|---|
 | **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`, SSE execution stream, notification WebSocket, auth |
-| **Orchestrator (Rust)** | `orchestrator-rs` (profile `rust-orchestrator`) | — | gRPC `AgentBridge` server, task scheduler, sandbox lifecycle, event bus |
+| **Orchestrator (Rust)** | `orchestrator-rs` (profile `sandbox`) | — | gRPC `AgentBridge` server, task scheduler, sandbox lifecycle, event bus |
 | **Worker** | `worker` | `worker` | Consumes the Redis event Stream, batch-persists events to `joysafeter_session_events`, republishes for SSE |
 | **Frontend** | `frontend` | — | Next.js App Router UI |
 | **PostgreSQL** | `db` | — | System of record for all state |

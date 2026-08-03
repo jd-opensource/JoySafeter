@@ -45,9 +45,8 @@ silently dropped):**
   untested). Single-replica e2e in this spec is unaffected.
 - Parent **Phase 2** — independent `joysafeter-egress-authz`/broker deployment
   with resource isolation.
-- Parent **Phase 5** — removal of the Rust forwarding gateway
-  (`bin/egress_gateway.rs`, `egress/k8s_manager.rs`, `GatewayEnforcer`, gateway
-  env).
+- Parent **Phase 5** — removal of the Rust HTTP forwarding proxy path
+  (standalone binary, K8s manager adapter, enforcer branch, and proxy env).
 - **Outbox real consumer** — `joysafeter_egress_outbox_events` currently only
   fires the `pg_notify` trigger; its `claimed_by/claimed_until/attempts/
   available_at` delivery protocol has no consumer.
@@ -261,7 +260,7 @@ CI additions to `.github/workflows/ci.yml`:
 
 1. Go controller **HA / single-writer** (leader election or partitioned
    ownership) + concurrent-writer race test.
-2. Parent **Phase 2** authz/broker isolation; **Phase 5** Rust gateway removal.
+2. Parent **Phase 2** authz/broker isolation; **Phase 5** Rust HTTP proxy removal.
 3. **Outbox** real delivery consumer (or formally demote the delivery columns).
 4. **Production PKI** (cert-manager/SPIRE) replacing the bootstrap script.
 5. **Multi-host Docker** ext_authz per-call identity.

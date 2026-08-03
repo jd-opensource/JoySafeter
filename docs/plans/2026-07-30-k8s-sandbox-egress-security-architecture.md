@@ -1,6 +1,6 @@
 # K8s Sandbox Egress and Secret Boundary Architecture
 
-Status: design accepted, Phase 0/1 guardrails complete, Phase 2 gateway core, K8s env/network policy wiring, startup recovery, and k3s validation entrypoints implemented
+Status: superseded by the shared Envoy + durable PostgreSQL authority architecture; Phase 0/1 guardrails remain valid, while the Phase 2 HTTP proxy path has been removed from runtime code and manifests.
 Date: 2026-07-30
 
 ## Implementation Status
@@ -13,7 +13,7 @@ Implemented in Phase 0:
   sandbox context that has limited networking, credential routes, or real LLM
   secret env values.
 - K8s defaults to `has_egress_management=false`, so secret-backed model tasks
-  fail closed unless the gateway URL/control token, NetworkPolicy targets, and
+  fail closed unless shared Envoy, durable authority, NetworkPolicy targets, and
   explicit `JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED=true` switch are all
   configured.
 - Regression tests cover real-secret rejection, placeholder allowance, and the
@@ -35,25 +35,18 @@ Implemented in Phase 1:
   provider capability declarations, so providers without a credential boundary
   cannot claim production egress management by accident.
 
-Implemented in Phase 2:
+Superseded Phase 2 HTTP proxy work:
 
-- Added a standalone `joysafeter-egress-gateway` Rust binary with `/healthz`,
-  `/readyz`, and a fail-closed proxy entrypoint.
-- Added an explicit gateway policy-store contract and in-memory implementation
-  for tests and the next control-plane wiring step.
-- Added an authenticated control-plane API to install and revoke per-sandbox
-  policies at `PUT/DELETE /control/sandboxes/{sandbox_id}/policy`. The API
-  requires `JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN`; without it, `/readyz`
-  remains unavailable and policy mutation is disabled.
-- Added an orchestrator-side `EgressGatewayControlClient` and `K8sEgressManager`.
-  It installs/revokes per-sandbox gateway policy over HTTP using the shared
-  `SandboxEgressPolicy` schema. K8s provider capabilities remain disabled by
-  default and become enabled only under the explicit production egress switch.
+- The standalone Rust HTTP proxy binary, policy-store contract, control API, and
+  K8s manager adapter were removed after the architecture converged on shared
+  Envoy + durable PostgreSQL authority.
+- K8s provider capabilities remain disabled by default and become enabled only
+  under the explicit production egress switch plus durable authority.
 - Added sandbox token authentication using SHA-256 token hashes and
   constant-time comparison. Requests can authenticate with
   `x-joysafeter-sandbox-token`, `Authorization: Bearer <token>`, or common
   provider credential headers carrying the sandbox token (`x-api-key`,
-  `api-key`, `x-goog-api-key`). The gateway strips these sandbox-supplied
+  `api-key`, `x-goog-api-key`). ext_authz strips these sandbox-supplied
   credential headers before injecting real upstream credentials.
 - Added route authorization for `/sandbox/{sandbox_id}/egress/{route_id}/...`
   so traffic is denied unless the sandbox has an installed policy route.
@@ -61,32 +54,30 @@ Implemented in Phase 2:
   sandbox-supplied credential header stripping, platform credential injection,
   hop-by-hop header filtering, and structured fail-closed error mapping.
 - Added K8s Pod env rewrite for limited-networking LLM placeholders:
-  `http://llm-egress.internal` base URLs become
-  `{JOYSAFETER_EGRESS_GATEWAY_URL}/sandbox/{sandbox_id}/egress/llm`, and
+  `http://llm-egress.internal` base URLs become per-route shared Envoy URLs, and
   provider SDK key env vars are populated with the per-sandbox runner token
   instead of real model credentials. Manifest tests cover Anthropic, OpenAI,
   Gemini, and Azure OpenAI.
 - Added per-sandbox K8s `NetworkPolicy` rendering and setup wiring. The policy
   selects only the target sandbox Pod and allows egress only to DNS,
-  orchestrator, and the egress gateway; it never encodes model-provider domains
+  orchestrator, and shared Envoy; it never encodes model-provider domains
   or hardcoded IPs. RBAC grants apply/update/patch for NetworkPolicies, not
   delete.
 - Added K8s orchestrator startup recovery. On restart, the provider lists live
   limited-networking sandboxes from the database, reads the stored runner token
   from sandbox config, re-derives egress credentials from DB/Vault, reapplies the
-  per-sandbox NetworkPolicy, and reinstalls the gateway policy. Real provider
-  credentials are not persisted in gateway files or K8s resources.
+  per-sandbox NetworkPolicy, and redeclares the durable policy. Real provider
+  credentials are not persisted in xDS or K8s resources.
 - Added tests for readiness, missing policy, missing/invalid token,
   unauthorized route, path allowlist escape, request rendering, and a real
   loopback upstream forwarding flow that verifies injected credentials without
   printing secret values.
-- The gateway path is explicitly gated in K8s provider capabilities:
+- The shared Envoy path is explicitly gated in K8s provider capabilities:
   `has_egress_management=true` only when
-  `JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED=true`, gateway control is
-  configured, and both orchestrator and gateway NetworkPolicy targets resolve.
-- The orchestrator image now includes both `joysafeter-orchestrator` and
-  `joysafeter-egress-gateway` binaries, and the k3s base manifests run the
-  gateway as a dedicated Deployment/Service.
+  `JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED=true`, durable authority is
+  configured, and both orchestrator and shared Envoy NetworkPolicy targets resolve.
+- The orchestrator image now includes only the `joysafeter-orchestrator` binary;
+  the k3s base manifests do not run a separate Rust HTTP proxy Deployment/Service.
 - Added `deploy/k8s/k3s-egress-smoke.sh` and `VALIDATION_MODE=egress` support
   in `k3s-long-run.sh`. These scripts preserve evidence and do not delete
   users, Secrets, Environments, Agents, Tasks, Pods, Jobs, namespaces, PVCs, or
@@ -98,24 +89,55 @@ Implemented in Phase 2:
   `K3S_EGRESS_OK`. `ALLOW_UPSTREAM_MODEL_ERROR=true` is reserved for
   connectivity-only checks when an upstream key reaches the provider but is not
   authorized for the selected model.
+- K8s sandbox and NetworkPolicy runtime operations now use the Kubernetes API
+  client, not `kubectl`: Pods are created/executed/deleted via `kube::Api<Pod>`,
+  and per-sandbox NetworkPolicies are server-side-applied/deleted/listed via
+  `kube::Api<NetworkPolicy>`.
+- K8s per-sandbox NetworkPolicy lifecycle cleanup is implemented: explicit and
+  passive destroy paths call enforcer teardown, teardown deletes the named
+  policy idempotently, and orchestrator startup recovery prunes platform-owned
+  policies whose sandbox row is no longer live. Live validation on 2026-08-03
+  pruned 15 destroyed-sandbox policies and left one `idle` live policy intact.
+- K8s smokes now fail fast on runtime architecture drift, API-only image shape,
+  sandbox Pod client-side apply annotations, and orchestrator RBAC for Pod
+  create/delete/exec plus NetworkPolicy get/list/create/patch/delete.
+- Durable egress apply-state now has a serialized PostgreSQL recompute path:
+  ACK, connect, disconnect, publish, and periodic backstop recomputes use a
+  transaction-scoped advisory lock per `(group_key, generation)` so concurrent
+  controller replicas do not lose ACK counts. Integration coverage includes the
+  lost-update race, disconnect convergence, ticker convergence, and the
+  ACK-before-apply-row publish ordering race.
+- Live 2×2 HA JDCloud Anthropic-compatible validation on 2026-08-03 passed
+  through the shared Envoy path with two egress-controller replicas and two
+  Envoy replicas: task `019fc5f7-0088-7e52-b893-b937d870e5e4`, sandbox
+  `019fc5f7-0093-7c73-955e-f0f8a665f32b`, generation `42`, output
+  `K3S_EGRESS_OK`. The DB apply-status row was `applied` with
+  `connected_nodes=2`, `required_acks=4`, `acked_acks=4`, and four node ACKs
+  with zero NACKs.
+- JDCloud compatibility root cause was narrowed to Claude Code 2.1.220's
+  default request surface, not the egress boundary: captured CLI requests send
+  `?beta=true`, `anthropic-beta`, auto-title prompts, `thinking`, metadata,
+  streaming, system blocks, and tool schemas. Minimal Messages requests through
+  the Envoy route succeeded. The smoke Agent now sets Claude Code compatibility
+  env vars to disable title/thinking/experimental-beta behavior for the egress
+  proof; broader provider normalization/error taxonomy remains product work.
 
 Not implemented yet:
 
-- Production gateway HA policy backend. The current gateway binary has an
-  in-memory policy store and authenticated mutation API. K8s orchestrator
-  startup recovery can reinstall policies after orchestrator restart, but
-  multi-replica gateway HA still needs a shared policy backend or a watch-based
-  reconciler.
-- Complete production orchestrator-side policy lifecycle cleanup semantics for
-  sandbox destroy/reuse and platform-owned NetworkPolicy/gateway policy
-  resources. Install and startup recovery exist, but explicit cleanup policy is
-  still pending long-run validation and operator approval because it deletes
-  platform-owned runtime objects.
-- Gateway audit events, metrics, request timeouts, streaming-body hardening,
+- Long-run shared Envoy/controller/orchestrator HA chaos. A one-shot 2×2 live
+  smoke passed, but repeated policy update/destroy/reuse cycles during rolling
+  controller/envoy/orchestrator restarts still need to run end-to-end.
+- Egress audit events, metrics, request timeouts, streaming-body hardening,
   and detailed upstream error classification.
-- Production hardening for K8s NetworkPolicy lifecycle, including recovery and
-  explicit cleanup semantics for platform-owned per-sandbox policies.
-- Native Kubernetes client replacement for `kubectl`.
+- Provider compatibility/error taxonomy for Anthropic-compatible gateways that
+  accept only a subset of Anthropic Messages or Claude Code SDK parameters.
+  JDCloud accepted minimal Messages through Envoy but rejected the default
+  Claude Code 2.1.220 beta/thinking/title/tool request shape until the smoke
+  disabled those CLI features; product agents need provider capability profiles
+  or explicit, structured failure messaging.
+- Production long-run/chaos validation for K8s NetworkPolicy lifecycle under
+  controller restarts, concurrent sandbox destroy/reuse, and multi-replica
+  orchestrator rollout.
 
 ## Context
 
@@ -162,19 +184,31 @@ Relevant code:
 - `envoy.rs` / `lds_backend.rs`: creates per-sandbox gRPC and HTTP listeners,
   dynamic upstream clusters, host/path rewrites, and credential injection.
 
-### K8s provider gaps
+### K8s provider status
 
-The K8s provider currently only creates Pods:
+The original K8s provider gaps are mostly closed for secret-backed LLM tasks:
 
-- It serializes `config.env` directly into Pod `env`.
-- It shells out to `kubectl` instead of using a native Kubernetes API client.
-- It has no provider-specific `setup_networking` implementation.
-- It does not have a credential boundary equivalent to Docker Envoy.
-- It relies on generic `NetworkPolicy`, which cannot express FQDN allowlists.
-- It cannot distinguish "network denied", "gateway unavailable", "bad model",
-  "bad key", and "upstream timeout" as structured platform errors.
-- It does not fail closed when an Agent needs a Secret but no egress manager is
+- It creates Pods through the Kubernetes API and rewrites real LLM credential env
+  to sandbox-scoped placeholders before the Pod manifest is submitted.
+- It no longer shells out to runtime `kubectl`; Pod create/exec/delete and
+  NetworkPolicy apply/list/delete use the Kubernetes API client.
+- It delegates credentialed egress to the shared Envoy + durable authority path,
+  with per-sandbox NetworkPolicy allowing only DNS, orchestrator, and shared Envoy.
+- It fails closed when an Agent needs a Secret but no K8s shared-Envoy enforcer is
   available.
+- It cleans up platform-owned per-sandbox NetworkPolicies on explicit/passive
+  destroy and prunes destroyed-sandbox policies during startup recovery.
+
+Remaining gaps:
+
+- Live HA/chaos evidence is still missing for multi-replica shared Envoy and
+  egress-controller rollouts under active sandbox traffic. The code has durable
+  PostgreSQL reconciliation and serialized apply-state recompute, but the
+  production proof still needs repeated rollout/failover runs.
+- Generic `NetworkPolicy` cannot express FQDN allowlists; Envoy enforces product
+  host policy while NetworkPolicy restricts the sandbox to the egress boundary.
+- Structured upstream error classification still needs product-facing polish for
+  "bad model", "bad key", provider 4xx/5xx, and upstream timeout cases.
 
 ### Why small fixes are wrong
 
@@ -182,7 +216,7 @@ Adding a hardcoded `ipBlock` for the current DNS answer of `ai-api.jdcloud.com`
 is not a production design:
 
 - DNS answers can change.
-- Multiple gateways or regional endpoints cannot be represented safely.
+- Multiple model gateways or regional endpoints cannot be represented safely.
 - Kubernetes `NetworkPolicy` is IP/CIDR based and cannot enforce domain policy.
 - It does not solve Secret exposure in Pod specs.
 - It creates a second, weaker security model for K8s than Docker.
@@ -204,7 +238,7 @@ is not a production design:
 - Do not make every sandbox directly reachable from the internet.
 - Do not rely on cluster-wide permissive egress.
 - Do not require users to know Kubernetes, Envoy, or NetworkPolicy.
-- Do not store or log prompts/responses in the egress gateway unless a separate
+- Do not store or log prompts/responses in the egress boundary unless a separate
   product decision enables content observability.
 - Do not put decrypted provider keys in Pod specs, ConfigMaps, annotations, or
   logs.
@@ -239,7 +273,7 @@ Browser / API clients
 
 Sandbox
   -> Orchestrator gRPC channel
-  -> Egress Gateway
+  -> Shared Envoy
       -> Policy check
       -> Credential injection
       -> Domain/path allowlist
@@ -320,31 +354,29 @@ should generalize it rather than inventing a parallel K8s-only policy.
 
 ### Components
 
-1. `joysafeter-egress-gateway`
-   - Runs in the control namespace.
+1. Shared Envoy fleet
+   - Runs in the egress namespace.
    - Receives sandbox HTTP(S) model/MCP/Git/external traffic.
-   - Authenticates sandbox identity.
-   - Loads or receives per-sandbox egress policy.
-   - Injects credentials.
+   - Calls orchestrator ext_authz for sandbox identity, route authorization, and
+     credential injection.
    - Emits audit metrics/events.
 
-2. `K8sEgressManager`
-   - Implemented behind the `SandboxProvider::setup_networking` contract.
-   - Creates/updates per-sandbox egress policy.
-   - Optionally creates short-lived Kubernetes Secrets for non-provider runtime
-     identity only.
+2. `K8sEnvoyNetworkPreparer`
+   - Implemented behind the `EgressEnforcer` contract.
+   - Creates/updates per-sandbox NetworkPolicy and relies on durable authority for
+     per-sandbox policy desired state.
    - Does not put provider credentials into sandbox Pods.
 
 3. `CredentialBroker`
    - Decrypts managed Secrets.
-   - Provides credentials to the gateway in memory.
+   - Provides credentials to ext_authz in memory.
    - Never serializes decrypted provider keys to Kubernetes Pod specs.
 
 4. `NetworkPolicy`
    - Default deny for sandbox namespace.
    - Allow DNS.
    - Allow orchestrator gRPC.
-   - Allow egress gateway.
+   - Allow shared Envoy.
    - Do not allow direct model gateway egress from sandbox Pods.
 
 ### Sandbox Pod Shape
@@ -354,9 +386,9 @@ The sandbox Pod should receive:
 ```text
 JOYSAFETER_SANDBOX_ID=<uuid>
 JOYSAFETER_ORCHESTRATOR_URL=http://joysafeter-orchestrator...:9090
-JOYSAFETER_EGRESS_BASE_URL=http://joysafeter-egress-gateway.../sandbox/<id>/egress
+JOYSAFETER_EGRESS_BASE_URL=https://shared-envoy.../v1/sandbox/<id>/route/<route>
 JOYSAFETER_EGRESS_TOKEN=<short-lived sandbox token>
-ANTHROPIC_BASE_URL=http://joysafeter-egress-gateway.../sandbox/<id>/egress/llm
+ANTHROPIC_BASE_URL=https://shared-envoy.../v1/sandbox/<id>/route/<route>
 ANTHROPIC_API_KEY=joysafeter-placeholder-anthropic-api-key
 ANTHROPIC_MODEL=<model>
 ```
@@ -371,41 +403,40 @@ Git token
 MCP OAuth token
 ```
 
-### Gateway Request Flow
+### Shared Envoy Request Flow
 
 ```text
 1. Runner/CLI sends request to placeholder base URL.
-2. NetworkPolicy allows only egress-gateway destination.
-3. Gateway authenticates sandbox by mTLS, service account token, or short-lived
+2. NetworkPolicy allows only the shared Envoy destination.
+3. Envoy/ext_authz authenticates sandbox by mTLS, service account token, or short-lived
    runner/egress token.
-4. Gateway looks up policy by sandbox_id.
-5. Gateway validates route kind, method, path, and upstream host.
-6. Gateway decrypts or retrieves credential from CredentialBroker.
-7. Gateway removes sandbox-supplied auth headers.
-8. Gateway injects platform credential header.
-9. Gateway forwards to real upstream.
-10. Gateway records audit metadata and returns upstream response.
+4. ext_authz looks up policy by sandbox_id.
+5. ext_authz validates route kind, method, path, and upstream host.
+6. ext_authz retrieves credential from CredentialBroker.
+7. Envoy/ext_authz removes sandbox-supplied auth headers.
+8. Envoy/ext_authz injects platform credential header.
+9. Envoy forwards to real upstream.
+10. Envoy/ext_authz records audit metadata and returns upstream response.
 ```
 
-### Gateway Implementation Options
+### Egress Boundary Implementation Options
 
-Chosen path for the first K8s MVP:
+Chosen path for the K8s MVP:
 
-- Implement a Rust egress gateway service using `hyper` / `reqwest`.
-- Easier to integrate CredentialBroker and structured audit.
-- Harder to match Envoy's mature proxy behavior.
+- Use shared Envoy plus orchestrator ext_authz.
+- Integrate CredentialBroker and structured audit in the orchestrator.
 - Keep the route model aligned with Docker's `EgressCredentialRoute`.
 - Add a control-plane API, Redis watcher, or DB watcher for policy updates
   before enabling K8s provider egress management.
 
 Still viable later:
 
-- Add an in-cluster Envoy gateway controlled by orchestrator-generated xDS or
+- Add an in-cluster Envoy boundary controlled by orchestrator-generated xDS or
   config snapshots if Rust proxy behavior becomes too broad to maintain.
 
 Production-hardening option:
 
-- Use Cilium FQDN policy or an enterprise egress gateway below JoySafeter.
+- Use Cilium FQDN policy or an enterprise egress boundary below JoySafeter.
 - This is additive. It should not replace application-layer credential
   injection and policy checks.
 
@@ -426,10 +457,10 @@ Required improvements:
 Implement the missing equivalent:
 
 - Native Kubernetes client.
-- `K8sEgressManager`.
-- In-cluster egress gateway.
+- `K8sEnvoyNetworkPreparer`.
+- In-cluster shared Envoy fleet.
 - No provider secret in Pod env.
-- NetworkPolicy only allows gateway and orchestrator.
+- NetworkPolicy only allows shared Envoy and orchestrator.
 
 ### E2B / Daytona
 
@@ -438,7 +469,7 @@ belongs to JoySafeter unless the provider can prove equivalent guarantees.
 
 Preferred mode:
 
-- Remote sandbox uses JoySafeter egress gateway over a reachable endpoint.
+- Remote sandbox uses JoySafeter shared egress boundary over a reachable endpoint.
 - If unavailable, provider must declare `has_egress_management=false` and the
   orchestrator must fail closed for secret-backed Agents.
 
@@ -461,11 +492,9 @@ Providers without egress management may only run offline or non-secret tasks.
 Add explicit settings:
 
 ```text
-JOYSAFETER_EGRESS_MODE=envoy|gateway|platform|disabled
+JOYSAFETER_EGRESS_MODE=envoy|platform|disabled
 JOYSAFETER_EGRESS_FAIL_CLOSED=true
-JOYSAFETER_EGRESS_GATEWAY_URL=http://joysafeter-egress-gateway...
 JOYSAFETER_EGRESS_POLICY_BACKEND=db|redis|xds
-JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN=...
 JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS=...
 ```
 
@@ -497,8 +526,8 @@ resolved egress route before sandbox creation.
 The platform should report where failure happened:
 
 - `EGRESS_POLICY_DENIED`: host/path not allowlisted.
-- `EGRESS_GATEWAY_UNREACHABLE`: sandbox cannot reach gateway.
-- `UPSTREAM_CONNECT_FAILED`: gateway cannot connect to upstream.
+- `EGRESS_BOUNDARY_UNREACHABLE`: sandbox cannot reach shared Envoy.
+- `UPSTREAM_CONNECT_FAILED`: shared Envoy cannot connect to upstream.
 - `UPSTREAM_4XX`: upstream rejected key/model/request.
 - `UPSTREAM_5XX`: model gateway unavailable.
 - `SANDBOX_CLI_TIMEOUT`: CLI did not finish before task timeout.
@@ -514,7 +543,7 @@ or CLI behavior.
 
 - Stop documenting IP-based egress as an acceptable solution.
 - Mark K8s provider as smoke-only for secret-backed real model tasks until
-  egress gateway exists.
+  shared Envoy + durable authority exists.
 - Add fail-closed checks so K8s cannot silently run secret-backed Agents without
   egress management.
 - Add tests that detect real provider keys in generated K8s Pod manifests.
@@ -527,24 +556,26 @@ or CLI behavior.
 - Add regression tests for Anthropic, OpenAI, Gemini, Azure, MCP, Git, and
   external services.
 
-### Phase 2: K8s Gateway MVP
+### Phase 2: K8s Shared Envoy MVP
 
-- Add `joysafeter-egress-gateway` deployment and service.
+- Add shared Envoy deployment and service.
 - Add production policy backend and restart recovery.
-- Add `K8sEgressManager`.
-- Generate per-sandbox policy and expose it to the gateway.
+- Add `K8sEnvoyNetworkPreparer`.
+- Generate per-sandbox policy and expose it to durable authority.
 - Rewrite K8s sandbox env to placeholder endpoints.
-- Add NetworkPolicy allowing sandbox to gateway and orchestrator only.
-- Prove real model task completion through the gateway.
+- Add NetworkPolicy allowing sandbox to shared Envoy and orchestrator only.
+- Prove real model task completion through shared Envoy.
 
 ### Phase 3: Production Hardening
 
-- Replace `kubectl` shell-out with a native Kubernetes client.
-- Add gateway HA and policy recovery after restart.
-- Add mTLS or short-lived token auth between sandbox and gateway.
+- Add shared Envoy HA and multi-replica rollout/chaos validation for the durable
+  PostgreSQL policy/apply-state path.
+- Add mTLS or short-lived token auth between sandbox and shared Envoy.
 - Add audit events and Prometheus metrics.
-- Add resource limits and autoscaling for gateway.
+- Add resource limits and autoscaling for shared Envoy.
 - Add Cilium FQDN policy option for clusters that support it.
+- Add long-run/chaos coverage for concurrent sandbox destroy/reuse and
+  per-sandbox NetworkPolicy cleanup under orchestrator/controller rollouts.
 
 ### Phase 4: Multi-Provider Enforcement
 
@@ -559,26 +590,26 @@ or CLI behavior.
 - K8s generated Pod spec does not contain real `ANTHROPIC_API_KEY`.
 - `kubectl get pod -o yaml` does not reveal provider secrets.
 - Sandbox direct curl to model host is denied.
-- Sandbox curl to gateway is allowed.
-- Gateway denies unallowlisted host.
-- Gateway strips sandbox-supplied `authorization` / `x-api-key`.
-- Gateway injects the platform credential only for allowed routes.
+- Sandbox curl to shared Envoy is allowed.
+- ext_authz denies unallowlisted host.
+- ext_authz strips sandbox-supplied `authorization` / `x-api-key`.
+- ext_authz injects the platform credential only for allowed routes.
 
 ### Runtime
 
-- Claude baseline task completes through gateway.
-- OpenAI/Codex task completes through gateway.
+- Claude baseline task completes through shared Envoy.
+- OpenAI/Codex task completes through shared Envoy.
 - MCP remote credential route works without exposing token to sandbox.
 - Git credential route works without exposing token to sandbox.
 - Task cancel reaches a running sandbox.
 - Orchestrator restart rebuilds egress policy.
-- Gateway restart does not strand running sandboxes.
+- Envoy/controller restart does not strand running sandboxes.
 
 ### Operations
 
 - Long-run validation with repeated tasks.
 - Concurrent sandbox creation under quota.
-- Gateway latency and upstream status metrics are emitted.
+- Envoy/ext_authz latency and upstream status metrics are emitted.
 - Upstream 4xx/5xx are mapped to structured task errors.
 
 ## Acceptance Criteria
@@ -596,14 +627,16 @@ K8s can be considered production-ready for secret-backed Agents only when:
 
 ## Immediate Next Engineering Tasks
 
-1. Add production gateway HA policy backend or watch-based reconciler.
-2. Add K8s lifecycle cleanup semantics for platform-owned
-   per-sandbox NetworkPolicies and gateway policies.
-3. Run long-cycle k3s validation with real secret-backed LLM tasks, then flip
-   K8s `has_egress_management=true`.
-4. Add gateway audit events, metrics, request timeout policy, and structured
+1. Run long-cycle k3s HA/chaos validation with real secret-backed LLM tasks,
+   repeated policy updates, sandbox reuse/destroy, and rolling
+   controller/envoy/orchestrator restarts.
+2. Add provider capability profiles for Anthropic-compatible gateways so Claude
+   Code beta/thinking/tool request shapes are either normalized or fail with a
+   structured actionable error.
+3. Add ext_authz audit events, metrics, request timeout policy, and structured
    upstream error classification.
-5. Replace `kubectl` shell-out with a native Kubernetes client.
+4. Add production FQDN-policy integration for clusters with Cilium or equivalent
+   DNS-aware NetworkPolicy support.
 
 These tasks deliberately start with tests and contracts before adding new
 infrastructure. The objective is to prevent another one-off path from becoming

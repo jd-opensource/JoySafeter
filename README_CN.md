@@ -226,7 +226,7 @@ cd deploy
 配套基础设施：PostgreSQL、Redis、Envoy（每沙箱出站代理）、skillspector（Skill 安全扫描服务）。
 内置 Redis 服务由 `local-redis` profile 控制；如果使用云 Redis，不启用该 profile，改 `deploy/.env`
 里的 `REDIS_URL` 即可。
-Python orchestrator 已移除；本地和容器化部署都使用 `rust-orchestrator` profile。
+Python orchestrator 已移除；本地和容器化部署都使用 `sandbox` profile。
 
 运行时协同：
 

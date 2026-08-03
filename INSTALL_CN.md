@@ -28,7 +28,7 @@ SkillSpector 源码、Docker socket、端口和 Compose 配置；它不启动容
 
 后端运行时拆分为 Python `api`、Rust `orchestrator-rs`、Python `worker` 三个服务，同时配套
 PostgreSQL、Redis、Envoy（每沙箱出站代理）与 SkillSpector（Skill 安全扫描服务）。Python
-orchestrator profile 已移除；本地和容器化部署都通过 `deploy.sh local` 使用 `rust-orchestrator`
+orchestrator profile 已移除；本地和容器化部署都通过 `deploy.sh local` 使用 `sandbox`
 profile。生产、云数据库/云 Redis、镜像构建等场景请以 [deploy/README.md](deploy/README.md) 为准。
 服务职责、运行时拓扑、数据流和部署方案选择见 [docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md)。
 
@@ -41,7 +41,7 @@ cd deploy
 # pull 成功后会把 BACKEND_FULL_IMAGE、FRONTEND_FULL_IMAGE、
 # ORCHESTRATOR_RS_FULL_IMAGE、SKILLSPECTOR_FULL_IMAGE 写入 deploy/.env。
 ./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
-docker compose --profile local-redis --profile rust-orchestrator up -d --no-build
+docker compose --profile local-redis --profile sandbox up -d --no-build
 ```
 
 这些核心部署镜像均支持多架构（amd64, arm64）。
@@ -143,7 +143,7 @@ bun run dev
 - Apple Silicon 或 Colima 环境建议让 `deploy.sh local` 自动识别 Docker daemon 架构；也可以用
   `./deploy.sh local --arch arm64` 强制指定。
 - 如果绕过脚本手工启动 Compose 后发现数据库表缺失，且使用本地 Redis，运行
-  `docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init`。
+  `docker compose --profile local-redis --profile sandbox --profile init run --rm db-init`。
 - 如果使用云 Redis，不启用 `local-redis` profile，并在 `deploy/.env` 设置 `REDIS_URL`；云
-  Redis 迁移使用 `docker compose --profile rust-orchestrator --profile init run --rm db-init`。云
+  Redis 迁移使用 `docker compose --profile sandbox --profile init run --rm db-init`。云
   PostgreSQL 同理覆盖 `POSTGRES_*` 变量。

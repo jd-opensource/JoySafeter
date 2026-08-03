@@ -3,7 +3,7 @@
 Status: **target architecture approved for implementation planning**  
 Date: 2026-07-31  
 Scope: Docker, Kubernetes/k3s, and future remote sandbox providers  
-Primary decision: **retire the self-built Rust forwarding gateway and standardize on Envoy as the egress data plane**
+Primary decision: **retire the self-built Rust HTTP forwarding proxy and standardize on Envoy as the egress data plane**
 
 This specification supersedes the Rust-forwarding portions of:
 
@@ -31,8 +31,8 @@ JoySafeter will use one egress architecture across providers:
 5. **Both `limited` and `unrestricted` networking remain mediated.**
    `unrestricted` means unrestricted public destination breadth through Envoy;
    it does not mean a direct socket path around the egress boundary.
-6. **The existing Rust `joysafeter-egress-gateway` forwarding implementation is
-   removed after migration.** JoySafeter does not maintain an HTTP proxy.
+6. **The previous Rust HTTP forwarding proxy implementation is removed after
+   migration.** JoySafeter does not maintain a parallel HTTP proxy.
 
 The result is not “zero custom code.” Product-specific policy, identity,
 credential lookup, and lifecycle reconciliation cannot be delegated to a
@@ -919,7 +919,7 @@ codes but include JoySafeter proxy, authz, DNS, TLS, and configuration failures.
 
 ## 20. Configuration Contract
 
-Target configuration replaces gateway-specific settings:
+Target configuration replaces HTTP-proxy-specific settings:
 
 ```text
 JOYSAFETER_EGRESS_MODE=envoy
@@ -939,14 +939,14 @@ JOYSAFETER_EGRESS_ADMIN_EXPOSED=false
 JOYSAFETER_ENVOY_IMAGE=<pinned repository@sha256:digest>
 ```
 
-Remove after migration:
+Removed HTTP proxy compatibility settings:
 
 ```text
-JOYSAFETER_EGRESS_GATEWAY_HOST
-JOYSAFETER_EGRESS_GATEWAY_PORT
-JOYSAFETER_EGRESS_GATEWAY_URL
-JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN
-JOYSAFETER_EGRESS_GATEWAY_REQUIRE_SANDBOX_TOKEN
+HTTP_PROXY_HOST
+HTTP_PROXY_PORT
+HTTP_PROXY_URL
+HTTP_PROXY_CONTROL_TOKEN
+HTTP_PROXY_REQUIRE_SANDBOX_TOKEN
 JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED
 ```
 
@@ -980,21 +980,21 @@ authenticated streaming xDS.
 - Handwritten Rust Delta xDS server in
   `backend/app/joysafeter_orchestrator_rs/src/sandbox/lds_backend.rs`
   - Replace with a dedicated controller based on a maintained xDS library.
-- K8s `GatewayEnforcer`
-  - Replace Rust gateway policy installation with Envoy fleet binding and policy
+- K8s HTTP-proxy enforcer branch
+  - Replace Rust proxy policy installation with Envoy fleet binding and policy
     apply status.
 - Listener-embedded K8s routes
   - Replace with shared listeners plus RDS shard resources.
 
 ### Delete After Cutover
 
-- `backend/app/joysafeter_orchestrator_rs/src/bin/egress_gateway.rs`
+- Removed standalone Rust HTTP proxy binary
 - Forwarding and policy-store portions of
-  `backend/app/joysafeter_orchestrator_rs/src/egress/gateway.rs`
-- `backend/app/joysafeter_orchestrator_rs/src/egress/k8s_manager.rs`
-- `joysafeter-egress-gateway` K8s Service and Deployment.
-- Gateway control-token configuration.
-- Gateway-specific smoke-test assertions.
+  the old HTTP proxy module
+- Removed K8s HTTP proxy manager adapter
+- Removed K8s HTTP proxy Service and Deployment
+- Removed proxy control-token configuration.
+- Removed proxy-specific smoke-test assertions.
 
 Do not delete the old path until the rollback window closes and production
 traffic has completed the soak criteria.
@@ -1003,7 +1003,7 @@ traffic has completed the soak criteria.
 
 ### Phase 0 — Freeze and Guardrails
 
-- Freeze new features in the Rust forwarding gateway.
+- Freeze new features in the Rust HTTP forwarding proxy.
 - Mark it deprecated and prevent new protocol behavior from being added.
 - Upgrade the existing Envoy image to a patched supported version.
 - Add strict upstream SAN validation.
@@ -1013,7 +1013,7 @@ traffic has completed the soak criteria.
 Exit criteria:
 
 - Existing Docker Envoy path remains green.
-- Existing K8s Rust gateway remains the rollback path.
+- Existing K8s shared Envoy path remains the rollback boundary.
 - No known critical credential or TLS gap remains in the transition baseline.
 
 ### Phase 1 — Production Controller Foundation
@@ -1054,8 +1054,8 @@ Exit criteria:
 - Apply Envoy-only sandbox NetworkPolicies.
 - Inject downstream trust and short-lived sandbox identity.
 - Configure credential and forward-proxy listeners.
-- Run dual-path validation: production requests through Envoy, Rust gateway kept
-  idle but ready for rollback.
+- Run validation with production requests through Envoy and release-based rollback
+  available during the observation window.
 - Canary by project/organization shard.
 
 Exit criteria:
@@ -1076,7 +1076,7 @@ Exit criteria:
 - Docker and K8s pass the same provider conformance suite.
 - Policy semantics and audit fields are identical across providers.
 
-### Phase 5 — Rust Gateway Removal
+### Phase 5 — Rust HTTP Proxy Removal
 
 - Remove the Rust forwarding binary, policy store, K8s manager, manifests, and
   environment variables.
@@ -1085,7 +1085,7 @@ Exit criteria:
 
 Exit criteria:
 
-- No runtime reference to `joysafeter-egress-gateway` remains.
+- No runtime reference to the removed HTTP proxy resources remains.
 - Disaster-recovery and fresh-install tests provision only Envoy architecture.
 
 ## 23. Validation Matrix
@@ -1161,7 +1161,7 @@ Production cutover is blocked unless all are true:
 9. Minimum HA topology and N+1 capacity are demonstrated.
 10. Docker and K8s pass the same conformance suite.
 11. Seven-day canary and long-running stream soak completes within error budget.
-12. Rollback is rehearsed before removing the Rust gateway.
+12. Rollback is rehearsed before removing the Rust HTTP proxy path.
 
 ## 25. Explicit Architecture Decisions
 

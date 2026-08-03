@@ -28,7 +28,7 @@ current repository, not older design notes.
 | `docs/assets/README.md` | Updated committed asset inventory and screenshot TODOs for the current `/managed/**` UI. |
 | `docs/plans/*.md` | Added status banners marking historical implementation plans and the missing Rust orchestrator source directory where relevant. |
 | `docs/production-hardening-plan.md` | Added current implementation status: task lease/fencing/idempotency/dead-letter pieces landed; outbox, durable membership, provider chain, tenant quotas, and full failure matrix remain open. |
-| `docs/plans/2026-07-30-k8s-sandbox-egress-security-architecture.md` | Added proposed architecture for production-grade K8s sandbox egress and secret boundaries, including current Docker/K8s gap analysis, provider-neutral security contracts, egress gateway design, migration phases, validation matrix, and acceptance criteria. |
+| `docs/plans/2026-07-30-k8s-sandbox-egress-security-architecture.md` | Added proposed architecture for production-grade K8s sandbox egress and secret boundaries, including current Docker/K8s gap analysis, provider-neutral security contracts, shared egress boundary design, migration phases, validation matrix, and acceptance criteria. |
 | Governance docs (`CONTRIBUTING.md`, `SECURITY.md`, `.pre-commit-setup.md`, `.github/*`) | Updated current dependency expectations, Bun commands, pre-commit checks, supported version line, and issue-template version example. |
 
 ## Reviewed, No Code-Dependent Changes Needed
@@ -59,7 +59,7 @@ current repository, not older design notes.
 - Worker currently runs the Redis Stream event consumer and batch persistence path.
 - Frontend's main product surface is under `/managed/**`; root redirects authenticated users to `/managed/quickstart`.
 - Docker Compose has one active file: `deploy/docker-compose.yml`. Local Redis is behind the `local-redis` profile.
-- The supported quick-start is `cd deploy && ./deploy.sh doctor && ./deploy.sh local`; the orchestrator is Rust via the `rust-orchestrator` profile.
+- The supported quick-start is `cd deploy && ./deploy.sh doctor && ./deploy.sh local`; the orchestrator is Rust via the `sandbox` profile.
 - Local deployment defaults use Docker Official Images multi-arch mirrors (`public.ecr.aws/docker/library/`) to avoid single-arch image resolution under arm64 Docker daemons.
 - SkillSpector local source defaults to `.deps/SkillSpector`; `deploy.sh doctor/local` prepares it when missing.
 - Collaboration ownership is explicit: API owns product HTTP/SSE/auth, Rust orchestrator owns scheduling/sandbox/gRPC, runner owns in-sandbox execution, worker owns durable event persistence, PostgreSQL owns truth, and Redis owns wakeups/streams/pubsub/commands.
@@ -77,7 +77,7 @@ current repository, not older design notes.
   `backend/config/oauth_providers.yaml`, and `backend/config/oauth_providers.example.yaml`.
   `./deploy.sh doctor` resolves the local platform, prepares local env files and SkillSpector,
   validates compose config, and does not start containers. `docker-compose --profile local-redis
-  --profile rust-orchestrator --profile init config` resolves the supported local service set with
+  --profile sandbox --profile init config` resolves the supported local service set with
   multi-arch official image defaults.
 - API run-flow notes were checked against `joysafeter_api/api/v1/router.py`,
   `sessions.py`, `tasks.py`, `id_helpers.py`, and `joysafeter_task.py`. In particular,

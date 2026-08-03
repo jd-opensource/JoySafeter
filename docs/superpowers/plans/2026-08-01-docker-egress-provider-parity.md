@@ -417,7 +417,7 @@ In `build_enforcer_with_pool` (`enforcer.rs:133`), change the docker arm to bran
             K8sEnvoyNetworkPreparer::from_config(config)?
                 .map(|value| std::sync::Arc::new(value) as std::sync::Arc<dyn EgressEnforcer>)
         }
-        "k8s" | "kubernetes" => GatewayEnforcer::from_config(config)?
+        "k8s" | "kubernetes" => K8sEnvoyNetworkPreparer::from_config(config)?
             .map(|value| std::sync::Arc::new(value) as std::sync::Arc<dyn EgressEnforcer>),
         _ => None,
     };

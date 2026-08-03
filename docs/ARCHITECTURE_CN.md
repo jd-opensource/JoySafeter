@@ -95,7 +95,7 @@ flowchart TB
 | 组件 | Compose 服务 | 角色 | 关键职责 |
 |---|---|---|---|
 | **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`、SSE 执行流、通知 WebSocket、鉴权 |
-| **Orchestrator（Rust）** | `orchestrator-rs`（profile `rust-orchestrator`） | — | gRPC `AgentBridge` 服务、任务调度器、沙箱生命周期、事件总线 |
+| **Orchestrator（Rust）** | `orchestrator-rs`（profile `sandbox`） | — | gRPC `AgentBridge` 服务、任务调度器、沙箱生命周期、事件总线 |
 | **Worker** | `worker` | `worker` | 消费 Redis 事件 Stream，批量持久化到 `joysafeter_session_events`，再发布供 SSE 使用 |
 | **前端** | `frontend` | — | Next.js App Router UI |
 | **PostgreSQL** | `db` | — | 所有状态的权威存储 |
