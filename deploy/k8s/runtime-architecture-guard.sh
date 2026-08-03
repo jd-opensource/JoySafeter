@@ -38,6 +38,7 @@ import sys
 
 base = pathlib.Path(sys.argv[1])
 required = [
+    base / "01-config.yaml",
     base / "02-rbac.yaml",
     base / "40-app.yaml",
 ]
@@ -47,17 +48,31 @@ for path in required:
 
 rbac = (base / "02-rbac.yaml").read_text()
 app = (base / "40-app.yaml").read_text()
+config = (base / "01-config.yaml").read_text()
 
 if "name: joysafeter-orchestrator" not in rbac or "resources: [\"pods\"]" not in rbac:
     raise SystemExit("orchestrator sandbox pod RBAC is missing")
 if "resources: [\"pods/exec\"]" not in rbac or "verbs: [\"create\"]" not in rbac:
     raise SystemExit("orchestrator pods/exec create RBAC is missing")
+if "resources: [\"pods/log\"]" not in rbac or "verbs: [\"get\"]" not in rbac:
+    raise SystemExit("orchestrator bounded Pod log read RBAC is missing")
+if "resources: [\"events\"]" not in rbac:
+    raise SystemExit("orchestrator Pod event observability RBAC is missing")
+if not re.search(r'resources:\s*\["events"\][\s\S]*?verbs:\s*\[[^\]]*"list"', rbac):
+    raise SystemExit("orchestrator Pod event list RBAC is missing")
 if "resources: [\"networkpolicies\"]" not in rbac:
     raise SystemExit("orchestrator NetworkPolicy RBAC is missing")
 if not re.search(r'resources:\s*\["networkpolicies"\][\s\S]*?verbs:\s*\[[^\]]*"delete"', rbac):
     raise SystemExit("orchestrator NetworkPolicy delete RBAC is missing")
 if "serviceAccountName: joysafeter-orchestrator" not in app:
     raise SystemExit("orchestrator Deployment must run as joysafeter-orchestrator ServiceAccount")
+for key in (
+    "JOYSAFETER_SANDBOX_CPU",
+    "JOYSAFETER_SANDBOX_MEMORY_MB",
+    "JOYSAFETER_SANDBOX_DISK_MB",
+):
+    if key not in config:
+        raise SystemExit(f"sandbox resource configuration is missing: {key}")
 if re.search(r'(?m)^\s*(command|args):\s*\[?[^\n]*kubectl', app):
     raise SystemExit("orchestrator manifest still invokes kubectl")
 if "kubectl.kubernetes.io/last-applied-configuration" in app:
@@ -137,6 +152,8 @@ runtime_guard_assert_orchestrator_sandbox_rbac() {
     "list pods"
     "delete pods"
     "create pods/exec"
+    "get pods/log"
+    "list events"
     "create networkpolicies.networking.k8s.io"
     "get networkpolicies.networking.k8s.io"
     "list networkpolicies.networking.k8s.io"

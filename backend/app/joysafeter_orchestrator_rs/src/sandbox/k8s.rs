@@ -2,14 +2,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{ContainerStatus, Event as K8sEvent, Pod};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
-use kube::api::{AttachParams, DeleteParams, ListParams, PostParams};
+use kube::api::{AttachParams, DeleteParams, ListParams, LogParams, PostParams};
 use kube::{Api, Client};
 use serde_json::{json, Value};
 use tokio::io::AsyncReadExt;
 use tokio::sync::OnceCell;
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use super::mounts::SandboxMount;
@@ -61,6 +61,10 @@ impl K8sProvider {
         Api::namespaced(client, &self.namespace)
     }
 
+    fn events_api(&self, client: Client) -> Api<K8sEvent> {
+        Api::namespaced(client, &self.namespace)
+    }
+
     async fn native_create(&self, manifest: &Value) -> anyhow::Result<()> {
         let client = self.native_client().await?;
         let pod: Pod = serde_json::from_value(manifest.clone())?;
@@ -99,6 +103,66 @@ impl K8sProvider {
             .list(&ListParams::default().labels("app.kubernetes.io/name=joysafeter-sandbox"))
             .await?;
         Ok(pods.iter().map(pod_to_provider_info).collect())
+    }
+
+    async fn native_provisioning_status(
+        &self,
+        pod_name: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let client = self.native_client().await?;
+        let pod = match self.pods_api(client.clone()).get(pod_name).await {
+            Ok(pod) => pod,
+            Err(error) if kube_error_is_not_found(&error) => {
+                return Ok(json!({
+                    "stage": "not_found",
+                    "progress": 0,
+                    "message": "Kubernetes sandbox Pod not found",
+                    "complete": false,
+                    "error": true,
+                    "error_message": "Kubernetes sandbox Pod not found",
+                    "details": {
+                        "provider": "k8s",
+                        "pod_name": pod_name,
+                        "phase": "NotFound",
+                    }
+                }));
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+        let field_selector = format!("involvedObject.kind=Pod,involvedObject.name={pod_name}");
+        let events = match self
+            .events_api(client.clone())
+            .list(&ListParams::default().fields(&field_selector))
+            .await
+        {
+            Ok(events) => events.items,
+            Err(error) => {
+                debug!(pod_name, error = %error, "Failed to list Kubernetes Pod events");
+                Vec::new()
+            }
+        };
+
+        let mut status = pod_provisioning_status(&pod, &events);
+        if status.get("error").and_then(Value::as_bool) == Some(true) {
+            let log_params = LogParams {
+                container: Some("runner".to_string()),
+                tail_lines: Some(100),
+                limit_bytes: Some(16 * 1024),
+                ..Default::default()
+            };
+            match self.pods_api(client).logs(pod_name, &log_params).await {
+                Ok(log_tail) if !log_tail.trim().is_empty() => {
+                    status["details"]["runner_log_tail"] = json!(log_tail);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    debug!(pod_name, error = %error, "Failed to read Kubernetes runner log tail");
+                }
+            }
+        }
+
+        Ok(status)
     }
 
     fn pod_name(sandbox_id: Uuid) -> String {
@@ -264,10 +328,19 @@ impl K8sProvider {
             "volumeMounts": volume_mounts
         });
         if let Some(cpu) = config.cpu_limit {
-            container["resources"]["limits"]["cpu"] = json!(format!("{}m", (cpu * 1000.0) as u64));
+            let cpu = format!("{}m", (cpu * 1000.0) as u64);
+            container["resources"]["requests"]["cpu"] = json!(cpu);
+            container["resources"]["limits"]["cpu"] = json!(cpu);
         }
         if let Some(memory_mb) = config.memory_limit_mb {
-            container["resources"]["limits"]["memory"] = json!(format!("{memory_mb}Mi"));
+            let memory = format!("{memory_mb}Mi");
+            container["resources"]["requests"]["memory"] = json!(memory);
+            container["resources"]["limits"]["memory"] = json!(memory);
+        }
+        if let Some(disk_mb) = config.disk_limit_mb {
+            let storage = format!("{disk_mb}Mi");
+            container["resources"]["requests"]["ephemeral-storage"] = json!(storage);
+            container["resources"]["limits"]["ephemeral-storage"] = json!(storage);
         }
 
         Ok(json!({
@@ -448,6 +521,175 @@ fn pod_to_provider_info(pod: &Pod) -> ProviderSandboxInfo {
     }
 }
 
+fn pod_provisioning_status(pod: &Pod, events: &[K8sEvent]) -> serde_json::Value {
+    let pod_status = pod.status.as_ref();
+    let phase = pod_status
+        .and_then(|status| status.phase.as_deref())
+        .unwrap_or("Unknown");
+    let pod_reason = pod_status.and_then(|status| status.reason.as_deref());
+    let pod_message = pod_status.and_then(|status| status.message.as_deref());
+
+    let mut container_statuses = Vec::new();
+    if let Some(status) = pod_status {
+        if let Some(init_statuses) = &status.init_container_statuses {
+            container_statuses.extend(
+                init_statuses
+                    .iter()
+                    .map(|status| container_status_diagnostic(status, "init")),
+            );
+        }
+        if let Some(runner_statuses) = &status.container_statuses {
+            container_statuses.extend(
+                runner_statuses
+                    .iter()
+                    .map(|status| container_status_diagnostic(status, "runner")),
+            );
+        }
+    }
+
+    let fatal_container = container_statuses
+        .iter()
+        .find(|status| status.get("fatal").and_then(Value::as_bool) == Some(true));
+    let waiting_container = container_statuses
+        .iter()
+        .find(|status| status.get("state").and_then(Value::as_str) == Some("waiting"));
+    let unschedulable = pod_status
+        .and_then(|status| status.conditions.as_ref())
+        .and_then(|conditions| {
+            conditions
+                .iter()
+                .find(|condition| condition.type_ == "PodScheduled" && condition.status == "False")
+        });
+
+    let error = phase == "Failed" || phase == "Succeeded" || fatal_container.is_some();
+    let error_message = fatal_container
+        .and_then(|status| status.get("message").and_then(Value::as_str))
+        .or(pod_message)
+        .or(pod_reason)
+        .filter(|_| error);
+    let (stage, progress, complete) = match phase {
+        "Running" => ("runtime_ready", 100, true),
+        "Succeeded" | "Failed" => ("pod_terminated", 100, true),
+        "Pending" if unschedulable.is_some() => ("k8s_unschedulable", 20, false),
+        "Pending" if waiting_container.is_some() => ("container_waiting", 40, false),
+        "Pending" => ("k8s_pending", 20, false),
+        _ => ("k8s_unknown", 0, false),
+    };
+    let message = error_message
+        .or_else(|| unschedulable.and_then(|condition| condition.message.as_deref()))
+        .or_else(|| {
+            waiting_container.and_then(|status| status.get("message").and_then(Value::as_str))
+        })
+        .or(pod_message)
+        .or(pod_reason)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Kubernetes Pod phase: {phase}"));
+
+    let conditions = pod_status
+        .and_then(|status| status.conditions.as_ref())
+        .map(|conditions| {
+            conditions
+                .iter()
+                .map(|condition| {
+                    json!({
+                        "type": condition.type_,
+                        "status": condition.status,
+                        "reason": condition.reason,
+                        "message": condition.message,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let recent_events = events
+        .iter()
+        .rev()
+        .take(8)
+        .map(|event| {
+            json!({
+                "type": event.type_,
+                "reason": event.reason,
+                "message": event.message,
+                "count": event.count,
+                "action": event.action,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "stage": stage,
+        "progress": progress,
+        "message": message,
+        "complete": complete,
+        "error": error,
+        "error_message": error_message,
+        "details": {
+            "provider": "k8s",
+            "pod_name": pod.metadata.name,
+            "namespace": pod.metadata.namespace,
+            "phase": phase,
+            "reason": pod_reason,
+            "message": pod_message,
+            "node_name": pod.spec.as_ref().and_then(|spec| spec.node_name.as_deref()),
+            "pod_ip": pod_status.and_then(|status| status.pod_ip.as_deref()),
+            "qos_class": pod_status.and_then(|status| status.qos_class.as_deref()),
+            "conditions": conditions,
+            "containers": container_statuses,
+            "events": recent_events,
+        }
+    })
+}
+
+fn container_status_diagnostic(status: &ContainerStatus, role: &str) -> serde_json::Value {
+    let (state, reason, message, exit_code, fatal) = match &status.state {
+        Some(state) if state.running.is_some() => ("running", None, None, None, false),
+        Some(state) if state.waiting.is_some() => {
+            let waiting = state.waiting.as_ref().expect("waiting state checked");
+            let fatal = waiting.reason.as_deref().is_some_and(|reason| {
+                matches!(
+                    reason,
+                    "CreateContainerConfigError"
+                        | "CreateContainerError"
+                        | "InvalidImageName"
+                        | "RunContainerError"
+                        | "StartError"
+                )
+            });
+            (
+                "waiting",
+                waiting.reason.as_deref(),
+                waiting.message.as_deref(),
+                None,
+                fatal,
+            )
+        }
+        Some(state) if state.terminated.is_some() => {
+            let terminated = state.terminated.as_ref().expect("terminated state checked");
+            (
+                "terminated",
+                terminated.reason.as_deref(),
+                terminated.message.as_deref(),
+                Some(terminated.exit_code),
+                terminated.exit_code != 0 || terminated.reason.as_deref() != Some("Completed"),
+            )
+        }
+        _ => ("unknown", None, None, None, false),
+    };
+    let display_message = message.or(reason).unwrap_or(state);
+
+    json!({
+        "name": status.name,
+        "role": role,
+        "ready": status.ready,
+        "restart_count": status.restart_count,
+        "state": state,
+        "reason": reason,
+        "message": display_message,
+        "exit_code": exit_code,
+        "fatal": fatal,
+    })
+}
+
 fn kube_error_is_not_found(error: &kube::Error) -> bool {
     matches!(error, kube::Error::Api(response) if response.code == 404)
 }
@@ -546,6 +788,13 @@ impl SandboxProvider for K8sProvider {
         self.native_list_active().await
     }
 
+    async fn provisioning_status(
+        &self,
+        external_id: &str,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        self.native_provisioning_status(external_id).await.map(Some)
+    }
+
     fn provider_name(&self) -> &'static str {
         "k8s"
     }
@@ -612,6 +861,95 @@ mod tests {
     }
 
     #[test]
+    fn k8s_provisioning_status_exposes_unschedulable_condition_and_events() {
+        let pod: Pod = serde_json::from_value(json!({
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "name": "joysafeter-test",
+                "namespace": "joysafeter-sandboxes"
+            },
+            "spec": {
+                "containers": [{"name": "runner", "image": "example/runner:test"}]
+            },
+            "status": {
+                "phase": "Pending",
+                "conditions": [{
+                    "type": "PodScheduled",
+                    "status": "False",
+                    "reason": "Unschedulable",
+                    "message": "0/3 nodes are available: insufficient memory."
+                }]
+            }
+        }))
+        .expect("valid Pod");
+        let event: K8sEvent = serde_json::from_value(json!({
+            "apiVersion": "v1",
+            "kind": "Event",
+            "metadata": {"name": "joysafeter-test.1"},
+            "involvedObject": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "name": "joysafeter-test",
+                "namespace": "joysafeter-sandboxes"
+            },
+            "reason": "FailedScheduling",
+            "message": "0/3 nodes are available: insufficient memory.",
+            "type": "Warning"
+        }))
+        .expect("valid Event");
+
+        let status = pod_provisioning_status(&pod, &[event]);
+
+        assert_eq!(status["stage"], "k8s_unschedulable");
+        assert_eq!(status["error"], false);
+        assert_eq!(
+            status["message"],
+            "0/3 nodes are available: insufficient memory."
+        );
+        assert_eq!(status["details"]["events"][0]["reason"], "FailedScheduling");
+    }
+
+    #[test]
+    fn k8s_provisioning_status_marks_fatal_container_configuration_error() {
+        let pod: Pod = serde_json::from_value(json!({
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "name": "joysafeter-test",
+                "namespace": "joysafeter-sandboxes"
+            },
+            "spec": {
+                "containers": [{"name": "runner", "image": "example/runner:test"}]
+            },
+            "status": {
+                "phase": "Pending",
+                "containerStatuses": [{
+                    "name": "runner",
+                    "image": "example/runner:test",
+                    "imageID": "",
+                    "ready": false,
+                    "restartCount": 0,
+                    "state": {
+                        "waiting": {
+                            "reason": "CreateContainerConfigError",
+                            "message": "secret not found"
+                        }
+                    }
+                }]
+            }
+        }))
+        .expect("valid Pod");
+
+        let status = pod_provisioning_status(&pod, &[]);
+
+        assert_eq!(status["stage"], "container_waiting");
+        assert_eq!(status["error"], true);
+        assert_eq!(status["error_message"], "secret not found");
+        assert_eq!(status["details"]["containers"][0]["fatal"], true);
+    }
+
+    #[test]
     fn k8s_provider_source_has_no_cli_runtime_path() {
         let source = include_str!("k8s.rs");
         assert!(!source.contains(&["kube", "ctl"].concat()));
@@ -635,6 +973,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn k8s_pod_manifest_reserves_and_limits_all_configured_resources() {
+        let manifest = provider()
+            .build_manifest(&create_config(HashMap::new()), "joysafeter-test")
+            .expect("manifest builds");
+
+        let resources = manifest
+            .pointer("/spec/containers/0/resources")
+            .expect("runner resources");
+        assert_eq!(resources["requests"]["cpu"], "1000m");
+        assert_eq!(resources["limits"]["cpu"], "1000m");
+        assert_eq!(resources["requests"]["memory"], "2048Mi");
+        assert_eq!(resources["limits"]["memory"], "2048Mi");
+        assert_eq!(resources["requests"]["ephemeral-storage"], "10240Mi");
+        assert_eq!(resources["limits"]["ephemeral-storage"], "10240Mi");
+    }
+
     fn create_config(env: HashMap<String, String>) -> SandboxCreateConfig {
         SandboxCreateConfig {
             sandbox_id: Uuid::now_v7(),
@@ -643,6 +998,7 @@ mod tests {
             labels: HashMap::new(),
             cpu_limit: Some(1.0),
             memory_limit_mb: Some(2048),
+            disk_limit_mb: Some(10240),
             network: None,
             workspace_path: None,
             memory_mounts: vec![],

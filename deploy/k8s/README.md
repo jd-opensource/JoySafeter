@@ -81,6 +81,26 @@ kubectl -n joysafeter-sandboxes get pods \
   -l app.kubernetes.io/name=joysafeter-sandbox -w
 ```
 
+## Sandbox resource governance and diagnostics
+
+The base runtime config sets CPU, memory, and ephemeral-storage budgets through
+`JOYSAFETER_SANDBOX_CPU`, `JOYSAFETER_SANDBOX_MEMORY_MB`, and
+`JOYSAFETER_SANDBOX_DISK_MB`. The orchestrator applies each configured value as
+both a Kubernetes request and limit, so the scheduler reserves the capacity and
+the runner cannot burst beyond the same budget. Production overlays should tune
+these values to match node capacity and workload size rather than removing them.
+
+While a sandbox is provisioning, the orchestrator records the Pod phase,
+scheduling conditions, container waiting/termination state, and recent Pod
+Events in the sandbox `config.provisioning` document. Fatal startup failures,
+such as an invalid image name or container configuration error, are persisted as
+`config.setup_error` before normal task retry and sandbox cleanup run. When the
+runner container produced output before failing, the same diagnostic document
+includes at most 100 lines and 16 KiB in `details.runner_log_tail`; the
+orchestrator never performs an unbounded Pod log read. Its ServiceAccount
+therefore has read-only access to Pod logs and Events in the sandbox namespace
+in addition to Pod lifecycle permissions.
+
 ## API-driven sandbox smoke
 
 For the production `sandbox-plane` overlay, always set `API_URL` to the

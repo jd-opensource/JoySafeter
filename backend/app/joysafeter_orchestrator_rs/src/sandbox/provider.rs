@@ -25,6 +25,7 @@ pub struct SandboxCreateConfig {
     pub labels: HashMap<String, String>,
     pub cpu_limit: Option<f64>,
     pub memory_limit_mb: Option<u64>,
+    pub disk_limit_mb: Option<u64>,
     pub network: Option<String>,
     pub workspace_path: Option<String>,
     /// Memory store mounts: (host_path, container_mount_path).

@@ -748,6 +748,17 @@ impl SandboxController {
                                 .or_else(|| status.get("message"))
                                 .and_then(|value| value.as_str())
                                 .unwrap_or("provider provisioning failed");
+                            let config = serde_json::json!({
+                                "setup_error": message,
+                                "provisioning": status,
+                            });
+                            let _ = queries::update_sandbox_status_and_config(
+                                &self.pool,
+                                sandbox_id,
+                                "provisioning",
+                                &config,
+                            )
+                            .await;
                             warn!(sandbox_id = %sandbox_id, "Sandbox provisioning failed: {message}");
                             if !self
                                 .stop_provisioning_sandbox(sandbox_id, Some(ext_id))
@@ -760,13 +771,7 @@ impl SandboxController {
                             }
                         } else {
                             let config = serde_json::json!({
-                                "provisioning": {
-                                    "stage": status.get("stage").and_then(|v| v.as_str()).unwrap_or("unknown"),
-                                    "progress": status.get("progress").and_then(|v| v.as_i64()).unwrap_or(0),
-                                    "message": status.get("message").and_then(|v| v.as_str()).unwrap_or(""),
-                                    "complete": status.get("complete").and_then(|v| v.as_bool()).unwrap_or(false),
-                                    "error": false,
-                                }
+                                "provisioning": status,
                             });
                             let _ = queries::update_sandbox_status_and_config(
                                 &self.pool,

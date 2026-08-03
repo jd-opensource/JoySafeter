@@ -490,6 +490,7 @@ impl SandboxResolver {
             labels,
             cpu_limit: self.config.sandbox_cpu,
             memory_limit_mb: self.config.sandbox_memory_mb,
+            disk_limit_mb: self.config.sandbox_disk_mb,
             network: context.network.clone(),
             // Use session_id for workspace path (Python L332-333: workspace_root/session_id)
             workspace_path: self.config.sandbox_workspace_root.as_ref().map(|root| {
@@ -1189,6 +1190,7 @@ impl SandboxResolver {
             .into(),
             cpu_limit: self.config.sandbox_cpu,
             memory_limit_mb: self.config.sandbox_memory_mb,
+            disk_limit_mb: self.config.sandbox_disk_mb,
             network: None,
             // Warm-pool sandboxes are not bound to a session yet. Mounting the
             // workspace root here would expose every persisted session
