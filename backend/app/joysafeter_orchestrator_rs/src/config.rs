@@ -10,6 +10,14 @@ pub struct JoySafeterConfig {
     pub instance_id: String,
     pub redis_queue_prefix: String,
 
+    // Single-active control plane
+    pub control_plane_ha_enabled: bool,
+    pub control_plane_lock_key: i64,
+    pub control_plane_standby_retry_ms: u64,
+    pub control_plane_lock_probe_interval_ms: u64,
+    pub control_plane_lock_probe_timeout_ms: u64,
+    pub control_plane_health_bind: String,
+
     // Task scheduling
     pub max_concurrent_tasks: usize,
     pub max_scheduling_tasks: usize,
@@ -130,6 +138,20 @@ pub struct JoySafeterConfig {
     pub egress_policy_config_schema_version: String,
     pub egress_policy_apply_timeout_ms: u64,
     pub egress_policy_poll_interval_ms: u64,
+    /// Dedicated Rust ADS listener. When set, xDS is removed from the runner
+    /// gRPC listener and served on this address instead.
+    pub egress_xds_bind: Option<String>,
+    pub egress_xds_mtls: bool,
+    pub egress_xds_cert_file: String,
+    pub egress_xds_key_file: String,
+    pub egress_xds_client_ca_file: String,
+    pub egress_xds_client_dns_san: String,
+    /// Compile and publish PostgreSQL desired generations into the embedded
+    /// Rust ADS state without changing Envoy routing or Go apply status.
+    pub egress_xds_shadow_reconcile: bool,
+    pub egress_xds_reconcile_interval_ms: u64,
+    pub egress_xds_ack_timeout_ms: u64,
+    pub egress_xds_node_lease_ttl_ms: u64,
     /// Dedicated Envoy ext_authz listener. `None` keeps only the legacy
     /// orchestrator gRPC registration for Docker compatibility.
     pub egress_authz_bind: Option<String>,
@@ -187,6 +209,27 @@ impl JoySafeterConfig {
         Self {
             instance_id: env_str("JOYSAFETER_INSTANCE_ID", &hostname()),
             redis_queue_prefix: env_str("JOYSAFETER_REDIS_QUEUE_PREFIX", "joysafeter"),
+            control_plane_ha_enabled: env_bool("JOYSAFETER_CONTROL_PLANE_HA_ENABLED", false),
+            control_plane_lock_key: env_i64(
+                "JOYSAFETER_CONTROL_PLANE_LOCK_KEY",
+                7_421_938_472_193_848,
+            ),
+            control_plane_standby_retry_ms: env_u64(
+                "JOYSAFETER_CONTROL_PLANE_STANDBY_RETRY_MS",
+                2_000,
+            ),
+            control_plane_lock_probe_interval_ms: env_u64(
+                "JOYSAFETER_CONTROL_PLANE_LOCK_PROBE_INTERVAL_MS",
+                2_000,
+            ),
+            control_plane_lock_probe_timeout_ms: env_u64(
+                "JOYSAFETER_CONTROL_PLANE_LOCK_PROBE_TIMEOUT_MS",
+                5_000,
+            ),
+            control_plane_health_bind: env_str(
+                "JOYSAFETER_CONTROL_PLANE_HEALTH_BIND",
+                "0.0.0.0:8081",
+            ),
 
             max_concurrent_tasks: env_usize("JOYSAFETER_MAX_CONCURRENT_TASKS", 200),
             max_scheduling_tasks: env_usize("JOYSAFETER_MAX_SCHEDULING_TASKS", 50),
@@ -360,6 +403,39 @@ impl JoySafeterConfig {
             egress_policy_poll_interval_ms: env_u64(
                 "JOYSAFETER_EGRESS_POLICY_POLL_INTERVAL_MS",
                 250,
+            ),
+            egress_xds_bind: env::var("JOYSAFETER_EGRESS_XDS_BIND")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            egress_xds_mtls: env_bool("JOYSAFETER_EGRESS_XDS_MTLS", true),
+            egress_xds_cert_file: env_str(
+                "JOYSAFETER_EGRESS_XDS_CERT_FILE",
+                "/var/run/joysafeter-egress/xds-server-tls/tls.crt",
+            ),
+            egress_xds_key_file: env_str(
+                "JOYSAFETER_EGRESS_XDS_KEY_FILE",
+                "/var/run/joysafeter-egress/xds-server-tls/tls.key",
+            ),
+            egress_xds_client_ca_file: env_str(
+                "JOYSAFETER_EGRESS_XDS_CLIENT_CA_FILE",
+                "/var/run/joysafeter-egress/xds-server-tls/ca.crt",
+            ),
+            egress_xds_client_dns_san: env_str(
+                "JOYSAFETER_EGRESS_XDS_CLIENT_DNS_SAN",
+                "joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local",
+            ),
+            egress_xds_shadow_reconcile: env_bool(
+                "JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE",
+                false,
+            ),
+            egress_xds_reconcile_interval_ms: env_u64(
+                "JOYSAFETER_EGRESS_XDS_RECONCILE_INTERVAL_MS",
+                5_000,
+            ),
+            egress_xds_ack_timeout_ms: env_u64("JOYSAFETER_EGRESS_XDS_ACK_TIMEOUT_MS", 30_000),
+            egress_xds_node_lease_ttl_ms: env_u64(
+                "JOYSAFETER_EGRESS_XDS_NODE_LEASE_TTL_MS",
+                30_000,
             ),
             egress_authz_bind: env::var("JOYSAFETER_EGRESS_AUTHZ_BIND")
                 .ok()

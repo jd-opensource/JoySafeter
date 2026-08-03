@@ -12,10 +12,15 @@ mod grpc;
 mod kernel;
 mod runtime_config;
 mod sandbox;
+mod xds;
+mod xds_observer;
+mod xds_reconciler;
+mod xds_server;
 
 use std::sync::Arc;
 
 use config::JoySafeterConfig;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 #[tokio::main]
@@ -41,6 +46,8 @@ async fn main() -> anyhow::Result<()> {
 
     let config = JoySafeterConfig::from_env();
 
+    kernel::active_standby::set_active_pod_label(&config.instance_id, false).await?;
+
     info!(
         instance_id = %config.instance_id,
         grpc_addr = %config.grpc_addr(),
@@ -48,6 +55,26 @@ async fn main() -> anyhow::Result<()> {
         sandbox_provider = %config.sandbox_provider,
         "Starting JoySafeter Orchestrator (Rust)"
     );
+
+    let control_plane_health = kernel::active_standby::ControlPlaneHealth::default();
+    let health_handle = kernel::active_standby::start_health_server(
+        &config.control_plane_health_bind,
+        control_plane_health.clone(),
+    )
+    .await?;
+    let shutdown = CancellationToken::new();
+    let signal_shutdown = shutdown.clone();
+    let signal_handle = tokio::spawn(async move {
+        shutdown_signal().await;
+        signal_shutdown.cancel();
+    });
+    let Some(leadership) =
+        kernel::active_standby::wait_for_active(&config, shutdown.clone()).await?
+    else {
+        info!("Shutdown signal received while waiting for active leadership");
+        health_handle.abort();
+        return Ok(());
+    };
 
     // Initialize database pool
     let db_pool = db::pool::create_pool(&config.database_url).await?;
@@ -121,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize sandbox provider (select based on config)
     let mut docker_envoy_manager: Option<Arc<sandbox::envoy::EnvoyManager>> = None;
-    let (sandbox_provider, xds_service): (
+    let (sandbox_provider, mut xds_service): (
         Arc<dyn sandbox::provider::SandboxProvider>,
         Option<Arc<sandbox::lds_backend::DeltaXdsServer>>,
     ) = match config.sandbox_provider.as_str() {
@@ -179,6 +206,16 @@ async fn main() -> anyhow::Result<()> {
         provider = %config.sandbox_provider,
         "Sandbox provider initialized"
     );
+    if xds_service.is_none()
+        && config.egress_xds_bind.is_some()
+        && matches!(config.sandbox_provider.as_str(), "k8s" | "kubernetes")
+    {
+        xds_service = Some(sandbox::lds_backend::DeltaXdsServer::new_node_local());
+        info!("Initialized node-local Rust ADS state for Kubernetes shadow serving");
+    }
+    if let Some(xds) = xds_service.as_ref() {
+        control_plane_health.attach_xds_status(xds.runtime_status());
+    }
 
     // Build the orchestrator-owned egress enforcer. It is the authority for
     // whether credentialed egress can be mediated; a `None` enforcer means the
@@ -248,7 +285,92 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => warn!("Orphan cleanup failed: {e}"),
     }
 
-    // Start gRPC server
+    let xds_shadow_shutdown = shutdown.child_token();
+    let shadow_xds = if config.egress_xds_shadow_reconcile {
+        anyhow::ensure!(
+            matches!(config.sandbox_provider.as_str(), "k8s" | "kubernetes"),
+            "JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE requires the Kubernetes sandbox provider"
+        );
+        Some(xds_service.clone().ok_or_else(|| {
+            anyhow::anyhow!("JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE requires embedded Rust ADS")
+        })?)
+    } else {
+        None
+    };
+    let xds_observer_handle = if let Some(xds) = shadow_xds.as_ref() {
+        let observations = xds.take_observations()?;
+        Some(xds_observer::spawn_shadow_observer(
+            db_pool.clone(),
+            config.instance_id.clone(),
+            observations,
+            xds_shadow_shutdown.clone(),
+        ))
+    } else {
+        None
+    };
+
+    let xds_handle = if let Some(bind) = config.egress_xds_bind.as_deref() {
+        let addr = bind.parse().map_err(|error| {
+            anyhow::anyhow!("invalid JOYSAFETER_EGRESS_XDS_BIND {bind}: {error}")
+        })?;
+        let xds = xds_service.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "JOYSAFETER_EGRESS_XDS_BIND requires an xDS-capable docker or k8s provider"
+            )
+        })?;
+        Some(
+            xds_server::start_xds_server(
+                addr,
+                xds,
+                xds_server::XdsTlsConfig {
+                    enabled: config.egress_xds_mtls,
+                    cert_file: config.egress_xds_cert_file.clone(),
+                    key_file: config.egress_xds_key_file.clone(),
+                    client_ca_file: config.egress_xds_client_ca_file.clone(),
+                    client_dns_san: config.egress_xds_client_dns_san.clone(),
+                },
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+    let xds_reconciler_handle = if let Some(xds) = shadow_xds {
+        let compiler_config =
+            xds::compiler::CompilerConfig::from_env(config.envoy_egress_denied_cidrs.clone())?;
+        let interval =
+            std::time::Duration::from_millis(config.egress_xds_reconcile_interval_ms.max(100));
+        let ack_timeout =
+            std::time::Duration::from_millis(config.egress_xds_ack_timeout_ms.max(100));
+        let node_lease_ttl =
+            std::time::Duration::from_millis(config.egress_xds_node_lease_ttl_ms.max(10_000));
+        info!(
+            interval_ms = interval.as_millis(),
+            ack_timeout_ms = ack_timeout.as_millis(),
+            node_lease_ttl_ms = node_lease_ttl.as_millis(),
+            "Starting PostgreSQL-backed Rust xDS shadow reconciler"
+        );
+        Some(xds_reconciler::spawn_shadow_reconciler(
+            db_pool.clone(),
+            xds,
+            compiler_config,
+            interval,
+            ack_timeout,
+            config.instance_id.clone(),
+            node_lease_ttl,
+            xds_shadow_shutdown.clone(),
+        ))
+    } else {
+        None
+    };
+    let runner_xds_service = if xds_handle.is_some() {
+        None
+    } else {
+        xds_service
+    };
+
+    // Start runner gRPC server. Production xDS uses the dedicated mTLS listener;
+    // registration here remains only for legacy local Docker compatibility.
     let grpc_handle = grpc::server::start_grpc_server(
         config.grpc_addr(),
         bridge_registry.clone(),
@@ -260,7 +382,7 @@ async fn main() -> anyhow::Result<()> {
         redis_coordinator.clone(),
         memory_subscribers.clone(),
         runtime_config.clone(),
-        xds_service,
+        runner_xds_service,
     )
     .await?;
     info!(addr = %config.grpc_addr(), "gRPC server started");
@@ -444,10 +566,23 @@ async fn main() -> anyhow::Result<()> {
         + subscriber_handles.len()
         + if cmd_listener_handle.is_some() { 1 } else { 0 };
     info!(total_tasks, "JoySafeter kernel fully started");
+    kernel::active_standby::set_active_pod_label(&config.instance_id, true).await?;
+    control_plane_health.set_active(true);
 
-    // Wait for shutdown signal
-    shutdown_signal().await;
-    info!("Shutdown signal received, stopping...");
+    tokio::select! {
+        _ = shutdown.cancelled() => {
+            info!("Shutdown signal received, stopping...");
+        }
+        _ = leadership.wait_lost() => {
+            warn!("Active leadership lost, stopping control plane...");
+        }
+    }
+    control_plane_health.set_active(false);
+    if let Err(error) =
+        kernel::active_standby::set_active_pod_label(&config.instance_id, false).await
+    {
+        warn!(error = %error, "Failed to clear active control-plane Pod label");
+    }
 
     // Graceful shutdown
     // 1. Send shutdown to all connected runners
@@ -456,6 +591,22 @@ async fn main() -> anyhow::Result<()> {
     // 2. Stop background tasks
     // #26: gRPC graceful shutdown with 5s grace period (Python L448: stop(grace=5))
     grpc_handle.abort();
+    if let Some(handle) = xds_handle {
+        handle.abort();
+    }
+    xds_shadow_shutdown.cancel();
+    if let Some(handle) = xds_reconciler_handle {
+        handle.abort();
+    }
+    if let Some(mut handle) = xds_observer_handle {
+        if tokio::time::timeout(std::time::Duration::from_secs(5), &mut handle)
+            .await
+            .is_err()
+        {
+            warn!("Timed out draining Rust xDS shadow observations");
+            handle.abort();
+        }
+    }
     if let Some(handle) = ext_authz_handle {
         handle.abort();
     }
@@ -483,6 +634,10 @@ async fn main() -> anyhow::Result<()> {
 
     // 4. Flush remaining events
     event_bus.flush().await;
+
+    leadership.release().await;
+    signal_handle.abort();
+    health_handle.abort();
 
     info!("JoySafeter Orchestrator shut down");
     Ok(())

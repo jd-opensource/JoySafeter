@@ -3,6 +3,13 @@ use uuid::Uuid;
 
 use crate::db::models::JoySafeterTask;
 
+const TASK_ADMISSION_ADVISORY_LOCK_KEY: i64 = 7_421_938_472_193_847;
+
+fn task_admission_capacity(active_count: i64, max_concurrent_tasks: usize) -> i64 {
+    let admission_limit = i64::try_from(max_concurrent_tasks).unwrap_or(i64::MAX);
+    admission_limit.saturating_sub(active_count).max(0)
+}
+
 // ---------------------------------------------------------------------------
 // Structs
 // ---------------------------------------------------------------------------
@@ -22,6 +29,13 @@ pub struct FailedSandboxTask {
     pub session_id: Option<Uuid>,
 }
 
+#[derive(Debug)]
+pub enum PendingTaskClaim {
+    Claimed(JoySafeterTask),
+    AtCapacity,
+    NotPending,
+}
+
 // ---------------------------------------------------------------------------
 // Task queries
 // ---------------------------------------------------------------------------
@@ -30,8 +44,36 @@ pub struct FailedSandboxTask {
 pub async fn claim_pending_task_by_id(
     pool: &PgPool,
     task_id: Uuid,
-) -> Result<Option<JoySafeterTask>, sqlx::Error> {
-    sqlx::query_as::<_, JoySafeterTask>(
+    max_concurrent_tasks: usize,
+) -> Result<PendingTaskClaim, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(TASK_ADMISSION_ADVISORY_LOCK_KEY)
+        .execute(&mut *tx)
+        .await?;
+
+    let is_pending: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM joysafeter_tasks WHERE id = $1 AND status = 'pending')",
+    )
+    .bind(task_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !is_pending {
+        tx.commit().await?;
+        return Ok(PendingTaskClaim::NotPending);
+    }
+
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM joysafeter_tasks WHERE status IN ('scheduling', 'running')",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if task_admission_capacity(active_count, max_concurrent_tasks) == 0 {
+        tx.commit().await?;
+        return Ok(PendingTaskClaim::AtCapacity);
+    }
+
+    let task = sqlx::query_as::<_, JoySafeterTask>(
         r#"
         UPDATE joysafeter_tasks
         SET status = 'scheduling', started_at = NOW(), updated_at = NOW()
@@ -40,8 +82,14 @@ pub async fn claim_pending_task_by_id(
         "#,
     )
     .bind(task_id)
-    .fetch_optional(pool)
-    .await
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(match task {
+        Some(task) => PendingTaskClaim::Claimed(task),
+        None => PendingTaskClaim::NotPending,
+    })
 }
 
 /// Claim a batch of pending tasks for scheduling (PENDING → SCHEDULING).
@@ -49,8 +97,27 @@ pub async fn claim_pending_task_by_id(
 pub async fn claim_pending_tasks(
     pool: &PgPool,
     limit: i64,
+    max_concurrent_tasks: usize,
 ) -> Result<Vec<JoySafeterTask>, sqlx::Error> {
-    sqlx::query_as::<_, JoySafeterTask>(
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(TASK_ADMISSION_ADVISORY_LOCK_KEY)
+        .execute(&mut *tx)
+        .await?;
+
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM joysafeter_tasks WHERE status IN ('scheduling', 'running')",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    let available_capacity = task_admission_capacity(active_count, max_concurrent_tasks);
+    let claim_limit = limit.max(0).min(available_capacity);
+    if claim_limit == 0 {
+        tx.commit().await?;
+        return Ok(Vec::new());
+    }
+
+    let tasks = sqlx::query_as::<_, JoySafeterTask>(
         r#"
         UPDATE joysafeter_tasks
         SET status = 'scheduling', started_at = NOW(), updated_at = NOW()
@@ -64,9 +131,25 @@ pub async fn claim_pending_tasks(
         RETURNING *
         "#,
     )
-    .bind(limit)
-    .fetch_all(pool)
-    .await
+    .bind(claim_limit)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(tasks)
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::task_admission_capacity;
+
+    #[test]
+    fn task_admission_capacity_never_exceeds_global_limit() {
+        assert_eq!(task_admission_capacity(0, 200), 200);
+        assert_eq!(task_admission_capacity(199, 200), 1);
+        assert_eq!(task_admission_capacity(200, 200), 0);
+        assert_eq!(task_admission_capacity(250, 200), 0);
+        assert_eq!(task_admission_capacity(0, 0), 0);
+    }
 }
 
 /// Claim the next task for a specific sandbox (SCHEDULING/PENDING → RUNNING).

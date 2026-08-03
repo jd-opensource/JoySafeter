@@ -68,7 +68,9 @@ impl AgentBridgeService {
         runtime_config: Arc<RuntimeConfig>,
     ) -> Self {
         let max_connections = config.grpc_max_connections;
-        let max_executions = config.grpc_max_executions;
+        let max_executions = config
+            .grpc_max_executions
+            .min(config.max_concurrent_tasks.max(1));
         Self {
             bridge_registry,
             event_bus,

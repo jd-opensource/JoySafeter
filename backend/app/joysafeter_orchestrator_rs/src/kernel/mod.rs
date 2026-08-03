@@ -1,4 +1,5 @@
 /// Kernel primitives — scheduler, sandbox management, task execution.
+pub mod active_standby;
 pub mod command_listener;
 pub mod credential_broker;
 pub mod credential_resolution;

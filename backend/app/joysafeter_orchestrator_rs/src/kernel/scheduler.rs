@@ -81,12 +81,25 @@ pub fn spawn_scheduler(
             }
 
             let mut tasks = Vec::new();
+            let mut admission_blocked = false;
 
             match queue.pop_from_global(QUEUE_POP_TIMEOUT).await {
                 Ok(Some(task_id)) => {
-                    match queries::claim_pending_task_by_id(&pool, task_id).await {
-                        Ok(Some(task)) => tasks.push(task),
-                        Ok(None) => debug!(
+                    match queries::claim_pending_task_by_id(
+                        &pool,
+                        task_id,
+                        config.max_concurrent_tasks,
+                    )
+                    .await
+                    {
+                        Ok(queries::PendingTaskClaim::Claimed(task)) => tasks.push(task),
+                        Ok(queries::PendingTaskClaim::AtCapacity) => {
+                            admission_blocked = true;
+                            if let Err(error) = queue.push_to_global(task_id).await {
+                                warn!(task_id = %task_id, error = %error, "Failed to restore capacity-blocked task to global queue");
+                            }
+                        }
+                        Ok(queries::PendingTaskClaim::NotPending) => debug!(
                             task_id = %task_id,
                             "Ignoring stale global queue entry; task is no longer pending"
                         ),
@@ -103,9 +116,22 @@ pub fn spawn_scheduler(
             while tasks.len() < available_slots {
                 match queue.try_pop_from_global().await {
                     Ok(Some(task_id)) => {
-                        match queries::claim_pending_task_by_id(&pool, task_id).await {
-                            Ok(Some(task)) => tasks.push(task),
-                            Ok(None) => debug!(
+                        match queries::claim_pending_task_by_id(
+                            &pool,
+                            task_id,
+                            config.max_concurrent_tasks,
+                        )
+                        .await
+                        {
+                            Ok(queries::PendingTaskClaim::Claimed(task)) => tasks.push(task),
+                            Ok(queries::PendingTaskClaim::AtCapacity) => {
+                                admission_blocked = true;
+                                if let Err(error) = queue.push_to_global(task_id).await {
+                                    warn!(task_id = %task_id, error = %error, "Failed to restore capacity-blocked task to global queue");
+                                }
+                                break;
+                            }
+                            Ok(queries::PendingTaskClaim::NotPending) => debug!(
                                 task_id = %task_id,
                                 "Ignoring stale global queue entry; task is no longer pending"
                             ),
@@ -124,7 +150,13 @@ pub fn spawn_scheduler(
             }
 
             if tasks.is_empty() && Instant::now() >= next_repair_sweep {
-                match queries::claim_pending_tasks(&pool, available_slots as i64).await {
+                match queries::claim_pending_tasks(
+                    &pool,
+                    available_slots as i64,
+                    config.max_concurrent_tasks,
+                )
+                .await
+                {
                     Ok(repaired_tasks) => {
                         if !repaired_tasks.is_empty() {
                             warn!(
@@ -142,6 +174,9 @@ pub fn spawn_scheduler(
             }
 
             if tasks.is_empty() {
+                if admission_blocked {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
                 continue;
             }
 
@@ -198,6 +233,10 @@ pub fn spawn_scheduler(
                     }
                     drop(_sched_permit);
                 });
+            }
+
+            if admission_blocked {
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
     })
