@@ -46,6 +46,54 @@ interface UsePaginatedListResult<T> {
   reset: () => void
 }
 
+interface CursorState {
+  scope: string
+  cursor?: string
+  stack: string[]
+}
+
+const STORAGE_PREFIX = 'joysafeter:managed:list-pagination:'
+
+function storageKey(scope: string) {
+  return `${STORAGE_PREFIX}${scope}`
+}
+
+function normalizeCursorState(scope: string, value: unknown): CursorState {
+  if (!value || typeof value !== 'object') return { scope, cursor: undefined, stack: [] }
+  const maybeState = value as Partial<CursorState>
+  if (maybeState.scope !== scope) return { scope, cursor: undefined, stack: [] }
+  return {
+    scope,
+    cursor: typeof maybeState.cursor === 'string' ? maybeState.cursor : undefined,
+    stack: Array.isArray(maybeState.stack)
+      ? maybeState.stack.filter((item): item is string => typeof item === 'string')
+      : [],
+  }
+}
+
+function loadCursorState(scope: string): CursorState {
+  if (typeof window === 'undefined') return { scope, cursor: undefined, stack: [] }
+  try {
+    const raw = window.sessionStorage.getItem(storageKey(scope))
+    return normalizeCursorState(scope, raw ? JSON.parse(raw) : null)
+  } catch {
+    return { scope, cursor: undefined, stack: [] }
+  }
+}
+
+function saveCursorState(state: CursorState) {
+  if (typeof window === 'undefined') return
+  try {
+    if (!state.cursor && state.stack.length === 0) {
+      window.sessionStorage.removeItem(storageKey(state.scope))
+      return
+    }
+    window.sessionStorage.setItem(storageKey(state.scope), JSON.stringify(state))
+  } catch {
+    return
+  }
+}
+
 async function apiPage<T extends { id?: string }>(
   path: string,
   scope: ManagedRequestScope,
@@ -94,15 +142,7 @@ export function usePaginatedList<T extends { id?: string }>({
   const [pageSize, setPageSizeState] = useState(defaultPageSize)
   const effectivePageSize = pageSizeOptions.includes(pageSize) ? pageSize : defaultPageSize
   const listScope = `${queryKey}:${path}:${managedScope.key}:${includeArchived}:${effectivePageSize}`
-  const [cursorState, setCursorState] = useState<{
-    scope: string
-    cursor?: string
-    stack: string[]
-  }>({
-    scope: listScope,
-    cursor: undefined,
-    stack: [],
-  })
+  const [cursorState, setCursorState] = useState<CursorState>(() => loadCursorState(listScope))
   const cursor = cursorState.scope === listScope ? cursorState.cursor : undefined
   const cursorStack = useMemo(
     () => (cursorState.scope === listScope ? cursorState.stack : []),
@@ -111,6 +151,14 @@ export function usePaginatedList<T extends { id?: string }>({
 
   const fullKey = [queryKey, managedScope.key, path, cursor, includeArchived, effectivePageSize]
   const queryEnabled = enabled && hasManagedRequestScope(managedScope)
+
+  useEffect(() => {
+    setCursorState((state) => (state.scope === listScope ? state : loadCursorState(listScope)))
+  }, [listScope])
+
+  useEffect(() => {
+    if (cursorState.scope === listScope) saveCursorState(cursorState)
+  }, [cursorState, listScope])
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: fullKey,
