@@ -285,7 +285,7 @@ func (r *PostgresRecorder) writeConnected(ctx context.Context, identity group.Id
 	if err != nil {
 		return err
 	}
-	return r.recomputeGroupNonTerminal(ctx, identity.GroupKey)
+	return r.recomputeGroupNonTerminal(ctx, identity.GroupKey, "connect")
 }
 
 func (r *PostgresRecorder) writeDisconnected(ctx context.Context, identity group.Identity) error {
@@ -297,24 +297,31 @@ func (r *PostgresRecorder) writeDisconnected(ctx context.Context, identity group
 	if err != nil {
 		return err
 	}
-	return r.recomputeGroupNonTerminal(ctx, identity.GroupKey)
+	return r.recomputeGroupNonTerminal(ctx, identity.GroupKey, "disconnect")
 }
 
-func (r *PostgresRecorder) recomputeGeneration(ctx context.Context, groupKey string, generation uint64) error {
+func (r *PostgresRecorder) recomputeGeneration(ctx context.Context, groupKey string, generation uint64, trigger string) error {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
+		r.metrics.Recompute.WithLabelValues(trigger, "error").Inc()
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := withGenerationLock(ctx, tx, groupKey, generation, func() error {
 		return recomputeApplyStatus(ctx, tx, groupKey, generation)
 	}); err != nil {
+		r.metrics.Recompute.WithLabelValues(trigger, "error").Inc()
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		r.metrics.Recompute.WithLabelValues(trigger, "error").Inc()
+		return err
+	}
+	r.metrics.Recompute.WithLabelValues(trigger, "ok").Inc()
+	return nil
 }
 
-func (r *PostgresRecorder) recomputeGroupNonTerminal(ctx context.Context, groupKey string) error {
+func (r *PostgresRecorder) recomputeGroupNonTerminal(ctx context.Context, groupKey, trigger string) error {
 	rows, err := r.pool.Query(ctx, `
 		SELECT generation FROM joysafeter_egress_apply_status
 		WHERE group_key = $1 AND state IN ('pending', 'published')
@@ -336,7 +343,7 @@ func (r *PostgresRecorder) recomputeGroupNonTerminal(ctx context.Context, groupK
 		return err
 	}
 	for _, generation := range generations {
-		if err := r.recomputeGeneration(ctx, groupKey, generation); err != nil {
+		if err := r.recomputeGeneration(ctx, groupKey, generation, trigger); err != nil {
 			return err
 		}
 	}
@@ -370,12 +377,10 @@ func (r *PostgresRecorder) recomputeAllNonTerminal(ctx context.Context) error {
 		return err
 	}
 	for _, rf := range refs {
-		if err := r.recomputeGeneration(ctx, rf.groupKey, rf.generation); err != nil {
-			r.metrics.Recompute.WithLabelValues("ticker", "error").Inc()
+		if err := r.recomputeGeneration(ctx, rf.groupKey, rf.generation, "ticker"); err != nil {
 			r.logger.Error("periodic apply-status recompute failed", "group", rf.groupKey, "generation", rf.generation, "error", err)
 			continue
 		}
-		r.metrics.Recompute.WithLabelValues("ticker", "ok").Inc()
 	}
 	return nil
 }
@@ -426,9 +431,21 @@ func (r *PostgresRecorder) writeACK(ctx context.Context, value event) error {
 		return recomputeApplyStatus(ctx, tx, value.identity.GroupKey, value.generation)
 	})
 	if err != nil {
+		if value.kind == "ack" {
+			r.metrics.Recompute.WithLabelValues("ack", "error").Inc()
+		}
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		if value.kind == "ack" {
+			r.metrics.Recompute.WithLabelValues("ack", "error").Inc()
+		}
+		return err
+	}
+	if value.kind == "ack" {
+		r.metrics.Recompute.WithLabelValues("ack", "ok").Inc()
+	}
+	return nil
 }
 
 func (r *PostgresRecorder) heartbeat() {
