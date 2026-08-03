@@ -104,6 +104,9 @@ func (m Metadata) Key() (string, error) {
 		normalize(m.Provider), normalize(m.ShardID), normalize(m.HostID),
 		normalize(m.EnvoyVersion), normalize(m.ConfigSchemaVersion),
 	}
+	if values[3] != "docker" {
+		values[5] = ""
+	}
 	for index, value := range values {
 		if index == 5 && values[3] != "docker" {
 			continue
