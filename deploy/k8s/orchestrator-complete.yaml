@@ -442,6 +442,24 @@ spec:
             cpu: "2"
             memory: "512Mi"
 
+        # Liveness: Envoy admin /ready (进程假死时 K8s 重建)
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 9901
+          periodSeconds: 5
+          failureThreshold: 3
+          initialDelaySeconds: 5
+
+        # Readiness: Envoy admin /ready (ADS 连通 + listener warm 完成)
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 9901
+          periodSeconds: 3
+          failureThreshold: 2
+          initialDelaySeconds: 3
+
         volumeMounts:
         - name: envoy-sockets
           mountPath: /sockets
