@@ -348,7 +348,7 @@ pub(crate) fn rewrite_shared_external_egress_env(
     env: &mut HashMap<String, String>,
     routes: &[EgressCredentialRoute],
     environment_config: Option<&serde_json::Value>,
-    credential_route_base_url: &str,
+    plane: &crate::egress::plane::EgressPlane,
     sandbox_id: Uuid,
     runner_token: &str,
 ) {
@@ -384,15 +384,17 @@ pub(crate) fn rewrite_shared_external_egress_env(
         let Ok(parsed_base_url) = Url::parse(configured_base_url) else {
             continue;
         };
-        let route_url = format!(
-            "{}{}",
-            synthetic_credential_route_url(
-                credential_route_base_url,
+        // Sandbox-facing URL: K8s rewrites to a per-sandbox synthetic path on the
+        // shared Envoy; Docker keeps the REAL host (transparent egress — the
+        // runner's forward proxy + Envoy's real-host vhost route it), so only the
+        // identity credential is bound below.
+        let route_url = plane
+            .transparent_route_url(
                 sandbox_id,
                 credential_consumer_route_id(route),
-            ),
-            normalize_prefix(parsed_base_url.path())
-        );
+                &normalize_prefix(parsed_base_url.path()),
+            )
+            .unwrap_or_else(|| configured_base_url.to_string());
         for value in env.values_mut() {
             if external_urls_equivalent(value, configured_base_url) {
                 *value = route_url.clone();
@@ -648,7 +650,9 @@ mod tests {
                     "base_url": "https://crm.example.com/api/"
                 }]
             })),
-            "https://joysafeter-egress-envoy:8443",
+            &crate::egress::plane::EgressPlane::K8s {
+                credential_route_base_url: "https://joysafeter-egress-envoy:8443".to_string(),
+            },
             sandbox_id,
             "runner-token",
         );
@@ -698,7 +702,9 @@ mod tests {
                     "base_url": "https://crm.example.com/api/"
                 }]
             })),
-            "https://joysafeter-egress-envoy:8443",
+            &crate::egress::plane::EgressPlane::K8s {
+                credential_route_base_url: "https://joysafeter-egress-envoy:8443".to_string(),
+            },
             sandbox_id,
             "runner-token",
         );
@@ -743,7 +749,9 @@ mod tests {
                     "allowed_paths": ["/customers/current", "/orders/"]
                 }]
             })),
-            "https://joysafeter-egress-envoy:8443",
+            &crate::egress::plane::EgressPlane::K8s {
+                credential_route_base_url: "https://joysafeter-egress-envoy:8443".to_string(),
+            },
             sandbox_id,
             "runner-token",
         );

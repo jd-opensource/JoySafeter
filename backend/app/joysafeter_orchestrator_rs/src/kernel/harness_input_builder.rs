@@ -30,7 +30,7 @@ const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
 /// conversation history, custom tools, and permission mode all flow through one builder.
 pub struct HarnessInputBuilder {
     pool: PgPool,
-    credential_route_base_url: Option<String>,
+    egress_plane: Option<crate::egress::plane::EgressPlane>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -64,19 +64,17 @@ impl HarnessInputBuilder {
     pub fn new(pool: PgPool) -> Self {
         Self {
             pool,
-            credential_route_base_url: None,
+            egress_plane: None,
         }
     }
 
     pub fn with_config(pool: PgPool, config: &crate::config::JoySafeterConfig) -> Self {
-        let credential_route_base_url = (config.egress_policy_authority_enabled
-            && matches!(config.sandbox_provider.as_str(), "k8s" | "kubernetes"))
-        .then(|| config.egress_envoy_credential_url.clone())
-        .flatten();
-        Self {
-            pool,
-            credential_route_base_url,
-        }
+        let egress_plane = crate::egress::plane::EgressPlane::resolve(
+            config.egress_policy_authority_enabled,
+            &config.sandbox_provider,
+            config.egress_envoy_credential_url.clone(),
+        );
+        Self { pool, egress_plane }
     }
 
     pub async fn build(
@@ -85,7 +83,7 @@ impl HarnessInputBuilder {
         sandbox_external_id: &str,
         sandbox_db_id: Uuid,
     ) -> anyhow::Result<HarnessInput> {
-        let runner_token = if self.credential_route_base_url.is_some() {
+        let runner_token = if self.egress_plane.is_some() {
             let sandbox = queries::get_sandbox(&self.pool, sandbox_db_id)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_db_id} not found"))?;
@@ -160,8 +158,8 @@ impl HarnessInputBuilder {
             input
                 .env
                 .extend(json_object_to_string_map(agent.env.as_ref()));
-            if let (Some(base_url), Some(runner_token), Some(environment_config)) = (
-                self.credential_route_base_url.as_deref(),
+            if let (Some(plane), Some(runner_token), Some(environment_config)) = (
+                self.egress_plane.as_ref(),
                 runner_token.as_deref(),
                 environment_config.as_ref(),
             ) {
@@ -171,7 +169,7 @@ impl HarnessInputBuilder {
                     &mut input.env,
                     &external_routes,
                     Some(environment_config),
-                    base_url,
+                    plane,
                     sandbox_db_id,
                     runner_token,
                 );
@@ -804,27 +802,24 @@ impl HarnessInputBuilder {
                     warn!(credential_id = %cred.id, "OAuth refresh failed: {e}");
                 }
                 mcp.headers.clear();
-                if let Some(base_url) = self.credential_route_base_url.as_deref() {
+                if let Some(plane) = self.egress_plane.as_ref() {
                     let runner_token = runner_token.ok_or_else(|| {
-                        anyhow::anyhow!("shared Envoy MCP routing requires runner token")
+                        anyhow::anyhow!("egress MCP routing requires runner token")
                     })?;
                     let route_id = format!("mcp:{}", mcp.name);
-                    mcp.url = format!(
-                        "{}/mcp/{}/",
-                        crate::egress::policy::synthetic_credential_route_url(
-                            base_url, sandbox_id, &route_id
-                        ),
-                        mcp.name
+                    let suffix = format!("/mcp/{}/", mcp.name);
+                    mcp.url = plane.placeholder_route_url(
+                        sandbox_id,
+                        &route_id,
+                        crate::egress::policy::MCP_EGRESS_HOST,
+                        &suffix,
                     );
+                    // Identity: the runner authenticates to its per-sandbox Envoy
+                    // with the runner_token on BOTH planes; ext_authz strips this
+                    // and injects the real credential. Only the URL above differs.
                     mcp.headers.insert(
                         "authorization".to_string(),
                         format!("Bearer {runner_token}"),
-                    );
-                } else {
-                    mcp.url = format!(
-                        "http://{}/mcp/{}/",
-                        crate::egress::policy::MCP_EGRESS_HOST,
-                        mcp.name
                     );
                 }
             }
@@ -1082,29 +1077,24 @@ impl HarnessInputBuilder {
                 // the real git host. Envoy matches `/git/<slug>/`, injects the
                 // credential, and rewrites host+path to the real remote.
                 let slug = crate::egress::policy::git_repo_slug(&row.mount_name, idx);
-                if let Some(base_url) = self.credential_route_base_url.as_deref() {
+                if let Some(plane) = self.egress_plane.as_ref() {
                     let runner_token = runner_token.ok_or_else(|| {
-                        anyhow::anyhow!("shared Envoy Git routing requires runner token")
+                        anyhow::anyhow!("egress Git routing requires runner token")
                     })?;
                     let route_id = format!("git:{slug}");
+                    let suffix = format!("/git/{slug}/");
+                    // Identity: runner_token on BOTH planes; only the URL differs.
                     (
-                        format!(
-                            "{}/git/{slug}/",
-                            crate::egress::policy::synthetic_credential_route_url(
-                                base_url, sandbox_id, &route_id
-                            )
+                        plane.placeholder_route_url(
+                            sandbox_id,
+                            &route_id,
+                            crate::egress::policy::GIT_EGRESS_HOST,
+                            &suffix,
                         ),
                         runner_token.to_string(),
                     )
                 } else {
-                    (
-                        format!(
-                            "http://{}/git/{}/",
-                            crate::egress::policy::GIT_EGRESS_HOST,
-                            slug
-                        ),
-                        String::new(),
-                    )
+                    (row.url, String::new())
                 }
             } else {
                 (row.url, String::new())

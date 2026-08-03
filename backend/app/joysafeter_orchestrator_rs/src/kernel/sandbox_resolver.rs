@@ -436,23 +436,16 @@ impl SandboxResolver {
             sandbox_db_id.to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
-        if self.config.egress_policy_authority_enabled
-            && matches!(self.config.sandbox_provider.as_str(), "k8s" | "kubernetes")
-        {
-            let base_url = self
-                .config
-                .egress_envoy_credential_url
-                .as_deref()
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "shared Envoy external routing requires JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL"
-                    )
-                })?;
+        if let Some(plane) = crate::egress::plane::EgressPlane::resolve(
+            self.config.egress_policy_authority_enabled,
+            &self.config.sandbox_provider,
+            self.config.egress_envoy_credential_url.clone(),
+        ) {
             rewrite_shared_external_egress_env(
                 &mut env,
                 &context.credentials.routes,
                 context.environment_config.as_ref(),
-                base_url,
+                &plane,
                 sandbox_db_id,
                 &runner_token,
             );

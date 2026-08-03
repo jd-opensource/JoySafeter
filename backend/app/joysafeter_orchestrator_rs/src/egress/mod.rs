@@ -8,5 +8,6 @@ pub mod authority;
 pub mod credential;
 pub mod enforcer;
 pub mod llm;
+pub mod plane;
 pub mod policy;
 pub mod token;
