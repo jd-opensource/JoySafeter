@@ -159,13 +159,12 @@ mod provider_conformance_tests {
     use crate::config::JoySafeterConfig;
 
     #[test]
-    fn provider_conformance_k8s_does_not_claim_egress_management_until_gateway_exists() {
+    fn provider_conformance_k8s_requires_durable_authority_for_egress_management() {
         let mut config = JoySafeterConfig::from_env();
         config.k8s_namespace = "joysafeter-sandboxes".to_string();
-        config.k8s_kubectl_path = "kubectl".to_string();
 
-        // Without gateway configuration + explicit enablement, no enforcer is
-        // built — the resolver then fails closed for secret-backed sandboxes.
+        // Without durable authority + explicit enablement, no enforcer is built
+        // — the resolver then fails closed for secret-backed sandboxes.
         assert!(
             crate::egress::enforcer::build_enforcer(&config, "k8s", None)
                 .expect("build_enforcer")

@@ -766,7 +766,6 @@ class JoySafeterConfig(BaseSettings):
     # Sandbox - Kubernetes. Kubernetes itself owns Storage mounting through CSI
     # PVCs; the sandbox pod only receives volumeMounts and never Storage secrets.
     k8s_namespace: str = "joysafeter-sandboxes"
-    k8s_kubectl_path: str = "kubectl"
     k8s_orchestrator_url: Optional[str] = None
 
     # gRPC server

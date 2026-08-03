@@ -296,7 +296,7 @@ async fn main() -> anyhow::Result<()> {
         let service_token_sha256 = config
             .credential_resolution_service_token
             .as_deref()
-            .map(egress::gateway::hash_token);
+            .map(egress::token::hash_token);
         if service_token_sha256.is_none() {
             warn!(
                 "Credential resolution endpoint bound without a service token; \

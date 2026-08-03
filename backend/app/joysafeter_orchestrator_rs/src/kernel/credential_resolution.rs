@@ -1,10 +1,9 @@
-//! The `CredentialResolutionService` — the orchestrator HTTP endpoint the K8s
-//! egress gateway calls (per request) to turn a `(sandbox_id, route_id)` into a
-//! decrypted, ready-to-inject header. It is the HTTP face of the
-//! [`CredentialBroker`]; the Docker/Envoy `ext_authz` face is added in SP-3
-//! Task 5.
+//! The `CredentialResolutionService` — the orchestrator HTTP endpoint shared
+//! Envoy calls (per request) to turn a `(sandbox_id, route_id)` into a decrypted,
+//! ready-to-inject header. It is the HTTP face of the [`CredentialBroker`]; the
+//! Docker/Envoy `ext_authz` face is added in SP-3 Task 5.
 //!
-//! Trust model (SP-3, user-confirmed): reuse the gateway token scheme. A caller
+//! Trust model (SP-3, user-confirmed): reuse the shared service-token scheme. A caller
 //! (a data-plane sidecar) authenticates with a shared service token, checked by
 //! constant-time comparison of its SHA-256; a request may only resolve a
 //! sandbox that has an installed policy in the [`ResolutionRegistry`]. The
@@ -23,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
-use crate::egress::gateway::hash_token;
 use crate::egress::policy::EgressCredentialRoute;
+use crate::egress::token::hash_token;
 use crate::kernel::credential_broker::CredentialBroker;
 
 /// Header the caller presents its service token in.
@@ -32,7 +31,7 @@ const RESOLVE_TOKEN_HEADER: &str = "x-joysafeter-resolve-token";
 /// Structured error code returned on any resolution failure. Shared by the two
 /// orchestrator-side faces (this HTTP `/resolve` service and the ext_authz gRPC
 /// service) so the credential-plane denial carries one identifiable code. The
-/// K8s gateway (lib crate) emits a matching literal — it cannot import kernel.
+/// shared Envoy path emits a matching literal — it cannot import kernel.
 pub const CREDENTIAL_RESOLVE_FAILED: &str = "CREDENTIAL_RESOLVE_FAILED";
 
 /// Keys for the non-secret per-route data the Docker Envoy LDS passes to the

@@ -1,5 +1,5 @@
-//! Envoy `ext_authz` gRPC service — the Docker data plane's face of the
-//! credential plane, the counterpart to the K8s gateway's HTTP `/resolve`.
+//! Envoy `ext_authz` gRPC service — the data planes' shared face of the
+//! credential plane.
 //!
 //! Per-request, the Docker Envoy calls `envoy.service.auth.v3.Authorization/Check`
 //! on the orchestrator's gRPC server. The LDS attaches the non-secret
@@ -7,9 +7,8 @@
 //! per-route `context_extensions`; they arrive in
 //! `CheckRequest.attributes.context_extensions`. This handler maps them to the
 //! installed route, resolves the credential through the SAME [`CredentialBroker`]
-//! and `ResolutionRegistry` the HTTP `/resolve` uses, and returns an
-//! `OkHttpResponse` whose `headers` Envoy injects upstream. One credential
-//! plane, two data planes.
+//! and `ResolutionRegistry`, and returns an `OkHttpResponse` whose `headers`
+//! Envoy injects upstream. One credential plane, two data planes.
 //!
 //! `context_extensions` (not request headers) is the correct channel: a route's
 //! `request_headers_to_add` are applied by the router filter, which runs *after*

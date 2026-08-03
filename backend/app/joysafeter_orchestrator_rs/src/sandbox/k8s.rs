@@ -1,10 +1,14 @@
 use std::collections::{BTreeMap, HashMap};
-use std::process::Stdio;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
+use kube::api::{AttachParams, DeleteParams, ListParams, PostParams};
+use kube::{Api, Client};
 use serde_json::{json, Value};
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
+use tokio::io::AsyncReadExt;
+use tokio::sync::OnceCell;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -14,111 +18,87 @@ use crate::config::JoySafeterConfig;
 use crate::egress::policy::{synthetic_credential_route_url, LLM_EGRESS_HOST};
 use crate::kernel::llm_providers::is_real_llm_secret_env;
 
-const K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV: &str = "JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN";
 const RUNNER_TOKEN_ENV: &str = "JOYSAFETER_RUNNER_TOKEN";
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct K8sProvider {
     namespace: String,
-    kubectl_path: String,
     orchestrator_url: Option<String>,
-    egress_gateway_url: Option<String>,
     egress_envoy_credential_url: Option<String>,
     egress_downstream_ca_config_map: String,
     egress_downstream_ca_mount_path: String,
-    use_shared_envoy: bool,
-    /// Whether a gateway egress manager is configured (gateway URL + control
-    /// token). Gates the create-time Pod env rewrite, preserving the
-    /// pre-enforcer behavior where the rewrite only needed a configured
-    /// manager, not full production egress readiness.
-    has_egress_manager: bool,
+    native_client: Arc<OnceCell<Result<Client, String>>>,
 }
 
 impl K8sProvider {
     pub fn new(config: &JoySafeterConfig) -> Self {
-        let has_egress_manager = crate::egress::k8s_manager::K8sEgressManager::from_config(config)
-            .ok()
-            .flatten()
-            .is_some();
         Self {
             namespace: config.k8s_namespace.clone(),
-            kubectl_path: config.k8s_kubectl_path.clone(),
             orchestrator_url: config.k8s_orchestrator_url.clone(),
-            egress_gateway_url: config.egress_gateway_url.clone(),
             egress_envoy_credential_url: config.egress_envoy_credential_url.clone(),
             egress_downstream_ca_config_map: config.egress_downstream_ca_config_map.clone(),
             egress_downstream_ca_mount_path: config.egress_downstream_ca_mount_path.clone(),
-            use_shared_envoy: config.egress_policy_authority_enabled,
-            has_egress_manager,
+            native_client: Arc::new(OnceCell::new()),
         }
     }
 
-    async fn kubectl_json(&self, args: &[&str]) -> anyhow::Result<Value> {
-        let output = Command::new(&self.kubectl_path).args(args).output().await?;
-        if !output.status.success() {
-            anyhow::bail!(
-                "kubectl {:?} failed: {}",
-                args,
-                String::from_utf8_lossy(&output.stderr)
-            );
+    async fn native_client(&self) -> anyhow::Result<Client> {
+        let result = self
+            .native_client
+            .get_or_init(|| async {
+                Client::try_default()
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+            .await;
+        match result {
+            Ok(client) => Ok(client.clone()),
+            Err(error) => anyhow::bail!("Kubernetes API client unavailable: {error}"),
         }
-        Ok(serde_json::from_slice(&output.stdout)?)
     }
 
-    async fn kubectl_status(&self, args: &[&str]) -> anyhow::Result<()> {
-        let output = Command::new(&self.kubectl_path).args(args).output().await?;
-        if !output.status.success() {
-            anyhow::bail!(
-                "kubectl {:?} failed: {}",
-                args,
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+    fn pods_api(&self, client: Client) -> Api<Pod> {
+        Api::namespaced(client, &self.namespace)
+    }
+
+    async fn native_create(&self, manifest: &Value) -> anyhow::Result<()> {
+        let client = self.native_client().await?;
+        let pod: Pod = serde_json::from_value(manifest.clone())?;
+        self.pods_api(client)
+            .create(&PostParams::default(), &pod)
+            .await?;
         Ok(())
     }
 
-    async fn kubectl_create(&self, manifest: &Value) -> anyhow::Result<()> {
-        self.kubectl_write_manifest(Self::kubectl_create_args(), manifest)
+    async fn native_delete_pod(&self, pod_name: &str) -> anyhow::Result<()> {
+        let client = self.native_client().await?;
+        match self
+            .pods_api(client)
+            .delete(pod_name, &DeleteParams::default())
             .await
-    }
-
-    async fn kubectl_write_manifest(
-        &self,
-        args: [&'static str; 5],
-        manifest: &Value,
-    ) -> anyhow::Result<()> {
-        let mut child = Command::new(&self.kubectl_path)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("failed to open kubectl stdin"))?;
-        let bytes = serde_json::to_vec(manifest)?;
-        stdin.write_all(&bytes).await?;
-        drop(stdin);
-        let output = child.wait_with_output().await?;
-        if !output.status.success() {
-            anyhow::bail!(
-                "kubectl {:?} failed: {}",
-                args,
-                String::from_utf8_lossy(&output.stderr)
-            );
+        {
+            Ok(_) => Ok(()),
+            Err(error) if kube_error_is_not_found(&error) => Ok(()),
+            Err(error) => Err(error.into()),
         }
-        Ok(())
     }
 
-    fn kubectl_create_args() -> [&'static str; 5] {
-        [
-            "create",
-            "-f",
-            "-",
-            "--field-manager",
-            "joysafeter-orchestrator",
-        ]
+    async fn native_status(&self, pod_name: &str) -> anyhow::Result<SandboxStatus> {
+        let client = self.native_client().await?;
+        match self.pods_api(client).get(pod_name).await {
+            Ok(pod) => Ok(pod_to_sandbox_status(&pod)),
+            Err(error) if kube_error_is_not_found(&error) => Ok(SandboxStatus::NotFound),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    async fn native_list_active(&self) -> anyhow::Result<Vec<ProviderSandboxInfo>> {
+        let client = self.native_client().await?;
+        let pods = self
+            .pods_api(client)
+            .list(&ListParams::default().labels("app.kubernetes.io/name=joysafeter-sandbox"))
+            .await?;
+        Ok(pods.iter().map(pod_to_provider_info).collect())
     }
 
     fn pod_name(sandbox_id: Uuid) -> String {
@@ -315,11 +295,9 @@ impl K8sProvider {
     }
 
     fn shared_envoy_uses_tls(&self) -> bool {
-        self.use_shared_envoy
-            && self
-                .egress_envoy_credential_url
-                .as_deref()
-                .is_some_and(|url| url.starts_with("https://"))
+        self.egress_envoy_credential_url
+            .as_deref()
+            .is_some_and(|url| url.starts_with("https://"))
     }
 
     fn render_pod_env(
@@ -341,33 +319,16 @@ impl K8sProvider {
         if !has_llm_placeholder_base_url(env) {
             return Ok(());
         }
-        let route_url = if self.use_shared_envoy {
-            let base_url = self.egress_envoy_credential_url.as_deref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "SANDBOX_EGRESS_MANAGER_REQUIRED: shared Envoy requires JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL"
-                )
-            })?;
-            synthetic_credential_route_url(base_url, sandbox_id, "llm")
-        } else {
-            let gateway_url = self.egress_gateway_url.as_deref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s limited-networking LLM env requires JOYSAFETER_EGRESS_GATEWAY_URL"
-                )
-            })?;
-            if !self.has_egress_manager {
-                anyhow::bail!(
-                    "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s limited-networking LLM env requires an egress manager"
-                );
-            }
-            format!(
-                "{}/sandbox/{sandbox_id}/egress/llm",
-                gateway_url.trim_end_matches('/')
+        let base_url = self.egress_envoy_credential_url.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s shared Envoy requires JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL"
             )
-        };
+        })?;
+        let route_url = synthetic_credential_route_url(base_url, sandbox_id, "llm");
         let Some(sandbox_token) = env.get(RUNNER_TOKEN_ENV).cloned().filter(|v| !v.is_empty())
         else {
             anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s egress gateway env rewrite requires JOYSAFETER_RUNNER_TOKEN"
+                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s shared Envoy env rewrite requires JOYSAFETER_RUNNER_TOKEN"
             );
         };
 
@@ -405,12 +366,6 @@ impl K8sProvider {
             env.insert("AZURE_OPENAI_API_KEY".to_string(), sandbox_token.clone());
         }
 
-        if !self.use_shared_envoy {
-            env.insert(
-                K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV.to_string(),
-                sandbox_token,
-            );
-        }
         Ok(())
     }
 }
@@ -464,12 +419,75 @@ fn sanitize_label_key(key: &str) -> String {
         .collect()
 }
 
+fn phase_to_sandbox_status(phase: &str) -> SandboxStatus {
+    match phase {
+        "Running" => SandboxStatus::Running,
+        "Succeeded" | "Failed" => SandboxStatus::Stopped,
+        other => SandboxStatus::Unknown(other.to_string()),
+    }
+}
+
+fn pod_to_sandbox_status(pod: &Pod) -> SandboxStatus {
+    let phase = pod
+        .status
+        .as_ref()
+        .and_then(|status| status.phase.as_deref())
+        .unwrap_or("Unknown");
+    phase_to_sandbox_status(phase)
+}
+
+fn pod_to_provider_info(pod: &Pod) -> ProviderSandboxInfo {
+    let name = pod.metadata.name.clone().unwrap_or_default();
+    let labels = pod
+        .metadata
+        .labels
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let image = pod
+        .spec
+        .as_ref()
+        .and_then(|spec| spec.containers.first())
+        .and_then(|container| container.image.clone())
+        .unwrap_or_default();
+    let status = pod
+        .status
+        .as_ref()
+        .and_then(|status| status.phase.clone())
+        .unwrap_or_else(|| "Unknown".to_string());
+    ProviderSandboxInfo {
+        id: name.clone(),
+        name,
+        status,
+        image,
+        labels,
+    }
+}
+
+fn kube_error_is_not_found(error: &kube::Error) -> bool {
+    matches!(error, kube::Error::Api(response) if response.code == 404)
+}
+
+fn exec_status_failed(status: &Status) -> bool {
+    status.status.as_deref() == Some("Failure") || status.code.is_some_and(|code| code != 0)
+}
+
+fn exec_status_message(status: &Status) -> String {
+    status
+        .message
+        .as_deref()
+        .or(status.reason.as_deref())
+        .unwrap_or("remote command failed")
+        .to_string()
+}
+
 #[async_trait]
 impl SandboxProvider for K8sProvider {
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
         let pod_name = Self::pod_name(config.sandbox_id);
         let manifest = self.build_manifest(config, &pod_name)?;
-        self.kubectl_create(&manifest).await?;
+        self.native_create(&manifest).await?;
         Ok(pod_name)
     }
 
@@ -478,15 +496,7 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn stop(&self, external_id: &str) -> anyhow::Result<()> {
-        self.kubectl_status(&[
-            "-n",
-            &self.namespace,
-            "delete",
-            "pod",
-            external_id,
-            "--ignore-not-found=true",
-        ])
-        .await
+        self.native_delete_pod(external_id).await
     }
 
     async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
@@ -494,108 +504,63 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn status(&self, external_id: &str) -> anyhow::Result<SandboxStatus> {
-        let output = self
-            .kubectl_json(&[
-                "-n",
-                &self.namespace,
-                "get",
-                "pod",
-                external_id,
-                "-o",
-                "json",
-            ])
-            .await;
-        let pod = match output {
-            Ok(value) => value,
-            Err(err)
-                if format!("{err}").contains("NotFound")
-                    || format!("{err}").contains("not found") =>
-            {
-                return Ok(SandboxStatus::NotFound);
-            }
-            Err(err) => return Err(err),
-        };
-        let phase = pod
-            .pointer("/status/phase")
-            .and_then(|value| value.as_str())
-            .unwrap_or("Unknown");
-        Ok(match phase {
-            "Running" => SandboxStatus::Running,
-            "Succeeded" | "Failed" => SandboxStatus::Stopped,
-            other => SandboxStatus::Unknown(other.to_string()),
-        })
+        self.native_status(external_id).await
     }
 
     async fn exec(&self, external_id: &str, cmd: &[&str]) -> anyhow::Result<String> {
-        let mut args = vec!["-n", self.namespace.as_str(), "exec", external_id, "--"];
-        args.extend_from_slice(cmd);
-        let output = Command::new(&self.kubectl_path).args(args).output().await?;
-        if !output.status.success() {
+        if cmd.is_empty() {
+            anyhow::bail!("Kubernetes exec command cannot be empty");
+        }
+        let client = self.native_client().await?;
+        let command = cmd
+            .iter()
+            .map(|part| (*part).to_string())
+            .collect::<Vec<_>>();
+        let attach = AttachParams::default()
+            .stdin(false)
+            .stdout(true)
+            .stderr(true);
+        let mut attached = self
+            .pods_api(client)
+            .exec(external_id, command, &attach)
+            .await?;
+        let mut stdout = attached
+            .stdout()
+            .ok_or_else(|| anyhow::anyhow!("Kubernetes exec stdout stream unavailable"))?;
+        let mut stderr = attached
+            .stderr()
+            .ok_or_else(|| anyhow::anyhow!("Kubernetes exec stderr stream unavailable"))?;
+        let status = attached.take_status();
+        let mut stdout_bytes = Vec::new();
+        let mut stderr_bytes = Vec::new();
+        let stdout_read = stdout.read_to_end(&mut stdout_bytes);
+        let stderr_read = stderr.read_to_end(&mut stderr_bytes);
+        let status = if let Some(status) = status {
+            let (stdout_result, stderr_result, status) =
+                tokio::join!(stdout_read, stderr_read, status);
+            stdout_result?;
+            stderr_result?;
+            status
+        } else {
+            let (stdout_result, stderr_result) = tokio::join!(stdout_read, stderr_read);
+            stdout_result?;
+            stderr_result?;
+            None
+        };
+        attached.join().await?;
+        if let Some(status) = status.filter(exec_status_failed) {
+            let stderr = String::from_utf8_lossy(&stderr_bytes);
             anyhow::bail!(
-                "kubectl exec failed: {}",
-                String::from_utf8_lossy(&output.stderr)
+                "Kubernetes exec failed: {}; stderr: {}",
+                exec_status_message(&status),
+                stderr
             );
         }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        Ok(String::from_utf8_lossy(&stdout_bytes).to_string())
     }
 
     async fn list_active(&self) -> anyhow::Result<Vec<ProviderSandboxInfo>> {
-        let pods = self
-            .kubectl_json(&[
-                "-n",
-                &self.namespace,
-                "get",
-                "pods",
-                "-l",
-                "app.kubernetes.io/name=joysafeter-sandbox",
-                "-o",
-                "json",
-            ])
-            .await?;
-        let mut result = Vec::new();
-        for item in pods
-            .get("items")
-            .and_then(|value| value.as_array())
-            .into_iter()
-            .flatten()
-        {
-            let Some(name) = item
-                .pointer("/metadata/name")
-                .and_then(|value| value.as_str())
-            else {
-                continue;
-            };
-            let image = item
-                .pointer("/spec/containers/0/image")
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_string();
-            let status = item
-                .pointer("/status/phase")
-                .and_then(|value| value.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
-            let labels = item
-                .pointer("/metadata/labels")
-                .and_then(|value| value.as_object())
-                .map(|labels| {
-                    labels
-                        .iter()
-                        .filter_map(|(key, value)| {
-                            value.as_str().map(|v| (key.clone(), v.to_string()))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            result.push(ProviderSandboxInfo {
-                id: name.to_string(),
-                name: name.to_string(),
-                status,
-                image,
-                labels,
-            });
-        }
-        Ok(result)
+        self.native_list_active().await
     }
 
     fn provider_name(&self) -> &'static str {
@@ -628,34 +593,63 @@ mod tests {
     fn provider() -> K8sProvider {
         let mut config = JoySafeterConfig::from_env();
         config.k8s_namespace = "joysafeter-sandboxes".to_string();
-        config.k8s_kubectl_path = "kubectl".to_string();
         K8sProvider::new(&config)
     }
 
-    fn config_with_gateway() -> JoySafeterConfig {
+    fn config_with_envoy() -> JoySafeterConfig {
         let mut config = JoySafeterConfig::from_env();
         config.k8s_namespace = "joysafeter-sandboxes".to_string();
-        config.k8s_kubectl_path = "kubectl".to_string();
         config.k8s_orchestrator_url = Some(
             "http://joysafeter-orchestrator.joysafeter-control.svc.cluster.local:9090".to_string(),
         );
-        config.egress_gateway_url =
-            Some("http://joysafeter-egress-gateway.joysafeter-control.svc:8088".to_string());
-        config.egress_gateway_control_token = Some("control-token".to_string());
-        config
-    }
-
-    fn provider_with_gateway() -> K8sProvider {
-        K8sProvider::new(&config_with_gateway())
-    }
-
-    fn provider_with_envoy() -> K8sProvider {
-        let mut config = config_with_gateway();
         config.egress_policy_authority_enabled = true;
+        config.k8s_egress_management_enabled = true;
         config.egress_envoy_credential_url = Some(
             "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443".to_string(),
         );
-        K8sProvider::new(&config)
+        config.egress_envoy_forward_proxy_url = Some(
+            "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8080".to_string(),
+        );
+        config
+    }
+
+    fn provider_with_envoy() -> K8sProvider {
+        K8sProvider::new(&config_with_envoy())
+    }
+
+    #[test]
+    fn k8s_api_phase_mapping_matches_provider_status() {
+        assert_eq!(phase_to_sandbox_status("Running"), SandboxStatus::Running);
+        assert_eq!(phase_to_sandbox_status("Succeeded"), SandboxStatus::Stopped);
+        assert_eq!(phase_to_sandbox_status("Failed"), SandboxStatus::Stopped);
+        assert_eq!(
+            phase_to_sandbox_status("Pending"),
+            SandboxStatus::Unknown("Pending".to_string())
+        );
+    }
+
+    #[test]
+    fn k8s_provider_source_has_no_cli_runtime_path() {
+        let source = include_str!("k8s.rs");
+        assert!(!source.contains(&["kube", "ctl"].concat()));
+        assert!(!source.contains(concat!("Command", "::", "new")));
+    }
+
+    #[test]
+    fn k8s_pod_manifest_has_no_client_side_apply_annotation() {
+        let manifest = provider()
+            .build_manifest(&create_config(HashMap::new()), "joysafeter-test")
+            .expect("manifest builds");
+
+        assert!(manifest.pointer("/metadata/annotations").is_none());
+        assert_eq!(
+            manifest.pointer("/metadata/name").and_then(Value::as_str),
+            Some("joysafeter-test")
+        );
+        assert_eq!(
+            manifest.pointer("/kind").and_then(Value::as_str),
+            Some("Pod")
+        );
     }
 
     fn create_config(env: HashMap<String, String>) -> SandboxCreateConfig {
@@ -717,27 +711,23 @@ mod tests {
     }
 
     #[test]
-    fn k8s_capability_requires_explicit_enablement_and_gateway_config() {
-        use crate::egress::enforcer::build_enforcer;
+    fn k8s_capability_requires_shared_envoy_authority_config() {
+        use crate::egress::enforcer::{build_enforcer, K8sEnvoyNetworkPreparer};
 
-        // No gateway config → no enforcer (fail-closed).
         let mut bare = JoySafeterConfig::from_env();
         bare.k8s_namespace = "joysafeter-sandboxes".to_string();
-        bare.k8s_kubectl_path = "kubectl".to_string();
         assert!(build_enforcer(&bare, "k8s", None)
             .expect("build_enforcer")
             .is_none());
 
-        // Gateway configured but egress management not explicitly enabled → no enforcer.
-        assert!(build_enforcer(&config_with_gateway(), "k8s", None)
+        let mut no_authority = config_with_envoy();
+        no_authority.egress_policy_authority_enabled = false;
+        assert!(build_enforcer(&no_authority, "k8s", None)
             .expect("build_enforcer")
             .is_none());
 
-        // Gateway configured + explicit enablement → an enforcer is built.
-        let mut enabled = config_with_gateway();
-        enabled.k8s_egress_management_enabled = true;
-        assert!(build_enforcer(&enabled, "k8s", None)
-            .expect("build_enforcer")
+        assert!(K8sEnvoyNetworkPreparer::from_config(&config_with_envoy())
+            .expect("from config")
             .is_some());
     }
 
@@ -754,7 +744,7 @@ mod tests {
         );
         env.insert(
             "ANTHROPIC_BASE_URL".to_string(),
-            "http://joysafeter-egress-gateway/sandbox/test/llm/anthropic".to_string(),
+            "http://placeholder-llm-route.local/sandbox/test/llm/anthropic".to_string(),
         );
 
         let manifest = provider()
@@ -802,18 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn k8s_runtime_pod_create_does_not_require_patch_permission() {
-        let args = K8sProvider::kubectl_create_args();
-
-        assert_eq!(args[0], "create");
-        assert!(args.contains(&"--field-manager"));
-        assert!(!args.contains(&"apply"));
-        assert!(!args.contains(&"--server-side"));
-        assert!(!args.contains(&"--save-config"));
-    }
-
-    #[test]
-    fn k8s_manifest_rewrites_llm_placeholder_to_gateway_route_and_sandbox_token() {
+    fn k8s_manifest_rewrites_llm_placeholder_to_shared_envoy_route_and_sandbox_token() {
         let sandbox_id =
             Uuid::parse_str("018ff000-0000-7000-8000-000000000021").expect("valid uuid");
         let mut env = HashMap::new();
@@ -830,7 +809,7 @@ mod tests {
         config.sandbox_id = sandbox_id;
         config.network = Some("none".to_string());
 
-        let manifest = provider_with_gateway()
+        let manifest = provider_with_envoy()
             .build_manifest(&config, "joysafeter-test")
             .expect("manifest builds");
         let env = pod_env(&manifest);
@@ -838,7 +817,7 @@ mod tests {
         assert_eq!(
             env.get("ANTHROPIC_BASE_URL").map(String::as_str),
             Some(
-                "http://joysafeter-egress-gateway.joysafeter-control.svc:8088/sandbox/018ff000-0000-7000-8000-000000000021/egress/llm"
+                "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443/v1/sandbox/018ff000-0000-7000-8000-000000000021/route/bGxt"
             )
         );
         assert_eq!(
@@ -847,11 +826,6 @@ mod tests {
         );
         assert_eq!(
             env.get("ANTHROPIC_AUTH_TOKEN").map(String::as_str),
-            Some("runner-token")
-        );
-        assert_eq!(
-            env.get(K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV)
-                .map(String::as_str),
             Some("runner-token")
         );
         assert!(!serde_json::to_string(&manifest)
@@ -881,7 +855,7 @@ mod tests {
         config.sandbox_id = sandbox_id;
         config.network = Some("none".to_string());
 
-        let manifest = provider_with_gateway()
+        let manifest = provider_with_envoy()
             .build_manifest(&config, "joysafeter-test")
             .expect("manifest builds");
         let env = pod_env(&manifest);
@@ -937,11 +911,10 @@ mod tests {
             env.get("ANTHROPIC_API_KEY").map(String::as_str),
             Some("runner-token")
         );
-        assert!(!env.contains_key(K8S_EGRESS_GATEWAY_SANDBOX_TOKEN_ENV));
     }
 
     #[test]
-    fn k8s_manifest_requires_runner_token_before_gateway_env_rewrite() {
+    fn k8s_manifest_requires_runner_token_before_shared_envoy_env_rewrite() {
         let mut env = HashMap::new();
         env.insert(
             "ANTHROPIC_API_KEY".to_string(),
@@ -954,9 +927,9 @@ mod tests {
         let mut config = create_config(env);
         config.network = Some("none".to_string());
 
-        let err = provider_with_gateway()
+        let err = provider_with_envoy()
             .build_manifest(&config, "joysafeter-test")
-            .expect_err("gateway env rewrite must require a sandbox token");
+            .expect_err("shared Envoy env rewrite must require a sandbox token");
 
         assert!(format!("{err}").contains("JOYSAFETER_RUNNER_TOKEN"));
         assert!(format!("{err}").contains("SANDBOX_EGRESS_MANAGER_REQUIRED"));

@@ -111,11 +111,6 @@ pub struct JoySafeterConfig {
     /// Envoy-side key injection path from sending credentials to arbitrary
     /// user-controlled base URLs.
     pub llm_egress_allowed_hosts: Vec<String>,
-    /// Base URL for the Rust egress gateway control plane.
-    pub egress_gateway_url: Option<String>,
-    /// Shared control-plane token used by orchestrator to install/revoke
-    /// per-sandbox gateway policy. This is not exposed to sandboxes.
-    pub egress_gateway_control_token: Option<String>,
     /// Shared Envoy credential-listener URL used by Kubernetes sandboxes.
     pub egress_envoy_credential_url: Option<String>,
     /// Shared Envoy forward-proxy URL used by Kubernetes sandboxes.
@@ -177,7 +172,6 @@ pub struct JoySafeterConfig {
 
     // Sandbox - Kubernetes
     pub k8s_namespace: String,
-    pub k8s_kubectl_path: String,
     pub k8s_orchestrator_url: Option<String>,
 
     // Database
@@ -318,12 +312,6 @@ impl JoySafeterConfig {
                 ],
             ),
             llm_egress_allowed_hosts: env_list("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS"),
-            egress_gateway_url: env::var("JOYSAFETER_EGRESS_GATEWAY_URL")
-                .ok()
-                .filter(|v| !v.trim().is_empty()),
-            egress_gateway_control_token: env::var("JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN")
-                .ok()
-                .filter(|v| !v.trim().is_empty()),
             egress_envoy_credential_url: env::var("JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
@@ -427,7 +415,6 @@ impl JoySafeterConfig {
             e2b_template_id: env_str("JOYSAFETER_E2B_TEMPLATE_ID", ""),
 
             k8s_namespace: env_str("JOYSAFETER_K8S_NAMESPACE", "joysafeter-sandboxes"),
-            k8s_kubectl_path: env_str("JOYSAFETER_K8S_KUBECTL_PATH", "kubectl"),
             k8s_orchestrator_url: env::var("JOYSAFETER_K8S_ORCHESTRATOR_URL")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),

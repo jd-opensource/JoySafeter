@@ -1,21 +1,24 @@
 //! Provider-neutral egress enforcement.
 //!
 //! [`EgressEnforcer`] is the boundary abstraction that a sandbox provider uses to
-//! mediate credentialed egress. Implementations cover Docker per-sandbox Envoy,
-//! the legacy K8s gateway, and shared-fleet K8s Envoy network preparation.
+//! mediate credentialed egress. Implementations cover Docker per-sandbox Envoy
+//! and shared-fleet K8s Envoy network preparation.
 //!
 //! The enforcer is owned by the orchestrator (built in `main.rs` via
 //! [`build_enforcer`]) and threaded into the resolver, controller, and
 //! scheduler. Its presence is the authority for whether credentialed egress can
 //! be mediated for a sandbox.
 
-use std::process::Stdio;
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Duration;
 
+use k8s_openapi::api::networking::v1::NetworkPolicy;
+use kube::api::{DeleteParams, ListParams, Patch, PatchParams};
+use kube::{Api, Client};
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
+use tokio::sync::OnceCell;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -23,9 +26,11 @@ use crate::config::JoySafeterConfig;
 use crate::db::models::JoySafeterSandbox;
 use crate::db::queries;
 use crate::egress::authority::{AuthorityConfig, NodeSelector, PostgresEgressPolicyAuthority};
-use crate::egress::k8s_manager::K8sEgressManager;
 use crate::egress::policy::SandboxCredentials;
-use crate::kernel::sandbox_resolver::rebuild_sandbox_credentials;
+
+const K8S_FIELD_MANAGER: &str = "joysafeter-orchestrator";
+const K8S_EGRESS_POLICY_LABEL_SELECTOR: &str =
+    "app.kubernetes.io/name=joysafeter-sandbox-egress,joysafeter.egress-data-plane=envoy";
 
 /// Provider-neutral egress enforcement boundary.
 ///
@@ -163,9 +168,10 @@ impl EgressEnforcer for DockerEnvoyNetworkPreparer {
 ///
 /// The enforcer is the authority for whether credentialed egress can be
 /// mediated: `docker` yields an [`EnvoyEnforcer`] when an Envoy manager is
-/// available, `k8s` yields a [`GatewayEnforcer`] when egress management is fully
-/// configured, and all other providers (daytona/e2b) yield `None` — which the
-/// resolver treats as fail-closed for secret-backed sandboxes.
+/// available, `k8s` yields a [`K8sEnvoyNetworkPreparer`] only when the durable
+/// shared-Envoy authority is enabled, and all other providers (daytona/e2b)
+/// yield `None` — which the resolver treats as fail-closed for secret-backed
+/// sandboxes.
 pub fn build_enforcer(
     config: &JoySafeterConfig,
     provider_name: &str,
@@ -219,8 +225,7 @@ pub fn build_enforcer_with_pool(
             K8sEnvoyNetworkPreparer::from_config(config)?
                 .map(|value| std::sync::Arc::new(value) as std::sync::Arc<dyn EgressEnforcer>)
         }
-        "k8s" | "kubernetes" => GatewayEnforcer::from_config(config)?
-            .map(|value| std::sync::Arc::new(value) as std::sync::Arc<dyn EgressEnforcer>),
+        "k8s" | "kubernetes" => None,
         _ => None, // daytona/e2b: no enforcer → fail-closed for secret sandboxes
     };
     if !config.egress_policy_authority_enabled {
@@ -344,10 +349,10 @@ impl EgressEnforcer for AuthoritativeEnforcer {
 // K8sEnvoyNetworkPreparer
 // =====================================================================
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct K8sEnvoyNetworkPreparer {
     namespace: String,
-    kubectl_path: String,
+    native_client: Arc<OnceCell<Result<Client, String>>>,
     orchestrator_network_target: K8sServiceTarget,
     credential_network_target: K8sServiceTarget,
     forward_proxy_network_target: K8sServiceTarget,
@@ -378,7 +383,7 @@ impl K8sEnvoyNetworkPreparer {
             })?;
         Ok(Some(Self {
             namespace: config.k8s_namespace.clone(),
-            kubectl_path: config.k8s_kubectl_path.clone(),
+            native_client: Arc::new(OnceCell::new()),
             orchestrator_network_target: k8s_service_target_from_url(
                 &orchestrator_url,
                 &config.k8s_namespace,
@@ -443,7 +448,53 @@ impl K8sEnvoyNetworkPreparer {
     }
 
     async fn apply_network_policy(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        kubectl_apply_manifest(&self.kubectl_path, &self.build_network_policy(sandbox_id)).await
+        apply_network_policy_manifest(
+            &self.namespace,
+            &self.native_client,
+            &self.build_network_policy(sandbox_id),
+        )
+        .await
+    }
+
+    async fn delete_network_policy(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        delete_network_policy_by_name(
+            &self.namespace,
+            &self.native_client,
+            &Self::network_policy_name(sandbox_id),
+        )
+        .await
+    }
+
+    async fn prune_stale_network_policies(
+        &self,
+        live_limited_sandboxes: &BTreeSet<Uuid>,
+    ) -> anyhow::Result<usize> {
+        let client = native_k8s_client(&self.native_client).await?;
+        let policies: Api<NetworkPolicy> = Api::namespaced(client, &self.namespace);
+        let listed = policies
+            .list(
+                &ListParams::default()
+                    .labels(K8S_EGRESS_POLICY_LABEL_SELECTOR)
+                    .timeout(30),
+            )
+            .await?;
+        let mut pruned = 0usize;
+        for policy in listed.items {
+            let name = policy.metadata.name.as_deref().unwrap_or("<unnamed>");
+            let Some(policy_name) = stale_network_policy_name(&policy, live_limited_sandboxes)
+            else {
+                continue;
+            };
+            delete_network_policy_by_name(&self.namespace, &self.native_client, &policy_name)
+                .await?;
+            pruned += 1;
+            debug!(network_policy = %policy_name, "Pruned stale sandbox NetworkPolicy");
+
+            if name != policy_name {
+                warn!(network_policy = name, pruned_name = %policy_name, "stale NetworkPolicy name changed while pruning");
+            }
+        }
+        Ok(pruned)
     }
 }
 
@@ -460,10 +511,11 @@ impl EgressEnforcer for K8sEnvoyNetworkPreparer {
     }
 
     async fn teardown(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        self.delete_network_policy(sandbox_id).await?;
         debug!(
             %sandbox_id,
             network_policy = %Self::network_policy_name(sandbox_id),
-            "Retaining sandbox NetworkPolicy tombstone after teardown"
+            "Deleted sandbox NetworkPolicy after teardown"
         );
         Ok(())
     }
@@ -471,14 +523,20 @@ impl EgressEnforcer for K8sEnvoyNetworkPreparer {
     async fn recover(&self, pool: &PgPool) -> anyhow::Result<()> {
         let sandboxes = queries::list_live_sandboxes_for_recovery(pool).await?;
         let mut recovered = 0usize;
+        let mut live_limited_sandboxes = BTreeSet::new();
         for sandbox in sandboxes {
             if recovery_networking(&sandbox).is_some() {
                 self.apply_network_policy(sandbox.id).await?;
+                live_limited_sandboxes.insert(sandbox.id);
                 recovered += 1;
             }
         }
+        let pruned = self
+            .prune_stale_network_policies(&live_limited_sandboxes)
+            .await?;
         info!(
             recovered_sandboxes = recovered,
+            pruned_network_policies = pruned,
             "Recovered K8s Envoy sandbox NetworkPolicies"
         );
         Ok(())
@@ -490,249 +548,66 @@ impl EgressEnforcer for K8sEnvoyNetworkPreparer {
 }
 
 // =====================================================================
-// GatewayEnforcer (K8s)
-// =====================================================================
-
-/// K8s egress enforcer: per-sandbox NetworkPolicy + in-cluster egress gateway.
-///
-/// Holds the K8s egress machinery relocated out of `K8sProvider`: kubectl access,
-/// NetworkPolicy construction, the resolved service targets, and the
-/// [`K8sEgressManager`] control client.
-#[derive(Clone, Debug)]
-pub struct GatewayEnforcer {
-    namespace: String,
-    kubectl_path: String,
-    orchestrator_network_target: Option<K8sServiceTarget>,
-    egress_gateway_network_target: Option<K8sServiceTarget>,
-    llm_egress_allowed_hosts: Vec<String>,
-    manager: K8sEgressManager,
-}
-
-impl GatewayEnforcer {
-    /// Replicate the egress-readiness computation formerly in `K8sProvider::new`:
-    /// returns `Some` only when egress management is enabled and the manager plus
-    /// both service targets resolve.
-    pub fn from_config(config: &JoySafeterConfig) -> anyhow::Result<Option<Self>> {
-        let egress_manager = match K8sEgressManager::from_config(config) {
-            Ok(manager) => manager,
-            Err(err) => {
-                warn!("K8s egress manager disabled: {err}");
-                None
-            }
-        };
-        let orchestrator_target_url = config
-            .k8s_orchestrator_url
-            .clone()
-            .unwrap_or_else(|| format!("http://joysafeter-orchestrator:{}", config.grpc_port));
-        let orchestrator_network_target =
-            match k8s_service_target_from_url(&orchestrator_target_url, &config.k8s_namespace) {
-                Ok(target) => Some(target),
-                Err(err) => {
-                    warn!("K8s orchestrator NetworkPolicy target disabled: {err}");
-                    None
-                }
-            };
-        let egress_gateway_network_target = config
-            .egress_gateway_url
-            .as_deref()
-            .map(|url| k8s_service_target_from_url(url, &config.k8s_namespace))
-            .transpose()
-            .unwrap_or_else(|err| {
-                warn!("K8s egress gateway NetworkPolicy target disabled: {err}");
-                None
-            });
-        let has_egress_manager = egress_manager.is_some();
-        let has_orchestrator_network_target = orchestrator_network_target.is_some();
-        let has_egress_gateway_network_target = egress_gateway_network_target.is_some();
-        let has_egress_gateway_url = config.egress_gateway_url.is_some();
-        info!(
-            egress_management_enabled = config.k8s_egress_management_enabled,
-            has_egress_gateway_url,
-            has_egress_manager,
-            has_orchestrator_network_target,
-            has_egress_gateway_network_target,
-            has_egress_management = config.k8s_egress_management_enabled
-                && has_egress_manager
-                && has_orchestrator_network_target
-                && has_egress_gateway_network_target,
-            "K8s provider egress capability check"
-        );
-
-        if config.k8s_egress_management_enabled
-            && has_egress_manager
-            && has_orchestrator_network_target
-            && has_egress_gateway_network_target
-        {
-            Ok(Some(Self {
-                namespace: config.k8s_namespace.clone(),
-                kubectl_path: config.k8s_kubectl_path.clone(),
-                orchestrator_network_target,
-                egress_gateway_network_target,
-                llm_egress_allowed_hosts: config.llm_egress_allowed_hosts.clone(),
-                manager: egress_manager.expect("egress manager present"),
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn kubectl_apply(&self, manifest: &Value) -> anyhow::Result<()> {
-        kubectl_apply_manifest(&self.kubectl_path, manifest).await
-    }
-
-    fn kubectl_apply_args() -> [&'static str; 5] {
-        [
-            "apply",
-            "--server-side",
-            "--field-manager=joysafeter-orchestrator",
-            "-f",
-            "-",
-        ]
-    }
-
-    fn build_network_policy(&self, sandbox_id: Uuid) -> anyhow::Result<Value> {
-        let Some(orchestrator) = self.orchestrator_network_target.as_ref() else {
-            anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s NetworkPolicy requires a resolvable orchestrator service target"
-            );
-        };
-        let Some(gateway) = self.egress_gateway_network_target.as_ref() else {
-            anyhow::bail!(
-                "SANDBOX_EGRESS_MANAGER_REQUIRED: K8s NetworkPolicy requires a resolvable egress gateway service target"
-            );
-        };
-
-        Ok(json!({
-            "apiVersion": "networking.k8s.io/v1",
-            "kind": "NetworkPolicy",
-            "metadata": {
-                "name": format!("joysafeter-egress-{sandbox_id}"),
-                "namespace": self.namespace,
-                "labels": {
-                    "app.kubernetes.io/name": "joysafeter-sandbox-egress",
-                    "app.kubernetes.io/part-of": "joysafeter",
-                    "joysafeter.sandbox_id": sandbox_id.to_string()
-                }
-            },
-            "spec": {
-                "podSelector": {
-                    "matchLabels": {
-                        "app.kubernetes.io/name": "joysafeter-sandbox",
-                        "joysafeter.sandbox_id": sandbox_id.to_string()
-                    }
-                },
-                "policyTypes": ["Egress"],
-                "egress": [
-                    {
-                        "to": [
-                            {
-                                "namespaceSelector": {
-                                    "matchLabels": {
-                                        "kubernetes.io/metadata.name": "kube-system"
-                                    }
-                                }
-                            }
-                        ],
-                        "ports": [
-                            { "protocol": "UDP", "port": 53 },
-                            { "protocol": "TCP", "port": 53 }
-                        ]
-                    },
-                    egress_rule_for_service(orchestrator),
-                    egress_rule_for_service(gateway)
-                ]
-            }
-        }))
+async fn native_k8s_client(cell: &OnceCell<Result<Client, String>>) -> anyhow::Result<Client> {
+    match cell
+        .get_or_init(|| async {
+            Client::try_default()
+                .await
+                .map_err(|error| error.to_string())
+        })
+        .await
+    {
+        Ok(client) => Ok(client.clone()),
+        Err(error) => anyhow::bail!("Kubernetes API client unavailable: {error}"),
     }
 }
 
-async fn kubectl_apply_manifest(kubectl_path: &str, manifest: &Value) -> anyhow::Result<()> {
-    let args = GatewayEnforcer::kubectl_apply_args();
-    let mut child = Command::new(kubectl_path)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("failed to open kubectl stdin"))?;
-    stdin.write_all(&serde_json::to_vec(manifest)?).await?;
-    drop(stdin);
-    let output = child.wait_with_output().await?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "kubectl {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+fn network_policy_apply_params() -> PatchParams {
+    PatchParams::apply(K8S_FIELD_MANAGER).force()
+}
+
+async fn apply_network_policy_manifest(
+    namespace: &str,
+    client_cell: &OnceCell<Result<Client, String>>,
+    manifest: &Value,
+) -> anyhow::Result<()> {
+    let name = manifest
+        .pointer("/metadata/name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("NetworkPolicy manifest missing metadata.name"))?;
+    let client = native_k8s_client(client_cell).await?;
+    let policies: Api<NetworkPolicy> = Api::namespaced(client, namespace);
+    let params = network_policy_apply_params();
+    let patch = Patch::Apply(manifest);
+    policies.patch(name, &params, &patch).await?;
     Ok(())
 }
 
-#[async_trait::async_trait]
-impl EgressEnforcer for GatewayEnforcer {
-    async fn enforce(
-        &self,
-        sandbox_id: Uuid,
-        sandbox_token: &str,
-        networking: Option<&serde_json::Value>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        let network_policy = self.build_network_policy(sandbox_id)?;
-        self.kubectl_apply(&network_policy).await?;
-        self.manager
-            .setup_for_sandbox(sandbox_id, sandbox_token, networking, credentials)
-            .await
+async fn delete_network_policy_by_name(
+    namespace: &str,
+    client_cell: &OnceCell<Result<Client, String>>,
+    name: &str,
+) -> anyhow::Result<()> {
+    let client = native_k8s_client(client_cell).await?;
+    let policies: Api<NetworkPolicy> = Api::namespaced(client, namespace);
+    match policies.delete(name, &DeleteParams::default()).await {
+        Ok(_) => Ok(()),
+        Err(kube::Error::Api(error)) if error.code == 404 => Ok(()),
+        Err(error) => Err(error.into()),
     }
+}
 
-    async fn teardown(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        self.manager.teardown_for_sandbox(sandbox_id).await
+fn stale_network_policy_name(
+    policy: &NetworkPolicy,
+    live_limited_sandboxes: &BTreeSet<Uuid>,
+) -> Option<String> {
+    let labels = policy.metadata.labels.as_ref()?;
+    let sandbox_id = labels.get("joysafeter.sandbox_id")?;
+    let sandbox_id = Uuid::parse_str(sandbox_id).ok()?;
+    if live_limited_sandboxes.contains(&sandbox_id) {
+        return None;
     }
-
-    async fn recover(&self, pool: &PgPool) -> anyhow::Result<()> {
-        let sandboxes = queries::list_live_sandboxes_for_recovery(pool).await?;
-        let mut recovered = 0usize;
-        let mut skipped = 0usize;
-        for sandbox in &sandboxes {
-            let Some(networking) = recovery_networking(sandbox) else {
-                skipped += 1;
-                continue;
-            };
-            let Some(runner_token) = runner_token_from_sandbox_config(sandbox.config.as_ref())
-            else {
-                skipped += 1;
-                warn!(
-                    sandbox_id = %sandbox.id,
-                    "Skipping K8s egress recovery because sandbox config has no runner token"
-                );
-                continue;
-            };
-
-            let network_policy = self.build_network_policy(sandbox.id)?;
-            self.kubectl_apply(&network_policy).await?;
-            let credentials =
-                rebuild_sandbox_credentials(pool, sandbox, &self.llm_egress_allowed_hosts).await;
-            // Make these routes resolvable by the /resolve data plane after a
-            // restart (same install the create path does), reusing this rebuild
-            // rather than a second recovery pass.
-            crate::kernel::credential_resolution::global_resolution_registry()
-                .install(sandbox.id, &credentials.routes);
-            self.manager
-                .setup_for_sandbox(sandbox.id, runner_token, Some(networking), credentials)
-                .await?;
-            recovered += 1;
-        }
-
-        info!(
-            recovered_sandboxes = recovered,
-            skipped_sandboxes = skipped,
-            total_live = sandboxes.len(),
-            "K8s egress manager recovered sandbox policies from DB"
-        );
-        Ok(())
-    }
+    policy.metadata.name.clone()
 }
 
 // =====================================================================
@@ -899,32 +774,18 @@ mod tests {
         assert_eq!(preparer.kind_label(), "k8s-envoy");
     }
 
-    fn gateway_enforcer_from(config: &JoySafeterConfig) -> Option<GatewayEnforcer> {
-        GatewayEnforcer::from_config(config).expect("from_config")
-    }
-
-    fn enabled_gateway_config() -> JoySafeterConfig {
+    fn base_k8s_config() -> JoySafeterConfig {
         let mut config = JoySafeterConfig::from_env();
         config.k8s_namespace = "joysafeter-sandboxes".to_string();
-        config.k8s_kubectl_path = "kubectl".to_string();
         config.k8s_orchestrator_url = Some(
             "http://joysafeter-orchestrator.joysafeter-control.svc.cluster.local:9090".to_string(),
         );
-        config.egress_gateway_url =
-            Some("http://joysafeter-egress-gateway.joysafeter-control.svc:8088".to_string());
-        config.egress_gateway_control_token = Some("control-token".to_string());
         config.k8s_egress_management_enabled = true;
         config
     }
 
-    fn gateway_config_without_enablement() -> JoySafeterConfig {
-        let mut config = enabled_gateway_config();
-        config.k8s_egress_management_enabled = false;
-        config
-    }
-
     fn enabled_envoy_config() -> JoySafeterConfig {
-        let mut config = enabled_gateway_config();
+        let mut config = base_k8s_config();
         config.egress_policy_authority_enabled = true;
         config.egress_envoy_credential_url = Some(
             "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443".to_string(),
@@ -936,53 +797,13 @@ mod tests {
     }
 
     #[test]
-    fn gateway_enforcer_from_config_requires_enablement_and_targets() {
-        assert!(gateway_enforcer_from(&gateway_config_without_enablement()).is_none());
+    fn k8s_without_durable_authority_has_no_enforcer() {
+        let mut config = base_k8s_config();
+        config.egress_policy_authority_enabled = false;
 
-        gateway_enforcer_from(&enabled_gateway_config())
-            .expect("enabled gateway yields an enforcer");
-    }
-
-    #[test]
-    fn gateway_enforcer_network_policy_allows_only_dns_orchestrator_and_gateway() {
-        let sandbox_id =
-            Uuid::parse_str("018ff000-0000-7000-8000-000000000023").expect("valid uuid");
-        let enforcer =
-            gateway_enforcer_from(&enabled_gateway_config()).expect("enabled gateway enforcer");
-
-        let policy = enforcer
-            .build_network_policy(sandbox_id)
-            .expect("network policy");
-        let rendered = serde_json::to_string(&policy).expect("policy json");
-
-        assert_eq!(
-            policy
-                .pointer("/apiVersion")
-                .and_then(|value| value.as_str()),
-            Some("networking.k8s.io/v1")
-        );
-        assert_eq!(
-            policy.pointer("/kind").and_then(|value| value.as_str()),
-            Some("NetworkPolicy")
-        );
-        assert_eq!(
-            policy
-                .pointer("/spec/podSelector/matchLabels/joysafeter.sandbox_id")
-                .and_then(|value| value.as_str()),
-            Some("018ff000-0000-7000-8000-000000000023")
-        );
-        assert_eq!(
-            policy
-                .pointer("/spec/egress")
-                .and_then(|value| value.as_array())
-                .map(Vec::len),
-            Some(3)
-        );
-        assert!(rendered.contains("kube-system"));
-        assert!(rendered.contains("joysafeter-orchestrator"));
-        assert!(rendered.contains("joysafeter-egress-gateway"));
-        assert!(!rendered.contains("ai-api.jdcloud.com"));
-        assert!(!rendered.contains("api.anthropic.com"));
+        assert!(build_enforcer(&config, "k8s", None)
+            .expect("build_enforcer")
+            .is_none());
     }
 
     #[test]
@@ -1006,24 +827,109 @@ mod tests {
         assert!(rendered.contains("joysafeter-egress-envoy"));
         assert!(rendered.contains("8443"));
         assert!(rendered.contains("8080"));
-        assert!(!rendered.contains("joysafeter-egress-gateway"));
         assert!(!rendered.contains("0.0.0.0/0"));
+
+        let service_names: Vec<&str> = policy
+            .pointer("/spec/egress")
+            .and_then(|value| value.as_array())
+            .expect("egress rules")
+            .iter()
+            .skip(1)
+            .map(|rule| {
+                rule.pointer("/to/0/podSelector/matchLabels/app.kubernetes.io~1name")
+                    .and_then(Value::as_str)
+                    .expect("service selector")
+            })
+            .collect();
+        assert_eq!(
+            service_names,
+            vec![
+                "joysafeter-orchestrator",
+                "joysafeter-egress-envoy",
+                "joysafeter-egress-envoy"
+            ]
+        );
     }
 
     #[test]
     fn k8s_runtime_apply_uses_server_side_apply_without_last_applied_annotation() {
-        let args = GatewayEnforcer::kubectl_apply_args();
+        let params = network_policy_apply_params();
 
-        assert!(args.contains(&"--server-side"));
-        assert!(args.contains(&"--field-manager=joysafeter-orchestrator"));
-        assert!(!args.contains(&"--save-config"));
-        assert!(!args.contains(&"--record"));
+        assert_eq!(params.field_manager.as_deref(), Some(K8S_FIELD_MANAGER));
+        assert!(params.force);
+
+        let policy = K8sEnvoyNetworkPreparer::from_config(&enabled_envoy_config())
+            .expect("from config")
+            .expect("preparer enabled")
+            .build_network_policy(Uuid::now_v7());
+        assert!(policy.pointer("/metadata/annotations").is_none());
+    }
+
+    #[test]
+    fn k8s_enforcer_source_has_no_cli_runtime_path() {
+        let source = include_str!("enforcer.rs");
+        assert!(!source.contains(&["kube", "ctl"].concat()));
+        assert!(!source.contains(concat!("Command", "::", "new")));
+    }
+
+    #[test]
+    fn stale_network_policy_pruning_only_targets_non_live_labeled_policies() {
+        use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+        use std::collections::BTreeMap;
+
+        fn policy(name: &str, sandbox_id: Option<String>) -> NetworkPolicy {
+            let labels = sandbox_id.map(|sandbox_id| {
+                BTreeMap::from([("joysafeter.sandbox_id".to_string(), sandbox_id)])
+            });
+            NetworkPolicy {
+                metadata: ObjectMeta {
+                    name: Some(name.to_string()),
+                    labels,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        }
+
+        let live = Uuid::parse_str("018ff000-0000-7000-8000-000000000026").unwrap();
+        let dead = Uuid::parse_str("018ff000-0000-7000-8000-000000000027").unwrap();
+        let live_limited_sandboxes = BTreeSet::from([live]);
+
+        assert_eq!(
+            stale_network_policy_name(
+                &policy("joysafeter-egress-live", Some(live.to_string())),
+                &live_limited_sandboxes,
+            ),
+            None,
+            "live limited-networking policy must not be pruned"
+        );
+        assert_eq!(
+            stale_network_policy_name(
+                &policy("joysafeter-egress-dead", Some(dead.to_string())),
+                &live_limited_sandboxes,
+            ),
+            Some("joysafeter-egress-dead".to_string()),
+            "non-live labeled policy is platform-owned stale state"
+        );
+        assert_eq!(
+            stale_network_policy_name(&policy("missing-label", None), &live_limited_sandboxes),
+            None,
+            "policies without a sandbox label are left untouched"
+        );
+        assert_eq!(
+            stale_network_policy_name(
+                &policy("bad-label", Some("not-a-uuid".to_string())),
+                &live_limited_sandboxes,
+            ),
+            None,
+            "invalid sandbox labels are not deleted blindly"
+        );
     }
 
     #[test]
     fn k8s_service_target_parses_in_cluster_service_dns() {
         let target = k8s_service_target_from_url(
-            "http://joysafeter-egress-gateway.joysafeter-control.svc.cluster.local:8088",
+            "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443",
             "joysafeter-sandboxes",
         )
         .expect("service target");
@@ -1031,9 +937,9 @@ mod tests {
         assert_eq!(
             target,
             K8sServiceTarget {
-                service_name: "joysafeter-egress-gateway".to_string(),
-                namespace: "joysafeter-control".to_string(),
-                port: 8088,
+                service_name: "joysafeter-egress-envoy".to_string(),
+                namespace: "joysafeter-egress".to_string(),
+                port: 8443,
             }
         );
     }
@@ -1071,18 +977,5 @@ mod tests {
 
         assert!(recovery_networking(&limited).is_some());
         assert!(recovery_networking(&unrestricted).is_none());
-    }
-
-    #[test]
-    fn k8s_recovery_requires_non_empty_runner_token() {
-        let good = json!({ "runner_token": "runner-token" });
-        let empty = json!({ "runner_token": " " });
-
-        assert_eq!(
-            runner_token_from_sandbox_config(Some(&good)),
-            Some("runner-token")
-        );
-        assert_eq!(runner_token_from_sandbox_config(Some(&empty)), None);
-        assert_eq!(runner_token_from_sandbox_config(None), None);
     }
 }
