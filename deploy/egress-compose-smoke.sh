@@ -148,10 +148,13 @@ for _ in $(seq 1 "$WAIT_SECONDS"); do
   if [ -n "$SID" ] && [ "$SID" != "None" ]; then SANDBOX_ID="$SID"; break; fi
   if [ "$ST" = "failed" ]; then
     ERR="$(printf '%s' "$R" | json_get data.error)"
-    # A model-call failure AFTER egress apply is acceptable (mock is not a real
-    # model); an EGRESS_POLICY_APPLY_TIMEOUT is a control-plane failure.
+    # A model-call failure AFTER a successful egress apply is acceptable (the
+    # mock is not a real model). But ANY control-plane apply failure
+    # (APPLY_TIMEOUT / APPLY_FAILED / an Envoy NACK) is a real defect and must
+    # be fatal — otherwise the smoke silently "passes" over a broken egress path.
     case "$ERR" in
-      *EGRESS_POLICY_APPLY_TIMEOUT*) die "control-plane apply failed: $ERR" ;;
+      *EGRESS_POLICY_APPLY_TIMEOUT*|*EGRESS_POLICY_APPLY_FAILED*|*ENVOY_NACK*)
+        die "control-plane egress apply failed (NOT a mock-model issue): $ERR" ;;
       *) warn "task failed (expected — mock upstream is not a real model): $ERR" ;;
     esac
   fi

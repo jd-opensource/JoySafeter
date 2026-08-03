@@ -54,30 +54,12 @@ services:
     networks:
       - joysafeter-network
 
-  # Controller reads the REAL Postgres desired-state (not the file snapshot).
-  # On Docker's isolated bridge the ext_authz plane is PLAINTEXT (like XDS),
-  # pointing at the orchestrator's ext_authz server — the K8s defaults reference
-  # mTLS cert paths that do not exist in the Docker Envoy, which Envoy NACKs.
-  joysafeter-egress-controller:
-    environment:
-      JOYSAFETER_EGRESS_CONTROLLER_SOURCE: postgres
-      JOYSAFETER_EGRESS_AUTHZ_HOST: joysafeter-orchestrator
-      JOYSAFETER_EGRESS_AUTHZ_PORT: "18090"
-      JOYSAFETER_EGRESS_AUTHZ_MTLS: "false"
-
-  # Orchestrator drives the durable authority + points Docker Envoy at the
-  # controller + runs the ext_authz credential server (plaintext on the bridge).
+  # Orchestrator: the two-plane controller-mode egress wiring (XDS controller
+  # mode, durable authority, plaintext ext_authz bind on :18090, docker-local
+  # host id) now lives in the BASE docker-compose.yml common-env and is the
+  # single source of truth. The only smoke-specific override is redirecting the
+  # platform LLM allowlist at the mock upstream so extract_llm_egress injects the
+  # (dummy) platform credential toward the mock instead of the real model host.
   orchestrator-rs:
     environment:
-      JOYSAFETER_ENVOY_XDS_MODE: controller
-      JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED: "true"
-      JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST: joysafeter-egress-controller
-      JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT: "18000"
-      JOYSAFETER_EGRESS_POLICY_HOST_ID: docker-local
-      JOYSAFETER_EGRESS_AUTHZ_BIND: 0.0.0.0:18090
-      JOYSAFETER_EGRESS_AUTHZ_MTLS: "false"
-      # Platform allowlist of model hosts eligible for credential injection —
-      # distinct from an Environment's networking allowed_hosts. The mock
-      # upstream must be here or extract_llm_egress skips injection and leaves
-      # the sandbox pointed at the raw upstream.
       JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: joysafeter-egress-mock-upstream

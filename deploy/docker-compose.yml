@@ -103,6 +103,19 @@ services:
       JOYSAFETER_EGRESS_CONTROLLER_SNAPSHOT_FILE: /etc/joysafeter-egress-controller/snapshots.json
       JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-joysafeter}?sslmode=disable
       JOYSAFETER_EGRESS_XDS_MTLS: "false"
+      # ext_authz data-plane (Envoy -> orchestrator credential injection). On the
+      # Docker bridge this plane is PLAINTEXT and targets the orchestrator's
+      # dedicated ext_authz server (JOYSAFETER_EGRESS_AUTHZ_BIND below). The
+      # compiled-in defaults are the K8s values (svc DNS + 18090 + mTLS cert
+      # paths under /var/run/joysafeter-egress/authz-tls) which do NOT exist in
+      # the Docker Envoy — without these overrides Envoy NACKs the
+      # joysafeter_egress_authz cluster and every task fails EGRESS_POLICY_APPLY.
+      JOYSAFETER_EGRESS_AUTHZ_HOST: ${JOYSAFETER_EGRESS_AUTHZ_HOST:-joysafeter-orchestrator}
+      JOYSAFETER_EGRESS_AUTHZ_PORT: ${JOYSAFETER_EGRESS_AUTHZ_PORT:-18090}
+      JOYSAFETER_EGRESS_AUTHZ_MTLS: ${JOYSAFETER_EGRESS_AUTHZ_MTLS:-false}
+      # Downstream (sandbox -> Envoy) is a per-sandbox unix socket on Docker, so
+      # the listener is plaintext; the mTLS default references K8s-only certs.
+      JOYSAFETER_EGRESS_DOWNSTREAM_TLS: ${JOYSAFETER_EGRESS_DOWNSTREAM_TLS:-false}
     volumes:
       - ../egress-controller/config/snapshots.example.json:/etc/joysafeter-egress-controller/snapshots.json:ro
     expose:
@@ -261,6 +274,13 @@ services:
       JOYSAFETER_GRPC_HOST: 0.0.0.0
       JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
       JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
+      # Dedicated Envoy ext_authz credential server. Plaintext on the Docker
+      # bridge; the egress-controller points the joysafeter_egress_authz cluster
+      # here (JOYSAFETER_EGRESS_AUTHZ_HOST/PORT on that service). mTLS defaults
+      # to true (K8s), so it MUST be disabled here or the server refuses to start
+      # looking for K8s-only certs under /var/run/joysafeter-egress/authz-server-tls.
+      JOYSAFETER_EGRESS_AUTHZ_BIND: ${JOYSAFETER_EGRESS_AUTHZ_BIND:-0.0.0.0:18090}
+      JOYSAFETER_EGRESS_AUTHZ_MTLS: ${JOYSAFETER_EGRESS_AUTHZ_MTLS:-false}
     ports:
       - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
     depends_on:
