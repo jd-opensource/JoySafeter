@@ -12,6 +12,8 @@ from app.everos.memory.cascade.duplicate_entries import repair_duplicate_entries
 from app.everos.memory.cascade.handlers.base import HandlerDeps
 from app.everos.memory.cascade.handlers.episode import EpisodeHandler
 
+pytestmark = pytest.mark.no_db
+
 
 def _entry(entry_id: str, *, content: str, timestamp: str = "2026-07-15T12:00:00+00:00") -> str:
     return "\n".join(

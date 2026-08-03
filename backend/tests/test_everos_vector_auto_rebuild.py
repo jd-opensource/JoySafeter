@@ -1,10 +1,14 @@
 import datetime as dt
 
+import pytest
+
 from app.everos.memory.cascade.vector_embedding import VECTOR_DIM
 from app.everos.memory.vector_auto_rebuild import (
     VectorFallbackRebuildWorker,
     VectorRebuildSpec,
 )
+
+pytestmark = pytest.mark.no_db
 
 
 class _Embedder:

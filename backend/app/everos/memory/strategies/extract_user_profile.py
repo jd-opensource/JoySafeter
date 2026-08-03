@@ -46,6 +46,7 @@ from app.everos.infra.persistence.markdown import (
 from app.everos.infra.persistence.sqlite import cluster_repo, memcell_repo
 from app.everos.memory._partition_locks import get_partition_lock
 from app.everos.memory.events import ProfileClusterUpdated
+from app.everos.memory.language_policy import ensure_chinese_memory_llm
 
 logger = get_logger(__name__)
 
@@ -165,7 +166,7 @@ async def extract_user_profile(
 
         # 5. Run the LLM extractor — INIT (no prior) or UPDATE (existing).
         old_profile = _to_algo_profile(existing[0]) if existing else None
-        extractor = ProfileExtractor(llm=get_llm_client())
+        extractor = ProfileExtractor(llm=ensure_chinese_memory_llm(get_llm_client()))
         new_profile = await extractor.aextract(
             algo_memcells, sender_id=event.owner_id, old_profile=old_profile
         )

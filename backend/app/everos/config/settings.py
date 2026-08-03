@@ -127,11 +127,13 @@ class LLMSettings(BaseModel):
         EVEROS_LLM__MODEL
         EVEROS_LLM__API_KEY
         EVEROS_LLM__BASE_URL
+        EVEROS_LLM__TIMEOUT_SECONDS
     """
 
     model: str = "gpt-4.1-mini"
     api_key: SecretStr | None = None
     base_url: str | None = None
+    timeout_seconds: float = Field(default=60.0, gt=0)
 
 
 class MultimodalSettings(BaseModel):
@@ -200,7 +202,8 @@ class RerankSettings(BaseModel):
     with ``{model, query, documents}``, DashScope (Aliyun Bailian)
     ``gte-rerank-v2`` uses ``POST {base_url}/api/v1/services/rerank/
     text-rerank/text-rerank`` with a nested ``{model, input, parameters}``
-    body. ``provider`` picks which client implementation the factory builds.
+    body, and DashScope compatible mode uses ``POST {base_url}/reranks``.
+    ``provider`` picks which client implementation the factory builds.
 
     ``provider`` defaults to ``None`` — the factory then infers it from
     the ``base_url`` host (e.g. ``dashscope.aliyuncs.com`` → DashScope,
@@ -219,7 +222,9 @@ class RerankSettings(BaseModel):
         EVEROS_RERANK__MAX_CONCURRENT
     """
 
-    provider: Literal["deepinfra", "vllm", "dashscope"] | None = None
+    provider: Literal[
+        "deepinfra", "vllm", "dashscope", "dashscope_compatible"
+    ] | None = None
     model: str | None = None
     api_key: SecretStr | None = None
     base_url: str | None = None
@@ -296,9 +301,19 @@ class SearchSettings(BaseModel):
 
     Env binding:
         EVEROS_SEARCH__VECTOR_STRATEGY={episode,maxsim_atomic}
+        EVEROS_SEARCH__VECTOR_AUTO_REBUILD_ENABLED
+        EVEROS_SEARCH__VECTOR_AUTO_REBUILD_INTERVAL_SECONDS
+        EVEROS_SEARCH__VECTOR_AUTO_REBUILD_INITIAL_DELAY_SECONDS
+        EVEROS_SEARCH__VECTOR_AUTO_REBUILD_BATCH_SIZE
+        EVEROS_SEARCH__VECTOR_AUTO_REBUILD_FAILURE_COOLDOWN_SECONDS
     """
 
     vector_strategy: Literal["episode", "maxsim_atomic"] = "maxsim_atomic"
+    vector_auto_rebuild_enabled: bool = True
+    vector_auto_rebuild_interval_seconds: float = Field(default=300.0, gt=0)
+    vector_auto_rebuild_initial_delay_seconds: float = Field(default=30.0, ge=0)
+    vector_auto_rebuild_batch_size: int = Field(default=100, ge=1)
+    vector_auto_rebuild_failure_cooldown_seconds: float = Field(default=600.0, gt=0)
 
 
 class LanceDBSettings(BaseModel):

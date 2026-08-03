@@ -30,26 +30,36 @@ from .project import IncompatibleProjectLLMSecretError as IncompatibleProjectLLM
 from .project import ProjectLLMCredential as ProjectLLMCredential
 from .project import clear_project_llm_client_cache as clear_project_llm_client_cache
 from .project import get_project_llm_client as get_project_llm_client
+from .project import get_project_multimodal_llm_client as get_project_multimodal_llm_client
 from .protocol import ChatMessage as ChatMessage
 from .protocol import ChatResponse as ChatResponse
 from .protocol import LLMClient as LLMClient
 from .protocol import LLMError as LLMError
 from .protocol import Usage as Usage
+from .structured import JSONRepairingLLMClient as JSONRepairingLLMClient
+from .structured import SchemaBoundLLMClient as SchemaBoundLLMClient
+from .structured import bind_json_schema as bind_json_schema
+from .structured import ensure_json_repairing_llm as ensure_json_repairing_llm
 
 __all__ = [
     "ChatMessage",
     "ChatResponse",
     "AnthropicProvider",
     "IncompatibleProjectLLMSecretError",
+    "JSONRepairingLLMClient",
     "LLMClient",
     "LLMError",
     "LLMNotConfiguredError",
     "OpenAIProvider",
     "ProjectLLMCredential",
+    "SchemaBoundLLMClient",
     "Usage",
+    "bind_json_schema",
     "build_llm_provider",
     "clear_project_llm_client_cache",
+    "ensure_json_repairing_llm",
     "get_llm_client",
     "get_multimodal_llm_client",
     "get_project_llm_client",
+    "get_project_multimodal_llm_client",
 ]

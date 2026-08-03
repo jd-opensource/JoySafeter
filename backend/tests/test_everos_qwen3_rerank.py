@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from app.everos.component.rerank.factory import build_rerank_provider
 from app.everos.config import RerankSettings
+
+pytestmark = pytest.mark.no_db
 
 
 class _FakeResponse:

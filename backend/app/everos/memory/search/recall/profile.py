@@ -29,18 +29,38 @@ logger = get_logger(__name__)
 class ProfileRecaller:
     """Fetch the owner's profile row from LanceDB, return at most one item."""
 
-    async def fetch(self, owner_id: str) -> list[SearchProfileItem]:
+    async def fetch(
+        self,
+        owner_id: str,
+        *,
+        app_id: str,
+        project_id: str,
+    ) -> list[SearchProfileItem]:
         """Return ``[item]`` if a profile row exists, otherwise ``[]``.
 
         Empty list (rather than 404) lets the caller emit a normal
         response with ``profiles=[]`` while the user is still in their
         cold-start window (no profile synthesised yet).
+
+        Scoped by ``(app_id, project_id, owner_id)`` — the same user id
+        can own a profile in more than one project, so the lookup must
+        disambiguate on the full owner scope (mirrors
+        ``GetManager._fetch_profile``).
         """
         if not owner_id:
             return []
-        row = await user_profile_repo.get_by_id(owner_id)
+        row = await user_profile_repo.find_by_owner_scope(
+            owner_id,
+            app_id=app_id,
+            project_id=project_id,
+        )
         if row is None:
-            logger.debug("profile_fetch_miss", owner_id=owner_id)
+            logger.debug(
+                "profile_fetch_miss",
+                owner_id=owner_id,
+                app_id=app_id,
+                project_id=project_id,
+            )
             return []
         profile_data: dict[str, Any] = {
             "summary": row.summary,

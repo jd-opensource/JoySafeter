@@ -4,6 +4,7 @@ Hard partition by ``(owner_type, memory_type)`` (validated by
 :class:`GetRequest`):
 
 * ``user`` + ``episode``       → ``data.episodes``
+* ``user`` + ``atomic_fact``   → ``data.atomic_facts``
 * ``user`` + ``profile``       → ``data.profiles`` (one-row KV fetch
   from the ``user_profile`` table; at most one item)
 * ``agent`` + ``agent_case``   → ``data.agent_cases``
@@ -27,6 +28,7 @@ from app.everos.core.observability.tracing import gen_request_id
 from .dto import (
     GetAgentCaseItem,
     GetAgentSkillItem,
+    GetAtomicFactItem,
     GetData,
     GetEpisodeItem,
     GetMemoryType,
@@ -41,6 +43,7 @@ if TYPE_CHECKING:
     from app.everos.infra.persistence.lancedb import (
         AgentCase,
         AgentSkill,
+        AtomicFact,
         Episode,
         UserProfile,
     )
@@ -56,11 +59,13 @@ class GetManager:
         self,
         *,
         episode_repo: LanceRepoBase[Episode],
+        atomic_fact_repo: LanceRepoBase[AtomicFact],
         agent_case_repo: LanceRepoBase[AgentCase],
         agent_skill_repo: LanceRepoBase[AgentSkill],
         user_profile_repo: LanceRepoBase[UserProfile],
     ) -> None:
         self._ep = episode_repo
+        self._fact = atomic_fact_repo
         self._case = agent_case_repo
         self._skill = agent_skill_repo
         self._profile = user_profile_repo
@@ -76,7 +81,10 @@ class GetManager:
             owner_type=req.owner_type,
             app_id=req.app_id,
             project_id=req.project_id,
-            exclude_deprecated=req.memory_type == GetMemoryType.EPISODE,
+            exclude_deprecated=req.memory_type in {
+                GetMemoryType.EPISODE,
+                GetMemoryType.ATOMIC_FACT,
+            },
         )
 
         match req.memory_type:
@@ -94,8 +102,22 @@ class GetManager:
                     total_count=total,
                     count=len(items),
                 )
+            case GetMemoryType.ATOMIC_FACT:
+                rows, total = await self._fact.find_where_paginated(
+                    where,
+                    sort_by=req.sort_by,
+                    descending=descending,
+                    page=req.page,
+                    page_size=req.page_size,
+                )
+                items = [self._shape_atomic_fact(r) for r in rows]
+                data = GetData(
+                    atomic_facts=items,
+                    total_count=total,
+                    count=len(items),
+                )
             case GetMemoryType.PROFILE:
-                profiles = await self._fetch_profile(req.owner_id)
+                profiles = await self._fetch_profile(req)
                 data = GetData(
                     profiles=profiles,
                     total_count=len(profiles),
@@ -142,16 +164,38 @@ class GetManager:
     def _shape_episode(row: Episode) -> GetEpisodeItem:
         return GetEpisodeItem(
             id=row.id,
+            entry_id=row.entry_id,
+            user_id=row.owner_id,
+            app_id=row.app_id,
+            project_id=row.project_id,
+            session_id=row.session_id,
+            parent_type=row.parent_type,
+            parent_id=row.parent_id,
+            timestamp=to_display_tz(row.timestamp),
+            sender_ids=row.sender_ids,
+            source_entry_ids=getattr(row, "source_entry_ids", []),
+            source_session_ids=getattr(row, "source_session_ids", []),
+            source_agent_ids=getattr(row, "source_agent_ids", []),
+            summary=row.summary or "",
+            subject=row.subject or "",
+            episode=row.episode,
+            type="Conversation",
+        )
+
+    @staticmethod
+    def _shape_atomic_fact(row: AtomicFact) -> GetAtomicFactItem:
+        return GetAtomicFactItem(
+            id=row.id,
+            entry_id=row.entry_id,
             user_id=row.owner_id,
             app_id=row.app_id,
             project_id=row.project_id,
             session_id=row.session_id,
             timestamp=to_display_tz(row.timestamp),
+            parent_type=row.parent_type,
+            parent_id=row.parent_id,
             sender_ids=row.sender_ids,
-            summary=row.summary or "",
-            subject=row.subject or "",
-            episode=row.episode,
-            type="Conversation",
+            fact=row.fact,
         )
 
     @staticmethod
@@ -186,7 +230,7 @@ class GetManager:
 
     # ── Profile ──────────────────────────────────────────────────────
 
-    async def _fetch_profile(self, owner_id: str) -> list[GetProfileItem]:
+    async def _fetch_profile(self, req: GetRequest) -> list[GetProfileItem]:
         """Fetch the owner's single profile row from the ``user_profile``
         LanceDB table (kept in sync with ``users/<id>/user.md`` by cascade).
 
@@ -196,11 +240,20 @@ class GetManager:
         Empty list (not 404) keeps the response valid during the cold-start
         window before a profile has been synthesised.
         """
-        if not owner_id:
+        if not req.owner_id:
             return []
-        row = await self._profile.get_by_id(owner_id)
+        row = await self._profile.find_by_owner_scope(
+            req.owner_id,
+            app_id=req.app_id,
+            project_id=req.project_id,
+        )
         if row is None:
-            logger.debug("get_profile_miss", owner_id=owner_id)
+            logger.debug(
+                "get_profile_miss",
+                owner_id=req.owner_id,
+                app_id=req.app_id,
+                project_id=req.project_id,
+            )
             return []
         profile_data: dict[str, object] = {
             "summary": row.summary,

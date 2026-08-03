@@ -154,9 +154,11 @@ impl HarnessInputBuilder {
             .to_string();
 
         let everos_base_url = resolve_everos_base_url(&input.env);
-        input
-            .env
-            .insert("EVEROS_BASE_URL".to_string(), everos_base_url.clone());
+        let sandbox_everos_base_url = resolve_sandbox_everos_base_url(&everos_base_url, &input.env);
+        input.env.insert(
+            "EVEROS_BASE_URL".to_string(),
+            sandbox_everos_base_url.clone(),
+        );
         let everos_context = match self
             .load_everos_context(task, session.as_ref(), agent.as_ref(), sandbox_external_id)
             .await
@@ -179,7 +181,7 @@ impl HarnessInputBuilder {
         }
         input.system_prompt = Some(append_everos_system_prompt(
             input.system_prompt.take(),
-            &everos_base_url,
+            &sandbox_everos_base_url,
             &everos_context.identity,
             everos_context.active_session_ids.as_deref(),
         ));
@@ -187,6 +189,7 @@ impl HarnessInputBuilder {
             &everos_base_url,
             &everos_context.identity,
             everos_context.active_session_ids.as_deref(),
+            Some(task.prompt.as_str()),
         )
         .await
         {
@@ -1067,12 +1070,9 @@ impl HarnessInputBuilder {
                 anyhow::anyhow!("failed to load memory stores for session {session_id}: {e}")
             })?;
 
-        let mut prompt_parts = vec![
-            "# Memory".to_string(),
-            "The following memory stores are mounted. Use them to persist and retrieve information across sessions.".to_string(),
-            String::new(),
-        ];
-
+        // Memory stores are still mounted into the sandbox (see `memory_mounts`
+        // below), but we no longer inject a `# Memory` section into the system
+        // prompt. Only EverOS guidance remains in the system prompt.
         for store in stores {
             let mount_path = format!("/mnt/memory/{}", store.mount_name);
             let mut files = vec![];
@@ -1099,17 +1099,8 @@ impl HarnessInputBuilder {
                 access: store.access.clone(),
                 files,
             });
-
-            prompt_parts.push(format!("- `{}` (access: {})", mount_path, store.access));
-            if let Some(instructions) = store.instructions.as_deref().filter(|v| !v.is_empty()) {
-                prompt_parts.push(format!("  Instructions: {instructions}"));
-            }
         }
 
-        if input.memory_mounts.is_empty() {
-            return Ok(());
-        }
-        input.memory_system_prompt = Some(prompt_parts.join("\n"));
         Ok(())
     }
 
@@ -1438,16 +1429,18 @@ fn extract_content_text(payload: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
+    use std::{collections::BTreeMap, env};
 
+    use base64::Engine as _;
     use serde_json::json;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
 
     use super::{
         append_everos_system_prompt, build_everos_identity_env, everos_memory_get_url,
-        everos_memory_search_url, format_everos_bootstrap_prompt, resolve_everos_base_url,
-        EverosBootstrapMemories, EVEROS_DEFAULT_BASE_URL,
+        everos_memory_search_url, format_everos_bootstrap_prompt, parse_everos_get_response_items,
+        parse_everos_memory_response_items, resolve_everos_base_url,
+        resolve_sandbox_everos_base_url, EverosBootstrapMemories, EVEROS_DEFAULT_BASE_URL,
     };
     use super::{
         ensure_skill_runtime_ready, extract_content_text, parse_semver, session_container_work_dir,
@@ -1513,6 +1506,179 @@ mod tests {
                 .execute(pool)
                 .await;
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "diagnostic: set JOYSAFETER_DEBUG_TASK_ID and run with --ignored --nocapture"]
+    async fn dump_harness_messages_sent_to_sandbox_for_task() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let task_id = env::var("JOYSAFETER_DEBUG_TASK_ID")
+            .expect("set JOYSAFETER_DEBUG_TASK_ID to the task UUID to inspect");
+        let task_id = Uuid::parse_str(&task_id).expect("JOYSAFETER_DEBUG_TASK_ID must be a UUID");
+        let sandbox_id = env::var("JOYSAFETER_DEBUG_SANDBOX_ID")
+            .ok()
+            .and_then(|value| Uuid::parse_str(&value).ok())
+            .unwrap_or_else(Uuid::now_v7);
+        let timeout_seconds = env::var("JOYSAFETER_DEBUG_TIMEOUT_SECONDS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(7200);
+
+        let task = crate::db::queries::get_task(&pool, task_id)
+            .await
+            .expect("load task")
+            .expect("task exists");
+        let input = HarnessInputBuilder::new(pool.clone())
+            .build(&task, &sandbox_id.to_string(), sandbox_id)
+            .await
+            .expect("build harness input");
+        let setup = HarnessInputBuilder::build_setup_sandbox(&input);
+        let start = HarnessInputBuilder::build_start_task(&input, &task, timeout_seconds);
+
+        let dump = json!({
+            "task_id": task.id.to_string(),
+            "sandbox_id": sandbox_id.to_string(),
+            "setup_sandbox": setup_sandbox_to_json(&setup),
+            "start_task": start_task_to_json(&start),
+        });
+        println!("{}", serde_json::to_string_pretty(&dump).unwrap());
+
+        assert_eq!(start.task_id, task.id.to_string());
+    }
+
+    fn setup_sandbox_to_json(setup: &crate::grpc::proto::SetupSandbox) -> serde_json::Value {
+        json!({
+            "provider": &setup.provider,
+            "model": &setup.model,
+            "work_dir": &setup.work_dir,
+            "permission_mode": &setup.permission_mode,
+            "env": sorted_map_json(&setup.env),
+            "secrets": sorted_map_json(&setup.secrets),
+            "setup_commands": &setup.setup_commands,
+            "memory_system_prompt": &setup.memory_system_prompt,
+            "memory_mounts": setup.memory_mounts.iter().map(memory_mount_to_json).collect::<Vec<_>>(),
+            "files": setup.files.iter().map(file_mount_to_json).collect::<Vec<_>>(),
+            "file_refs": setup.file_refs.iter().map(file_ref_to_json).collect::<Vec<_>>(),
+            "repos": setup.repos.iter().map(repo_to_json).collect::<Vec<_>>(),
+            "mcp_servers": setup.mcp_servers.iter().map(mcp_to_json).collect::<Vec<_>>(),
+            "custom_tools": setup.custom_tools.iter().map(custom_tool_to_json).collect::<Vec<_>>(),
+            "skills": setup.skills.iter().map(skill_to_json).collect::<Vec<_>>(),
+            "allowed_tools": &setup.allowed_tools,
+            "disallowed_tools": &setup.disallowed_tools,
+            "ask_tools": &setup.ask_tools,
+        })
+    }
+
+    fn start_task_to_json(start: &crate::grpc::proto::StartTask) -> serde_json::Value {
+        json!({
+            "task_id": &start.task_id,
+            "provider": &start.provider,
+            "model": &start.model,
+            "prompt": &start.prompt,
+            "system_prompt": &start.system_prompt,
+            "system_prompt_mode": &start.system_prompt_mode,
+            "session_id": &start.session_id,
+            "max_turns": &start.max_turns,
+            "timeout_seconds": start.timeout_seconds,
+            "work_dir": &start.work_dir,
+            "env": sorted_map_json(&start.env),
+            "secrets": sorted_map_json(&start.secrets),
+            "setup_commands": &start.setup_commands,
+            "repos": start.repos.iter().map(repo_to_json).collect::<Vec<_>>(),
+            "mcp_servers": start.mcp_servers.iter().map(mcp_to_json).collect::<Vec<_>>(),
+            "custom_tools": start.custom_tools.iter().map(custom_tool_to_json).collect::<Vec<_>>(),
+            "skills": start.skills.iter().map(skill_to_json).collect::<Vec<_>>(),
+            "allowed_tools": &start.allowed_tools,
+            "disallowed_tools": &start.disallowed_tools,
+            "ask_tools": &start.ask_tools,
+            "memory_mounts": "sent only in SetupSandbox",
+            "files": "sent only in SetupSandbox",
+            "file_refs": "sent only in SetupSandbox",
+        })
+    }
+
+    fn sorted_map_json(map: &HashMap<String, String>) -> serde_json::Value {
+        let sorted: BTreeMap<_, _> = map.iter().map(|(k, v)| (k, v)).collect();
+        json!(sorted)
+    }
+
+    fn mcp_to_json(mcp: &crate::grpc::proto::McpConfig) -> serde_json::Value {
+        json!({
+            "name": &mcp.name,
+            "command": &mcp.command,
+            "args": &mcp.args,
+            "env": sorted_map_json(&mcp.env),
+            "server_type": &mcp.server_type,
+            "url": &mcp.url,
+            "headers": sorted_map_json(&mcp.headers),
+        })
+    }
+
+    fn custom_tool_to_json(tool: &crate::grpc::proto::CustomTool) -> serde_json::Value {
+        json!({
+            "name": &tool.name,
+            "description": &tool.description,
+            "input_schema_json": &tool.input_schema_json,
+        })
+    }
+
+    fn skill_to_json(skill: &crate::grpc::proto::SkillArchive) -> serde_json::Value {
+        json!({
+            "name": &skill.name,
+            "target": &skill.target,
+            "tar_gz_len": skill.tar_gz.len(),
+            "tar_gz_b64": base64::engine::general_purpose::STANDARD.encode(&skill.tar_gz),
+        })
+    }
+
+    fn memory_mount_to_json(mount: &crate::grpc::proto::MemoryStoreMount) -> serde_json::Value {
+        json!({
+            "store_id": &mount.store_id,
+            "mount_name": &mount.mount_name,
+            "mount_path": &mount.mount_path,
+            "access": &mount.access,
+            "files": mount.files.iter().map(memory_file_to_json).collect::<Vec<_>>(),
+        })
+    }
+
+    fn memory_file_to_json(file: &crate::grpc::proto::MemoryFile) -> serde_json::Value {
+        json!({
+            "relative_path": &file.relative_path,
+            "content_len": file.content.len(),
+            "content_utf8_lossy": String::from_utf8_lossy(&file.content),
+            "content_b64": base64::engine::general_purpose::STANDARD.encode(&file.content),
+        })
+    }
+
+    fn file_mount_to_json(file: &crate::grpc::proto::FileMount) -> serde_json::Value {
+        json!({
+            "path": &file.path,
+            "filename": &file.filename,
+            "content_len": file.content.len(),
+            "content_utf8_lossy": String::from_utf8_lossy(&file.content),
+            "content_b64": base64::engine::general_purpose::STANDARD.encode(&file.content),
+        })
+    }
+
+    fn file_ref_to_json(file: &crate::grpc::proto::FileRef) -> serde_json::Value {
+        json!({
+            "path": &file.path,
+            "url": &file.url,
+            "filename": &file.filename,
+            "size_bytes": file.size_bytes,
+        })
+    }
+
+    fn repo_to_json(repo: &crate::grpc::proto::RepoConfig) -> serde_json::Value {
+        json!({
+            "url": &repo.url,
+            "branch": &repo.branch,
+            "path": &repo.path,
+            "authorization_token": &repo.authorization_token,
+            "mount_name": &repo.mount_name,
+        })
     }
 
     #[test]
@@ -1659,6 +1825,36 @@ mod tests {
     }
 
     #[test]
+    fn everos_sandbox_base_url_rewrites_authority_to_egress_host() {
+        let env = HashMap::new();
+        // Compose alias / host-gateway / any authority all collapse to the Envoy
+        // egress placeholder host, preserving the memory-proxy path.
+        assert_eq!(
+            resolve_sandbox_everos_base_url("http://api:8000/api/v1/everos_memory/", &env),
+            "http://everos-egress.internal/api/v1/everos_memory"
+        );
+        assert_eq!(
+            resolve_sandbox_everos_base_url(
+                "http://joysafeter-api:8000/api/v1/everos_memory",
+                &env
+            ),
+            "http://everos-egress.internal/api/v1/everos_memory"
+        );
+        assert_eq!(
+            resolve_sandbox_everos_base_url(
+                "http://host.docker.internal:8010/api/v1/everos_memory",
+                &env
+            ),
+            "http://everos-egress.internal/api/v1/everos_memory"
+        );
+        // A bare base (no memory suffix) still gets normalized then rewritten.
+        assert_eq!(
+            resolve_sandbox_everos_base_url("http://everos:8003", &env),
+            "http://everos-egress.internal/api/v1/memory"
+        );
+    }
+
+    #[test]
     fn everos_system_prompt_is_always_appended() {
         let url = "http://everos:8003";
         let identity = build_everos_identity_env(
@@ -1679,6 +1875,13 @@ mod tests {
         assert!(with_base.contains("`project_id`: `demo-project__proj-123`"));
         assert!(with_base.contains("`user_id`: `Alice_Example`"));
         assert!(with_base.contains("For `/search` or `/get`, include `app_id` and `project_id`"));
+        assert!(
+            with_base.contains("Shell or tool-level HTTP access to this URL can be unavailable")
+        );
+        assert!(with_base.contains(
+            "Do not conclude that EverOS has no memory solely because a shell HTTP request fails"
+        ));
+        assert!(!with_base.contains("The EverOS memory service is available inside this sandbox"));
 
         // With no base prompt, the note stands alone (mirrors Python behavior).
         let without_base = append_everos_system_prompt(None, url, &identity, None);
@@ -1719,6 +1922,96 @@ mod tests {
     }
 
     #[test]
+    fn everos_get_response_parser_accepts_joysafeter_proxy_envelope() {
+        let response = json!({
+            "success": true,
+            "code": 200,
+            "message": "OK",
+            "data": {
+                "request_id": "req-123",
+                "data": {
+                    "episodes": [
+                        {
+                            "id": "episode-1",
+                            "subject": "Prior legal question"
+                        }
+                    ],
+                    "profiles": []
+                }
+            }
+        });
+
+        let episodes = parse_everos_get_response_items(&response, "episodes");
+
+        assert_eq!(episodes.len(), 1);
+        assert_eq!(episodes[0]["id"], "episode-1");
+        assert_eq!(episodes[0]["subject"], "Prior legal question");
+    }
+
+    #[test]
+    fn everos_memory_response_parser_accepts_search_proxy_envelope() {
+        let response = json!({
+            "success": true,
+            "code": 200,
+            "message": "OK",
+            "data": {
+                "request_id": "req-search",
+                "data": {
+                    "episodes": [
+                        {
+                            "id": "episode-search-1",
+                            "subject": "Illegal dismissal arbitration",
+                            "score": 0.91
+                        }
+                    ],
+                    "profiles": [
+                        {
+                            "id": "profile-search-1",
+                            "profile_data": {"summary": "Prefers legal analysis"}
+                        }
+                    ]
+                }
+            }
+        });
+
+        let episodes = parse_everos_memory_response_items(&response, "episodes");
+        let profiles = parse_everos_memory_response_items(&response, "profiles");
+
+        assert_eq!(episodes.len(), 1);
+        assert_eq!(episodes[0]["id"], "episode-search-1");
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0]["id"], "profile-search-1");
+    }
+
+    #[test]
+    fn everos_bootstrap_prompt_omits_unavailable_atomic_fact_get_example() {
+        let identity = build_everos_identity_env(
+            Some("demo-project"),
+            Some("proj-123"),
+            "session-123",
+            Some("user-123"),
+            Some("Alice Example"),
+            "agent-123",
+        );
+        let memories = EverosBootstrapMemories {
+            episodes: vec![json!({
+                "id": "episode-1",
+                "entry_id": "ep_1",
+                "timestamp": 1785436800000_i64,
+                "subject": "Prior legal question",
+                "summary": "User asked about hit-and-run sentencing",
+                "atomic_facts": [{"fact": "User asked about surrender after hit-and-run"}]
+            })],
+            ..Default::default()
+        };
+
+        let prompt = format_everos_bootstrap_prompt(&identity, &memories).expect("bootstrap");
+
+        assert!(prompt.contains("Prior legal question"));
+        assert!(!prompt.contains("\"memory_type\":\"atomic_fact\""));
+    }
+
+    #[test]
     fn everos_bootstrap_prompt_formats_startup_memories() {
         let identity = build_everos_identity_env(
             Some("demo-project"),
@@ -1742,7 +2035,19 @@ mod tests {
                 "summary": "User wants parity with Python memory injection",
                 "atomic_facts": [{"fact": "EverOS should be available through /get and /search"}]
             })],
-            atomic_facts: vec![],
+            recalled_episodes: vec![json!({
+                "id": "episode-search-1",
+                "timestamp": 1785350400000_i64,
+                "subject": "Illegal dismissal arbitration",
+                "summary": "User previously asked about illegal dismissal and labor arbitration",
+                "score": 0.91
+            })],
+            recalled_profiles: vec![json!({
+                "id": "profile-search-1",
+                "profile_data": {
+                    "summary": "Prefers direct implementation plans"
+                }
+            })],
             agent_cases: vec![json!({
                 "id": "case-1",
                 "session_id": "session-123",
@@ -1760,12 +2065,137 @@ mod tests {
         let prompt = format_everos_bootstrap_prompt(&identity, &memories).expect("bootstrap");
 
         assert!(prompt.starts_with("# EverOS Memory Bootstrap"));
+        assert!(prompt.contains(
+            "If these startup memories answer the user's question, use them directly before making any network request"
+        ));
+        assert!(prompt.contains(
+            "Do not tell the user that memory is unavailable solely because a follow-up service request fails"
+        ));
         assert!(prompt.contains("POST `${EVEROS_BASE_URL}/get`"));
         assert!(prompt.contains("POST `${EVEROS_BASE_URL}/search`"));
+        assert!(prompt.contains("Example `/search` bodies"));
+        assert!(prompt.contains("\"top_k\":5"));
+        assert!(prompt.contains("Do not use `query: \"*\"` for recall"));
+        assert!(prompt.contains("do not send `limit` to `/search`"));
         assert!(prompt.contains("Prefers direct implementation plans"));
         assert!(prompt.contains("Rust orchestrator migration"));
+        assert!(prompt.contains("Relevant User Memory Recall"));
+        assert!(prompt.contains("Illegal dismissal arbitration"));
         assert!(prompt.contains("EverOS should be available through /get and /search"));
         assert!(prompt.contains("EverOS recall"));
+    }
+
+    /// End-to-end reconstruction of the system prompt the sandbox engine
+    /// actually receives, mirroring the runner-side combination in
+    /// `sandbox-runner/.../runner.rs` (`memory_system_prompt` + `task.system_prompt`).
+    ///
+    /// After removing the `# Memory` store section, `memory_system_prompt` is
+    /// always `None`, so the engine sees only: base + EverOS Memory Service +
+    /// EverOS Memory Bootstrap.
+    #[test]
+    fn engine_receives_only_everos_system_prompt() {
+        let url = "http://everos:8003";
+        let identity = build_everos_identity_env(
+            Some("demo-project"),
+            Some("proj-123"),
+            "session-123",
+            Some("user-123"),
+            Some("Alice Example"),
+            "agent-123",
+        );
+        let active_session_ids = vec!["session-123".to_string()];
+
+        // Base system prompt (from task.system_prompt or agent.system_prompt).
+        let base = Some("You are a helpful JoySafeter agent.".to_string());
+
+        // Orchestrator step 1: append EverOS Memory Service section.
+        let mut orchestrator_system = append_everos_system_prompt(
+            base.clone(),
+            url,
+            &identity,
+            Some(active_session_ids.as_slice()),
+        );
+
+        // Orchestrator step 2: append EverOS Memory Bootstrap section.
+        let memories = EverosBootstrapMemories {
+            profiles: vec![json!({
+                "id": "profile-1",
+                "profile_data": {
+                    "summary": "Prefers direct implementation plans",
+                    "explicit_info": "Backend engineer working on JoySafeter",
+                    "implicit_traits": "Detail-oriented, verification-driven"
+                }
+            })],
+            episodes: vec![json!({
+                "id": "episode-1",
+                "timestamp": 1785436800000_i64,
+                "subject": "Rust orchestrator migration",
+                "summary": "User wants parity with Python memory injection",
+                "atomic_facts": [
+                    {"fact": "EverOS is reachable via /get and /search"},
+                    {"fact": "Memory store section was removed from the system prompt"}
+                ]
+            })],
+            recalled_profiles: vec![json!({
+                "id": "profile-search-1",
+                "profile_data": {"summary": "Prefers concise, tested changes"}
+            })],
+            recalled_episodes: vec![json!({
+                "id": "episode-search-1",
+                "timestamp": 1785350400000_i64,
+                "subject": "Illegal dismissal arbitration",
+                "summary": "User previously asked about illegal dismissal and labor arbitration",
+                "score": 0.91,
+                "atomic_facts": [{"fact": "Arbitration must precede litigation"}]
+            })],
+            agent_cases: vec![json!({
+                "id": "case-1",
+                "session_id": "session-123",
+                "timestamp": 1785400000000_i64,
+                "task_intent": "restore memory injection",
+                "approach": "port Python bootstrap behavior to Rust",
+                "key_insight": "identity env vars are required for every request",
+                "quality_score": 0.87
+            })],
+            agent_skills: vec![json!({
+                "id": "skill-1",
+                "name": "EverOS recall",
+                "description": "Use owner-scoped memory queries via /get and /search",
+                "confidence": 0.8,
+                "maturity_score": 0.75,
+                "source_case_ids": ["case-1"]
+            })],
+        };
+        if let Some(bootstrap) = format_everos_bootstrap_prompt(&identity, &memories) {
+            orchestrator_system = format!("{orchestrator_system}\n\n{bootstrap}");
+        }
+
+        // Runner-side combination: memory_system_prompt is now always None,
+        // so the engine receives exactly the orchestrator system prompt.
+        let memory_system_prompt: Option<String> = None;
+        let engine_system_prompt = match (&memory_system_prompt, &Some(orchestrator_system.clone()))
+        {
+            (Some(mem), Some(sys)) => format!("{mem}\n\n{sys}"),
+            (Some(mem), None) => mem.clone(),
+            (None, sp) => sp.clone().unwrap_or_default(),
+        };
+
+        // Print the exact text the sandbox engine receives.
+        println!(
+            "\n===== SYSTEM PROMPT RECEIVED BY SANDBOX ENGINE =====\n{engine_system_prompt}\n===== END =====\n"
+        );
+
+        // Structure: base first, then only the two EverOS sections.
+        assert!(engine_system_prompt.starts_with("You are a helpful JoySafeter agent."));
+        assert!(engine_system_prompt.contains("# EverOS Memory Service"));
+        assert!(engine_system_prompt.contains("# EverOS Memory Bootstrap"));
+        // Read guidance is present.
+        assert!(engine_system_prompt.contains("POST `${EVEROS_BASE_URL}/get`"));
+        assert!(engine_system_prompt.contains("POST `${EVEROS_BASE_URL}/search`"));
+        // The deleted memory-store section must NOT appear.
+        assert!(!engine_system_prompt.contains("The following memory stores are mounted"));
+        assert!(!engine_system_prompt.contains("/mnt/memory/"));
+        assert!(!engine_system_prompt.contains("\n# Memory\n"));
     }
 
     #[tokio::test]
@@ -2728,6 +3158,7 @@ const EVEROS_PROJECT_ID_MAX_LENGTH: usize = 128;
 const EVEROS_BOOTSTRAP_TIMEOUT_SECONDS: u64 = 3;
 const EVEROS_BOOTSTRAP_MAX_CHARS: usize = 12_000;
 const EVEROS_BOOTSTRAP_EPISODE_LIMIT: usize = 5;
+const EVEROS_BOOTSTRAP_RECALL_LIMIT: usize = 5;
 const EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT: usize = 5;
 const EVEROS_BOOTSTRAP_AGENT_CASE_LIMIT: usize = 5;
 const EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT: usize = 5;
@@ -2796,7 +3227,8 @@ struct EverosUserIdentity {
 struct EverosBootstrapMemories {
     profiles: Vec<Value>,
     episodes: Vec<Value>,
-    atomic_facts: Vec<Value>,
+    recalled_profiles: Vec<Value>,
+    recalled_episodes: Vec<Value>,
     agent_cases: Vec<Value>,
     agent_skills: Vec<Value>,
 }
@@ -2827,6 +3259,28 @@ fn resolve_everos_base_url(env: &HashMap<String, String>) -> String {
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| EVEROS_DEFAULT_BASE_URL.to_string());
     normalize_everos_memory_base_url(&raw)
+}
+
+/// Rewrite the resolved EverOS proxy base into the sandbox-facing egress URL.
+///
+/// A `network=none` sandbox cannot reach the proxy authority (`api:8000` /
+/// `host.docker.internal`) directly — its only HTTP egress is the per-sandbox
+/// Envoy pipe. We swap the authority for the placeholder host
+/// `everos-egress.internal` (matched by an Envoy egress route that forwards to
+/// the real proxy) while preserving the `/api/v1/everos_memory` path. The route
+/// side is built by `SandboxResolver::build_everos_egress`.
+fn resolve_sandbox_everos_base_url(base: &str, _env: &HashMap<String, String>) -> String {
+    let normalized = normalize_everos_memory_base_url(base);
+    match url::Url::parse(&normalized) {
+        Ok(parsed) => {
+            let path = parsed.path().trim_end_matches('/');
+            format!(
+                "http://{}{path}",
+                crate::sandbox::lds_backend::EVEROS_EGRESS_HOST
+            )
+        }
+        Err(_) => normalized,
+    }
 }
 
 fn is_everos_memory_proxy_base(base: &str) -> bool {
@@ -2892,15 +3346,19 @@ fn append_everos_system_prompt(
     active_session_ids: Option<&[String]>,
 ) -> String {
     let active_session_note = if active_session_ids.is_some() {
-        "\nArchived JoySafeter sessions are inactive for memory. For `episode`, `atomic_fact`, and `agent_case` `/get` or `/search` requests, include a `filters.session_id` constraint using `EVEROS_ACTIVE_SESSION_IDS`; do not retrieve or use memories from sessions outside that list.\n"
+        "\nArchived JoySafeter sessions are inactive for memory. For `episode` and `agent_case` `/get` or `/search` requests, include a `filters.session_id` constraint only when narrowing to specific active sessions. Use `EVEROS_ACTIVE_SESSION_IDS` when you need a session filter; do not use only `EVEROS_SESSION_ID` for previous-conversation recall unless the user specifically asks about the current session.\n"
     } else {
         ""
     };
     let note = format!(
         "# EverOS Memory Service\n\
-         The EverOS memory service is available inside this sandbox at \
-         `{everos_base_url}`. Use it for long-term memory operations when \
-         the task explicitly requires memory search or memory writes.\n\n\
+         The EverOS memory service is configured at `{everos_base_url}` for \
+         long-term memory operations when the task explicitly requires memory \
+         search or memory writes. Shell or tool-level HTTP access to this URL \
+         can be unavailable in some sandbox network modes. Do not conclude \
+         that EverOS has no memory solely because a shell HTTP request fails; \
+         first use any EverOS Memory Bootstrap context already present in this \
+         system prompt.\n\n\
          Use the JoySafeter identity mapping below for every EverOS request:\n\
          - `app_id`: `{}` from `EVEROS_APP_ID`\n\
          - `project_id`: `{}` from `EVEROS_PROJECT_ID`\n\
@@ -2926,8 +3384,16 @@ async fn build_everos_bootstrap_prompt(
     everos_base_url: &str,
     identity: &HashMap<String, String>,
     active_session_ids: Option<&[String]>,
+    recall_query: Option<&str>,
 ) -> Option<String> {
-    match fetch_everos_bootstrap_memories(everos_base_url, identity, active_session_ids).await {
+    match fetch_everos_bootstrap_memories(
+        everos_base_url,
+        identity,
+        active_session_ids,
+        recall_query,
+    )
+    .await
+    {
         Ok(memories) => format_everos_bootstrap_prompt(identity, &memories),
         Err(err) => {
             warn!("Failed to fetch EverOS bootstrap memories: {err}");
@@ -2940,6 +3406,7 @@ async fn fetch_everos_bootstrap_memories(
     everos_base_url: &str,
     identity: &HashMap<String, String>,
     active_session_ids: Option<&[String]>,
+    recall_query: Option<&str>,
 ) -> anyhow::Result<EverosBootstrapMemories> {
     let base_url = everos_base_url.trim_end_matches('/');
     let client = reqwest::Client::builder()
@@ -2953,7 +3420,7 @@ async fn fetch_everos_bootstrap_memories(
     let session_filter = active_session_filter(active_session_ids);
     let mut memories = EverosBootstrapMemories::default();
 
-    memories.profiles = everos_get_items(
+    memories.profiles = everos_get_items_or_empty(
         &client,
         base_url,
         json_merge(
@@ -2967,7 +3434,7 @@ async fn fetch_everos_bootstrap_memories(
         ),
         "profiles",
     )
-    .await?;
+    .await;
 
     let mut episode_payload = json_merge(
         &base_payload,
@@ -2982,32 +3449,26 @@ async fn fetch_everos_bootstrap_memories(
     if let Some(filter) = &session_filter {
         episode_payload["filters"] = filter.clone();
     }
-    memories.episodes = everos_get_items(&client, base_url, episode_payload, "episodes").await?;
-
-    let fact_parent_ids = episode_fact_parent_ids(&memories.episodes);
-    if !fact_parent_ids.is_empty() {
-        let fact_filter = merge_bootstrap_filters(
-            json!({"parent_id": {"in": fact_parent_ids}}),
-            session_filter.clone(),
+    memories.episodes =
+        everos_get_items_or_empty(&client, base_url, episode_payload, "episodes").await;
+    if let Some(query) = recall_query
+        .map(str::trim)
+        .filter(|query| !query.is_empty())
+    {
+        let recall_payload = json_merge(
+            &base_payload,
+            json!({
+                "user_id": everos_identity_value(identity, "EVEROS_USER_ID"),
+                "query": query.chars().take(2000).collect::<String>(),
+                "method": "hybrid",
+                "top_k": EVEROS_BOOTSTRAP_RECALL_LIMIT,
+                "include_profile": true,
+            }),
         );
-        memories.atomic_facts = everos_get_items(
-            &client,
-            base_url,
-            json_merge(
-                &base_payload,
-                json!({
-                    "user_id": everos_identity_value(identity, "EVEROS_USER_ID"),
-                    "memory_type": "atomic_fact",
-                    "page": 1,
-                    "page_size": EVEROS_BOOTSTRAP_EPISODE_LIMIT * EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT,
-                    "sort_by": "timestamp",
-                    "filters": fact_filter,
-                }),
-            ),
-            "atomic_facts",
-        )
-        .await?;
-        attach_atomic_facts_to_episodes(&mut memories.episodes, &memories.atomic_facts);
+        let (profiles, episodes) =
+            everos_search_user_memories_or_empty(&client, base_url, recall_payload).await;
+        memories.recalled_profiles = profiles;
+        memories.recalled_episodes = episodes;
     }
 
     let mut case_payload = json_merge(
@@ -3023,8 +3484,9 @@ async fn fetch_everos_bootstrap_memories(
     if let Some(filter) = &session_filter {
         case_payload["filters"] = filter.clone();
     }
-    memories.agent_cases = everos_get_items(&client, base_url, case_payload, "agent_cases").await?;
-    memories.agent_skills = everos_get_items(
+    memories.agent_cases =
+        everos_get_items_or_empty(&client, base_url, case_payload, "agent_cases").await;
+    memories.agent_skills = everos_get_items_or_empty(
         &client,
         base_url,
         json_merge(
@@ -3039,9 +3501,56 @@ async fn fetch_everos_bootstrap_memories(
         ),
         "agent_skills",
     )
-    .await?;
+    .await;
 
     Ok(memories)
+}
+
+async fn everos_search_user_memories_or_empty(
+    client: &reqwest::Client,
+    base_url: &str,
+    payload: Value,
+) -> (Vec<Value>, Vec<Value>) {
+    match everos_search_user_memories(client, base_url, payload).await {
+        Ok(items) => items,
+        Err(err) => {
+            warn!("Failed to fetch EverOS bootstrap recall: {err}");
+            (Vec::new(), Vec::new())
+        }
+    }
+}
+
+async fn everos_search_user_memories(
+    client: &reqwest::Client,
+    base_url: &str,
+    payload: Value,
+) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
+    let response = client
+        .post(everos_memory_search_url(base_url))
+        .json(&payload)
+        .send()
+        .await?;
+    let response = response.error_for_status()?;
+    let data: Value = response.json().await?;
+    Ok((
+        parse_everos_memory_response_items(&data, "profiles"),
+        parse_everos_memory_response_items(&data, "episodes"),
+    ))
+}
+
+async fn everos_get_items_or_empty(
+    client: &reqwest::Client,
+    base_url: &str,
+    payload: Value,
+    key: &str,
+) -> Vec<Value> {
+    match everos_get_items(client, base_url, payload, key).await {
+        Ok(items) => items,
+        Err(err) => {
+            warn!("Failed to fetch EverOS bootstrap {key}: {err}");
+            Vec::new()
+        }
+    }
 }
 
 async fn everos_get_items(
@@ -3057,12 +3566,24 @@ async fn everos_get_items(
         .await?;
     let response = response.error_for_status()?;
     let data: Value = response.json().await?;
-    Ok(data
-        .get("data")
-        .and_then(|data| data.get(key))
+    Ok(parse_everos_get_response_items(&data, key))
+}
+
+fn parse_everos_get_response_items(data: &Value, key: &str) -> Vec<Value> {
+    parse_everos_memory_response_items(data, key)
+}
+
+fn parse_everos_memory_response_items(data: &Value, key: &str) -> Vec<Value> {
+    data.get("data")
+        .and_then(|inner| {
+            inner
+                .get("data")
+                .and_then(|proxy_data| proxy_data.get(key))
+                .or_else(|| inner.get(key))
+        })
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default())
+        .unwrap_or_default()
 }
 
 fn format_everos_bootstrap_prompt(
@@ -3071,6 +3592,8 @@ fn format_everos_bootstrap_prompt(
 ) -> Option<String> {
     if memories.profiles.is_empty()
         && memories.episodes.is_empty()
+        && memories.recalled_profiles.is_empty()
+        && memories.recalled_episodes.is_empty()
         && memories.agent_cases.is_empty()
         && memories.agent_skills.is_empty()
     {
@@ -3079,7 +3602,8 @@ fn format_everos_bootstrap_prompt(
 
     let mut lines = vec![
         "# EverOS Memory Bootstrap".to_string(),
-        "The following startup memories were loaded for this session as compact context. Treat them as hints, not as exhaustive evidence.".to_string(),
+        "The following startup memories were loaded for this session as compact context. Treat them as available memory evidence for recall questions, while recognizing they may not be exhaustive.".to_string(),
+        "If these startup memories answer the user's question, use them directly before making any network request. Do not tell the user that memory is unavailable solely because a follow-up service request fails.".to_string(),
         format!("- app_id: {}", everos_identity_value(identity, "EVEROS_APP_ID")),
         format!("- project_id: {}", everos_identity_value(identity, "EVEROS_PROJECT_ID")),
         format!("- session_id: {}", everos_identity_value(identity, "EVEROS_SESSION_ID")),
@@ -3087,9 +3611,10 @@ fn format_everos_bootstrap_prompt(
         format!("- agent_id: {}", everos_identity_value(identity, "EVEROS_AGENT_ID")),
         String::new(),
         "When more detail is needed, load the full memory through the EverOS service instead of guessing from this preview:".to_string(),
-        "- Full user episode/profile/fact records: POST `${EVEROS_BASE_URL}/get` with `app_id`, `project_id`, `user_id`, and `memory_type` set to `episode`, `profile`, or `atomic_fact`.".to_string(),
+        "- Full user episode/profile records: POST `${EVEROS_BASE_URL}/get` with `app_id`, `project_id`, `user_id`, and `memory_type` set to `episode` or `profile`.".to_string(),
         "- Full agent case/skill records: POST `${EVEROS_BASE_URL}/get` with `app_id`, `project_id`, `agent_id`, and `memory_type` set to `agent_case` or `agent_skill`.".to_string(),
-        "- For relevance-based lookup, POST `${EVEROS_BASE_URL}/search` with the same ids and a task-specific query, then use `/get` if a full listing is needed.".to_string(),
+        "- For relevance-based lookup, POST `${EVEROS_BASE_URL}/search` with the same ids, a task-specific non-wildcard `query`, and `top_k`; then use `/get` if a full listing is needed.".to_string(),
+        "- Do not use `query: \"*\"` for recall and do not send `limit` to `/search`; `/search` uses `top_k`.".to_string(),
         "- Current `/get` is owner/type paginated; when you already know an id, request a page for that owner/type and match the id in the returned items.".to_string(),
         format!("- Agent skills are loaded progressively: this bootstrap includes up to {EVEROS_BOOTSTRAP_AGENT_SKILL_LIMIT}; use `/get` or `/search` for more."),
         String::new(),
@@ -3099,16 +3624,22 @@ fn format_everos_bootstrap_prompt(
             json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "user_id": everos_identity_value(identity, "EVEROS_USER_ID"), "memory_type": "episode", "page": 1, "page_size": 5, "sort_by": "timestamp", "sort_order": "desc"})
         ),
         format!(
-            "- Atomic facts: {}",
-            json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "user_id": everos_identity_value(identity, "EVEROS_USER_ID"), "memory_type": "atomic_fact", "page": 1, "page_size": 25, "sort_by": "timestamp", "sort_order": "desc", "filters": {"parent_id": "episode_entry_id"}})
-        ),
-        format!(
             "- Agent case: {}",
             json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "agent_id": everos_identity_value(identity, "EVEROS_AGENT_ID"), "memory_type": "agent_case", "page": 1, "page_size": 5, "sort_by": "timestamp", "sort_order": "desc"})
         ),
         format!(
             "- Agent skill: {}",
             json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "agent_id": everos_identity_value(identity, "EVEROS_AGENT_ID"), "memory_type": "agent_skill", "page": 1, "page_size": 5, "sort_by": "updated_at", "sort_order": "desc"})
+        ),
+        String::new(),
+        "Example `/search` bodies:".to_string(),
+        format!(
+            "- User memory search: {}",
+            json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "user_id": everos_identity_value(identity, "EVEROS_USER_ID"), "query": "task-specific recall query", "method": "hybrid", "top_k": 5, "include_profile": true})
+        ),
+        format!(
+            "- Agent memory search: {}",
+            json!({"app_id": everos_identity_value(identity, "EVEROS_APP_ID"), "project_id": everos_identity_value(identity, "EVEROS_PROJECT_ID"), "agent_id": everos_identity_value(identity, "EVEROS_AGENT_ID"), "query": "task-specific recall query", "method": "hybrid", "top_k": 5})
         ),
     ];
 
@@ -3139,6 +3670,51 @@ fn format_everos_bootstrap_prompt(
             .take(EVEROS_BOOTSTRAP_EPISODE_LIMIT)
         {
             lines.push(format!("- id: {}", text_field(episode, "id")));
+            lines.push(format!(
+                "  - timestamp: {}",
+                text_field(episode, "timestamp")
+            ));
+            lines.push(format!("  - subject: {}", text_field(episode, "subject")));
+            lines.push(format!("  - summary: {}", text_field(episode, "summary")));
+            if let Some(facts) = episode.get("atomic_facts").and_then(Value::as_array) {
+                if !facts.is_empty() {
+                    lines.push("  - Related Facts:".to_string());
+                    for fact in facts.iter().take(EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT) {
+                        lines.push(format!("    - {}", text_field(fact, "fact")));
+                    }
+                }
+            }
+        }
+    }
+
+    if !memories.recalled_profiles.is_empty() || !memories.recalled_episodes.is_empty() {
+        lines.extend([
+            String::new(),
+            format!("## Relevant User Memory Recall (top {EVEROS_BOOTSTRAP_RECALL_LIMIT})"),
+        ]);
+        for profile in &memories.recalled_profiles {
+            lines.push(format!("- profile id: {}", text_field(profile, "id")));
+            if let Some(profile_data) = profile.get("profile_data").and_then(Value::as_object) {
+                for key in ["summary", "explicit_info", "implicit_traits"] {
+                    if let Some(value) = profile_data.get(key) {
+                        lines.push(format!("  - {key}: {}", compact_value(value)));
+                    }
+                }
+            }
+        }
+        for episode in memories
+            .recalled_episodes
+            .iter()
+            .take(EVEROS_BOOTSTRAP_RECALL_LIMIT)
+        {
+            lines.push(format!("- episode id: {}", text_field(episode, "id")));
+            lines.push(format!(
+                "  - score: {}",
+                episode
+                    .get("score")
+                    .map(compact_value)
+                    .unwrap_or_else(|| "<missing>".to_string())
+            ));
             lines.push(format!(
                 "  - timestamp: {}",
                 text_field(episode, "timestamp")
@@ -3274,49 +3850,6 @@ fn active_session_filter(active_session_ids: Option<&[String]>) -> Option<Value>
         Some(json!({"session_id": ids[0]}))
     } else {
         Some(json!({"session_id": {"in": ids}}))
-    }
-}
-
-fn merge_bootstrap_filters(primary: Value, session_filter: Option<Value>) -> Value {
-    match session_filter {
-        Some(session_filter) => json!({"AND": [primary, session_filter]}),
-        None => primary,
-    }
-}
-
-fn episode_fact_parent_ids(episodes: &[Value]) -> Vec<Value> {
-    episodes
-        .iter()
-        .filter_map(|episode| {
-            episode
-                .get("id")
-                .cloned()
-                .or_else(|| episode.get("entry_id").cloned())
-        })
-        .collect()
-}
-
-fn attach_atomic_facts_to_episodes(episodes: &mut [Value], facts: &[Value]) {
-    for episode in episodes {
-        let Some(parent_id) = episode
-            .get("id")
-            .or_else(|| episode.get("entry_id"))
-            .and_then(value_as_string)
-        else {
-            continue;
-        };
-        let related: Vec<Value> = facts
-            .iter()
-            .filter(|fact| {
-                fact.get("parent_id").and_then(value_as_string).as_deref()
-                    == Some(parent_id.as_str())
-            })
-            .take(EVEROS_BOOTSTRAP_FACT_PER_EPISODE_LIMIT)
-            .cloned()
-            .collect();
-        if !related.is_empty() {
-            episode["atomic_facts"] = Value::Array(related);
-        }
     }
 }
 

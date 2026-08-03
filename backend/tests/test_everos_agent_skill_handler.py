@@ -1,4 +1,8 @@
+import pytest
+
 from app.everos.memory.cascade.handlers import agent_skill
+
+pytestmark = pytest.mark.no_db
 
 
 class _FailingEmbedder:

@@ -1,6 +1,8 @@
 import datetime as dt
 from dataclasses import dataclass
 
+import pytest
+
 from app.everos.memory.cascade.vector_embedding import (
     FALLBACK_VECTOR_STATUS,
     READY_VECTOR_STATUS,
@@ -9,6 +11,8 @@ from app.everos.memory.cascade.vector_embedding import (
 )
 from app.everos.memory.search.vector_filters import exclude_fallback_vectors
 from app.everos.memory.vector_rebuild import rebuild_fallback_rows
+
+pytestmark = pytest.mark.no_db
 
 
 class _FailingEmbedder:

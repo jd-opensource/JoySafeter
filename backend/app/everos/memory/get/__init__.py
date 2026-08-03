@@ -12,6 +12,7 @@ output, ``AND`` / ``OR`` combinators allowed.
 External usage::
 
     from app.everos.memory.get import (
+        GetAtomicFactItem,
         GetAgentCaseItem,
         GetAgentSkillItem,
         GetData,
@@ -27,6 +28,7 @@ External usage::
 
 from .dto import GetAgentCaseItem as GetAgentCaseItem
 from .dto import GetAgentSkillItem as GetAgentSkillItem
+from .dto import GetAtomicFactItem as GetAtomicFactItem
 from .dto import GetData as GetData
 from .dto import GetEpisodeItem as GetEpisodeItem
 from .dto import GetMemoryType as GetMemoryType
@@ -37,6 +39,7 @@ from .filters_adapter import compile_filters_for_get as compile_filters_for_get
 from .manager import GetManager as GetManager
 
 __all__ = [
+    "GetAtomicFactItem",
     "GetAgentCaseItem",
     "GetAgentSkillItem",
     "GetData",

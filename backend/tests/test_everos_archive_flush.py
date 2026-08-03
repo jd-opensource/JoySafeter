@@ -1,5 +1,5 @@
-from types import SimpleNamespace
 import uuid
+from types import SimpleNamespace
 
 from app.joysafeter_api.api.v1 import sessions
 

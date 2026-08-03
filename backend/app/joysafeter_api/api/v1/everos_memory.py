@@ -63,6 +63,7 @@ async def proxy_everos_memory_get(
         everos_project_id=everos_project_id,
         active_agent_ids=active_agent_ids,
         active_session_ids=active_session_ids,
+        include_aggregated_sources=False,
     )
     if prepared is None:
         return _empty_everos_get_response()
@@ -95,6 +96,7 @@ async def proxy_everos_memory_search(
         everos_project_id=everos_project_id,
         active_agent_ids=active_agent_ids,
         active_session_ids=active_session_ids,
+        include_aggregated_sources=True,
     )
     if prepared is None:
         return _empty_everos_search_response()
@@ -349,6 +351,7 @@ def _prepare_memory_proxy_payload(
     everos_project_id: str,
     active_agent_ids: set[str],
     active_session_ids: set[str],
+    include_aggregated_sources: bool,
 ) -> dict[str, Any] | None:
     memory_type = payload.get("memory_type")
     agent_id = payload.get("agent_id")
@@ -363,7 +366,7 @@ def _prepare_memory_proxy_payload(
         prepared["filters"] = _merge_filter_with_active_sessions(
             payload.get("filters"),
             active_session_ids,
-            include_aggregated_sources=True,
+            include_aggregated_sources=include_aggregated_sources,
         )
     elif memory_type in {"atomic_fact", "agent_case"}:
         prepared["filters"] = _merge_filter_with_active_sessions(

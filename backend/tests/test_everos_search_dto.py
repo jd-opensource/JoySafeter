@@ -1,4 +1,8 @@
+import pytest
+
 from app.everos.memory.search import SearchMethod, SearchRequest
+
+pytestmark = pytest.mark.no_db
 
 
 def test_search_request_defaults_to_keyword_method():

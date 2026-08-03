@@ -25,7 +25,7 @@ class Foresight(BaseLanceTable):
     BM25_FIELDS: ClassVar[list[str]] = ["foresight_tokens", "evidence_tokens"]
 
     id: str
-    """PK = ``<owner_id>_<entry_id>``."""
+    """PK = ``<md_path>#<entry_id>``."""
 
     entry_id: str
     """md-side seq id ``fs_<YYYYMMDD>_<NNNN>``."""
@@ -75,5 +75,12 @@ class Foresight(BaseLanceTable):
     inline fields (start_time / end_time / duration_days). Audit inline
     (owner_id / session_id / timestamp / parent_id / sender_ids) is NOT
     in the hash. See :attr:`ForesightHandler.content_change_keys`."""
+
+    vector_status: str | None = "ready"
+    """``ready`` for real embeddings; ``fallback_zero`` for keyword-only fallback."""
+
+    vector_updated_at: _dt.datetime | None = None
+
+    embedding_model: str | None = None
 
     vector: Vector(_DIM)  # type: ignore[valid-type]

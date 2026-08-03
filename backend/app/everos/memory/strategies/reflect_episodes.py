@@ -1,9 +1,10 @@
-"""reflect_episodes Cron strategy — nightly Reflection consolidation.
+"""reflect_episodes Cron strategy — weekly Reflection consolidation.
 
-Triggered by a cron schedule (default: ``0 2 * * 1``). Enumerates all
-distinct owner scopes from the cluster table and runs the
-:class:`ReflectionOrchestrator` for each. Configuration lives in
-``[reflection]`` of ``config/default.toml``.
+Triggered by a cron schedule (default: ``0 0 * * sun``). Enumerates owner
+scopes from the cluster table and runs the :class:`ReflectionOrchestrator`
+for each. JoySafeter scopes are constrained to active agents and active
+sessions so automatic Reflection matches manual Dreaming lifecycle
+semantics. Configuration lives in ``[reflection]`` of ``config/default.toml``.
 
 The strategy is a thin entry point: it constructs the orchestrator with
 production singletons and iterates over owners. All business logic
@@ -16,7 +17,7 @@ import asyncio
 from dataclasses import dataclass
 
 from app.everos.component.embedding import get_embedder
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import get_project_llm_client
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MemoryRoot
 from app.everos.infra.ome.context import StrategyContext
@@ -33,17 +34,34 @@ from app.everos.infra.persistence.sqlite import (
     reflection_report_repo,
 )
 from app.everos.memory.events import EpisodeExtracted
+from app.everos.memory.language_policy import ensure_chinese_memory_llm
 from app.everos.memory.reflection import ReflectionOrchestrator
 
 logger = get_logger(__name__)
 
 _episode_writer: EpisodeWriter | None = None
+_REFLECTION_LLM_TIMEOUT_SECONDS = 180.0
 
 
 @dataclass(frozen=True)
 class _ActiveJoySafeterScopes:
     active_agent_ids: set[str]
     active_session_ids: set[str]
+
+
+@dataclass(frozen=True)
+class ReflectionOwnerResult:
+    owner_id: str
+    owner_type: str
+    app_id: str
+    project_id: str
+    success_count: int
+    failure_count: int
+    failure_reason: str | None = None
+
+
+class ReflectionRunFailed(RuntimeError):
+    """Raised when a reflection strategy run had work but produced no successes."""
 
 
 def _get_episode_writer() -> EpisodeWriter:
@@ -56,10 +74,10 @@ def _get_episode_writer() -> EpisodeWriter:
 
 @offline_strategy(
     name="reflect_episodes",
-    trigger=Cron(expr="0 2 * * 1"),
+    trigger=Cron(expr="0 0 * * sun"),
     emits=[EpisodeExtracted],
-    enabled=False,
-    max_retries=1,
+    enabled=True,
+    max_retries=3,
 )
 async def reflect_episodes(event: CronTick, ctx: StrategyContext) -> None:
     """Run Reflection for all owner scopes.
@@ -70,7 +88,7 @@ async def reflect_episodes(event: CronTick, ctx: StrategyContext) -> None:
     """
     owners = await cluster_repo.list_distinct_owners()
     scopes = await _resolve_owner_scopes(event, owners)
-    await asyncio.gather(
+    results = await asyncio.gather(
         *(
             _run_reflection_for_owner(
                 ctx=ctx,
@@ -83,6 +101,38 @@ async def reflect_episodes(event: CronTick, ctx: StrategyContext) -> None:
             for owner_id, owner_type, app_id, project_id, active_session_ids in scopes
         )
     )
+    _raise_if_reflection_failed(results)
+
+
+def _raise_if_reflection_failed(results: list[ReflectionOwnerResult]) -> None:
+    success_count = sum(result.success_count for result in results)
+    failure_count = sum(result.failure_count for result in results)
+    if failure_count <= 0:
+        return
+    failure_reasons = [
+        result.failure_reason
+        for result in results
+        if result.failure_reason
+    ]
+    reason_suffix = (
+        f"; latest_reason={failure_reasons[-1]}"
+        if failure_reasons
+        else ""
+    )
+    if success_count <= 0:
+        raise ReflectionRunFailed(
+            "all reflection work failed "
+            f"(owner_count={len(results)}, failure_count={failure_count}"
+            f"{reason_suffix})"
+        )
+    log_fields = {
+        "owner_count": len(results),
+        "success_count": success_count,
+        "failure_count": failure_count,
+    }
+    if failure_reasons:
+        log_fields["latest_reason"] = failure_reasons[-1]
+    logger.warning("reflection_cycle_partial_failure", **log_fields)
 
 
 async def _resolve_owner_scopes(
@@ -210,24 +260,43 @@ async def _run_reflection_for_owner(
     app_id: str,
     project_id: str,
     active_session_ids: set[str] | None,
-) -> list[object]:
+) -> ReflectionOwnerResult:
     # Deferred: avoid pulling LLM libs at module import time.
     from everalgo.user_memory import EpisodeReflector
 
+    llm_client = await get_project_llm_client(
+        project_id,
+        default_timeout_seconds=_REFLECTION_LLM_TIMEOUT_SECONDS,
+    )
+    llm_client = ensure_chinese_memory_llm(llm_client)
     orchestrator = ReflectionOrchestrator(
         cluster_repo=cluster_repo,
         episode_store=episode_repo,
         atomic_fact_store=atomic_fact_repo,
         episode_writer=_get_episode_writer(),
         report_repo=reflection_report_repo,
-        reflector=EpisodeReflector(llm=get_llm_client()),
+        reflector=EpisodeReflector(llm=llm_client),
         embedder=get_embedder(),
+        llm_client=llm_client,
     )
-    return await orchestrator.run(
+    reports = await orchestrator.run(
         ctx=ctx,
         owner_id=owner_id,
         owner_type=owner_type,
         app_id=app_id,
         project_id=project_id,
         active_session_ids=active_session_ids,
+    )
+    return ReflectionOwnerResult(
+        owner_id=owner_id,
+        owner_type=owner_type,
+        app_id=app_id,
+        project_id=project_id,
+        success_count=len(reports),
+        failure_count=getattr(
+            orchestrator,
+            "failure_count",
+            getattr(orchestrator, "reflector_failure_count", 0),
+        ),
+        failure_reason=getattr(orchestrator, "failure_reason", None),
     )

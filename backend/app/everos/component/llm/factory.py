@@ -43,4 +43,5 @@ def build_llm_provider(settings: LLMSettings) -> LLMClient:
         model=settings.model,
         api_key=api_key,
         base_url=settings.base_url,
+        timeout=settings.timeout_seconds,
     )

@@ -24,7 +24,7 @@ class AtomicFact(BaseLanceTable):
     BM25_FIELDS: ClassVar[list[str]] = ["fact_tokens"]
 
     id: str
-    """PK = ``<owner_id>_<entry_id>``."""
+    """PK = ``<md_path>#<entry_id>``."""
 
     entry_id: str
     """md-side seq id ``af_<YYYYMMDD>_<NNNN>``."""
@@ -63,5 +63,12 @@ class AtomicFact(BaseLanceTable):
     """Soft-delete marker set by Reflection when this fact is
     consolidated. Value is the cluster entry_id that supersedes this
     row. ``NULL`` means the row is still active."""
+
+    vector_status: str | None = "ready"
+    """``ready`` for real embeddings; ``fallback_zero`` for keyword-only fallback."""
+
+    vector_updated_at: _dt.datetime | None = None
+
+    embedding_model: str | None = None
 
     vector: Vector(_DIM)  # type: ignore[valid-type]

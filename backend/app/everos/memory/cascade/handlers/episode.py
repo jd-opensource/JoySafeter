@@ -31,8 +31,9 @@ from __future__ import annotations
 
 from app.everos.infra.persistence.lancedb import Episode, ParentType, episode_repo
 
+from ..vector_embedding import embed_text_for_index
 from ._common import parse_inline_list, require_iso_timestamp
-from ._daily_log_base import BaseDailyLogHandler, ParsedEntry
+from ._daily_log_base import BaseDailyLogHandler, ParsedEntry, daily_log_row_id
 
 
 class EpisodeHandler(BaseDailyLogHandler):
@@ -67,9 +68,13 @@ class EpisodeHandler(BaseDailyLogHandler):
         s = entry.structured
         text = s.sections.get("Content", "").strip()
         tokens = self._deps.tokenizer.tokenize(text)
-        vector = await self._deps.embedder.embed(text)
+        indexed = await embed_text_for_index(
+            self._deps.embedder,
+            text,
+            embedding_model=getattr(self._deps.embedder, "_model", None),
+        )
         return Episode(
-            id=f"{owner_id}_{entry.entry_id}",
+            id=daily_log_row_id(md_path, entry.entry_id),
             entry_id=entry.entry_id,
             owner_id=owner_id,
             owner_type=owner_type,
@@ -80,11 +85,17 @@ class EpisodeHandler(BaseDailyLogHandler):
             parent_type=s.inline.get("parent_type") or ParentType.MEMCELL.value,
             parent_id=s.inline.get("parent_id", ""),
             sender_ids=parse_inline_list(s.inline.get("sender_ids", "")),
+            source_entry_ids=parse_inline_list(s.inline.get("source_entry_ids", "")),
+            source_session_ids=parse_inline_list(s.inline.get("source_session_ids", "")),
+            source_agent_ids=parse_inline_list(s.inline.get("source_agent_ids", "")),
             subject=s.sections.get("Subject") or None,
             summary=s.sections.get("Summary") or None,
             episode=text,
             episode_tokens=" ".join(tokens),
             md_path=md_path,
             content_sha256=entry.content_sha256,
-            vector=vector,
+            vector=indexed.vector,
+            vector_status=indexed.vector_status,
+            vector_updated_at=indexed.vector_updated_at,
+            embedding_model=indexed.embedding_model,
         )

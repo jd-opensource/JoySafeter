@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from everalgo.agent_memory import AgentCaseExtractor
 
-from app.everos.component.llm import get_llm_client
+from app.everos.component.llm import get_project_llm_client
 from app.everos.component.utils.datetime import from_timestamp, to_iso_format
 from app.everos.core.observability.logging import get_logger
 from app.everos.core.persistence import MemoryRoot
@@ -33,7 +33,9 @@ from app.everos.infra.ome.context import StrategyContext
 from app.everos.infra.ome.decorator import offline_strategy
 from app.everos.infra.ome.triggers import Immediate
 from app.everos.infra.persistence.markdown import AgentCaseWriter
+from app.everos.memory.chinese_validation import is_valid_chinese_memory_text
 from app.everos.memory.events import AgentCaseExtracted, AgentPipelineStarted
+from app.everos.memory.language_policy import ensure_chinese_memory_llm
 from app.everos.memory.models import AgentCase, MemCell
 
 logger = get_logger(__name__)
@@ -66,7 +68,11 @@ async def extract_agent_case(event: AgentPipelineStarted, ctx: StrategyContext) 
         return
 
     # 2. Run the LLM extractor once; algo returns [] or [single case].
-    extractor = AgentCaseExtractor(llm=get_llm_client())
+    extractor = AgentCaseExtractor(
+        llm=ensure_chinese_memory_llm(
+            await get_project_llm_client(event.project_id)
+        )
+    )
     algo_cases = await extractor.aextract(event.memcell)
     if not algo_cases:
         logger.info(
@@ -86,7 +92,17 @@ async def extract_agent_case(event: AgentPipelineStarted, ctx: StrategyContext) 
             owner_id=agent_id,
             session_id=event.session_id,
             parent_id=event.memcell_id,
+            source_timestamp_ms=event.memcell.timestamp,
         )
+        if not _agent_case_is_valid_chinese(case):
+            logger.warning(
+                "agent_case_skipped_non_chinese",
+                memcell_id=event.memcell_id,
+                session_id=event.session_id,
+                owner_id=agent_id,
+                task_intent=case.task_intent,
+            )
+            continue
         inline, sections = _agent_case_to_entry_body(case)
         eid = await writer.append_entry(
             case.owner_id,
@@ -150,6 +166,9 @@ def _agent_case_to_entry_body(
     can hash it (it's part of ``content_change_keys`` on the handler);
     KeyInsight is optional and elided when empty.
     """
+    if not _agent_case_is_valid_chinese(case):
+        raise ValueError("AgentCase contains non-Chinese memory text")
+
     inline: dict[str, object] = {
         "owner_id": case.owner_id,
         "session_id": case.session_id,
@@ -165,3 +184,10 @@ def _agent_case_to_entry_body(
     if case.key_insight:
         sections["KeyInsight"] = case.key_insight
     return inline, sections
+
+
+def _agent_case_is_valid_chinese(case: AgentCase) -> bool:
+    required = (case.task_intent, case.approach)
+    if not all(is_valid_chinese_memory_text(value) for value in required):
+        return False
+    return case.key_insight is None or is_valid_chinese_memory_text(case.key_insight)

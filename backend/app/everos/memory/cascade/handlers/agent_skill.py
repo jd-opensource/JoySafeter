@@ -42,9 +42,17 @@ from app.everos.infra.persistence.lancedb import AgentSkill, agent_skill_repo
 from app.everos.infra.persistence.markdown import AgentSkillFrontmatter
 
 from ..types import HandlerOutcome
+from ..vector_embedding import (
+    FALLBACK_VECTOR_STATUS,
+    READY_VECTOR_STATUS,
+    VECTOR_DIM,
+    embed_text_for_index,
+)
 from ._common import content_sha256 as compute_content_sha256
 from ._common import resolve_scope
 from .base import Handler
+
+AGENT_SKILL_VECTOR_DIM = VECTOR_DIM
 
 
 class AgentSkillHandler(Handler):
@@ -76,10 +84,11 @@ class AgentSkillHandler(Handler):
 
         owner_id = str(fm.get("agent_id", ""))
         name = str(fm.get("name", ""))
-        if not owner_id or not name:
+        cluster_id = str(fm.get("cluster_id") or "")
+        if not owner_id or not name or not cluster_id:
             raise ValueError(
                 f"agent_skill md is missing required frontmatter "
-                f"(agent_id / name): {md_path}"
+                f"(agent_id / name / cluster_id): {md_path}"
             )
         app_id, project_id = resolve_scope(md_path)
 
@@ -108,7 +117,11 @@ class AgentSkillHandler(Handler):
         # Skip when an existing row has the same digest.
         skill_id = f"{owner_id}_{name}"
         prior = await agent_skill_repo.get_by_id(skill_id)
-        if prior is not None and prior.content_sha256 == digest:
+        if (
+            prior is not None
+            and prior.content_sha256 == digest
+            and _has_index_vector_status(prior)
+        ):
             return HandlerOutcome(
                 md_path=md_path,
                 kind=self.kind,
@@ -140,7 +153,11 @@ class AgentSkillHandler(Handler):
         content_tokens = " ".join(self._deps.tokenizer.tokenize(content))
         # Embedding source: name + description joined (opensource parity).
         embed_text = "\n".join(s for s in [name, description] if s)
-        vector = await self._deps.embedder.embed(embed_text)
+        indexed = await embed_text_for_index(
+            self._deps.embedder,
+            embed_text,
+            embedding_model=getattr(self._deps.embedder, "_model", None),
+        )
 
         row = AgentSkill(
             id=skill_id,
@@ -156,10 +173,13 @@ class AgentSkillHandler(Handler):
             confidence=confidence,
             maturity_score=maturity_score,
             source_case_ids=list(fm.get("source_case_ids", [])),
-            cluster_id=fm.get("cluster_id"),  # type: ignore[arg-type]
+            cluster_id=cluster_id,
             md_path=md_path,
             content_sha256=digest,
-            vector=vector,
+            vector=indexed.vector,
+            vector_status=indexed.vector_status,
+            vector_updated_at=indexed.vector_updated_at,
+            embedding_model=indexed.embedding_model,
         )
         await agent_skill_repo.upsert([row])
         return HandlerOutcome(
@@ -213,6 +233,16 @@ def _join_body_and_references(body: str, references: str) -> str:
     return f"{body}\n\n{references}"
 
 
+async def _embed_skill_anchor(embedder: Any, text: str) -> list[float]:
+    """Embed the skill retrieval anchor, with a keyword-mode repair fallback."""
+    return (await embed_text_for_index(embedder, text)).vector
+
+
 def _q(value: str) -> str:
     """Defensive SQL-quote escape (mirrors lancedb chassis convention)."""
     return value.replace("'", "''")
+
+
+def _has_index_vector_status(row: Any) -> bool:
+    status = getattr(row, "vector_status", None)
+    return status in {READY_VECTOR_STATUS, FALLBACK_VECTOR_STATUS}

@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from time import monotonic
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 
+from app.everos.core.observability.logging import get_logger
+
 from .protocol import ChatMessage, ChatResponse, LLMError, Usage
+
+logger = get_logger(__name__)
 
 
 class AnthropicProvider:
@@ -26,7 +32,7 @@ class AnthropicProvider:
         self._model = model
         self._api_key = api_key
         self._base_url = (base_url or "https://api.anthropic.com").rstrip("/")
-        self._timeout = timeout
+        self._timeout = float(timeout)
         self._temperature = temperature
         self._max_tokens = max_tokens
 
@@ -56,10 +62,19 @@ class AnthropicProvider:
             request["system"] = system
         request.update(extra)
 
+        url = _messages_url(self._base_url)
+        started = monotonic()
+        log_scope = {
+            "provider": "anthropic",
+            "model": str(request["model"]),
+            "base_url_host": _base_url_host(self._base_url),
+            "timeout_seconds": self._timeout,
+        }
+
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.post(
-                    _messages_url(self._base_url),
+                    url,
                     headers={
                         "anthropic-version": "2023-06-01",
                         "content-type": "application/json",
@@ -69,10 +84,29 @@ class AnthropicProvider:
                 )
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "llm_request_failed",
+                **log_scope,
+                elapsed_ms=_elapsed_ms(started),
+                status_code=exc.response.status_code,
+                error_type=type(exc).__name__,
+            )
             raise LLMError(exc.response.text) from exc
         except httpx.HTTPError as exc:
+            logger.warning(
+                "llm_request_failed",
+                **log_scope,
+                elapsed_ms=_elapsed_ms(started),
+                error_type=type(exc).__name__,
+            )
             raise LLMError(str(exc)) from exc
 
+        logger.info(
+            "llm_request_completed",
+            **log_scope,
+            elapsed_ms=_elapsed_ms(started),
+            status_code=response.status_code,
+        )
         body = response.json()
         usage = body.get("usage") or {}
         return ChatResponse(
@@ -91,6 +125,14 @@ def _messages_url(base_url: str) -> str:
     if base_url.endswith("/v1"):
         return f"{base_url}/messages"
     return f"{base_url}/v1/messages"
+
+
+def _base_url_host(base_url: str) -> str:
+    return urlsplit(base_url).netloc or base_url
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((monotonic() - started) * 1000)
 
 
 def _normalise_messages(messages: list[ChatMessage]) -> tuple[str | None, list[dict[str, str]]]:

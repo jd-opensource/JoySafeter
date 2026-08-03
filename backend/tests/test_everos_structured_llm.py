@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from pydantic import BaseModel
 
 from app.everos.component.llm.protocol import ChatMessage, ChatResponse
+
+pytestmark = pytest.mark.no_db
 
 
 class ReflectOutput(BaseModel):

@@ -13,15 +13,19 @@ Run inside ``service.memorize`` via ``asyncio.gather`` alongside
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+import re
+from typing import TYPE_CHECKING, Any
 
 from everalgo.types import MemCell as AlgoMemCell
 from everalgo.user_memory import EpisodeExtractor
 
+from app.everos.component.llm.protocol import ChatMessage
 from app.everos.component.utils.datetime import from_timestamp, to_iso_format
 from app.everos.core.observability.logging import get_logger
 from app.everos.memory import Episode, IngestResult, PipelineOutcome
 from app.everos.memory.events import EpisodeExtracted, UserPipelineStarted
+from app.everos.memory.language_policy import ensure_chinese_memory_llm
 from app.everos.memory.prompt_slots import PromptLoader
 
 if TYPE_CHECKING:
@@ -33,6 +37,11 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _TRACK = "user_memory"
+_EPISODE_SUMMARY_EXTRACTION_ATTEMPTS = 3
+_EPISODE_SUMMARY_MAX_SENTENCES = 3
+_EPISODE_SUMMARY_MAX_CHARS = 360
+_EPISODE_SUBJECT_MAX_CHARS = 140
+_SUMMARY_SENTENCE_RE = re.compile(r"[^。！？.!?]+[。！？.!?]+(?:[\"'”’)\]]+)?|[^。！？.!?]+$")
 
 
 class UserMemoryPipeline:
@@ -48,9 +57,15 @@ class UserMemoryPipeline:
         # EpisodeExtractor requires `llm` at construction. Skip-with-warning
         # when no LLM is configured — the boundary stage will have skipped
         # the run already; this is just a defensive null check.
-        self._ep_ext = (
-            EpisodeExtractor(llm=llm_client) if llm_client is not None else None
+        memory_llm_client = (
+            ensure_chinese_memory_llm(llm_client) if llm_client is not None else None
         )
+        self._ep_ext = (
+            EpisodeExtractor(llm=memory_llm_client)
+            if memory_llm_client is not None
+            else None
+        )
+        self._llm_client = memory_llm_client
         self._episode_writer = episode_writer
         self._prompt_loader = prompt_loader
         self._engine = engine
@@ -99,8 +114,10 @@ class UserMemoryPipeline:
             # than the per-user fan-out per the algo's docstring). Fan-out
             # is then md-only: every user sender owns a copy of the same
             # narrative under its own owner_id path.
-            algo_ep = await self._ep_ext.aextract(
-                cell, sender_id=None, prompt=episode_prompt
+            algo_ep = await _extract_episode_with_summary_retry(
+                self._ep_ext,
+                cell=cell,
+                prompt=episode_prompt,
             )
             for sender_id in user_senders:
                 ep = Episode.from_algo(
@@ -109,7 +126,9 @@ class UserMemoryPipeline:
                     session_id=ingested.session_id,
                     sender_ids=all_senders,
                     parent_id=memcell_id,
+                    source_timestamp_ms=cell.timestamp,
                 )
+                ep = await _ensure_episode_summary(ep, self._llm_client)
                 inline, sections = _episode_to_entry_body(ep)
                 eid = await self._episode_writer.append_entry(
                     ep.owner_id,
@@ -204,8 +223,8 @@ def _episode_to_entry_body(
     back so the LanceDB ``episode`` row keeps its back-link to the source.
 
     The md entry's ``entry_id`` (managed by the chassis writer) is the
-    single source of *entry* identity; cascade derives a global episode
-    id from ``<owner_id>_<entry_id>`` on the fly.
+    in-file entry identity; cascade derives a global episode id from
+    ``<md_path>#<entry_id>`` on the fly.
     """
     ts_iso = (
         to_iso_format(from_timestamp(episode.timestamp))
@@ -236,10 +255,199 @@ def _episode_to_entry_body(
     subject = extra.pop("subject", None)
     summary = extra.pop("summary", None)
 
-    sections: dict[str, str] = {}
-    if subject:
-        sections["Subject"] = str(subject)
+    sections: dict[str, str] = {
+        "Subject": _normalise_episode_subject(subject, episode.episode),
+    }
     if summary:
         sections["Summary"] = str(summary)
     sections["Content"] = episode.episode
     return inline, sections
+
+
+async def _extract_episode_with_summary_retry(
+    extractor: Any,
+    *,
+    cell: AlgoMemCell,
+    prompt: str | None,
+) -> Any:
+    """Run the primary episode extractor up to three times for a valid summary."""
+    last_episode: Any | None = None
+    for _attempt in range(_EPISODE_SUMMARY_EXTRACTION_ATTEMPTS):
+        last_episode = await extractor.aextract(cell, sender_id=None, prompt=prompt)
+        if _summary_is_valid(
+            getattr(last_episode, "summary", None),
+            str(getattr(last_episode, "episode", "")),
+        ):
+            return last_episode
+    return last_episode
+
+
+async def _ensure_episode_summary(
+    episode: Episode,
+    llm_client: LLMClient | None,
+) -> Episode:
+    """Guarantee a usable summary before an Episode reaches md persistence."""
+    summary = getattr(episode, "summary", None)
+    if _summary_is_valid(summary, episode.episode):
+        limited = _limit_episode_summary(summary)
+        if limited == summary.strip():
+            return episode
+        return episode.model_copy(update={"summary": limited})
+
+    generated = await _summarize_episode_content(episode.episode, llm_client)
+    if _summary_is_valid(generated, episode.episode):
+        return episode.model_copy(update={"summary": _limit_episode_summary(generated)})
+
+    return episode.model_copy(
+        update={
+            "summary": _fallback_episode_summary(
+                episode.episode,
+                getattr(episode, "subject", None),
+            )
+        }
+    )
+
+
+def _summary_is_valid(summary: object, content: str) -> bool:
+    if not isinstance(summary, str):
+        return False
+    summary = summary.strip()
+    content = content.strip()
+    if not summary or not content:
+        return False
+    summary_norm = _normalise_summary_text(summary)
+    content_norm = _normalise_summary_text(content)
+    if summary_norm == content_norm:
+        return False
+    return not (len(summary_norm) >= 12 and content_norm.startswith(summary_norm))
+
+
+async def _summarize_episode_content(
+    content: str,
+    llm_client: LLMClient | None,
+) -> str | None:
+    if llm_client is None:
+        return None
+    try:
+        response = await llm_client.chat(
+            [
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "Generate an independent summary for this Episode "
+                        "Content. The summary must be 1-3 sentences, must "
+                        "preserve the key actions and outcome, and must not "
+                        "copy the opening sentence or return a content prefix. "
+                        "Write the summary in Simplified Chinese. "
+                        'Return only JSON in this shape: {"summary": "..."}.\n\n'
+                        f"Content:\n{content}"
+                    ),
+                )
+            ],
+            temperature=0,
+            max_tokens=256,
+        )
+    except Exception as exc:  # pragma: no cover - defensive around provider IO
+        logger.warning(
+            "episode_secondary_summary_failed",
+            extra={"error": str(exc)},
+        )
+        return None
+    parsed = _parse_summary_response(response.content)
+    return _limit_episode_summary(parsed) if parsed else None
+
+
+def _parse_summary_response(text: str) -> str | None:
+    json_text = _extract_json_object(text)
+    if json_text is not None:
+        try:
+            data = json.loads(json_text)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, dict) and isinstance(data.get("summary"), str):
+            return data["summary"]
+    stripped = text.strip()
+    return stripped or None
+
+
+def _extract_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None
+
+
+def _truncate_episode_summary(content: str) -> str:
+    return _limit_episode_summary(content.strip()[:200])
+
+
+def _fallback_episode_summary(content: str, subject: object = None) -> str:
+    subject_text = _normalise_episode_subject(subject, content)
+    summary = f"记忆摘要：{subject_text}"
+    if _summary_is_valid(summary, content):
+        return _limit_episode_summary(summary)
+    return "记忆摘要暂不可用；请查看正文了解详情。"
+
+
+def _limit_episode_summary(summary: str) -> str:
+    text = " ".join(summary.strip().split())
+    if not text:
+        return ""
+
+    matches = list(_SUMMARY_SENTENCE_RE.finditer(text))
+    if len(matches) >= _EPISODE_SUMMARY_MAX_SENTENCES:
+        text = text[: matches[_EPISODE_SUMMARY_MAX_SENTENCES - 1].end()].strip()
+
+    if len(text) <= _EPISODE_SUMMARY_MAX_CHARS:
+        return text
+
+    clipped = text[:_EPISODE_SUMMARY_MAX_CHARS].rstrip()
+    last_space = clipped.rfind(" ")
+    if last_space >= int(_EPISODE_SUMMARY_MAX_CHARS * 0.7):
+        clipped = clipped[:last_space].rstrip()
+    return clipped
+
+
+def _normalise_episode_subject(
+    subject: object,
+    content: str,
+    *,
+    fallback: str = "记忆片段",
+) -> str:
+    text = str(subject or "").strip()
+    if not text:
+        text = str(content or "").strip()
+    if not text:
+        text = fallback
+    return _limit_episode_subject(text) or fallback
+
+
+def _limit_episode_subject(subject: str) -> str:
+    text = " ".join(subject.strip().split())
+    if not text:
+        return ""
+
+    match = _SUMMARY_SENTENCE_RE.match(text)
+    if match is not None:
+        text = text[: match.end()].strip()
+
+    if len(text) <= _EPISODE_SUBJECT_MAX_CHARS:
+        return text
+
+    clipped = text[:_EPISODE_SUBJECT_MAX_CHARS].rstrip()
+    last_space = clipped.rfind(" ")
+    if last_space >= int(_EPISODE_SUBJECT_MAX_CHARS * 0.7):
+        clipped = clipped[:last_space].rstrip()
+    return clipped
+
+
+def _normalise_summary_text(value: str) -> str:
+    return " ".join(value.split()).casefold()

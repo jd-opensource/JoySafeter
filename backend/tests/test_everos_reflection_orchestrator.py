@@ -14,6 +14,8 @@ from app.everos.memory.reflection.orchestrator import (
     _merged_episode_to_entry_body,
 )
 
+pytestmark = pytest.mark.no_db
+
 
 @pytest.mark.asyncio
 async def test_reflection_cluster_update_keeps_old_centroid_when_embedding_fails():
@@ -100,9 +102,30 @@ def test_merged_episode_entry_body_requires_subject_summary_and_content():
     assert inline["parent_type"] == "cluster"
     assert inline["source_entry_ids"] == ["ep_1", "ep_2", "ep_3"]
     assert inline["source_session_ids"] == ["session-1", "session-2"]
-    assert sections["Subject"] == "[Aggregated Memory] Security Audit of Nanobot Repository"
-    assert sections["Summary"].startswith("Security Audit of Nanobot Repository")
+    assert sections["Subject"] == "[聚合记忆] Security Audit of Nanobot Repository"
+    assert sections["Summary"] == (
+        "记忆摘要：[聚合记忆] Security Audit of Nanobot Repository"
+    )
     assert sections["Content"].startswith("Security Audit of Nanobot Repository")
+
+
+def test_merged_episode_subject_is_non_empty_single_sentence_and_limited():
+    _inline, sections = _merged_episode_to_entry_body(
+        SimpleNamespace(
+            subject=(
+                "A" * 180
+                + ". This second sentence should not be included in the subject."
+            ),
+            summary="A concise summary.",
+            episode="Merged content with enough detail for persistence.",
+        ),
+        cluster_id="cl_3429599f3a27",
+        owner_id="huajie_Sun",
+        timestamp_iso="2026-07-20T02:39:58.667000+00:00",
+    )
+
+    assert sections["Subject"] == "[聚合记忆] " + ("A" * 133)
+    assert len(sections["Subject"]) == 140
 
 
 @pytest.mark.asyncio
@@ -301,3 +324,140 @@ async def test_reflection_active_session_scope_skips_cluster_with_one_active_epi
 
     assert report is None
     assert reflector.called is False
+
+
+@pytest.mark.asyncio
+async def test_reflector_retries_empty_merged_episode_content():
+    class _Reflector:
+        def __init__(self):
+            self.calls = 0
+
+        async def areflect(self, episodes):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(episode="   ", subject="")
+            return SimpleNamespace(episode="merged memory", subject="Merged")
+
+    reflector = _Reflector()
+    orchestrator = ReflectionOrchestrator(
+        cluster_repo=object(),
+        episode_store=object(),
+        atomic_fact_store=object(),
+        episode_writer=object(),
+        report_repo=object(),
+        reflector=reflector,
+        embedder=object(),
+    )
+
+    result = await orchestrator._call_reflector(  # noqa: SLF001
+        episodes=[
+            SimpleNamespace(
+                owner_id="huajie_Sun",
+                episode="source one",
+                subject="One",
+                timestamp=datetime(2026, 7, 27, 1, tzinfo=UTC),
+            ),
+            SimpleNamespace(
+                owner_id="huajie_Sun",
+                episode="source two",
+                subject="Two",
+                timestamp=datetime(2026, 7, 27, 2, tzinfo=UTC),
+            ),
+        ],
+        merged_entry_ids=[],
+        is_update=False,
+        owner_id="huajie_Sun",
+    )
+
+    assert result.episode == "merged memory"
+    assert reflector.calls == 2
+    assert orchestrator.failure_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reflector_retries_five_times_with_backoff_for_empty_content(monkeypatch):
+    sleeps = []
+
+    async def _fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(
+        "app.everos.memory.reflection.orchestrator.asyncio.sleep",
+        _fake_sleep,
+    )
+
+    class _Reflector:
+        def __init__(self):
+            self.calls = 0
+
+        async def areflect(self, episodes):
+            self.calls += 1
+            if self.calls < 5:
+                return SimpleNamespace(episode="", subject="")
+            return SimpleNamespace(episode="merged memory", subject="Merged")
+
+    reflector = _Reflector()
+    orchestrator = ReflectionOrchestrator(
+        cluster_repo=object(),
+        episode_store=object(),
+        atomic_fact_store=object(),
+        episode_writer=object(),
+        report_repo=object(),
+        reflector=reflector,
+        embedder=object(),
+    )
+
+    result = await orchestrator._call_reflector(  # noqa: SLF001
+        episodes=[
+            SimpleNamespace(
+                owner_id="huajie_Sun",
+                episode="source one",
+                subject="One",
+                timestamp=datetime(2026, 7, 27, 1, tzinfo=UTC),
+            ),
+            SimpleNamespace(
+                owner_id="huajie_Sun",
+                episode="source two",
+                subject="Two",
+                timestamp=datetime(2026, 7, 27, 2, tzinfo=UTC),
+            ),
+        ],
+        merged_entry_ids=[],
+        is_update=False,
+        owner_id="huajie_Sun",
+    )
+
+    assert result.episode == "merged memory"
+    assert reflector.calls == 5
+    assert orchestrator.failure_count == 4
+    assert sleeps == [3.0, 8.0, 15.0, 30.0]
+
+
+@pytest.mark.asyncio
+async def test_cluster_unexpected_error_counts_as_reflection_failure():
+    orchestrator = ReflectionOrchestrator(
+        cluster_repo=object(),
+        episode_store=object(),
+        atomic_fact_store=object(),
+        episode_writer=object(),
+        report_repo=object(),
+        reflector=object(),
+        embedder=object(),
+    )
+
+    async def _raise_cluster_error(**kwargs):
+        raise ValueError("merged episode content is empty")
+
+    orchestrator._process_cluster = _raise_cluster_error  # type: ignore[method-assign]  # noqa: SLF001
+
+    report = await orchestrator._process_cluster_safely(  # noqa: SLF001
+        ctx=object(),
+        cluster_id="cl_1",
+        owner_id="huajie_Sun",
+        owner_type="user",
+        app_id="joysafeter",
+        project_id="project-1",
+    )
+
+    assert report is None
+    assert orchestrator.failure_count == 1

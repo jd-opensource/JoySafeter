@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
 from app.joysafeter_shared.everos_scope import (
     compose_everos_project_id,
     compose_everos_user_id,
     extract_joysafeter_project_id,
 )
+
+pytestmark = pytest.mark.no_db
 
 
 def test_compose_everos_project_id_uses_slug_and_stable_project_id():

@@ -16,8 +16,8 @@ use crate::kernel::harness_input_builder::VaultCipher;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
     normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
-    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST, LLM_EGRESS_HOST,
-    MCP_EGRESS_HOST,
+    EgressKind, SandboxCredentials, UpstreamTarget, EVEROS_EGRESS_HOST, GIT_EGRESS_HOST,
+    LLM_EGRESS_HOST, MCP_EGRESS_HOST,
 };
 use crate::sandbox::mounts::{resolve_mount_resources, SandboxMount, SandboxMountFingerprint};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
@@ -668,6 +668,7 @@ impl SandboxResolver {
                 )
                 .await,
             );
+            routes.extend(Self::build_everos_egress());
             credentials = SandboxCredentials { routes };
         }
 
@@ -1352,6 +1353,52 @@ impl SandboxResolver {
             }
         }
         routes
+    }
+
+    /// Build the EverOS memory egress route for a `network=none` sandbox.
+    ///
+    /// Such sandboxes reach the outside only through the per-sandbox Envoy HTTP
+    /// pipe, so the direct proxy authority (`api:8000` / `host.docker.internal`)
+    /// is unreachable from inside. We mint the placeholder host
+    /// [`EVEROS_EGRESS_HOST`] and forward it to the real JoySafeter-API EverOS
+    /// proxy (which applies lifecycle filtering before hitting EverOS). No
+    /// credential injection is needed — the proxy takes no sandbox-supplied auth.
+    ///
+    /// The real upstream is taken from `EVEROS_MEMORY_PROXY_BASE_URL` (the same
+    /// value the orchestrator uses for bootstrap prefetch), falling back to the
+    /// in-cluster proxy alias. The path is preserved end-to-end (identity
+    /// rewrite): the sandbox calls `http://everos-egress.internal/api/v1/everos_memory/...`
+    /// and Envoy forwards `/api/v1/everos_memory/...` to the proxy unchanged.
+    fn build_everos_egress() -> Vec<EgressCredentialRoute> {
+        const DEFAULT_PROXY_BASE: &str = "http://api:8000/api/v1/everos_memory";
+        let raw = std::env::var("EVEROS_MEMORY_PROXY_BASE_URL")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_PROXY_BASE.to_string());
+        let upstream = match UpstreamTarget::from_url(raw.trim()) {
+            Ok(upstream) => upstream,
+            Err(e) => {
+                warn!(base_url = %raw, "Invalid EVEROS_MEMORY_PROXY_BASE_URL; skipping EverOS egress: {e}");
+                return vec![];
+            }
+        };
+        vec![EgressCredentialRoute {
+            id: "everos".to_string(),
+            kind: EgressKind::Everos,
+            exposure: EgressExposure::Placeholder,
+            match_host: EVEROS_EGRESS_HOST.to_string(),
+            match_prefix: "/".to_string(),
+            exact_path: false,
+            upstream_host: upstream.host,
+            upstream_port: upstream.port,
+            // Identity path rewrite: the full `/api/v1/everos_memory/...` path is
+            // carried by the sandbox base URL and passed through untouched.
+            upstream_prefix: "/".to_string(),
+            upstream_tls: upstream.tls,
+            cluster_name: String::new(),
+            inject_headers: vec![],
+            remove_headers: vec![],
+        }]
     }
 
     async fn load_secret_data(

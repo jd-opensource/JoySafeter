@@ -77,7 +77,7 @@ class SearchRequest(BaseModel):
     """App / project scope (default ``"default"``). Pinned into the LanceDB
     ``where`` so a search never crosses into another space's rows."""
     query: str = Field(min_length=1)
-    method: SearchMethod = SearchMethod.HYBRID
+    method: SearchMethod = SearchMethod.KEYWORD
     top_k: int = -1
     radius: float | None = Field(default=None, ge=0.0, le=1.0)
     min_score: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -160,6 +160,9 @@ class SearchEpisodeItem(BaseModel):
     """``None`` for merged episodes (Reflection aggregation products)."""
     timestamp: _dt.datetime
     sender_ids: list[str] = Field(default_factory=list)
+    source_entry_ids: list[str] = Field(default_factory=list)
+    source_session_ids: list[str] = Field(default_factory=list)
+    source_agent_ids: list[str] = Field(default_factory=list)
     summary: str
     subject: str
     episode: str

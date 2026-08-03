@@ -9,6 +9,8 @@ import pytest
 from app.everos.entrypoints.api.routes import overview
 from app.joysafeter_api.api.v1 import everos_memory
 
+pytestmark = pytest.mark.no_db
+
 
 class _Repo:
     def __init__(self, rows):
@@ -170,7 +172,7 @@ def test_joysafeter_memory_overview_filters_deprecated_memories():
     assert filtered["counts"]["episodes"] == 1
 
 
-def test_joysafeter_memory_proxy_rewrites_scope_and_injects_active_session_filter():
+def test_joysafeter_memory_get_proxy_rewrites_scope_and_injects_active_session_filter():
     payload = {
         "app_id": "attacker-app",
         "project_id": "attacker-project",
@@ -184,6 +186,38 @@ def test_joysafeter_memory_proxy_rewrites_scope_and_injects_active_session_filte
         everos_project_id="project-slug__project-1",
         active_agent_ids={"agent-active"},
         active_session_ids={"session-active", "session-other"},
+        include_aggregated_sources=False,
+    )
+
+    assert prepared == {
+        "app_id": "joysafeter",
+        "project_id": "project-slug__project-1",
+        "user_id": "alice",
+        "memory_type": "episode",
+        "filters": {
+            "AND": [
+                {"source": "chat"},
+                {"session_id": {"in": ["session-active", "session-other"]}},
+            ]
+        },
+    }
+
+
+def test_joysafeter_memory_search_proxy_keeps_aggregated_episode_sources_visible():
+    payload = {
+        "app_id": "attacker-app",
+        "project_id": "attacker-project",
+        "user_id": "alice",
+        "memory_type": "episode",
+        "filters": {"source": "chat"},
+    }
+
+    prepared = everos_memory._prepare_memory_proxy_payload(
+        payload,
+        everos_project_id="project-slug__project-1",
+        active_agent_ids={"agent-active"},
+        active_session_ids={"session-active", "session-other"},
+        include_aggregated_sources=True,
     )
 
     assert prepared == {
@@ -219,6 +253,7 @@ def test_joysafeter_memory_proxy_injects_active_session_filter_for_atomic_facts(
         everos_project_id="project-slug__project-1",
         active_agent_ids={"agent-active"},
         active_session_ids={"session-active"},
+        include_aggregated_sources=False,
     )
 
     assert prepared == {
@@ -248,6 +283,7 @@ def test_joysafeter_memory_proxy_rejects_inactive_agent_owner_before_forwarding(
         everos_project_id="project-slug__project-1",
         active_agent_ids={"agent-active"},
         active_session_ids={"session-active"},
+        include_aggregated_sources=False,
     )
 
     assert prepared is None

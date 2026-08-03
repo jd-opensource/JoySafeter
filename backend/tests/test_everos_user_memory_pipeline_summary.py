@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.everos.component.llm.protocol import ChatResponse
 from app.everos.memory import Episode
 from app.everos.memory.extract.pipeline import user_memory
+
+pytestmark = pytest.mark.no_db
 
 
 class FakeLLM:
@@ -59,6 +63,46 @@ def _episode(*, content: str, summary: str) -> Episode:
     )
 
 
+def test_episode_entry_body_requires_non_empty_limited_subject():
+    episode = _episode(
+        content="用户完成仓库安全审计，并记录了路径遍历和命令注入风险。后续计划修复。",
+        summary="用户归纳了仓库审计中的关键风险。",
+    ).model_copy(
+        update={
+            "subject": (
+                "用户完成仓库安全审计，并记录了路径遍历和命令注入风险。"
+                "这是第二句话，不应该进入主题。"
+            )
+        }
+    )
+
+    _inline, sections = user_memory._episode_to_entry_body(episode)
+
+    assert sections["Subject"] == "用户完成仓库安全审计，并记录了路径遍历和命令注入风险。"
+
+
+def test_episode_entry_body_falls_back_to_content_for_empty_subject():
+    episode = _episode(
+        content="用户完成仓库安全审计，并记录了路径遍历和命令注入风险。后续计划修复。",
+        summary="用户归纳了仓库审计中的关键风险。",
+    ).model_copy(update={"subject": ""})
+
+    _inline, sections = user_memory._episode_to_entry_body(episode)
+
+    assert sections["Subject"] == "用户完成仓库安全审计，并记录了路径遍历和命令注入风险。"
+
+
+def test_episode_subject_is_limited_to_140_characters():
+    episode = _episode(
+        content="fallback content",
+        summary="用户归纳了仓库审计中的关键风险。",
+    ).model_copy(update={"subject": "A" * 180})
+
+    _inline, sections = user_memory._episode_to_entry_body(episode)
+
+    assert sections["Subject"] == "A" * 140
+
+
 async def test_invalid_episode_summary_uses_secondary_llm_summary():
     content = "用户完成了仓库安全审计并记录多个发现，包括路径遍历和命令注入。"
     episode = _episode(content=content, summary=content[:18])
@@ -85,7 +129,8 @@ async def test_secondary_summary_failure_falls_back_to_content_truncation():
 
     fixed = await user_memory._ensure_episode_summary(episode, llm)
 
-    assert fixed.summary == "用户完成了仓库安全审计并记录多个发现。" * 3
+    assert fixed.summary == "记忆摘要：安全审计"
+    assert not content.startswith(fixed.summary)
     assert len(llm.calls) == 1
 
 

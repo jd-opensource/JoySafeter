@@ -279,8 +279,8 @@ function compactId(value: string | null | undefined) {
   return value.length > 16 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value
 }
 
-function visibleSourceSessionIds(sourceSessionIds: string[] | null | undefined) {
-  return (sourceSessionIds || []).filter(Boolean).slice(0, 2)
+function formatSourceSessionIds(sourceSessionIds: string[] | null | undefined) {
+  return (sourceSessionIds || []).filter(Boolean).map(compactId).join('、')
 }
 
 function clampPercent(value: number) {
@@ -1387,8 +1387,7 @@ function EpisodeTimeline({
           const timestamp = getMemoryTimestamp(episode.timestamp, episode.md_path, episode.id)
           const isAggregatedEpisode = episode.parent_type === 'cluster'
           const sourceSessionIds = episode.source_session_ids || []
-          const visibleSourceSessions = visibleSourceSessionIds(sourceSessionIds)
-          const hiddenSourceSessionCount = Math.max(0, sourceSessionIds.length - visibleSourceSessions.length)
+          const sourceSessionLabel = formatSourceSessionIds(sourceSessionIds)
           const isFocused = matchesTimelineFocus(episode, focusedActivity || null, [episode.subject, episode.summary])
           const rowActivity = episodeToActivity(episode)
           const focusedBlock = isFocused
@@ -1458,25 +1457,12 @@ function EpisodeTimeline({
                   </button>
                 ) : isAggregatedEpisode ? (
                   <>
-                    {visibleSourceSessions.map((sourceSessionId, index) => (
-                      <button
-                        key={sourceSessionId}
-                        type="button"
-                        title={sourceSessionId}
-                        aria-label={`按来源会话筛选 ${sourceSessionId}`}
-                        onClick={() => onFilter?.({ type: 'session', value: sourceSessionId })}
-                        className="rounded-md border bg-background px-2.5 py-1 text-xs text-foreground transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      >
-                        {index === 0 ? '来源会话: ' : ''}
-                        {compactId(sourceSessionId)}
-                      </button>
-                    ))}
-                    {hiddenSourceSessionCount > 0 ? (
+                    {sourceSessionLabel ? (
                       <span
-                        title={sourceSessionIds.slice(visibleSourceSessions.length).join(', ')}
-                        className="rounded-md border bg-background px-2.5 py-1 text-xs text-muted-foreground"
+                        title={sourceSessionIds.join('、')}
+                        className="rounded-md border bg-background px-2.5 py-1 text-xs text-foreground"
                       >
-                        +{hiddenSourceSessionCount}
+                        来源会话: {sourceSessionLabel}
                       </span>
                     ) : null}
                     <button

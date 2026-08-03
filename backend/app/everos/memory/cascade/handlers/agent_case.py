@@ -28,8 +28,9 @@ from __future__ import annotations
 
 from app.everos.infra.persistence.lancedb import AgentCase, ParentType, agent_case_repo
 
+from ..vector_embedding import embed_text_for_index
 from ._common import require_float, require_iso_timestamp
-from ._daily_log_base import BaseDailyLogHandler, ParsedEntry
+from ._daily_log_base import BaseDailyLogHandler, ParsedEntry, daily_log_row_id
 
 
 class AgentCaseHandler(BaseDailyLogHandler):
@@ -62,9 +63,13 @@ class AgentCaseHandler(BaseDailyLogHandler):
         key_insight = (s.sections.get("KeyInsight") or "").strip() or None
         intent_tokens = self._deps.tokenizer.tokenize(task_intent)
         approach_tokens = self._deps.tokenizer.tokenize(approach)
-        vector = await self._deps.embedder.embed(task_intent)
+        indexed = await embed_text_for_index(
+            self._deps.embedder,
+            task_intent,
+            embedding_model=getattr(self._deps.embedder, "_model", None),
+        )
         return AgentCase(
-            id=f"{owner_id}_{entry.entry_id}",
+            id=daily_log_row_id(md_path, entry.entry_id),
             entry_id=entry.entry_id,
             owner_id=owner_id,
             owner_type=owner_type,
@@ -84,5 +89,8 @@ class AgentCaseHandler(BaseDailyLogHandler):
             key_insight=key_insight,
             md_path=md_path,
             content_sha256=entry.content_sha256,
-            vector=vector,
+            vector=indexed.vector,
+            vector_status=indexed.vector_status,
+            vector_updated_at=indexed.vector_updated_at,
+            embedding_model=indexed.embedding_model,
         )

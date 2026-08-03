@@ -10,6 +10,7 @@ entity* rather than a daily-log entry — PK is ``<owner_id>_<skill_name>``
 
 from __future__ import annotations
 
+import datetime as _dt
 from typing import ClassVar
 
 from app.everos.core.persistence.lancedb import BaseLanceTable, Vector
@@ -64,8 +65,8 @@ class AgentSkill(BaseLanceTable):
     source_case_ids: list[str]
     """AgentCase ids that fed into this skill's synthesis (lineage)."""
 
-    cluster_id: str | None = None
-    """Optional MemScene clustering tag."""
+    cluster_id: str
+    """MemScene clustering tag injected by EverOS before persistence."""
 
     md_path: str
     content_sha256: str
@@ -76,5 +77,12 @@ class AgentSkill(BaseLanceTable):
     re-upsert + re-embed when neither retrieval-anchor text nor scores
     changed (e.g. the watcher fires for unrelated stat updates). See
     :attr:`AgentSkillHandler.content_change_keys`."""
+
+    vector_status: str | None = "ready"
+    """``ready`` for real embeddings; ``fallback_zero`` for keyword-only fallback."""
+
+    vector_updated_at: _dt.datetime | None = None
+
+    embedding_model: str | None = None
 
     vector: Vector(_DIM)  # type: ignore[valid-type]

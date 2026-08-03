@@ -83,6 +83,7 @@ pub enum EgressKind {
     Mcp,
     Git,
     External,
+    Everos,
 }
 
 /// How the sandbox discovers the route.
@@ -170,6 +171,10 @@ pub const MCP_EGRESS_HOST: &str = "mcp-egress.internal";
 pub const GIT_EGRESS_HOST: &str = "git-egress.internal";
 /// Placeholder host the sandbox uses for external service calls.
 pub const EXTERNAL_EGRESS_HOST: &str = "external-egress.internal";
+/// Placeholder host the sandbox uses for EverOS memory recall. Envoy forwards
+/// this to the JoySafeter-API EverOS proxy (lifecycle filtering) since a
+/// `network=none` sandbox cannot reach the proxy host directly.
+pub const EVEROS_EGRESS_HOST: &str = "everos-egress.internal";
 
 const CREDENTIAL_AUTH_HEADERS: &[&str] =
     &["authorization", "x-api-key", "api-key", "x-goog-api-key"];

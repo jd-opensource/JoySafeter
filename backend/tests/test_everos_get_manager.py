@@ -1,7 +1,11 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
+
 from app.everos.memory.get import GetManager, GetRequest
+
+pytestmark = pytest.mark.no_db
 
 
 class _Repo:
