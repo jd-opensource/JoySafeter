@@ -2,15 +2,19 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, AttachParams, DeleteParams, ListParams, PostParams};
 use kube::Client;
 use serde_json::{json, Value};
+use sqlx::PgPool;
 use tokio::io::AsyncReadExt;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use super::envoy::{EnvoyConfig, EnvoyManager};
+use super::lds_backend::{
+    DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials,
+};
 use super::mounts::SandboxMount;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
@@ -23,11 +27,21 @@ use crate::config::JoySafeterConfig;
 /// Communicates with the K8s API server directly over HTTP/2 (via
 /// ServiceAccount token when in-cluster, or kubeconfig when developing
 /// locally). No kubectl CLI dependency.
+///
+/// When Envoy is enabled, sandboxes use a per-node DaemonSet Envoy for egress.
+/// The socket dir is shared between sandbox pod and Envoy via hostPath, and an
+/// initContainer in the sandbox pod creates the per-sandbox subdirectory
+/// (since orchestrator cannot create dirs on a remote node).
 #[derive(Clone)]
 pub struct K8sProvider {
     client: Client,
     namespace: String,
+    config: JoySafeterConfig,
     orchestrator_url: Option<String>,
+    /// Envoy network isolation manager (None when envoy_enabled=false).
+    envoy_manager: Option<Arc<EnvoyManager>>,
+    /// Delta xDS server for gRPC xDS mode.
+    xds_service: Option<Arc<DeltaXdsServer>>,
 }
 
 impl K8sProvider {
@@ -43,16 +57,65 @@ impl K8sProvider {
             anyhow::anyhow!("K8s API server unreachable: {e}")
         })?;
 
+        // Build Envoy manager + xDS service if enabled
+        let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
+        let envoy_manager = if config.envoy_enabled {
+            let lds: Arc<dyn LdsBackend> = if config.envoy_xds_mode == "grpc" {
+                let server = DeltaXdsServer::new();
+                xds_service = Some(server.clone());
+                Arc::new(GrpcLds::new(server))
+            } else {
+                Arc::new(FilesystemLds::new(config.envoy_config_dir.clone()))
+            };
+            Some(Arc::new(EnvoyManager::new(
+                // K8s provider doesn't need Docker client for Envoy (DaemonSet
+                // manages its own container). Pass a dummy client — EnvoyManager
+                // only uses it for prepare_socket_dir_in_volume (which we skip
+                // via initContainer) and health_check (which we skip via K8s
+                // livenessProbe on the DaemonSet).
+                Arc::new(bollard::Docker::connect_with_local_defaults().unwrap_or_else(|_| {
+                    panic!("bollard dummy client init failed")
+                })),
+                EnvoyConfig {
+                    envoy_image: config.envoy_image.clone(),
+                    socket_volume: config.envoy_socket_volume.clone(),
+                    socket_host_dir: config.envoy_socket_host_dir.clone(),
+                    config_dir: config.envoy_config_dir.clone(),
+                    envoy_network: config.envoy_network.clone(),
+                    grpc_target_host: config.envoy_grpc_host.clone(),
+                    grpc_target_port: config.envoy_grpc_port,
+                    container_name: config.envoy_container_name.clone(),
+                    xds_mode: config.envoy_xds_mode.clone(),
+                    write_debug_entries: config.envoy_write_debug_entries,
+                    socket_ready_timeout_ms: config.envoy_socket_ready_timeout_ms,
+                    health_check_interval_sec: 0, // K8s livenessProbe handles this
+                    health_failure_threshold: 0,
+                },
+                lds,
+            )))
+        } else {
+            None
+        };
+
         info!(
             namespace = %config.k8s_namespace,
+            envoy_enabled = config.envoy_enabled,
             "K8sProvider initialized (kube-rs SDK)"
         );
 
         Ok(Self {
             client,
             namespace: config.k8s_namespace.clone(),
+            config: config.clone(),
             orchestrator_url: config.k8s_orchestrator_url.clone(),
+            envoy_manager,
+            xds_service,
         })
+    }
+
+    /// Get the xDS service (if gRPC xDS mode). Used to register ADS on gRPC server.
+    pub fn xds_service(&self) -> Option<Arc<DeltaXdsServer>> {
+        self.xds_service.clone()
     }
 
     fn pods(&self) -> Api<Pod> {
@@ -95,6 +158,9 @@ impl K8sProvider {
 
         let mut volumes = Vec::new();
         let mut volume_mounts = Vec::new();
+        let mut init_containers = Vec::new();
+
+        // Storage PVC mounts
         for (index, mount) in config.mounts.iter().enumerate() {
             match mount {
                 SandboxMount::K8sPvc {
@@ -132,6 +198,47 @@ impl K8sProvider {
             }
         }
 
+        // Envoy egress socket: hostPath shared with DaemonSet on same node.
+        // initContainer creates the per-sandbox subdirectory (orchestrator can't
+        // do it remotely since it may be on a different node).
+        let has_egress = config.network.as_deref() == Some("none") && self.envoy_manager.is_some();
+        if has_egress {
+            let socket_host_dir = self
+                .config
+                .envoy_socket_host_dir
+                .as_deref()
+                .unwrap_or("/data/joysafeter/envoy-sockets");
+
+            volumes.push(json!({
+                "name": "envoy-sockets",
+                "hostPath": {
+                    "path": socket_host_dir,
+                    "type": "DirectoryOrCreate"
+                }
+            }));
+            volume_mounts.push(json!({
+                "name": "envoy-sockets",
+                "mountPath": "/sockets"
+            }));
+
+            // initContainer: create per-sandbox socket directory with correct perms
+            init_containers.push(json!({
+                "name": "create-socket-dir",
+                "image": "busybox:latest",
+                "command": ["sh", "-c", format!(
+                    "mkdir -p /sockets/{sid} && chmod 777 /sockets/{sid}",
+                    sid = config.sandbox_id
+                )],
+                "securityContext": {
+                    "runAsUser": 0
+                },
+                "volumeMounts": [{
+                    "name": "envoy-sockets",
+                    "mountPath": "/sockets"
+                }]
+            }));
+        }
+
         let mut container = json!({
             "name": "runner",
             "image": config.image,
@@ -159,6 +266,22 @@ impl K8sProvider {
             container["resources"]["limits"]["memory"] = json!(format!("{memory_mb}Mi"));
         }
 
+        let mut pod_spec = json!({
+            "restartPolicy": "Never",
+            "automountServiceAccountToken": false,
+            "enableServiceLinks": false,
+            "securityContext": {
+                "seccompProfile": { "type": "RuntimeDefault" },
+                "fsGroup": 1000,
+                "fsGroupChangePolicy": "OnRootMismatch"
+            },
+            "containers": [container],
+            "volumes": volumes
+        });
+        if !init_containers.is_empty() {
+            pod_spec["initContainers"] = json!(init_containers);
+        }
+
         Ok(json!({
             "apiVersion": "v1",
             "kind": "Pod",
@@ -167,18 +290,7 @@ impl K8sProvider {
                 "namespace": self.namespace,
                 "labels": labels
             },
-            "spec": {
-                "restartPolicy": "Never",
-                "automountServiceAccountToken": false,
-                "enableServiceLinks": false,
-                "securityContext": {
-                    "seccompProfile": { "type": "RuntimeDefault" },
-                    "fsGroup": 1000,
-                    "fsGroupChangePolicy": "OnRootMismatch"
-                },
-                "containers": [container],
-                "volumes": volumes
-            }
+            "spec": pod_spec
         }))
     }
 }
@@ -211,7 +323,6 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn start(&self, _external_id: &str) -> anyhow::Result<()> {
-        // K8s pods start immediately on creation; no separate start step.
         Ok(())
     }
 
@@ -315,8 +426,77 @@ impl SandboxProvider for K8sProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: false,
-            has_egress_management: false,
-            network_isolation: NetworkIsolation::None,
+            has_egress_management: self.envoy_manager.is_some(),
+            network_isolation: if self.envoy_manager.is_some() {
+                NetworkIsolation::Envoy
+            } else {
+                NetworkIsolation::None
+            },
         }
+    }
+
+    // ─── Envoy egress integration ───────────────────────────────────────────
+
+    async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
+        if let Some(ref manager) = self.envoy_manager {
+            if let Some(ref xds) = self.xds_service {
+                xds.attach_db_pool(pool.clone()).await;
+            }
+            // In K8s mode, Envoy DaemonSet manages its own bootstrap (embedded).
+            // We only need to initialize the LDS state (empty) and recover from DB.
+            if let Err(e) = manager.init().await {
+                warn!("EnvoyManager initialization failed: {e}");
+                return Ok(());
+            }
+            if let Err(e) = manager
+                .recover_from_db(pool, &self.config.llm_egress_allowed_hosts)
+                .await
+            {
+                warn!("EnvoyManager LDS recovery from DB failed: {e}");
+            }
+            // No health monitor spawn — K8s livenessProbe on DaemonSet handles it.
+            info!(
+                xds_mode = %self.config.envoy_xds_mode,
+                "K8s EnvoyManager initialized (DaemonSet manages Envoy lifecycle)"
+            );
+        }
+        Ok(())
+    }
+
+    async fn setup_networking(
+        &self,
+        sandbox_id: Uuid,
+        _sandbox_external_id: &str,
+        networking: Option<&serde_json::Value>,
+        credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        if let Some(ref manager) = self.envoy_manager {
+            // In K8s mode, prepare_socket_dir is handled by the pod's
+            // initContainer (it creates the dir on the local node). We skip
+            // the orchestrator-side mkdir (it would only work on the local node).
+            // Just push the LDS listener to Envoy.
+            manager
+                .setup_for_sandbox(sandbox_id, networking, credentials)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn refresh_networking(
+        &self,
+        sandbox_id: Uuid,
+        sandbox_external_id: &str,
+        networking: Option<&serde_json::Value>,
+        credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        self.setup_networking(sandbox_id, sandbox_external_id, networking, credentials)
+            .await
+    }
+
+    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        if let Some(ref manager) = self.envoy_manager {
+            manager.teardown_for_sandbox(sandbox_id).await?;
+        }
+        Ok(())
     }
 }

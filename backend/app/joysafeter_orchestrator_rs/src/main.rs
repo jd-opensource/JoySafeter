@@ -159,7 +159,11 @@ async fn main() -> anyhow::Result<()> {
                 xds,
             )
         }
-        "k8s" | "kubernetes" => (Arc::new(sandbox::k8s::K8sProvider::new(&config).await?), None),
+        "k8s" | "kubernetes" => {
+            let provider = sandbox::k8s::K8sProvider::new(&config).await?;
+            let xds = provider.xds_service();
+            (Arc::new(provider), xds)
+        }
         other => {
             return Err(anyhow::anyhow!(
                     "Unsupported JOYSAFETER_SANDBOX_PROVIDER={other}. Expected docker, k8s, daytona, or e2b."
