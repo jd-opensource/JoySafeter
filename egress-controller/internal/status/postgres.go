@@ -275,7 +275,10 @@ func (r *PostgresRecorder) writeConnected(ctx context.Context, identity group.Id
 			disconnected_at = NULL,
 			updated_at = now()
 	`, uuid.New(), identity.GroupKey, identity.NodeID, r.instanceID, identity.Metadata.EnvoyVersion, now, now.Add(r.leaseTTL))
-	return err
+	if err != nil {
+		return err
+	}
+	return r.recomputeGroupNonTerminal(ctx, identity.GroupKey)
 }
 
 func (r *PostgresRecorder) writeDisconnected(ctx context.Context, identity group.Identity) error {
@@ -284,7 +287,53 @@ func (r *PostgresRecorder) writeDisconnected(ctx context.Context, identity group
 		SET disconnected_at = now(), lease_expires_at = now(), updated_at = now()
 		WHERE group_key = $1 AND node_id = $2 AND controller_instance = $3
 	`, identity.GroupKey, identity.NodeID, r.instanceID)
-	return err
+	if err != nil {
+		return err
+	}
+	return r.recomputeGroupNonTerminal(ctx, identity.GroupKey)
+}
+
+func (r *PostgresRecorder) recomputeGeneration(ctx context.Context, groupKey string, generation uint64) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := withGenerationLock(ctx, tx, groupKey, generation, func() error {
+		return recomputeApplyStatus(ctx, tx, groupKey, generation)
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *PostgresRecorder) recomputeGroupNonTerminal(ctx context.Context, groupKey string) error {
+	rows, err := r.pool.Query(ctx, `
+		SELECT generation FROM joysafeter_egress_apply_status
+		WHERE group_key = $1 AND state IN ('pending', 'published')
+	`, groupKey)
+	if err != nil {
+		return err
+	}
+	var generations []uint64
+	for rows.Next() {
+		var generation int64
+		if err := rows.Scan(&generation); err != nil {
+			rows.Close()
+			return err
+		}
+		generations = append(generations, uint64(generation))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, generation := range generations {
+		if err := r.recomputeGeneration(ctx, groupKey, generation); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *PostgresRecorder) writeACK(ctx context.Context, value event) error {

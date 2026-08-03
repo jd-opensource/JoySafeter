@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joysafeter/joysafeter/egress-controller/internal/group"
 )
 
 const concurrencyType = "type.googleapis.com/envoy.config.listener.v3.Listener"
@@ -194,5 +195,39 @@ func TestApplyStatusConcurrentACKsLoseUpdateWithoutLock(t *testing.T) {
 	state, _, required, acked := readAggregate(t, pool, groupKey, 1)
 	if acked != 1 || required != 2 || state != "published" {
 		t.Fatalf("no lock: expected lost-update artifact required=2/acked=1/published, got required=%d acked=%d state=%s", required, acked, state)
+	}
+}
+
+// A published generation with one un-ACKed node becomes applied once that node
+// disconnects, because the recompute on disconnect shrinks the required set.
+func TestApplyStatusDisconnectUnblocksApplied(t *testing.T) {
+	pool, databaseURL := concurrencyPool(t)
+	ctx := context.Background()
+	truncateStatusTables(t, pool)
+
+	groupKey := "v1:" + strings.Repeat("E", 43)
+	insertGeneration(t, pool, groupKey, 1)
+	recorder := newTestRecorder(t, ctx, databaseURL, "controller-disc")
+
+	nodeA := makeIdentity(groupKey, "node-a")
+	nodeB := makeIdentity(groupKey, "node-b")
+	recorder.Connected(nodeA)
+	recorder.Connected(nodeB)
+	recorder.Published(groupKey, 1, "gen1-disc", []string{concurrencyType}, false)
+	recorder.ACK(nodeA, 1, "gen1-disc", concurrencyType, "nonce-a")
+	// node-b never ACKs; it disconnects instead.
+	recorder.Disconnected(nodeB)
+	closeTestRecorder(t, ctx, recorder)
+
+	state, connected, required, acked := readAggregate(t, pool, groupKey, 1)
+	if state != "applied" || connected != 1 || required != 1 || acked != 1 {
+		t.Fatalf("disconnect: state=%s connected=%d required=%d acked=%d; want applied/1/1/1", state, connected, required, acked)
+	}
+}
+
+func makeIdentity(groupKey, nodeID string) group.Identity {
+	return group.Identity{
+		NodeID: nodeID, GroupKey: groupKey,
+		Metadata: group.Metadata{EnvoyVersion: "1.39.0"},
 	}
 }
