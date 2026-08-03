@@ -1,0 +1,293 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - orchestrator-pdb.yaml
+
+images:
+  - name: joysafeter-orchestrator-rs
+    newName: CHANGE_ME_REGISTRY/joysafeter-orchestrator-rs
+    newTag: CHANGE_ME_IMMUTABLE_TAG
+  - name: joysafeter-egress-controller
+    newName: CHANGE_ME_REGISTRY/joysafeter-egress-controller
+    newTag: CHANGE_ME_IMMUTABLE_TAG
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: joysafeter-config
+      namespace: joysafeter-control
+    patch: |-
+      - op: remove
+        path: /data/FRONTEND_URL
+      - op: remove
+        path: /data/BACKEND_URL
+      - op: remove
+        path: /data/CORS_ORIGINS
+      - op: remove
+        path: /data/BACKEND_CORS_ORIGINS
+      - op: remove
+        path: /data/NEXT_PUBLIC_API_URL
+      - op: remove
+        path: /data/NEXT_PUBLIC_APP_URL
+      - op: remove
+        path: /data/NEXT_PUBLIC_CSP_NECESSARY_DOMAIN
+      - op: remove
+        path: /data/NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED
+      - op: remove
+        path: /data/NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES
+      - op: remove
+        path: /data/POSTGRES_HOST
+      - op: remove
+        path: /data/POSTGRES_PORT
+      - op: remove
+        path: /data/POSTGRES_USER
+      - op: remove
+        path: /data/POSTGRES_DB
+      - op: remove
+        path: /data/DATABASE_URL
+      - op: remove
+        path: /data/REDIS_URL
+      - op: remove
+        path: /data/STORAGE_LOCAL_PATH
+      - op: remove
+        path: /data/SKILL_SECURITY_SCANNER_URL
+      - op: replace
+        path: /data/SKILL_SECURITY_SCAN_ENABLED
+        value: "false"
+      - op: replace
+        path: /data/JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED
+        value: "true"
+      - op: replace
+        path: /data/JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED
+        value: "true"
+      - op: replace
+        path: /data/JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS
+        value: api.anthropic.com,api.openai.com,generativelanguage.googleapis.com,CHANGE_ME_MODEL_GATEWAY_HOST
+      - op: replace
+        path: /data/JOYSAFETER_EGRESS_POLICY_REGION
+        value: CHANGE_ME_REGION
+      - op: replace
+        path: /data/JOYSAFETER_IMAGE_CLAUDE
+        value: CHANGE_ME_REGISTRY/joysafeter-claudecode:CHANGE_ME_IMMUTABLE_TAG
+      - op: replace
+        path: /data/JOYSAFETER_IMAGE_CODEX
+        value: CHANGE_ME_REGISTRY/joysafeter-codex:CHANGE_ME_IMMUTABLE_TAG
+      - op: replace
+        path: /data/JOYSAFETER_IMAGE_NATIVE
+        value: CHANGE_ME_REGISTRY/joysafeter-native:CHANGE_ME_IMMUTABLE_TAG
+      - op: replace
+        path: /data/JOYSAFETER_SANDBOX_IMAGE
+        value: CHANGE_ME_REGISTRY/joysafeter-claudecode:CHANGE_ME_IMMUTABLE_TAG
+  - target:
+      kind: Deployment
+      name: joysafeter-orchestrator
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: joysafeter-orchestrator
+        namespace: joysafeter-control
+      spec:
+        replicas: 3
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxUnavailable: 1
+            maxSurge: 1
+        template:
+          spec:
+            enableServiceLinks: false
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 65532
+              runAsGroup: 65532
+              seccompProfile:
+                type: RuntimeDefault
+            topologySpreadConstraints:
+              - maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: ScheduleAnyway
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: joysafeter-orchestrator
+            containers:
+              - name: orchestrator
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                      - ALL
+                readinessProbe:
+                  exec:
+                    command:
+                      - bash
+                      - -ec
+                      - exec 3<>/dev/tcp/127.0.0.1/9090; exec 4<>/dev/tcp/127.0.0.1/18090
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                  failureThreshold: 3
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                  limits:
+                    cpu: "2"
+                    memory: 4Gi
+  - target:
+      kind: Secret
+      name: joysafeter-secret
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: joysafeter-secret
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Service
+      name: postgres
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: postgres
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Deployment
+      name: postgres
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: postgres
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Service
+      name: redis
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: redis
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Deployment
+      name: redis
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: redis
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Service
+      name: api
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: api
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Deployment
+      name: api
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: api
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Service
+      name: worker
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: worker
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Deployment
+      name: worker
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: worker
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Service
+      name: frontend
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: frontend
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Deployment
+      name: frontend
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Service
+      name: skillspector
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: skillspector
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Deployment
+      name: skillspector
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: skillspector
+        namespace: joysafeter-control
+      $patch: delete
+  - target:
+      kind: Job
+      name: joysafeter-db-init
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: joysafeter-db-init
+        namespace: joysafeter-control
+      $patch: delete

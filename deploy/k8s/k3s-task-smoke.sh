@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=runtime-architecture-guard.sh
+source "$SCRIPT_DIR/runtime-architecture-guard.sh"
+
 KUBECTL="${KUBECTL:-kubectl}"
 CONTROL_NS="${JOYSAFETER_CONTROL_NAMESPACE:-joysafeter-control}"
 SANDBOX_NS="${JOYSAFETER_K8S_NAMESPACE:-joysafeter-sandboxes}"
-API_URL="${API_URL:-http://127.0.0.1:8000}"
+API_URL="${API_URL:-}"
+API_PORT_FORWARD_PORT="${API_PORT_FORWARD_PORT:-}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d%H%M%S)}"
 SMOKE_EMAIL="${SMOKE_EMAIL:-k3s-smoke-${RUN_ID}@example.com}"
 SMOKE_PASSWORD="${SMOKE_PASSWORD:-K3sSmokePass123!}"
@@ -22,6 +28,8 @@ warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$*" >&2; }
 stop_port_forward_on_exit() {
   if [[ -n "$PORT_FORWARD_PID" ]]; then
     kill "$PORT_FORWARD_PID" >/dev/null 2>&1 || true
+    wait "$PORT_FORWARD_PID" >/dev/null 2>&1 || true
+    PORT_FORWARD_PID=""
   fi
 }
 trap stop_port_forward_on_exit EXIT
@@ -74,21 +82,18 @@ PY
 }
 
 api_live() {
+  [[ -n "$API_URL" ]] || return 1
   curl -fsS "${API_URL}/api/v1/health/live" >/dev/null 2>&1
 }
 
-ensure_api() {
-  if api_live; then
-    return
-  fi
+start_api_port_forward() {
+  local local_port log_path
+  local_port="${API_PORT_FORWARD_PORT:-$((18000 + RANDOM % 1000))}"
+  API_URL="http://127.0.0.1:${local_port}"
+  log_path="/tmp/joysafeter-k3s-api-port-forward-${local_port}.log"
 
-  if [[ "$API_URL" != "http://127.0.0.1:8000" && "$API_URL" != "http://localhost:8000" ]]; then
-    echo "API is not reachable at ${API_URL}" >&2
-    exit 1
-  fi
-
-  log "API not reachable directly; starting temporary port-forward svc/api 8000:8000"
-  "$KUBECTL" -n "$CONTROL_NS" port-forward svc/api 8000:8000 >/tmp/joysafeter-k3s-api-port-forward.log 2>&1 &
+  log "Starting temporary port-forward svc/api ${local_port}:8000"
+  "$KUBECTL" -n "$CONTROL_NS" port-forward svc/api "${local_port}:8000" >"$log_path" 2>&1 &
   PORT_FORWARD_PID="$!"
 
   for _ in $(seq 1 30); do
@@ -99,7 +104,21 @@ ensure_api() {
   done
 
   warn "port-forward log:"
-  sed -n '1,80p' /tmp/joysafeter-k3s-api-port-forward.log >&2 || true
+  sed -n '1,80p' "$log_path" >&2 || true
+  echo "API did not become reachable at ${API_URL}" >&2
+  exit 1
+}
+
+ensure_api() {
+  if [[ -z "$API_URL" ]]; then
+    start_api_port_forward
+    return
+  fi
+
+  if api_live; then
+    return
+  fi
+
   echo "API did not become reachable at ${API_URL}" >&2
   exit 1
 }
@@ -157,6 +176,9 @@ main() {
   require_cmd curl
   require_cmd python3
 
+  runtime_guard_assert_live_control_plane "$CONTROL_NS" "$SANDBOX_NS"
+  runtime_guard_assert_orchestrator_image_api_only "$CONTROL_NS"
+  runtime_guard_assert_orchestrator_sandbox_rbac "$CONTROL_NS" "$SANDBOX_NS"
   ensure_api
 
   local password_hash
@@ -234,6 +256,8 @@ PY
 
   log "Waiting for sandbox pod ${pod_name}"
   "$KUBECTL" -n "$SANDBOX_NS" wait --for=condition=Ready "pod/${pod_name}" --timeout="${WAIT_SECONDS}s"
+
+  runtime_guard_assert_sandbox_pods_api_created "$SANDBOX_NS" "$pod_name"
 
   log "Checking runner handshake logs"
   local pod_logs

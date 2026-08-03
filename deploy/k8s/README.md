@@ -1,60 +1,48 @@
-# JoySafeter k3s local smoke
+# JoySafeter k3s Sandbox Plane
 
-This directory is the first executable k3s path for validating the Rust
-`K8sProvider`. It is intentionally smaller than the production target: local
-PostgreSQL and Redis run inside the cluster with `emptyDir` storage, and
-frontend/API are exposed through k3d NodePort mappings or `kubectl port-forward`.
+This directory contains Kubernetes manifests for two different purposes:
 
-## Bring up local k3s with k3d
+- `deploy/k8s/overlays/sandbox-plane/` — production entry for a self-hosted k3s sandbox execution plane. Company-managed production environments run frontend, backend API, worker, PostgreSQL, Redis, object storage, and business ingress.
+- `deploy/k8s/base/`, `deploy/k8s/overlays/local/`, and the `k3s-*-smoke.sh` scripts — local or validation stacks. They may deploy local API/frontend/worker/PostgreSQL/Redis and are not the production shape when company infrastructure owns those services.
 
-```bash
-k3d cluster create --config deploy/k8s/k3d-cluster.yaml
-```
+## Production Sandbox Plane
 
-Build the images the manifests reference:
+Use this when only sandbox-related services should run in k3s:
 
 ```bash
-cd deploy
-./deploy.sh build --all --arch arm64
+kubectl apply -f deploy/k8s/base/00-namespaces.yaml
+
+# Create joysafeter-secret from your company secret manager or a local env file.
+kubectl -n joysafeter-control create secret generic joysafeter-secret \
+  --from-env-file=deploy/k8s/overlays/sandbox-plane/secret.env \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Render/validate before applying.
+OVERLAY=deploy/k8s/overlays/sandbox-plane \
+SMOKE_IMAGE=<internal-image-with-curl> \
+deploy/k8s/validate-sandbox-plane-readiness.sh
+
+# Apply only the sandbox execution plane.
+kubectl apply -k deploy/k8s/overlays/sandbox-plane
 ```
 
-For amd64 Docker daemons, use `--arch amd64`.
+The sandbox-plane overlay intentionally does not deploy `api`, `worker`, `frontend`, `postgres`, `redis`, `joysafeter-db-init`, or `skillspector`.
 
-Apply the staged smoke deployment:
+After apply, validate through the company-managed Backend API:
 
 ```bash
-cd ..
-deploy/k8s/k3s-smoke.sh
+API_URL=https://<company-api-host> deploy/k8s/k3s-task-smoke.sh
+
+API_URL=https://<company-api-host> \
+ANTHROPIC_API_KEY=... \
+ANTHROPIC_BASE_URL=... \
+ANTHROPIC_MODEL=... \
+deploy/k8s/k3s-egress-smoke.sh
 ```
 
-The script applies namespaces/RBAC, starts PostgreSQL/Redis/SkillSpector, runs
-`alembic upgrade head`, then starts API/worker/orchestrator/frontend. When a
-k3d cluster named `joysafeter` is present, it also imports locally built Docker
-images into the k3s cluster.
+## Local Full-Stack Smoke
 
-This script is non-destructive for application data: it does not delete
-namespaces, pods, PVCs, database rows, users, agents, tasks, or old migration
-Jobs. Each migration run uses a unique Job name so previous evidence remains
-available.
-
-## Access
-
-The k3d config maps local ports:
-
-- API: `http://localhost:8000/health`
-- Frontend: `http://localhost:3000`
-
-If direct ports are unavailable, use port-forwarding:
-
-```bash
-kubectl -n joysafeter-control port-forward svc/api 8000:8000
-kubectl -n joysafeter-control port-forward svc/frontend 3000:3000
-```
-
-Open:
-
-- Frontend: `http://localhost:3000`
-- API health: `http://localhost:8000/health`
+The base/local path is only for local k3s/k3d validation. It starts local PostgreSQL, Redis, SkillSpector, API, worker, orchestrator, and frontend with development defaults. Do not use it as the production deployment when company infrastructure owns those services.
 
 ## Model Gateway Allowlist
 
@@ -95,6 +83,10 @@ kubectl -n joysafeter-sandboxes get pods \
 
 ## API-driven sandbox smoke
 
+For the production `sandbox-plane` overlay, always set `API_URL` to the
+company-managed Backend API. The default port-forward behavior below is only for
+local full-stack k3s/k3d validation where `svc/api` exists in the cluster.
+
 After the stack is ready, run a real API -> worker -> Rust orchestrator -> k3s
 Pod -> runner validation:
 
@@ -107,7 +99,16 @@ waits for the sandbox Pod to become Ready, and verifies the runner saw
 `RunnerReady` and `StartTask`. It preserves all created records and pods for
 inspection.
 
+By default the script starts a temporary `kubectl port-forward svc/api` on a free
+local port and points API calls at that forwarded service. Set `API_URL` only when
+you intentionally want to target a specific API endpoint, for example a k3d
+host-port mapping.
+
 ## Secret-backed egress smoke
+
+For the production `sandbox-plane` overlay, always set `API_URL` to the
+company-managed Backend API and use the same company production database/Redis
+state as the k3s orchestrator and egress-controller.
 
 To validate the production egress path, run the dedicated smoke with a real
 Anthropic-compatible Secret. For JDCloud-style gateways, set
@@ -116,8 +117,13 @@ Anthropic-compatible Secret. For JDCloud-style gateways, set
 ```bash
 ANTHROPIC_API_KEY=... \
 ANTHROPIC_BASE_URL=https://ai-api.jdcloud.com/anthropic \
+ANTHROPIC_MODEL=Claude-Opus-4.8 \
 deploy/k8s/k3s-egress-smoke.sh
 ```
+
+Like the task smoke, this script defaults to a temporary `svc/api` port-forward.
+Set `API_URL` explicitly only for a known-good endpoint that maps to the same
+cluster you are validating.
 
 The script installs ephemeral PKI, applies the TLS control/data-plane manifests, enables
 the two feature flags for the run, then creates uniquely named smoke data
@@ -134,10 +140,25 @@ controller into a local k3d cluster. It verifies:
   `kubectl.kubernetes.io/last-applied-configuration`;
 - the durable generation reaches `applied` with all required ACKs and no NACK;
 - a wrong sandbox token receives `403` from ext_authz;
-- direct upstream access is denied by the per-sandbox NetworkPolicy;
+- direct upstream access to the configured Anthropic-compatible messages API
+  endpoint, including the base URL scheme/host/port/path, is denied by the
+  per-sandbox NetworkPolicy;
 - the model-backed Task reaches `completed` and outputs `K3S_EGRESS_OK`.
 
-If you only want to prove gateway connectivity with a Secret whose model is not
+Without a real Secret, run the structural preflight instead:
+
+```bash
+EGRESS_PREFLIGHT_ONLY=true deploy/k8s/k3s-egress-smoke.sh
+```
+
+Preflight still targets the live cluster: it checks the API-only runtime guard,
+applies/rolls the shared egress plane, validates the durable-authority config,
+requires at least one Envoy node connected over mTLS ADS, and fails on controller
+xDS NACK / publish / rollback / durable-reject metrics. It does not create
+platform users, platform Secrets, Environments, Agents, Tasks, sandbox Pods, or
+database rows, so it is not a substitute for full model-backed egress smoke.
+
+If you only want to prove egress connectivity with a Secret whose model is not
 authorized for the key, set `ALLOW_UPSTREAM_MODEL_ERROR=true`. That mode still
 requires Pod, NetworkPolicy, mTLS, ADS, and authz checks, but it does not count as a
 full model-backed production validation.
@@ -188,9 +209,6 @@ deploy/k8s/k3s-long-run.sh
 - Sandbox images must contain `/bin/sh` and a standard system CA bundle path so
   the trust-bundle init container can append the downstream CA without replacing
   public roots.
-- The current provider shells out to `kubectl`; the orchestrator image includes
-  kubectl for this path. Replacing this with a native Rust Kubernetes client is
-  the next hardening step.
-
-`local-smoke.sh` is kept as a compatibility wrapper and delegates to
-`k3s-smoke.sh`.
+- Runtime sandbox Pod lifecycle, exec, and NetworkPolicy apply all use the
+  Kubernetes API directly; the orchestrator no longer shells out to kubectl for
+  sandbox control-plane operations.

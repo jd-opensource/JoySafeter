@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 K8S_DIR="$ROOT/deploy/k8s"
 BASE="$K8S_DIR/base"
 
+# shellcheck source=runtime-architecture-guard.sh
+source "$K8S_DIR/runtime-architecture-guard.sh"
+
 KUBECTL="${KUBECTL:-kubectl}"
 K3D="${K3D:-k3d}"
 CONTROL_NS="${JOYSAFETER_CONTROL_NAMESPACE:-joysafeter-control}"
@@ -80,10 +83,13 @@ wait_rollout() {
 
 main() {
   require_cmd "$KUBECTL"
+  require_cmd python3
 
   ensure_k3d_cluster
   log "Current Kubernetes context: $("$KUBECTL" config current-context)"
   import_k3d_images
+
+  runtime_guard_assert_rendered_manifests "$ROOT" "$BASE"
 
   log "Applying namespaces, config, and RBAC"
   "$KUBECTL" apply -f "$BASE/00-namespaces.yaml"
@@ -116,21 +122,15 @@ main() {
   log "Applying API, worker, orchestrator, frontend, and sandbox policy"
   "$KUBECTL" apply -f "$BASE/40-app.yaml"
   "$KUBECTL" apply -f "$BASE/50-sandbox-policy.yaml"
-  wait_rollout joysafeter-egress-gateway
   wait_rollout joysafeter-orchestrator
   wait_rollout worker
   wait_rollout api
   wait_rollout frontend
 
-  log "Checking orchestrator sandbox RBAC (permission check only; no pods are deleted)"
-  "$KUBECTL" auth can-i create pods -n "$SANDBOX_NS" \
-    --as="system:serviceaccount:${CONTROL_NS}:joysafeter-orchestrator"
-  "$KUBECTL" auth can-i delete pods -n "$SANDBOX_NS" \
-    --as="system:serviceaccount:${CONTROL_NS}:joysafeter-orchestrator"
-  "$KUBECTL" auth can-i create networkpolicies.networking.k8s.io -n "$SANDBOX_NS" \
-    --as="system:serviceaccount:${CONTROL_NS}:joysafeter-orchestrator"
-  "$KUBECTL" auth can-i patch networkpolicies.networking.k8s.io -n "$SANDBOX_NS" \
-    --as="system:serviceaccount:${CONTROL_NS}:joysafeter-orchestrator"
+  runtime_guard_assert_live_control_plane "$CONTROL_NS" "$SANDBOX_NS"
+  runtime_guard_assert_orchestrator_image_api_only "$CONTROL_NS"
+  runtime_guard_assert_sandbox_pods_api_created "$SANDBOX_NS"
+  runtime_guard_assert_orchestrator_sandbox_rbac "$CONTROL_NS" "$SANDBOX_NS"
 
   ok "k3s smoke stack is ready"
   echo ""

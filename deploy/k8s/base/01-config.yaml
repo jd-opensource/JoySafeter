@@ -26,14 +26,9 @@ data:
   JOYSAFETER_EVENT_STREAM_ENABLED: "true"
   JOYSAFETER_SANDBOX_PROVIDER: k8s
   JOYSAFETER_K8S_NAMESPACE: joysafeter-sandboxes
-  JOYSAFETER_K8S_KUBECTL_PATH: /usr/local/bin/kubectl
   JOYSAFETER_K8S_ORCHESTRATOR_URL: http://joysafeter-orchestrator.joysafeter-control.svc.cluster.local:9090
   JOYSAFETER_ENVOY_ENABLED: "false"
   JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: api.anthropic.com,api.openai.com,generativelanguage.googleapis.com,ai-api.jdcloud.com,*.jdcloud.com
-  JOYSAFETER_EGRESS_GATEWAY_HOST: 0.0.0.0
-  JOYSAFETER_EGRESS_GATEWAY_PORT: "8088"
-  JOYSAFETER_EGRESS_GATEWAY_REQUIRE_SANDBOX_TOKEN: "true"
-  JOYSAFETER_EGRESS_GATEWAY_URL: http://joysafeter-egress-gateway.joysafeter-control.svc.cluster.local:8088
   JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL: https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443
   JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL: https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8080
   JOYSAFETER_EGRESS_DOWNSTREAM_CA_CONFIG_MAP: joysafeter-egress-downstream-ca
@@ -83,5 +78,4 @@ stringData:
   SECRET_KEY: local-dev-secret-key-change-before-prod
   JWT_SECRET_KEY: local-dev-jwt-secret-key-change-before-prod
   JOYSAFETER_VAULT_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
-  JOYSAFETER_EGRESS_GATEWAY_CONTROL_TOKEN: local-dev-egress-gateway-control-token-change-before-prod
   JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/joysafeter?sslmode=disable

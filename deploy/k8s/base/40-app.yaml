@@ -1,68 +1,6 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: joysafeter-egress-gateway
-  namespace: joysafeter-control
-  labels:
-    app.kubernetes.io/name: joysafeter-egress-gateway
-    app.kubernetes.io/part-of: joysafeter
-spec:
-  ports:
-    - name: http
-      port: 8088
-      targetPort: 8088
-  selector:
-    app.kubernetes.io/name: joysafeter-egress-gateway
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: joysafeter-egress-gateway
-  namespace: joysafeter-control
-  labels:
-    app.kubernetes.io/name: joysafeter-egress-gateway
-    app.kubernetes.io/part-of: joysafeter
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: joysafeter-egress-gateway
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: joysafeter-egress-gateway
-        app.kubernetes.io/part-of: joysafeter
-    spec:
-      containers:
-        - name: egress-gateway
-          image: joysafeter-orchestrator-rs:latest
-          imagePullPolicy: IfNotPresent
-          command:
-            - joysafeter-egress-gateway
-          envFrom:
-            - configMapRef:
-                name: joysafeter-config
-            - secretRef:
-                name: joysafeter-secret
-          ports:
-            - containerPort: 8088
-              name: http
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 8088
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8088
-            initialDelaySeconds: 10
-            periodSeconds: 30
----
-apiVersion: v1
-kind: Service
-metadata:
   name: api
   namespace: joysafeter-control
   labels:
