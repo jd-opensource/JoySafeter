@@ -5,7 +5,7 @@
 #   cd deploy
 #   Supported local stack:
 #     ./deploy.sh local
-#     docker compose --profile local-redis --profile rust-orchestrator up -d --no-build
+#     docker compose --profile local-redis --profile sandbox up -d --no-build
 # =============================================================================
 
 x-backend-build: &backend-build
@@ -77,8 +77,21 @@ x-backend-health-common: &backend-health-common
   retries: 3
   start_period: 180s
 
+# Profiles express the two-plane topology:
+#   (default)     business services for LOCAL TESTING only — postgres,
+#                 skillspector, api, worker, frontend. In production these run
+#                 on company infrastructure, not here.
+#   local-redis   Redis for local testing (production uses company Redis).
+#   sandbox       the Docker sandbox plane — orchestrator-rs + Envoy +
+#                 egress-controller (the "docker" sandbox deployment type; the
+#                 "k8s" type lives under deploy/k8s).
+#   init          one-shot db-init (alembic migrations).
+# Local: `docker compose up` = business only; add `--profile local-redis
+# --profile sandbox` for the full local stack.
 services:
+  # ---- Sandbox plane (Docker sandbox type) --------------------------------
   joysafeter-egress-controller:
+    profiles: ["sandbox"]
     image: ${EGRESS_CONTROLLER_FULL_IMAGE:-joysafeter-egress-controller:latest}
     build: *egress-controller-build
     container_name: joysafeter-egress-controller
@@ -108,6 +121,7 @@ services:
       - joysafeter-network
 
   joysafeter-envoy:
+    profiles: ["sandbox"]
     image: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66}
     container_name: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
     restart: unless-stopped
@@ -133,6 +147,7 @@ services:
     networks:
       - joysafeter-network
 
+  # ---- Business services (local testing only; prod = company infra) -------
   skillspector:
     image: ${SKILLSPECTOR_FULL_IMAGE:-joysafeter-skillspector:latest}
     build: *skillspector-build
@@ -232,8 +247,9 @@ services:
     networks:
       - joysafeter-network
 
+  # ---- Sandbox plane (Docker sandbox type): orchestrator ------------------
   orchestrator-rs:
-    profiles: ["rust-orchestrator"]
+    profiles: ["sandbox"]
     image: ${ORCHESTRATOR_RS_FULL_IMAGE:-joysafeter-orchestrator-rs:latest}
     build: *orchestrator-rs-build
     container_name: joysafeter-orchestrator

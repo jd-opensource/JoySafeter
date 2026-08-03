@@ -33,10 +33,10 @@ These are exercised by `backend/tests/test_scheduler_ha_concurrent_claim.py`
 ```bash
 cd deploy
 # either:
-docker compose --profile local-redis --profile rust-orchestrator up -d --scale worker=3
+docker compose --profile local-redis --profile sandbox up -d --scale worker=3
 # or with the overlay (WORKER_REPLICAS defaults to 3):
 docker compose -f docker-compose.yml -f docker-compose.ha.yml \
-  --profile local-redis --profile rust-orchestrator up -d
+  --profile local-redis --profile sandbox up -d
 ```
 
 The `worker` service has no `container_name` and does not publish a fixed host

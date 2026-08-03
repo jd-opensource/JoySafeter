@@ -13,19 +13,42 @@
 services:
   # Mock upstream: echoes the request (method, path, headers, body) as JSON so
   # the smoke can prove the platform credential header arrived and cross-correlate
-  # the Envoy x-request-id. Built from deploy/mock-upstream (a ~60-line Go echo
-  # server on a pinned Go base) so CI never pulls a third-party echo image — the
-  # daocloud mirror 403s docker.m.daocloud.io/mendhak/http-https-echo. No key.
+  # the Envoy x-request-id. Runs an inline stdlib-Python echo server on the
+  # already-built backend image — no third-party echo image (the daocloud mirror
+  # 403s mendhak/http-https-echo) and no extra build context. No API key needed.
+  # Header values are emitted as single-element lists to match the smoke's
+  # x-request-id parser; each request's x-request-id is logged for Source D.
   joysafeter-egress-mock-upstream:
-    image: ${MOCK_UPSTREAM_IMAGE:-joysafeter-egress-mock-upstream:latest}
-    build:
-      context: ./mock-upstream
-      args:
-        GO_IMAGE: ${MOCK_UPSTREAM_GO_IMAGE:-docker.m.daocloud.io/library/golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651}
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     container_name: joysafeter-egress-mock-upstream
     restart: unless-stopped
     environment:
       HTTP_PORT: "8080"
+    entrypoint: ["python3", "-c"]
+    command:
+      - |
+        import json, os
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        class Echo(BaseHTTPRequestHandler):
+            def _echo(self):
+                n = int(self.headers.get("content-length") or 0)
+                body = self.rfile.read(n).decode("utf-8", "replace") if n else ""
+                headers = {k: [v] for k, v in self.headers.items()}
+                rid = self.headers.get("x-request-id", "")
+                print("%s %s x-request-id=%s" % (self.command, self.path, rid), flush=True)
+                payload = json.dumps({"method": self.command, "path": self.path,
+                                      "headers": headers, "body": body}).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            do_GET = _echo
+            do_POST = _echo
+            def log_message(self, *a):
+                pass
+        port = int(os.environ.get("HTTP_PORT", "8080"))
+        ThreadingHTTPServer(("0.0.0.0", port), Echo).serve_forever()
     expose:
       - "8080"
     networks:

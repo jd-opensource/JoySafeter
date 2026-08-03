@@ -2,7 +2,6 @@
 
 ARG RUST_IMAGE=public.ecr.aws/docker/library/rust:1.97.1-bookworm
 ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
-ARG KUBECTL_VERSION=v1.34.0
 ARG CARGO_REGISTRY_MIRROR=sparse+https://rsproxy.cn/index/
 
 FROM ${RUST_IMAGE} AS builder
@@ -43,34 +42,19 @@ RUN cargo build --locked --release
 
 FROM ${RUNTIME_IMAGE} AS runner
 
-ARG TARGETARCH
-ARG KUBECTL_VERSION
-
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    curl \
     && rm -rf /var/lib/apt/lists/*
-
-RUN set -eux; \
-    arch="${TARGETARCH:-amd64}"; \
-    case "$arch" in \
-      amd64|arm64) ;; \
-      *) echo "unsupported kubectl architecture: $arch" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" -o /usr/local/bin/kubectl; \
-    chmod +x /usr/local/bin/kubectl; \
-    kubectl version --client=true
 
 WORKDIR /app
 
 COPY --from=builder /src/backend/app/joysafeter_orchestrator_rs/target/release/joysafeter-orchestrator /usr/local/bin/joysafeter-orchestrator
-COPY --from=builder /src/backend/app/joysafeter_orchestrator_rs/target/release/joysafeter-egress-gateway /usr/local/bin/joysafeter-egress-gateway
 
 ENV RUST_LOG=info
 ENV JOYSAFETER_ENABLED=true
 ENV JOYSAFETER_GRPC_HOST=0.0.0.0
 ENV JOYSAFETER_GRPC_PORT=9090
 
-EXPOSE 9090 8088
+EXPOSE 9090 18090
 
 CMD ["joysafeter-orchestrator"]

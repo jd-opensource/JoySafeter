@@ -665,7 +665,7 @@ validate_local_compose_config() {
         BASE_IMAGE_REGISTRY="$BASE_IMAGE_REGISTRY" \
         RUST_IMAGE="$RUST_IMAGE" \
         RUNTIME_IMAGE="$RUNTIME_IMAGE" \
-        compose --profile local-redis --profile rust-orchestrator config >/dev/null
+        compose --profile local-redis --profile sandbox config >/dev/null
     )
     log_success "Compose 配置预检通过"
 }
@@ -733,7 +733,7 @@ wait_for_local_redis() {
 
     log_info "等待本地 Redis 就绪..."
     while [ "$elapsed" -lt "$timeout_seconds" ]; do
-        if compose_local_env --profile local-redis --profile rust-orchestrator exec -T redis redis-cli ping 2>/dev/null | grep -q '^PONG$'; then
+        if compose_local_env --profile local-redis --profile sandbox exec -T redis redis-cli ping 2>/dev/null | grep -q '^PONG$'; then
             log_success "本地 Redis 已就绪"
             return 0
         fi
@@ -749,12 +749,12 @@ run_local_migrations() {
     (
         cd "$SCRIPT_DIR"
         log_info "启动数据库、Redis、SkillSpector 基础服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build postgres redis skillspector
+        compose_local_env --profile local-redis --profile sandbox up -d --no-build postgres redis skillspector
 
         wait_for_local_redis
 
         log_info "运行数据库迁移..."
-        compose_local_env --profile local-redis --profile rust-orchestrator --profile init run --rm db-init
+        compose_local_env --profile local-redis --profile sandbox --profile init run --rm db-init
     )
     log_success "数据库迁移完成"
 }
@@ -814,7 +814,7 @@ run_local_compose() {
     (
         cd "$SCRIPT_DIR"
         log_info "启动本地 Compose 服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
+        compose_local_env --profile local-redis --profile sandbox up -d --no-build
     )
 }
 
@@ -834,12 +834,12 @@ run_local_doctor() {
 
 # ---- 生命周期管理命令 ----
 # 统一在 SCRIPT_DIR 下、带本地部署的 profile 集合执行 compose 子命令，
-# 保证 down/logs/restart/status 覆盖 redis 与 rust-orchestrator 等 profile 服务，
+# 保证 down/logs/restart/status 覆盖 redis 与 sandbox 面等 profile 服务，
 # 并复用与 local 一致的 env（deploy/.env + LOCAL_* 镜像变量）。
 compose_lifecycle() {
     (
         cd "$SCRIPT_DIR"
-        compose_local_env --profile local-redis --profile rust-orchestrator "$@"
+        compose_local_env --profile local-redis --profile sandbox "$@"
     )
 }
 

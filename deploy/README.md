@@ -1,5 +1,15 @@
 # Deploy
 
+## 拓扑
+
+- **Sandbox 面**有两种部署类型：**docker**（`deploy/docker-compose.yml`，通过宿主机
+  Docker socket 拉起沙箱容器）与 **k8s**（`deploy/k8s/`，沙箱以 Pod 形式运行）。
+  由 `JOYSAFETER_SANDBOX_PROVIDER=docker|k8s` 选择。Docker sandbox 面 =
+  `orchestrator-rs` + Envoy + egress-controller（compose 的 `sandbox` profile）。
+- **业务服务**（Frontend / Backend API / Worker / PostgreSQL / Redis）在生产由
+  公司环境负责；本地用 Docker Compose 起一整套仅供**测试**。生产 k8s 只部署
+  sandbox 面（见 `deploy/k8s/overlays/sandbox-plane/` 与 `PRODUCTION_CHECKLIST.md`）。
+
 部署只保留两个入口：
 
 ## 1. Docker Compose 一键部署
@@ -24,11 +34,14 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 - `db`：PostgreSQL
 - `redis`：Redis（仅在启用 `local-redis` profile 时启动；使用云 Redis 时改 `deploy/.env` 的 `REDIS_URL`）
 - `skillspector`：内部 Skill 安全扫描服务，API 在创建、更新、导入和文件变更时调用
-- `joysafeter-envoy`：沙箱出站白名单和 gRPC 回连通道。没有 profile，任何 `up` 都会启动；它会空闲等待 orchestrator 写入 bootstrap 配置，所以 `docker compose ps` 里看到它 running 但暂时不转发流量是正常的
 - `api`：后端 API，端口 `8000`
-- `orchestrator-rs`：Rust 版调度 / gRPC / sandbox 生命周期，gRPC 端口 `9090`
 - `worker`：Redis Stream 消费 / 批量事件落库
 - `frontend`：前端，端口 `3000`
+- `joysafeter-envoy`：沙箱出站白名单和 gRPC 回连通道，属 `sandbox` profile；它会空闲等待 orchestrator 写入 bootstrap 配置，所以 `docker compose ps` 里看到它 running 但暂时不转发流量是正常的
+- `joysafeter-egress-controller`：egress xDS 控制面（`sandbox` profile），编译并向 Envoy 下发 ADS
+- `orchestrator-rs`：Rust 版调度 / gRPC / sandbox 生命周期，gRPC 端口 `9090`（`sandbox` profile）
+
+其中前六个是**业务服务**（本地测试用；生产在公司环境），后三个是 **Docker sandbox 面**。`deploy.sh local` 会带 `--profile local-redis --profile sandbox` 一起启动。
 
 `deploy.sh local` 只构建并启动上面这些控制面服务，不会构建 agent 运行镜像（`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native`）。默认 `JOYSAFETER_SANDBOX_IMAGE=joysafeter-claudecode:latest` 缺失时脚本只告警、不阻断：控制面能起来，但真实 agent 任务会因拉不到运行镜像而失败。跑第一个 agent 前先构建或拉取运行镜像：
 
@@ -154,7 +167,7 @@ REDIS_IMAGE=public.ecr.aws/docker/library/redis:alpine3.22
 SKILLSPECTOR_SOURCE_PATH=../.deps/SkillSpector
 ```
 
-Python orchestrator 源码已移除；本地和容器化部署都使用 `rust-orchestrator`
+Python orchestrator 源码已移除；本地和容器化部署都使用 `sandbox`
 profile。也可以通过 `ORCHESTRATOR_RS_FULL_IMAGE` 指向预构建镜像。
 
 如果使用云 Redis，不要启用 `local-redis` profile；把 `deploy/.env` 里的 `REDIS_URL` 改成云 Redis 内网地址即可：
@@ -162,7 +175,7 @@ profile。也可以通过 `ORCHESTRATOR_RS_FULL_IMAGE` 指向预构建镜像。
 ```bash
 ./deploy.sh doctor
 ./deploy.sh build --arch arm64   # 或 --arch amd64
-docker compose --profile rust-orchestrator up -d --no-build
+docker compose --profile sandbox up -d --no-build
 ```
 
 `doctor` 会先写入 `DOCKER_DEFAULT_PLATFORM` 和多架构镜像默认值；随后手工运行 compose 时会复用 `deploy/.env`。
@@ -179,11 +192,11 @@ docker build \
   .
 ```
 
-启用 `rust-orchestrator` profile 时，Compose 会 build 并使用 `joysafeter-orchestrator-rs:latest`。如果已另行提供可用源码或预构建镜像，可设置：
+启用 `sandbox` profile 时，Compose 会 build 并使用 `joysafeter-orchestrator-rs:latest`。如果已另行提供可用源码或预构建镜像，可设置：
 
 ```bash
 ORCHESTRATOR_RS_FULL_IMAGE=registry.example.com/joysafeter-orchestrator-rs:v0.3.2 \
-docker compose --profile rust-orchestrator build orchestrator-rs
+docker compose --profile sandbox build orchestrator-rs
 ```
 
 ## 2. 本地测试一键启动
@@ -232,7 +245,7 @@ cd deploy
 |---|---|---|---|
 | 全本地 Compose | `./deploy.sh doctor && ./deploy.sh local` | 新用户、本机验证、单机 demo | 会启动 PostgreSQL/Redis/SkillSpector/Envoy/API/orchestrator/worker/frontend；不构建 agent 运行镜像，跑真实 agent 前需先 `build --claudecode-only` 或 `pull --runtime-only` |
 | 宿主机本地开发 | `./local-test.sh` | 开发 API/Rust/Worker/Frontend，数据库和 Redis 仍用 Docker | Python/Node/Rust 进程跑在宿主机；普通用户不要把它当生产部署 |
-| 云 Redis / 本地 PostgreSQL | `./deploy.sh build --arch <arch>` 后手工 `docker compose --profile rust-orchestrator up -d --no-build` | Redis 已托管，其他服务仍在单机 | 不启用 `local-redis` profile，设置 `REDIS_URL` |
+| 云 Redis / 本地 PostgreSQL | `./deploy.sh build --arch <arch>` 后手工 `docker compose --profile sandbox up -d --no-build` | Redis 已托管，其他服务仍在单机 | 不启用 `local-redis` profile，设置 `REDIS_URL` |
 | 云 Redis + 云 PostgreSQL | 同一 compose 文件，覆盖 `REDIS_URL` 和 `POSTGRES_*` | 单机应用服务 + 托管中间件 | 手工运行 `db-init` 或按发布流程执行迁移 |
 | 预构建镜像部署 | `./deploy.sh pull --registry ... --tag ...` 后 `up --no-build` | 生产/准生产，不希望线上机器编译 | `pull` 会写入 `deploy/.env`；镜像 tag 要显式，不要依赖 `latest` 做可审计发布 |
 | 多实例 orchestrator | 启动多个 `orchestrator-rs` 实例 | 更高并发 sandbox 调度 | 每实例必须设置唯一 `JOYSAFETER_INSTANCE_ID`，共享 PostgreSQL/Redis |
@@ -320,13 +333,13 @@ WORKER_HEALTH_PORT_HOST=8002
 使用本地 Redis 时：
 
 ```bash
-docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init
+docker compose --profile local-redis --profile sandbox --profile init run --rm db-init
 ```
 
 使用云 Redis 时不要启用 `local-redis` profile：
 
 ```bash
-docker compose --profile rust-orchestrator --profile init run --rm db-init
+docker compose --profile sandbox --profile init run --rm db-init
 ```
 
 ### 云 Redis / 云 PostgreSQL 怎么用？
@@ -337,7 +350,7 @@ docker compose --profile rust-orchestrator --profile init run --rm db-init
 
 ```bash
 ./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
-docker compose --profile rust-orchestrator up -d --no-build
+docker compose --profile sandbox up -d --no-build
 ```
 
 ## 注意
@@ -361,21 +374,25 @@ deploy/k8s/k3s-smoke.sh
 ```
 
 这条路径会把 `JOYSAFETER_SANDBOX_PROVIDER` 设为 `k8s`，让 Rust orchestrator 通过
-`kubectl` 在 `joysafeter-sandboxes` namespace 创建动态 sandbox Pod。当前 K8s provider
-不复用 Docker/Envoy 的 per-sandbox egress manager；K8s 路径使用独立的
-`joysafeter-egress-gateway` 加每个 sandbox 一条 `NetworkPolicy`，验证 sandbox namespace
-的 deny-by-default 基线和受控模型出口。
+native Kubernetes client 在 `joysafeter-sandboxes` namespace 管理动态 sandbox Pod
+生命周期、exec 和 NetworkPolicy apply。生产目标 egress 路径是 shared Envoy fleet +
+Postgres durable authority；过时的 HTTP proxy deployment 和 runtime binary 已从
+base manifests 与 orchestrator runtime image 删除。
 
 这条 k3s 路径现在分两层验证：
 
 - `deploy/k8s/k3s-task-smoke.sh`：非密钥 API -> worker -> Rust orchestrator ->
   k3s Pod -> runner 回连验证。
-- `deploy/k8s/k3s-egress-smoke.sh`：真实 Secret 通过 `joysafeter-egress-gateway`
-  的 limited-networking 验证。
+- `deploy/k8s/k3s-egress-smoke.sh`：真实 Secret 通过 shared Envoy / ext_authz /
+  durable ACK 状态验证 limited-networking。
 
-网关路径必须显式开启。base manifests 会部署 `joysafeter-egress-gateway`，但
-`JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED` 默认是 `false`；egress smoke 会把它
-patch 成 `true` 并只重启 gateway/orchestrator Deployment。真实
+这两个 smoke 默认会临时 `kubectl port-forward svc/api` 到一个空闲本地端口，避免误打
+本机已有的旧 `localhost:8000` API。只有确认 endpoint 属于当前集群时才显式传
+`API_URL=...`。
+
+shared Envoy 路径必须显式开启。`JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED` 默认是
+`false`；egress smoke 会把它 patch 成 `true` 并重启 orchestrator / shared Envoy
+相关 Deployment。真实
 `ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等不能出现在 Pod spec，Pod annotation 也不能通过
 `kubectl.kubernetes.io/last-applied-configuration` 持久化沙箱 token 或 env。
 
@@ -393,8 +410,20 @@ deploy/k8s/k3s-task-smoke.sh
 ```bash
 ANTHROPIC_API_KEY=... \
 ANTHROPIC_BASE_URL=https://ai-api.jdcloud.com/anthropic \
+ANTHROPIC_MODEL=Claude-Opus-4.8 \
 deploy/k8s/k3s-egress-smoke.sh
 ```
+
+无真实 Secret 时，只跑 live egress 结构预检：
+
+```bash
+EGRESS_PREFLIGHT_ONLY=true deploy/k8s/k3s-egress-smoke.sh
+```
+
+preflight 会验证 API-only runtime guard、shared egress plane rollout、durable-authority
+ConfigMap、至少一个 Envoy 节点通过 mTLS ADS 连接，并对 controller xDS NACK、publish /
+rollback error、durable reject 指标 fail-fast；它不创建平台用户、平台 Secret、
+Environment、Agent、Task、sandbox Pod 或数据库行，因此不能替代完整 Secret-backed 验证。
 
 完整 egress smoke 默认要求任务输出包含 `K3S_EGRESS_OK`。如果 Secret 的 key 能打到网关但
 没有当前模型授权，只能用 `ALLOW_UPSTREAM_MODEL_ERROR=true` 做连通性证明，不能算完整生产验证。
@@ -413,5 +442,6 @@ egress 长周期验证加 `VALIDATION_MODE=egress`，并带同样的 Anthropic/J
 
 生产裸 k3s 复用这些 manifests 的结构，但不要使用本地 `emptyDir` PostgreSQL/Redis、
 不要使用 `latest` 镜像 tag，并应改成私有 registry digest、托管/HA PostgreSQL、托管/HA Redis。
-生产级 secret-backed Agent 还必须部署平台 egress gateway，由 orchestrator 下发
-per-sandbox policy，并让 NetworkPolicy 只允许 sandbox 访问 orchestrator 和 gateway。
+生产级 secret-backed Agent 还必须部署 shared Envoy fleet、Go egress-controller、mTLS PKI
+和 durable PostgreSQL authority；NetworkPolicy 只允许 sandbox 访问 orchestrator 与
+shared Envoy service。

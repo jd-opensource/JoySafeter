@@ -18,12 +18,11 @@ environment variables.
 
 | Area | Target state | Repository state | Remaining rollout work |
 | --- | --- | --- | --- |
-| Kubernetes production | Shared Envoy + PostgreSQL authority | Production overlay enables both flags and removes the legacy gateway | Supply managed services/Secrets/PKI, pin images, execute live smoke and soak |
-| Kubernetes base/local | Compatibility and developer validation | Base still contains the legacy gateway and defaults disabled | Remove after the rollback observation window and after all local scripts use the unified overlay |
+| Kubernetes production | Shared Envoy + PostgreSQL authority | Production overlay enables both flags and uses only the shared Envoy data plane | Supply managed services/Secrets/PKI, pin images, execute live smoke and soak |
+| Kubernetes base/local | Compatibility and developer validation | Base no longer ships the removed HTTP proxy path; egress flags default disabled | Execute local live smoke and soak after every image refresh |
 | Docker Compose | Go controller + durable authority | Unified path is now the default; filesystem mode is explicit rollback-only | Run compose e2e on every supported host architecture |
 | xDS apply state | HA-safe terminal state machine | `failed` and `superseded` cannot regress; late ACK cannot erase NACK | Observe multi-controller failover under real rolling restarts |
 | Rust build/release | First-class artifact | Locked build dependency, CI job, and Docker release matrix are present | Clear non-blocking style/complexity lint backlog |
-| Legacy Rust gateway | Rollback-only | Binary and compatibility code remain; production overlay does not deploy it | Delete after the agreed deprecation window |
 | Legacy filesystem xDS | Rollback-only | Available only by explicit Docker environment override | Delete after Docker controller-mode soak and rollback-window closure |
 
 ## Capability Impact After Cutover

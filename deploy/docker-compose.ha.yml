@@ -4,9 +4,9 @@
 # event-stream consumer uses a Redis consumer group). See deploy/HA.md.
 #
 # Usage (both equivalent):
-#   docker compose -f docker-compose.yml -f docker-compose.ha.yml --profile local-redis --profile rust-orchestrator up -d
+#   docker compose -f docker-compose.yml -f docker-compose.ha.yml --profile local-redis --profile sandbox up -d
 #   # or, without this file:
-#   docker compose --profile local-redis --profile rust-orchestrator up -d --scale worker=3
+#   docker compose --profile local-redis --profile sandbox up -d --scale worker=3
 #
 # NOTE: this overlay only scales the WORKER (control plane / scheduler + event
 # consumer). Scaling orchestrator-rs (the task DATA plane) additionally requires

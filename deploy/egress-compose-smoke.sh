@@ -93,7 +93,7 @@ if [ "$BRING_UP" = "true" ]; then
     for _ in $(seq 1 30); do [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB_CONTAINER" 2>/dev/null)" = healthy ] && break; sleep 1; done &&
     docker compose --profile init run --rm db-init >/dev/null &&
     docker compose -f docker-compose.yml -f docker-compose.egress-smoke.yml \
-      --profile rust-orchestrator --profile local-redis up -d --wait \
+      --profile sandbox --profile local-redis up -d --wait \
       joysafeter-egress-controller joysafeter-envoy joysafeter-egress-mock-upstream api orchestrator-rs worker >/dev/null
   ) || die "stack bring-up failed"
 fi
@@ -215,7 +215,7 @@ if docker inspect "$CONTAINER" >/dev/null 2>&1; then
   ENVDUMP="$(docker exec "$CONTAINER" env 2>/dev/null || docker inspect "$CONTAINER" --format '{{range .Config.Env}}{{println .}}{{end}}')"
   has "ANTHROPIC_BASE_URL=http://${LLM_EGRESS_HOST}" "$ENVDUMP" || die "[C] sandbox ANTHROPIC_BASE_URL not rewritten to Envoy placeholder"
   has "$PLATFORM_TOKEN" "$ENVDUMP" && die "[C] real platform secret leaked into sandbox env"
-  SANDBOX_TOKEN="$(printf '%s' "$ENVDUMP" | sed -n 's/^JOYSAFETER_RUNNER_TOKEN=//p;s/^JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN=//p' | head -1)"
+  SANDBOX_TOKEN="$(printf '%s' "$ENVDUMP" | sed -n 's/^JOYSAFETER_RUNNER_TOKEN=//p' | head -1)"
   ok "[C] sandbox env sanitized (placeholder base URL, no platform secret)"
 
   # Injection + strip + deny through the per-sandbox Envoy http.sock. A helper
@@ -259,7 +259,7 @@ except Exception: print('')")"
     WRONG="$(probe "wrong-sandbox-token-xyz" || true)"; WSTATUS="${WRONG%%$'\t'*}"
     [ "$WSTATUS" = "403" ] && ok "[C] wrong sandbox token denied (403)" || warn "[C] wrong-token probe returned ${WSTATUS} (expected 403)"
   else
-    warn "[C] no JOYSAFETER_EGRESS_GATEWAY_SANDBOX_TOKEN in sandbox env; skipping live injection probe"
+    warn "[C] no JOYSAFETER_RUNNER_TOKEN in sandbox env; skipping live injection probe"
     REQ_ID=""
   fi
 else
