@@ -10,6 +10,16 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
+  k8s-runtime-architecture:
+    name: K8s Runtime Architecture Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run offline K8s runtime architecture guard
+        run: deploy/k8s/offline-architecture-guard.sh
+
   egress-controller:
     name: Egress Controller CI
     runs-on: ubuntu-latest
