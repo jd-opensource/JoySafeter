@@ -439,6 +439,18 @@ impl SandboxProvider for DockerProvider {
                 orchestrator_url.clone(),
             );
             env_map.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), orchestrator_url);
+
+            // Bind the LLM credential env vars to this sandbox's runner token so
+            // the runner's model request carries the identity the egress Envoy
+            // ext_authz validates before it strips the placeholder and injects
+            // the real platform credential. Without this the sandbox sends the
+            // generic placeholder, ext_authz denies (403), and the real key is
+            // never injected. K8s does the equivalent in `render_pod_env`; both
+            // planes share `apply_llm_identity_credentials` as the one source of
+            // truth for this identity mapping.
+            if let Some(runner_token) = env_map.get("JOYSAFETER_RUNNER_TOKEN").cloned() {
+                crate::egress::llm::apply_llm_identity_credentials(&mut env_map, &runner_token);
+            }
         }
 
         let env: Vec<String> = env_map.iter().map(|(k, v)| format!("{k}={v}")).collect();

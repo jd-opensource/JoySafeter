@@ -332,13 +332,11 @@ impl K8sProvider {
             );
         };
 
-        let anthropic =
-            is_llm_placeholder_base_url(env.get("ANTHROPIC_BASE_URL").map(String::as_str));
-        let openai = is_llm_placeholder_base_url(env.get("OPENAI_BASE_URL").map(String::as_str));
-        let gemini =
-            is_llm_placeholder_base_url(env.get("GOOGLE_GEMINI_BASE_URL").map(String::as_str));
-        let azure =
-            is_llm_placeholder_base_url(env.get("AZURE_OPENAI_BASE_URL").map(String::as_str));
+        // Identity credentials (shared with the Docker provider): bind the model
+        // credential env vars to the runner token BEFORE rewriting base URLs, so
+        // the placeholder-host detection still matches. `apply_llm_identity_credentials`
+        // is the single source of truth for this mapping across both planes.
+        crate::egress::llm::apply_llm_identity_credentials(env, &sandbox_token);
 
         for base_url_var in [
             "ANTHROPIC_BASE_URL",
@@ -349,21 +347,6 @@ impl K8sProvider {
             if is_llm_placeholder_base_url(env.get(base_url_var).map(String::as_str)) {
                 env.insert(base_url_var.to_string(), route_url.clone());
             }
-        }
-
-        if anthropic {
-            env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), sandbox_token.clone());
-            env.insert("ANTHROPIC_API_KEY".to_string(), sandbox_token.clone());
-        }
-        if openai {
-            env.insert("OPENAI_API_KEY".to_string(), sandbox_token.clone());
-        }
-        if gemini {
-            env.insert("GEMINI_API_KEY".to_string(), sandbox_token.clone());
-            env.insert("GOOGLE_API_KEY".to_string(), sandbox_token.clone());
-        }
-        if azure {
-            env.insert("AZURE_OPENAI_API_KEY".to_string(), sandbox_token.clone());
         }
 
         Ok(())

@@ -167,6 +167,66 @@ pub(crate) fn extract_llm_egress(
     }]
 }
 
+/// True when `value` is the platform egress placeholder base URL (its host is
+/// [`LLM_EGRESS_HOST`]). Both sandbox planes repoint model base URLs at this
+/// placeholder so traffic is forced through the egress Envoy.
+pub(crate) fn is_egress_placeholder_base_url(value: Option<&str>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    Url::parse(value)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host == LLM_EGRESS_HOST))
+        .unwrap_or(false)
+}
+
+/// Bind the sandbox's LLM credential env vars to its per-sandbox `runner_token`.
+///
+/// This is the sandbox's IDENTITY to the egress Envoy: the runner sends the
+/// model credential header (e.g. `Authorization: Bearer $ANTHROPIC_AUTH_TOKEN`
+/// or `x-api-key: $ANTHROPIC_API_KEY`), Envoy's ext_authz validates it equals
+/// `format_header_value(scheme, runner_token)`, then STRIPS it and injects the
+/// real platform credential. If these vars still held the generic placeholder
+/// (or were empty), ext_authz denies with 403 and the real key is never
+/// injected. Applied for every provider whose base URL points at the egress
+/// placeholder host. Docker and K8s share this identity model — only the
+/// base-URL rewrite differs (K8s → shared Envoy route URL; Docker → the
+/// per-sandbox unix socket keeps `llm-egress.internal`), so this lives here and
+/// both providers call it. No-op when `runner_token` is empty.
+pub(crate) fn apply_llm_identity_credentials(
+    env: &mut HashMap<String, String>,
+    runner_token: &str,
+) {
+    if runner_token.is_empty() {
+        return;
+    }
+    // Snapshot placeholder-host detection up front so the subsequent mutations
+    // don't conflict with the immutable borrows (and so a credential we set here
+    // can never flip a later provider's detection).
+    let anthropic =
+        is_egress_placeholder_base_url(env.get("ANTHROPIC_BASE_URL").map(String::as_str));
+    let openai = is_egress_placeholder_base_url(env.get("OPENAI_BASE_URL").map(String::as_str));
+    let gemini =
+        is_egress_placeholder_base_url(env.get("GOOGLE_GEMINI_BASE_URL").map(String::as_str));
+    let azure =
+        is_egress_placeholder_base_url(env.get("AZURE_OPENAI_BASE_URL").map(String::as_str));
+
+    if anthropic {
+        env.insert("ANTHROPIC_AUTH_TOKEN".to_string(), runner_token.to_string());
+        env.insert("ANTHROPIC_API_KEY".to_string(), runner_token.to_string());
+    }
+    if openai {
+        env.insert("OPENAI_API_KEY".to_string(), runner_token.to_string());
+    }
+    if gemini {
+        env.insert("GEMINI_API_KEY".to_string(), runner_token.to_string());
+        env.insert("GOOGLE_API_KEY".to_string(), runner_token.to_string());
+    }
+    if azure {
+        env.insert("AZURE_OPENAI_API_KEY".to_string(), runner_token.to_string());
+    }
+}
+
 fn normalize_llm_upstream_prefix(path: &str) -> String {
     if path.is_empty() || path == "/" {
         return "/".to_string();
