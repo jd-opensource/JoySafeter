@@ -76,12 +76,32 @@ fn access_log_json_format(listener: String) -> envoy_types::pb::google::protobuf
                 protobuf_string_value("%RESPONSE_FLAGS%"),
             ),
             (
+                "response_code_details".to_string(),
+                protobuf_string_value("%RESPONSE_CODE_DETAILS%"),
+            ),
+            (
+                "upstream_transport_failure_reason".to_string(),
+                protobuf_string_value("%UPSTREAM_TRANSPORT_FAILURE_REASON%"),
+            ),
+            (
                 "upstream".to_string(),
+                protobuf_string_value("%UPSTREAM_HOST%"),
+            ),
+            (
+                "upstream_host".to_string(),
                 protobuf_string_value("%UPSTREAM_HOST%"),
             ),
             (
                 "cluster".to_string(),
                 protobuf_string_value("%UPSTREAM_CLUSTER%"),
+            ),
+            (
+                "upstream_cluster".to_string(),
+                protobuf_string_value("%UPSTREAM_CLUSTER%"),
+            ),
+            (
+                "attempt_count".to_string(),
+                protobuf_string_value("%UPSTREAM_REQUEST_ATTEMPT_COUNT%"),
             ),
             (
                 "duration_ms".to_string(),
@@ -964,7 +984,13 @@ fn build_http_listener_json(
                                     "path": "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%",
                                     "status": "%RESPONSE_CODE%",
                                     "flags": "%RESPONSE_FLAGS%",
+                                    "response_code_details": "%RESPONSE_CODE_DETAILS%",
+                                    "upstream_transport_failure_reason": "%UPSTREAM_TRANSPORT_FAILURE_REASON%",
                                     "upstream": "%UPSTREAM_HOST%",
+                                    "upstream_host": "%UPSTREAM_HOST%",
+                                    "cluster": "%UPSTREAM_CLUSTER%",
+                                    "upstream_cluster": "%UPSTREAM_CLUSTER%",
+                                    "attempt_count": "%UPSTREAM_REQUEST_ATTEMPT_COUNT%",
                                     "duration_ms": "%DURATION%",
                                     "listener": format!("{sandbox_id}_http")
                                 }
