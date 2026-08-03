@@ -15,7 +15,6 @@ import type {
   CallsListResponse,
   ObservationNode,
   AgentMetrics,
-  AgentTrendPoint,
   HealthCheckResponse,
   AlertConfig,
   ErrorSummary,
@@ -131,20 +130,6 @@ export function useAgentComparison(filters: AnalyticsFilters) {
   return useQuery<AgentMetrics[]>({
     queryKey: ['analytics', 'agent-comparison', params],
     queryFn: () => managedGet(`/analytics/agent-comparison${toQueryString(params)}`),
-    staleTime: 60_000,
-  })
-}
-
-export function useAgentTrend(filters: AnalyticsFilters, agentIds: string[], metric: string) {
-  const params = {
-    ...buildFilterParams(filters),
-    agent_ids: agentIds.join(','),
-    metric,
-  }
-  return useQuery<AgentTrendPoint[]>({
-    queryKey: ['analytics', 'agent-trend', params],
-    queryFn: () => managedGet(`/analytics/agent-trend${toQueryString(params)}`),
-    enabled: agentIds.length > 0,
     staleTime: 60_000,
   })
 }

@@ -145,13 +145,6 @@ export interface AgentMetrics {
   avg_agent_steps: number
 }
 
-export interface AgentTrendPoint {
-  timestamp: string
-  agent_id: string
-  agent_name: string
-  value: number
-}
-
 // --- Filter State ---
 
 export interface AnalyticsFilters {
