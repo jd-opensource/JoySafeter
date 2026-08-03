@@ -34,7 +34,7 @@ func TestPostgresRecorderLifecycle(t *testing.T) {
 	insertGeneration(t, pool, groupKey, 1)
 	insertGeneration(t, pool, groupKey, 2)
 	recorder, err := NewPostgresRecorder(
-		ctx, databaseURL, "controller-test", 128, 30*time.Second, 10*time.Second,
+		ctx, databaseURL, "controller-test", 128, 30*time.Second, 10*time.Second, time.Hour,
 		slog.Default(), telemetry.New(prometheus.NewRegistry()),
 	)
 	if err != nil {
@@ -164,7 +164,7 @@ func TestPostgresRecorderTerminalStatesAreMonotonicAcrossControllers(t *testing.
 func newTestRecorder(t *testing.T, ctx context.Context, databaseURL, instanceID string) *PostgresRecorder {
 	t.Helper()
 	recorder, err := NewPostgresRecorder(
-		ctx, databaseURL, instanceID, 128, 30*time.Second, 10*time.Second,
+		ctx, databaseURL, instanceID, 128, 30*time.Second, 10*time.Second, time.Hour,
 		slog.Default(), telemetry.New(prometheus.NewRegistry()),
 	)
 	if err != nil {

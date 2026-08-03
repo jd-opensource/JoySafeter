@@ -46,6 +46,13 @@ the current Alembic head. Status writes use a bounded asynchronous queue; queue
 overflow leaves the generation unapplied rather than blocking or failing open
 inside an xDS callback.
 
+Each replica also periodically recomputes every non-terminal (`pending`/`published`)
+apply-status row as a liveness backstop, so a generation whose aggregate went stale
+(an expired node lease or a missed event) converges to `applied` without waiting for
+another ACK. Tune with `JOYSAFETER_EGRESS_CONTROLLER_RECOMPUTE_INTERVAL` (default 15s,
+range 1s–10m). All aggregate recomputes are serialized per generation by a Postgres
+advisory lock, so running the backstop on every replica is safe without leader election.
+
 Production sets `JOYSAFETER_EGRESS_CONTROLLER_SOURCE=postgres`. In this mode the
 controller strictly decodes policy schema v1 and compiles deterministic LDS,
 RDS, and CDS resources. Kubernetes groups receive shared credential and forward

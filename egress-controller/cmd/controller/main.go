@@ -75,7 +75,7 @@ func run() error {
 	if cfg.StateDatabaseURL != "" {
 		postgresRecorder, err = status.NewPostgresRecorder(
 			context.Background(), cfg.StateDatabaseURL, cfg.ControllerID, int(cfg.StatusQueueSize),
-			cfg.NodeLeaseTTL, cfg.NodeHeartbeat, logger, metrics,
+			cfg.NodeLeaseTTL, cfg.NodeHeartbeat, cfg.RecomputeInterval, logger, metrics,
 		)
 		if err != nil {
 			return err

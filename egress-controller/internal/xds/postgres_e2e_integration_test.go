@@ -72,7 +72,7 @@ func TestPostgresDesiredGenerationCompilesPublishesAndPersistsACKAndNACK(t *test
 	registry := prometheus.NewRegistry()
 	metrics := telemetry.New(registry)
 	recorder, err := status.NewPostgresRecorder(
-		ctx, databaseURL, "controller-e2e", 256, 30*time.Second, 10*time.Second, slog.Default(), metrics,
+		ctx, databaseURL, "controller-e2e", 256, 30*time.Second, 10*time.Second, time.Hour, slog.Default(), metrics,
 	)
 	if err != nil {
 		t.Fatal(err)

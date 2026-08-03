@@ -5,6 +5,7 @@ package status
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -15,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joysafeter/joysafeter/egress-controller/internal/group"
+	"github.com/joysafeter/joysafeter/egress-controller/internal/telemetry"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const concurrencyType = "type.googleapis.com/envoy.config.listener.v3.Listener"
@@ -229,5 +232,56 @@ func makeIdentity(groupKey, nodeID string) group.Identity {
 	return group.Identity{
 		NodeID: nodeID, GroupKey: groupKey,
 		Metadata: group.Metadata{EnvoyVersion: "1.39.0"},
+	}
+}
+
+// The periodic ticker converges an aggregate whose ACKs were recorded without a
+// recompute (simulating a lost update or missed trigger), with no ACK/connect
+// event to nudge it.
+func TestApplyStatusTickerConvergesStaleAggregate(t *testing.T) {
+	pool, databaseURL := concurrencyPool(t)
+	ctx := context.Background()
+	truncateStatusTables(t, pool)
+
+	groupKey := "v1:" + strings.Repeat("F", 43)
+	version := "gen1-ticker"
+	insertGeneration(t, pool, groupKey, 1)
+	insertPublishedApplyStatus(t, pool, groupKey, 1, version, []string{concurrencyType})
+	insertActiveConnection(t, pool, groupKey, "node-a")
+
+	// Record the ACK directly, leaving the aggregate stale (acked=0, published).
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := insertNodeACKTx(ctx, tx, groupKey, 1, "node-a", concurrencyType, version); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder, err := NewPostgresRecorder(
+		ctx, databaseURL, "controller-ticker", 128,
+		30*time.Second, 10*time.Second, 200*time.Millisecond,
+		slog.Default(), telemetry.New(prometheus.NewRegistry()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	var state string
+	for time.Now().Before(deadline) {
+		state, _, _, _ = readAggregate(t, pool, groupKey, 1)
+		if state == "applied" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	closeTestRecorder(t, ctx, recorder)
+
+	if state != "applied" {
+		t.Fatalf("ticker did not converge stale aggregate: state=%s", state)
 	}
 }

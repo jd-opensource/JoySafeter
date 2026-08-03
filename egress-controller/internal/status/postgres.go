@@ -23,6 +23,7 @@ type PostgresRecorder struct {
 	instanceID        string
 	leaseTTL          time.Duration
 	heartbeatInterval time.Duration
+	recomputeInterval time.Duration
 	events            chan event
 	logger            *slog.Logger
 	metrics           *telemetry.Metrics
@@ -51,7 +52,7 @@ func NewPostgresRecorder(
 	ctx context.Context,
 	databaseURL, instanceID string,
 	queueSize int,
-	leaseTTL, heartbeatInterval time.Duration,
+	leaseTTL, heartbeatInterval, recomputeInterval time.Duration,
 	logger *slog.Logger,
 	metrics *telemetry.Metrics,
 ) (*PostgresRecorder, error) {
@@ -75,7 +76,7 @@ func NewPostgresRecorder(
 	recorderContext, cancel := context.WithCancel(ctx)
 	recorder := &PostgresRecorder{
 		pool: pool, instanceID: instanceID, leaseTTL: leaseTTL,
-		heartbeatInterval: heartbeatInterval, events: make(chan event, queueSize),
+		heartbeatInterval: heartbeatInterval, recomputeInterval: recomputeInterval, events: make(chan event, queueSize),
 		logger: logger, metrics: metrics, active: make(map[string]group.Identity), done: make(chan struct{}),
 		ctx: recorderContext, cancel: cancel,
 	}
@@ -143,6 +144,8 @@ func (r *PostgresRecorder) run() {
 	defer r.cancel()
 	ticker := time.NewTicker(r.heartbeatInterval)
 	defer ticker.Stop()
+	recomputeTicker := time.NewTicker(r.recomputeInterval)
+	defer recomputeTicker.Stop()
 	for {
 		select {
 		case value, ok := <-r.events:
@@ -154,6 +157,10 @@ func (r *PostgresRecorder) run() {
 			r.metrics.StatusQueueDepth.Set(float64(len(r.events)))
 		case <-ticker.C:
 			r.heartbeat()
+		case <-recomputeTicker.C:
+			if err := r.recomputeAllNonTerminal(r.ctx); err != nil {
+				r.logger.Error("periodic apply-status recompute sweep failed", "error", err)
+			}
 		case <-r.ctx.Done():
 			return
 		}
@@ -332,6 +339,43 @@ func (r *PostgresRecorder) recomputeGroupNonTerminal(ctx context.Context, groupK
 		if err := r.recomputeGeneration(ctx, groupKey, generation); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (r *PostgresRecorder) recomputeAllNonTerminal(ctx context.Context) error {
+	rows, err := r.pool.Query(ctx, `
+		SELECT group_key, generation FROM joysafeter_egress_apply_status
+		WHERE state IN ('pending', 'published')
+	`)
+	if err != nil {
+		return err
+	}
+	type ref struct {
+		groupKey   string
+		generation uint64
+	}
+	var refs []ref
+	for rows.Next() {
+		var groupKey string
+		var generation int64
+		if err := rows.Scan(&groupKey, &generation); err != nil {
+			rows.Close()
+			return err
+		}
+		refs = append(refs, ref{groupKey: groupKey, generation: uint64(generation)})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, rf := range refs {
+		if err := r.recomputeGeneration(ctx, rf.groupKey, rf.generation); err != nil {
+			r.metrics.Recompute.WithLabelValues("ticker", "error").Inc()
+			r.logger.Error("periodic apply-status recompute failed", "group", rf.groupKey, "generation", rf.generation, "error", err)
+			continue
+		}
+		r.metrics.Recompute.WithLabelValues("ticker", "ok").Inc()
 	}
 	return nil
 }

@@ -23,6 +23,7 @@ type Config struct {
 	StatusQueueSize   int64
 	NodeLeaseTTL      time.Duration
 	NodeHeartbeat     time.Duration
+	RecomputeInterval time.Duration
 	CredentialAddress string
 	CredentialPort    uint32
 	ForwardAddress    string
@@ -66,6 +67,7 @@ func Load() (Config, error) {
 		StatusQueueSize:   4096,
 		NodeLeaseTTL:      30 * time.Second,
 		NodeHeartbeat:     10 * time.Second,
+		RecomputeInterval: 15 * time.Second,
 		CredentialAddress: env("JOYSAFETER_EGRESS_CREDENTIAL_LISTENER_ADDR", "0.0.0.0"),
 		CredentialPort:    8443,
 		ForwardAddress:    env("JOYSAFETER_EGRESS_FORWARD_LISTENER_ADDR", "0.0.0.0"),
@@ -109,6 +111,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.NodeHeartbeat, err = envDuration("JOYSAFETER_EGRESS_CONTROLLER_NODE_HEARTBEAT", cfg.NodeHeartbeat); err != nil {
+		return Config{}, err
+	}
+	if cfg.RecomputeInterval, err = envDuration("JOYSAFETER_EGRESS_CONTROLLER_RECOMPUTE_INTERVAL", cfg.RecomputeInterval); err != nil {
 		return Config{}, err
 	}
 	if cfg.CredentialPort, err = envUint32("JOYSAFETER_EGRESS_CREDENTIAL_LISTENER_PORT", cfg.CredentialPort); err != nil {
@@ -169,6 +174,9 @@ func (c Config) Validate() error {
 	}
 	if c.NodeHeartbeat < time.Second || c.NodeHeartbeat*2 >= c.NodeLeaseTTL {
 		return errors.New("node heartbeat must be at least 1s and less than half the lease TTL")
+	}
+	if c.RecomputeInterval < time.Second || c.RecomputeInterval > 10*time.Minute {
+		return errors.New("recompute interval must be between 1s and 10m")
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":

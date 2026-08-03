@@ -16,6 +16,7 @@ type Metrics struct {
 	SourceEvents       *prometheus.CounterVec
 	StatusEvents       *prometheus.CounterVec
 	StatusQueueDepth   prometheus.Gauge
+	Recompute          *prometheus.CounterVec
 }
 
 func New(registry prometheus.Registerer) *Metrics {
@@ -64,11 +65,15 @@ func New(registry prometheus.Registerer) *Metrics {
 			Namespace: "joysafeter", Subsystem: "egress_controller", Name: "status_queue_depth",
 			Help: "Pending durable status events in the local bounded queue.",
 		}),
+		Recompute: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "joysafeter", Subsystem: "egress_controller", Name: "apply_status_recompute_total",
+			Help: "Aggregate apply-status recomputations by trigger and result.",
+		}, []string{"trigger", "result"}),
 	}
 	registry.MustRegister(
 		metrics.XDSStreams, metrics.XDSRequests, metrics.XDSResponses, metrics.XDSACKs,
 		metrics.Snapshots, metrics.SnapshotGeneration, metrics.ConnectedNodes, metrics.Reconcile,
-		metrics.SourceEvents, metrics.StatusEvents, metrics.StatusQueueDepth,
+		metrics.SourceEvents, metrics.StatusEvents, metrics.StatusQueueDepth, metrics.Recompute,
 	)
 	return metrics
 }
