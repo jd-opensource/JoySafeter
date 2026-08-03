@@ -333,7 +333,7 @@ impl JoySafeterConfig {
                 .unwrap_or_else(|_| format!("orch-{}", uuid::Uuid::now_v7())),
 
             database_url: build_database_url(),
-            redis_url: env::var("REDIS_URL").ok(),
+            redis_url: build_redis_url(),
         }
     }
 
@@ -540,6 +540,31 @@ fn url_encode(s: &str) -> String {
             _ => format!("%{:02X}", c as u8),
         })
         .collect()
+}
+
+/// Build Redis URL from `REDIS_*` env vars with auto-encoding.
+/// Falls back to `REDIS_URL` if set directly.
+fn build_redis_url() -> Option<String> {
+    // Priority 1: explicit REDIS_URL (user must encode themselves)
+    if let Ok(url) = env::var("REDIS_URL") {
+        if !url.trim().is_empty() {
+            return Some(url);
+        }
+    }
+
+    // Priority 2: build from REDIS_HOST + REDIS_PASSWORD + REDIS_PORT + REDIS_DB
+    let host = env::var("REDIS_HOST").ok().filter(|v| !v.trim().is_empty())?;
+    let port = env_str("REDIS_PORT", "6379");
+    let password = env::var("REDIS_PASSWORD").unwrap_or_default();
+    let db = env_str("REDIS_DB", "0");
+    let scheme = env_str("REDIS_SCHEME", "redis"); // "redis" or "rediss" (TLS)
+
+    if password.is_empty() {
+        Some(format!("{scheme}://{host}:{port}/{db}"))
+    } else {
+        let safe_password = url_encode(&password);
+        Some(format!("{scheme}://:{safe_password}@{host}:{port}/{db}"))
+    }
 }
 
 #[cfg(test)]
