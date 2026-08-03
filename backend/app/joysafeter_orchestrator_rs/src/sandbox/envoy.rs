@@ -52,6 +52,10 @@ pub struct EnvoyConfig {
     pub socket_ready_timeout_ms: u64,
     pub health_check_interval_sec: u64,
     pub health_failure_threshold: u64,
+    /// When true, skip `prepare_socket_dir` (socket dir creation is handled
+    /// externally — e.g. by a K8s initContainer on the sandbox pod). This
+    /// avoids the orchestrator trying to mkdir on a remote node's filesystem.
+    pub skip_socket_dir_prep: bool,
 }
 
 impl EnvoyConfig {
@@ -102,6 +106,9 @@ impl EnvoyManager {
     /// host path to prepare; Docker creates the volume directory inside the Linux
     /// VM and Envoy creates the final socket path when it applies LDS.
     pub async fn prepare_socket_dir(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+        if self.config.skip_socket_dir_prep {
+            return Ok(()); // K8s: handled by pod initContainer
+        }
         let Some(socket_dir) = self.host_socket_dir(sandbox_id) else {
             self.prepare_socket_dir_in_volume(sandbox_id).await?;
             return Ok(());
@@ -315,12 +322,24 @@ impl EnvoyManager {
         // Write bootstrap config (mode-aware)
         self.write_bootstrap_config().await?;
 
-        // Reset LDS + CDS to empty initial state.
+        // Reset LDS to empty initial state.
         self.lds.replace_all(vec![]).await?;
         info!(
             xds_mode = %self.config.xds_mode,
             "EnvoyManager initialized (container={})",
             self.config.container_name
+        );
+        Ok(())
+    }
+
+    /// Initialize xDS state only (no bootstrap write, no filesystem ops).
+    /// Used in K8s mode where the Envoy DaemonSet manages its own bootstrap
+    /// and the orchestrator only needs to reset in-memory LDS state.
+    pub async fn init_xds_only(&self) -> anyhow::Result<()> {
+        self.lds.replace_all(vec![]).await?;
+        info!(
+            xds_mode = %self.config.xds_mode,
+            "EnvoyManager xDS state reset (K8s mode, no bootstrap write)"
         );
         Ok(())
     }

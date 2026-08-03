@@ -90,6 +90,7 @@ impl K8sProvider {
                     socket_ready_timeout_ms: config.envoy_socket_ready_timeout_ms,
                     health_check_interval_sec: 0, // K8s livenessProbe handles this
                     health_failure_threshold: 0,
+                    skip_socket_dir_prep: true, // K8s: initContainer creates socket dir
                 },
                 lds,
             )))
@@ -218,13 +219,15 @@ impl K8sProvider {
             }));
             volume_mounts.push(json!({
                 "name": "envoy-sockets",
-                "mountPath": "/sockets"
+                "mountPath": format!("/sockets/{}", config.sandbox_id),
+                "subPath": config.sandbox_id.to_string()
             }));
 
-            // initContainer: create per-sandbox socket directory with correct perms
+            // initContainer: create per-sandbox socket directory with correct perms.
+            // Uses the envoy image (already pulled on the node, has sh).
             init_containers.push(json!({
                 "name": "create-socket-dir",
-                "image": "busybox:latest",
+                "image": self.config.envoy_image,
                 "command": ["sh", "-c", format!(
                     "mkdir -p /sockets/{sid} && chmod 777 /sockets/{sid}",
                     sid = config.sandbox_id
@@ -443,9 +446,9 @@ impl SandboxProvider for K8sProvider {
                 xds.attach_db_pool(pool.clone()).await;
             }
             // In K8s mode, Envoy DaemonSet manages its own bootstrap (embedded).
-            // We only need to initialize the LDS state (empty) and recover from DB.
-            if let Err(e) = manager.init().await {
-                warn!("EnvoyManager initialization failed: {e}");
+            // We only reset in-memory xDS state and recover listeners from DB.
+            if let Err(e) = manager.init_xds_only().await {
+                warn!("EnvoyManager xDS init failed: {e}");
                 return Ok(());
             }
             if let Err(e) = manager
