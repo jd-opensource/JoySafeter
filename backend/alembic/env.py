@@ -26,7 +26,8 @@ if config.config_file_name is not None:
 
 # For async migrations, use the async URL; for offline migrations, use the sync URL.
 # Set the sync URL here (for offline mode); online mode will use the async URL.
-config.set_main_option("sqlalchemy.url", settings.database_url_sync)
+# Escape % → %% for configparser interpolation (URL-encoded passwords contain %)
+config.set_main_option("sqlalchemy.url", settings.database_url_sync.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
