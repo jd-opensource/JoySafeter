@@ -512,6 +512,8 @@ fn hostname() -> String {
 }
 
 /// Build the Postgres connection URL from `POSTGRES_*` env vars.
+/// Falls back to `DATABASE_URL` if set directly.
+/// Automatically URL-encodes user/password to handle special chars (@, #, !, etc.).
 fn build_database_url() -> String {
     if let Ok(url) = env::var("DATABASE_URL") {
         return url;
@@ -523,7 +525,21 @@ fn build_database_url() -> String {
     let db = env_str("POSTGRES_DB", "joysafeter");
     let port = env_str("POSTGRES_PORT", "5432");
 
-    format!("postgres://{user}:{password}@{host}:{port}/{db}")
+    // URL-encode user/password so special chars don't break the URL structure
+    let safe_user = url_encode(&user);
+    let safe_password = url_encode(&password);
+
+    format!("postgres://{safe_user}:{safe_password}@{host}:{port}/{db}")
+}
+
+/// Percent-encode a string for use in a URL (user/password component).
+fn url_encode(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            _ => format!("%{:02X}", c as u8),
+        })
+        .collect()
 }
 
 #[cfg(test)]
