@@ -424,7 +424,10 @@ async fn main() -> anyhow::Result<()> {
     const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
     let active_bridges = bridge_registry.all_bridges().len();
     if active_bridges > 0 {
-        info!(active_bridges, "Waiting up to {DRAIN_TIMEOUT:?} for active bridges to finish");
+        info!(
+            active_bridges,
+            "Waiting up to {DRAIN_TIMEOUT:?} for active bridges to finish"
+        );
         tokio::time::sleep(DRAIN_TIMEOUT).await;
     }
 

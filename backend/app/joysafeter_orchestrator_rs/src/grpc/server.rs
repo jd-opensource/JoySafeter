@@ -720,6 +720,7 @@ async fn multi_task_loop(
             pool,
             sandbox_provider,
             bridge,
+            sandbox_db_id,
             sandbox_external_id,
             session_id,
         )
@@ -1967,6 +1968,19 @@ mod tests {
             .bind(agent_id)
             .execute(pool)
             .await;
+    }
+
+    #[test]
+    fn provider_injection_id_prefers_db_external_id_over_runner_sandbox_id() {
+        assert_eq!(
+            choose_provider_external_id(Some("joysafeter-019fc6f8"), "019fc6f8"),
+            "joysafeter-019fc6f8"
+        );
+        assert_eq!(
+            choose_provider_external_id(Some(""), "019fc6f8"),
+            "019fc6f8"
+        );
+        assert_eq!(choose_provider_external_id(None, "019fc6f8"), "019fc6f8");
     }
 
     async fn create_mounted_memory_store(pool: &PgPool, session_id: Uuid) -> Uuid {
@@ -5368,11 +5382,32 @@ async fn session_files_signature(pool: &PgPool, session_id: Uuid) -> anyhow::Res
     Ok(signature.unwrap_or_default())
 }
 
+fn choose_provider_external_id(db_external_id: Option<&str>, runner_sandbox_id: &str) -> String {
+    db_external_id
+        .map(str::trim)
+        .filter(|external_id| !external_id.is_empty())
+        .unwrap_or(runner_sandbox_id)
+        .to_string()
+}
+
+async fn resolve_provider_external_id_for_injection(
+    pool: &PgPool,
+    sandbox_db_id: Uuid,
+    runner_sandbox_id: &str,
+) -> anyhow::Result<String> {
+    let sandbox = queries::get_sandbox(pool, sandbox_db_id).await?;
+    Ok(choose_provider_external_id(
+        sandbox.as_ref().and_then(|row| row.external_id.as_deref()),
+        runner_sandbox_id,
+    ))
+}
+
 async fn inject_session_files_before_start(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
     bridge: &Arc<SandboxBridge>,
-    sandbox_external_id: &str,
+    sandbox_db_id: Uuid,
+    runner_sandbox_id: &str,
     session_id: Option<Uuid>,
 ) -> anyhow::Result<()> {
     let Some(session_id) = session_id else {
@@ -5396,9 +5431,18 @@ async fn inject_session_files_before_start(
         }
     }
 
+    let provider_external_id =
+        resolve_provider_external_id_for_injection(pool, sandbox_db_id, runner_sandbox_id)
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to resolve provider external_id for sandbox {sandbox_db_id}: {e}"
+                )
+            })?;
+
     let ctx = crate::sandbox::file_injection::FileInjectionContext {
         session_id,
-        external_id: sandbox_external_id.to_string(),
+        external_id: provider_external_id.clone(),
         workspace_path: None,
         runner_capabilities: vec![],
         is_pool_sandbox: true,
@@ -5408,13 +5452,14 @@ async fn inject_session_files_before_start(
         .await
         .map_err(|e| {
             anyhow::anyhow!(
-                "failed to inject updated session files into sandbox {sandbox_external_id} for session {session_id}: {e}"
+                "failed to inject updated session files into provider sandbox {provider_external_id} (runner sandbox {runner_sandbox_id}) for session {session_id}: {e}"
             )
         })?;
     *bridge.injected_session_files_signature.lock().await = Some(signature);
     info!(
         session_id = %session_id,
-        sandbox_id = %sandbox_external_id,
+        sandbox_id = %runner_sandbox_id,
+        provider_external_id = %provider_external_id,
         file_count = files.len(),
         "Injected updated session files before StartTask"
     );

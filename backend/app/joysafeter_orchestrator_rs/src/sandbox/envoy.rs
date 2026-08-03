@@ -65,11 +65,7 @@ impl EnvoyConfig {
 }
 
 impl EnvoyManager {
-    pub fn new(
-        docker: Arc<Docker>,
-        config: EnvoyConfig,
-        lds: Arc<dyn LdsBackend>,
-    ) -> Self {
+    pub fn new(docker: Arc<Docker>, config: EnvoyConfig, lds: Arc<dyn LdsBackend>) -> Self {
         Self {
             docker,
             config,
@@ -662,46 +658,49 @@ impl EnvoyManager {
     /// * grpc: `lds_config.ads` + `ads_config { DELTA_GRPC }` + a static
     ///   `xds_cluster` pointing at the orchestrator gRPC server.
     async fn write_bootstrap_config(&self) -> anyhow::Result<()> {
-        let mut clusters = vec![json!({
-            "name": "dynamic_forward_proxy",
-            "connect_timeout": "10s",
-            "lb_policy": "CLUSTER_PROVIDED",
-            "cluster_type": {
-                "name": "envoy.clusters.dynamic_forward_proxy",
-                "typed_config": {
-                    "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
-                    "dns_cache_config": {
-                        "name": "dynamic_forward_proxy_cache",
-                        "dns_lookup_family": "V4_ONLY"
-                    }
-                }
-            }
-        }), json!({
-            "name": "dynamic_forward_proxy_tls",
-            "connect_timeout": "10s",
-            "lb_policy": "CLUSTER_PROVIDED",
-            "cluster_type": {
-                "name": "envoy.clusters.dynamic_forward_proxy",
-                "typed_config": {
-                    "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
-                    "dns_cache_config": {
-                        "name": "dynamic_forward_proxy_cache",
-                        "dns_lookup_family": "V4_ONLY"
-                    }
-                }
-            },
-            "transport_socket": {
-                "name": "envoy.transport_sockets.tls",
-                "typed_config": {
-                    "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
-                    "common_tls_context": {
-                        "validation_context": {
-                            "trusted_ca": { "filename": "/etc/ssl/certs/ca-certificates.crt" }
+        let mut clusters = vec![
+            json!({
+                "name": "dynamic_forward_proxy",
+                "connect_timeout": "10s",
+                "lb_policy": "CLUSTER_PROVIDED",
+                "cluster_type": {
+                    "name": "envoy.clusters.dynamic_forward_proxy",
+                    "typed_config": {
+                        "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
+                        "dns_cache_config": {
+                            "name": "dynamic_forward_proxy_cache",
+                            "dns_lookup_family": "V4_ONLY"
                         }
                     }
                 }
-            }
-        })];
+            }),
+            json!({
+                "name": "dynamic_forward_proxy_tls",
+                "connect_timeout": "10s",
+                "lb_policy": "CLUSTER_PROVIDED",
+                "cluster_type": {
+                    "name": "envoy.clusters.dynamic_forward_proxy",
+                    "typed_config": {
+                        "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
+                        "dns_cache_config": {
+                            "name": "dynamic_forward_proxy_cache",
+                            "dns_lookup_family": "V4_ONLY"
+                        }
+                    }
+                },
+                "transport_socket": {
+                    "name": "envoy.transport_sockets.tls",
+                    "typed_config": {
+                        "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
+                        "common_tls_context": {
+                            "validation_context": {
+                                "trusted_ca": { "filename": "/etc/ssl/certs/ca-certificates.crt" }
+                            }
+                        }
+                    }
+                }
+            }),
+        ];
 
         // Dynamic resources differ by mode.
         let dynamic_resources = if self.config.is_grpc_mode() {

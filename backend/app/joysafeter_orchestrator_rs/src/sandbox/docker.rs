@@ -15,10 +15,7 @@ use uuid::Uuid;
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
-use super::lds_backend::{
-    DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend,
-    SandboxCredentials,
-};
+use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
 use super::mounts::SandboxMount;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,

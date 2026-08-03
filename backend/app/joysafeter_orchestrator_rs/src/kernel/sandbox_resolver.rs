@@ -1274,9 +1274,15 @@ impl SandboxResolver {
         // (not a CONNECT tunnel). This lets Envoy see and inject headers. Envoy
         // does TLS origination via the shared dynamic_forward_proxy_tls cluster.
         let base_url_for_sandbox = if upstream_tls {
-            format!("http://{}:{}{}", upstream_host, upstream_port, upstream_prefix)
+            format!(
+                "http://{}:{}{}",
+                upstream_host, upstream_port, upstream_prefix
+            )
         } else {
-            format!("http://{}:{}{}", upstream_host, upstream_port, upstream_prefix)
+            format!(
+                "http://{}:{}{}",
+                upstream_host, upstream_port, upstream_prefix
+            )
         };
         env.insert(base_url_var.to_string(), base_url_for_sandbox);
 

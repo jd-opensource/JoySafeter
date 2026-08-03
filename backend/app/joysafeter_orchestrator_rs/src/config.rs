@@ -322,7 +322,10 @@ impl JoySafeterConfig {
                 .filter(|v| !v.trim().is_empty()),
 
             leader_election_enabled: env_bool("JOYSAFETER_LEADER_ELECTION_ENABLED", false),
-            leader_lease_name: env_str("JOYSAFETER_LEADER_LEASE_NAME", "joysafeter-orchestrator-leader"),
+            leader_lease_name: env_str(
+                "JOYSAFETER_LEADER_LEASE_NAME",
+                "joysafeter-orchestrator-leader",
+            ),
             leader_lease_duration_sec: env_u64("JOYSAFETER_LEADER_LEASE_DURATION_SEC", 10),
             leader_renew_interval_sec: env_u64("JOYSAFETER_LEADER_RENEW_INTERVAL_SEC", 3),
             leader_identity: env::var("POD_NAME")

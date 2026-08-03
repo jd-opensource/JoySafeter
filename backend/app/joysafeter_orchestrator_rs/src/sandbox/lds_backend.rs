@@ -391,8 +391,7 @@ pub fn validate_egress_policy(
                 route.upstream_prefix
             )
         })?;
-        if route.cluster_name.is_empty()
-            || !SHARED_CLUSTERS.contains(&route.cluster_name.as_str())
+        if route.cluster_name.is_empty() || !SHARED_CLUSTERS.contains(&route.cluster_name.as_str())
         {
             anyhow::bail!(
                 "egress route {} references unknown cluster {}",
@@ -3349,7 +3348,10 @@ mod tests {
             "llm.internal.example.com"
         );
         assert_eq!(llm_routes[0]["route"]["prefix_rewrite"], "/v1/");
-        assert_eq!(llm_routes[0]["route"]["cluster"], "dynamic_forward_proxy_tls");
+        assert_eq!(
+            llm_routes[0]["route"]["cluster"],
+            "dynamic_forward_proxy_tls"
+        );
 
         // MCP vhost: two servers on the placeholder host, each its own prefix.
         let mcp_routes = vh[1]["routes"].as_array().unwrap();

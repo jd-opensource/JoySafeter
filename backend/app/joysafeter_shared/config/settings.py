@@ -169,8 +169,13 @@ class Settings(BaseSettings):
             # remote or docker-compose: prefer POSTGRES_PORT, default 5432 (container-internal port)
             postgres_port = os.getenv("POSTGRES_PORT", "5432")
 
+        # URL-encode user and password to handle special chars (@, #, !, etc.)
+        from urllib.parse import quote
+        safe_user = quote(postgres_user, safe="")
+        safe_password = quote(postgres_password, safe="")
+
         database_url = (
-            f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
+            f"postgresql+asyncpg://{safe_user}:{safe_password}@{postgres_host}:{postgres_port}/{postgres_db}"
         )
 
         # auto-fix port for localhost (see scripts/view_db.py)

@@ -12,9 +12,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
-use super::lds_backend::{
-    DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials,
-};
+use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
 use super::mounts::SandboxMount;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
@@ -53,9 +51,10 @@ impl K8sProvider {
             .map_err(|e| anyhow::anyhow!("failed to create K8s client: {e}"))?;
 
         // Verify connectivity
-        let _version = client.apiserver_version().await.map_err(|e| {
-            anyhow::anyhow!("K8s API server unreachable: {e}")
-        })?;
+        let _version = client
+            .apiserver_version()
+            .await
+            .map_err(|e| anyhow::anyhow!("K8s API server unreachable: {e}"))?;
 
         // Build Envoy manager + xDS service if enabled
         let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
@@ -73,9 +72,10 @@ impl K8sProvider {
                 // only uses it for prepare_socket_dir_in_volume (which we skip
                 // via initContainer) and health_check (which we skip via K8s
                 // livenessProbe on the DaemonSet).
-                Arc::new(bollard::Docker::connect_with_local_defaults().unwrap_or_else(|_| {
-                    panic!("bollard dummy client init failed")
-                })),
+                Arc::new(
+                    bollard::Docker::connect_with_local_defaults()
+                        .unwrap_or_else(|_| panic!("bollard dummy client init failed")),
+                ),
                 EnvoyConfig {
                     envoy_image: config.envoy_image.clone(),
                     socket_volume: config.envoy_socket_volume.clone(),
