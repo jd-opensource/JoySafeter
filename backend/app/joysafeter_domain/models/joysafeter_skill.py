@@ -521,6 +521,7 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
             "session_id",
             "created_at",
         ),
+        Index("skill_usage_log_created_idx", "created_at"),
         # Hot query: "who's been using skill X?" — covers the security
         # response flow.
         Index(

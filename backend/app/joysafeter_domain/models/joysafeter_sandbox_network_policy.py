@@ -18,6 +18,9 @@ class JoySafeterSandboxNetworkPolicy(JoySafeterBaseModel):
         Index("idx_jsnp_sandbox_status", "sandbox_id", "status"),
         Index("idx_jsnp_policy_hash", "policy_hash"),
         Index("idx_jsnp_status_updated_at", "status", "updated_at"),
+        Index("idx_jsnp_created_at", "created_at"),
+        Index("idx_jsnp_pushed_at", "pushed_at"),
+        Index("idx_jsnp_acked_at", "acked_at"),
     )
 
     sandbox_id: Mapped[uuid.UUID] = mapped_column(

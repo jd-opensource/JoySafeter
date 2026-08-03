@@ -224,10 +224,22 @@ spec:
           value: "500"
         - name: JOYSAFETER_TASK_DEFAULT_TIMEOUT
           value: "7200"
+        - name: JOYSAFETER_SANDBOX_IDLE_TIMEOUT
+          value: "300"
         - name: JOYSAFETER_EVENT_STREAM_ENABLED
           value: "true"
+        - name: JOYSAFETER_EVENT_STREAM_KEY
+          value: "joysafeter:orchestrator:events"
+        - name: JOYSAFETER_EVENT_STREAM_GROUP
+          value: "joysafeter-orchestrator-event-workers"
+        - name: JOYSAFETER_REDIS_QUEUE_PREFIX
+          value: "joysafeter"
         - name: DISABLE_TELEMETRY
           value: "1"
+
+        # ── LLM Egress Hosts (凭证注入允许的 LLM 上游) ──
+        - name: JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS
+          value: "ai-api.jdcloud.com,api.anthropic.com,api.openai.com,generativelanguage.googleapis.com"
 
         # ── 云服务 (from Secret) ──
         envFrom:

@@ -35,4 +35,5 @@ class JoySafeterFile(JoySafeterBaseModel, SoftDeleteMixin):
     __table_args__ = (
         Index("idx_joysafeter_files_project_created", "project_id", "created_at"),
         Index("idx_joysafeter_files_session", "session_id"),
+        Index("idx_joysafeter_files_deleted", "deleted_at"),
     )

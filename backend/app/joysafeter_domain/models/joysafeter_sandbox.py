@@ -43,6 +43,9 @@ class JoySafeterSandbox(JoySafeterBaseModel):
             ),
         ),
         Index("idx_csb_project", "project_id"),
+        Index("idx_csb_last_used", "last_used_at"),
+        Index("idx_csb_updated", "updated_at"),
+        Index("idx_csb_destroyed", "destroyed_at"),
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
