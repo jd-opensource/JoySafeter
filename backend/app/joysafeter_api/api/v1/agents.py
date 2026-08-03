@@ -740,6 +740,19 @@ async def list_agent_sessions(
     )
 
 
+@router.get("/{agent_id}/delete_preview")
+async def delete_preview_agent(
+    agent_id: uuid.UUID = Depends(parse_agent_id),
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> dict:
+    svc = AgentService(db)
+    agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
+    if not agent:
+        raise _agent_not_found_error(agent_id)
+    return await svc.count_delete_preview(agent_id, project_id=auth_ctx.project_id)
+
+
 @router.get("/{agent_id}/versions")
 async def list_agent_versions(
     agent_id: uuid.UUID = Depends(parse_agent_id),

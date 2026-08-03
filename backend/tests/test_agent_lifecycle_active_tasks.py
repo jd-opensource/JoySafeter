@@ -5,8 +5,8 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select, text
 
-from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent
-from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent, delete_preview_agent
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
@@ -685,3 +685,56 @@ async def test_delete_agent_race_active_task_becomes_409_not_500(db_session, mon
     task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     assert agent_row is not None
     assert task_row.chat_session_id == session_id
+
+
+@pytest.mark.asyncio
+async def test_delete_preview_agent_counts_sessions_active_tasks_and_versions(db_session):
+    agent = JoySafeterAgent(name=f"preview-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    agent_id = agent.id
+
+    session_a = JoySafeterSession(agent_id=agent_id, status="idle")
+    db_session.add(session_a)
+    await db_session.commit()
+    await db_session.refresh(session_a)
+
+    session_b = JoySafeterSession(agent_id=agent_id, status="idle")
+    db_session.add(session_b)
+    await db_session.commit()
+
+    db_session.add(
+        JoySafeterTask(
+            agent_id=agent_id,
+            chat_session_id=session_a.id,
+            prompt="active",
+            status=JoySafeterTaskStatus.PENDING.value,
+        )
+    )
+    await db_session.commit()
+
+    db_session.add(
+        JoySafeterTask(
+            agent_id=agent_id,
+            chat_session_id=session_a.id,
+            prompt="done",
+            status=JoySafeterTaskStatus.COMPLETED.value,
+        )
+    )
+    await db_session.commit()
+
+    db_session.add(JoySafeterAgentVersion(agent_id=agent_id, version=1, snapshot={}))
+    await db_session.commit()
+
+    preview = await delete_preview_agent(agent_id, db_session, _auth_ctx())
+
+    assert preview == {"sessions": 2, "tasks": 1, "versions": 1}
+
+
+@pytest.mark.asyncio
+async def test_delete_preview_agent_missing_agent_returns_404(db_session):
+    with pytest.raises(AppError) as exc_info:
+        await delete_preview_agent(uuid.uuid4(), db_session, _auth_ctx())
+
+    assert exc_info.value.code == "AGENT_NOT_FOUND"

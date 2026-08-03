@@ -586,3 +586,29 @@ class JoySafeterAgentService:
             )
         )
         return list(result.scalars().all())
+
+    async def count_delete_preview(
+        self, agent_id: uuid.UUID, project_id: Optional[str] = None
+    ) -> dict[str, int]:
+        """Counts of the child resources a hard delete would remove for this agent.
+
+        ``tasks`` reports only active (non-terminal) tasks -- the same set the
+        non-force delete guard blocks on -- while ``sessions`` and ``versions``
+        report every row that a hard delete cascades through.
+        """
+        if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
+            return {"sessions": 0, "tasks": 0, "versions": 0}
+        sessions_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterSession).where(JoySafeterSession.agent_id == agent_id)
+        )
+        versions_result = await self.db.execute(
+            select(func.count())
+            .select_from(JoySafeterAgentVersion)
+            .where(JoySafeterAgentVersion.agent_id == agent_id)
+        )
+        tasks = await self._count_active_tasks_for_agent(agent_id, project_id=project_id)
+        return {
+            "sessions": cast(int, sessions_result.scalar() or 0),
+            "tasks": tasks,
+            "versions": cast(int, versions_result.scalar() or 0),
+        }
