@@ -13,7 +13,7 @@ EGRESS_NS="${JOYSAFETER_EGRESS_NAMESPACE:-joysafeter-egress}"
 SANDBOX_NS="${JOYSAFETER_K8S_NAMESPACE:-joysafeter-sandboxes}"
 API_URL="${API_URL:-}"
 API_PORT_FORWARD_PORT="${API_PORT_FORWARD_PORT:-}"
-EGRESS_CONTROLLER_PORT_FORWARD_PORT="${EGRESS_CONTROLLER_PORT_FORWARD_PORT:-}"
+ORCHESTRATOR_HEALTH_PORT_FORWARD_PORT="${ORCHESTRATOR_HEALTH_PORT_FORWARD_PORT:-}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d%H%M%S)}"
 SMOKE_EMAIL="${SMOKE_EMAIL:-k3s-egress-${RUN_ID}@example.com}"
 SMOKE_PASSWORD="${SMOKE_PASSWORD:-K3sEgressSmokePass123!}"
@@ -33,11 +33,6 @@ PATCH_EGRESS_CONFIG="${PATCH_EGRESS_CONFIG:-true}"
 RESTORE_EGRESS_CONFIG="${RESTORE_EGRESS_CONFIG:-true}"
 BUILD_EGRESS_IMAGES="${BUILD_EGRESS_IMAGES:-false}"
 K3D_CLUSTER_NAME="${K3D_CLUSTER_NAME:-joysafeter}"
-EGRESS_CONTROLLER_REPLICAS="${EGRESS_CONTROLLER_REPLICAS:-1}"
-EGRESS_ENVOY_REPLICAS="${EGRESS_ENVOY_REPLICAS:-1}"
-EGRESS_CONTROLLER_PDB_MIN_AVAILABLE="${EGRESS_CONTROLLER_PDB_MIN_AVAILABLE:-1}"
-EGRESS_ENVOY_PDB_MIN_AVAILABLE="${EGRESS_ENVOY_PDB_MIN_AVAILABLE:-1}"
-EGRESS_ENVOY_HPA_MAX_REPLICAS="${EGRESS_ENVOY_HPA_MAX_REPLICAS:-3}"
 RUN_SECRET_CONNECTIVITY_TEST="${RUN_SECRET_CONNECTIVITY_TEST:-true}"
 EXPECTED_OUTPUT_FRAGMENT="${EXPECTED_OUTPUT_FRAGMENT:-K3S_EGRESS_OK}"
 # Keep the default empty: this smoke validates egress, not provider-specific
@@ -53,7 +48,7 @@ EGRESS_BYPASS_PROBE_CLEANUP="${EGRESS_BYPASS_PROBE_CLEANUP:-true}"
 EGRESS_BYPASS_PROBE_IMAGE="${EGRESS_BYPASS_PROBE_IMAGE:-joysafeter-backend:latest}"
 
 PORT_FORWARD_PID=""
-CONTROLLER_PORT_FORWARD_PID=""
+XDS_STATUS_PORT_FORWARD_PID=""
 ORIGINAL_EGRESS_CONFIG=""
 BYPASS_PROBE_RESOURCES=()
 BYPASS_PROBE_URL=""
@@ -68,10 +63,10 @@ cleanup_on_exit() {
     wait "$PORT_FORWARD_PID" >/dev/null 2>&1 || true
     PORT_FORWARD_PID=""
   fi
-  if [[ -n "$CONTROLLER_PORT_FORWARD_PID" ]]; then
-    kill "$CONTROLLER_PORT_FORWARD_PID" >/dev/null 2>&1 || true
-    wait "$CONTROLLER_PORT_FORWARD_PID" >/dev/null 2>&1 || true
-    CONTROLLER_PORT_FORWARD_PID=""
+  if [[ -n "$XDS_STATUS_PORT_FORWARD_PID" ]]; then
+    kill "$XDS_STATUS_PORT_FORWARD_PID" >/dev/null 2>&1 || true
+    wait "$XDS_STATUS_PORT_FORWARD_PID" >/dev/null 2>&1 || true
+    XDS_STATUS_PORT_FORWARD_PID=""
   fi
   if [[ "$EGRESS_BYPASS_PROBE_CLEANUP" == "true" && "${#BYPASS_PROBE_RESOURCES[@]}" -gt 0 ]]; then
     "$KUBECTL" -n "$SANDBOX_NS" delete "${BYPASS_PROBE_RESOURCES[@]}" \
@@ -219,9 +214,9 @@ assert_success() {
 }
 
 wait_rollout() {
-  local deployment="$1"
+  local workload="$1"
   local namespace="${2:-$CONTROL_NS}"
-  "$KUBECTL" -n "$namespace" rollout status "deployment/$deployment" --timeout=300s
+  "$KUBECTL" -n "$namespace" rollout status "$workload" --timeout=300s
 }
 
 build_and_import_egress_images() {
@@ -229,14 +224,12 @@ build_and_import_egress_images() {
     return
   fi
   require_cmd docker
-  log "Building Rust orchestrator and Go egress controller images"
+  log "Building Rust orchestrator image"
   "$ROOT/deploy/deploy.sh" build --orchestrator-only
-  docker build -t joysafeter-egress-controller:latest "$ROOT/egress-controller"
   if command -v k3d >/dev/null 2>&1 && \
      k3d cluster list -o json 2>/dev/null | grep -q "\"name\":\"${K3D_CLUSTER_NAME}\""; then
-    log "Importing egress images into k3d cluster ${K3D_CLUSTER_NAME}"
-    k3d image import joysafeter-orchestrator-rs:latest joysafeter-egress-controller:latest \
-      -c "$K3D_CLUSTER_NAME"
+    log "Importing Rust orchestrator image into k3d cluster ${K3D_CLUSTER_NAME}"
+    k3d image import joysafeter-orchestrator-rs:latest -c "$K3D_CLUSTER_NAME"
   else
     warn "No matching k3d cluster found; the Kubernetes cluster must pull the built images itself"
   fi
@@ -250,27 +243,15 @@ install_shared_egress_plane() {
     JOYSAFETER_K8S_NAMESPACE="$SANDBOX_NS" \
     "$SCRIPT_DIR/pki/bootstrap-egress-pki.sh"
 
-  log "Applying TLS-enabled shared Envoy control/data-plane manifests"
-  "$KUBECTL" apply -f "$SCRIPT_DIR/base/25-egress-controller.yaml"
+  log "Applying TLS-enabled node-local Envoy control/data-plane manifests"
   "$KUBECTL" apply -f "$SCRIPT_DIR/base/26-egress-authz.yaml"
   "$KUBECTL" apply -f "$SCRIPT_DIR/base/27-egress-envoy.yaml"
 
-  if (( EGRESS_ENVOY_HPA_MAX_REPLICAS < EGRESS_ENVOY_REPLICAS )); then
-    EGRESS_ENVOY_HPA_MAX_REPLICAS="$EGRESS_ENVOY_REPLICAS"
-  fi
-  log "Scaling shared egress plane controller=${EGRESS_CONTROLLER_REPLICAS} envoy=${EGRESS_ENVOY_REPLICAS}"
-  "$KUBECTL" -n "$CONTROL_NS" scale deployment/joysafeter-egress-controller --replicas="$EGRESS_CONTROLLER_REPLICAS" >/dev/null
-  "$KUBECTL" -n "$EGRESS_NS" scale deployment/joysafeter-egress-envoy --replicas="$EGRESS_ENVOY_REPLICAS" >/dev/null
-  "$KUBECTL" -n "$CONTROL_NS" patch poddisruptionbudget joysafeter-egress-controller \
-    --type merge -p "{\"spec\":{\"minAvailable\":${EGRESS_CONTROLLER_PDB_MIN_AVAILABLE}}}" >/dev/null
-  "$KUBECTL" -n "$EGRESS_NS" patch poddisruptionbudget joysafeter-egress-envoy \
-    --type merge -p "{\"spec\":{\"minAvailable\":${EGRESS_ENVOY_PDB_MIN_AVAILABLE}}}" >/dev/null
-  "$KUBECTL" -n "$EGRESS_NS" patch horizontalpodautoscaler joysafeter-egress-envoy \
-    --type merge -p "{\"spec\":{\"minReplicas\":${EGRESS_ENVOY_REPLICAS},\"maxReplicas\":${EGRESS_ENVOY_HPA_MAX_REPLICAS}}}" >/dev/null
-  "$KUBECTL" -n "$CONTROL_NS" rollout restart deployment/joysafeter-egress-controller >/dev/null
-  "$KUBECTL" -n "$EGRESS_NS" rollout restart deployment/joysafeter-egress-envoy >/dev/null
-  wait_rollout joysafeter-egress-controller "$CONTROL_NS"
-  wait_rollout joysafeter-egress-envoy "$EGRESS_NS"
+  log "Restarting Rust xDS orchestrator and node-local Envoy"
+  "$KUBECTL" -n "$CONTROL_NS" rollout restart deployment/joysafeter-orchestrator >/dev/null
+  "$KUBECTL" -n "$EGRESS_NS" rollout restart daemonset/joysafeter-egress-envoy >/dev/null
+  wait_rollout deployment/joysafeter-orchestrator "$CONTROL_NS"
+  wait_rollout daemonset/joysafeter-egress-envoy "$EGRESS_NS"
 }
 
 patch_egress_config() {
@@ -289,6 +270,8 @@ keys = [
     "JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED",
     "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED",
     "JOYSAFETER_EGRESS_AUTHZ_MTLS",
+    "JOYSAFETER_EGRESS_XDS_BIND",
+    "JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE",
     "JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL",
     "JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL",
     "JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS",
@@ -318,6 +301,8 @@ print(json.dumps({"data": {
     "JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED": "true",
     "JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED": "true",
     "JOYSAFETER_EGRESS_AUTHZ_MTLS": "true",
+    "JOYSAFETER_EGRESS_XDS_BIND": "0.0.0.0:18000",
+    "JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE": "true",
     "JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL": "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443",
     "JOYSAFETER_EGRESS_ENVOY_FORWARD_PROXY_URL": "https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8080",
     "JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS": ",".join(deduped),
@@ -326,7 +311,7 @@ PY
 )"
   "$KUBECTL" -n "$CONTROL_NS" patch configmap joysafeter-config --type merge -p "$cm_patch" >/dev/null
   "$KUBECTL" -n "$CONTROL_NS" rollout restart deployment/joysafeter-orchestrator >/dev/null
-  wait_rollout joysafeter-orchestrator "$CONTROL_NS"
+  wait_rollout deployment/joysafeter-orchestrator "$CONTROL_NS"
 }
 
 assert_egress_config() {
@@ -341,30 +326,30 @@ assert_egress_config() {
   [[ "$forward_url" == https://joysafeter-egress-envoy.*:8080 ]] || { echo "unexpected forward URL: $forward_url" >&2; exit 1; }
 }
 
-assert_shared_envoy_ready() {
-  local local_port controller_url log_path
-  local_port="${EGRESS_CONTROLLER_PORT_FORWARD_PORT:-$((19000 + RANDOM % 1000))}"
-  controller_url="http://127.0.0.1:${local_port}"
-  log_path="/tmp/joysafeter-k3s-egress-controller-port-forward-${local_port}.log"
+assert_node_local_envoy_ready() {
+  local local_port status_url log_path
+  local_port="${ORCHESTRATOR_HEALTH_PORT_FORWARD_PORT:-$((19000 + RANDOM % 1000))}"
+  status_url="http://127.0.0.1:${local_port}"
+  log_path="/tmp/joysafeter-k3s-rust-xds-port-forward-${local_port}.log"
 
-  log "Starting temporary port-forward svc/joysafeter-egress-controller ${local_port}:18080"
-  "$KUBECTL" -n "$CONTROL_NS" port-forward svc/joysafeter-egress-controller "${local_port}:18080" \
+  log "Starting temporary port-forward svc/joysafeter-orchestrator ${local_port}:8081"
+  "$KUBECTL" -n "$CONTROL_NS" port-forward svc/joysafeter-orchestrator "${local_port}:8081" \
     >"$log_path" 2>&1 &
-  CONTROLLER_PORT_FORWARD_PID="$!"
+  XDS_STATUS_PORT_FORWARD_PID="$!"
 
   for _ in $(seq 1 30); do
-    if curl -fsS "${controller_url}/readyz" >/dev/null 2>&1; then
+    if curl -fsS "${status_url}/ready" >/dev/null 2>&1; then
       break
     fi
     sleep 1
   done
-  curl -fsS "${controller_url}/readyz" >/dev/null || {
+  curl -fsS "${status_url}/ready" >/dev/null || {
     sed -n '1,80p' "$log_path" >&2 || true
-    echo "egress controller did not become ready" >&2
+    echo "active Rust xDS orchestrator did not become ready" >&2
     exit 1
   }
   local metrics
-  metrics="$(curl -fsS "${controller_url}/metrics")"
+  metrics="$(curl -fsS "${status_url}/metrics")"
   METRICS="$metrics" python3 <<'PY'
 import os
 import re
@@ -383,7 +368,7 @@ def labels_map(raw):
     return labels
 
 for line in os.environ["METRICS"].splitlines():
-    if line.startswith("joysafeter_egress_controller_connected_nodes "):
+    if line.startswith("joysafeter_rust_xds_connected_nodes "):
         connected = float(line.rsplit(" ", 1)[1])
         continue
     match = metric_line.match(line)
@@ -394,19 +379,17 @@ for line in os.environ["METRICS"].splitlines():
     value = float(match.group("value"))
     if value <= 0:
         continue
-    if name == "joysafeter_egress_controller_xds_ack_total" and labels.get("result") == "nack":
+    if name == "joysafeter_rust_xds_ack_total" and labels.get("result") == "nack":
         bad.append(f"xDS NACK observed for {labels.get('type', 'unknown')}: {value:g}")
-    if name == "joysafeter_egress_controller_snapshots_total" and labels.get("result") in {"publish_error", "rollback_error", "rejected"}:
+    if name == "joysafeter_rust_xds_snapshot_events_total" and labels.get("result") in {"rolled_back", "timed_out"}:
         bad.append(f"snapshot {labels.get('result')}: {value:g}")
-    if name == "joysafeter_egress_controller_reconcile_total" and (
-        "error" in labels.get("result", "") or labels.get("result") == "rejected_durable"
-    ):
+    if name == "joysafeter_rust_xds_reconcile_total" and labels.get("result") == "failed":
         bad.append(f"reconcile {labels.get('result')}: {value:g}")
 
 if connected < 1:
     raise SystemExit("no Envoy node is connected to ADS over mTLS")
 if bad:
-    raise SystemExit("egress controller reported unhealthy xDS state: " + "; ".join(bad))
+    raise SystemExit("Rust xDS reported unhealthy state: " + "; ".join(bad))
 PY
 }
 
@@ -514,7 +497,7 @@ expected_fragment = f"/v1/sandbox/{sandbox_id}/route/"
 if expected_fragment not in base_url:
     raise SystemExit(f"ANTHROPIC_BASE_URL was not rewritten to the Envoy authority route: {base_url}")
 if not base_url.startswith("https://joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local:8443/"):
-    raise SystemExit(f"ANTHROPIC_BASE_URL does not use the TLS shared Envoy listener: {base_url}")
+    raise SystemExit(f"ANTHROPIC_BASE_URL does not use the TLS node-local Envoy listener: {base_url}")
 
 runner_token = env.get("JOYSAFETER_RUNNER_TOKEN", "")
 if not runner_token:
@@ -554,7 +537,7 @@ for forbidden in ["ai-api.jdcloud.com", "api.anthropic.com", "ANTHROPIC_API_KEY"
 if "joysafeter-orchestrator" not in text:
     raise SystemExit("NetworkPolicy does not allow orchestrator service")
 if "joysafeter-egress" not in text or "joysafeter-egress-envoy" not in text:
-    raise SystemExit("NetworkPolicy does not allow only the shared Envoy service")
+    raise SystemExit("NetworkPolicy does not allow only the node-local Envoy service")
 if "ipBlock" in text:
     raise SystemExit("NetworkPolicy must not use ipBlock upstream egress")
 PY
@@ -562,16 +545,16 @@ PY
 
 assert_generation_applied() {
   local sandbox_id="$1"
-  local ready_replicas row generation state connected required acked nacks
-  ready_replicas="$("$KUBECTL" -n "$EGRESS_NS" get deployment joysafeter-egress-envoy -o jsonpath='{.status.readyReplicas}')"
-  ready_replicas="${ready_replicas:-0}"
+  local ready_nodes row generation state connected required acked nacks
+  ready_nodes="$("$KUBECTL" -n "$EGRESS_NS" get daemonset joysafeter-egress-envoy -o jsonpath='{.status.numberReady}')"
+  ready_nodes="${ready_nodes:-0}"
   for _ in $(seq 1 "$WAIT_SECONDS"); do
     row="$("$KUBECTL" -n "$CONTROL_NS" exec deployment/postgres -- \
       psql -U postgres -d joysafeter -Atc \
       "SELECT g.generation || '|' || COALESCE(a.state, '') || '|' || COALESCE(a.connected_nodes, 0) || '|' || COALESCE(a.required_acks, 0) || '|' || COALESCE(a.acked_acks, 0) FROM joysafeter_egress_group_generations g LEFT JOIN joysafeter_egress_apply_status a ON a.group_key = g.group_key AND a.generation = g.generation WHERE g.desired_policies @> '[{\"sandbox_id\":\"${sandbox_id}\"}]'::jsonb ORDER BY g.generation DESC LIMIT 1" 2>/dev/null || true)"
     if [[ -n "$row" ]]; then
       IFS='|' read -r generation state connected required acked <<<"$row"
-      if [[ "$state" == "applied" && "$connected" -ge "$ready_replicas" && "$required" -gt 0 && "$acked" -eq "$required" ]]; then
+      if [[ "$state" == "applied" && "$connected" -ge "$ready_nodes" && "$required" -gt 0 && "$acked" -eq "$required" ]]; then
         nacks="$("$KUBECTL" -n "$CONTROL_NS" exec deployment/postgres -- \
           psql -U postgres -d joysafeter -Atc \
           "SELECT count(*) FROM joysafeter_egress_node_apply_status n JOIN joysafeter_egress_group_generations g ON g.group_key = n.group_key AND g.generation = n.generation WHERE n.generation = ${generation} AND n.status = 'nack' AND g.desired_policies @> '[{\"sandbox_id\":\"${sandbox_id}\"}]'::jsonb" 2>/dev/null || true)"
@@ -880,7 +863,7 @@ run_preflight_only() {
   install_shared_egress_plane
   patch_egress_config
   assert_egress_config
-  assert_shared_envoy_ready
+  assert_node_local_envoy_ready
   runtime_guard_assert_live_control_plane "$CONTROL_NS" "$SANDBOX_NS"
   runtime_guard_assert_orchestrator_sandbox_rbac "$CONTROL_NS" "$SANDBOX_NS"
   runtime_guard_assert_sandbox_pods_api_created "$SANDBOX_NS"
@@ -923,7 +906,7 @@ main() {
   install_shared_egress_plane
   patch_egress_config
   assert_egress_config
-  assert_shared_envoy_ready
+  assert_node_local_envoy_ready
   runtime_guard_assert_live_control_plane "$CONTROL_NS" "$SANDBOX_NS"
   runtime_guard_assert_orchestrator_sandbox_rbac "$CONTROL_NS" "$SANDBOX_NS"
 
@@ -1200,9 +1183,8 @@ PY
   echo "Inspect:"
   echo "  $KUBECTL -n $SANDBOX_NS get pod $pod_name -o yaml"
   echo "  $KUBECTL -n $SANDBOX_NS get networkpolicy joysafeter-egress-$sandbox_id -o yaml"
-  echo "  $KUBECTL -n $CONTROL_NS logs deployment/joysafeter-egress-controller --tail=200"
   echo "  $KUBECTL -n $CONTROL_NS logs deployment/joysafeter-orchestrator --tail=200"
-  echo "  $KUBECTL -n $EGRESS_NS logs deployment/joysafeter-egress-envoy --tail=200"
+  echo "  $KUBECTL -n $EGRESS_NS logs daemonset/joysafeter-egress-envoy --tail=200"
 }
 
 main "$@"

@@ -88,27 +88,31 @@ if missing:
 app = pathlib.Path("deploy/k8s/base/40-app.yaml").read_text()
 if "serviceAccountName: joysafeter-orchestrator" not in app:
     raise SystemExit("orchestrator Deployment must use joysafeter-orchestrator ServiceAccount")
+if "name: joysafeter-orchestrator-pod-labeler" not in rbac:
+    raise SystemExit("orchestrator active Pod label RBAC is missing")
+if not re.search(r'resources:\s*\["pods"\][\s\S]*?verbs:\s*\["get", "patch"\]', rbac):
+    raise SystemExit("orchestrator active Pod label patch permission is missing")
+base_kustomization = pathlib.Path("deploy/k8s/base/kustomization.yaml").read_text()
+if "25-egress-controller.yaml" in base_kustomization:
+    raise SystemExit("temporary Go xDS controller must not be deployed by the base")
+if not pathlib.Path("deploy/k8s/overlays/go-xds-rollback/kustomization.yaml").exists():
+    raise SystemExit("explicit Go xDS emergency rollback overlay is missing")
 PY
 
-log "checking smoke HA knobs remain parameterized"
-for knob in \
-  EGRESS_CONTROLLER_REPLICAS \
-  EGRESS_ENVOY_REPLICAS \
-  EGRESS_CONTROLLER_PDB_MIN_AVAILABLE \
-  EGRESS_ENVOY_PDB_MIN_AVAILABLE \
-  EGRESS_ENVOY_HPA_MAX_REPLICAS; do
-  grep -q "${knob}=\"\${${knob}:-" deploy/k8s/k3s-egress-smoke.sh \
-    || fail "k3s egress smoke does not expose $knob"
-done
-grep -q 'scale deployment/joysafeter-egress-controller --replicas="$EGRESS_CONTROLLER_REPLICAS"' deploy/k8s/k3s-egress-smoke.sh \
-  || fail "controller replica scaling is not parameterized"
-grep -q 'scale deployment/joysafeter-egress-envoy --replicas="$EGRESS_ENVOY_REPLICAS"' deploy/k8s/k3s-egress-smoke.sh \
-  || fail "envoy replica scaling is not parameterized"
+log "checking Rust xDS smoke hooks"
+grep -q 'joysafeter_rust_xds_connected_nodes' deploy/k8s/k3s-egress-smoke.sh \
+  || fail "k3s egress smoke does not verify Rust xDS node connections"
+grep -q 'port-forward svc/joysafeter-orchestrator' deploy/k8s/k3s-egress-smoke.sh \
+  || fail "k3s egress smoke does not inspect the Rust xDS status endpoint"
+grep -q 'rollout restart daemonset/joysafeter-egress-envoy' deploy/k8s/k3s-egress-smoke.sh \
+  || fail "node-local Envoy DaemonSet restart is missing"
 
 log "checking shell syntax"
 bash -n deploy/k8s/runtime-architecture-guard.sh
 bash -n deploy/k8s/k3s-smoke.sh
 bash -n deploy/k8s/k3s-task-smoke.sh
 bash -n deploy/k8s/k3s-egress-smoke.sh
+bash -n deploy/k8s/cutover-rust-xds.sh
+bash -n deploy/k8s/go-xds-rollback.sh
 
 log "offline architecture guard passed"

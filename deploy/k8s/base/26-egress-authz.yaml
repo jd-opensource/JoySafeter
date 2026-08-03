@@ -9,6 +9,7 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: joysafeter-orchestrator
+    joysafeter.io/control-plane-active: "true"
   ports:
     - name: grpc-authz
       port: 18090
@@ -43,5 +44,7 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: joysafeter-egress
       ports:
+        - protocol: TCP
+          port: 18000
         - protocol: TCP
           port: 18090

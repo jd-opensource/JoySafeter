@@ -139,7 +139,7 @@ show_usage() {
 命令:
   doctor             本地部署环境预检（不启动容器）
   local              本地 Docker Compose 一键部署（自动按 Docker CPU 架构选择平台）
-  build              构建核心部署镜像（backend, frontend, orchestrator-rs, egress-controller, skillspector）
+  build              构建核心部署镜像（backend, frontend, orchestrator-rs, skillspector）
   push               构建并推送多架构镜像到仓库
   pull               拉取镜像，并把拉取到的镜像名同步到 deploy/.env
   down               停止并移除本地 Compose 服务（保留数据卷）
@@ -159,7 +159,7 @@ show_usage() {
   --backend-only         只处理后端镜像
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
-  --egress-controller-only 只处理 Envoy egress-controller 镜像
+  --egress-controller-only 只处理旧 Go xDS 紧急回滚镜像
   --skillspector-only    只处理 SkillSpector 镜像
   --runtime-only         只处理 agent 运行镜像（claudecode, codex, native）
   --claudecode-only      只处理 Claude Code 运行镜像
@@ -176,7 +176,7 @@ show_usage() {
   BACKEND_IMAGE          后端镜像名称（默认: joysafeter-backend）
   FRONTEND_IMAGE         前端镜像名称（默认: joysafeter-frontend）
   ORCHESTRATOR_RS_IMAGE  Rust orchestrator 镜像名称（默认: joysafeter-orchestrator-rs）
-  EGRESS_CONTROLLER_IMAGE Envoy egress-controller 镜像名称（默认: joysafeter-egress-controller）
+  EGRESS_CONTROLLER_IMAGE 旧 Go xDS 回滚镜像名称（默认: joysafeter-egress-controller）
   SKILLSPECTOR_IMAGE     SkillSpector 镜像名称（默认: joysafeter-skillspector）
   CLAUDECODE_IMAGE       Claude Code 运行镜像名称（默认: joysafeter-claudecode）
   CODEX_IMAGE            Codex 运行镜像名称（默认: joysafeter-codex）
@@ -891,7 +891,6 @@ K8S_CORE_IMAGES=(
     "joysafeter-backend:latest"
     "joysafeter-frontend:latest"
     "joysafeter-orchestrator-rs:latest"
-    "joysafeter-egress-controller:latest"
     "joysafeter-skillspector:latest"
 )
 K8S_RUNTIME_IMAGES=(
@@ -1442,7 +1441,7 @@ build_all_images() {
     local BUILD_BACKEND=${BUILD_BACKEND:-true}
     local BUILD_FRONTEND=${BUILD_FRONTEND:-true}
     local BUILD_ORCHESTRATOR=${BUILD_ORCHESTRATOR:-true}
-    local BUILD_EGRESS_CONTROLLER=${BUILD_EGRESS_CONTROLLER:-true}
+    local BUILD_EGRESS_CONTROLLER=${BUILD_EGRESS_CONTROLLER:-false}
     local BUILD_SKILLSPECTOR=${BUILD_SKILLSPECTOR:-true}
     local BUILD_CLAUDECODE=${BUILD_CLAUDECODE:-false}
     local BUILD_CODEX=${BUILD_CODEX:-false}
@@ -1690,7 +1689,7 @@ pull_images() {
     local PULL_BACKEND=true
     local PULL_FRONTEND=true
     local PULL_ORCHESTRATOR=true
-    local PULL_EGRESS_CONTROLLER=true
+    local PULL_EGRESS_CONTROLLER=false
     local PULL_SKILLSPECTOR=true
     local PULL_CLAUDECODE=false
     local PULL_CODEX=false

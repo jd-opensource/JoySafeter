@@ -72,10 +72,8 @@ forbidden = {
 required = {
     ("Service", "joysafeter-control", "joysafeter-orchestrator"),
     ("Deployment", "joysafeter-control", "joysafeter-orchestrator"),
-    ("Service", "joysafeter-control", "joysafeter-egress-controller"),
-    ("Deployment", "joysafeter-control", "joysafeter-egress-controller"),
     ("Service", "joysafeter-egress", "joysafeter-egress-envoy"),
-    ("Deployment", "joysafeter-egress", "joysafeter-egress-envoy"),
+    ("DaemonSet", "joysafeter-egress", "joysafeter-egress-envoy"),
     ("NetworkPolicy", "joysafeter-sandboxes", "default-deny"),
     ("NetworkPolicy", "joysafeter-sandboxes", "allow-runner-control-plane"),
 }
@@ -204,9 +202,18 @@ fi
 kubectl delete ns joysafeter-np-smoke --ignore-not-found --wait=false >/dev/null 2>&1 || true
 
 log "Checking sandbox-plane rollouts"
-kubectl -n "$CONTROL_NS" rollout status deploy/joysafeter-egress-controller --timeout=300s
-kubectl -n "$EGRESS_NS" rollout status deploy/joysafeter-egress-envoy --timeout=300s
+kubectl -n "$EGRESS_NS" rollout status daemonset/joysafeter-egress-envoy --timeout=300s
 kubectl -n "$CONTROL_NS" rollout status deploy/joysafeter-orchestrator --timeout=300s
+
+active_pods="$(kubectl -n "$CONTROL_NS" get pods \
+  -l 'app.kubernetes.io/name=joysafeter-orchestrator,joysafeter.io/control-plane-active=true' \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
+active_count="$(printf '%s\n' "$active_pods" | awk 'NF { count++ } END { print count + 0 }')"
+if [[ "$active_count" != "1" ]]; then
+  printf 'Expected exactly one active orchestrator Pod, found %s:\n%s\n' \
+    "$active_count" "$active_pods" >&2
+  exit 1
+fi
 
 log "Sandbox-plane readiness validation passed"
 printf 'Rendered manifest: %s\n' "$RENDERED"

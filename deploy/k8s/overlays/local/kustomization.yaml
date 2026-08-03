@@ -5,34 +5,6 @@ resources:
 patches:
   - target:
       kind: Deployment
-      name: joysafeter-egress-controller
-      namespace: joysafeter-control
-    patch: |-
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: joysafeter-egress-controller
-        namespace: joysafeter-control
-      spec:
-        replicas: 1
-        template:
-          spec:
-            containers:
-              - name: controller
-                env:
-                  - name: JOYSAFETER_EGRESS_XDS_MTLS
-                    value: "false"
-                  - name: JOYSAFETER_EGRESS_AUTHZ_MTLS
-                    value: "false"
-                  - name: JOYSAFETER_EGRESS_DOWNSTREAM_TLS
-                    value: "false"
-            volumes:
-              - name: xds-tls
-                secret:
-                  secretName: joysafeter-egress-controller-tls
-                  optional: true
-  - target:
-      kind: Deployment
       name: joysafeter-orchestrator
       namespace: joysafeter-control
     patch: |-
@@ -49,42 +21,32 @@ patches:
                 secret:
                   secretName: joysafeter-egress-authz-server-tls
                   optional: true
+              - name: xds-server-tls
+                secret:
+                  secretName: joysafeter-rust-xds-server-tls
+                  optional: true
   - target:
-      kind: PodDisruptionBudget
-      name: joysafeter-egress-controller
-      namespace: joysafeter-control
-    patch: |-
-      - op: replace
-        path: /spec/minAvailable
-        value: 1
-  - target:
-      kind: Deployment
+      kind: DaemonSet
       name: joysafeter-egress-envoy
       namespace: joysafeter-egress
     patch: |-
       apiVersion: apps/v1
-      kind: Deployment
+      kind: DaemonSet
       metadata:
         name: joysafeter-egress-envoy
         namespace: joysafeter-egress
       spec:
-        replicas: 1
         template:
           spec:
-            containers:
-              - name: envoy
+            initContainers:
+              - name: render-bootstrap
                 args:
-                  - --config-path
-                  - /etc/joysafeter-egress-envoy/bootstrap-plaintext.yaml
-                  - --service-node
-                  - $(POD_NAME)
-                  - --service-cluster
-                  - joysafeter-egress
-                  - --log-level
-                  - info
-                  - --concurrency
-                  - "2"
-                  - --disable-hot-restart
+                  - >-
+                    sed
+                    -e "s|__POD_NAME__|${POD_NAME}|g"
+                    -e "s|__NODE_NAME__|${NODE_NAME}|g"
+                    /etc/joysafeter-egress-envoy-template/bootstrap-plaintext.yaml
+                    > /etc/joysafeter-egress-envoy/bootstrap.yaml
             volumes:
               - name: xds-client-tls
                 secret:
@@ -99,31 +61,15 @@ patches:
                   secretName: joysafeter-egress-downstream-server-tls
                   optional: true
   - target:
-      kind: PodDisruptionBudget
-      name: joysafeter-egress-envoy
-      namespace: joysafeter-egress
-    patch: |-
-      - op: replace
-        path: /spec/minAvailable
-        value: 1
-  - target:
-      kind: HorizontalPodAutoscaler
-      name: joysafeter-egress-envoy
-      namespace: joysafeter-egress
-    patch: |-
-      - op: replace
-        path: /spec/minReplicas
-        value: 1
-      - op: replace
-        path: /spec/maxReplicas
-        value: 3
-  - target:
       kind: ConfigMap
       name: joysafeter-config
       namespace: joysafeter-control
     patch: |-
       - op: replace
         path: /data/JOYSAFETER_EGRESS_AUTHZ_MTLS
+        value: "false"
+      - op: replace
+        path: /data/JOYSAFETER_EGRESS_XDS_MTLS
         value: "false"
       - op: replace
         path: /data/JOYSAFETER_EGRESS_ENVOY_CREDENTIAL_URL

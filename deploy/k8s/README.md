@@ -58,7 +58,7 @@ JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS=api.anthropic.com,api.openai.com,generativel
 Add any other private gateway host here before creating or testing a Secret.
 
 This allowlist is necessary but not sufficient for production K8s. Secret-backed
-tasks require the durable policy authority, shared Envoy fleet, and explicit
+tasks require the durable policy authority, node-local Envoy DaemonSet, and explicit
 provider capability switch:
 
 ```text
@@ -82,6 +82,15 @@ kubectl -n joysafeter-sandboxes get pods \
 ```
 
 ## Sandbox resource governance and diagnostics
+
+`JOYSAFETER_MAX_CONCURRENT_TASKS` is a database-authoritative, cluster-wide
+admission limit across all orchestrator replicas. Pending-to-scheduling claims
+are serialized with a PostgreSQL transaction advisory lock and count both
+`scheduling` and `running` tasks, so replicas cannot independently oversubscribe
+the configured cap. Capacity-blocked Redis candidates are returned to the queue
+instead of being discarded. `JOYSAFETER_MAX_SCHEDULING_TASKS` separately bounds
+concurrent sandbox resolution work per orchestrator process, and
+`JOYSAFETER_SCHEDULER_BATCH_SIZE` bounds each scheduler drain batch.
 
 The base runtime config sets CPU, memory, and ephemeral-storage budgets through
 `JOYSAFETER_SANDBOX_CPU`, `JOYSAFETER_SANDBOX_MEMORY_MB`, and
@@ -128,7 +137,7 @@ host-port mapping.
 
 For the production `sandbox-plane` overlay, always set `API_URL` to the
 company-managed Backend API and use the same company production database/Redis
-state as the k3s orchestrator and egress-controller.
+state as the k3s orchestrator.
 
 To validate the production egress path, run the dedicated smoke with a real
 Anthropic-compatible Secret. For JDCloud-style gateways, set
@@ -148,10 +157,11 @@ cluster you are validating.
 The script installs ephemeral PKI, applies the TLS control/data-plane manifests, enables
 the two feature flags for the run, then creates uniquely named smoke data
 through the API. By default it restores the original flags on exit. Set
-`BUILD_EGRESS_IMAGES=true` to rebuild and import the Rust orchestrator and Go
-controller into a local k3d cluster. It verifies:
+`BUILD_EGRESS_IMAGES=true` to rebuild and import the Rust orchestrator into a
+local k3d cluster. It verifies:
 
-- the Go controller is ready and at least one Envoy node connects over mTLS ADS;
+- the active Rust orchestrator is ready and at least one Envoy node connects to
+  embedded Rust ADS over mTLS;
 - the API allowlist accepts and tests the Secret base URL;
 - a limited-networking Environment is used;
 - the sandbox Pod env has synthetic Envoy URLs, a combined CA bundle, and no
@@ -172,9 +182,9 @@ EGRESS_PREFLIGHT_ONLY=true deploy/k8s/k3s-egress-smoke.sh
 ```
 
 Preflight still targets the live cluster: it checks the API-only runtime guard,
-applies/rolls the shared egress plane, validates the durable-authority config,
-requires at least one Envoy node connected over mTLS ADS, and fails on controller
-xDS NACK / publish / rollback / durable-reject metrics. It does not create
+applies/rolls the node-local egress plane, validates the durable-authority config,
+requires at least one Envoy node connected over mTLS ADS, and fails on Rust xDS
+NACK / reconcile-failure / rollback / timeout metrics. It does not create
 platform users, platform Secrets, Environments, Agents, Tasks, sandbox Pods, or
 database rows, so it is not a substitute for full model-backed egress smoke.
 
@@ -218,14 +228,60 @@ deploy/k8s/k3s-long-run.sh
 - For bare-metal or VM k3s, push images to a private registry and set image
   references in a production overlay. `k3d image import` is local-only.
 - `JOYSAFETER_ENVOY_ENABLED=false` disables the old per-sandbox Docker Envoy
-  manager; Kubernetes uses the shared `joysafeter-egress-envoy` fleet instead.
+  manager; Kubernetes uses one `joysafeter-egress-envoy` DaemonSet Pod per
+  eligible execution node, and `internalTrafficPolicy: Local` keeps sandbox
+  traffic on that node.
 - Sandboxes receive only placeholder credentials and synthetic service URLs.
   Envoy performs routing and header stripping, Rust ext_authz binds the live
-  runner token and resolves versioned credentials, and the Go controller owns
-  xDS publication/ACK state.
+  runner token and resolves versioned credentials, and the embedded Rust xDS
+  server owns node-local v2 policy publication and ACK/NACK state.
 - Production PKI must use separate xDS, authz, and downstream trust domains.
   The controller does not mount the authz client private key; it exists only in
   the Envoy namespace.
+- The Rust orchestrator exposes the production mTLS ADS listener on port `18000`
+  with `JOYSAFETER_EGRESS_XDS_BIND=0.0.0.0:18000`. It uses the
+  `joysafeter-rust-xds-server-tls` identity and exact Envoy client DNS SAN
+  verification; the runner gRPC port `9090` remains outside the xDS trust
+  boundary. `JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE=true` makes the
+  active Rust orchestrator read durable desired generations from PostgreSQL,
+  react to `joysafeter_egress_generation`, periodically reconcile, and install
+  node-local snapshots for Envoys connected to the Rust ADS listener. This mode
+  records nonce-correlated ACK/NACK results in
+  `joysafeter_rust_xds_shadow_status` and accepted/failed generation lifecycle in
+  `joysafeter_rust_xds_shadow_generations`; it never updates legacy Go apply
+  status. On restart, the reconciler recompiles and restores
+  each node group's latest accepted snapshot as last-known-good before attempting
+  a newer desired candidate. NACKed generations stay quarantined durably, while
+  in-process candidate publication remains gated on connected-node ACKs and rolls
+  back immediately on NACK. `JOYSAFETER_EGRESS_XDS_ACK_TIMEOUT_MS` (default
+  `30000`) also rolls an unacknowledged candidate back and persists it as failed
+  without fabricating an Envoy exchange. Rust connection leases are refreshed
+  in `joysafeter_rust_xds_shadow_node_connections` with
+  `JOYSAFETER_EGRESS_XDS_NODE_LEASE_TTL_MS` (default `30000`), and accepted
+  lifecycle rows persist their required type URLs, connected-node count, and
+  required/acked quorum counts. The active orchestrator also exposes a JSON runtime
+  snapshot at `/xds/status` on the control-plane health port; it reports connected
+  streams/nodes, source and node groups, candidate/last-good counts, failed
+  versions, current highest generation, and state revision. Cold standby or
+  xDS-disabled replicas return HTTP 503. Prometheus text metrics are available at
+  `/metrics` on the same port and cover active leadership, connected streams and
+  nodes, candidate/last-good/failed gauges, ACK/NACK observations, snapshot
+  install/restore/accept/rollback/timeout events, and reconciliation outcomes.
+  The base Pod template includes scrape annotations for port `8081`.
+- In HA deployments, every orchestrator Pod uses `/healthz` for Deployment/PDB
+  readiness, while only the PostgreSQL lock holder patches
+  `joysafeter.io/control-plane-active=true`. The orchestrator Service selects
+  that label, so cold standbys remain rollout-healthy without receiving runner,
+  ext_authz, or ADS traffic.
+- The base deployment no longer creates the temporary Go xDS controller. Use
+  the normal production release flow to deploy the new Rust image, migrations,
+  TLS mount, and Service first, then run `deploy/k8s/cutover-rust-xds.sh`; it
+  patches only live xDS routing, requires a Rust ADS connection with healthy
+  metrics, and only then scales any old Go Deployment to zero. Emergency rollback is explicit through
+  `deploy/k8s/go-xds-rollback.sh` and `overlays/go-xds-rollback`; it requires the
+  legacy Go server certificate and `GO_XDS_IMAGE` if the old Deployment was
+  already removed. Validation PKI can include that certificate with
+  `INCLUDE_GO_XDS_ROLLBACK_PKI=true deploy/k8s/pki/bootstrap-egress-pki.sh`.
 - Sandbox images must contain `/bin/sh` and a standard system CA bundle path so
   the trust-bundle init container can append the downstream CA without replacing
   public roots.

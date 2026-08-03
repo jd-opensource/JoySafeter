@@ -7,8 +7,8 @@ business ingress.
 
 ## Runs In This Cluster
 
-- `joysafeter-orchestrator` for K8s sandbox lifecycle, runner gRPC, and ext_authz.
-- `joysafeter-egress-controller` for durable Envoy xDS from PostgreSQL policy state.
+- `joysafeter-orchestrator` for K8s sandbox lifecycle, runner gRPC, ext_authz,
+  and single-active durable Rust xDS from PostgreSQL policy state.
 - `joysafeter-egress-envoy` as the only sandbox egress data plane.
 - Sandbox namespaces, quotas, RBAC, and NetworkPolicies.
 

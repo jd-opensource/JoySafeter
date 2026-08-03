@@ -173,8 +173,15 @@ spec:
     - name: grpc
       port: 9090
       targetPort: 9090
+    - name: xds
+      port: 18000
+      targetPort: 18000
+    - name: health
+      port: 8081
+      targetPort: 8081
   selector:
     app.kubernetes.io/name: joysafeter-orchestrator
+    joysafeter.io/control-plane-active: "true"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -194,8 +201,14 @@ spec:
       labels:
         app.kubernetes.io/name: joysafeter-orchestrator
         app.kubernetes.io/part-of: joysafeter
+        joysafeter.io/control-plane-active: "false"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: joysafeter-orchestrator
+      enableServiceLinks: false
       containers:
         - name: orchestrator
           image: joysafeter-orchestrator-rs:latest
@@ -210,6 +223,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: JOYSAFETER_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: JOYSAFETER_GRPC_HOST
               value: 0.0.0.0
             - name: JOYSAFETER_GRPC_PORT
@@ -219,24 +236,40 @@ spec:
               name: grpc
             - containerPort: 18090
               name: authz
+            - containerPort: 18000
+              name: xds
+            - containerPort: 8081
+              name: health
           readinessProbe:
-            tcpSocket:
-              port: 9090
+            httpGet:
+              path: /healthz
+              port: health
             initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 2
           livenessProbe:
-            tcpSocket:
-              port: 9090
-            initialDelaySeconds: 30
-            periodSeconds: 30
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
           volumeMounts:
             - name: authz-server-tls
               mountPath: /var/run/joysafeter-egress/authz-server-tls
+              readOnly: true
+            - name: xds-server-tls
+              mountPath: /var/run/joysafeter-egress/xds-server-tls
               readOnly: true
       volumes:
         - name: authz-server-tls
           secret:
             secretName: joysafeter-egress-authz-server-tls
+        - name: xds-server-tls
+          secret:
+            secretName: joysafeter-rust-xds-server-tls
 ---
 apiVersion: v1
 kind: Service

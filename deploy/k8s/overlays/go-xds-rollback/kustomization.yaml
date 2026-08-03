@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: ConfigMap
+      name: joysafeter-config
+      namespace: joysafeter-control
+    patch: |-
+      - op: replace
+        path: /data/JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE
+        value: "false"
+  - target:
+      kind: DaemonSet
+      name: joysafeter-egress-envoy
+      namespace: joysafeter-egress
+    patch: |-
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        name: joysafeter-egress-envoy
+        namespace: joysafeter-egress
+      spec:
+        template:
+          metadata:
+            annotations:
+              joysafeter.io/xds-control-plane: go-rollback
+          spec:
+            initContainers:
+              - name: render-bootstrap
+                env:
+                  - name: XDS_ADDRESS
+                    value: joysafeter-egress-controller.joysafeter-control.svc.cluster.local
+                  - name: XDS_SNI
+                    value: joysafeter-egress-controller.joysafeter-control.svc.cluster.local
+  - target:
+      kind: NetworkPolicy
+      name: joysafeter-egress-envoy
+      namespace: joysafeter-egress
+    patch: |-
+      - op: replace
+        path: /spec/egress/1/to/0/podSelector/matchLabels/app.kubernetes.io~1name
+        value: joysafeter-egress-controller

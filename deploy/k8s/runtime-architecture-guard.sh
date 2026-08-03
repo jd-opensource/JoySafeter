@@ -40,6 +40,8 @@ base = pathlib.Path(sys.argv[1])
 required = [
     base / "01-config.yaml",
     base / "02-rbac.yaml",
+    base / "26-egress-authz.yaml",
+    base / "27-egress-envoy.yaml",
     base / "40-app.yaml",
 ]
 for path in required:
@@ -49,6 +51,8 @@ for path in required:
 rbac = (base / "02-rbac.yaml").read_text()
 app = (base / "40-app.yaml").read_text()
 config = (base / "01-config.yaml").read_text()
+authz = (base / "26-egress-authz.yaml").read_text()
+envoy = (base / "27-egress-envoy.yaml").read_text()
 
 if "name: joysafeter-orchestrator" not in rbac or "resources: [\"pods\"]" not in rbac:
     raise SystemExit("orchestrator sandbox pod RBAC is missing")
@@ -66,13 +70,61 @@ if not re.search(r'resources:\s*\["networkpolicies"\][\s\S]*?verbs:\s*\[[^\]]*"d
     raise SystemExit("orchestrator NetworkPolicy delete RBAC is missing")
 if "serviceAccountName: joysafeter-orchestrator" not in app:
     raise SystemExit("orchestrator Deployment must run as joysafeter-orchestrator ServiceAccount")
+if "enableServiceLinks: false" not in app:
+    raise SystemExit("orchestrator must disable Kubernetes service-link env collisions")
+if 'joysafeter.io/control-plane-active: "true"' not in app:
+    raise SystemExit("orchestrator Service must select only the active Pod label")
+if 'joysafeter.io/control-plane-active: "true"' not in authz:
+    raise SystemExit("ext_authz Service must select only the active Pod label")
+if 'joysafeter.io/control-plane-active: "false"' not in app:
+    raise SystemExit("orchestrator Pod template must start with the active label cleared")
+if "fieldPath: metadata.namespace" not in app or "name: JOYSAFETER_POD_NAMESPACE" not in app:
+    raise SystemExit("orchestrator Pod namespace downward API env is missing")
+if "containerPort: 18000" not in app or "name: xds" not in app:
+    raise SystemExit("orchestrator dedicated Rust xDS port is missing")
+if "secretName: joysafeter-rust-xds-server-tls" not in app:
+    raise SystemExit("orchestrator dedicated Rust xDS TLS Secret mount is missing")
+if "kind: DaemonSet" not in envoy or "name: joysafeter-egress-envoy" not in envoy:
+    raise SystemExit("egress Envoy must run as a node-local DaemonSet")
+if "internalTrafficPolicy: Local" not in envoy:
+    raise SystemExit("egress Envoy Service must route only to node-local endpoints")
+if "host_id: __NODE_NAME__" not in envoy or "fieldPath: spec.nodeName" not in envoy:
+    raise SystemExit("egress Envoy node metadata must bind host_id to spec.nodeName")
+if "kind: HorizontalPodAutoscaler" in envoy:
+    raise SystemExit("node-local Envoy DaemonSet must not have an HPA")
+if "joysafeter-egress-controller.joysafeter-control.svc.cluster.local" in envoy:
+    raise SystemExit("base Envoy bootstrap still targets the temporary Go xDS controller")
+if "joysafeter-orchestrator.joysafeter-control.svc.cluster.local" not in envoy:
+    raise SystemExit("base Envoy bootstrap does not target embedded Rust xDS")
 for key in (
+    "JOYSAFETER_CONTROL_PLANE_HA_ENABLED",
+    "JOYSAFETER_CONTROL_PLANE_LOCK_KEY",
+    "JOYSAFETER_CONTROL_PLANE_HEALTH_BIND",
+    "JOYSAFETER_EGRESS_XDS_MTLS",
+    "JOYSAFETER_EGRESS_XDS_CERT_FILE",
+    "JOYSAFETER_EGRESS_XDS_CLIENT_CA_FILE",
+    "JOYSAFETER_EGRESS_XDS_CLIENT_DNS_SAN",
+    "JOYSAFETER_EGRESS_XDS_BIND",
+    "JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE",
+    "JOYSAFETER_MAX_CONCURRENT_TASKS",
+    "JOYSAFETER_MAX_SCHEDULING_TASKS",
+    "JOYSAFETER_SCHEDULER_BATCH_SIZE",
     "JOYSAFETER_SANDBOX_CPU",
     "JOYSAFETER_SANDBOX_MEMORY_MB",
     "JOYSAFETER_SANDBOX_DISK_MB",
 ):
     if key not in config:
         raise SystemExit(f"sandbox resource configuration is missing: {key}")
+if 'JOYSAFETER_CONTROL_PLANE_HA_ENABLED: "true"' not in config:
+    raise SystemExit("orchestrator single-active control plane must be enabled")
+if 'JOYSAFETER_EGRESS_XDS_BIND: 0.0.0.0:18000' not in config:
+    raise SystemExit("embedded Rust xDS listener must be enabled by default")
+if 'JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE: "true"' not in config:
+    raise SystemExit("Rust xDS durable reconciliation must be enabled by default")
+if not re.search(r'readinessProbe:[\s\S]*?path:\s*/healthz[\s\S]*?port:\s*health', app):
+    raise SystemExit("orchestrator Deployment readiness must include cold standbys")
+if not re.search(r'path:\s*/healthz[\s\S]*?port:\s*health', app):
+    raise SystemExit("orchestrator liveness must use the process /healthz endpoint")
 if re.search(r'(?m)^\s*(command|args):\s*\[?[^\n]*kubectl', app):
     raise SystemExit("orchestrator manifest still invokes kubectl")
 if "kubectl.kubernetes.io/last-applied-configuration" in app:
@@ -94,6 +146,9 @@ runtime_guard_assert_live_control_plane() {
     || runtime_guard_fail "orchestrator ServiceAccount missing in $control_ns"
   "$KUBECTL" -n "$control_ns" get deploy joysafeter-orchestrator >/dev/null \
     || runtime_guard_fail "orchestrator Deployment missing in $control_ns"
+  "$KUBECTL" auth can-i patch pods -n "$control_ns" \
+    --as="system:serviceaccount:${control_ns}:joysafeter-orchestrator" >/dev/null \
+    || runtime_guard_fail "orchestrator ServiceAccount cannot patch its active Pod label"
 }
 
 runtime_guard_assert_orchestrator_image_api_only() {
