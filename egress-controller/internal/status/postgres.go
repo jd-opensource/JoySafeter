@@ -319,63 +319,19 @@ func (r *PostgresRecorder) writeACK(ctx context.Context, value event) error {
 	if err != nil {
 		return err
 	}
-	if value.kind == "nack" {
-		_, err = tx.Exec(ctx, `
-			UPDATE joysafeter_egress_apply_status
-			SET state = 'failed', reason_code = 'ENVOY_NACK', error_summary = $4,
-				failed_at = now(), updated_at = now()
-			WHERE group_key = $1 AND generation = $2 AND xds_version = $3
-			  AND state IN ('pending', 'published', 'applied')
-		`, value.identity.GroupKey, value.generation, value.version, value.reason)
-	} else {
-		_, err = tx.Exec(ctx, `
-			WITH active_nodes AS (
-				SELECT node_id
-				FROM joysafeter_egress_node_connections
-				WHERE group_key = $1 AND disconnected_at IS NULL AND lease_expires_at > now()
-			), counts AS (
-				SELECT
-					(SELECT count(*) FROM active_nodes)::integer AS connected_nodes,
-					(
-						SELECT count(*)
-						FROM joysafeter_egress_node_apply_status node_status
-						WHERE node_status.group_key = $1
-						  AND node_status.generation = $2
-						  AND node_status.xds_version = $3
-						  AND node_status.status = 'ack'
-						  AND node_status.node_id IN (SELECT node_id FROM active_nodes)
-						  AND node_status.type_url IN (
-							SELECT jsonb_array_elements_text(required_type_urls)
-							FROM joysafeter_egress_apply_status
-							WHERE group_key = $1 AND generation = $2
-						  )
-					)::integer AS acked_acks
-			)
-			UPDATE joysafeter_egress_apply_status apply_status
-			SET connected_nodes = counts.connected_nodes,
-				required_acks = counts.connected_nodes * jsonb_array_length(apply_status.required_type_urls),
-				acked_acks = counts.acked_acks,
-				state = CASE
-					WHEN apply_status.state = 'applied' THEN 'applied'
-					WHEN counts.connected_nodes > 0
-					 AND counts.acked_acks >= counts.connected_nodes * jsonb_array_length(apply_status.required_type_urls)
-					THEN 'applied'
-					ELSE 'published'
-				END,
-				applied_at = CASE
-					WHEN counts.connected_nodes > 0
-					 AND counts.acked_acks >= counts.connected_nodes * jsonb_array_length(apply_status.required_type_urls)
-					THEN COALESCE(apply_status.applied_at, now())
-					ELSE apply_status.applied_at
-				END,
-				updated_at = now()
-			FROM counts
-			WHERE apply_status.group_key = $1
-			  AND apply_status.generation = $2
-			  AND apply_status.xds_version = $3
-			  AND apply_status.state IN ('pending', 'published', 'applied')
-		`, value.identity.GroupKey, value.generation, value.version)
-	}
+	err = withGenerationLock(ctx, tx, value.identity.GroupKey, value.generation, func() error {
+		if value.kind == "nack" {
+			_, execErr := tx.Exec(ctx, `
+				UPDATE joysafeter_egress_apply_status
+				SET state = 'failed', reason_code = 'ENVOY_NACK', error_summary = $4,
+					failed_at = now(), updated_at = now()
+				WHERE group_key = $1 AND generation = $2 AND xds_version = $3
+				  AND state IN ('pending', 'published', 'applied')
+			`, value.identity.GroupKey, value.generation, value.version, value.reason)
+			return execErr
+		}
+		return recomputeApplyStatus(ctx, tx, value.identity.GroupKey, value.generation)
+	})
 	if err != nil {
 		return err
 	}
