@@ -6,6 +6,7 @@
 //! helper so it never lands in `.git/config`, shell history, or our logs.
 
 use crate::proto::RepoConfig;
+use base64::Engine as _;
 use std::path::{Component, Path, PathBuf};
 use tracing::info;
 
@@ -52,6 +53,20 @@ async fn clone_one(work_dir: &Path, repo: &RepoConfig) -> Result<(), String> {
     if let Some(helper) = &askpass {
         cmd.env("GIT_ASKPASS", &helper.script_path);
         cmd.env(ASKPASS_TOKEN_ENV, &repo.authorization_token);
+        // Present the identity credential PREEMPTIVELY on every request. The
+        // egress boundary (Envoy ext_authz) denies an unidentified request with
+        // 403, not a 401 Basic challenge, so git's askpass challenge-response
+        // never fires and the sandbox identity token would otherwise never be
+        // sent. This mirrors how the LLM/MCP clients always send their identity
+        // header. The token is passed through env-based git config
+        // (`GIT_CONFIG_*`), so it stays out of argv, `.git/config`, and logs —
+        // preserving the same non-persistence guarantee as the askpass helper.
+        cmd.env("GIT_CONFIG_COUNT", "1");
+        cmd.env("GIT_CONFIG_KEY_0", "http.extraHeader");
+        cmd.env(
+            "GIT_CONFIG_VALUE_0",
+            preemptive_identity_header(&repo.authorization_token),
+        );
     }
 
     info!(url = %repo.url, branch = %repo.branch, path = %dest.display(), "Cloning repo");
@@ -120,6 +135,18 @@ fn repo_name_from_url(url: &str) -> Option<String> {
 }
 
 const ASKPASS_TOKEN_ENV: &str = "JOYSAFETER_GIT_TOKEN";
+
+/// Build the preemptive `Authorization: Basic` header value for the clone token.
+///
+/// Mirrors the orchestrator's `format_header_value(Basic{username:"x-access-token"}, token)`
+/// (`credential_broker.rs`) so the Envoy ext_authz identity check matches on the
+/// first request, rather than relying on git's 401-challenge askpass flow (the
+/// egress boundary denies with 403, which never triggers a retry with creds).
+fn preemptive_identity_header(token: &str) -> String {
+    let encoded =
+        base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
+    format!("Authorization: Basic {encoded}")
+}
 
 /// A temporary `GIT_ASKPASS` script. The token is read from an env var at run
 /// time, so it is never written to disk. The helper directory is removed on drop.
@@ -255,6 +282,20 @@ mod tests {
     #[tokio::test]
     async fn no_askpass_without_token() {
         assert!(AskpassHelper::create("").await.unwrap().is_none());
+    }
+
+    #[test]
+    fn preemptive_identity_header_matches_orchestrator_basic_scheme() {
+        // Must equal the orchestrator's format_header_value(Basic{x-access-token}, token)
+        // so ext_authz's constant-time identity compare passes on the first request.
+        let header = preemptive_identity_header("runner-token");
+        let encoded = header
+            .strip_prefix("Authorization: Basic ")
+            .expect("header must be Basic scheme");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .expect("value must be valid base64");
+        assert_eq!(decoded, b"x-access-token:runner-token");
     }
 
     #[tokio::test]
