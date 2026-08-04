@@ -1,7 +1,7 @@
 //! Durable desired-state authority for the unified Envoy egress plane.
 //!
 //! The authority is intentionally provider-neutral: it persists immutable,
-//! ref-only policy generations and waits for the Go xDS controller to record a
+//! ref-only policy generations and waits for the xDS control plane to record a
 //! durable apply decision. It never forwards traffic and never resolves secret
 //! material.
 
@@ -120,7 +120,7 @@ impl NodeSelector {
     }
 
     /// structpb-compatible `node.metadata` for the Envoy bootstrap. The keys and
-    /// their values MUST match the Go controller's `group.Hasher` required
+    /// their values must match the ADS group-hashing contract
     /// metadata exactly so the connecting Envoy hashes into the same group this
     /// selector's [`group_key`] produces; otherwise the controller serves an
     /// empty snapshot and the apply never ACKs. `host_id` is emitted only when

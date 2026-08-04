@@ -79,7 +79,7 @@ pub struct DockerProvider {
     hardening: SandboxHardening,
     /// Envoy network isolation manager (None when envoy_enabled=false).
     envoy_manager: Option<Arc<EnvoyManager>>,
-    /// Delta xDS server for gRPC xDS mode (None when filesystem mode or Envoy disabled).
+    /// Delta xDS server for embedded Rust xDS modes.
     xds_service: Option<Arc<DeltaXdsServer>>,
 }
 
@@ -111,19 +111,31 @@ impl DockerProvider {
         let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
         let envoy_manager = if config.envoy_enabled {
             let (lds, cds): (Arc<dyn LdsBackend>, Arc<dyn CdsBackend>) =
-                if config.envoy_xds_mode == "grpc" {
-                    let server = DeltaXdsServer::new();
+                if matches!(config.envoy_xds_mode.as_str(), "grpc" | "controller") {
+                    let server = if config.envoy_xds_mode == "controller" {
+                        DeltaXdsServer::new_node_local()
+                    } else {
+                        DeltaXdsServer::new()
+                    };
                     xds_service = Some(server.clone());
-                    (
-                        Arc::new(GrpcLds::new(server.clone())),
-                        Arc::new(GrpcCds::new(server)),
-                    )
+                    if config.envoy_xds_mode == "grpc" {
+                        (
+                            Arc::new(GrpcLds::new(server.clone())),
+                            Arc::new(GrpcCds::new(server)),
+                        )
+                    } else {
+                        (
+                            Arc::new(FilesystemLds::new(
+                                docker.clone(),
+                                config.envoy_container_name.clone(),
+                            )),
+                            Arc::new(FilesystemCds::new(
+                                docker.clone(),
+                                config.envoy_container_name.clone(),
+                            )),
+                        )
+                    }
                 } else {
-                    // `controller` mode falls here too: the Go egress-controller
-                    // serves xDS over ADS, so we build no in-process DeltaXdsServer
-                    // (xds_service stays None). The Filesystem backends are never
-                    // contacted in controller mode — the listener-free
-                    // DockerEnvoyNetworkPreparer only ensures the socket dir.
                     (
                         Arc::new(FilesystemLds::new(
                             docker.clone(),
@@ -146,8 +158,8 @@ impl DockerProvider {
                     grpc_target_port: config.envoy_grpc_port,
                     container_name: config.envoy_container_name.clone(),
                     xds_mode: config.envoy_xds_mode.clone(),
-                    controller_xds_host: config.egress_controller_xds_host.clone(),
-                    controller_xds_port: config.egress_controller_xds_port,
+                    xds_host: config.egress_xds_host.clone(),
+                    xds_port: config.egress_xds_port,
                     // Controller mode groups Envoys by node.metadata; use the
                     // same selector the durable authority hashes the group key
                     // from so this Envoy joins that group.

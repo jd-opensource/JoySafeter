@@ -1,5 +1,9 @@
 # Docker E2E Verification (func-e + compose smoke) Implementation Plan
 
+> **Historical / superseded (2026-08-04):** This plan targets the deleted
+> independent Go xDS controller. Current Docker verification uses embedded Rust
+> ADS; see `../specs/2026-08-03-node-local-envoy-rust-xds-rewrite.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Give the unified egress architecture two CI-runnable, tamper-evident real-Envoy tests: (C-1) a `func-e` Go test proving the Go controller's compiled xDS is *accepted and ACKed by a real Envoy*, and (C-2) a Docker compose egress smoke proving a sandbox's egress traverses the controller-driven Envoy with credential injection — both against a **mock upstream, no real API key**.

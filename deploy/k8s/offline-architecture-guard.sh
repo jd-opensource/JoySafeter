@@ -56,6 +56,10 @@ for deleted in \
   backend/app/joysafeter_orchestrator_rs/src/egress/gateway.rs \
   backend/app/joysafeter_orchestrator_rs/src/egress/k8s_manager.rs \
   deploy/k8s/local-smoke.sh \
+  deploy/k8s/base/25-egress-controller.yaml \
+  deploy/k8s/go-xds-rollback.sh \
+  deploy/k8s/overlays/go-xds-rollback \
+  egress-controller \
   deploy/mock-upstream/main.go; do
   [[ ! -e "$deleted" ]] || fail "old gateway artifact still exists: $deleted"
 done
@@ -94,9 +98,7 @@ if not re.search(r'resources:\s*\["pods"\][\s\S]*?verbs:\s*\["get", "patch"\]', 
     raise SystemExit("orchestrator active Pod label patch permission is missing")
 base_kustomization = pathlib.Path("deploy/k8s/base/kustomization.yaml").read_text()
 if "25-egress-controller.yaml" in base_kustomization:
-    raise SystemExit("temporary Go xDS controller must not be deployed by the base")
-if not pathlib.Path("deploy/k8s/overlays/go-xds-rollback/kustomization.yaml").exists():
-    raise SystemExit("explicit Go xDS emergency rollback overlay is missing")
+    raise SystemExit("removed legacy xDS controller must not be deployed by the base")
 PY
 
 log "checking Rust xDS smoke hooks"
@@ -107,12 +109,54 @@ grep -q 'port-forward svc/joysafeter-orchestrator' deploy/k8s/k3s-egress-smoke.s
 grep -q 'rollout restart daemonset/joysafeter-egress-envoy' deploy/k8s/k3s-egress-smoke.sh \
   || fail "node-local Envoy DaemonSet restart is missing"
 
+log "checking Docker Compose defaults to embedded Rust ADS"
+grep -q 'JOYSAFETER_EGRESS_XDS_HOST:.*orchestrator-rs' deploy/docker-compose.yml \
+  || fail "Docker Envoy does not default to the orchestrator Rust ADS endpoint"
+grep -q 'JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE:.*true' deploy/docker-compose.yml \
+  || fail "Docker orchestrator does not enable the PostgreSQL-backed Rust reconciler"
+rg_no_match 'go-xds-rollback|joysafeter-egress-controller|egress-controller/' \
+  deploy/docker-compose.yml deploy/.env.example deploy/deploy.sh \
+  deploy/egress-compose-smoke.sh .github/workflows
+rg_no_match 'JOYSAFETER_EGRESS_CONTROLLER_' \
+  backend/app/joysafeter_orchestrator_rs/src deploy/docker-compose.yml \
+  deploy/.env.example deploy/egress-compose-smoke.sh deploy/k8s/base \
+  deploy/k8s/overlays .github/workflows
+grep -q 'joysafeter_egress_node_connections' deploy/egress-compose-smoke.sh \
+  || fail "Docker egress smoke does not verify canonical Rust Envoy connections"
+grep -q 'controller_instance=.*ORCHESTRATOR_INSTANCE' deploy/egress-compose-smoke.sh \
+  || fail "Docker egress smoke does not bind canonical connections to the Rust orchestrator instance"
+grep -q 'canonical node ACK rows' deploy/egress-compose-smoke.sh \
+  || fail "Docker egress smoke does not verify canonical per-node ACK rows"
+grep -q 'ISOLATED=true BRING_UP=true' deploy/egress-compose-smoke.sh \
+  || fail "Docker egress smoke does not expose isolated random-resource mode"
+grep -q 'A/B/C/D control-plane and data-plane proof passed' deploy/egress-compose-smoke.sh \
+  || fail "Docker egress smoke does not require the complete four-source proof"
+grep -q 'authorized probe returned.*expected 200' deploy/egress-compose-smoke.sh \
+  || fail "Docker egress smoke does not fail closed on credential injection"
+grep -q 'wrong-token probe returned.*expected 403' deploy/egress-compose-smoke.sh \
+  || fail "Docker egress smoke does not fail closed on wrong-token authorization"
+grep -q 'x-request-id.*not found in mock upstream log' deploy/egress-compose-smoke.sh \
+  || fail "Docker egress smoke does not require request-log cross-correlation"
+grep -q 'source_group_key: &desired.source_group_key' \
+  backend/app/joysafeter_orchestrator_rs/src/xds_reconciler.rs \
+  || fail "Rust xDS compiler input does not preserve the canonical source group for ext_authz"
+
+log "checking production docs and deployment stay Rust-only"
+rg_no_match 'Docker sandbox 面 =.*egress-controller|shared Envoy fleet、Go egress-controller' \
+  deploy/README.md
+rg_no_match 'rollout status deploy/joysafeter-egress-controller|包含 orchestrator、egress-controller|只有 orchestrator、egress-controller' \
+  deploy/PRODUCTION_CHECKLIST.md
+rg_no_match 'go-xds-rollback|Legacy Go xDS Rollback CI|working-directory: egress-controller' \
+  .github/workflows deploy/README.md deploy/PRODUCTION_CHECKLIST.md \
+  deploy/EGRESS_MIGRATION.md deploy/deploy.sh deploy/docker-compose.yml \
+  deploy/k8s/README.md deploy/k8s/base deploy/k8s/overlays
+
 log "checking shell syntax"
 bash -n deploy/k8s/runtime-architecture-guard.sh
 bash -n deploy/k8s/k3s-smoke.sh
 bash -n deploy/k8s/k3s-task-smoke.sh
 bash -n deploy/k8s/k3s-egress-smoke.sh
 bash -n deploy/k8s/cutover-rust-xds.sh
-bash -n deploy/k8s/go-xds-rollback.sh
+bash -n deploy/egress-compose-smoke.sh
 
 log "offline architecture guard passed"

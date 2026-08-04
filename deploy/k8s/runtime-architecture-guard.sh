@@ -93,7 +93,7 @@ if "host_id: __NODE_NAME__" not in envoy or "fieldPath: spec.nodeName" not in en
 if "kind: HorizontalPodAutoscaler" in envoy:
     raise SystemExit("node-local Envoy DaemonSet must not have an HPA")
 if "joysafeter-egress-controller.joysafeter-control.svc.cluster.local" in envoy:
-    raise SystemExit("base Envoy bootstrap still targets the temporary Go xDS controller")
+    raise SystemExit("base Envoy bootstrap still targets the removed legacy xDS endpoint")
 if "joysafeter-orchestrator.joysafeter-control.svc.cluster.local" not in envoy:
     raise SystemExit("base Envoy bootstrap does not target embedded Rust xDS")
 for key in (

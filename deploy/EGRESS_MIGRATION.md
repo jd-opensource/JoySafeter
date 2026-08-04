@@ -8,7 +8,7 @@ The target request path is:
 
 The control path is:
 
-`orchestrator durable policy authority -> PostgreSQL -> Go egress-controller -> ADS/xDS -> Envoy ACK/NACK -> PostgreSQL`
+`orchestrator durable policy authority -> PostgreSQL -> embedded Rust ADS/xDS -> Envoy ACK/NACK -> PostgreSQL`
 
 PostgreSQL is authoritative for desired generations and apply status. Secrets
 are resolved per request and are never stored in xDS or sandbox Pod/container
@@ -20,10 +20,10 @@ environment variables.
 | --- | --- | --- | --- |
 | Kubernetes production | Shared Envoy + PostgreSQL authority | Production overlay enables both flags and uses only the shared Envoy data plane | Supply managed services/Secrets/PKI, pin images, execute live smoke and soak |
 | Kubernetes base/local | Compatibility and developer validation | Base no longer ships the removed HTTP proxy path; egress flags default disabled | Execute local live smoke and soak after every image refresh |
-| Docker Compose | Go controller + durable authority | Unified path is now the default; filesystem mode is explicit rollback-only | Run compose e2e on every supported host architecture |
+| Docker Compose | Embedded Rust ADS + durable authority | Unified Rust path is the only xDS path; isolated API→Rust ADS→Envoy→mock A/B/C/D proof passes | Repeat on every supported host architecture and release image |
 | xDS apply state | HA-safe terminal state machine | `failed` and `superseded` cannot regress; late ACK cannot erase NACK | Observe multi-controller failover under real rolling restarts |
 | Rust build/release | First-class artifact | Locked build dependency, CI job, and Docker release matrix are present | Clear non-blocking style/complexity lint backlog |
-| Legacy filesystem xDS | Rollback-only | Available only by explicit Docker environment override | Delete after Docker controller-mode soak and rollback-window closure |
+| Legacy independent xDS | Removed | Source, image build, Compose profile, K8s overlay, PKI, and CI job are deleted | Keep architecture guards preventing reintroduction |
 
 ## Capability Impact After Cutover
 
@@ -34,6 +34,9 @@ environment variables.
   in-memory source of truth.
 - ACK/NACK status is queryable and release gates can require all ready nodes to
   acknowledge every required xDS type.
+- Rust ADS writes the canonical apply, per-node ACK/NACK, and connection lease
+  tables directly; no separate publisher is required for task startup
+  gating or operational status queries.
 - Model/provider credentials are injected per request by ext_authz instead of
   being embedded in xDS, files, Pod specs, or sandbox environment variables.
 - Kubernetes and Docker converge on one policy compiler and one control-plane
@@ -57,8 +60,8 @@ All of the following must pass on the exact release commit and images:
 
 1. Clean `cargo build --locked --release --bins` from an isolated checkout.
 2. Rust format, correctness/suspicious/perf Clippy groups, full Rust tests with
-   migrated PostgreSQL, Go race tests, backend tests, frontend tests/build.
-3. Multi-architecture Docker builds for orchestrator-rs and egress-controller.
+   migrated PostgreSQL, backend tests, and frontend tests/build.
+3. Multi-architecture Docker builds for orchestrator-rs and runtime images.
 4. `kubectl kustomize` render checks for base, local, and production overlays.
 5. Docker compose four-source egress proof.
 6. Kubernetes egress smoke proving sanitized Pod env, Envoy-only NetworkPolicy,
@@ -67,3 +70,23 @@ All of the following must pass on the exact release commit and images:
    restarts and PostgreSQL reconnects.
 
 Any missing gate keeps the release at **No-Go**.
+
+The Compose gate must use the canonical `v1` source group in ext_authz context
+while retaining the node-isolated `v2` snapshot group for ADS delivery. Mixing
+those identities makes xDS ACK succeed but causes every credential request to
+fail closed with 403, so the A/B-only control-plane result is not sufficient.
+
+## Independent xDS Physical Deletion
+
+The independent controller source, rollback Compose profile, Kustomize
+overlay/script, rollback PKI, image build flags, and CI job are physically
+deleted. Runtime, build, test, release, and recovery documentation are now
+Rust-only. Compiler parity fixtures live under the Rust crate so tests have no
+dependency on deleted source.
+
+Production rollback must use the previous validated Rust orchestrator image and
+matching Envoy/NetworkPolicy manifests. Release gates still require Docker
+A/B/C/D, Kubernetes secret-backed smoke, single-active HA takeover,
+NACK/ACK-timeout/last-known-good, rolling restart, and PostgreSQL reconnect
+drills; failure of any gate remains a release No-Go rather than a reason to
+restore a second control plane.

@@ -288,8 +288,11 @@ async fn main() -> anyhow::Result<()> {
     let xds_shadow_shutdown = shutdown.child_token();
     let shadow_xds = if config.egress_xds_shadow_reconcile {
         anyhow::ensure!(
-            matches!(config.sandbox_provider.as_str(), "k8s" | "kubernetes"),
-            "JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE requires the Kubernetes sandbox provider"
+            matches!(
+                config.sandbox_provider.as_str(),
+                "docker" | "" | "k8s" | "kubernetes"
+            ),
+            "JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE requires a Docker or Kubernetes sandbox provider"
         );
         Some(xds_service.clone().ok_or_else(|| {
             anyhow::anyhow!("JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE requires embedded Rust ADS")
@@ -348,7 +351,7 @@ async fn main() -> anyhow::Result<()> {
             interval_ms = interval.as_millis(),
             ack_timeout_ms = ack_timeout.as_millis(),
             node_lease_ttl_ms = node_lease_ttl.as_millis(),
-            "Starting PostgreSQL-backed Rust xDS shadow reconciler"
+            "Starting PostgreSQL-backed Rust xDS reconciler"
         );
         Some(xds_reconciler::spawn_shadow_reconciler(
             db_pool.clone(),

@@ -246,17 +246,20 @@ deploy/k8s/k3s-long-run.sh
   active Rust orchestrator read durable desired generations from PostgreSQL,
   react to `joysafeter_egress_generation`, periodically reconcile, and install
   node-local snapshots for Envoys connected to the Rust ADS listener. This mode
-  records nonce-correlated ACK/NACK results in
+  records nonce-correlated ACK/NACK audit results in
   `joysafeter_rust_xds_shadow_status` and accepted/failed generation lifecycle in
-  `joysafeter_rust_xds_shadow_generations`; it never updates legacy Go apply
-  status. On restart, the reconciler recompiles and restores
+  `joysafeter_rust_xds_shadow_generations`. It also owns the canonical
+  `joysafeter_egress_node_apply_status` and `joysafeter_egress_apply_status`
+  rows consumed by the policy apply gate, so no separate publisher is required. On
+  restart, the reconciler recompiles and restores
   each node group's latest accepted snapshot as last-known-good before attempting
   a newer desired candidate. NACKed generations stay quarantined durably, while
   in-process candidate publication remains gated on connected-node ACKs and rolls
   back immediately on NACK. `JOYSAFETER_EGRESS_XDS_ACK_TIMEOUT_MS` (default
   `30000`) also rolls an unacknowledged candidate back and persists it as failed
   without fabricating an Envoy exchange. Rust connection leases are refreshed
-  in `joysafeter_rust_xds_shadow_node_connections` with
+  in both `joysafeter_rust_xds_shadow_node_connections` and canonical
+  `joysafeter_egress_node_connections` with
   `JOYSAFETER_EGRESS_XDS_NODE_LEASE_TTL_MS` (default `30000`), and accepted
   lifecycle rows persist their required type URLs, connected-node count, and
   required/acked quorum counts. The active orchestrator also exposes a JSON runtime
@@ -272,16 +275,15 @@ deploy/k8s/k3s-long-run.sh
   readiness, while only the PostgreSQL lock holder patches
   `joysafeter.io/control-plane-active=true`. The orchestrator Service selects
   that label, so cold standbys remain rollout-healthy without receiving runner,
-  ext_authz, or ADS traffic.
-- The base deployment no longer creates the temporary Go xDS controller. Use
-  the normal production release flow to deploy the new Rust image, migrations,
-  TLS mount, and Service first, then run `deploy/k8s/cutover-rust-xds.sh`; it
-  patches only live xDS routing, requires a Rust ADS connection with healthy
-  metrics, and only then scales any old Go Deployment to zero. Emergency rollback is explicit through
-  `deploy/k8s/go-xds-rollback.sh` and `overlays/go-xds-rollback`; it requires the
-  legacy Go server certificate and `GO_XDS_IMAGE` if the old Deployment was
-  already removed. Validation PKI can include that certificate with
-  `INCLUDE_GO_XDS_ROLLBACK_PKI=true deploy/k8s/pki/bootstrap-egress-pki.sh`.
+  ext_authz, or ADS traffic. `enableServiceLinks: false` is required because the
+  Kubernetes-generated `JOYSAFETER_EGRESS_AUTHZ_PORT=tcp://...` variable would
+  otherwise collide with the orchestrator's numeric authz-port configuration.
+- The repository contains only the embedded Rust xDS control plane. Use the
+  normal production release flow to deploy the Rust image, migrations, TLS
+  mount, and Service first, then run `deploy/k8s/cutover-rust-xds.sh`; it patches
+  only live xDS routing, requires a Rust ADS connection with healthy metrics,
+  and scales any legacy controller Deployment to zero. Emergency rollback uses
+  the previous validated Rust orchestrator and matching Envoy manifests.
 - Sandbox images must contain `/bin/sh` and a standard system CA bundle path so
   the trust-bundle init container can append the downstream CA without replacing
   public roots.

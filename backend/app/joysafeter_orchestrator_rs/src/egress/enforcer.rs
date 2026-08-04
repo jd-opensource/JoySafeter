@@ -124,9 +124,8 @@ impl EgressEnforcer for EnvoyEnforcer {
 }
 
 /// Docker network preparer for `controller` xDS mode. Prepares the sandbox
-/// (socket dir + one-time Envoy bootstrap) but does NOT push listeners — the Go
-/// egress-controller serves them over ADS. Pairs with `AuthoritativeEnforcer`,
-/// which declares the desired policy to Postgres and waits for the controller ACK.
+/// (socket dir + one-time Envoy bootstrap) but does not push listeners directly;
+/// the PostgreSQL-backed Rust reconciler serves them over ADS.
 struct DockerEnvoyNetworkPreparer {
     envoy: std::sync::Arc<crate::sandbox::envoy::EnvoyManager>,
 }
@@ -726,8 +725,8 @@ mod tests {
                 grpc_target_port: config.envoy_grpc_port,
                 container_name: config.envoy_container_name.clone(),
                 xds_mode: config.envoy_xds_mode.clone(),
-                controller_xds_host: config.egress_controller_xds_host.clone(),
-                controller_xds_port: config.egress_controller_xds_port,
+                xds_host: config.egress_xds_host.clone(),
+                xds_port: config.egress_xds_port,
                 node_metadata: if config.envoy_xds_mode == "controller" {
                     Some(shared_docker_node_selector(config).metadata_value())
                 } else {

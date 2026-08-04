@@ -10,8 +10,6 @@
 !backend/app/
 !backend/app/joysafeter_orchestrator_rs/
 !backend/app/joysafeter_orchestrator_rs/**
-!egress-controller/
-!egress-controller/**
 !deploy/
 !deploy/docker/
 !deploy/docker/**

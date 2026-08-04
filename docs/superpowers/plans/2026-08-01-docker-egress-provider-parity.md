@@ -1,5 +1,9 @@
 # Docker Egress Provider Parity Implementation Plan
 
+> **Historical / superseded (2026-08-04):** This plan targets the deleted
+> independent Go xDS controller. Current Docker and Kubernetes providers use
+> embedded Rust ADS; see `../specs/2026-08-03-node-local-envoy-rust-xds-rewrite.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Bring the Docker Envoy egress data plane onto the same Go `egress-controller` xDS control plane the K8s fleet already uses, so both providers run one control/credential plane — behind a flag, with the legacy path preserved for rollback.

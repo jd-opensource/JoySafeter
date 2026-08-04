@@ -14,7 +14,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::sandbox::lds_backend::DeltaXdsServer;
-use crate::xds::compiler::{compile_kubernetes, CompileInput, CompilerConfig};
+use crate::xds::compiler::{compile_for_provider, CompileInput, CompilerConfig};
 use crate::xds::snapshot::CompiledSnapshot;
 
 const GENERATION_NOTIFICATION_CHANNEL: &str = "joysafeter_egress_generation";
@@ -22,6 +22,7 @@ const GENERATION_NOTIFICATION_CHANNEL: &str = "joysafeter_egress_generation";
 #[derive(Debug, Clone)]
 struct DesiredGeneration {
     source_group_key: String,
+    provider: String,
     generation: i64,
     policy_schema_version: i32,
     desired_policies: Value,
@@ -212,8 +213,16 @@ async fn sync_node_leases(
     let now = Utc::now();
     let lease_expires_at = now
         + chrono::Duration::from_std(node_lease_ttl).context("convert Rust xDS node lease TTL")?;
+    let active_group_keys = leases
+        .iter()
+        .map(|lease| lease.source_group_key.clone())
+        .collect::<Vec<_>>();
+    let active_node_ids = leases
+        .iter()
+        .map(|lease| lease.node_id.clone())
+        .collect::<Vec<_>>();
     let mut transaction = pool.begin().await?;
-    for lease in leases {
+    for lease in &leases {
         sqlx::query(
             r#"
             INSERT INTO joysafeter_rust_xds_shadow_node_connections (
@@ -249,6 +258,38 @@ async fn sync_node_leases(
         .bind(lease_expires_at)
         .execute(&mut *transaction)
         .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_egress_node_connections (
+              id, group_key, node_id, controller_instance, envoy_version,
+              connected_at, last_seen_at, lease_expires_at, disconnected_at
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $6, $7, NULL
+            )
+            ON CONFLICT (group_key, node_id) DO UPDATE SET
+              controller_instance = EXCLUDED.controller_instance,
+              envoy_version = EXCLUDED.envoy_version,
+              connected_at = CASE
+                WHEN joysafeter_egress_node_connections.disconnected_at IS NULL
+                 AND joysafeter_egress_node_connections.controller_instance = EXCLUDED.controller_instance
+                THEN joysafeter_egress_node_connections.connected_at
+                ELSE EXCLUDED.connected_at
+              END,
+              last_seen_at = EXCLUDED.last_seen_at,
+              lease_expires_at = EXCLUDED.lease_expires_at,
+              disconnected_at = NULL,
+              updated_at = now()
+            "#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(&lease.source_group_key)
+        .bind(&lease.node_id)
+        .bind(orchestrator_instance)
+        .bind(&lease.envoy_version)
+        .bind(now)
+        .bind(lease_expires_at)
+        .execute(&mut *transaction)
+        .await?;
     }
     sqlx::query(
         r#"
@@ -263,15 +304,35 @@ async fn sync_node_leases(
     .bind(sync_token)
     .execute(&mut *transaction)
     .await?;
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_egress_node_connections AS connection
+        SET disconnected_at = now(), lease_expires_at = now(), updated_at = now()
+        WHERE connection.controller_instance = $1
+          AND connection.disconnected_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM unnest($2::text[], $3::text[]) AS active(group_key, node_id)
+            WHERE active.group_key = connection.group_key
+              AND active.node_id = connection.node_id
+          )
+        "#,
+    )
+    .bind(orchestrator_instance)
+    .bind(&active_group_keys)
+    .bind(&active_node_ids)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
     Ok(())
 }
 
 async fn load_desired_generations(pool: &PgPool) -> anyhow::Result<Vec<DesiredGeneration>> {
-    let rows = sqlx::query_as::<_, (String, i64, i32, Value, String, bool)>(
+    let rows = sqlx::query_as::<_, (String, String, i64, i32, Value, String, bool)>(
         r#"
         SELECT DISTINCT ON (generation.group_key)
           generation.group_key,
+          generation.node_selector ->> 'provider',
           generation.generation,
           generation.policy_schema_version,
           generation.desired_policies,
@@ -297,6 +358,7 @@ async fn load_desired_generations(pool: &PgPool) -> anyhow::Result<Vec<DesiredGe
         .map(
             |(
                 source_group_key,
+                provider,
                 generation,
                 policy_schema_version,
                 desired_policies,
@@ -304,6 +366,7 @@ async fn load_desired_generations(pool: &PgPool) -> anyhow::Result<Vec<DesiredGe
                 nacked,
             )| DesiredGeneration {
                 source_group_key,
+                provider,
                 generation,
                 policy_schema_version,
                 desired_policies,
@@ -315,11 +378,12 @@ async fn load_desired_generations(pool: &PgPool) -> anyhow::Result<Vec<DesiredGe
 }
 
 async fn load_accepted_generations(pool: &PgPool) -> anyhow::Result<Vec<AcceptedGeneration>> {
-    let rows = sqlx::query_as::<_, (String, String, i64, i32, Value, String)>(
+    let rows = sqlx::query_as::<_, (String, String, String, i64, i32, Value, String)>(
         r#"
         SELECT DISTINCT ON (lifecycle.source_group_key, lifecycle.node_group_key)
           lifecycle.source_group_key,
           lifecycle.node_group_key,
+          generation.node_selector ->> 'provider',
           generation.generation,
           generation.policy_schema_version,
           generation.desired_policies,
@@ -343,6 +407,7 @@ async fn load_accepted_generations(pool: &PgPool) -> anyhow::Result<Vec<Accepted
             |(
                 source_group_key,
                 node_group_key,
+                provider,
                 generation,
                 policy_schema_version,
                 desired_policies,
@@ -351,6 +416,7 @@ async fn load_accepted_generations(pool: &PgPool) -> anyhow::Result<Vec<Accepted
                 node_group_key,
                 generation: DesiredGeneration {
                     source_group_key,
+                    provider,
                     generation,
                     policy_schema_version,
                     desired_policies,
@@ -479,10 +545,12 @@ fn compile_for_node(
     anyhow::ensure!(desired.generation > 0, "egress generation must be positive");
     let desired_policy_bytes = serde_json::to_vec(&desired.desired_policies)
         .context("serialize desired egress policy JSON")?;
-    compile_kubernetes(
+    compile_for_provider(
         compiler_config,
+        &desired.provider,
         CompileInput {
-            group_key: node_group_key,
+            snapshot_group_key: node_group_key,
+            source_group_key: &desired.source_group_key,
             generation: desired.generation,
             content_sha256: &desired.content_sha256,
             policy_schema_version: desired.policy_schema_version,
@@ -538,17 +606,20 @@ async fn listen_for_generations(
 mod tests {
     use std::env;
 
+    use crate::xds::snapshot::ROUTE_TYPE_URL;
+
     use super::*;
 
     const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     fn fixture_desired() -> DesiredGeneration {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../egress-controller/testdata/compiler/parity-kubernetes-v1.json"
+            "../testdata/compiler/parity-kubernetes-v1.json"
         ))
         .unwrap();
         DesiredGeneration {
             source_group_key: "v1:shared".to_string(),
+            provider: "k8s".to_string(),
             generation: fixture["generation"].as_i64().unwrap(),
             policy_schema_version: fixture["policy_schema_version"].as_i64().unwrap() as i32,
             desired_policies: fixture["policies"].clone(),
@@ -566,6 +637,14 @@ mod tests {
         assert_eq!(snapshot.group_key, "v2:node-local-a");
         assert_eq!(snapshot.generation, 42);
         assert_eq!(snapshot.version, format!("g42-{}", &DIGEST[..32]));
+
+        let encoded_routes = snapshot.resources[ROUTE_TYPE_URL]
+            .values()
+            .flat_map(|resource| resource.value.iter().copied())
+            .collect::<Vec<_>>();
+        let encoded_routes = String::from_utf8_lossy(&encoded_routes);
+        assert!(encoded_routes.contains("v1:shared"));
+        assert!(!encoded_routes.contains("v2:node-local-a"));
     }
 
     #[tokio::test]
@@ -672,11 +751,12 @@ mod tests {
         }
         let suffix = Uuid::now_v7().simple().to_string();
         let instance = format!("orchestrator-test-{suffix}");
+        let source_group = format!("v1:{suffix}abcdefghijk");
         let node_group = format!("v2:{suffix}");
         let node_id = format!("envoy-{suffix}");
         let server = DeltaXdsServer::new_node_local();
         server
-            .register_test_node_group("v1:test", &node_group, &node_id)
+            .register_test_node_group(&source_group, &node_group, &node_id)
             .await;
 
         sync_node_leases(&pool, &server, &instance, Duration::from_secs(30))
@@ -697,6 +777,24 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(connected, (instance.clone(), true, true));
+        let canonical_connected: (String, String, bool, bool) = sqlx::query_as(
+            r#"
+            SELECT controller_instance, envoy_version,
+                   lease_expires_at > last_seen_at,
+                   disconnected_at IS NULL
+            FROM joysafeter_egress_node_connections
+            WHERE group_key = $1 AND node_id = $2
+            "#,
+        )
+        .bind(&source_group)
+        .bind(&node_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            canonical_connected,
+            (instance.clone(), "test-envoy".to_string(), true, true)
+        );
 
         sync_node_leases(
             &pool,
@@ -719,8 +817,28 @@ mod tests {
         .await
         .unwrap();
         assert!(disconnected);
+        let canonical_disconnected: bool = sqlx::query_scalar(
+            r#"
+            SELECT disconnected_at IS NOT NULL
+            FROM joysafeter_egress_node_connections
+            WHERE group_key = $1 AND node_id = $2
+            "#,
+        )
+        .bind(&source_group)
+        .bind(&node_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(canonical_disconnected);
         sqlx::query(
             "DELETE FROM joysafeter_rust_xds_shadow_node_connections WHERE orchestrator_instance = $1",
+        )
+        .bind(&instance)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "DELETE FROM joysafeter_egress_node_connections WHERE controller_instance = $1",
         )
         .bind(&instance)
         .execute(&pool)

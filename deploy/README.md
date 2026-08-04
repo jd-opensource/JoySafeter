@@ -5,7 +5,7 @@
 - **Sandbox 面**有两种部署类型：**docker**（`deploy/docker-compose.yml`，通过宿主机
   Docker socket 拉起沙箱容器）与 **k8s**（`deploy/k8s/`，沙箱以 Pod 形式运行）。
   由 `JOYSAFETER_SANDBOX_PROVIDER=docker|k8s` 选择。Docker sandbox 面 =
-  `orchestrator-rs` + Envoy + egress-controller（compose 的 `sandbox` profile）。
+  `orchestrator-rs`（内置 Rust ADS/ext_authz）+ Envoy（compose 的 `sandbox` profile）。
 - **业务服务**（Frontend / Backend API / Worker / PostgreSQL / Redis）在生产由
   公司环境负责；本地用 Docker Compose 起一整套仅供**测试**。生产 k8s 只部署
   sandbox 面（见 `deploy/k8s/overlays/sandbox-plane/` 与 `PRODUCTION_CHECKLIST.md`）。
@@ -38,10 +38,9 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 - `worker`：Redis Stream 消费 / 批量事件落库
 - `frontend`：前端，端口 `3000`
 - `joysafeter-envoy`：沙箱出站白名单和 gRPC 回连通道，属 `sandbox` profile；它会空闲等待 orchestrator 写入 bootstrap 配置，所以 `docker compose ps` 里看到它 running 但暂时不转发流量是正常的
-- `joysafeter-egress-controller`：egress xDS 控制面（`sandbox` profile），编译并向 Envoy 下发 ADS
-- `orchestrator-rs`：Rust 版调度 / gRPC / sandbox 生命周期，gRPC 端口 `9090`（`sandbox` profile）
+- `orchestrator-rs`：Rust 版调度 / gRPC / sandbox 生命周期，并内置 ADS/xDS 与 ext_authz；gRPC 端口 `9090`、ADS 端口 `18000`（`sandbox` profile）
 
-其中前六个是**业务服务**（本地测试用；生产在公司环境），后三个是 **Docker sandbox 面**。`deploy.sh local` 会带 `--profile local-redis --profile sandbox` 一起启动。
+其中前六个是**业务服务**（本地测试用；生产在公司环境），后两个是 **Docker sandbox 面**。`deploy.sh local` 会带 `--profile local-redis --profile sandbox` 一起启动。xDS 仅由 `orchestrator-rs` 内置 Rust ADS 提供，不存在独立控制器镜像或回滚 profile。
 
 `deploy.sh local` 只构建并启动上面这些控制面服务，不会构建 agent 运行镜像（`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native`）。默认 `JOYSAFETER_SANDBOX_IMAGE=joysafeter-claudecode:latest` 缺失时脚本只告警、不阻断：控制面能起来，但真实 agent 任务会因拉不到运行镜像而失败。跑第一个 agent 前先构建或拉取运行镜像：
 
@@ -50,6 +49,21 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 # 或使用预构建镜像
 ./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag v0.3.2
 ```
+
+### Docker Rust xDS 完整 smoke
+
+推荐使用隔离模式；它会生成随机 Compose project、容器名、端口、网络、卷和临时目录，失败时输出诊断，结束后只清理自己的资源，不影响已有本地栈：
+
+```bash
+ISOLATED=true \
+BRING_UP=true \
+ORCHESTRATOR_RS_FULL_IMAGE=joysafeter-orchestrator-rs:latest \
+BACKEND_FULL_IMAGE=joysafeter-backend:latest \
+JOYSAFETER_SANDBOX_IMAGE=joysafeter-claudecode:latest \
+deploy/egress-compose-smoke.sh
+```
+
+成功必须同时证明：Envoy 接受 Rust LDS/RDS/CDS、canonical generation 与逐节点 ACK 全部 applied、sandbox 无真实 secret、正确 runner token 触发平台凭证注入且原 token 被剥离、错误 token 返回 403、mock 日志能关联 Envoy `x-request-id`。任一来源失败都会退出非零。
 
 ## 协同拓扑和职责
 
@@ -359,7 +373,7 @@ docker compose --profile sandbox up -d --no-build
 - Compose/Docker provider 下 `orchestrator` 会挂载 Docker socket 创建 sandbox，生产只能放在可信机器；k3s provider 不挂 Docker socket，而是通过 Kubernetes RBAC 创建 sandbox Pod。
 - 如果 sandbox 需要跨机器回连，修改 `deploy/.env` 里的 `JOYSAFETER_GRPC_PUBLIC_URL`。
 
-当前仓库只保留 `deploy/docker-compose.yml` 这一份 Compose 文件。云 Redis / 云 PostgreSQL 场景仍使用同一文件，通过 `deploy/.env` 覆盖 `POSTGRES_*`、`REDIS_URL`、镜像名、端口和 `JOYSAFETER_GRPC_PUBLIC_URL`。
+正常部署只使用 `deploy/docker-compose.yml`；`deploy/docker-compose.egress-smoke.yml` 仅是隔离 egress 验证 overlay。云 Redis / 云 PostgreSQL 场景仍使用基础文件，通过 `deploy/.env` 覆盖 `POSTGRES_*`、`REDIS_URL`、镜像名、端口和 `JOYSAFETER_GRPC_PUBLIC_URL`。
 
 ## k3s 动态沙箱 smoke
 
@@ -442,6 +456,6 @@ egress 长周期验证加 `VALIDATION_MODE=egress`，并带同样的 Anthropic/J
 
 生产裸 k3s 复用这些 manifests 的结构，但不要使用本地 `emptyDir` PostgreSQL/Redis、
 不要使用 `latest` 镜像 tag，并应改成私有 registry digest、托管/HA PostgreSQL、托管/HA Redis。
-生产级 secret-backed Agent 还必须部署 shared Envoy fleet、Go egress-controller、mTLS PKI
-和 durable PostgreSQL authority；NetworkPolicy 只允许 sandbox 访问 orchestrator 与
-shared Envoy service。
+生产级 secret-backed Agent 还必须部署 shared Envoy fleet、内置 Rust ADS/ext_authz、
+mTLS PKI 和 durable PostgreSQL authority；NetworkPolicy 只允许 sandbox 访问
+orchestrator 与 shared Envoy service。

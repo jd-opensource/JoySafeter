@@ -2,10 +2,10 @@
 # =============================================================================
 # Docker Compose egress smoke (Plan 2 / C-2) — four-source tamper-evident e2e.
 # =============================================================================
-# Proves a sandbox's credentialed egress traverses the UNIFIED controller path
-# on Docker: Rust orchestrator (decision plane, writes desired-state to Postgres
-# + waits for ACK) → Go egress-controller (control plane, compiles xDS + serves
-# ADS) → Docker Envoy (data plane, per-sandbox _http listener w/ ext_authz) →
+# Proves a sandbox's credentialed egress traverses the unified Rust path on
+# Docker: orchestrator writes desired-state to PostgreSQL, compiles xDS and
+# serves embedded ADS, then waits for Docker Envoy's ACK before allowing the
+# task to proceed. Envoy's per-sandbox _http listener calls orchestrator
 # orchestrator ext_authz (credential plane, injects the platform secret) → a
 # MOCK upstream that echoes headers (so NO real API key is needed).
 #
@@ -28,33 +28,121 @@
 #   SMOKE_API_PORT=18001 deploy/egress-compose-smoke.sh
 #   # or let the script bring the stack up itself:
 #   BRING_UP=true deploy/egress-compose-smoke.sh
+#   # recommended: isolated project, random ports/network/volumes, auto-cleanup:
+#   ISOLATED=true BRING_UP=true deploy/egress-compose-smoke.sh
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+log()  { printf '\033[0;36m▶ %s\033[0m\n' "$*"; }
+ok()   { printf '\033[0;32m✅ %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$*" >&2; }
+die()  { printf '\033[0;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+
 # ---- config ----------------------------------------------------------------
+RUN_ID="${RUN_ID:-$(date +%Y%m%d%H%M%S)}"
+BRING_UP="${BRING_UP:-false}"
+ISOLATED="${ISOLATED:-false}"
+KEEP_ISOLATED="${KEEP_ISOLATED:-false}"
+WAIT_SECONDS="${WAIT_SECONDS:-120}"
+ISOLATED_ROOT=""
+CONTAINER=""
+
+compose_base() {
+  (cd "$SCRIPT_DIR" && docker compose -f docker-compose.yml "$@")
+}
+
+compose_smoke() {
+  (cd "$SCRIPT_DIR" && docker compose -f docker-compose.yml -f docker-compose.egress-smoke.yml "$@")
+}
+
+if [ "$ISOLATED" = "true" ]; then
+  [ "$BRING_UP" = "true" ] || die "ISOLATED=true requires BRING_UP=true"
+  SAFE_RUN_ID="$(printf '%s' "$RUN_ID" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
+  [ -n "$SAFE_RUN_ID" ] || SAFE_RUN_ID="$(date +%Y%m%d%H%M%S)"
+  PREFIX="joysafeter-egress-smoke-${SAFE_RUN_ID}"
+  ISOLATED_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/joysafeter-egress-smoke.XXXXXX")"
+  mkdir -p "${ISOLATED_ROOT}/envoy-config" "${ISOLATED_ROOT}/workspaces"
+
+  read -r POSTGRES_PORT_HOST REDIS_PORT_HOST BACKEND_PORT_HOST JOYSAFETER_GRPC_PORT_HOST < <(
+    python3 - <<'PY'
+import socket
+sockets = []
+for _ in range(4):
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sockets.append(sock)
+print(*(sock.getsockname()[1] for sock in sockets))
+PY
+  )
+
+  export COMPOSE_PROJECT_NAME="$PREFIX"
+  export JOYSAFETER_DB_CONTAINER_NAME="${PREFIX}-db"
+  export JOYSAFETER_REDIS_CONTAINER_NAME="${PREFIX}-redis"
+  export JOYSAFETER_API_CONTAINER_NAME="${PREFIX}-api"
+  export JOYSAFETER_ORCHESTRATOR_CONTAINER_NAME="${PREFIX}-orchestrator"
+  export JOYSAFETER_SKILLSPECTOR_CONTAINER_NAME="${PREFIX}-skillspector"
+  export JOYSAFETER_FRONTEND_CONTAINER_NAME="${PREFIX}-frontend"
+  export JOYSAFETER_DB_INIT_CONTAINER_NAME="${PREFIX}-db-init"
+  export JOYSAFETER_EGRESS_MOCK_CONTAINER_NAME="${PREFIX}-mock"
+  export JOYSAFETER_ENVOY_CONTAINER_NAME="${PREFIX}-envoy"
+  export JOYSAFETER_NETWORK_NAME="${PREFIX}-network"
+  export JOYSAFETER_ENVOY_NETWORK="$JOYSAFETER_NETWORK_NAME"
+  export JOYSAFETER_ENVOY_SOCKET_VOLUME="${PREFIX}-sockets"
+  export JOYSAFETER_BACKEND_FILES_VOLUME="${PREFIX}-backend-files"
+  export JOYSAFETER_ENVOY_CONFIG_DIR="${ISOLATED_ROOT}/envoy-config"
+  export JOYSAFETER_SANDBOX_WORKSPACE_ROOT="${ISOLATED_ROOT}/workspaces"
+  export JOYSAFETER_EGRESS_XDS_HOST="orchestrator-rs"
+  export JOYSAFETER_EGRESS_AUTHZ_HOST="orchestrator-rs"
+  export JOYSAFETER_EGRESS_POLICY_HOST_ID="${PREFIX}-docker-node"
+  export JOYSAFETER_INSTANCE_ID="${PREFIX}-orchestrator"
+  export RUST_LOG="${RUST_LOG:-info,joysafeter_orchestrator::kernel::ext_authz=debug}"
+  export POSTGRES_PORT_HOST REDIS_PORT_HOST BACKEND_PORT_HOST JOYSAFETER_GRPC_PORT_HOST
+  export BACKEND_BIND_HOST="127.0.0.1"
+  export JOYSAFETER_GRPC_BIND_HOST="127.0.0.1"
+  SMOKE_API_PORT="$BACKEND_PORT_HOST"
+fi
+
 SMOKE_API_PORT="${SMOKE_API_PORT:-8000}"
 API_URL="${API_URL:-http://localhost:${SMOKE_API_PORT}}"
-DB_CONTAINER="${DB_CONTAINER:-joysafeter-db}"
-ENVOY_CONTAINER="${ENVOY_CONTAINER:-joysafeter-envoy}"
-MOCK_CONTAINER="${MOCK_CONTAINER:-joysafeter-egress-mock-upstream}"
-NETWORK="${JOYSAFETER_ENVOY_NETWORK:-joysafeter-network}"
+DB_CONTAINER="${DB_CONTAINER:-${JOYSAFETER_DB_CONTAINER_NAME:-joysafeter-db}}"
+ENVOY_CONTAINER="${ENVOY_CONTAINER:-${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}}"
+MOCK_CONTAINER="${MOCK_CONTAINER:-${JOYSAFETER_EGRESS_MOCK_CONTAINER_NAME:-joysafeter-egress-mock-upstream}}"
+NETWORK="${JOYSAFETER_ENVOY_NETWORK:-${JOYSAFETER_NETWORK_NAME:-joysafeter-network}}"
 SOCKET_VOLUME="${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}"
 HELPER_IMAGE="${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}"
 MOCK_HOST="joysafeter-egress-mock-upstream"
 MOCK_PORT="8080"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_DB="${POSTGRES_DB:-joysafeter}"
+ORCHESTRATOR_INSTANCE="${JOYSAFETER_INSTANCE_ID:-orchestrator-rs-001}"
 LLM_EGRESS_HOST="llm-egress.internal"
-BRING_UP="${BRING_UP:-false}"
-RUN_ID="${RUN_ID:-$(date +%Y%m%d%H%M%S)}"
-WAIT_SECONDS="${WAIT_SECONDS:-120}"
 
-log()  { printf '\033[0;36m▶ %s\033[0m\n' "$*"; }
-ok()   { printf '\033[0;32m✅ %s\033[0m\n' "$*"; }
-warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$*" >&2; }
-die()  { printf '\033[0;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+cleanup() {
+  status=$?
+  trap - EXIT INT TERM
+  if [ "$ISOLATED" = "true" ]; then
+    if [ "$status" -ne 0 ]; then
+      warn "isolated smoke failed; collecting Compose diagnostics"
+      compose_smoke ps || true
+      compose_smoke logs --no-color --tail=250 \
+        postgres redis skillspector api orchestrator-rs worker \
+        joysafeter-envoy joysafeter-egress-mock-upstream || true
+    fi
+    if [ "$KEEP_ISOLATED" = "true" ]; then
+      warn "keeping isolated stack: project=${COMPOSE_PROJECT_NAME} root=${ISOLATED_ROOT}"
+    else
+      [ -z "$CONTAINER" ] || docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+      compose_smoke --profile sandbox --profile local-redis \
+        down --volumes --remove-orphans >/dev/null 2>&1 || true
+      rm -rf "$ISOLATED_ROOT"
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 json_get() { python3 -c "import sys,json
 d=json.load(sys.stdin)
@@ -88,13 +176,14 @@ psql_q() { docker exec "$DB_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB
 # =============================================================================
 if [ "$BRING_UP" = "true" ]; then
   log "Bringing up controller-mode stack (migrations + services)"
-  ( cd "$SCRIPT_DIR" &&
-    docker compose up -d postgres >/dev/null &&
+  (
+    compose_base up -d postgres >/dev/null &&
     for _ in $(seq 1 30); do [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB_CONTAINER" 2>/dev/null)" = healthy ] && break; sleep 1; done &&
-    docker compose --profile init run --rm db-init >/dev/null &&
-    docker compose -f docker-compose.yml -f docker-compose.egress-smoke.yml \
+    compose_base --profile init run --rm db-init >/dev/null &&
+    compose_smoke \
       --profile sandbox --profile local-redis up -d --wait \
-      joysafeter-egress-controller joysafeter-envoy joysafeter-egress-mock-upstream api orchestrator-rs worker >/dev/null
+      postgres redis skillspector joysafeter-envoy \
+      joysafeter-egress-mock-upstream api orchestrator-rs worker >/dev/null
   ) || die "stack bring-up failed"
 fi
 
@@ -184,7 +273,11 @@ IFS='|' read -r GEN STATE CONN REQ ACK <<<"$BROW"
 [ "${CONN:-0}" -ge 1 ] && [ "${REQ:-0}" -gt 0 ] && [ "${ACK}" = "${REQ}" ] || die "[B] ACK counts wrong: connected=${CONN} required=${REQ} acked=${ACK}"
 NACKS="$(psql_q "SELECT count(*) FROM joysafeter_egress_node_apply_status WHERE group_key='${GROUP_KEY}' AND generation=${GEN} AND status='nack'")"
 [ "$NACKS" = "0" ] || die "[B] generation ${GEN} has ${NACKS} NACK(s)"
-ok "[B] Postgres: gen ${GEN} state=applied connected=${CONN} acked=${ACK}/${REQ} nacks=0"
+ACK_ROWS="$(psql_q "SELECT count(*) FROM joysafeter_egress_node_apply_status WHERE group_key='${GROUP_KEY}' AND generation=${GEN} AND status='ack'")"
+[ "$ACK_ROWS" = "$REQ" ] || die "[B] canonical node ACK rows wrong: rows=${ACK_ROWS} required=${REQ}"
+RUST_CONNECTIONS="$(psql_q "SELECT count(*) FROM joysafeter_egress_node_connections WHERE group_key='${GROUP_KEY}' AND controller_instance='${ORCHESTRATOR_INSTANCE}' AND envoy_version<>'' AND disconnected_at IS NULL AND lease_expires_at>now()")"
+[ "${RUST_CONNECTIONS:-0}" -ge 1 ] || die "[B] no live canonical Rust Envoy connection for instance ${ORCHESTRATOR_INSTANCE}"
+ok "[B] Postgres: gen ${GEN} state=applied connected=${CONN} acked=${ACK}/${REQ} canonical_rows=${ACK_ROWS} rust_connections=${RUST_CONNECTIONS} nacks=0"
 
 # =============================================================================
 # Source A — Envoy admin config_dump + stats (listeners + ext_authz, ACKed)
@@ -256,18 +349,16 @@ try:
 except Exception: print('')")"
       ok "[C] injection: mock saw 'Bearer ${PLATFORM_TOKEN}', sandbox token stripped (x-request-id=${REQ_ID})"
     else
-      warn "[C] authorized probe returned ${STATUS} (not 200); body: $(printf '%s' "$BODY" | head -c 200)"
-      REQ_ID=""
+      die "[C] authorized probe returned ${STATUS} (expected 200); body: $(printf '%s' "$BODY" | head -c 200)"
     fi
     WRONG="$(probe "wrong-sandbox-token-xyz" || true)"; WSTATUS="${WRONG%%$'\t'*}"
-    [ "$WSTATUS" = "403" ] && ok "[C] wrong sandbox token denied (403)" || warn "[C] wrong-token probe returned ${WSTATUS} (expected 403)"
+    [ "$WSTATUS" = "403" ] || die "[C] wrong-token probe returned ${WSTATUS} (expected 403)"
+    ok "[C] wrong sandbox token denied (403)"
   else
-    warn "[C] no JOYSAFETER_RUNNER_TOKEN in sandbox env; skipping live injection probe"
-    REQ_ID=""
+    die "[C] no JOYSAFETER_RUNNER_TOKEN in sandbox env"
   fi
 else
-  warn "[C] sandbox container ${CONTAINER} not present (already torn down); env/injection checks skipped"
-  REQ_ID=""
+  die "[C] sandbox container ${CONTAINER} not present"
 fi
 
 # =============================================================================
@@ -279,13 +370,13 @@ if [ -n "${REQ_ID:-}" ]; then
   if has "$REQ_ID" "$MOCK_LOG"; then
     ok "[D] mock upstream logged the Envoy x-request-id ${REQ_ID}"
   else
-    warn "[D] x-request-id ${REQ_ID} not found in mock upstream log"
+    die "[D] x-request-id ${REQ_ID} not found in mock upstream log"
   fi
 else
-  warn "[D] no x-request-id captured; cross-correlation skipped"
+  die "[D] no x-request-id captured"
 fi
 
 echo
-ok "egress compose smoke: control-plane proven (A config_dump+stats, B Postgres applied)"
+ok "egress compose smoke: A/B/C/D control-plane and data-plane proof passed"
 echo "  sandbox=${SANDBOX_ID} group=${GROUP_KEY} generation=${GEN}"
 echo "  inspect: docker exec ${DB_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c \"SELECT generation,state,connected_nodes,acked_acks,required_acks FROM joysafeter_egress_apply_status WHERE group_key='${GROUP_KEY}'\""

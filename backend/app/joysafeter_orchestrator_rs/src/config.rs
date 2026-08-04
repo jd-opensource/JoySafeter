@@ -108,11 +108,11 @@ pub struct JoySafeterConfig {
     pub envoy_container_name: String,
     /// LDS transport: `"filesystem"` (default, `lds.json`) or `"grpc"` (Delta xDS).
     pub envoy_xds_mode: String,
-    /// Host of the Go egress-controller's xDS server, used when
-    /// `envoy_xds_mode == "controller"`. Docker only.
-    pub egress_controller_xds_host: String,
-    /// Port of the Go egress-controller's xDS server (ADS). Default 18000.
-    pub egress_controller_xds_port: u16,
+    /// Host of the durable ADS endpoint used when `envoy_xds_mode ==
+    /// "controller"`.
+    pub egress_xds_host: String,
+    /// Port of the durable ADS endpoint. Default 18000.
+    pub egress_xds_port: u16,
     /// CIDRs removed from dynamic-forward-proxy DNS answers before connecting.
     pub envoy_egress_denied_cidrs: Vec<String>,
     /// Hosts that LLM egress credential routes may target. This protects the
@@ -324,11 +324,8 @@ impl JoySafeterConfig {
             envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 9090),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
             envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", "filesystem"),
-            egress_controller_xds_host: env_str(
-                "JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST",
-                "joysafeter-egress-controller",
-            ),
-            egress_controller_xds_port: env_u16("JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT", 18000),
+            egress_xds_host: env_str("JOYSAFETER_EGRESS_XDS_HOST", "joysafeter-orchestrator"),
+            egress_xds_port: env_u16("JOYSAFETER_EGRESS_XDS_PORT", 18000),
             envoy_egress_denied_cidrs: env_list_or_default(
                 "JOYSAFETER_ENVOY_EGRESS_DENIED_CIDRS",
                 &[
@@ -658,15 +655,12 @@ mod tests {
     }
 
     #[test]
-    fn controller_xds_endpoint_has_defaults() {
+    fn egress_xds_endpoint_has_defaults() {
         // Ensure the env is clean for a defaults check.
-        std::env::remove_var("JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST");
-        std::env::remove_var("JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT");
+        std::env::remove_var("JOYSAFETER_EGRESS_XDS_HOST");
+        std::env::remove_var("JOYSAFETER_EGRESS_XDS_PORT");
         let config = super::JoySafeterConfig::from_env();
-        assert_eq!(
-            config.egress_controller_xds_host,
-            "joysafeter-egress-controller"
-        );
-        assert_eq!(config.egress_controller_xds_port, 18000);
+        assert_eq!(config.egress_xds_host, "joysafeter-orchestrator");
+        assert_eq!(config.egress_xds_port, 18000);
     }
 }

@@ -1,5 +1,10 @@
 # JoySafeter Production Unified Envoy Egress Architecture
 
+> **Historical / superseded (2026-08-04):** The Envoy data-plane decision
+> remains valid, but the independent Go xDS control plane described here was
+> replaced and physically deleted. See
+> `2026-08-03-node-local-envoy-rust-xds-rewrite.md`.
+
 Status: **target architecture approved for implementation planning**  
 Date: 2026-07-31  
 Scope: Docker, Kubernetes/k3s, and future remote sandbox providers  

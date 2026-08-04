@@ -24,11 +24,6 @@ x-orchestrator-rs-build: &orchestrator-rs-build
     RUST_IMAGE: ${RUST_IMAGE:-public.ecr.aws/docker/library/rust:1.97.1-bookworm}
     RUNTIME_IMAGE: ${RUNTIME_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}
 
-x-egress-controller-build: &egress-controller-build
-  context: ../egress-controller
-  dockerfile: Dockerfile
-  args:
-    GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
     GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
 
 x-skillspector-build: &skillspector-build
@@ -50,15 +45,21 @@ x-backend-common-env: &backend-common-env
   CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
   JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66}
   JOYSAFETER_ENVOY_EGRESS_DENIED_CIDRS: ${JOYSAFETER_ENVOY_EGRESS_DENIED_CIDRS:-0.0.0.0/8,10.0.0.0/8,100.64.0.0/10,127.0.0.0/8,169.254.0.0/16,172.16.0.0/12,192.0.0.0/24,192.0.2.0/24,192.168.0.0/16,198.18.0.0/15,198.51.100.0/24,203.0.113.0/24,224.0.0.0/4,240.0.0.0/4,::/128,::1/128,fc00::/7,fe80::/10,ff00::/8,2001:db8::/32}
-  # Docker egress data-plane mode. The unified Go controller is the default;
-  # "filesystem" remains an explicit rollback-only compatibility mode.
+  # Docker egress data-plane mode. `controller` uses the orchestrator's embedded
+  # PostgreSQL-backed Rust ADS; `filesystem` remains a compatibility fallback.
   JOYSAFETER_ENVOY_XDS_MODE: ${JOYSAFETER_ENVOY_XDS_MODE:-controller}
-  JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST: ${JOYSAFETER_EGRESS_CONTROLLER_XDS_HOST:-joysafeter-egress-controller}
-  JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT: ${JOYSAFETER_EGRESS_CONTROLLER_XDS_PORT:-18000}
+  JOYSAFETER_ENVOY_SOCKET_VOLUME: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
+  JOYSAFETER_ENVOY_CONFIG_DIR: ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
+  JOYSAFETER_ENVOY_NETWORK: ${JOYSAFETER_ENVOY_NETWORK:-joysafeter-network}
+  JOYSAFETER_ENVOY_CONTAINER_NAME: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
+  JOYSAFETER_EGRESS_XDS_HOST: ${JOYSAFETER_EGRESS_XDS_HOST:-orchestrator-rs}
+  JOYSAFETER_EGRESS_XDS_PORT: ${JOYSAFETER_EGRESS_XDS_PORT:-18000}
   # Whole-feature switch for the durable egress policy authority (Docker + K8s).
   JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED: ${JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED:-true}
   # Docker node identity (required for provider=docker desired-policy generations).
   JOYSAFETER_EGRESS_POLICY_HOST_ID: ${JOYSAFETER_EGRESS_POLICY_HOST_ID:-docker-local}
+  JOYSAFETER_SANDBOX_WORKSPACE_ROOT: ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
+  JOYSAFETER_SANDBOX_IMAGE: ${JOYSAFETER_SANDBOX_IMAGE:-joysafeter-claudecode:latest}
 
 x-backend-volumes: &backend-volumes
   - backend-logs:/app/app/logs
@@ -82,57 +83,14 @@ x-backend-health-common: &backend-health-common
 #                 skillspector, api, worker, frontend. In production these run
 #                 on company infrastructure, not here.
 #   local-redis   Redis for local testing (production uses company Redis).
-#   sandbox       the Docker sandbox plane — orchestrator-rs + Envoy +
-#                 egress-controller (the "docker" sandbox deployment type; the
-#                 "k8s" type lives under deploy/k8s).
+#   sandbox       the Docker sandbox plane — orchestrator-rs with embedded Rust
+#                 ADS + Envoy (the "docker" sandbox deployment type; the "k8s"
+#                 type lives under deploy/k8s).
 #   init          one-shot db-init (alembic migrations).
 # Local: `docker compose up` = business only; add `--profile local-redis
 # --profile sandbox` for the full local stack.
 services:
   # ---- Sandbox plane (Docker sandbox type) --------------------------------
-  joysafeter-egress-controller:
-    profiles: ["sandbox"]
-    image: ${EGRESS_CONTROLLER_FULL_IMAGE:-joysafeter-egress-controller:latest}
-    build: *egress-controller-build
-    container_name: joysafeter-egress-controller
-    restart: unless-stopped
-    environment:
-      JOYSAFETER_EGRESS_CONTROLLER_XDS_ADDR: :18000
-      JOYSAFETER_EGRESS_CONTROLLER_HTTP_ADDR: :18080
-      JOYSAFETER_EGRESS_CONTROLLER_SOURCE: ${JOYSAFETER_EGRESS_CONTROLLER_SOURCE:-postgres}
-      JOYSAFETER_EGRESS_CONTROLLER_SNAPSHOT_FILE: /etc/joysafeter-egress-controller/snapshots.json
-      JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-joysafeter}?sslmode=disable
-      JOYSAFETER_EGRESS_XDS_MTLS: "false"
-      # ext_authz data-plane (Envoy -> orchestrator credential injection). On the
-      # Docker bridge this plane is PLAINTEXT and targets the orchestrator's
-      # dedicated ext_authz server (JOYSAFETER_EGRESS_AUTHZ_BIND below). The
-      # compiled-in defaults are the K8s values (svc DNS + 18090 + mTLS cert
-      # paths under /var/run/joysafeter-egress/authz-tls) which do NOT exist in
-      # the Docker Envoy — without these overrides Envoy NACKs the
-      # joysafeter_egress_authz cluster and every task fails EGRESS_POLICY_APPLY.
-      JOYSAFETER_EGRESS_AUTHZ_HOST: ${JOYSAFETER_EGRESS_AUTHZ_HOST:-joysafeter-orchestrator}
-      JOYSAFETER_EGRESS_AUTHZ_PORT: ${JOYSAFETER_EGRESS_AUTHZ_PORT:-18090}
-      JOYSAFETER_EGRESS_AUTHZ_MTLS: ${JOYSAFETER_EGRESS_AUTHZ_MTLS:-false}
-      # Downstream (sandbox -> Envoy) is a per-sandbox unix socket on Docker, so
-      # the listener is plaintext; the mTLS default references K8s-only certs.
-      JOYSAFETER_EGRESS_DOWNSTREAM_TLS: ${JOYSAFETER_EGRESS_DOWNSTREAM_TLS:-false}
-    volumes:
-      - ../egress-controller/config/snapshots.example.json:/etc/joysafeter-egress-controller/snapshots.json:ro
-    expose:
-      - "18000"
-      - "18080"
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/joysafeter-egress-controller", "healthcheck"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - joysafeter-network
-
   joysafeter-envoy:
     profiles: ["sandbox"]
     image: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66}
@@ -164,7 +122,7 @@ services:
   skillspector:
     image: ${SKILLSPECTOR_FULL_IMAGE:-joysafeter-skillspector:latest}
     build: *skillspector-build
-    container_name: joysafeter-skillspector
+    container_name: ${JOYSAFETER_SKILLSPECTOR_CONTAINER_NAME:-joysafeter-skillspector}
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Asia/Shanghai}
@@ -198,7 +156,7 @@ services:
 
   postgres:
     image: ${DB_IMAGE:-public.ecr.aws/docker/library/postgres:15}
-    container_name: joysafeter-db
+    container_name: ${JOYSAFETER_DB_CONTAINER_NAME:-joysafeter-db}
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Asia/Shanghai}
@@ -222,7 +180,7 @@ services:
   redis:
     profiles: ["local-redis"]
     image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis:alpine3.22}
-    container_name: joysafeter-redis
+    container_name: ${JOYSAFETER_REDIS_CONTAINER_NAME:-joysafeter-redis}
     restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
@@ -241,7 +199,7 @@ services:
   api:
     image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
-    container_name: joysafeter-api
+    container_name: ${JOYSAFETER_API_CONTAINER_NAME:-joysafeter-api}
     restart: unless-stopped
     env_file: *backend-env-files
     environment:
@@ -265,28 +223,30 @@ services:
     profiles: ["sandbox"]
     image: ${ORCHESTRATOR_RS_FULL_IMAGE:-joysafeter-orchestrator-rs:latest}
     build: *orchestrator-rs-build
-    container_name: joysafeter-orchestrator
+    container_name: ${JOYSAFETER_ORCHESTRATOR_CONTAINER_NAME:-joysafeter-orchestrator}
     restart: unless-stopped
     env_file: *backend-env-files
     environment:
       <<: *backend-common-env
       JOYSAFETER_INSTANCE_ID: ${JOYSAFETER_INSTANCE_ID:-orchestrator-rs-001}
+      RUST_LOG: ${RUST_LOG:-info}
       JOYSAFETER_GRPC_HOST: 0.0.0.0
       JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
       JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
+      JOYSAFETER_EGRESS_XDS_BIND: ${JOYSAFETER_EGRESS_XDS_BIND:-0.0.0.0:18000}
+      JOYSAFETER_EGRESS_XDS_MTLS: ${JOYSAFETER_EGRESS_XDS_MTLS:-false}
+      JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE: ${JOYSAFETER_EGRESS_XDS_SHADOW_RECONCILE:-true}
       # Dedicated Envoy ext_authz credential server. Plaintext on the Docker
-      # bridge; the egress-controller points the joysafeter_egress_authz cluster
-      # here (JOYSAFETER_EGRESS_AUTHZ_HOST/PORT on that service). mTLS defaults
-      # to true (K8s), so it MUST be disabled here or the server refuses to start
-      # looking for K8s-only certs under /var/run/joysafeter-egress/authz-server-tls.
+      # bridge; the embedded Rust compiler points the joysafeter_egress_authz
+      # cluster here. mTLS defaults to true (K8s), so it must be disabled here.
       JOYSAFETER_EGRESS_AUTHZ_BIND: ${JOYSAFETER_EGRESS_AUTHZ_BIND:-0.0.0.0:18090}
+      JOYSAFETER_EGRESS_AUTHZ_HOST: ${JOYSAFETER_EGRESS_AUTHZ_HOST:-orchestrator-rs}
+      JOYSAFETER_EGRESS_AUTHZ_PORT: ${JOYSAFETER_EGRESS_AUTHZ_PORT:-18090}
       JOYSAFETER_EGRESS_AUTHZ_MTLS: ${JOYSAFETER_EGRESS_AUTHZ_MTLS:-false}
     ports:
       - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
     depends_on:
       <<: *backend-depends
-      joysafeter-egress-controller:
-        condition: service_healthy
       joysafeter-envoy:
         condition: service_started
     volumes:
@@ -349,7 +309,7 @@ services:
       dockerfile: ../deploy/docker/frontend.Dockerfile
       args:
         BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
-    container_name: joysafeter-frontend
+    container_name: ${JOYSAFETER_FRONTEND_CONTAINER_NAME:-joysafeter-frontend}
     restart: unless-stopped
     env_file:
       - path: ../frontend/.env
@@ -379,7 +339,7 @@ services:
   db-init:
     image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
-    container_name: joysafeter-db-init
+    container_name: ${JOYSAFETER_DB_INIT_CONTAINER_NAME:-joysafeter-db-init}
     profiles: ["init"]
     env_file: *backend-env-files
     environment:
@@ -399,12 +359,12 @@ volumes:
     driver: local
   backend-files:
     driver: local
-    name: joysafeter-backend-files
+    name: ${JOYSAFETER_BACKEND_FILES_VOLUME:-joysafeter-backend-files}
   joysafeter-sockets:
     driver: local
     name: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
 
 networks:
   joysafeter-network:
-    name: joysafeter-network
+    name: ${JOYSAFETER_NETWORK_NAME:-joysafeter-network}
     driver: bridge

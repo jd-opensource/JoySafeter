@@ -1,5 +1,9 @@
 # Unified Egress — Provider Parity + CI-Grade E2E Verification
 
+> **Historical / superseded (2026-08-04):** This sub-spec describes the deleted
+> independent Go xDS controller. Current provider parity and E2E gates use the
+> embedded Rust ADS implementation.
+
 Status: **approved for implementation planning**
 Date: 2026-08-01
 Branch: `joysafeter-v2`

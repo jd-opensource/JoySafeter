@@ -5,9 +5,11 @@
 k3s 集群只部署：
 
 - `joysafeter-orchestrator`
-- `joysafeter-egress-controller`
 - `joysafeter-egress-envoy`
 - sandbox namespace / RBAC / quota / NetworkPolicy / egress PKI
+
+旧独立 xDS 控制器已物理删除。生产控制面仅允许使用 orchestrator 内置 Rust ADS；
+回滚通过上一版 Rust orchestrator / Envoy / NetworkPolicy 镜像与 manifests 完成。
 
 不要在生产 k3s 沙箱集群部署 `api`、`worker`、`frontend`、`postgres`、`redis`、`joysafeter-db-init`、`skillspector`。
 
@@ -27,7 +29,7 @@ k3s 集群只部署：
 
 ### 1.1 数据与消息服务
 
-- [ ] PostgreSQL 可从 k3s sandbox-plane 的 orchestrator / egress-controller 访问。
+- [ ] PostgreSQL 可从 k3s sandbox-plane 的 orchestrator 访问。
 - [ ] Redis 可从 k3s sandbox-plane 的 orchestrator 访问。
 - [ ] PostgreSQL / Redis 都启用 TLS 或通过公司内网专线/VPN 加密通道访问。
 - [ ] 公司防火墙只允许 k3s 节点出口 IP、NAT IP 或 VPN 网段访问 PG/Redis。
@@ -61,7 +63,6 @@ k3s 集群只部署：
 - [ ] `SECRET_KEY`
 - [ ] `JWT_SECRET_KEY`
 - [ ] `JOYSAFETER_VAULT_ENCRYPTION_KEY`
-- [ ] `JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL`
 
 示例：
 
@@ -82,6 +83,22 @@ kubectl -n joysafeter-control create secret generic joysafeter-secret \
 
 ## 阶段 3 — Render Gate
 
+发布候选镜像先通过 Docker 四来源业务链路：
+
+```bash
+ISOLATED=true \
+BRING_UP=true \
+ORCHESTRATOR_RS_FULL_IMAGE=<candidate-orchestrator-image> \
+BACKEND_FULL_IMAGE=<candidate-backend-image> \
+JOYSAFETER_SANDBOX_IMAGE=<candidate-runtime-image> \
+deploy/egress-compose-smoke.sh
+```
+
+- [ ] A：Envoy config/stats 中目标 LDS/RDS/CDS 已 ACK，且无 secret。
+- [ ] B：canonical apply state 为 `applied`，逐节点 ACK 等于 required，NACK=0，Rust connection lease 有效。
+- [ ] C：平台凭证已注入、sandbox token 已剥离、错误 token 返回 403。
+- [ ] D：成功请求的 Envoy `x-request-id` 出现在 mock upstream 日志。
+
 ```bash
 OVERLAY=deploy/k8s/overlays/sandbox-plane \
 SMOKE_IMAGE=<internal-image-with-curl> \
@@ -94,7 +111,8 @@ deploy/k8s/validate-sandbox-plane-readiness.sh
 - [ ] 渲染结果不含 `local-dev-secret` / 默认数据库密码。
 - [ ] 渲染结果不含 `:latest`。
 - [ ] 渲染结果不含 `api` / `worker` / `frontend` / `postgres` / `redis` / `joysafeter-db-init` / `skillspector`。
-- [ ] 渲染结果包含 orchestrator、egress-controller、egress-envoy、sandbox NetworkPolicy。
+- [ ] 渲染结果包含 orchestrator、egress-envoy、sandbox NetworkPolicy。
+- [ ] 渲染结果不含 `joysafeter-egress-controller` Deployment/Service。
 - [ ] `JOYSAFETER_EGRESS_POLICY_AUTHORITY_ENABLED=true`。
 - [ ] `JOYSAFETER_K8S_EGRESS_MANAGEMENT_ENABLED=true`。
 - [ ] NetworkPolicy deny-all smoke 能阻断直连公网。
@@ -106,7 +124,6 @@ deploy/k8s/validate-sandbox-plane-readiness.sh
 ```bash
 kubectl apply -k deploy/k8s/overlays/sandbox-plane
 kubectl -n joysafeter-control rollout status deploy/joysafeter-orchestrator --timeout=300s
-kubectl -n joysafeter-control rollout status deploy/joysafeter-egress-controller --timeout=300s
 kubectl -n joysafeter-egress rollout status deploy/joysafeter-egress-envoy --timeout=300s
 ```
 
@@ -121,7 +138,7 @@ kubectl -n joysafeter-sandboxes get networkpolicy,resourcequota,limitrange
 确认：
 
 - [ ] `joysafeter-control` 里没有 `api` / `worker` / `frontend` / `postgres` / `redis` / `skillspector`。
-- [ ] `joysafeter-control` 只有 orchestrator、egress-controller 相关服务。
+- [ ] `joysafeter-control` 只有 orchestrator 相关服务，不含独立 xDS controller。
 - [ ] `joysafeter-egress` 只有 Envoy 相关服务。
 - [ ] `joysafeter-sandboxes` 有 default-deny 和 runner allow policy。
 
@@ -165,13 +182,15 @@ deploy/k8s/k3s-egress-smoke.sh
 - [ ] k3s 渲染出 API / worker / frontend / PG / Redis / db-init / skillspector。
 - [ ] k3s manifests 中出现真实模型/provider secret。
 - [ ] sandbox 可直连公网、公司内网、PG、Redis 或 metadata IP。
-- [ ] egress-controller 有 NACK 或 generation failed。
+- [ ] Rust xDS 指标出现 NACK，或 canonical generation state 为 `failed`。
+- [ ] 隔离 Docker A/B/C/D smoke 任一来源未通过。
 - [ ] 完整 secret-backed smoke 未通过。
 
 ---
 
 ## 回滚边界
 
-- [ ] 回滚 k3s sandbox-plane 只回滚 orchestrator / egress-controller / Envoy / NetworkPolicy 相关 manifests。
+- [ ] 常规回滚只回滚 orchestrator / Envoy / NetworkPolicy 相关 manifests。
+- [ ] Rust ADS 无法恢复时，回滚到上一版已验证的 Rust orchestrator 与配套 Envoy manifests。
 - [ ] 不在 k3s 回滚公司 Backend API、Frontend、Worker、PG、Redis。
 - [ ] 不手工把 `failed` / `superseded` generation 改回 `published` / `applied`；创建新 generation 或回滚发版。

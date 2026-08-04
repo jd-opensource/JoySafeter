@@ -37,17 +37,16 @@ pub struct EnvoyConfig {
     pub grpc_target_host: String,
     pub grpc_target_port: u16,
     pub container_name: String,
-    /// `"filesystem"` (default, `lds.json`), `"grpc"` (Delta xDS to the
-    /// orchestrator), or `"controller"` (Delta xDS to the Go egress controller).
+    /// `"filesystem"` (default, `lds.json`), `"grpc"` (legacy direct Delta
+    /// xDS), or `"controller"` (PostgreSQL-backed embedded Rust ADS).
     pub xds_mode: String,
-    /// Controller xDS host, used when `xds_mode == "controller"`.
-    pub controller_xds_host: String,
-    /// Controller xDS port, used when `xds_mode == "controller"`.
-    pub controller_xds_port: u16,
+    /// Durable ADS host, used when `xds_mode == "controller"`.
+    pub xds_host: String,
+    /// Durable ADS port, used when `xds_mode == "controller"`.
+    pub xds_port: u16,
     /// structpb `node.metadata` emitted into the bootstrap in `controller` mode
-    /// so the Go egress-controller hashes this Envoy into the same group the
-    /// durable authority writes generations under. `None` in filesystem/grpc
-    /// modes (no group hashing). Built from
+    /// so Rust ADS hashes this Envoy into the same group the durable authority
+    /// writes generations under. `None` in filesystem/grpc modes. Built from
     /// [`crate::egress::enforcer::shared_docker_node_selector`].
     pub node_metadata: Option<serde_json::Value>,
     pub denied_cidrs: Vec<DeniedCidr>,
@@ -69,7 +68,7 @@ impl EnvoyConfig {
     ///   static `xds_cluster`. In `grpc` mode that cluster points at the
     ///   orchestrator gRPC server (same host:port as `orchestrator_grpc`, since
     ///   the xDS service shares that server); in `controller` mode it points at
-    ///   the Go egress controller (`controller_xds_host:controller_xds_port`).
+    ///   the durable ADS endpoint (`xds_host:xds_port`).
     ///
     /// The static `orchestrator_grpc` cluster is unchanged across all modes and
     /// keeps pointing at `grpc_target_host:grpc_target_port` — it is the
@@ -124,10 +123,10 @@ impl EnvoyConfig {
         // static `xds_cluster` and drive LDS/CDS over ADS Delta gRPC; they
         // differ only in the `xds_cluster` endpoint address.
         let dynamic_resources = if self.is_grpc_mode() || self.is_controller_mode() {
-            // xds_cluster endpoint: controller mode → the Go controller;
+            // xds_cluster endpoint: controller mode → the durable ADS endpoint;
             // grpc mode → the orchestrator gRPC server.
             let (xds_host, xds_port) = if self.is_controller_mode() {
-                (self.controller_xds_host.clone(), self.controller_xds_port)
+                (self.xds_host.clone(), self.xds_port)
             } else {
                 (self.grpc_target_host.clone(), self.grpc_target_port)
             };
@@ -193,8 +192,8 @@ impl EnvoyConfig {
             })
         };
 
-        // In controller mode the Go egress-controller groups Envoys by
-        // node.metadata; without it the controller cannot match this Envoy to a
+        // In controller mode Rust ADS groups Envoys by node.metadata; without
+        // it the reconciler cannot match this Envoy to a
         // desired generation and serves an empty snapshot (apply never ACKs).
         let mut node = json!({
             "cluster": "joysafeter-proxy",
@@ -262,7 +261,7 @@ impl EnvoyManager {
     }
 
     /// Create only the per-sandbox socket directory (no listener push). Used by
-    /// the controller-mode Docker preparer, where the Go controller owns LDS/CDS.
+    /// the controller-mode Docker preparer, where the Rust reconciler owns LDS/CDS.
     pub async fn ensure_sandbox_socket_dir(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
         let socket_dir = format!("/sockets/{sandbox_id}");
         self.exec_in_envoy(&format!("mkdir -p {socket_dir} && chmod 777 {socket_dir}"))
@@ -573,8 +572,8 @@ mod bootstrap_tests {
             grpc_target_port: 9090,
             container_name: "joysafeter-envoy".into(),
             xds_mode: mode.into(),
-            controller_xds_host: "joysafeter-egress-controller".into(),
-            controller_xds_port: 18000,
+            xds_host: "joysafeter-orchestrator".into(),
+            xds_port: 18000,
             node_metadata: Some(json!({
                 "deployment_id": "joysafeter",
                 "environment": "production",
@@ -604,14 +603,14 @@ mod bootstrap_tests {
             ["address"]["socket_address"];
         assert_eq!(orch_addr["address"], "joysafeter-orchestrator");
         assert_eq!(orch_addr["port_value"], 9090);
-        // xds_cluster targets the Go controller.
+        // xds_cluster targets the embedded Rust ADS listener.
         let xds = clusters
             .iter()
             .find(|c| c["name"] == "xds_cluster")
             .unwrap();
         let xds_addr = &xds["load_assignment"]["endpoints"][0]["lb_endpoints"][0]["endpoint"]
             ["address"]["socket_address"];
-        assert_eq!(xds_addr["address"], "joysafeter-egress-controller");
+        assert_eq!(xds_addr["address"], "joysafeter-orchestrator");
         assert_eq!(xds_addr["port_value"], 18000);
         // ADS is configured.
         assert_eq!(
@@ -619,9 +618,9 @@ mod bootstrap_tests {
                 ["cluster_name"],
             "xds_cluster"
         );
-        // node.metadata carries the group-selector fields so the Go controller
-        // hashes this Envoy into the durable authority's group. Without it the
-        // controller serves an empty snapshot and the apply never ACKs.
+        // node.metadata carries the group-selector fields so Rust ADS hashes
+        // this Envoy into the durable authority's group. Without it the
+        // reconciler serves an empty snapshot and the apply never ACKs.
         let meta = &bootstrap["node"]["metadata"];
         assert_eq!(meta["provider"], "docker");
         assert_eq!(meta["host_id"], "docker-local");

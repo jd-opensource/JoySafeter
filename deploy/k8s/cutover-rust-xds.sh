@@ -60,4 +60,4 @@ if "$KUBECTL" -n "$CONTROL_NS" get deployment joysafeter-egress-controller >/dev
   "$KUBECTL" -n "$CONTROL_NS" scale deployment/joysafeter-egress-controller --replicas=0
 fi
 
-echo "Rust xDS cutover complete; temporary Go controller is not serving production traffic."
+echo "Rust xDS cutover complete; any legacy controller Deployment is scaled to zero."

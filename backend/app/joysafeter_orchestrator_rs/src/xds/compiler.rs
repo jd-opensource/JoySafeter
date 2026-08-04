@@ -8,7 +8,7 @@ use envoy_types_v076::pb::envoy::config::cluster::v3::{cluster, Cluster};
 use envoy_types_v076::pb::envoy::config::core::v3::{
     address, config_source, data_source, grpc_service, socket_address, Address,
     AggregatedConfigSource, ConfigSource, DataSource, GrpcService, Http1ProtocolOptions,
-    Http2ProtocolOptions, SocketAddress, TransportSocket,
+    Http2ProtocolOptions, Pipe, SocketAddress, TransportSocket,
 };
 use envoy_types_v076::pb::envoy::config::endpoint::v3::{
     lb_endpoint, ClusterLoadAssignment, Endpoint, LbEndpoint, LocalityLbEndpoints,
@@ -64,6 +64,8 @@ pub struct CompilerConfig {
     pub downstream_cert: String,
     pub downstream_key: String,
     pub public_ca: String,
+    pub socket_root: String,
+    pub orchestrator_grpc_cluster: String,
     pub denied_cidrs: Vec<String>,
 }
 
@@ -87,6 +89,8 @@ impl Default for CompilerConfig {
             downstream_cert: "/var/run/joysafeter-egress/downstream-tls/tls.crt".to_string(),
             downstream_key: "/var/run/joysafeter-egress/downstream-tls/tls.key".to_string(),
             public_ca: "/etc/ssl/certs/ca-certificates.crt".to_string(),
+            socket_root: "/sockets".to_string(),
+            orchestrator_grpc_cluster: "orchestrator_grpc".to_string(),
             denied_cidrs: vec![
                 "0.0.0.0/8",
                 "10.0.0.0/8",
@@ -160,6 +164,8 @@ impl CompilerConfig {
             ),
             downstream_key: env_string("JOYSAFETER_EGRESS_DOWNSTREAM_KEY", defaults.downstream_key),
             public_ca: env_string("JOYSAFETER_EGRESS_PUBLIC_CA", defaults.public_ca),
+            socket_root: env_string("JOYSAFETER_EGRESS_SOCKET_ROOT", defaults.socket_root),
+            orchestrator_grpc_cluster: defaults.orchestrator_grpc_cluster,
             denied_cidrs,
         };
         validate_config(&config)?;
@@ -195,7 +201,8 @@ fn env_bool(name: &str, default: bool) -> anyhow::Result<bool> {
 
 #[derive(Debug, Clone)]
 pub struct CompileInput<'a> {
-    pub group_key: &'a str,
+    pub snapshot_group_key: &'a str,
+    pub source_group_key: &'a str,
     pub generation: i64,
     pub content_sha256: &'a str,
     pub policy_schema_version: i32,
@@ -206,6 +213,14 @@ pub fn compile_kubernetes(
     config: &CompilerConfig,
     input: CompileInput<'_>,
 ) -> anyhow::Result<CompiledSnapshot> {
+    compile_for_provider(config, "k8s", input)
+}
+
+pub fn compile_for_provider(
+    config: &CompilerConfig,
+    provider: &str,
+    input: CompileInput<'_>,
+) -> anyhow::Result<CompiledSnapshot> {
     validate_config(config)?;
     let policies = policy::decode(input.policy_schema_version, input.desired_policies)?;
     let denied_cidrs = merged_denied_cidrs(config, &policies)?;
@@ -214,15 +229,29 @@ pub fn compile_kubernetes(
     for cluster in build_clusters(config, &policies, &denied_cidrs)? {
         insert_resource(&mut resources, CLUSTER_TYPE_URL, &cluster.name, &cluster)?;
     }
-    for route in build_routes(&policies, input.group_key, input.generation)? {
+    let (routes, listeners) = match provider {
+        "k8s" | "kubernetes" => (
+            build_routes(&policies, input.source_group_key, input.generation)?,
+            build_listeners(config, &denied_cidrs)?,
+        ),
+        "docker" => build_docker_resources(
+            config,
+            &policies,
+            &denied_cidrs,
+            input.source_group_key,
+            input.generation,
+        )?,
+        other => anyhow::bail!("unsupported egress provider {other:?}"),
+    };
+    for route in routes {
         insert_resource(&mut resources, ROUTE_TYPE_URL, &route.name, &route)?;
     }
-    for listener in build_listeners(config, &denied_cidrs)? {
+    for listener in listeners {
         insert_resource(&mut resources, LISTENER_TYPE_URL, &listener.name, &listener)?;
     }
 
     CompiledSnapshot::new(
-        input.group_key,
+        input.snapshot_group_key,
         input.generation,
         input.content_sha256,
         resources,
@@ -267,6 +296,14 @@ fn validate_config(config: &CompilerConfig) -> anyhow::Result<()> {
     anyhow::ensure!(
         !config.public_ca.trim().is_empty(),
         "public CA path is required"
+    );
+    anyhow::ensure!(
+        config.socket_root.starts_with('/'),
+        "Docker socket root must be absolute"
+    );
+    anyhow::ensure!(
+        !config.orchestrator_grpc_cluster.trim().is_empty(),
+        "orchestrator gRPC cluster is required"
     );
     Ok(())
 }
@@ -711,6 +748,236 @@ fn forward_routes() -> RouteConfiguration {
     }
 }
 
+fn build_docker_resources(
+    config: &CompilerConfig,
+    policies: &[SandboxPolicy],
+    denied_cidrs: &[ModernCidrRange],
+    group_key: &str,
+    generation: i64,
+) -> anyhow::Result<(Vec<RouteConfiguration>, Vec<Listener>)> {
+    let mut routes = Vec::with_capacity(policies.len() * 2);
+    let mut listeners = Vec::with_capacity(policies.len() * 2);
+    for policy in policies {
+        let resource_id = policy.sandbox_id.replace('-', "_");
+        let route_name = format!("joysafeter_routes_{resource_id}");
+        routes.push(docker_routes(policy, &route_name, group_key, generation)?);
+        listeners.push(pipe_listener(
+            &format!("joysafeter_{resource_id}_http"),
+            &format!(
+                "{}/{}/http.sock",
+                config.socket_root.trim_end_matches('/'),
+                policy.sandbox_id
+            ),
+            &route_name,
+            Some(&config.authz_cluster),
+            true,
+            denied_cidrs,
+        ));
+
+        let control_route_name = format!("joysafeter_control_{resource_id}");
+        routes.push(docker_control_routes(
+            &control_route_name,
+            &config.orchestrator_grpc_cluster,
+        ));
+        listeners.push(pipe_listener(
+            &format!("joysafeter_{resource_id}_grpc"),
+            &format!(
+                "{}/{}/grpc.sock",
+                config.socket_root.trim_end_matches('/'),
+                policy.sandbox_id
+            ),
+            &control_route_name,
+            None,
+            false,
+            denied_cidrs,
+        ));
+    }
+    Ok((routes, listeners))
+}
+
+fn docker_routes(
+    policy: &SandboxPolicy,
+    name: &str,
+    group_key: &str,
+    generation: i64,
+) -> anyhow::Result<RouteConfiguration> {
+    let allowed = policy
+        .allowed_public_hosts
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut by_host = BTreeMap::<&str, Vec<&CredentialRoute>>::new();
+    for credential in &policy.credential_routes {
+        by_host
+            .entry(credential.match_authority.as_str())
+            .or_default()
+            .push(credential);
+    }
+
+    let mut virtual_hosts = Vec::with_capacity(by_host.len() + 2);
+    for (host, mut credentials) in by_host {
+        credentials.sort_by(|left, right| {
+            right
+                .match_path
+                .value
+                .len()
+                .cmp(&left.match_path.value.len())
+                .then_with(|| left.route_id.cmp(&right.route_id))
+        });
+        let mut host_routes = Vec::new();
+        for credential in credentials {
+            for method in &credential.methods {
+                host_routes.push(credential_route(
+                    &policy.sandbox_id,
+                    credential,
+                    &credential.match_path.value,
+                    method,
+                    group_key,
+                    generation,
+                )?);
+            }
+        }
+        if policy.mode == "unrestricted" || host_allowed(host, &allowed) {
+            host_routes.extend(plain_forward_routes());
+        } else {
+            host_routes.push(deny_route("path not authorized"));
+        }
+        virtual_hosts.push(VirtualHost {
+            name: format!("credential_{}", safe_name(host)),
+            domains: host_domains(host),
+            routes: host_routes,
+            ..Default::default()
+        });
+    }
+
+    if policy.mode == "limited" && !policy.allowed_public_hosts.is_empty() {
+        let mut domains = Vec::new();
+        for host in &policy.allowed_public_hosts {
+            domains.push(host.clone());
+            if !host.starts_with("*.") {
+                domains.push(format!("{host}:80"));
+                domains.push(format!("{host}:443"));
+            }
+        }
+        virtual_hosts.push(VirtualHost {
+            name: "allowed".to_string(),
+            domains,
+            routes: plain_forward_routes(),
+            typed_per_filter_config: ext_authz_disabled(),
+            ..Default::default()
+        });
+    }
+
+    virtual_hosts.push(if policy.mode == "unrestricted" {
+        VirtualHost {
+            name: "unrestricted".to_string(),
+            domains: vec!["*".to_string()],
+            routes: plain_forward_routes(),
+            typed_per_filter_config: ext_authz_disabled(),
+            ..Default::default()
+        }
+    } else {
+        VirtualHost {
+            name: "deny_all".to_string(),
+            domains: vec!["*".to_string()],
+            routes: vec![deny_route("host not authorized")],
+            typed_per_filter_config: ext_authz_disabled(),
+            ..Default::default()
+        }
+    });
+
+    Ok(RouteConfiguration {
+        name: name.to_string(),
+        virtual_hosts,
+        ..Default::default()
+    })
+}
+
+fn docker_control_routes(name: &str, cluster: &str) -> RouteConfiguration {
+    RouteConfiguration {
+        name: name.to_string(),
+        virtual_hosts: vec![VirtualHost {
+            name: "control".to_string(),
+            domains: vec!["*".to_string()],
+            routes: vec![Route {
+                name: "control_grpc".to_string(),
+                r#match: Some(RouteMatch {
+                    path_specifier: Some(route_match::PathSpecifier::Prefix("/".to_string())),
+                    ..Default::default()
+                }),
+                action: Some(route::Action::Route(RouteAction {
+                    timeout: Some(duration(0)),
+                    cluster_specifier: Some(route_action::ClusterSpecifier::Cluster(
+                        cluster.to_string(),
+                    )),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
+fn plain_forward_routes() -> Vec<Route> {
+    vec![
+        Route {
+            name: "connect".to_string(),
+            r#match: Some(RouteMatch {
+                path_specifier: Some(route_match::PathSpecifier::ConnectMatcher(
+                    route_match::ConnectMatcher {},
+                )),
+                ..Default::default()
+            }),
+            typed_per_filter_config: ext_authz_disabled(),
+            action: Some(route::Action::Route(RouteAction {
+                cluster_specifier: Some(route_action::ClusterSpecifier::Cluster(
+                    DYNAMIC_FORWARD_CLUSTER.to_string(),
+                )),
+                upgrade_configs: vec![route_action::UpgradeConfig {
+                    upgrade_type: "CONNECT".to_string(),
+                    connect_config: Some(route_action::upgrade_config::ConnectConfig::default()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+        Route {
+            name: "http".to_string(),
+            r#match: Some(RouteMatch {
+                path_specifier: Some(route_match::PathSpecifier::Prefix("/".to_string())),
+                ..Default::default()
+            }),
+            typed_per_filter_config: ext_authz_disabled(),
+            action: Some(route::Action::Route(RouteAction {
+                timeout: Some(duration(0)),
+                cluster_specifier: Some(route_action::ClusterSpecifier::Cluster(
+                    DYNAMIC_FORWARD_CLUSTER.to_string(),
+                )),
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    ]
+}
+
+fn host_domains(host: &str) -> Vec<String> {
+    vec![
+        host.to_string(),
+        format!("{host}:80"),
+        format!("{host}:443"),
+    ]
+}
+
+fn host_allowed(host: &str, allowed: &BTreeSet<&str>) -> bool {
+    allowed.contains(host)
+        || allowed
+            .iter()
+            .any(|pattern| pattern.starts_with("*.") && host.ends_with(&pattern[1..]))
+}
+
 fn deny_route(message: &str) -> Route {
     let typed_per_filter_config = ext_authz_disabled();
     Route {
@@ -898,6 +1165,126 @@ fn http_listener(
         }],
         ..Default::default()
     })
+}
+
+fn pipe_listener(
+    name: &str,
+    path: &str,
+    route_name: &str,
+    authz_cluster: Option<&str>,
+    dynamic_forward: bool,
+    denied_cidrs: &[ModernCidrRange],
+) -> Listener {
+    let mut filters = Vec::new();
+    if let Some(authz_cluster) = authz_cluster {
+        filters.push(HttpFilter {
+            name: EXT_AUTHZ_FILTER.to_string(),
+            config_type: Some(http_filter::ConfigType::TypedConfig(pack_new(
+                "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz",
+                &ExtAuthz {
+                    transport_api_version:
+                        envoy_types_v076::pb::envoy::config::core::v3::ApiVersion::V3 as i32,
+                    failure_mode_allow: false,
+                    services: Some(
+                        envoy_types_v076::pb::envoy::extensions::filters::http::ext_authz::v3::ext_authz::Services::GrpcService(
+                            GrpcService {
+                                target_specifier: Some(grpc_service::TargetSpecifier::EnvoyGrpc(
+                                    grpc_service::EnvoyGrpc {
+                                        cluster_name: authz_cluster.to_string(),
+                                        ..Default::default()
+                                    },
+                                )),
+                                timeout: Some(duration(2)),
+                                ..Default::default()
+                            },
+                        ),
+                    ),
+                    ..Default::default()
+                },
+            ))),
+            ..Default::default()
+        });
+    }
+    if dynamic_forward {
+        filters.push(HttpFilter {
+            name: "envoy.filters.http.dynamic_forward_proxy".to_string(),
+            config_type: Some(http_filter::ConfigType::TypedConfig(pack_new(
+                "type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig",
+                &ModernDynamicForwardProxyFilterConfig {
+                    dns_cache_config: Some(dynamic_dns_cache(denied_cidrs)),
+                    save_upstream_address: false,
+                },
+            ))),
+            ..Default::default()
+        });
+    }
+    filters.push(HttpFilter {
+        name: "envoy.filters.http.router".to_string(),
+        config_type: Some(http_filter::ConfigType::TypedConfig(pack_new(
+            "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router",
+            &Router::default(),
+        ))),
+        ..Default::default()
+    });
+
+    let hcm = HttpConnectionManager {
+        stat_prefix: name.to_string(),
+        http_filters: filters,
+        route_specifier: Some(http_connection_manager::RouteSpecifier::Rds(Rds {
+            config_source: Some(ConfigSource {
+                resource_api_version: envoy_types_v076::pb::envoy::config::core::v3::ApiVersion::V3
+                    as i32,
+                config_source_specifier: Some(config_source::ConfigSourceSpecifier::Ads(
+                    AggregatedConfigSource {},
+                )),
+                ..Default::default()
+            }),
+            route_config_name: route_name.to_string(),
+        })),
+        stream_idle_timeout: Some(duration(0)),
+        request_timeout: Some(duration(0)),
+        use_remote_address: Some(envoy_types_v076::pb::google::protobuf::BoolValue { value: true }),
+        upgrade_configs: if dynamic_forward {
+            vec![
+                http_connection_manager::UpgradeConfig {
+                    upgrade_type: "CONNECT".to_string(),
+                    ..Default::default()
+                },
+                http_connection_manager::UpgradeConfig {
+                    upgrade_type: "websocket".to_string(),
+                    ..Default::default()
+                },
+            ]
+        } else {
+            vec![http_connection_manager::UpgradeConfig {
+                upgrade_type: "websocket".to_string(),
+                ..Default::default()
+            }]
+        },
+        ..Default::default()
+    };
+
+    Listener {
+        name: name.to_string(),
+        address: Some(Address {
+            address: Some(address::Address::Pipe(Pipe {
+                path: path.to_string(),
+                mode: 438,
+            })),
+        }),
+        per_connection_buffer_limit_bytes: Some(UInt32Value { value: 1 << 20 }),
+        filter_chains: vec![FilterChain {
+            filters: vec![Filter {
+                name: "envoy.filters.network.http_connection_manager".to_string(),
+                config_type: Some(filter::ConfigType::TypedConfig(pack_new(
+                    "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
+                    &hcm,
+                ))),
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
 }
 
 fn tls_transport_socket<M: Message>(type_url: &str, context: &M) -> TransportSocket {
@@ -1225,7 +1612,8 @@ mod tests {
         let first = compile_kubernetes(
             &CompilerConfig::default(),
             CompileInput {
-                group_key: "v2:node-a",
+                snapshot_group_key: "v2:node-a",
+                source_group_key: "v2:node-a",
                 generation: 42,
                 content_sha256: DIGEST,
                 policy_schema_version: policy::POLICY_SCHEMA_VERSION,
@@ -1236,7 +1624,8 @@ mod tests {
         let second = compile_kubernetes(
             &CompilerConfig::default(),
             CompileInput {
-                group_key: "v2:node-a",
+                snapshot_group_key: "v2:node-a",
+                source_group_key: "v2:node-a",
                 generation: 42,
                 content_sha256: DIGEST,
                 policy_schema_version: policy::POLICY_SCHEMA_VERSION,
@@ -1261,6 +1650,63 @@ mod tests {
     }
 
     #[test]
+    fn compiles_docker_pipe_listeners_and_control_route() {
+        let policies = policy_json();
+        let snapshot = compile_for_provider(
+            &CompilerConfig::default(),
+            "docker",
+            CompileInput {
+                snapshot_group_key: "v2:docker-node",
+                source_group_key: "v1:canonical-source",
+                generation: 42,
+                content_sha256: DIGEST,
+                policy_schema_version: policy::POLICY_SCHEMA_VERSION,
+                desired_policies: &policies,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.group_key, "v2:docker-node");
+        let encoded_routes = snapshot.resources[ROUTE_TYPE_URL]
+            .values()
+            .flat_map(|resource| resource.value.iter().copied())
+            .collect::<Vec<_>>();
+        assert!(String::from_utf8_lossy(&encoded_routes).contains("v1:canonical-source"));
+        assert_eq!(snapshot.resources[CLUSTER_TYPE_URL].len(), 3);
+        assert_eq!(snapshot.resources[ROUTE_TYPE_URL].len(), 2);
+        assert_eq!(snapshot.resources[LISTENER_TYPE_URL].len(), 2);
+
+        let resource_id = "018ff000_0000_7000_8000_000000000001";
+        let http = Listener::decode(
+            snapshot.resources[LISTENER_TYPE_URL][&format!("joysafeter_{resource_id}_http")]
+                .value
+                .as_slice(),
+        )
+        .unwrap();
+        let grpc = Listener::decode(
+            snapshot.resources[LISTENER_TYPE_URL][&format!("joysafeter_{resource_id}_grpc")]
+                .value
+                .as_slice(),
+        )
+        .unwrap();
+        assert!(matches!(
+            http.address.and_then(|address| address.address),
+            Some(address::Address::Pipe(Pipe { path, .. }))
+                if path == "/sockets/018ff000-0000-7000-8000-000000000001/http.sock"
+        ));
+        assert!(matches!(
+            grpc.address.and_then(|address| address.address),
+            Some(address::Address::Pipe(Pipe { path, .. }))
+                if path == "/sockets/018ff000-0000-7000-8000-000000000001/grpc.sock"
+        ));
+        let encoded_grpc = snapshot.resources[LISTENER_TYPE_URL]
+            [&format!("joysafeter_{resource_id}_grpc")]
+            .value
+            .as_slice();
+        assert!(!String::from_utf8_lossy(encoded_grpc).contains("ext_authz"));
+    }
+
+    #[test]
     fn modern_dns_cache_encodes_resolved_address_filter_field_16() {
         let cache = dynamic_dns_cache(&[ModernCidrRange {
             address_prefix: "10.0.0.0".to_string(),
@@ -1271,40 +1717,56 @@ mod tests {
     }
 
     #[test]
-    fn rust_compiler_matches_shared_go_parity_fixture() {
-        let fixture: serde_json::Value = serde_json::from_slice(include_bytes!(
-            "../../../../../egress-controller/testdata/compiler/parity-kubernetes-v1.json"
-        ))
-        .unwrap();
-        let policies = serde_json::to_vec(&fixture["policies"]).unwrap();
-        let snapshot = compile_kubernetes(
-            &CompilerConfig::default(),
-            CompileInput {
-                group_key: fixture["group_key"].as_str().unwrap(),
-                generation: fixture["generation"].as_i64().unwrap(),
-                content_sha256: fixture["content_sha256"].as_str().unwrap(),
-                policy_schema_version: fixture["policy_schema_version"].as_i64().unwrap() as i32,
-                desired_policies: &policies,
-            },
-        )
-        .unwrap();
-
-        for (type_url, fixture_key) in [
-            (CLUSTER_TYPE_URL, "clusters"),
-            (ROUTE_TYPE_URL, "routes"),
-            (LISTENER_TYPE_URL, "listeners"),
+    fn rust_compiler_matches_canonical_parity_fixtures() {
+        for (provider, fixture) in [
+            (
+                "k8s",
+                serde_json::from_slice::<serde_json::Value>(include_bytes!(
+                    "../../testdata/compiler/parity-kubernetes-v1.json"
+                ))
+                .unwrap(),
+            ),
+            (
+                "docker",
+                serde_json::from_slice::<serde_json::Value>(include_bytes!(
+                    "../../testdata/compiler/parity-docker-v1.json"
+                ))
+                .unwrap(),
+            ),
         ] {
-            let actual = snapshot.resources[type_url]
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>();
-            let expected = fixture["expected_resources"][fixture_key]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|value| value.as_str().unwrap().to_string())
-                .collect::<Vec<_>>();
-            assert_eq!(actual, expected);
+            let policies = serde_json::to_vec(&fixture["policies"]).unwrap();
+            let snapshot = compile_for_provider(
+                &CompilerConfig::default(),
+                provider,
+                CompileInput {
+                    snapshot_group_key: fixture["group_key"].as_str().unwrap(),
+                    source_group_key: fixture["group_key"].as_str().unwrap(),
+                    generation: fixture["generation"].as_i64().unwrap(),
+                    content_sha256: fixture["content_sha256"].as_str().unwrap(),
+                    policy_schema_version: fixture["policy_schema_version"].as_i64().unwrap()
+                        as i32,
+                    desired_policies: &policies,
+                },
+            )
+            .unwrap();
+
+            for (type_url, fixture_key) in [
+                (CLUSTER_TYPE_URL, "clusters"),
+                (ROUTE_TYPE_URL, "routes"),
+                (LISTENER_TYPE_URL, "listeners"),
+            ] {
+                let actual = snapshot.resources[type_url]
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let expected = fixture["expected_resources"][fixture_key]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_string())
+                    .collect::<Vec<_>>();
+                assert_eq!(actual, expected, "provider {provider} {fixture_key}");
+            }
         }
     }
 }

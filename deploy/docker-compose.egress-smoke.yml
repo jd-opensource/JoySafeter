@@ -1,9 +1,9 @@
 # Docker egress smoke overlay (Plan 2 / C-2).
 #
 # Layers onto docker-compose.yml to run a tamper-evident, mock-upstream
-# end-to-end egress test of the unified controller path on Docker:
-#   controller SOURCE=postgres + Docker Envoy in `controller` mode (ADS to the
-#   Go controller) + orchestrator ext_authz + a mock upstream echo server.
+# end-to-end egress test of the unified Rust control-plane path on Docker:
+#   PostgreSQL desired generations + embedded Rust ADS + Docker Envoy in
+#   `controller` mode + orchestrator ext_authz + a mock upstream echo server.
 # Driven by deploy/egress-compose-smoke.sh. Uses a mock upstream so NO real
 # API key is needed (mock echoes received headers to prove credential injection
 # and that sandbox-supplied auth was stripped).
@@ -20,7 +20,7 @@ services:
   # x-request-id parser; each request's x-request-id is logged for Source D.
   joysafeter-egress-mock-upstream:
     image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
-    container_name: joysafeter-egress-mock-upstream
+    container_name: ${JOYSAFETER_EGRESS_MOCK_CONTAINER_NAME:-joysafeter-egress-mock-upstream}
     restart: unless-stopped
     environment:
       HTTP_PORT: "8080"

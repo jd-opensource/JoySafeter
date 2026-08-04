@@ -1009,6 +1009,7 @@ struct NodeGroupLease {
     node_id: String,
     source_group_key: String,
     node_group_key: String,
+    envoy_version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1016,6 +1017,7 @@ pub struct XdsNodeLeaseSnapshot {
     pub node_id: String,
     pub source_group_key: String,
     pub node_group_key: String,
+    pub envoy_version: String,
 }
 
 impl XdsState {
@@ -1229,6 +1231,7 @@ impl XdsState {
                 node_id: lease.node_id.clone(),
                 source_group_key: lease.source_group_key.clone(),
                 node_group_key: lease.node_group_key.clone(),
+                envoy_version: lease.envoy_version.clone(),
             })
             .collect::<Vec<_>>();
         leases.sort_by(|left, right| {
@@ -1506,6 +1509,7 @@ impl DeltaXdsServer {
             node_id: node_id.to_string(),
             source_group_key: source_group_key.to_string(),
             node_group_key: node_group_key.to_string(),
+            envoy_version: "test-envoy".to_string(),
         })
         .await;
     }
@@ -1688,6 +1692,7 @@ struct BoundXdsIdentity {
     node_id: String,
     group_key: String,
     source_group_key: String,
+    envoy_version: String,
 }
 
 fn bind_delta_stream_identity(
@@ -1711,6 +1716,7 @@ fn bind_delta_stream_identity(
             node_id,
             group_key: LEGACY_XDS_GROUP.to_string(),
             source_group_key: LEGACY_XDS_GROUP.to_string(),
+            envoy_version: "unknown".to_string(),
         });
     }
 
@@ -1724,6 +1730,7 @@ fn bind_delta_stream_identity(
         node_id: identity.node_id,
         group_key: identity.group_key,
         source_group_key,
+        envoy_version: identity.metadata.envoy_version,
     })
 }
 
@@ -1763,6 +1770,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
         let group_key = identity.group_key.clone();
         let node_id = identity.node_id.clone();
         let source_group_key = identity.source_group_key.clone();
+        let envoy_version = identity.envoy_version.clone();
         let task_group_key = group_key.clone();
         let task_node_id = node_id.clone();
         let task_source_group_key = source_group_key.clone();
@@ -1782,6 +1790,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                 node_id: node_id.clone(),
                 source_group_key,
                 node_group_key: group_key.clone(),
+                envoy_version,
             })
             .await;
         let node_groups_notify = self.node_groups_notify.clone();
@@ -2954,6 +2963,7 @@ mod tests {
                 node_id: "envoy-a".to_string(),
                 source_group_key: "v1:shared".to_string(),
                 node_group_key: "v2:node-a".to_string(),
+                envoy_version: "1.39.0".to_string(),
             })
             .await;
         let second = server
@@ -2961,6 +2971,7 @@ mod tests {
                 node_id: "envoy-a-reconnect".to_string(),
                 source_group_key: "v1:shared".to_string(),
                 node_group_key: "v2:node-a".to_string(),
+                envoy_version: "1.39.0".to_string(),
             })
             .await;
         let third = server
@@ -2968,6 +2979,7 @@ mod tests {
                 node_id: "envoy-b".to_string(),
                 source_group_key: "v1:shared".to_string(),
                 node_group_key: "v2:node-b".to_string(),
+                envoy_version: "1.39.0".to_string(),
             })
             .await;
 
@@ -3067,6 +3079,7 @@ mod tests {
                 node_id: "envoy-a".to_string(),
                 source_group_key: "v1:source".to_string(),
                 node_group_key: "v2:node-a".to_string(),
+                envoy_version: "1.39.0".to_string(),
             })
             .await;
 
@@ -3198,6 +3211,7 @@ mod tests {
                 node_id: "envoy-a".to_string(),
                 source_group_key: "v1:source".to_string(),
                 node_group_key: "v2:node-a".to_string(),
+                envoy_version: "1.39.0".to_string(),
             })
             .await;
         let resources = |value| {

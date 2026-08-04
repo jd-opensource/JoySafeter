@@ -26,7 +26,6 @@ REGISTRY="${DOCKER_REGISTRY:-}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-joysafeter-backend}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-joysafeter-frontend}"
 ORCHESTRATOR_RS_IMAGE="${ORCHESTRATOR_RS_IMAGE:-joysafeter-orchestrator-rs}"
-EGRESS_CONTROLLER_IMAGE="${EGRESS_CONTROLLER_IMAGE:-joysafeter-egress-controller}"
 SKILLSPECTOR_IMAGE="${SKILLSPECTOR_IMAGE:-joysafeter-skillspector}"
 CLAUDECODE_IMAGE="${CLAUDECODE_IMAGE:-joysafeter-claudecode}"
 CODEX_IMAGE="${CODEX_IMAGE:-joysafeter-codex}"
@@ -159,13 +158,12 @@ show_usage() {
   --backend-only         只处理后端镜像
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
-  --egress-controller-only 只处理旧 Go xDS 紧急回滚镜像
   --skillspector-only    只处理 SkillSpector 镜像
   --runtime-only         只处理 agent 运行镜像（claudecode, codex, native）
   --claudecode-only      只处理 Claude Code 运行镜像
   --codex-only           只处理 Codex 运行镜像
   --native-only          只处理 Native 运行镜像
-  --all                  构建所有镜像（核心部署镜像 + agent runtime 镜像）
+  --all                  构建所有当前产品镜像
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
   --mirror MIRROR        使用国内镜像源加速（aliyun, tencent, huawei, daocloud）
                          同时设置 BASE_IMAGE_REGISTRY 和 DOCKER_MIRROR
@@ -176,7 +174,6 @@ show_usage() {
   BACKEND_IMAGE          后端镜像名称（默认: joysafeter-backend）
   FRONTEND_IMAGE         前端镜像名称（默认: joysafeter-frontend）
   ORCHESTRATOR_RS_IMAGE  Rust orchestrator 镜像名称（默认: joysafeter-orchestrator-rs）
-  EGRESS_CONTROLLER_IMAGE 旧 Go xDS 回滚镜像名称（默认: joysafeter-egress-controller）
   SKILLSPECTOR_IMAGE     SkillSpector 镜像名称（默认: joysafeter-skillspector）
   CLAUDECODE_IMAGE       Claude Code 运行镜像名称（默认: joysafeter-claudecode）
   CODEX_IMAGE            Codex 运行镜像名称（默认: joysafeter-codex）
@@ -688,13 +685,11 @@ sync_local_core_image_env() {
         set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "${normalized_registry}/${BACKEND_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "${normalized_registry}/${FRONTEND_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "${normalized_registry}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
-        set_env_value "$deploy_env" "EGRESS_CONTROLLER_FULL_IMAGE" "${normalized_registry}/${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "${normalized_registry}/${SKILLSPECTOR_IMAGE}:${TAG}"
     else
         set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "${BACKEND_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "${FRONTEND_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "${ORCHESTRATOR_RS_IMAGE}:${TAG}"
-        set_env_value "$deploy_env" "EGRESS_CONTROLLER_FULL_IMAGE" "${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "${SKILLSPECTOR_IMAGE}:${TAG}"
     fi
 }
@@ -1441,7 +1436,6 @@ build_all_images() {
     local BUILD_BACKEND=${BUILD_BACKEND:-true}
     local BUILD_FRONTEND=${BUILD_FRONTEND:-true}
     local BUILD_ORCHESTRATOR=${BUILD_ORCHESTRATOR:-true}
-    local BUILD_EGRESS_CONTROLLER=${BUILD_EGRESS_CONTROLLER:-false}
     local BUILD_SKILLSPECTOR=${BUILD_SKILLSPECTOR:-true}
     local BUILD_CLAUDECODE=${BUILD_CLAUDECODE:-false}
     local BUILD_CODEX=${BUILD_CODEX:-false}
@@ -1450,7 +1444,6 @@ build_all_images() {
     if [ "$BACKEND_ONLY" = true ]; then
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1458,7 +1451,6 @@ build_all_images() {
     elif [ "$FRONTEND_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1467,16 +1459,6 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=true
-        BUILD_EGRESS_CONTROLLER=false
-        BUILD_SKILLSPECTOR=false
-        BUILD_CLAUDECODE=false
-        BUILD_CODEX=false
-        BUILD_NATIVE=false
-    elif [ "$EGRESS_CONTROLLER_ONLY" = true ]; then
-        BUILD_BACKEND=false
-        BUILD_FRONTEND=false
-        BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=true
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1485,7 +1467,6 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1494,7 +1475,6 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
@@ -1503,7 +1483,6 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=false
@@ -1512,7 +1491,6 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=true
@@ -1521,7 +1499,6 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
@@ -1530,13 +1507,11 @@ build_all_images() {
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
         BUILD_ORCHESTRATOR=false
-        BUILD_EGRESS_CONTROLLER=false
         BUILD_SKILLSPECTOR=false
     elif [ "$BUILD_ALL" = true ]; then
         BUILD_BACKEND=true
         BUILD_FRONTEND=true
         BUILD_ORCHESTRATOR=true
-        BUILD_EGRESS_CONTROLLER=true
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
@@ -1551,7 +1526,6 @@ build_all_images() {
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
         ORCHESTRATOR_RS_FULL_IMAGE="${NORMALIZED_REGISTRY}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
-        EGRESS_CONTROLLER_FULL_IMAGE="${NORMALIZED_REGISTRY}/${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         SKILLSPECTOR_FULL_IMAGE="${NORMALIZED_REGISTRY}/${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
@@ -1560,7 +1534,6 @@ build_all_images() {
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
         ORCHESTRATOR_RS_FULL_IMAGE="${ORCHESTRATOR_RS_IMAGE}:${TAG}"
-        EGRESS_CONTROLLER_FULL_IMAGE="${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         SKILLSPECTOR_FULL_IMAGE="${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
@@ -1616,14 +1589,6 @@ build_all_images() {
         echo ""
     fi
 
-    if [ "$BUILD_EGRESS_CONTROLLER" = true ]; then
-        build_image "Envoy Egress Controller" \
-            "$PROJECT_ROOT/egress-controller/Dockerfile" \
-            "$PROJECT_ROOT/egress-controller" \
-            "$EGRESS_CONTROLLER_FULL_IMAGE"
-        echo ""
-    fi
-
     if [ "$BUILD_SKILLSPECTOR" = true ]; then
         if [ "$USE_BUILDX" != true ]; then
             log_error "SkillSpector 镜像构建需要 Docker Buildx，以传入 skillspector named build context"
@@ -1662,7 +1627,6 @@ build_all_images() {
     [ "$BUILD_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$BUILD_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
     [ "$BUILD_ORCHESTRATOR" = true ] && echo "   Rust Orchestrator: $ORCHESTRATOR_RS_FULL_IMAGE"
-    [ "$BUILD_EGRESS_CONTROLLER" = true ] && echo "   Envoy Egress Controller: $EGRESS_CONTROLLER_FULL_IMAGE"
     [ "$BUILD_SKILLSPECTOR" = true ] && echo "   SkillSpector: $SKILLSPECTOR_FULL_IMAGE"
     [ "$BUILD_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$BUILD_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
@@ -1689,7 +1653,6 @@ pull_images() {
     local PULL_BACKEND=true
     local PULL_FRONTEND=true
     local PULL_ORCHESTRATOR=true
-    local PULL_EGRESS_CONTROLLER=false
     local PULL_SKILLSPECTOR=true
     local PULL_CLAUDECODE=false
     local PULL_CODEX=false
@@ -1698,34 +1661,23 @@ pull_images() {
     if [ "$BACKEND_ONLY" = true ]; then
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
-        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
     elif [ "$FRONTEND_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_ORCHESTRATOR=false
-        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
     elif [ "$ORCHESTRATOR_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
-        PULL_EGRESS_CONTROLLER=false
-        PULL_SKILLSPECTOR=false
-    elif [ "$EGRESS_CONTROLLER_ONLY" = true ]; then
-        PULL_BACKEND=false
-        PULL_FRONTEND=false
-        PULL_ORCHESTRATOR=false
-        PULL_EGRESS_CONTROLLER=true
         PULL_SKILLSPECTOR=false
     elif [ "$SKILLSPECTOR_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
-        PULL_EGRESS_CONTROLLER=false
     elif [ "$RUNTIME_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
-        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
         PULL_CLAUDECODE=true
         PULL_CODEX=true
@@ -1734,21 +1686,18 @@ pull_images() {
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
-        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
         PULL_CLAUDECODE=true
     elif [ "$CODEX_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
-        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
         PULL_CODEX=true
     elif [ "$NATIVE_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
         PULL_ORCHESTRATOR=false
-        PULL_EGRESS_CONTROLLER=false
         PULL_SKILLSPECTOR=false
         PULL_NATIVE=true
     elif [ "$BUILD_ALL" = true ]; then
@@ -1761,7 +1710,6 @@ pull_images() {
         BACKEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${NORMALIZED_REGISTRY}/${FRONTEND_IMAGE}:${TAG}"
         ORCHESTRATOR_RS_FULL_IMAGE="${NORMALIZED_REGISTRY}/${ORCHESTRATOR_RS_IMAGE}:${TAG}"
-        EGRESS_CONTROLLER_FULL_IMAGE="${NORMALIZED_REGISTRY}/${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         SKILLSPECTOR_FULL_IMAGE="${NORMALIZED_REGISTRY}/${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
@@ -1770,7 +1718,6 @@ pull_images() {
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
         ORCHESTRATOR_RS_FULL_IMAGE="${ORCHESTRATOR_RS_IMAGE}:${TAG}"
-        EGRESS_CONTROLLER_FULL_IMAGE="${EGRESS_CONTROLLER_IMAGE}:${TAG}"
         SKILLSPECTOR_FULL_IMAGE="${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
@@ -1792,7 +1739,6 @@ pull_images() {
     [ "$PULL_BACKEND" = true ] && pull_one_image "后端" "$BACKEND_FULL_IMAGE"
     [ "$PULL_FRONTEND" = true ] && pull_one_image "前端" "$FRONTEND_FULL_IMAGE"
     [ "$PULL_ORCHESTRATOR" = true ] && pull_one_image "Rust Orchestrator" "$ORCHESTRATOR_RS_FULL_IMAGE"
-    [ "$PULL_EGRESS_CONTROLLER" = true ] && pull_one_image "Envoy Egress Controller" "$EGRESS_CONTROLLER_FULL_IMAGE"
     [ "$PULL_SKILLSPECTOR" = true ] && pull_one_image "SkillSpector" "$SKILLSPECTOR_FULL_IMAGE"
     [ "$PULL_CLAUDECODE" = true ] && pull_one_image "Claude Code 运行" "$CLAUDECODE_FULL_IMAGE"
     [ "$PULL_CODEX" = true ] && pull_one_image "Codex 运行" "$CODEX_FULL_IMAGE"
@@ -1803,7 +1749,6 @@ pull_images() {
     [ "$PULL_BACKEND" = true ] && set_env_value "$deploy_env" "BACKEND_FULL_IMAGE" "$BACKEND_FULL_IMAGE"
     [ "$PULL_FRONTEND" = true ] && set_env_value "$deploy_env" "FRONTEND_FULL_IMAGE" "$FRONTEND_FULL_IMAGE"
     [ "$PULL_ORCHESTRATOR" = true ] && set_env_value "$deploy_env" "ORCHESTRATOR_RS_FULL_IMAGE" "$ORCHESTRATOR_RS_FULL_IMAGE"
-    [ "$PULL_EGRESS_CONTROLLER" = true ] && set_env_value "$deploy_env" "EGRESS_CONTROLLER_FULL_IMAGE" "$EGRESS_CONTROLLER_FULL_IMAGE"
     [ "$PULL_SKILLSPECTOR" = true ] && set_env_value "$deploy_env" "SKILLSPECTOR_FULL_IMAGE" "$SKILLSPECTOR_FULL_IMAGE"
     if [ "$PULL_CLAUDECODE" = true ]; then
         set_env_value "$deploy_env" "JOYSAFETER_SANDBOX_IMAGE" "$CLAUDECODE_FULL_IMAGE"
@@ -1819,7 +1764,6 @@ pull_images() {
     [ "$PULL_BACKEND" = true ] && echo "   后端: $BACKEND_FULL_IMAGE"
     [ "$PULL_FRONTEND" = true ] && echo "   前端: $FRONTEND_FULL_IMAGE"
     [ "$PULL_ORCHESTRATOR" = true ] && echo "   Rust Orchestrator: $ORCHESTRATOR_RS_FULL_IMAGE"
-    [ "$PULL_EGRESS_CONTROLLER" = true ] && echo "   Envoy Egress Controller: $EGRESS_CONTROLLER_FULL_IMAGE"
     [ "$PULL_SKILLSPECTOR" = true ] && echo "   SkillSpector: $SKILLSPECTOR_FULL_IMAGE"
     [ "$PULL_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$PULL_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
@@ -1835,7 +1779,6 @@ main() {
     local BACKEND_ONLY=false
     local FRONTEND_ONLY=false
     local ORCHESTRATOR_ONLY=false
-    local EGRESS_CONTROLLER_ONLY=false
     local SKILLSPECTOR_ONLY=false
     local RUNTIME_ONLY=false
     local CLAUDECODE_ONLY=false
@@ -1940,10 +1883,6 @@ main() {
                 ;;
             --orchestrator-only)
                 ORCHESTRATOR_ONLY=true
-                shift
-                ;;
-            --egress-controller-only)
-                EGRESS_CONTROLLER_ONLY=true
                 shift
                 ;;
             --skillspector-only)

@@ -98,4 +98,3 @@ stringData:
   SECRET_KEY: local-dev-secret-key-change-before-prod
   JWT_SECRET_KEY: local-dev-jwt-secret-key-change-before-prod
   JOYSAFETER_VAULT_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
-  JOYSAFETER_EGRESS_CONTROLLER_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/joysafeter?sslmode=disable

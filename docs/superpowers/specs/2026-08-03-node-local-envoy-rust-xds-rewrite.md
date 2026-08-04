@@ -1,7 +1,7 @@
 # Node-local Envoy + Rust xDS Control Plane Rewrite
 
 - **Date:** 2026-08-03
-- **Status:** Implemented; Rust is the deployment default, live production cutover verification required
+- **Status:** Implemented; independent xDS controller physically removed, live production cutover verification required
 - **Scope:** Sandbox egress data plane, Rust xDS control plane, Docker/Kubernetes deployment topology
 
 ## Decision
@@ -15,9 +15,9 @@ The Rust orchestrator and xDS server run in the same process. Production runs
 multiple identical replicas but exactly one replica is active at a time; all
 other replicas are cold standbys. A PostgreSQL session advisory lock is the
 single-active authority. A standby does not schedule tasks or serve ADS until it
-acquires leadership. Envoy now targets the embedded Rust ADS server by default;
-the temporary Go controller is absent from the base deployment and retained only
-as an explicit emergency rollback asset during the first production cutover.
+acquires leadership. Envoy targets only the embedded Rust ADS server. The former
+independent controller source, image build, rollback manifests, PKI identity,
+and CI job are physically removed.
 
 ## Required topology
 
@@ -133,8 +133,8 @@ ACKs.
    and prove the non-bypass network path.
 6. Compare the Go and Rust compilers against identical policy fixtures.
 7. Switch the default Envoy ADS target directly to the active Rust process.
-8. Keep Go only as an explicit emergency rollback until live leader-failover,
-   NACK, database-outage, node-loss, and control-plane-restart drills pass.
+8. Physically delete the independent controller and use the previous validated
+   Rust orchestrator/Envoy release as the only rollback path.
 
 ## Implemented cutover gate
 
@@ -149,11 +149,11 @@ The embedded Rust Delta ADS implementation now provides:
 - metrics and bounded diagnostics;
 - real Envoy and multi-replica integration coverage.
 
-## Go controller removal and Rust superiority gate
+## Independent controller removal and Rust superiority gate
 
-The embedded Rust control plane exceeds the temporary Go controller in deployment
-simplicity, node isolation, durable failure recovery, security, and diagnostics.
-The Go controller is no longer part of the default deployment.
+The embedded Rust control plane exceeds the former temporary controller in
+deployment simplicity, node isolation, durable failure recovery, security, and
+diagnostics. The independent controller has been physically removed.
 
 ### Current completed foundation
 
@@ -188,7 +188,9 @@ The Go controller is no longer part of the default deployment.
 6. **Durable ACK/NACK state machine.** Correlate nonce, type URL, version, group,
    and node; persist sanitized NACK reasons; require ACKs only for changed types;
    compute quorum across leased connected nodes; reject replay of failed
-   versions; and roll back immediately to durable last-known-good.
+   versions; roll back immediately to durable last-known-good; and own the
+   canonical apply/node status tables consumed by the orchestrator policy gate
+   and operational dashboards.
 7. **Node-local v2 publication.** Compile and publish a separate `v2` group for
    each eligible execution node/host, with explicit policy assignment and no
    cross-host resource delivery.
@@ -220,11 +222,52 @@ The Go controller is no longer part of the default deployment.
 - Production-sized policy, node, and reconnect load stays within explicit CPU,
   memory, snapshot-size, and convergence-time budgets.
 - The direct cutover script requires connected Envoy nodes and healthy Rust xDS
-  metrics before scaling any pre-existing Go controller Deployment to zero.
+  metrics before scaling any pre-existing legacy controller Deployment to zero.
+- Docker's isolated four-source task smoke requires the API-created policy to
+  reach canonical applied state, real Envoy ACK, successful platform credential
+  injection with sandbox-token stripping, wrong-token denial, and upstream
+  `x-request-id` correlation.
 
 ### Removal decision
 
-The default deployment, build smoke, and architecture guards no longer depend on
-Go. Delete the remaining rollback manifest, PKI identity, and Go source tree
-after the first real production cutover passes policy, NACK rollback, restart,
-and leadership-handoff drills and the emergency rollback procedure is verified.
+Removal is complete. Compiler fixtures were migrated into the Rust crate before
+deleting the independent source tree, rollback manifest/script, PKI identity,
+Compose profile, build flags, and CI job. Architecture guards now fail if those
+paths or active deployment references return. Production rollback uses the
+previous validated Rust orchestrator image and matching Envoy manifests.
+
+## Local Docker validation evidence
+
+An isolated Compose run proved the complete business path:
+
+- API task creation produced a Docker sandbox and canonical `v1` generation;
+- the embedded Rust ADS published node-isolated `v2` resources and Envoy ACKed
+  all three required types with zero NACKs;
+- canonical apply state reached `applied` with one live Rust connection and
+  `3/3` per-node ACK rows;
+- the sandbox contained only the placeholder URL and runner identity, never the
+  platform credential;
+- ext_authz injected the platform Bearer credential, stripped the sandbox token,
+  denied a wrong token with 403, and the mock log contained the same Envoy
+  `x-request-id`;
+- the run exposed and fixed a source/node identity bug: ADS snapshots are keyed
+  by node-local `v2`, but ext_authz durable lookup must carry canonical source
+  `v1`; using `v2` made xDS look healthy while every credential request failed.
+
+## Local Kubernetes validation evidence
+
+On 2026-08-03, a clean single-node colima/k3s environment validated the release
+image with three Rust orchestrator replicas and one node-local Envoy:
+
+- all three orchestrator Pods were Ready while exactly one carried
+  `joysafeter.io/control-plane-active=true`;
+- runner/ADS and ext_authz Services exposed only that active Pod;
+- Envoy reported `envoy_control_plane_connected_state=1`, one healthy xDS
+  cluster member, and one active upstream connection;
+- Rust reported one connected ADS node/stream, two ACKs, zero NACKs, and zero
+  reconcile failures;
+- deleting the active Pod elected a cold standby in 6 seconds, moved the Service
+  endpoint, restored the Envoy ADS stream, and again produced two ACKs with zero
+  NACKs;
+- the test exposed and fixed a Kubernetes service-link environment collision by
+  setting `enableServiceLinks: false` on the base orchestrator Pod template.

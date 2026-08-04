@@ -168,7 +168,21 @@ impl Authorization for ExtAuthzService {
             };
             match validate_sandbox_identity(pool, sandbox_id, &route, &headers).await {
                 Ok(true) => {}
-                Ok(false) => return Ok(Response::new(deny_response())),
+                Ok(false) => {
+                    let identity_header = route.inject_header.to_ascii_lowercase();
+                    let actual = headers.get(&identity_header);
+                    tracing::debug!(
+                        %sandbox_id,
+                        route_id = %route_id,
+                        identity_header = %identity_header,
+                        header_present = actual.is_some(),
+                        actual_length = actual.map_or(0, String::len),
+                        actual_has_bearer_prefix = actual.is_some_and(|value| value.starts_with("Bearer ")),
+                        header_names = ?headers.keys().collect::<Vec<_>>(),
+                        "ext_authz sandbox identity mismatch"
+                    );
+                    return Ok(Response::new(deny_response()));
+                }
                 Err(error) => {
                     tracing::warn!(
                         %sandbox_id,

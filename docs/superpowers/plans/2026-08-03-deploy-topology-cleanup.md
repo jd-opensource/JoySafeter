@@ -1,5 +1,9 @@
 # Deploy topology cleanup & egress config reconciliation
 
+> **Historical / superseded (2026-08-04):** Controller-related deployment
+> steps in this plan describe deleted assets. The current topology is Rust-only;
+> see `../specs/2026-08-03-node-local-envoy-rust-xds-rewrite.md`.
+
 Date: 2026-08-03
 Branch: joysafeter-v2
 

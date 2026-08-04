@@ -1,5 +1,9 @@
 # Egress Controller `apply_status` Concurrency Correctness (B1)
 
+> **Historical / superseded (2026-08-04):** This design applies to the deleted
+> Go publisher. Rust now owns canonical connection, ACK/NACK, generation, and
+> aggregate apply-state transitions.
+
 - **Date:** 2026-08-03
 - **Scope:** `egress-controller` (Go) apply-status aggregation only. No schema change, no orchestrator (Rust) change.
 - **Status:** Design approved, pending spec review.

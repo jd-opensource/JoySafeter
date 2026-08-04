@@ -1,0 +1,57 @@
+{
+  "policy_schema_version": 1,
+  "group_key": "v2:docker-node-a",
+  "generation": 42,
+  "content_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "policies": [
+    {
+      "sandbox_id": "018ff000-0000-7000-8000-000000000001",
+      "project_id": null,
+      "mode": "limited",
+      "credential_routes": [
+        {
+          "route_id": "llm",
+          "consumer_route_id": "llm",
+          "kind": "llm",
+          "match_authority": "llm.joysafeter.internal",
+          "match_path": { "kind": "prefix", "value": "/" },
+          "methods": ["POST"],
+          "upstream": {
+            "scheme": "https",
+            "host": "api.example.com",
+            "port": 443,
+            "base_path": "/v1",
+            "protocol": "auto"
+          },
+          "credential_ref": {
+            "kind": "llm",
+            "secret_name": "provider",
+            "secret_key": "token"
+          },
+          "inject_header": "authorization",
+          "inject_scheme": { "kind": "bearer" },
+          "remove_headers": ["authorization", "x-api-key"],
+          "timeout_profile": "streaming",
+          "websocket": false
+        }
+      ],
+      "allowed_public_hosts": ["downloads.example.com"],
+      "denied_cidrs": ["10.0.0.0/8"]
+    }
+  ],
+  "expected_resources": {
+    "clusters": [
+      "joysafeter_dynamic_forward_proxy",
+      "joysafeter_egress_authz",
+      "joysafeter_up_c7f14ad83775cfde845a"
+    ],
+    "routes": [
+      "joysafeter_control_018ff000_0000_7000_8000_000000000001",
+      "joysafeter_routes_018ff000_0000_7000_8000_000000000001"
+    ],
+    "listeners": [
+      "joysafeter_018ff000_0000_7000_8000_000000000001_grpc",
+      "joysafeter_018ff000_0000_7000_8000_000000000001_http"
+    ]
+  }
+}

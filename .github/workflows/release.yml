@@ -84,10 +84,6 @@ jobs:
             context: ./deploy/docker
             dockerfile: ./deploy/docker/sandbox.Dockerfile
             push_dockerhub: true
-          - name: joysafeter-egress-controller
-            context: ./egress-controller
-            dockerfile: ./egress-controller/Dockerfile
-            push_dockerhub: true
           - name: joysafeter-orchestrator-rs
             context: .
             dockerfile: ./deploy/docker/orchestrator-rs.Dockerfile

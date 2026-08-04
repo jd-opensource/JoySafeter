@@ -1,5 +1,9 @@
 # Egress Controller Apply-Status Concurrency Deep Dive
 
+> **Historical / superseded (2026-08-04):** This implementation record covers
+> the deleted Go publisher. Canonical apply-state ownership now lives in the
+> embedded Rust ADS reconciler and observer.
+
 Status: implemented and integration-tested on 2026-08-03.
 
 ## Goal

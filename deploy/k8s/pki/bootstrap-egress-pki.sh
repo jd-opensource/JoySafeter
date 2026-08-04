@@ -9,10 +9,8 @@ SANDBOX_NS="${JOYSAFETER_K8S_NAMESPACE:-joysafeter-sandboxes}"
 CA_VALID_DAYS="${CA_VALID_DAYS:-30}"
 CERT_VALID_DAYS="${CERT_VALID_DAYS:-7}"
 KEEP_PKI_DIR="${KEEP_PKI_DIR:-false}"
-INCLUDE_GO_XDS_ROLLBACK_PKI="${INCLUDE_GO_XDS_ROLLBACK_PKI:-false}"
 
 ENVOY_IDENTITY="joysafeter-egress-envoy.joysafeter-egress.svc.cluster.local"
-XDS_SERVER_IDENTITY="joysafeter-egress-controller.joysafeter-control.svc.cluster.local"
 RUST_XDS_SERVER_IDENTITY="joysafeter-orchestrator.joysafeter-control.svc.cluster.local"
 AUTHZ_SERVER_IDENTITY="joysafeter-egress-authz.joysafeter-control.svc.cluster.local"
 
@@ -118,9 +116,6 @@ done
 create_ca xds "JoySafeter ephemeral xDS CA"
 create_leaf xds rust-server "$RUST_XDS_SERVER_IDENTITY" serverAuth
 create_leaf xds envoy-client "$ENVOY_IDENTITY" clientAuth
-if [[ "$INCLUDE_GO_XDS_ROLLBACK_PKI" == "true" ]]; then
-  create_leaf xds controller-server "$XDS_SERVER_IDENTITY" serverAuth
-fi
 
 create_ca authz "JoySafeter ephemeral authz CA"
 create_leaf authz authz-server "$AUTHZ_SERVER_IDENTITY" serverAuth
@@ -131,9 +126,6 @@ create_leaf downstream envoy-server "$ENVOY_IDENTITY" serverAuth
 
 apply_tls_secret "$CONTROL_NS" joysafeter-rust-xds-server-tls xds rust-server
 apply_tls_secret "$EGRESS_NS" joysafeter-egress-envoy-xds-client-tls xds envoy-client
-if [[ "$INCLUDE_GO_XDS_ROLLBACK_PKI" == "true" ]]; then
-  apply_tls_secret "$CONTROL_NS" joysafeter-egress-controller-tls xds controller-server
-fi
 apply_tls_secret "$CONTROL_NS" joysafeter-egress-authz-server-tls authz authz-server
 apply_tls_secret "$EGRESS_NS" joysafeter-egress-authz-client-tls authz envoy-client
 apply_tls_secret "$EGRESS_NS" joysafeter-egress-downstream-server-tls downstream envoy-server
