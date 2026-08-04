@@ -2187,8 +2187,12 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let input = HarnessInputBuilder::new(pool.clone())
-                .build(&task, "sandbox-ext", Uuid::now_v7())
+            let mut docker_config = crate::config::JoySafeterConfig::from_env();
+            docker_config.sandbox_provider = "docker".to_string();
+            docker_config.egress_policy_authority_enabled = true;
+            docker_config.egress_envoy_credential_url = None;
+            let input = HarnessInputBuilder::with_config(pool.clone(), &docker_config)
+                .build(&task, "sandbox-ext", sandbox_id)
                 .await
                 .expect("build harness input");
 
@@ -2201,7 +2205,13 @@ mod tests {
                     crate::egress::policy::MCP_EGRESS_HOST
                 )
             );
-            assert!(input.mcp_servers[0].headers.is_empty());
+            assert_eq!(
+                input.mcp_servers[0]
+                    .headers
+                    .get("authorization")
+                    .map(String::as_str),
+                Some("Bearer runner-token")
+            );
             assert_eq!(input.repos.len(), 1);
             assert_eq!(
                 input.repos[0].url,
@@ -2210,7 +2220,7 @@ mod tests {
                     crate::egress::policy::GIT_EGRESS_HOST
                 )
             );
-            assert!(input.repos[0].authorization_token.is_empty());
+            assert_eq!(input.repos[0].authorization_token, "runner-token");
 
             let mut config = crate::config::JoySafeterConfig::from_env();
             config.sandbox_provider = "k8s".to_string();

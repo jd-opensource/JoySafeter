@@ -26,7 +26,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production \
     NODE_OPTIONS="--max-old-space-size=4096"
-RUN /root/.bun/bin/bun run build
+RUN npm run build
 
 FROM base AS runner
 WORKDIR /app

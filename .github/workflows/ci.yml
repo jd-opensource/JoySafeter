@@ -97,7 +97,7 @@ jobs:
 
       - name: Run tests
         working-directory: backend/app/joysafeter_orchestrator_rs
-        run: cargo test --locked --all-targets
+        run: cargo test --locked --all-targets -- --test-threads=1
 
       - name: Build release binaries
         working-directory: backend/app/joysafeter_orchestrator_rs
