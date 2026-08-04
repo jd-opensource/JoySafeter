@@ -310,9 +310,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("idx_egress_node_apply_generation", table_name="joysafeter_egress_node_apply_status")
     op.drop_table("joysafeter_egress_node_apply_status")
-    op.execute(
-        "DROP TRIGGER IF EXISTS trg_joysafeter_egress_apply_status_notify ON joysafeter_egress_apply_status"
-    )
+    op.execute("DROP TRIGGER IF EXISTS trg_joysafeter_egress_apply_status_notify ON joysafeter_egress_apply_status")
     op.execute("DROP FUNCTION IF EXISTS joysafeter_notify_egress_apply_status()")
     op.drop_index("idx_egress_apply_state", table_name="joysafeter_egress_apply_status")
     op.drop_table("joysafeter_egress_apply_status")

@@ -59,9 +59,9 @@ k8s-openapi = { version = "0.28.0", features = ["v1_34"] }
 # HTTP client (for Daytona/E2B providers)
 axum = "0.7"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "rustls"] }
+aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
 aws-credential-types = "1"
-aws-sdk-s3 = "1"
+aws-sdk-s3 = { version = "1", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

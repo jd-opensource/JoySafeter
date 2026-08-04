@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
@@ -92,7 +92,7 @@ pub fn spawn_scheduler(
                     )
                     .await
                     {
-                        Ok(queries::PendingTaskClaim::Claimed(task)) => tasks.push(task),
+                        Ok(queries::PendingTaskClaim::Claimed(task)) => tasks.push(*task),
                         Ok(queries::PendingTaskClaim::AtCapacity) => {
                             admission_blocked = true;
                             if let Err(error) = queue.push_to_global(task_id).await {
@@ -123,7 +123,7 @@ pub fn spawn_scheduler(
                         )
                         .await
                         {
-                            Ok(queries::PendingTaskClaim::Claimed(task)) => tasks.push(task),
+                            Ok(queries::PendingTaskClaim::Claimed(task)) => tasks.push(*task),
                             Ok(queries::PendingTaskClaim::AtCapacity) => {
                                 admission_blocked = true;
                                 if let Err(error) = queue.push_to_global(task_id).await {

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import UserDefinedType
 from uuid_utils import uuid7
 
-from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.database_base import Base
 from app.joysafeter_shared.utils.datetime import utc_now
 
 

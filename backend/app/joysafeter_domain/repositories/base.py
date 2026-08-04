@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.database_base import Base
 
 T = TypeVar("T", bound=Base)
 

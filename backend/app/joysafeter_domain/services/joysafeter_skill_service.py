@@ -664,7 +664,7 @@ Skill Service: Permission Check + CRUD
 """
 
 
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, TypedDict
 
 from loguru import logger
 
@@ -713,6 +713,14 @@ _ELIGIBILITY_NEXT_ACTIONS: dict[str | None, str] = {
     "no_security_scan_hash": "run_security_scan",
     "content_changed_after_scan": "run_security_scan",
 }
+
+
+class SkillScanFields(TypedDict):
+    name: str
+    description: str
+    content: str
+    tags: List[str]
+    license: Optional[str]
 
 
 class SkillService(BaseService[JoySafeterSkill]):
@@ -879,8 +887,8 @@ class SkillService(BaseService[JoySafeterSkill]):
         self,
         skill: JoySafeterSkill,
         content: Optional[str],
-    ) -> dict[str, Any]:
-        fields: dict[str, Any] = {
+    ) -> SkillScanFields:
+        fields: SkillScanFields = {
             "name": skill.name,
             "description": skill.description,
             "content": skill.content,
@@ -892,14 +900,18 @@ class SkillService(BaseService[JoySafeterSkill]):
 
         frontmatter, body = parse_skill_md(content)
         metadata = extract_metadata_from_frontmatter(frontmatter)
-        if metadata.get("name"):
-            fields["name"] = metadata["name"]
-        if metadata.get("description"):
-            fields["description"] = metadata["description"]
-        if metadata.get("tags") and isinstance(metadata["tags"], list):
-            fields["tags"] = metadata["tags"]
-        if metadata.get("license"):
-            fields["license"] = metadata["license"]
+        metadata_name = metadata.get("name")
+        if isinstance(metadata_name, str) and metadata_name:
+            fields["name"] = metadata_name
+        metadata_description = metadata.get("description")
+        if isinstance(metadata_description, str) and metadata_description:
+            fields["description"] = metadata_description
+        metadata_tags = metadata.get("tags")
+        if isinstance(metadata_tags, list) and all(isinstance(tag, str) for tag in metadata_tags):
+            fields["tags"] = metadata_tags
+        metadata_license = metadata.get("license")
+        if isinstance(metadata_license, str) and metadata_license:
+            fields["license"] = metadata_license
         if body:
             fields["content"] = body.strip()
         return fields

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from uuid_utils import uuid7
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
-from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.database_base import Base
 
 
 class JoySafeterMemoryStore(JoySafeterBaseModel):

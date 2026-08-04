@@ -31,7 +31,7 @@ pub struct FailedSandboxTask {
 
 #[derive(Debug)]
 pub enum PendingTaskClaim {
-    Claimed(JoySafeterTask),
+    Claimed(Box<JoySafeterTask>),
     AtCapacity,
     NotPending,
 }
@@ -87,7 +87,7 @@ pub async fn claim_pending_task_by_id(
     tx.commit().await?;
 
     Ok(match task {
-        Some(task) => PendingTaskClaim::Claimed(task),
+        Some(task) => PendingTaskClaim::Claimed(Box::new(task)),
         None => PendingTaskClaim::NotPending,
     })
 }

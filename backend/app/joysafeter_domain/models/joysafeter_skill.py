@@ -21,7 +21,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, Uniqu
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.database_base import Base
 
 from .base import BaseModel, TimestampMixin
 

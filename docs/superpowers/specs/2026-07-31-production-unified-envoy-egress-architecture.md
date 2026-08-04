@@ -5,9 +5,9 @@
 > replaced and physically deleted. See
 > `2026-08-03-node-local-envoy-rust-xds-rewrite.md`.
 
-Status: **target architecture approved for implementation planning**  
-Date: 2026-07-31  
-Scope: Docker, Kubernetes/k3s, and future remote sandbox providers  
+Status: **target architecture approved for implementation planning**
+Date: 2026-07-31
+Scope: Docker, Kubernetes/k3s, and future remote sandbox providers
 Primary decision: **retire the self-built Rust HTTP forwarding proxy and standardize on Envoy as the egress data plane**
 
 This specification supersedes the Rust-forwarding portions of:

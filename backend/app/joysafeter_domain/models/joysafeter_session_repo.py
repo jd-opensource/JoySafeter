@@ -12,7 +12,7 @@ from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.database_base import Base
 from app.joysafeter_shared.utils.datetime import utc_now
 
 

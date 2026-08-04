@@ -2,17 +2,15 @@
 Application configuration.
 """
 
-import os
 import socket
 from pathlib import Path
 from typing import Annotated, List, Optional, Union
 
-from loguru import logger
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-from sqlalchemy.engine.url import make_url
 
 from app import __version__
+from app.joysafeter_shared.database_url import database_url_from_env
 
 # get project root directory (backend directory)
 # from app/shared/config/settings.py go up three levels to backend/
@@ -24,15 +22,6 @@ ENV_FILE = BASE_DIR / ".env"
 from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(ENV_FILE, override=False)
-
-
-def _is_tcp_port_open(host: str, port: int, timeout_seconds: float = 0.5) -> bool:
-    """Check whether a TCP port is open."""
-    try:
-        with socket.create_connection((host, port), timeout=timeout_seconds):
-            return True
-    except OSError:
-        return False
 
 
 class Settings(BaseSettings):
@@ -148,49 +137,8 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        """
-        Build database connection URL from POSTGRES_* environment variables.
-
-        Automatically handle two scenarios:
-        1. Backend running locally: use localhost + POSTGRES_PORT_HOST (if set) or 5432
-        2. Inside the same docker-compose: use service name (e.g. "db") + container-internal port 5432
-        """
-        postgres_host = os.getenv("POSTGRES_HOST", "localhost")
-        postgres_user = os.getenv("POSTGRES_USER", "postgres")
-        postgres_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-        postgres_db = os.getenv("POSTGRES_DB", "joysafeter")
-
-        # determine port:
-        if postgres_host in ("localhost", "127.0.0.1", "::1"):
-            # local startup: check for Docker mapped port config
-            postgres_port_host = os.getenv("POSTGRES_PORT_HOST")
-            postgres_port = postgres_port_host if postgres_port_host else os.getenv("POSTGRES_PORT", "5432")
-        else:
-            # remote or docker-compose: prefer POSTGRES_PORT, default 5432 (container-internal port)
-            postgres_port = os.getenv("POSTGRES_PORT", "5432")
-
-        database_url = (
-            f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
-        )
-
-        # auto-fix port for localhost (see scripts/view_db.py)
-        # resolve common issue: .env has 5433 (docker) but local startup needs 5432, or vice versa
-        try:
-            url = make_url(database_url)
-            host = url.host
-            port = url.port
-
-            if host in ("localhost", "127.0.0.1", "::1") and port:
-                if not _is_tcp_port_open(host, port):
-                    # if the configured port is unreachable but 5432 is, auto-switch
-                    if port != 5432 and _is_tcp_port_open(host, 5432):
-                        url = url.set(port=5432)
-                        database_url = url.render_as_string(hide_password=False)
-                        logger.warning(f"Database connection to {host}:{port} failed, auto-switched to 5432")
-        except Exception:
-            pass  # Fall through to use original database_url; port auto-detect is best-effort
-
-        return database_url
+        """Build the async PostgreSQL URL from the POSTGRES_* environment."""
+        return database_url_from_env()
 
     # Sync database URL for Alembic
     @property
@@ -776,8 +724,7 @@ class JoySafeterConfig(BaseSettings):
     # Envoy network isolation
     envoy_enabled: bool = False
     envoy_image: str = (
-        "envoyproxy/envoy:v1.39.0@sha256:"
-        "d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66"
+        "envoyproxy/envoy:v1.39.0@sha256:d59f7f5fa10cff6d5892b6c5e7df5c9297ddfb2c3683e33fbfb82da24de4fa66"
     )
     envoy_socket_volume: str = "joysafeter-sockets"
     envoy_config_dir: str = "/tmp/joysafeter-envoy-config"

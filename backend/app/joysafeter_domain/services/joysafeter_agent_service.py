@@ -587,9 +587,7 @@ class JoySafeterAgentService:
         )
         return list(result.scalars().all())
 
-    async def count_delete_preview(
-        self, agent_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> dict[str, int]:
+    async def count_delete_preview(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> dict[str, int]:
         """Counts of the child resources a hard delete would remove for this agent.
 
         ``tasks`` reports only active (non-terminal) tasks -- the same set the
@@ -602,9 +600,7 @@ class JoySafeterAgentService:
             select(func.count()).select_from(JoySafeterSession).where(JoySafeterSession.agent_id == agent_id)
         )
         versions_result = await self.db.execute(
-            select(func.count())
-            .select_from(JoySafeterAgentVersion)
-            .where(JoySafeterAgentVersion.agent_id == agent_id)
+            select(func.count()).select_from(JoySafeterAgentVersion).where(JoySafeterAgentVersion.agent_id == agent_id)
         )
         tasks = await self._count_active_tasks_for_agent(agent_id, project_id=project_id)
         return {

@@ -9,7 +9,7 @@ from sqlalchemy import BigInteger, ForeignKey, Index, Numeric, String, UniqueCon
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.database_base import Base
 
 from .base import TimestampMixin
 

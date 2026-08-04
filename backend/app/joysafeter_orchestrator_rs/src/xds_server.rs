@@ -25,6 +25,7 @@ pub struct XdsTlsConfig {
     pub client_dns_san: String,
 }
 
+#[allow(clippy::result_large_err)]
 pub async fn start_xds_server(
     addr: SocketAddr,
     xds: Arc<DeltaXdsServer>,
@@ -75,6 +76,7 @@ pub async fn start_xds_server(
     }))
 }
 
+#[allow(clippy::result_large_err)]
 fn verify_peer_dns_san(request: &Request<()>, expected_dns_san: &str) -> Result<(), Status> {
     let certificates = request
         .peer_certs()

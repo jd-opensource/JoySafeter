@@ -4,6 +4,7 @@ Alembic environment configuration
 
 import asyncio
 from logging.config import fileConfig
+from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import pool
@@ -11,13 +12,15 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
-from app.joysafeter_shared.config.settings import ENV_FILE
+
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
+ENV_FILE = BACKEND_ROOT / ".env"
 
 load_dotenv(ENV_FILE, override=False)
 
 from app.joysafeter_domain import models  # noqa: F401,E402 - register SQLAlchemy models
-from app.joysafeter_shared.config.settings import settings  # noqa: E402
-from app.joysafeter_shared.database import Base  # noqa: E402
+from app.joysafeter_shared.database_base import Base  # noqa: E402
+from app.joysafeter_shared.database_url import database_url_from_env, database_url_sync_from_env  # noqa: E402
 
 config = context.config
 
@@ -26,7 +29,7 @@ if config.config_file_name is not None:
 
 # For async migrations, use the async URL; for offline migrations, use the sync URL.
 # Set the sync URL here (for offline mode); online mode will use the async URL.
-config.set_main_option("sqlalchemy.url", settings.database_url_sync)
+config.set_main_option("sqlalchemy.url", database_url_sync_from_env())
 
 target_metadata = Base.metadata
 
@@ -58,7 +61,7 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     # For async migrations, use the async database URL directly
     connectable = create_async_engine(
-        settings.database_url,
+        database_url_from_env(),
         poolclass=pool.NullPool,
     )
 
