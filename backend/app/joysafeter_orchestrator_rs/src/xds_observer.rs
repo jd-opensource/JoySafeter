@@ -144,7 +144,7 @@ async fn persist_observation(
         .bind(&observation.type_url)
         .bind(&observation.xds_version)
         .bind(status)
-        .bind(nonce_sha256)
+        .bind(&nonce_sha256)
         .bind(orchestrator_instance)
         .bind(observation.error_code)
         .bind(&error_summary)
@@ -177,10 +177,7 @@ async fn persist_observation(
         .bind(&observation.type_url)
         .bind(&observation.xds_version)
         .bind(status)
-        .bind(format!(
-            "{:x}",
-            Sha256::digest(observation.nonce.as_bytes())
-        ))
+        .bind(&nonce_sha256)
         .bind(orchestrator_instance)
         .bind(&error_summary)
         .execute(&mut *transaction)

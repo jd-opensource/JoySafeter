@@ -1031,17 +1031,8 @@ fn build_listeners(
     ])
 }
 
-fn http_listener(
-    config: &CompilerConfig,
-    name: &str,
-    address_value: &str,
-    port: u32,
-    route_name: &str,
-    dynamic_forward: bool,
-    authz_cluster: &str,
-    denied_cidrs: &[ModernCidrRange],
-) -> anyhow::Result<Listener> {
-    let mut filters = vec![HttpFilter {
+fn ext_authz_http_filter(authz_cluster: &str) -> HttpFilter {
+    HttpFilter {
         name: EXT_AUTHZ_FILTER.to_string(),
         config_type: Some(http_filter::ConfigType::TypedConfig(pack_new(
             "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz",
@@ -1067,7 +1058,22 @@ fn http_listener(
             },
         ))),
         ..Default::default()
-    }];
+    }
+}
+
+/// Builds the HTTP connection manager shared by every egress listener. `authz_cluster`
+/// gates the ext_authz filter (the docker gRPC-control listener runs without it).
+fn build_hcm(
+    name: &str,
+    route_name: &str,
+    authz_cluster: Option<&str>,
+    dynamic_forward: bool,
+    denied_cidrs: &[ModernCidrRange],
+) -> HttpConnectionManager {
+    let mut filters = Vec::new();
+    if let Some(authz_cluster) = authz_cluster {
+        filters.push(ext_authz_http_filter(authz_cluster));
+    }
     if dynamic_forward {
         filters.push(HttpFilter {
             name: "envoy.filters.http.dynamic_forward_proxy".to_string(),
@@ -1090,7 +1096,7 @@ fn http_listener(
         ..Default::default()
     });
 
-    let hcm = HttpConnectionManager {
+    HttpConnectionManager {
         stat_prefix: name.to_string(),
         http_filters: filters,
         route_specifier: Some(http_connection_manager::RouteSpecifier::Rds(Rds {
@@ -1125,19 +1131,42 @@ fn http_listener(
             }]
         },
         ..Default::default()
-    };
+    }
+}
+
+fn hcm_network_filter(hcm: &HttpConnectionManager) -> Filter {
+    Filter {
+        name: "envoy.filters.network.http_connection_manager".to_string(),
+        config_type: Some(filter::ConfigType::TypedConfig(pack_new(
+            "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
+            hcm,
+        ))),
+    }
+}
+
+fn http_listener(
+    config: &CompilerConfig,
+    name: &str,
+    address_value: &str,
+    port: u32,
+    route_name: &str,
+    dynamic_forward: bool,
+    authz_cluster: &str,
+    denied_cidrs: &[ModernCidrRange],
+) -> anyhow::Result<Listener> {
+    let hcm = build_hcm(
+        name,
+        route_name,
+        Some(authz_cluster),
+        dynamic_forward,
+        denied_cidrs,
+    );
     Ok(Listener {
         name: name.to_string(),
         address: Some(socket_address_value(address_value, port)),
         per_connection_buffer_limit_bytes: Some(UInt32Value { value: 1 << 20 }),
         filter_chains: vec![FilterChain {
-            filters: vec![Filter {
-                name: "envoy.filters.network.http_connection_manager".to_string(),
-                config_type: Some(filter::ConfigType::TypedConfig(pack_new(
-                    "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
-                    &hcm,
-                ))),
-            }],
+            filters: vec![hcm_network_filter(&hcm)],
             transport_socket: if config.downstream_tls {
                 Some(tls_transport_socket(
                     "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext",
@@ -1175,95 +1204,7 @@ fn pipe_listener(
     dynamic_forward: bool,
     denied_cidrs: &[ModernCidrRange],
 ) -> Listener {
-    let mut filters = Vec::new();
-    if let Some(authz_cluster) = authz_cluster {
-        filters.push(HttpFilter {
-            name: EXT_AUTHZ_FILTER.to_string(),
-            config_type: Some(http_filter::ConfigType::TypedConfig(pack_new(
-                "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz",
-                &ExtAuthz {
-                    transport_api_version:
-                        envoy_types_v076::pb::envoy::config::core::v3::ApiVersion::V3 as i32,
-                    failure_mode_allow: false,
-                    services: Some(
-                        envoy_types_v076::pb::envoy::extensions::filters::http::ext_authz::v3::ext_authz::Services::GrpcService(
-                            GrpcService {
-                                target_specifier: Some(grpc_service::TargetSpecifier::EnvoyGrpc(
-                                    grpc_service::EnvoyGrpc {
-                                        cluster_name: authz_cluster.to_string(),
-                                        ..Default::default()
-                                    },
-                                )),
-                                timeout: Some(duration(2)),
-                                ..Default::default()
-                            },
-                        ),
-                    ),
-                    ..Default::default()
-                },
-            ))),
-            ..Default::default()
-        });
-    }
-    if dynamic_forward {
-        filters.push(HttpFilter {
-            name: "envoy.filters.http.dynamic_forward_proxy".to_string(),
-            config_type: Some(http_filter::ConfigType::TypedConfig(pack_new(
-                "type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig",
-                &ModernDynamicForwardProxyFilterConfig {
-                    dns_cache_config: Some(dynamic_dns_cache(denied_cidrs)),
-                    save_upstream_address: false,
-                },
-            ))),
-            ..Default::default()
-        });
-    }
-    filters.push(HttpFilter {
-        name: "envoy.filters.http.router".to_string(),
-        config_type: Some(http_filter::ConfigType::TypedConfig(pack_new(
-            "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router",
-            &Router::default(),
-        ))),
-        ..Default::default()
-    });
-
-    let hcm = HttpConnectionManager {
-        stat_prefix: name.to_string(),
-        http_filters: filters,
-        route_specifier: Some(http_connection_manager::RouteSpecifier::Rds(Rds {
-            config_source: Some(ConfigSource {
-                resource_api_version: envoy_types_v076::pb::envoy::config::core::v3::ApiVersion::V3
-                    as i32,
-                config_source_specifier: Some(config_source::ConfigSourceSpecifier::Ads(
-                    AggregatedConfigSource {},
-                )),
-                ..Default::default()
-            }),
-            route_config_name: route_name.to_string(),
-        })),
-        stream_idle_timeout: Some(duration(0)),
-        request_timeout: Some(duration(0)),
-        use_remote_address: Some(envoy_types_v076::pb::google::protobuf::BoolValue { value: true }),
-        upgrade_configs: if dynamic_forward {
-            vec![
-                http_connection_manager::UpgradeConfig {
-                    upgrade_type: "CONNECT".to_string(),
-                    ..Default::default()
-                },
-                http_connection_manager::UpgradeConfig {
-                    upgrade_type: "websocket".to_string(),
-                    ..Default::default()
-                },
-            ]
-        } else {
-            vec![http_connection_manager::UpgradeConfig {
-                upgrade_type: "websocket".to_string(),
-                ..Default::default()
-            }]
-        },
-        ..Default::default()
-    };
-
+    let hcm = build_hcm(name, route_name, authz_cluster, dynamic_forward, denied_cidrs);
     Listener {
         name: name.to_string(),
         address: Some(Address {
@@ -1274,13 +1215,7 @@ fn pipe_listener(
         }),
         per_connection_buffer_limit_bytes: Some(UInt32Value { value: 1 << 20 }),
         filter_chains: vec![FilterChain {
-            filters: vec![Filter {
-                name: "envoy.filters.network.http_connection_manager".to_string(),
-                config_type: Some(filter::ConfigType::TypedConfig(pack_new(
-                    "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
-                    &hcm,
-                ))),
-            }],
+            filters: vec![hcm_network_filter(&hcm)],
             ..Default::default()
         }],
         ..Default::default()
