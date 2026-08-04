@@ -3,7 +3,6 @@ use std::env;
 
 use anyhow::Context;
 use base64::Engine as _;
-use envoy_types::pb::google::protobuf::Any;
 use envoy_types::pb::envoy::config::cluster::v3::{cluster, Cluster};
 use envoy_types::pb::envoy::config::core::v3::{
     address, config_source, data_source, grpc_service, socket_address, Address,
@@ -33,6 +32,7 @@ use envoy_types::pb::envoy::extensions::upstreams::http::v3::{
 use envoy_types::pb::envoy::r#type::matcher::v3::{
     string_matcher, RegexMatchAndSubstitute, RegexMatcher, StringMatcher,
 };
+use envoy_types::pb::google::protobuf::Any;
 use envoy_types::pb::google::protobuf::{Duration, UInt32Value};
 use prost::Message;
 use sha2::{Digest, Sha256};
@@ -660,9 +660,7 @@ fn credential_route(
             upgrade_configs: if credential.websocket {
                 vec![route_action::UpgradeConfig {
                     upgrade_type: "websocket".to_string(),
-                    enabled: Some(envoy_types::pb::google::protobuf::BoolValue {
-                        value: true,
-                    }),
+                    enabled: Some(envoy_types::pb::google::protobuf::BoolValue { value: true }),
                     ..Default::default()
                 }]
             } else {
@@ -1299,10 +1297,7 @@ fn insert_resource<M: Message>(
     Ok(())
 }
 
-fn pack_new<M: Message>(
-    type_url: &str,
-    message: &M,
-) -> envoy_types::pb::google::protobuf::Any {
+fn pack_new<M: Message>(type_url: &str, message: &M) -> envoy_types::pb::google::protobuf::Any {
     envoy_types::pb::google::protobuf::Any {
         type_url: type_url.to_string(),
         value: message.encode_to_vec(),
