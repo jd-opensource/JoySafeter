@@ -885,7 +885,7 @@ run_status() {
 # ---- Kubernetes (k3s) 部署命令 ----
 # deploy.sh 的 k8s 子命令是 K8sProvider 部署方式的统一入口，复用 deploy/k8s/ 下
 # 已构建的清单与脚本，避免重复实现：
-#   deploy   应用 base 清单、等待滚动、校验 orchestrator sandbox RBAC（委托 k3s-smoke.sh，非破坏性）
+#   deploy   应用沙箱执行平面（orchestrator + egress Envoy DaemonSet + sandbox RBAC/policy + 自动 PKI），api/worker/frontend/skillspector/PG/Redis 由 docker 承载（委托 apply-sandbox-plane.sh，非破坏性）
 #   verify   端到端真实验证：API→worker→orchestrator→k8s Pod→runner（委托 k3s-task-smoke.sh）
 #   status   查看 control/sandboxes 两个命名空间的 Pod/Service/NetworkPolicy
 #   logs     跟随某个 control-plane Deployment 日志（默认 orchestrator）
@@ -914,7 +914,7 @@ k8s_usage() {
 使用方法: $0 k8s <子命令> [选项]
 
 k8s 子命令:
-  deploy     应用清单并等待滚动就绪（幂等、非破坏性），自动按集群类型导入本地镜像
+  deploy     应用沙箱执行平面：orchestrator + egress Envoy DaemonSet + sandbox RBAC/policy + 自动 PKI（幂等、非破坏性）。api/worker/frontend/skillspector/PG/Redis 由 docker 承载
   verify     端到端真实验证：创建 user/agent/task，等待 sandbox Pod Ready 并校验 runner 握手
   status     查看 control/sandboxes 命名空间的 Pod、Service、NetworkPolicy
   logs [名]  跟随 control-plane Deployment 日志（默认 joysafeter-orchestrator）
@@ -922,6 +922,7 @@ k8s 子命令:
 
 前置条件:
   - kubectl 已指向目标 k3s 集群（colima / kind / k3d / 生产 k3s 均可）
+  - 先启动 docker 侧总线与业务服务：$0 local --k8s-bus
   - 已构建部署镜像：$0 build --all
   - 集群类型的镜像可达性由 deploy 自动处理（kind: kind load；colima: 共享 Docker 运行时；k3d: 由 k3s-smoke.sh 导入）
 
@@ -1009,8 +1010,8 @@ k8s_deploy() {
     log_info "当前 Kubernetes context: $("$KUBECTL_BIN" config current-context)"
     k8s_warn_missing_core_images
     k8s_load_images
-    log_info "应用 JoySafeter k8s 清单并等待滚动就绪（委托 k3s-smoke.sh，非破坏性）..."
-    KUBECTL="$KUBECTL_BIN" "$K8S_DIR/k3s-smoke.sh"
+    log_info "应用 JoySafeter 沙箱执行平面（orchestrator + egress Envoy + sandbox policy + 自动 PKI），委托 apply-sandbox-plane.sh..."
+    KUBECTL="$KUBECTL_BIN" "$K8S_DIR/apply-sandbox-plane.sh"
 }
 
 k8s_verify() {
