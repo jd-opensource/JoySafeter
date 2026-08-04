@@ -743,13 +743,20 @@ wait_for_local_redis() {
 run_local_migrations() {
     (
         cd "$SCRIPT_DIR"
+        local bus_files=()
+        if [ "$LOCAL_K8S_BUS" = true ]; then
+            bus_files=(-f "$SCRIPT_DIR/docker-compose.yml" -f "$SCRIPT_DIR/docker-compose.k8s-bus.yml")
+            local sandbox_profile=()
+        else
+            local sandbox_profile=(--profile sandbox)
+        fi
         log_info "启动数据库、Redis、SkillSpector 基础服务..."
-        compose_local_env --profile local-redis --profile sandbox up -d --no-build postgres redis skillspector
+        compose_local_env "${bus_files[@]}" --profile local-redis "${sandbox_profile[@]}" up -d --no-build postgres redis skillspector
 
         wait_for_local_redis
 
         log_info "运行数据库迁移..."
-        compose_local_env --profile local-redis --profile sandbox --profile init run --rm db-init
+        compose_local_env "${bus_files[@]}" --profile local-redis "${sandbox_profile[@]}" --profile init run --rm db-init
     )
     log_success "数据库迁移完成"
 }
@@ -809,7 +816,15 @@ run_local_compose() {
     (
         cd "$SCRIPT_DIR"
         log_info "启动本地 Compose 服务..."
-        compose_local_env --profile local-redis --profile sandbox up -d --no-build
+        if [ "$LOCAL_K8S_BUS" = true ]; then
+            # k8s mode docker side: business + PG/Redis bus only; sandbox plane runs in k8s.
+            compose_local_env -f "$SCRIPT_DIR/docker-compose.yml" \
+                -f "$SCRIPT_DIR/docker-compose.k8s-bus.yml" \
+                --profile local-redis up -d --no-build \
+                postgres redis skillspector api worker frontend
+        else
+            compose_local_env --profile local-redis --profile sandbox up -d --no-build
+        fi
     )
 }
 
@@ -1787,6 +1802,7 @@ main() {
     local BUILD_ALL=false
     local ARCH_LIST_STR=""
     local SERVICE_ARGS=()
+    local LOCAL_K8S_BUS=false
 
     # 解析参数
     while [[ $# -gt 0 ]]; do
@@ -1911,6 +1927,10 @@ main() {
                 ;;
             --no-cache)
                 NO_CACHE=true
+                shift
+                ;;
+            --k8s-bus)
+                LOCAL_K8S_BUS=true
                 shift
                 ;;
             doctor|local|build|push|pull|down|logs|restart|status|k8s)
