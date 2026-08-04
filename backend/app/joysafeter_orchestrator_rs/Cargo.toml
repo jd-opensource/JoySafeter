@@ -59,9 +59,9 @@ k8s-openapi = { version = "0.28.0", features = ["v1_34"] }
 # HTTP client (for Daytona/E2B providers)
 axum = "0.7"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
-aws-credential-types = "1"
-aws-sdk-s3 = { version = "1", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"] }
+aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"], optional = true }
+aws-credential-types = { version = "1", optional = true }
+aws-sdk-s3 = { version = "1", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio", "sigv4a"], optional = true }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -118,6 +118,18 @@ idna = "1"
 tonic-build = "0.12"
 
 # ---------------------------------------------------------------------------
+# Features
+# ---------------------------------------------------------------------------
+[features]
+default = ["s3"]
+# S3/OSS object-storage backend (sandbox/storage.rs). Pulls the AWS SDK, which is
+# one of the heaviest compile-time dependencies in the tree. ON by default so
+# production/CI builds (plain `cargo build --release`) are unchanged. For faster
+# local iteration, build with `--no-default-features` to skip the AWS SDK entirely;
+# STORAGE_BACKEND=s3|oss then fails fast at startup with a clear message.
+s3 = ["dep:aws-config", "dep:aws-credential-types", "dep:aws-sdk-s3"]
+
+# ---------------------------------------------------------------------------
 # Build profile optimization — reduce target/ size from ~10GB to ~3-4GB
 # ---------------------------------------------------------------------------
 
@@ -137,3 +149,11 @@ strip = true                    # Strip symbols from release binary
 # NOTE: panic stays "unwind" (default) on purpose — orchestrator is a long-running
 # axum/tonic service; unwinding isolates a panicking request instead of aborting
 # the whole process.
+
+# Fast local release build: same size optimization but skips the slow fat-LTO /
+# single-codegen-unit passes. Larger binary, much faster link — use for local
+# iteration via `cargo build --profile release-fast`. Production keeps [profile.release].
+[profile.release-fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 16

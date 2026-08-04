@@ -15,15 +15,21 @@
 
 use std::env;
 use std::path::{Component, Path};
+#[cfg(feature = "s3")]
 use std::sync::OnceLock;
 
 use anyhow::Context;
 use async_trait::async_trait;
+#[cfg(feature = "s3")]
 use aws_config::{BehaviorVersion, Region};
+#[cfg(feature = "s3")]
 use aws_credential_types::Credentials;
+#[cfg(feature = "s3")]
 use aws_sdk_s3::config::Builder as S3ConfigBuilder;
+#[cfg(feature = "s3")]
 use aws_sdk_s3::Client as S3Client;
 use tokio::sync::OnceCell;
+#[cfg(feature = "s3")]
 use tracing::debug;
 
 // ===========================================================================
@@ -68,10 +74,17 @@ pub fn create_backend() -> anyhow::Result<Box<dyn StorageBackend>> {
             let base = env::var("STORAGE_LOCAL_PATH").unwrap_or_else(|_| "data/files".to_string());
             Ok(Box::new(LocalBackend::new(&base)?))
         }
+        #[cfg(feature = "s3")]
         "s3" | "oss" => {
             let config = S3Config::from_env()?;
             Ok(Box::new(S3Backend::new(config)))
         }
+        #[cfg(not(feature = "s3"))]
+        "s3" | "oss" => anyhow::bail!(
+            "STORAGE_BACKEND={name} requires the 's3' cargo feature, which was not compiled \
+             into this binary. Rebuild with default features (production/CI already do) or \
+             `cargo build --features s3`."
+        ),
         other => anyhow::bail!("Unsupported STORAGE_BACKEND={other}. Expected local, s3, or oss."),
     }
 }
@@ -199,6 +212,7 @@ fn validate_storage_key(key: &str) -> anyhow::Result<()> {
 // S3-compatible object storage backend
 // ===========================================================================
 
+#[cfg(feature = "s3")]
 struct S3Config {
     bucket: String,
     endpoint: Option<String>,
@@ -207,8 +221,10 @@ struct S3Config {
     region: String,
 }
 
+#[cfg(feature = "s3")]
 static S3_CONFIG_CACHE: OnceLock<Option<S3Config>> = OnceLock::new();
 
+#[cfg(feature = "s3")]
 impl S3Config {
     fn from_env() -> anyhow::Result<Self> {
         let config = S3_CONFIG_CACHE.get_or_init(|| {
@@ -252,6 +268,7 @@ impl S3Config {
     }
 }
 
+#[cfg(feature = "s3")]
 pub struct S3Backend {
     bucket: String,
     endpoint: Option<String>,
@@ -263,6 +280,7 @@ pub struct S3Backend {
     cached_client: OnceCell<S3Client>,
 }
 
+#[cfg(feature = "s3")]
 impl S3Backend {
     pub fn new(config: S3Config) -> Self {
         Self {
@@ -300,6 +318,7 @@ impl S3Backend {
     }
 }
 
+#[cfg(feature = "s3")]
 #[async_trait]
 impl StorageBackend for S3Backend {
     async fn put(&self, key: &str, data: &[u8], content_type: &str) -> anyhow::Result<()> {
