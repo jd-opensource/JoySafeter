@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_dir = project_root.join("proto");
     let proto_file = proto_dir.join("joysafeter.proto");
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
         .out_dir(manifest_dir.join("src").join("grpc"))

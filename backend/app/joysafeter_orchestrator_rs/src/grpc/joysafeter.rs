@@ -24,7 +24,7 @@ pub mod runner_message {
         SandboxFileResponse(super::SandboxFileResponse),
     }
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RunnerReady {
     #[prost(string, tag = "1")]
     pub runner_version: ::prost::alloc::string::String,
@@ -41,7 +41,7 @@ pub struct RunnerReady {
     #[prost(string, optional, tag = "7")]
     pub runner_token: ::core::option::Option<::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RunnerIdle {
     #[prost(string, tag = "1")]
     pub sandbox_id: ::prost::alloc::string::String,
@@ -50,7 +50,7 @@ pub struct RunnerIdle {
     #[prost(string, optional, tag = "3")]
     pub session_id: ::core::option::Option<::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RunnerHarnessEvent {
     #[prost(uint64, tag = "1")]
     pub seq: u64,
@@ -64,7 +64,7 @@ pub struct RunnerHarnessEvent {
 }
 /// Nested message and enum types in `RunnerHarnessEvent`.
 pub mod runner_harness_event {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Event {
         #[prost(message, tag = "3")]
         Text(super::TextEvent),
@@ -88,17 +88,17 @@ pub mod runner_harness_event {
         TaskNotification(super::TaskNotificationEvent),
     }
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TextEvent {
     #[prost(string, tag = "1")]
     pub content: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ThinkingEvent {
     #[prost(string, tag = "1")]
     pub content: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ToolUseEvent {
     #[prost(string, tag = "1")]
     pub tool: ::prost::alloc::string::String,
@@ -109,7 +109,7 @@ pub struct ToolUseEvent {
     #[prost(bool, tag = "4")]
     pub is_control_request: bool,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ToolResultEvent {
     #[prost(string, tag = "1")]
     pub tool: ::prost::alloc::string::String,
@@ -118,29 +118,29 @@ pub struct ToolResultEvent {
     #[prost(string, tag = "3")]
     pub output: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ErrorEvent {
     #[prost(string, tag = "1")]
     pub message: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StatusEvent {
     #[prost(string, tag = "1")]
     pub state: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LogEvent {
     #[prost(string, tag = "1")]
     pub level: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ModelRequestStartEvent {
     #[prost(string, tag = "1")]
     pub model: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ModelRequestEndEvent {
     #[prost(string, tag = "1")]
     pub model: ::prost::alloc::string::String,
@@ -155,7 +155,7 @@ pub struct ModelRequestEndEvent {
 }
 /// Background sub-agent (Task tool with run_in_background=true) lifecycle.
 /// Sourced from claude-code's stream-json `type=system,subtype=task_started|task_progress|task_notification`.
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TaskNotificationEvent {
     /// "started" | "progress" | "completed" | "failed" | "stopped"
     #[prost(string, tag = "1")]
@@ -216,7 +216,7 @@ pub struct TokenUsage {
     #[prost(message, repeated, tag = "5")]
     pub by_model: ::prost::alloc::vec::Vec<ModelUsageEntry>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ModelUsageEntry {
     #[prost(string, tag = "1")]
     pub model: ::prost::alloc::string::String,
@@ -229,7 +229,7 @@ pub struct ModelUsageEntry {
     #[prost(uint64, tag = "5")]
     pub cache_write_tokens: u64,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RunnerHeartbeat {
     #[prost(int64, tag = "1")]
     pub timestamp_ms: i64,
@@ -270,7 +270,7 @@ pub mod orchestrator_message {
         SandboxFileRequest(super::SandboxFileRequest),
     }
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SandboxFileRequest {
     #[prost(string, tag = "1")]
     pub request_id: ::prost::alloc::string::String,
@@ -282,7 +282,7 @@ pub struct SandboxFileRequest {
     #[prost(uint64, tag = "4")]
     pub max_bytes: u64,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SandboxFileEntry {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
@@ -324,7 +324,7 @@ pub struct SandboxFileResponse {
     #[prost(uint64, tag = "12")]
     pub size: u64,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct MemoryFileUpdate {
     #[prost(string, tag = "1")]
     pub store_mount_name: ::prost::alloc::string::String,
@@ -393,14 +393,14 @@ pub struct MemoryStoreMount {
     #[prost(message, repeated, tag = "5")]
     pub files: ::prost::alloc::vec::Vec<MemoryFile>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct MemoryFile {
     #[prost(string, tag = "1")]
     pub relative_path: ::prost::alloc::string::String,
     #[prost(bytes = "vec", tag = "2")]
     pub content: ::prost::alloc::vec::Vec<u8>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct MemoryFileSync {
     #[prost(string, tag = "1")]
     pub store_mount_name: ::prost::alloc::string::String,
@@ -464,7 +464,7 @@ pub struct StartTask {
     #[prost(string, optional, tag = "21")]
     pub system_prompt_mode: ::core::option::Option<::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CustomTool {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
@@ -473,7 +473,7 @@ pub struct CustomTool {
     #[prost(string, tag = "3")]
     pub input_schema_json: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SkillArchive {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
@@ -482,7 +482,7 @@ pub struct SkillArchive {
     #[prost(string, tag = "3")]
     pub target: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FileMount {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
@@ -491,7 +491,7 @@ pub struct FileMount {
     #[prost(string, tag = "3")]
     pub filename: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FileRef {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
@@ -525,7 +525,7 @@ pub struct McpConfig {
         ::prost::alloc::string::String,
     >,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RepoConfig {
     #[prost(string, tag = "1")]
     pub url: ::prost::alloc::string::String,
@@ -539,17 +539,17 @@ pub struct RepoConfig {
     #[prost(string, tag = "5")]
     pub mount_name: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CancelTask {
     #[prost(string, tag = "1")]
     pub reason: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SendInput {
     #[prost(string, tag = "1")]
     pub content: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Shutdown {
     #[prost(string, tag = "1")]
     pub reason: ::prost::alloc::string::String,
@@ -643,7 +643,7 @@ pub mod agent_bridge_server {
         B: Body + std::marker::Send + 'static,
         B::Error: Into<StdError> + std::marker::Send + 'static,
     {
-        type Response = http::Response<tonic::body::BoxBody>;
+        type Response = http::Response<tonic::body::Body>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
         fn poll_ready(
@@ -687,7 +687,7 @@ pub mod agent_bridge_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SessionSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
+                        let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
                                 accept_compression_encodings,
@@ -704,7 +704,9 @@ pub mod agent_bridge_server {
                 }
                 _ => {
                     Box::pin(async move {
-                        let mut response = http::Response::new(empty_body());
+                        let mut response = http::Response::new(
+                            tonic::body::Body::default(),
+                        );
                         let headers = response.headers_mut();
                         headers
                             .insert(
