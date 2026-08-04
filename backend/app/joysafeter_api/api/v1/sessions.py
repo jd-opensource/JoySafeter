@@ -1389,6 +1389,7 @@ async def _create_and_enqueue_resume_task(
         org_id=org_id,
         idempotency_key=f"session-control:{source_event_id}:{failure_context}",
         enforce_user_quota=enforce_user_quota,
+        emit_user_message=False,  # caller already emitted via POST /sessions/{id}/events
     )
     return task.id
 
@@ -1666,6 +1667,7 @@ async def send_event(
                 org_id=auth_ctx.org_id,
                 idempotency_key=idempotency_key,
                 enforce_user_quota=auth_ctx.principal_type == "user",
+                emit_user_message=False,  # event already persisted by this endpoint
             )
             if broadcaster:
                 running_event = await svc.find_status_running_event_for_task(

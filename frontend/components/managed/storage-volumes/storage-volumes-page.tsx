@@ -111,6 +111,13 @@ interface SimpleSelectOption {
   label: string
 }
 
+type CollectionResponse<T> = T[] | { data?: T[] | null }
+
+function collectionData<T>(value: CollectionResponse<T> | null | undefined): T[] {
+  if (Array.isArray(value)) return value
+  return Array.isArray(value?.data) ? value.data : []
+}
+
 const emptyVolumeForm = (mode: VolumeFormMode = 'create'): VolumeFormState => ({
   mode,
   volumeRef: '',
@@ -422,31 +429,34 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   const volumesQuery = useQuery({
     queryKey: ['storage-volumes', requestScope.key],
     queryFn: () =>
-      managedGet<{ data: StorageVolume[] }>(
+      managedGet<CollectionResponse<StorageVolume>>(
         `/storage-volumes?include_disabled=true${platformMode ? '' : '&scope=organization'}`,
       ),
   })
   const auditQuery = useQuery({
     queryKey: ['storage-volumes-audit', requestScope.key, selectedVolume?.id || 'all'],
     queryFn: () =>
-      managedGet<{ data: StorageMountAudit[] }>(
+      managedGet<CollectionResponse<StorageMountAudit>>(
         `/storage-volumes/audit/logs?limit=100${selectedVolume ? `&volume_id=${selectedVolume.id}` : ''}`,
       ),
   })
   const projectsQuery = useQuery({
     queryKey: ['storage-volumes-projects', requestScope.key],
-    queryFn: () => managedGet<ProjectRecord[]>('/auth/projects'),
+    queryFn: () => managedGet<CollectionResponse<ProjectRecord>>('/auth/projects'),
   })
   const organizationsQuery = useQuery({
     queryKey: ['platform-organizations', requestScope.key],
-    queryFn: () => managedGet<PlatformOrganization[]>('/auth/platform/organizations?limit=500'),
+    queryFn: () =>
+      managedGet<CollectionResponse<PlatformOrganization>>(
+        '/auth/platform/organizations?limit=500',
+      ),
     enabled: platformMode && isPlatformAdmin,
   })
 
-  const volumes = volumesQuery.data?.data || []
-  const auditRows = auditQuery.data?.data || []
-  const projects = projectsQuery.data || []
-  const organizations = organizationsQuery.data || []
+  const volumes = collectionData(volumesQuery.data)
+  const auditRows = collectionData(auditQuery.data)
+  const projects = collectionData(projectsQuery.data)
+  const organizations = collectionData(organizationsQuery.data)
   const projectNameById = useMemo(
     () =>
       new Map(projects.map((project) => [project.id, project.name || project.slug || project.id])),
