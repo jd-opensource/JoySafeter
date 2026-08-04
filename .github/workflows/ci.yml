@@ -50,6 +50,11 @@ jobs:
           toolchain: 1.97.1
           components: rustfmt, clippy
 
+      - name: Install Rust build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes protobuf-compiler
+
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2.9.1
         with:
@@ -197,6 +202,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_db
           JOYSAFETER_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          JOYSAFETER_VAULT_ENCRYPTION_KEY: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
           SECRET_KEY: test-secret-key-for-ci
           ENVIRONMENT: test
         run: |
