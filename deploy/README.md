@@ -384,7 +384,8 @@ k3d cluster create --config deploy/k8s/k3d-cluster.yaml
 cd deploy
 ./deploy.sh build --all --arch arm64   # amd64 Docker daemon 改 --arch amd64
 cd ..
-deploy/k8s/k3s-smoke.sh
+deploy/deploy.sh local --k8s-bus   # docker 侧：业务服务 + PG/Redis 总线
+deploy/deploy.sh k8s deploy         # k8s 侧：沙箱执行平面（orchestrator + egress Envoy + sandbox policy + PKI）
 ```
 
 这条路径会把 `JOYSAFETER_SANDBOX_PROVIDER` 设为 `k8s`，让 Rust orchestrator 通过

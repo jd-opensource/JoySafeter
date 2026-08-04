@@ -896,7 +896,7 @@ K8S_CONTROL_NS="${JOYSAFETER_CONTROL_NAMESPACE:-joysafeter-control}"
 K8S_SANDBOX_NS="${JOYSAFETER_K8S_NAMESPACE:-joysafeter-sandboxes}"
 
 # base 清单固定引用 :latest（含 ConfigMap 里的 JOYSAFETER_IMAGE_* 与各 Deployment），
-# 因此本地镜像集也固定用 :latest，与 k3s-smoke.sh 保持一致。
+# 因此本地镜像集也固定用 :latest。
 K8S_CORE_IMAGES=(
     "joysafeter-backend:latest"
     "joysafeter-frontend:latest"
@@ -924,7 +924,7 @@ k8s 子命令:
   - kubectl 已指向目标 k3s 集群（colima / kind / k3d / 生产 k3s 均可）
   - 先启动 docker 侧总线与业务服务：$0 local --k8s-bus
   - 已构建部署镜像：$0 build --all
-  - 集群类型的镜像可达性由 deploy 自动处理（kind: kind load；colima: 共享 Docker 运行时；k3d: 由 k3s-smoke.sh 导入）
+  - 集群类型的镜像可达性由 deploy 自动处理（kind: kind load；colima: 共享 Docker 运行时；k3d: 需手动 k3d image import）
 
 示例:
   $0 k8s deploy            # 应用/更新 k8s 栈
@@ -972,7 +972,7 @@ k8s_warn_missing_core_images() {
 
 # 按集群类型确保本地镜像对集群可见。
 # colima docker+k3s 共享 Docker 运行时，镜像可被 k3s 直接使用（IfNotPresent），无需导入；
-# kind 使用独立 containerd，必须 kind load；k3d 的导入交给 k3s-smoke.sh（避免重复实现）。
+# kind 使用独立 containerd，必须 kind load；k3d 需手动 k3d image import。
 k8s_load_images() {
     local detected type name img
     detected="$(k8s_detect_cluster)"
@@ -997,7 +997,7 @@ k8s_load_images() {
             log_info "colima docker+k3s 共享 Docker 运行时，镜像可被 k3s 直接使用（imagePullPolicy: IfNotPresent），无需导入"
             ;;
         k3d)
-            log_info "k3d 集群镜像导入由 k3s-smoke.sh 处理"
+            log_info "k3d 集群请先手动导入镜像：k3d image import <镜像>（colima 共享 Docker 运行时则无需导入）"
             ;;
         *)
             log_warning "未识别的集群类型（context=$name），跳过本地镜像导入；请确保集群可拉取所需镜像"

@@ -48,7 +48,7 @@ rg_no_match() {
 log "checking guard scripts and smoke hooks"
 require_executable deploy/k8s/runtime-architecture-guard.sh
 require_executable deploy/k8s/offline-architecture-guard.sh
-for script in deploy/k8s/k3s-smoke.sh deploy/k8s/k3s-task-smoke.sh deploy/k8s/k3s-egress-smoke.sh; do
+for script in deploy/k8s/k3s-task-smoke.sh deploy/k8s/k3s-egress-smoke.sh; do
   require_file "$script"
   grep -q 'runtime-architecture-guard.sh' "$script" || fail "$script does not source runtime guard"
   grep -q 'runtime_guard_assert_live_control_plane' "$script" || fail "$script does not check live control plane"
@@ -161,7 +161,6 @@ rg_no_match 'go-xds-rollback|Legacy Go xDS Rollback CI|working-directory: egress
 
 log "checking shell syntax"
 bash -n deploy/k8s/runtime-architecture-guard.sh
-bash -n deploy/k8s/k3s-smoke.sh
 bash -n deploy/k8s/k3s-task-smoke.sh
 bash -n deploy/k8s/k3s-egress-smoke.sh
 bash -n deploy/k8s/cutover-rust-xds.sh
