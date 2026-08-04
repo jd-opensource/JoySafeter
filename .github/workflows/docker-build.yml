@@ -13,25 +13,106 @@ on:
 
 jobs:
   # =============================================================================
-  # Main application images (backend, frontend)
-  # Build only (no push) — release.yml handles publishing versioned images
+  # Detect which image inputs changed and build only those images.
+  # =============================================================================
+  check-image-changes:
+    name: Check Sandbox File Changes
+    runs-on: ubuntu-latest
+    outputs:
+      main_matrix: ${{ steps.main-matrix.outputs.matrix }}
+      has_main_images: ${{ steps.main-matrix.outputs.has_images }}
+      sandbox_changed: ${{ steps.main-matrix.outputs.sandbox_changed }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check image-specific file changes
+        uses: dorny/paths-filter@v3
+        id: image-filter
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+              - 'deploy/docker/frontend.Dockerfile'
+            orchestrator:
+              - 'backend/app/joysafeter_orchestrator_rs/**'
+              - 'proto/**'
+              - '.dockerignore'
+              - 'deploy/docker/orchestrator-rs.Dockerfile'
+            backend_build:
+              - 'deploy/docker/backend.Dockerfile'
+            sandbox:
+              - 'deploy/docker/sandbox.Dockerfile'
+              - 'deploy/docker/configs/**'
+              - 'deploy/docker/entrypoint.sh'
+            workflow:
+              - '.github/workflows/docker-build.yml'
+
+      - name: Check backend runtime file changes
+        uses: dorny/paths-filter@v3
+        id: backend-filter
+        with:
+          predicate-quantifier: every
+          filters: |
+            backend:
+              - 'backend/**'
+              - '!backend/app/joysafeter_orchestrator_rs/**'
+              - '!backend/tests/**'
+              - '!backend/unit_tests/**'
+              - '!backend/data/**'
+              - '!backend/joysafeter_skillspector/**'
+              - '!backend/tools/**'
+
+      - name: Generate main image matrix
+        id: main-matrix
+        env:
+          BACKEND_CHANGED: ${{ steps.backend-filter.outputs.backend }}
+          BACKEND_BUILD_CHANGED: ${{ steps.image-filter.outputs.backend_build }}
+          FRONTEND_CHANGED: ${{ steps.image-filter.outputs.frontend }}
+          ORCHESTRATOR_CHANGED: ${{ steps.image-filter.outputs.orchestrator }}
+          SANDBOX_CHANGED: ${{ steps.image-filter.outputs.sandbox }}
+          WORKFLOW_CHANGED: ${{ steps.image-filter.outputs.workflow }}
+        run: |
+          images=()
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" || "$WORKFLOW_CHANGED" == "true" ]]; then
+            BACKEND_CHANGED=true
+            FRONTEND_CHANGED=true
+            ORCHESTRATOR_CHANGED=true
+            SANDBOX_CHANGED=true
+          fi
+
+          if [[ "$BACKEND_CHANGED" == "true" || "$BACKEND_BUILD_CHANGED" == "true" ]]; then
+            images+=('{"name":"joysafeter-backend","context":"./backend","dockerfile":"./deploy/docker/backend.Dockerfile"}')
+          fi
+          if [[ "$FRONTEND_CHANGED" == "true" ]]; then
+            images+=('{"name":"joysafeter-frontend","context":"./frontend","dockerfile":"./deploy/docker/frontend.Dockerfile"}')
+          fi
+          if [[ "$ORCHESTRATOR_CHANGED" == "true" ]]; then
+            images+=('{"name":"joysafeter-orchestrator-rs","context":".","dockerfile":"./deploy/docker/orchestrator-rs.Dockerfile"}')
+          fi
+
+          joined="$(IFS=,; echo "${images[*]}")"
+          echo "matrix={\"include\":[${joined}]}" >> "$GITHUB_OUTPUT"
+          if (( ${#images[@]} > 0 )); then
+            echo "has_images=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_images=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sandbox_changed=$SANDBOX_CHANGED" >> "$GITHUB_OUTPUT"
+
+  # =============================================================================
+  # Main application images. Build only (no push); release.yml publishes images.
   # =============================================================================
   build:
-    name: Build Docker Images
+    name: Build Docker Images (${{ matrix.name }}, ${{ matrix.context }}, ${{ matrix.dockerfile }})
     runs-on: ubuntu-latest
+    needs: check-image-changes
+    if: needs.check-image-changes.outputs.has_main_images == 'true'
 
     strategy:
-      matrix:
-        image:
-          - name: joysafeter-backend
-            context: ./backend
-            dockerfile: ./deploy/docker/backend.Dockerfile
-          - name: joysafeter-frontend
-            context: ./frontend
-            dockerfile: ./deploy/docker/frontend.Dockerfile
-          - name: joysafeter-orchestrator-rs
-            context: .
-            dockerfile: ./deploy/docker/orchestrator-rs.Dockerfile
+      matrix: ${{ fromJSON(needs.check-image-changes.outputs.main_matrix) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,8 +126,8 @@ jobs:
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.image.context }}
-          file: ${{ matrix.image.dockerfile }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: false
           cache-from: type=gha
@@ -61,32 +142,11 @@ jobs:
   # Sandbox image (independent, only triggered when sandbox files change)
   # Build only (no push) — release.yml handles publishing versioned images
   # =============================================================================
-  check-sandbox-changes:
-    name: Check Sandbox File Changes
-    runs-on: ubuntu-latest
-    outputs:
-      sandbox_changed: ${{ steps.filter.outputs.sandbox }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Check for sandbox file changes
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            sandbox:
-              - 'deploy/docker/sandbox.Dockerfile'
-              - 'deploy/docker/configs/**'
-              - 'deploy/docker/entrypoint.sh'
-
   build-sandbox:
     name: Build Sandbox Image
     runs-on: ubuntu-latest
-    needs: check-sandbox-changes
-    if: |
-      needs.check-sandbox-changes.outputs.sandbox_changed == 'true' ||
-      github.event_name == 'workflow_dispatch'
+    needs: check-image-changes
+    if: needs.check-image-changes.outputs.sandbox_changed == 'true'
 
     steps:
       - name: Checkout code
