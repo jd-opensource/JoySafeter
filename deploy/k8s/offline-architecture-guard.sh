@@ -24,7 +24,15 @@ require_executable() {
 rg_match() {
   local pattern="$1"
   shift
-  rg -n --hidden -g '!target' -g '!node_modules' -g '!frontend/.next' "$pattern" "$@"
+  if command -v rg >/dev/null 2>&1; then
+    rg -n --hidden -g '!target' -g '!node_modules' -g '!frontend/.next' "$pattern" "$@"
+  else
+    grep -EnR -I \
+      --exclude-dir=target \
+      --exclude-dir=node_modules \
+      --exclude-dir=.next \
+      -- "$pattern" "$@"
+  fi
 }
 
 rg_no_match() {
