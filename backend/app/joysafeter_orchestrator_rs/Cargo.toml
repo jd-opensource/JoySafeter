@@ -17,24 +17,20 @@ tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 
 # gRPC
-tonic = { version = "0.12", features = ["tls"] }
-prost = "0.13"
-prost-types = "0.13"
-prost14 = { package = "prost", version = "0.14" }
+tonic = { version = "0.14", features = ["tls-aws-lc"] }
+prost = "0.14"
+prost-types = "0.14"
+tonic-prost = "0.14"
 x509-parser = "0.18.1"
 # Pin the process-default rustls CryptoProvider (aws-lc-rs). tonic's mTLS server
 # uses rustls 0.23, which panics at runtime when both ring and aws-lc-rs are in
 # the tree unless a default provider is installed; main() installs aws_lc_rs.
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
-# Pre-generated Envoy xDS protobuf types (Listener, ADS server, filter configs).
-# Pinned to =0.5.1: it targets tonic ">=0.12.3, <0.13" / prost 0.13, matching this
-# crate's tonic 0.12. 0.6.0+ require tonic 0.13, which would fork the tonic graph.
-# Only used by the gRPC (Delta xDS) LDS backend; filesystem backend does not touch it.
-envoy-types = "=0.5.1"
-# Compiler-only protobuf baseline. Runtime ADS/ext_authz remains on 0.5.1 / tonic
-# 0.12 until the runner gRPC server is migrated; compiled resources cross that
-# boundary as protobuf Any bytes, which are wire compatible.
-envoy-types-v076 = { package = "envoy-types", version = "=0.7.6" }
+# Pre-generated Envoy xDS protobuf types (Listener, ADS server, ext_authz,
+# filter configs). Unified on =0.7.6 (tonic 0.14 / prost 0.14): a single stack
+# for both the runtime ADS/ext_authz servers and the xDS compiler. Compiled
+# resources are protobuf Any bytes, wire-compatible across Envoy API snapshots.
+envoy-types = "=0.7.6"
 
 # Database
 sqlx = { version = "0.8", features = [
@@ -115,7 +111,8 @@ url = "2"
 idna = "1"
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "0.14"
+tonic-prost-build = "0.14"
 
 # ---------------------------------------------------------------------------
 # Features
