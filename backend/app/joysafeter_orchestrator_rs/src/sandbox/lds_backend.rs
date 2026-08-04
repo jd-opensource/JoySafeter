@@ -31,28 +31,28 @@ use base64::Engine as _;
 use bollard::Docker;
 use futures::Stream;
 use prost::Message;
-use serde_json::{Value, json};
-use tokio::sync::{Mutex, mpsc, watch};
+use serde_json::{json, Value};
+use tokio::sync::{mpsc, watch, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use envoy_types::pb::envoy::service::discovery::v3::{
-    DeltaDiscoveryRequest, DeltaDiscoveryResponse, DiscoveryRequest, DiscoveryResponse, Resource,
-    aggregated_discovery_service_server::AggregatedDiscoveryService,
+    aggregated_discovery_service_server::AggregatedDiscoveryService, DeltaDiscoveryRequest,
+    DeltaDiscoveryResponse, DiscoveryRequest, DiscoveryResponse, Resource,
 };
 use envoy_types::pb::google::protobuf::Any;
 
 use crate::egress::policy::normalize_rewrite_base_prefix;
-use crate::egress::policy::{ClusterSpec, CredentialRoute, EgressCredentialRoute, LLM_EGRESS_HOST};
 #[cfg(test)]
 use crate::egress::policy::{
-    EXTERNAL_EGRESS_HOST, EgressExposure, EgressKind, MCP_EGRESS_HOST, SandboxCredentials,
-    upstream_cluster_name,
+    upstream_cluster_name, EgressExposure, EgressKind, SandboxCredentials, EXTERNAL_EGRESS_HOST,
+    MCP_EGRESS_HOST,
 };
+use crate::egress::policy::{ClusterSpec, CredentialRoute, EgressCredentialRoute, LLM_EGRESS_HOST};
 use crate::xds::identity::{GroupingMode, NodeIdentity};
-use crate::xds::snapshot::{CLUSTER_TYPE_URL, CompiledSnapshot, LISTENER_TYPE_URL, ROUTE_TYPE_URL};
+use crate::xds::snapshot::{CompiledSnapshot, CLUSTER_TYPE_URL, LISTENER_TYPE_URL, ROUTE_TYPE_URL};
 use crate::xds::status::{XdsRuntimeSnapshot, XdsRuntimeStatus};
 
 const DELTA_RESOURCE_TYPES: [&str; 3] = [CLUSTER_TYPE_URL, ROUTE_TYPE_URL, LISTENER_TYPE_URL];
@@ -2148,12 +2148,12 @@ fn encode_listener_any(spec: &ListenerSpec) -> anyhow::Result<Any> {
 /// Encode a [`ClusterSpec`] into a `google.protobuf.Any` wrapping a typed Envoy
 /// STRICT_DNS Cluster (with optional upstream TLS), for Delta CDS delivery.
 fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
-    use envoy_types::pb::envoy::config::cluster::v3::{Cluster, cluster};
+    use envoy_types::pb::envoy::config::cluster::v3::{cluster, Cluster};
     use envoy_types::pb::envoy::config::core::v3::{
-        Address, SocketAddress, address, socket_address,
+        address, socket_address, Address, SocketAddress,
     };
     use envoy_types::pb::envoy::config::endpoint::v3::{
-        ClusterLoadAssignment, Endpoint, LbEndpoint, LocalityLbEndpoints, lb_endpoint,
+        lb_endpoint, ClusterLoadAssignment, Endpoint, LbEndpoint, LocalityLbEndpoints,
     };
 
     let endpoint = LbEndpoint {
@@ -2194,14 +2194,14 @@ fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
 
     if spec.upstream_tls {
         use envoy_types::pb::envoy::config::core::v3::{
-            DataSource, TransportSocket, data_source, transport_socket,
+            data_source, transport_socket, DataSource, TransportSocket,
         };
         use envoy_types::pb::envoy::extensions::transport_sockets::tls::v3::{
+            common_tls_context::ValidationContextType, subject_alt_name_matcher,
             CertificateValidationContext, CommonTlsContext, SubjectAltNameMatcher,
-            UpstreamTlsContext, common_tls_context::ValidationContextType,
-            subject_alt_name_matcher,
+            UpstreamTlsContext,
         };
-        use envoy_types::pb::envoy::r#type::matcher::v3::{StringMatcher, string_matcher};
+        use envoy_types::pb::envoy::r#type::matcher::v3::{string_matcher, StringMatcher};
 
         let tls = UpstreamTlsContext {
             sni: spec.upstream_host.clone(),
@@ -2310,7 +2310,7 @@ const EXT_AUTHZ_PER_ROUTE_TYPE_URL: &str =
 /// by the filter name.
 fn ext_authz_enable_proto(sandbox_id: &Uuid, route_id: &str) -> HashMap<String, Any> {
     use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::{
-        CheckSettings, ExtAuthzPerRoute, ext_authz_per_route,
+        ext_authz_per_route, CheckSettings, ExtAuthzPerRoute,
     };
     let mut context = HashMap::new();
     context.insert(
@@ -2342,7 +2342,7 @@ fn ext_authz_enable_proto(sandbox_id: &Uuid, route_id: &str) -> HashMap<String, 
 /// [`ext_authz_disabled_json`].
 fn ext_authz_disabled_proto() -> HashMap<String, Any> {
     use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::{
-        ExtAuthzPerRoute, ext_authz_per_route,
+        ext_authz_per_route, ExtAuthzPerRoute,
     };
     let per_route = ExtAuthzPerRoute {
         r#override: Some(ext_authz_per_route::Override::Disabled(true)),
@@ -2358,10 +2358,10 @@ fn ext_authz_disabled_proto() -> HashMap<String, Any> {
 fn build_grpc_listener_proto(
     sandbox_id: &Uuid,
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
-    use envoy_types::pb::envoy::config::core::v3::{Address, Pipe, address};
-    use envoy_types::pb::envoy::config::listener::v3::{Filter, FilterChain, Listener, filter};
+    use envoy_types::pb::envoy::config::core::v3::{address, Address, Pipe};
+    use envoy_types::pb::envoy::config::listener::v3::{filter, Filter, FilterChain, Listener};
     use envoy_types::pb::envoy::extensions::filters::network::tcp_proxy::v3::{
-        TcpProxy, tcp_proxy,
+        tcp_proxy, TcpProxy,
     };
 
     let tcp_proxy = TcpProxy {
@@ -2400,12 +2400,12 @@ fn build_http_listener_proto(
     credentials: &[CredentialRoute],
     denied_cidrs: &[DeniedCidr],
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
-    use envoy_types::pb::envoy::config::core::v3::{Address, Http1ProtocolOptions, Pipe, address};
-    use envoy_types::pb::envoy::config::listener::v3::{Filter, FilterChain, Listener, filter};
+    use envoy_types::pb::envoy::config::core::v3::{address, Address, Http1ProtocolOptions, Pipe};
+    use envoy_types::pb::envoy::config::listener::v3::{filter, Filter, FilterChain, Listener};
     use envoy_types::pb::envoy::config::route::v3::RouteConfiguration;
     use envoy_types::pb::envoy::extensions::filters::http::router::v3::Router;
     use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
-        HttpConnectionManager, HttpFilter, http_connection_manager, http_filter,
+        http_connection_manager, http_filter, HttpConnectionManager, HttpFilter,
     };
 
     let dfp_filter = DynamicForwardProxyFilterConfigV139 {
@@ -2433,9 +2433,9 @@ fn build_http_listener_proto(
     // decide which routes actually invoke the callout; no secret lives here.
     let ext_authz = {
         use envoy_types::pb::envoy::config::core::v3::ApiVersion;
-        use envoy_types::pb::envoy::config::core::v3::{GrpcService, grpc_service};
+        use envoy_types::pb::envoy::config::core::v3::{grpc_service, GrpcService};
         use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::{
-            ExtAuthz, ext_authz,
+            ext_authz, ExtAuthz,
         };
         ExtAuthz {
             services: Some(ext_authz::Services::GrpcService(GrpcService {
@@ -2528,10 +2528,10 @@ fn build_virtual_hosts_proto(
     allowed_hosts: &[String],
     credentials: &[CredentialRoute],
 ) -> Vec<envoy_types::pb::envoy::config::route::v3::VirtualHost> {
-    use envoy_types::pb::envoy::config::core::v3::{DataSource, HeaderValueOption, data_source};
+    use envoy_types::pb::envoy::config::core::v3::{data_source, DataSource, HeaderValueOption};
     use envoy_types::pb::envoy::config::route::v3::{
-        DirectResponseAction, Route, RouteAction, RouteMatch, VirtualHost, route, route_action,
-        route_match,
+        route, route_action, route_match, DirectResponseAction, Route, RouteAction, RouteMatch,
+        VirtualHost,
     };
 
     let mut vhosts = Vec::new();
@@ -3038,16 +3038,14 @@ mod tests {
         );
         assert!(outstanding.is_empty());
 
-        assert!(
-            classify_delta_observation(
-                &nack,
-                &mut outstanding,
-                "v1:source",
-                "v2:node-a",
-                "envoy-a",
-            )
-            .is_none()
-        );
+        assert!(classify_delta_observation(
+            &nack,
+            &mut outstanding,
+            "v1:source",
+            "v2:node-a",
+            "envoy-a",
+        )
+        .is_none());
     }
 
     #[test]
@@ -3185,14 +3183,12 @@ mod tests {
 
         let state = server.state.lock().await;
         assert_eq!(state.group_version("v2:node-a"), first.version);
-        assert!(
-            state
-                .groups
-                .get("v2:node-a")
-                .unwrap()
-                .failed_versions
-                .contains(&second.version)
-        );
+        assert!(state
+            .groups
+            .get("v2:node-a")
+            .unwrap()
+            .failed_versions
+            .contains(&second.version));
         drop(state);
         assert!(server.install_snapshot(second).await.is_err());
         let metrics = server.runtime_status().render_prometheus(true);
@@ -3270,14 +3266,12 @@ mod tests {
 
         let state = server.state.lock().await;
         assert_eq!(state.group_version("v2:node-a"), first.version);
-        assert!(
-            state
-                .groups
-                .get("v2:node-a")
-                .unwrap()
-                .failed_versions
-                .contains(&second.version)
-        );
+        assert!(state
+            .groups
+            .get("v2:node-a")
+            .unwrap()
+            .failed_versions
+            .contains(&second.version));
         drop(state);
         assert_eq!(
             server.runtime_status().snapshot(),
@@ -3555,8 +3549,8 @@ mod tests {
             "mcp.example.com"
         );
         assert_eq!(
-            cj["transport_socket"]["typed_config"]["common_tls_context"]["validation_context"]["match_typed_subject_alt_names"]
-                [0]["matcher"]["exact"],
+            cj["transport_socket"]["typed_config"]["common_tls_context"]["validation_context"]
+                ["match_typed_subject_alt_names"][0]["matcher"]["exact"],
             "mcp.example.com"
         );
 
@@ -3564,7 +3558,7 @@ mod tests {
         use envoy_types::pb::envoy::config::cluster::v3::Cluster;
         use envoy_types::pb::envoy::config::core::v3::transport_socket;
         use envoy_types::pb::envoy::extensions::transport_sockets::tls::v3::{
-            UpstreamTlsContext, common_tls_context,
+            common_tls_context, UpstreamTlsContext,
         };
         use envoy_types::pb::envoy::r#type::matcher::v3::string_matcher;
         let cluster = Cluster::decode(any.value.as_slice()).unwrap();
@@ -3843,12 +3837,10 @@ mod tests {
         // route still rewrites host/prefix to the real upstream and strips
         // sandbox-supplied auth headers.
         let llm_routes = vh[0]["routes"].as_array().unwrap();
-        assert!(
-            llm_routes[0]["request_headers_to_add"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
+        assert!(llm_routes[0]["request_headers_to_add"]
+            .as_array()
+            .unwrap()
+            .is_empty());
         assert_eq!(
             llm_routes[0]["request_headers_to_remove"]
                 .as_array()
@@ -3869,12 +3861,10 @@ mod tests {
         // MCP vhost: two servers on the placeholder host, each its own prefix.
         let mcp_routes = vh[1]["routes"].as_array().unwrap();
         assert_eq!(mcp_routes.len(), 2);
-        assert!(
-            mcp_routes[0]["match"]["prefix"]
-                .as_str()
-                .unwrap()
-                .starts_with("/mcp/")
-        );
+        assert!(mcp_routes[0]["match"]["prefix"]
+            .as_str()
+            .unwrap()
+            .starts_with("/mcp/"));
         assert_eq!(mcp_routes[0]["route"]["prefix_rewrite"], "/sse");
     }
 
@@ -3885,17 +3875,17 @@ mod tests {
 
         // JSON path: credential vhosts present.
         let json = render_listener_json(&http);
-        let vhosts =
-            json["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]["virtual_hosts"]
-                .as_array()
-                .unwrap();
+        let vhosts = json["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]
+            ["virtual_hosts"]
+            .as_array()
+            .unwrap();
         let json_names: Vec<&str> = vhosts.iter().map(|v| v["name"].as_str().unwrap()).collect();
 
         // Proto path: decode and compare vhost names.
         let any = encode_listener_any(&http).unwrap();
         use envoy_types::pb::envoy::config::listener::v3::Listener;
         use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
-            HttpConnectionManager, http_connection_manager,
+            http_connection_manager, HttpConnectionManager,
         };
         let l = Listener::decode(any.value.as_slice()).unwrap();
         let hcm_any = match &l.filter_chains[0].filters[0].config_type {
@@ -3957,11 +3947,9 @@ mod tests {
             ["resolved_address_filter"]["ranges"]
             .as_array()
             .unwrap();
-        assert!(
-            denied_ranges
-                .iter()
-                .any(|range| { range["address_prefix"] == "10.0.0.0" && range["prefix_len"] == 8 })
-        );
+        assert!(denied_ranges
+            .iter()
+            .any(|range| { range["address_prefix"] == "10.0.0.0" && range["prefix_len"] == 8 }));
         assert!(denied_ranges.iter().any(|range| {
             range["address_prefix"] == "169.254.0.0" && range["prefix_len"] == 16
         }));
@@ -3974,16 +3962,16 @@ mod tests {
 
         // The credential vhost's route ENABLES the callout, carrying the
         // non-secret (sandbox_id, route_id) as context_extensions.
-        let vhosts =
-            json["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]["virtual_hosts"]
-                .as_array()
-                .unwrap();
+        let vhosts = json["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]
+            ["virtual_hosts"]
+            .as_array()
+            .unwrap();
         let cred_vhost = vhosts
             .iter()
             .find(|v| v["name"] == "egress_llm-egress_internal")
             .unwrap();
-        let ctx = &cred_vhost["routes"][0]["typed_per_filter_config"]["envoy.filters.http.ext_authz"]
-            ["check_settings"]["context_extensions"];
+        let ctx = &cred_vhost["routes"][0]["typed_per_filter_config"]
+            ["envoy.filters.http.ext_authz"]["check_settings"]["context_extensions"];
         assert_eq!(ctx["joysafeter_sandbox_id"], sid.to_string());
         assert_eq!(ctx["joysafeter_route_id"], "llm");
 
@@ -4007,12 +3995,12 @@ mod tests {
     #[test]
     fn http_listener_proto_wires_ext_authz_per_route() {
         use envoy_types::pb::envoy::config::core::v3::grpc_service;
-        use envoy_types::pb::envoy::config::listener::v3::{Listener, filter};
+        use envoy_types::pb::envoy::config::listener::v3::{filter, Listener};
         use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::{
-            ExtAuthz, ExtAuthzPerRoute, ext_authz, ext_authz_per_route,
+            ext_authz, ext_authz_per_route, ExtAuthz, ExtAuthzPerRoute,
         };
         use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
-            HttpConnectionManager, http_connection_manager, http_filter,
+            http_connection_manager, http_filter, HttpConnectionManager,
         };
 
         let sid = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
