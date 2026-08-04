@@ -1,0 +1,118 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Local colima-k3s "sandbox execution plane" overlay for `deploy.sh k8s deploy`.
+# Runs ONLY: orchestrator-rs (embedded xDS + ext_authz), egress Envoy DaemonSet,
+# sandbox namespaces/RBAC/quota/policy, and the in-cluster egress PKI (bootstrapped
+# separately by deploy/k8s/pki/bootstrap-egress-pki.sh). Everything else — api,
+# worker, frontend, skillspector, postgres, redis — runs in docker (compose
+# --profile k8s-bus). All egress control<->Envoy mTLS stays in-cluster and reuses
+# the base svc-DNS SANs unchanged (mTLS stays ON here, unlike overlays/local).
+resources:
+  - ../../base
+
+patches:
+  # ---- Delete the services that run in docker (k8s mode) ------------------
+  - target: { kind: Service, name: api, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata: { name: api, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Deployment, name: api, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: api, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Service, name: worker, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata: { name: worker, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Deployment, name: worker, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: worker, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Service, name: frontend, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata: { name: frontend, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Deployment, name: frontend, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: frontend, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Service, name: skillspector, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata: { name: skillspector, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Deployment, name: skillspector, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: skillspector, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Service, name: postgres, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata: { name: postgres, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Deployment, name: postgres, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: postgres, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Service, name: redis, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata: { name: redis, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Deployment, name: redis, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: redis, namespace: joysafeter-control }
+      $patch: delete
+  - target: { kind: Job, name: joysafeter-db-init, namespace: joysafeter-control }
+    patch: |-
+      apiVersion: batch/v1
+      kind: Job
+      metadata: { name: joysafeter-db-init, namespace: joysafeter-control }
+      $patch: delete
+  # ---- Make the egress-PKI-mounted secrets optional so the orchestrator Pod
+  # ---- schedules before bootstrap-egress-pki.sh runs (deploy folds PKI in at
+  # ---- Task 3; the Envoy DaemonSet already tolerates absent client secrets). --
+  - target:
+      kind: Deployment
+      name: joysafeter-orchestrator
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: joysafeter-orchestrator
+        namespace: joysafeter-control
+      spec:
+        template:
+          spec:
+            volumes:
+              - name: authz-server-tls
+                secret:
+                  secretName: joysafeter-egress-authz-server-tls
+                  optional: true
+              - name: xds-server-tls
+                secret:
+                  secretName: joysafeter-rust-xds-server-tls
+                  optional: true
