@@ -1204,7 +1204,13 @@ fn pipe_listener(
     dynamic_forward: bool,
     denied_cidrs: &[ModernCidrRange],
 ) -> Listener {
-    let hcm = build_hcm(name, route_name, authz_cluster, dynamic_forward, denied_cidrs);
+    let hcm = build_hcm(
+        name,
+        route_name,
+        authz_cluster,
+        dynamic_forward,
+        denied_cidrs,
+    );
     Listener {
         name: name.to_string(),
         address: Some(Address {
