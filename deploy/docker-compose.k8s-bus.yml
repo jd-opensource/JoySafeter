@@ -1,0 +1,24 @@
+# =============================================================================
+# k8s-mode docker face: business services + the PG/Redis BUS in docker; the
+# sandbox execution plane (orchestrator-rs + egress Envoy + sandbox Pods) runs
+# in k8s (deploy/k8s/apply-sandbox-plane.sh). Overlay ON TOP of docker-compose.yml.
+#
+# Usage (k8s mode docker side):
+#   docker compose -f docker-compose.yml -f docker-compose.k8s-bus.yml \
+#     --profile local-redis up -d
+#   # NOTE: NO `--profile sandbox` — orchestrator-rs + joysafeter-envoy stay OUT
+#   #       of docker in k8s mode; they run in k8s.
+#
+# The k8s orchestrator reaches these over plain TCP at the colima node InternalIP
+# (see deploy/k8s/apply-sandbox-plane.sh -> joysafeter-docker-bus hostAlias).
+# =============================================================================
+services:
+  # Bind PG to all interfaces so k3s Pods (via the colima VM IP) can connect.
+  postgres:
+    ports:
+      - "0.0.0.0:${POSTGRES_PORT_HOST:-5432}:5432"
+
+  # Bind Redis to all interfaces so k3s Pods can reach the global task queue.
+  redis:
+    ports:
+      - "0.0.0.0:${REDIS_PORT_HOST:-6379}:6379"
