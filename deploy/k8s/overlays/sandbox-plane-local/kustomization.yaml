@@ -116,3 +116,38 @@ patches:
                 secret:
                   secretName: joysafeter-rust-xds-server-tls
                   optional: true
+  # ---- k8s mode: orchestrator reaches the DOCKER-hosted PG/Redis bus --------
+  # The bus URLs point at a stable in-cluster hostAlias name; deploy.sh maps
+  # `joysafeter-docker-bus` to the discovered colima node InternalIP at apply
+  # time (see plan Task 6). Plain TCP — no mTLS across this single boundary.
+  - target:
+      kind: ConfigMap
+      name: joysafeter-config
+      namespace: joysafeter-control
+    patch: |-
+      - op: replace
+        path: /data/DATABASE_URL
+        value: postgres://postgres:postgres@joysafeter-docker-bus:5432/joysafeter
+      - op: replace
+        path: /data/REDIS_URL
+        value: redis://joysafeter-docker-bus:6379/0
+      - op: replace
+        path: /data/POSTGRES_HOST
+        value: joysafeter-docker-bus
+  - target:
+      kind: Deployment
+      name: joysafeter-orchestrator
+      namespace: joysafeter-control
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: joysafeter-orchestrator
+        namespace: joysafeter-control
+      spec:
+        template:
+          spec:
+            hostAliases:
+              - ip: "__DOCKER_BUS_IP__"
+                hostnames:
+                  - joysafeter-docker-bus
