@@ -2687,6 +2687,7 @@ fn build_virtual_hosts_proto(
                     )),
                     ..Default::default()
                 }),
+                ..Default::default()
             })),
             ..Default::default()
         }],

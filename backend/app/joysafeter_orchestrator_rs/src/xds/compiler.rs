@@ -4,37 +4,37 @@ use std::env;
 use anyhow::Context;
 use base64::Engine as _;
 use envoy_types::pb::google::protobuf::Any;
-use envoy_types_v076::pb::envoy::config::cluster::v3::{cluster, Cluster};
-use envoy_types_v076::pb::envoy::config::core::v3::{
+use envoy_types::pb::envoy::config::cluster::v3::{cluster, Cluster};
+use envoy_types::pb::envoy::config::core::v3::{
     address, config_source, data_source, grpc_service, socket_address, Address,
     AggregatedConfigSource, ConfigSource, DataSource, GrpcService, Http1ProtocolOptions,
     Http2ProtocolOptions, Pipe, SocketAddress, TransportSocket,
 };
-use envoy_types_v076::pb::envoy::config::endpoint::v3::{
+use envoy_types::pb::envoy::config::endpoint::v3::{
     lb_endpoint, ClusterLoadAssignment, Endpoint, LbEndpoint, LocalityLbEndpoints,
 };
-use envoy_types_v076::pb::envoy::config::listener::v3::{filter, Filter, FilterChain, Listener};
-use envoy_types_v076::pb::envoy::config::route::v3::{
+use envoy_types::pb::envoy::config::listener::v3::{filter, Filter, FilterChain, Listener};
+use envoy_types::pb::envoy::config::route::v3::{
     header_matcher, route, route_action, route_match, DirectResponseAction, HeaderMatcher, Route,
     RouteAction, RouteConfiguration, RouteMatch, VirtualHost,
 };
-use envoy_types_v076::pb::envoy::extensions::filters::http::ext_authz::v3::ExtAuthz;
-use envoy_types_v076::pb::envoy::extensions::filters::http::router::v3::Router;
-use envoy_types_v076::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
+use envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::ExtAuthz;
+use envoy_types::pb::envoy::extensions::filters::http::router::v3::Router;
+use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
     http_connection_manager, http_filter, HttpConnectionManager, HttpFilter, Rds,
 };
-use envoy_types_v076::pb::envoy::extensions::transport_sockets::tls::v3::{
+use envoy_types::pb::envoy::extensions::transport_sockets::tls::v3::{
     common_tls_context, subject_alt_name_matcher, CertificateValidationContext, CommonTlsContext,
     DownstreamTlsContext, SubjectAltNameMatcher, TlsCertificate, TlsParameters, UpstreamTlsContext,
 };
-use envoy_types_v076::pb::envoy::extensions::upstreams::http::v3::{
+use envoy_types::pb::envoy::extensions::upstreams::http::v3::{
     http_protocol_options, HttpProtocolOptions,
 };
-use envoy_types_v076::pb::envoy::r#type::matcher::v3::{
+use envoy_types::pb::envoy::r#type::matcher::v3::{
     string_matcher, RegexMatchAndSubstitute, RegexMatcher, StringMatcher,
 };
-use envoy_types_v076::pb::google::protobuf::{Duration, UInt32Value};
-use prost14::Message;
+use envoy_types::pb::google::protobuf::{Duration, UInt32Value};
+use prost::Message;
 use sha2::{Digest, Sha256};
 
 use super::policy::{self, CredentialRoute, SandboxPolicy, Upstream};
@@ -660,7 +660,7 @@ fn credential_route(
             upgrade_configs: if credential.websocket {
                 vec![route_action::UpgradeConfig {
                     upgrade_type: "websocket".to_string(),
-                    enabled: Some(envoy_types_v076::pb::google::protobuf::BoolValue {
+                    enabled: Some(envoy_types::pb::google::protobuf::BoolValue {
                         value: true,
                     }),
                     ..Default::default()
@@ -989,9 +989,9 @@ fn deny_route(message: &str) -> Route {
         typed_per_filter_config,
         action: Some(route::Action::DirectResponse(DirectResponseAction {
             status: 403,
-            body: Some(envoy_types_v076::pb::envoy::config::core::v3::DataSource {
+            body: Some(envoy_types::pb::envoy::config::core::v3::DataSource {
                 specifier: Some(
-                    envoy_types_v076::pb::envoy::config::core::v3::data_source::Specifier::InlineString(
+                    envoy_types::pb::envoy::config::core::v3::data_source::Specifier::InlineString(
                         message.to_string(),
                     ),
                 ),
@@ -1038,10 +1038,10 @@ fn ext_authz_http_filter(authz_cluster: &str) -> HttpFilter {
             "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz",
             &ExtAuthz {
                 transport_api_version:
-                    envoy_types_v076::pb::envoy::config::core::v3::ApiVersion::V3 as i32,
+                    envoy_types::pb::envoy::config::core::v3::ApiVersion::V3 as i32,
                 failure_mode_allow: false,
                 services: Some(
-                    envoy_types_v076::pb::envoy::extensions::filters::http::ext_authz::v3::ext_authz::Services::GrpcService(
+                    envoy_types::pb::envoy::extensions::filters::http::ext_authz::v3::ext_authz::Services::GrpcService(
                         GrpcService {
                             target_specifier: Some(grpc_service::TargetSpecifier::EnvoyGrpc(
                                 grpc_service::EnvoyGrpc {
@@ -1101,7 +1101,7 @@ fn build_hcm(
         http_filters: filters,
         route_specifier: Some(http_connection_manager::RouteSpecifier::Rds(Rds {
             config_source: Some(ConfigSource {
-                resource_api_version: envoy_types_v076::pb::envoy::config::core::v3::ApiVersion::V3
+                resource_api_version: envoy_types::pb::envoy::config::core::v3::ApiVersion::V3
                     as i32,
                 config_source_specifier: Some(config_source::ConfigSourceSpecifier::Ads(
                     AggregatedConfigSource {},
@@ -1112,7 +1112,7 @@ fn build_hcm(
         })),
         stream_idle_timeout: Some(duration(0)),
         request_timeout: Some(duration(0)),
-        use_remote_address: Some(envoy_types_v076::pb::google::protobuf::BoolValue { value: true }),
+        use_remote_address: Some(envoy_types::pb::google::protobuf::BoolValue { value: true }),
         upgrade_configs: if dynamic_forward {
             vec![
                 http_connection_manager::UpgradeConfig {
@@ -1174,7 +1174,7 @@ fn http_listener(
                         common_tls_context: Some(CommonTlsContext {
                             tls_params: Some(TlsParameters {
                                 tls_minimum_protocol_version:
-                                    envoy_types_v076::pb::envoy::extensions::transport_sockets::tls::v3::tls_parameters::TlsProtocol::TlSv12
+                                    envoy_types::pb::envoy::extensions::transport_sockets::tls::v3::tls_parameters::TlsProtocol::TlSv12
                                         as i32,
                                 ..Default::default()
                             }),
@@ -1232,7 +1232,7 @@ fn tls_transport_socket<M: Message>(type_url: &str, context: &M) -> TransportSoc
     TransportSocket {
         name: "envoy.transport_sockets.tls".to_string(),
         config_type: Some(
-            envoy_types_v076::pb::envoy::config::core::v3::transport_socket::ConfigType::TypedConfig(
+            envoy_types::pb::envoy::config::core::v3::transport_socket::ConfigType::TypedConfig(
                 pack_new(type_url, context),
             ),
         ),
@@ -1302,8 +1302,8 @@ fn insert_resource<M: Message>(
 fn pack_new<M: Message>(
     type_url: &str,
     message: &M,
-) -> envoy_types_v076::pb::google::protobuf::Any {
-    envoy_types_v076::pb::google::protobuf::Any {
+) -> envoy_types::pb::google::protobuf::Any {
+    envoy_types::pb::google::protobuf::Any {
         type_url: type_url.to_string(),
         value: message.encode_to_vec(),
     }
@@ -1381,7 +1381,7 @@ fn timeout_for(profile: &str) -> Duration {
 
 fn ext_authz_context(
     context_extensions: BTreeMap<String, String>,
-) -> HashMap<String, envoy_types_v076::pb::google::protobuf::Any> {
+) -> HashMap<String, envoy_types::pb::google::protobuf::Any> {
     HashMap::from([(
         EXT_AUTHZ_FILTER.to_string(),
         pack_new(
@@ -1394,7 +1394,7 @@ fn ext_authz_context(
     )])
 }
 
-fn ext_authz_disabled() -> HashMap<String, envoy_types_v076::pb::google::protobuf::Any> {
+fn ext_authz_disabled() -> HashMap<String, envoy_types::pb::google::protobuf::Any> {
     HashMap::from([(
         EXT_AUTHZ_FILTER.to_string(),
         pack_new(
@@ -1445,7 +1445,6 @@ fn safe_name(value: &str) -> String {
 }
 
 #[derive(Clone, PartialEq, Message)]
-#[prost(prost_path = "prost14")]
 struct ModernCidrRange {
     #[prost(string, tag = "1")]
     address_prefix: String,
@@ -1454,7 +1453,6 @@ struct ModernCidrRange {
 }
 
 #[derive(Clone, PartialEq, Message)]
-#[prost(prost_path = "prost14")]
 struct ModernAddressMatcher {
     #[prost(message, repeated, tag = "1")]
     ranges: Vec<ModernCidrRange>,
@@ -1463,7 +1461,6 @@ struct ModernAddressMatcher {
 }
 
 #[derive(Clone, PartialEq, Message)]
-#[prost(prost_path = "prost14")]
 struct ModernDnsCacheConfig {
     #[prost(string, tag = "1")]
     name: String,
@@ -1480,7 +1477,6 @@ struct ModernDnsCacheConfig {
 }
 
 #[derive(Clone, PartialEq, Message)]
-#[prost(prost_path = "prost14")]
 struct ModernDynamicForwardProxyClusterConfig {
     #[prost(message, optional, tag = "1")]
     dns_cache_config: Option<ModernDnsCacheConfig>,
@@ -1491,7 +1487,6 @@ struct ModernDynamicForwardProxyClusterConfig {
 }
 
 #[derive(Clone, PartialEq, Message)]
-#[prost(prost_path = "prost14")]
 struct ModernDynamicForwardProxyFilterConfig {
     #[prost(message, optional, tag = "1")]
     dns_cache_config: Option<ModernDnsCacheConfig>,
@@ -1500,7 +1495,6 @@ struct ModernDynamicForwardProxyFilterConfig {
 }
 
 #[derive(Clone, PartialEq, Message)]
-#[prost(prost_path = "prost14")]
 struct ModernExtAuthzPerRoute {
     #[prost(bool, optional, tag = "1")]
     disabled: Option<bool>,
@@ -1509,7 +1503,6 @@ struct ModernExtAuthzPerRoute {
 }
 
 #[derive(Clone, PartialEq, Message)]
-#[prost(prost_path = "prost14")]
 struct ModernCheckSettings {
     #[prost(btree_map = "string, string", tag = "1")]
     context_extensions: BTreeMap<String, String>,
