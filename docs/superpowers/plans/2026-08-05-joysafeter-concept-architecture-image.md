@@ -4,9 +4,9 @@
 
 **Goal:** Generate and validate a presentation-ready PNG concept image that communicates JoySafeter's secure managed-agent platform.
 
-**Architecture:** Use the built-in image-generation path to create one polished raster asset from the approved design prompt. Copy the selected output into the repository and validate its format, dimensions, composition, and visible typography before delivery.
+**Architecture:** Use the bundled image-generation CLI with `gpt-image-2`, as explicitly requested, to create one polished raster asset from the approved design prompt. Write the selected output into the repository and validate its format, dimensions, composition, and visible typography before delivery.
 
-**Tech Stack:** OpenAI built-in image generation, PNG inspection tools
+**Tech Stack:** OpenAI `gpt-image-2`, bundled image-generation CLI, PNG inspection tools
 
 ## Global Constraints
 
@@ -30,7 +30,7 @@
 
 - [ ] **Step 1: Generate the initial image**
 
-Use the built-in image-generation tool with this prompt:
+Use the bundled image-generation CLI with `gpt-image-2`, `high` quality, and a `2048x1152` canvas with this prompt:
 
 ```text
 Use case: infographic-diagram
