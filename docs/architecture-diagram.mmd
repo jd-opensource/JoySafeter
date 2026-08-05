@@ -17,152 +17,147 @@
   }
 }}%%
 
+%% ═══════════════════════════════════════════════════════════════════════
+%% JoySafeter — AS-BUILT 运行时组件与数据流（joysafeter-v2, 核对于 2026-07-03）
+%% 这是“组件 + 一条消息如何流动”的运行时视图；分层支柱视图见 architecture-unified-event-model.mmd。
+%% 详见 docs/ARCHITECTURE.md / ARCHITECTURE_CN.md。
+%% ═══════════════════════════════════════════════════════════════════════
+
 graph TB
     subgraph USER["🖥️ User Layer"]
         direction LR
-        BROWSER["Browser / Chat UI"]
-        RUNCENTER_UI["Run Center UI"]
-        PROFILE_UI["Profile & Preferences"]
+        BROWSER["Browser<br/>会话 / Agent 编辑器 / 技能"]
+        CTL["joysafeterctl<br/>Rust CLI"]
     end
 
-    subgraph FRONTEND["⚛️ Frontend — Next.js 16 · React 19 · TypeScript"]
+    subgraph FRONTEND["⚛️ Frontend — Next.js 16 · React 19"]
         direction TB
-
-        subgraph DESIGN["Design System"]
-            TOKENS["CSS Variables\n& Tailwind Tokens"]
-            RADIX["Radix UI\nComponents"]
-            DARKMODE["Theme Engine\nSystem / Light / Dark"]
-        end
-
-        subgraph STATE["State & Data"]
-            ZUSTAND["Zustand Stores"]
-            TANSTACK["TanStack Query"]
-            REACTFLOW["React Flow\nWorkflow Editor"]
-        end
-
-        subgraph WS_LAYER["Unified WebSocket Layer"]
-            BASE_WS["BaseWsClient\n(lifecycle · auth · reconnect)"]
-            CHAT_WS["ChatWsClient\n/ws/chat"]
-            RUN_WS["RunWsClient\n/ws/runs"]
-            NOTIF_WS["NotificationWsClient\n/ws/notifications"]
-        end
+        STORES["Zustand + TanStack Query<br/>project store 注入 X-Org/Project"]
+        SSE_HOOK["useSessionStream<br/>fetch-streaming SSE 消费"]
+        NOTIF_WS["NotificationWsClient<br/>/ws/notifications"]
+        API_CLIENT["lib/api-client<br/>REST + CSRF + 401 refresh"]
     end
 
-    subgraph BACKEND["🐍 Backend — FastAPI · Python 3.12+"]
+    subgraph API_SVC["🐍 API 服务 (JOYSAFETER_SERVICE_ROLE=api)"]
         direction TB
+        REST["REST /api/v1/*<br/>agents · sessions · tasks · skills<br/>secrets · vaults · files · orgs"]
+        SSE_EP["SSE /sessions/{id}/events/stream<br/>?after_seq 回放 + 实时"]
+        NOTIF_EP["/ws/notifications<br/>NotificationManager (进程内)"]
+        ENVELOPE["ApiV1 响应信封<br/>{success,code,message,data}"]
+    end
 
-        subgraph API["REST + WebSocket API"]
-            REST["/v1  REST Endpoints\nChat · Runs · Graphs · Skills\nModels · Tools · Workspaces"]
-            WS_HANDLER["ChatWsHandler\nUnified WS Protocol\nchat · copilot · skill_creator"]
-            RUN_WS_HANDLER["RunWsHandler\nEvent Streaming\n& Replay"]
-        end
+    subgraph ORCH_SVC["⚙️ Rust Orchestrator 服务"]
+        direction TB
+        SCHED["TaskScheduler<br/>DB 拉取 · FOR UPDATE SKIP LOCKED"]
+        GRPC["gRPC AgentBridge :9090<br/>SetupSandbox / StartTask / Cancel"]
+        SBX_MGR["Sandbox Resolver / Controller<br/>预热池 · 空闲清扫"]
+        BUS["JoySafeterEventBus<br/>两相：持久化 ∥ 广播"]
+        BROADCASTER["SessionBroadcaster<br/>本地队列 + Redis pub/sub"]
+    end
 
-        subgraph SERVICES["Service Layer"]
-            MODEL_SVC["ModelService\nUnified Resolution\n(provider_name, model_name)"]
-            RUN_SVC["RunService\nEvent Sourcing\nRun · Event · Snapshot"]
-            SANDBOX_SVC["SandboxService\nRAII Handle\nPer-User Isolation"]
-            SKILL_SVC["SkillService\nVersioning\n& Collaboration"]
-            GRAPH_SVC["GraphService\nTemplate · Deploy\n& Lookup"]
-        end
+    subgraph WORKER_SVC["🔁 Worker 服务 (role=worker)"]
+        STREAMW["EventStreamWorker<br/>XREADGROUP / XAUTOCLAIM"]
+        BATCH["EventBatchSender<br/>advisory lock · seq · dedup"]
+    end
 
-        subgraph CORE["Core Engine"]
-            DEEP_AGENTS["DeepAgents v0.4\nManager-Worker\nOrchestration"]
-            LANGGRAPH["LangGraph Engine\nStateful Graphs\nPause · Resume · Branch"]
-            COPILOT["Copilot Engine\nGraph Analysis\n& Action Execution"]
-            MODEL_FACTORY["ModelFactory\nProvider Registry\n& Credential Validation"]
-            TOOL_RESOLVER["Tool Resolver\nMCP Protocol\n200+ Tools"]
-            SKILL_LOADER["Skill Loader\nBatch Preload\n& Deduplication"]
-        end
+    subgraph REDIS_L["🟥 Redis"]
+        direction LR
+        R_LIST["List<br/>global_queue"]
+        R_STREAM["Streams<br/>orchestrator:events"]
+        R_PUBSUB["Pub/Sub<br/>session_events:{id} · cmd:{inst}"]
+    end
 
-        subgraph OBSERVABILITY["Observability & Cross-Cutting"]
-            TRACE["trace_id Propagation\n(contextvars)"]
-            LANGFUSE["Langfuse\nReal-Time Tracing"]
-            LOGURU["Loguru\nStructured Logging"]
-            APPEXC["AppException\nStructured Error Codes\ni18n Support"]
-        end
+    subgraph SANDBOX["📦 Sandbox 容器（每会话）"]
+        direction TB
+        RUNNER["Rust sandbox-runner<br/>gRPC 客户端"]
+        HARNESS["Harness<br/>claude CLI · codex · ccb"]
+        SKILLS_FS["技能解包 + MCP settings<br/>工作目录"]
+    end
+
+    subgraph INFRA["🧱 支撑设施"]
+        direction LR
+        ENVOY["Envoy<br/>每沙箱出口白名单"]
+        SKILLSPECTOR["skillspector<br/>写入扫描 + 运行时闸门"]
     end
 
     subgraph DATA["🗄️ Data Layer"]
         direction LR
-        PG["PostgreSQL\nGraphs · Runs · Events\nSnapshots · Skills\nCredentials · Memory"]
-        REDIS["Redis\nSession Cache\nRate Limiting"]
-    end
-
-    subgraph SANDBOX["📦 Sandbox Layer"]
-        direction LR
-        DOCKER["Docker Containers\nPer-User Isolated\nCode Execution"]
-        MCP_TOOLS["MCP Tool Server\nNmap · Nuclei · Trivy\n200+ Security Tools"]
+        PG["PostgreSQL<br/>agents · sessions · session_events<br/>tasks · skills · secrets · vaults · traces"]
+        OBJ["Object Store<br/>local / S3 / OSS"]
     end
 
     subgraph AUTH["🔐 Auth"]
-        SSO["Enterprise SSO\nGitHub · Google · Microsoft\nOIDC · JD SSO"]
+        SSO["JWT + HttpOnly Cookie<br/>SSO: OAuth2 / OIDC · JD SSO"]
     end
 
     %% User → Frontend
-    USER --> FRONTEND
+    BROWSER --> FRONTEND
+    CTL --> REST
 
-    %% WebSocket hierarchy
-    BASE_WS --> CHAT_WS
-    BASE_WS --> RUN_WS
-    BASE_WS --> NOTIF_WS
-
-    %% Frontend → Backend
-    CHAT_WS -->|"ws-token auth"| WS_HANDLER
-    RUN_WS -->|"event subscribe"| RUN_WS_HANDLER
-    TANSTACK -->|"REST"| REST
-
-    %% API → Services
-    WS_HANDLER --> RUN_SVC
-    WS_HANDLER --> MODEL_SVC
-    RUN_WS_HANDLER --> RUN_SVC
-    REST --> GRAPH_SVC
-    REST --> SKILL_SVC
-    REST --> MODEL_SVC
-    REST --> SANDBOX_SVC
-
-    %% Services → Core
-    MODEL_SVC --> MODEL_FACTORY
-    RUN_SVC --> DEEP_AGENTS
-    RUN_SVC --> LANGGRAPH
-    GRAPH_SVC --> COPILOT
-    SKILL_SVC --> SKILL_LOADER
-
-    %% Core internals
-    DEEP_AGENTS --> LANGGRAPH
-    DEEP_AGENTS --> TOOL_RESOLVER
-    DEEP_AGENTS --> SKILL_LOADER
-    COPILOT --> LANGGRAPH
-    TOOL_RESOLVER --> MCP_TOOLS
-
-    %% Observability
-    TRACE -.->|"flows through"| WS_HANDLER
-    TRACE -.->|"flows through"| LANGGRAPH
-    TRACE -.->|"persisted in"| PG
-    LANGFUSE -.-> DEEP_AGENTS
-    LOGURU -.-> SERVICES
-
-    %% Data
-    SERVICES --> PG
-    SERVICES --> REDIS
-
-    %% Sandbox
-    SANDBOX_SVC -->|"RAII handle"| DOCKER
-    DEEP_AGENTS --> DOCKER
-
-    %% Auth
+    %% Frontend → API
+    API_CLIENT -->|"REST"| REST
+    SSE_HOOK -->|"SSE"| SSE_EP
+    NOTIF_WS -->|"WS"| NOTIF_EP
     SSO --> REST
+    REST --> ENVELOPE
+
+    %% API → 调度（Redis List）
+    REST -->|"user.message → 建 Task, rpush"| R_LIST
+    REST --> PG
+    R_LIST -->|"唤醒"| SCHED
+    SCHED -->|"认领 pending (DB 权威)"| PG
+    SCHED --> SBX_MGR
+
+    %% 供给沙箱 + gRPC
+    SBX_MGR -->|"provision"| RUNNER
+    SBX_MGR -.-> ENVOY
+    GRPC <-->|"AgentBridge 双向流<br/>(经 Envoy socket)"| RUNNER
+    RUNNER --> HARNESS
+    RUNNER --> SKILLS_FS
+    HARNESS -.->|"出口白名单"| ENVOY
+
+    %% 技能安全扫描
+    REST -->|"写入时扫描"| SKILLSPECTOR
+
+    %% runner 事件 → 事件总线 → Redis 三通道
+    RUNNER -->|"HarnessEvent"| GRPC
+    GRPC --> BUS
+    BUS -->|"Phase1 XADD"| R_STREAM
+    BUS -->|"Phase2 PUBLISH"| R_PUBSUB
+    BUS --> BROADCASTER
+    BROADCASTER --> R_PUBSUB
+
+    %% Worker 消费 → 落库 + 再发布
+    R_STREAM -->|"XREADGROUP"| STREAMW
+    STREAMW --> BATCH
+    BATCH -->|"insert session_events"| PG
+    BATCH -->|"realtime publish"| R_PUBSUB
+
+    %% Pub/Sub → SSE → 浏览器
+    R_PUBSUB -->|"SessionBroadcaster"| SSE_EP
+
+    %% 存储
+    SBX_MGR -.->|"artifacts"| OBJ
 
     %% Styling
     classDef userLayer fill:#EEF2FF,stroke:#6366F1,stroke-width:2px,color:#312E81
     classDef frontendLayer fill:#F0F9FF,stroke:#0EA5E9,stroke-width:2px,color:#0C4A6E
-    classDef backendLayer fill:#FFF7ED,stroke:#F97316,stroke-width:2px,color:#7C2D12
-    classDef dataLayer fill:#F0FDF4,stroke:#22C55E,stroke-width:2px,color:#166534
-    classDef sandboxLayer fill:#FDF4FF,stroke:#A855F7,stroke-width:2px,color:#581C87
+    classDef apiLayer fill:#E0F2FE,stroke:#0EA5E9,stroke-width:2px,color:#0C4A6E
+    classDef orchLayer fill:#FFF7ED,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef workerLayer fill:#FCE7F3,stroke:#DB2777,stroke-width:2px,color:#831843
+    classDef redisLayer fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef sandboxLayer fill:#F0FDF4,stroke:#22C55E,stroke-width:2px,color:#166534
+    classDef infraLayer fill:#FDF4FF,stroke:#A855F7,stroke-width:2px,color:#581C87
+    classDef dataLayer fill:#F0FDF4,stroke:#16A34A,stroke-width:2px,color:#166534
     classDef authLayer fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
 
     class USER userLayer
     class FRONTEND frontendLayer
-    class BACKEND backendLayer
-    class DATA dataLayer
+    class API_SVC apiLayer
+    class ORCH_SVC orchLayer
+    class WORKER_SVC workerLayer
+    class REDIS_L redisLayer
     class SANDBOX sandboxLayer
+    class INFRA infraLayer
+    class DATA dataLayer
     class AUTH authLayer

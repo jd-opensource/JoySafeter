@@ -2,13 +2,14 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Chrome, Github, Globe, Key, Shield } from 'lucide-react'
-
+import { useEffect, useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { API_BASE } from '@/lib/api-client'
+import { managedGet, ApiError } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
+import { toastError } from '@/lib/utils/toast'
 
 const logger = createLogger('OAuthButtons')
 
@@ -34,19 +35,19 @@ interface OAuthProvidersResponse {
   providers: OAuthProvider[]
 }
 
+interface OAuthAuthorizationResponse {
+  authorization_url: string
+  state: string
+}
+
 /**
  * Fetch the list of OAuth providers
  */
 async function fetchOAuthProviders(): Promise<OAuthProvider[]> {
-  const response = await fetch(`${API_BASE}/auth/oauth/providers`, {
-    credentials: 'include',
+  const data = await managedGet<OAuthProvidersResponse>('auth/oauth/providers', {
+    withAuth: false,
+    skipManagedContext: true,
   })
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch OAuth providers')
-  }
-
-  const data: OAuthProvidersResponse = await response.json()
   return data.providers
 }
 
@@ -66,8 +67,21 @@ interface OAuthButtonsProps {
  *
  * Dynamically fetches enabled OAuth providers from the backend and renders login buttons.
  */
-export function OAuthButtons({ callbackUrl = '/chat', showDivider = true }: OAuthButtonsProps) {
+export function OAuthButtons({
+  callbackUrl = '/managed/quickstart',
+  showDivider = true,
+}: OAuthButtonsProps) {
   const { t } = useTranslation()
+  const requestRunRef = useRef(0)
+  const mountedRef = useRef(true)
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false
+      requestRunRef.current += 1
+    },
+    [],
+  )
 
   const {
     data: providers,
@@ -111,17 +125,57 @@ export function OAuthButtons({ callbackUrl = '/chat', showDivider = true }: OAut
     return null
   }
 
-  const handleOAuthLogin = (providerId: string) => {
-    const params = new URLSearchParams()
-    if (callbackUrl) {
-      params.set('callback_url', callbackUrl)
+  const getOAuthErrorMessage = (error: unknown): string => {
+    if (error instanceof ApiError) {
+      switch (error.code) {
+        case 'OAUTH_PROVIDER_NOT_FOUND':
+          return t('auth.oauthProviderNotFound')
+        case 'OAUTH_DISCOVERY_FAILED':
+        case 'OAUTH_TOKEN_ENDPOINT_DISCOVERY_FAILED':
+        case 'OAUTH_USERINFO_ENDPOINT_DISCOVERY_FAILED':
+          return t('auth.oauthDiscoveryFailed')
+        case 'OAUTH_AUTHORIZE_URL_MISSING':
+          return t('auth.oauthAuthorizeUrlMissing')
+        case 'NETWORK_ERROR':
+        case 'REQUEST_TIMEOUT':
+          return t('auth.networkError')
+        default:
+          return error.message || t('auth.oauthFailed')
+      }
     }
-    const queryString = params.toString()
-    const url = `${API_BASE}/auth/oauth/${providerId}${queryString ? `?${queryString}` : ''}`
 
-    logger.info('Initiating OAuth login:', { provider: providerId, callbackUrl })
-    // eslint-disable-next-line react-hooks/immutability
-    window.location.href = url
+    if (error instanceof Error) {
+      return error.message
+    }
+
+    return t('auth.oauthFailed')
+  }
+
+  const handleOAuthLogin = async (providerId: string) => {
+    const runId = requestRunRef.current + 1
+    requestRunRef.current = runId
+    const isCurrentRequest = () => mountedRef.current && requestRunRef.current === runId
+
+    try {
+      const params = new URLSearchParams()
+      if (callbackUrl) {
+        params.set('callback_url', callbackUrl)
+      }
+      const queryString = params.toString()
+      const path = `auth/oauth/${providerId}${queryString ? `?${queryString}` : ''}`
+
+      logger.info('Initiating OAuth login:', { provider: providerId, callbackUrl })
+      const response = await managedGet<OAuthAuthorizationResponse>(path, {
+        withAuth: false,
+        skipManagedContext: true,
+      })
+      if (!isCurrentRequest()) return
+      window.location.href = response.authorization_url
+    } catch (error) {
+      if (!isCurrentRequest()) return
+      logger.error('Failed to initiate OAuth login:', { providerId, error })
+      toastError(getOAuthErrorMessage(error))
+    }
   }
 
   return (
@@ -147,7 +201,7 @@ export function OAuthButtons({ callbackUrl = '/chat', showDivider = true }: OAut
               key={provider.id}
               variant="outline"
               className="w-full"
-              onClick={() => handleOAuthLogin(provider.id)}
+              onClick={() => void handleOAuthLogin(provider.id)}
             >
               <Icon className="mr-2 h-4 w-4" />
               {t('auth.signInWith', { provider: provider.display_name })}

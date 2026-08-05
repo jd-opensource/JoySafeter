@@ -1,210 +1,129 @@
-# 教程 03：高级技能（Skills）的导入、投递与沙盒验证闭环
+# 教程 03：Skills（技能包）的导入、安全扫描、投递与沙箱消费
 
-> **适合人群**：希望让 Agent 拥有执行本地 Python/Shell 脚本能力的高阶玩家，或需要为团队维护通用工具库的平台开发者。
-> **目标**：彻底理解 JoySafeter 中 Skills 的“三段式”生命周期（存储 -> 投递落盘 -> 隔离消费）。学会合规导入包含代码和 Markdown 描述的复杂技能，并掌握如何在 OpenClaw 沙盒中验证该文件是否已真实物理落盘。
-
----
-
-## 0. 重新认识 Skills：它不只是“一段提示词”
-
-初学者常常混淆 MCP 工具和本地 Skills。
-- **MCP 服务**：是通过特定的标准协议提供的一组远程 HTTP/RPC 接口。代码在远端跑。
-- **JoySafeter Skills**：则是**一组真实的物理文件**（通常包含一个 `SKILL.md` 描述文件 + 若干个 `.py` / `.sh` / `.json` 文件）。这意味着你想让 Agent 执行这些代码，平台就必须在系统底层**安全地传递并存储这些文件**。
-
-为了兼顾代码共享的敏捷性和执行安全，JoySafeter 采用了一套极其严格的 **存储 (Storage) → 投递 (Delivery) → 消费 (Consumption)** 隔离管线。
+> **适合人群**：希望让 Agent 拥有执行本地 Python/Shell 脚本能力的高阶用户，或为团队维护通用能力库的开发者。
+> **目标**：理解 Skills 的完整生命周期（存储 → 安全扫描 → 打包投递 → 沙箱消费），并掌握合规导入与验证。
 
 ---
 
-## 1. 核心管线与实现原理（“Under the Hood”）
+## 0. Skills 与 MCP 的区别
 
-### 1.1 第一阶段：校验与存储（Validation & Storage - `SkillService`）
-当你通过界面上传 ZIP 包或通过 API 导入文件夹时：
-1. **防爆与清洗**：后端的 `is_system_file` 会拦截所有敏感系统文件；`is_valid_text_content` 会拦截所有不合规的二进制文件（仅允许导入 `.py, .md, .json, .yaml` 等纯文本）。这防止了恶意二进制可执行文件入库。
-2. **元数据劫持（YAML Frontmatter）**：系统强制要求技能包内必须含有 `SKILL.md`。不仅如此，系统会提取该 Markdown 顶部的 YAML 声明（如 `name`, `description`, `compatibility` 等），**并用文件中的值强行覆盖数据库中的记录**。这意味着 `SKILL.md` 是这个技能“唯一的真相来源（Single Source of Truth）”。
-3. 此时，你的技能通过了安检，**沉睡在 JoySafeter 的 PostgreSQL 数据库中**，尚未触及任何执行环境。
-
-### 1.2 第二阶段：解包落盘与投递（Delivery - `SkillSandboxLoader`）
-Agent 要跑脚本，不能去数据库里 read()。这就需要“沙盒装载器”。
-- 当你在 UI 点击“同步 Skills”或图引擎（GraphBuilder）准备执行之前。
-- 后端扫描该用户账户下所有授权的技能文件。在内存中将它们打包成一个 `tar` 归档。
-- 它调用底层的 Docker API (`BackendProtocol.write`)，直接连通到用户专属的 **OpenClaw 沙盒容器**。
-- 将归档推送到容器内的固定挂载点：**`/workspace/skills/<技能英文名>/`**，并在容器内解压。
-- **至此，虚拟的数据库记录，正式化为了沙盒容器主机上一份份真实的物理文件。**
-
-### 1.3 第三阶段：安全消费（Consumption）
-图引擎中的某个 Agent Node 开始运作。它带有执行代码的能力（`code_interpreter` 工具）。
-- 它的起始运行目录（CWD）被沙盒引擎严格锁死在了 `/workspace` 附近。
-- Agent 可以通过标准的 Python `import` 或读取 `/workspace/skills/<技能名>/XXX.py` 来安全地调用这些刚刚由系统同步进来的隔离脚本，而由于这台容器是隔离的，无论脚本有多高危，都无法触及宿主机的环境。
+- **MCP 工具**：远端 HTTP/RPC 接口，代码跑在远端（见[教程 02](./02-mcp-service-setup.md)）。
+- **JoySafeter Skills**：一组**真实的物理文件**（一个 `SKILL.md` 描述文件 + 若干 `.py` / `.sh` / `.json`）。
+  平台需要在系统底层**安全地打包并投递这些文件**进沙箱，Agent 才能读取 / 执行。
 
 ---
 
-## 2. 核心能力实操验证（打造闭环！）
+## 1. 核心管线（Under the Hood）
 
-下面我们来跑通一个完整的验证流水线。我们不用界面 UI，而是通过最根本的 API 调用去感受文件从数据库到沙盒的旅程。
+技能管线横跨三层，并包含独立的安全扫描服务：
 
-### 2.1 准备符合规范的 Skill 文件结构
+### 1.1 校验与存储（`joysafeter_shared/skill/` + `SkillService`）
+上传 ZIP / 导入目录时：
+- **解析 SKILL.md**：提取 YAML frontmatter（`name` / `description` / `allowed-tools` / `compatibility`…），
+  以文件内声明为**唯一真相来源**。
+- **防爆与清洗**：拦截系统文件（`.DS_Store` 等）与二进制 / 非 UTF-8 内容；enforce 尺寸上限
+  （压缩包 / 文件数 / 单文件 / 解压总量）。
+- 通过后，技能落库 PostgreSQL（`joysafeter_skills` + `joysafeter_skill_files`），尚未触及任何执行环境。
 
-在你的本地机器创建一个文件夹 `my_test_skill/`：
+### 1.2 安全扫描（skillspector + 运行时 fail-closed 闸门）
+- 写入 / 更新时，`SkillSecurityService` 把技能内容发给独立的 **skillspector** 服务扫描
+  （`SKILL_SECURITY_*` 环境变量控制）。
+- 扫描器故障会记录 `failed` / `scanning` 状态；草稿写入路径可继续保存，避免丢失编辑内容。
+- **运行时 fail-closed**：命中 `DO_NOT_INSTALL`、扫描失败、仍在扫描、未扫描、未审批或内容漂移的技能，
+  都不会被打包进会话沙箱。
+- 扫描结果记录 `security_status` + 内容 `sha256`（供后续**漂移检测**）。
 
-**文件 1: `/my_test_skill/SKILL.md`**
-这是技能的灵魂。请务必包含 YAML 头部：
+### 1.3 生命周期与运行时闸门
+- 技能有生命周期 FSM：`draft → pending_review → {approved, rejected}`，`approved → archived`。
+- 运行时闸门 `is_skill_usable()`：**只有** `approved` + `security_status` 在白名单 + 内容哈希与上次扫描
+  一致（未漂移）的技能，才会被纳入会话技能包；否则被静默丢弃。
+
+### 1.4 打包投递（`SkillPacker` → gRPC → 沙箱 runner）
+- 会话启动时，`SkillPacker` 把该 Agent 引用的技能解析、通过闸门、打包成 `tar.gz`（proto `SkillArchive`），
+  记录用量日志。
+- orchestrator 经 gRPC `SetupSandbox` / `StartTask` 把 `SkillArchive` 下发给沙箱内的 Rust runner。
+- runner 的 `unpack_skills` 把每个归档解压到沙箱工作目录下的技能目录（按引擎/`target` 决定具体子路径）。
+- **至此，数据库里的技能记录变成了沙箱内一份份真实文件。** 沙箱是隔离的，脚本再高危也困在沙箱内。
+
+---
+
+## 2. 端到端验证闭环
+
+### 2.1 准备一个合规的技能包
+
+`my_test_skill/SKILL.md`（YAML 头部是灵魂）：
 ```markdown
 ---
-name: verify_disk_writer
-description: 验证系统是否能将内容安全写入 /workspace，附带 100% 测试覆盖率。
-compatibility: openclaw>=1.0.0
-tags: [test, filesystem]
+name: verify-disk-writer
+description: 验证系统能否把内容安全写入沙箱工作目录。
+allowed-tools: Bash
 ---
 
 # Verify Disk Writer
 
-这是一个测试沙盒文件穿透挂载是否成功的验证技能。
-它提供了一个简单的 python 函数 `write_test_log()`。
+提供一个 python 脚本 `verify.py`，向工作目录写一行日志。
 ```
 
-**文件 2: `/my_test_skill/verify.py`**
-真正的执行代码：
+`my_test_skill/verify.py`：
 ```python
-import os
 import datetime
 
 def write_test_log():
-    log_path = "/workspace/verification.log"
-    with open(log_path, "a") as f:
+    with open("verification.log", "a") as f:
         f.write(f"Verified at: {datetime.datetime.now()}\n")
-    print(f"Success! Wrote to {log_path}")
+    print("Success! wrote verification.log")
 ```
 
-你可以通过 JoySafeter 界面的【技能大厅】->【导入】压缩包上传，或者使用后台提供的自带脚本一键刷入：
-```bash
-# 在 JoySafeter 源码根目录下执行
-python backend/scripts/load_skills.py ./my_test_skill
-```
+> 命名约束：新建 / 导入技能的 `name` 应使用小写字母数字连字符、≤64 字符，并与技能目录名一致。
 
-### 2.2 验证存储（Storage）元数据解析
-进入 JoySafeter 界面 -> 技能大厅。
-点开你刚导入的 `verify_disk_writer` 技能。
-> **可验证点**：核对界面的“技能名称”、“描述”、“标签”是否完全读取了你刚才手写的 `SKILL.md` 顶部的 YAML 声明？这证明 `SkillService` 拦截并成功解析生效了。
+### 2.2 导入（UI）
+1. 左侧导航进入 **资源 → 技能**（`/managed/skills`）。
+2. 点 **导入 ZIP**（`POST /api/v1/skills/import-zip`），拖入 `my_test_skill.zip`。
+3. 后端解析 + 校验 + 触发 skillspector 扫描（较大的包走后台任务）。
 
-### 2.3 **[最关键一步]** 验证沙盒投递落盘（Delivery）
+### 2.3 验证存储与扫描
+- 在技能详情页核对名称 / 描述 / 标签是否读自你的 `SKILL.md` YAML。
+- 查看 **安全扫描（Security Scans）** 状态：`GET /api/v1/skills/{id}/security-scans/latest`。
+- 若技能要被 Agent 使用，需推进生命周期到 `approved`
+  （`POST /api/v1/skills/{id}/submit-review` → `.../approve`）。
 
-只有落盘，Agent 才能用。
-1. 前往左侧边栏的 **【OpenClaw】** 管理界面。确保你的实例正在运行 `running`。
-2. 点击下方的 **【同步技能 / Sync Skills】** 按钮。（背后的 `SkillSandboxLoader` 正在将数据库打包推入你的这个专属容器中）。
-3. 稍微等待完成。
+### 2.4 挂到 Agent 并运行验证
+1. 打开一个 Agent 的编辑器，在 **技能** 区选中 `verify-disk-writer`（可选特定版本）。保存。
+   *（技能引用写进 Agent 的 `skills` JSONB。）*
+2. 用该 Agent 开一个 Session，发消息：
+   > “运行你技能包里的 `verify.py`，调用 `write_test_log()`，只输出脚本返回值。”
+3. 在会话事件流里观察 `agent.tool_use` / `agent.tool_use`（Bash）与文本输出 `Success! wrote verification.log`。
+   看到即闭环——技能已被打包投递进沙箱并被消费。
 
-**如何闭环验证它真的进沙盒了？**
-打开你服务器的终端控制台，直连到你当前正在运行的那个 OpenClaw 容器里去看它的底层目录：
-
-```bash
-# 1. 找到你名下的那台 OpenClaw 沙盒容器 ID
-docker ps | grep openclaw-user
-
-# 2. 进入容器，查看系统的 /workspace/skills 挂载目录
-docker exec -it <你的容器ID> ls -l /workspace/skills
-```
-
-> **可验证成功指标**：
-> 如果显示出了 `verify_disk_writer` 文件夹，且你还能进一步 `cat /workspace/skills/verify_disk_writer/verify.py` 看到你写的 python 代码，**闭环达成！这证明系统不仅在库里存了信息，还成功穿透沙盒引擎把文件实打实地布置好了**。
-
-### 2.4 在 Agent Builder 中真实挂载与消费验证（完整应用案例）
-
-前排提示：文件虽然进了沙盒，但 Agent 在执行图（Graph）时，默认是不知道有哪些技能可用的。你必须显式地将技能装配（Mount）给它，它的 `systemPrompt` 才能“看见”工具的说明书。
-
-我们来模拟一个最真实的业务开发闭环：
-
-**步骤 1：新建包含技能的执行节点（Graph Node）**
-1. 进入 JoySafeter 的 **【AgentBuilder】**（图构建器）界面。
-2. 在画布上拖拽创建一个新的 **Agent 节点**（或者让 Copilot 帮你建一个）。
-3. 选中该节点，打开右侧配置面板。
-4. 找到 **【Tools（工具配置区）】** -> **【Skills（技能库挂载）】**。
-5. 在下拉列表中，找到并勾选我们刚刚导入成功的 `verify_disk_writer` 技能。
-*(这一步的背后：图引擎的 `SkillsMiddleware` 才会在该节点执行前，把 `SKILL.md` 里的描述动态注入到大模型的 System Prompt 里)*
-
-**步骤 2：配置触发指令**
-同样在右侧面板的 **【系统设定 / System Prompt】** 中，给 Agent 下达明确的指令：
-> “你现在已经拥有了一项探测文件系统基础指标的技能。请直接执行为你准备好的 `/workspace/skills/verify_disk_writer/verify.py` 脚本，并调用其中的 `write_test_log` 函数。不要做多余的解释，直接输出脚本执行后的返回值。”
-
-**步骤 3：模拟运行（测试沙盒穿透能力）**
-1. 确保该节点连有输入端（如 Start 节点或 Human Input 节点）。
-2. 在调试控制台（Runner）中发起首次对话，输入：“**开始巡检本地盘**”。
-3. 观察执行流：
-   - 此时，大模型会意识到它被附魔了特定的 Skill。
-   - 它会自主生成 Python 代码去 `import sys` 并 `sys.path.append('/workspace/skills/verify_disk_writer')`，然后拉起 `verify.py`。
-   - 打开右上角的 **【Action Logs（动作执行日志）】**，你会清晰地看到大模型生成的代码。
-   - 看到最后的输出 `Success! Wrote to /workspace/verification.log`。
-
-**核心结论：**
-至此，一个 Skill 走完了它的一生：
-「你手写的 `verify.py`」 -> 「封装进带 YAML 的 `.zip`」 -> 「存入 `SkillService` 数据库通过安检」 -> 「`SkillSandboxLoader` 打包推送到专属 OpenClaw 容器内落盘」 -> 「Graph 引擎中的 Agent 节点挂载描述文件」 -> 「大模型在隔离环境中动态运行你的代码」。这就是 JoySafeter 安全、合规、可复用的高阶本地技能管线架构。
-
-## 3. 前端 UI 管控与发布市场真实案例 (Marketplace)
-
-除了硬核的终端闭环验证，JoySafeter 同样提供了极度对非技术人员友好的完善 UI 体验面板。
-下面，我们将演示如何**纯通过页面点选**，走完一个高价值能力的“导入 -> 修改 -> 验证 -> 发布变现”的全生命周期。
-
-### 3.1 [实战案例] 从导入到公开发布的“大盘分析助手”
-
-**步骤一：可视化导入 (UI Import)**
-假如你在网上或者同事那里拿到了一份非常优秀的本地技能包 `stock_analyzer.zip`（内含一个 `analyze.py` 脚本和一个 `SKILL.md` 描述文件）。
-
-1. 展开页面左侧导航栏，进入 **【技能大厅 (Skills Hub)】**。
-2. 点击右上角的 **【导入 ☁️】** 按钮。
-3. 把那个 `.zip` 文件直接拖拽进上传框，点击确认。
-   > **UI 背后在干嘛？**：此时界面立刻调用了后端的 `SkillService` 进行校验，防爆系统会当面拆包，排查你有没有偷塞二进制乱码文件（如 `.exe`, `.dll`）。如果没有，就会读取你压缩包里的 `SKILL.md` 顶端 YAML 配置，并直接帮你生成好名称为“Stock Analyzer”的技能卡片！
-
-**步骤二：使用自带源码编辑器 (Web IDE) 紧急 Debug**
-如果你导入后，发现由于你的大盘 API Key 填错了，导致这个文件在被 Agent 引用时报错。
-按照传统开发，你得本地改好代码，重新打压缩包，再传一遍——这里完全不需要！
-
-1. 在 **【技能大厅】** 中点击你刚刚创建的 `stock_analyzer` 私有卡片，进入详情页。
-2. 转到 **【文件编辑器 (Editor)】** 选项卡。左侧是一棵清晰的文件树。
-3. 双击 `analyze.py`，你就能如同在 VSCode 里一样，对带有高亮的代码直接修改那个填错的 API Key。修改完毕点击保存。
-   > **⚠️ 最容易中招的陷阱（必记）**：
-   > 你在网页上点的“保存”，仅仅是把它更新到了 **PostgreSQL 数据库的存根** 里。
-   > 大模型执行代码是在沙盒里的，所以**你必须立刻移步到左侧导航栏的【OpenClaw】面板，点一次【同步技能 / Sync Skills】**，触发落盘机制将新代码覆盖进沙盒，Bug 才算真正修好。
-
-**步骤三：版本管理与协作 (Versioning & Collaboration)**
-
-> **新功能**：JoySafeter 现已支持技能版本化和协作者管理，让团队协作开发技能成为可能。
-
-**版本发布与回滚：**
-1. 进入技能详情页，点击 **【版本 (Versions)】** 选项卡。
-2. 点击 **【发布新版本 (Publish Version)】**，填写版本号（遵循 SemVer 语义化版本，如 `1.0.0`）和变更说明。
-3. 系统会将当前技能的所有文件快照为一个不可变的版本。
-4. 如果新版本出了问题，在版本历史列表中点击任意旧版本的 **【回滚 (Rollback)】** 即可一键恢复。
-
-**邀请协作者：**
-1. 在技能详情页，点击 **【协作者 (Collaborators)】** 选项卡。
-2. 点击 **【邀请 (Invite)】**，输入同事的用户名，选择角色：
-   - **Editor**：可编辑文件、发布版本
-   - **Viewer**：仅可查看，不能修改
-3. 技能所有者还可以通过 **【转移所有权 (Transfer Ownership)】** 将技能交给其他人管理。
-
-**步骤四：发布到公共市场 (Publish to Public Market)**
-
-JoySafeter 平台鼓励 AI 资产的相互复用。在经历前面步骤确信代码跑通可用后：
-
-1. 重新进入该技能的详情页基本信息栏。
-2. 找到 **【设置公开 (Set Public)】** 的开关按钮（或者你也可以在 Web编辑器 里的 `SKILL.md` 的 YAML 头部直接加上 `is_public: true` 并保存）。
-3. 你的这张技能卡片会瞬间打上绿色的公开标识，并出现在整个平台所有用户的**公共技能大厅广场**中。
-
-> **物理沙盒穿透隔离分发（关于安全！）**
-> - 问题来了：如果你写了一个高危的 `rm -rf` 甚至能探测局域网的 Python 脚本发到了公屏，这是不是意味着大家点开你的脚本，平台的安全就被突破了？
-> - 绝对不会！当其他同事在市场浏览到你的强力技能，并把它拖进他们自己创建的图引擎（GraphBuilder）的节点中时，JoySafeter 强大的沙盒分发层开始接管。
-> - 系统会将你这段已经公开的代码文件无感抽取，**直接部署打包推进这位同事名下单独隔离的那一台 OpenClaw Docker 容器内，并在他的这台容器里执行**。无论脚本威力多大，都在他自家的铁盒子里“引爆炸弹”，平台获得了极致的隔离安全！
-
-这就是从 0 构建一条私有技能走向公开分享变现链路的精妙设计理念。
+> **验证进沙箱了吗？** 若你用本地 Docker provider，可 `docker ps | grep joysafeter` 找到会话沙箱，
+> `docker exec -it <id> sh` 进去查看工作目录下的技能目录是否已解压出 `verify-disk-writer/`。
 
 ---
 
-## 4. 高级疑难排解
+## 3. Web 编辑器、版本化与协作
 
-如果你在导入或使用中遇到了问题：
+**资源 → 技能**（`/managed/skills`）提供完整的 UI 生命周期管理：
 
-- **上传压缩包时报错：Invalid File Type**
-  请确保证压包中没有 macOS 自动生成的 `.DS_Store` 或其他 `.dll`/`.exe`. `SkillService` 极度洁癖，只允许放入纯文本文件。
-- **Agent 说找不着那个 Python 代码**
-  极度可能是你在界面上新导了技能，但**忘记了去 OpenClaw 重新点一次【同步技能 / Sync Skills】**。数据库更新了，但沙盒里的物理文件还没被替换！
-- **更新 `SKILL.md` 后名称或描述没跟上**
-  UI 层面修改描述可能没用，JoySafeter 是以文件中的 YAML 为第一权威源头。如果你要永久性改名，请打开左侧边栏进入具体文件的代码编辑器，直接修改 `SKILL.md` 顶部的 YAML 字段。
+- **Web 代码编辑器**：直接在浏览器改 `SKILL.md` / 脚本并保存。
+  > ⚠️ 保存只更新数据库存根。**沙箱内运行的是会话启动时打包的快照**——改完技能后重开 / 新建 Session
+  > 才会拿到最新版本（且需重新通过安全扫描与 `approved` 闸门）。
+- **版本化**：`POST /api/v1/skills/{id}/versions` 把当前文件快照为不可变版本（SemVer）；可从历史版本恢复
+  （`restore`）。已发布版本带独立的安全扫描记录。
+- **协作者**：按角色分级（viewer < editor < admin），支持转移所有权。
+- **可见性**：四级 —— `private` / `project` / `organization` / `public`（旧的 `is_public` 布尔已被
+  `visibility` 取代）。设为 `public` 后出现在公共技能大厅；他人使用时，代码会被打包进**他自己**的隔离沙箱执行。
+
+---
+
+## 4. 高级排障
+
+- **导入报 Invalid File Type**：压缩包含 `.DS_Store` / 二进制文件。校验只放行纯文本（`.py/.md/.json/.yaml` 等）。
+- **技能没被 Agent 使用**：多半是没通过运行时闸门——确认技能是 `approved`、`security_status` 合规、
+  且内容未在扫描后被改动（哈希漂移会被丢弃）；或旧 Session 仍用启动时的快照，重开 Session。
+- **改了 `SKILL.md` 名称 / 描述没更新**：YAML frontmatter 是权威源，改元数据要改 `SKILL.md` 顶部 YAML。
+
+---
+
+## 下一步
+
+- [教程 04](./04-agent-build-and-run.md)：把模型 / 工具 / MCP / 技能组装成一个 Agent 并运行

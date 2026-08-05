@@ -10,14 +10,14 @@ export default {
   ],
   theme: {
     fontSize: {
-      '2xs': ['7px', { lineHeight: '10px' }],
-      'xs':  ['9px', { lineHeight: '14px' }],
-      'sm':  ['11px', { lineHeight: '16px' }],
-      'base': ['13px', { lineHeight: '18px' }],
-      'lg':  ['15px', { lineHeight: '22px' }],
-      'xl':  ['18px', { lineHeight: '26px' }],
-      '2xl': ['22px', { lineHeight: '30px' }],
-      '3xl': ['28px', { lineHeight: '36px' }],
+      '2xs': ['0.625rem', { lineHeight: '0.75rem' }],
+      xs: ['0.75rem', { lineHeight: '1rem' }],
+      sm: ['0.875rem', { lineHeight: '1.25rem' }],
+      base: ['1rem', { lineHeight: '1.5rem' }],
+      lg: ['1.125rem', { lineHeight: '1.75rem' }],
+      xl: ['1.25rem', { lineHeight: '1.75rem' }],
+      '2xl': ['1.5rem', { lineHeight: '2rem' }],
+      '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
     },
     extend: {
       fontFamily: {
@@ -25,10 +25,10 @@ export default {
         mono: ['var(--font-geist-mono)'],
       },
       zIndex: {
-        'popover': '100',
-        'modal':   '200',
-        'sheet':   '250',
-        'top':     '300',
+        popover: '100',
+        modal: '200',
+        sheet: '250',
+        top: '300',
       },
       colors: {
         background: 'hsl(var(--background))',

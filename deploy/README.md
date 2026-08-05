@@ -1,346 +1,183 @@
-# Deploy - Docker 部署配置
+# JoySafeter 部署
 
-项目 Docker 构建和部署的统一入口。
+当前项目尚未正式上线。部署目标是：**本地闭环简单、重复部署快速、上线前配置显式**。
 
-## 目录结构
+## 最短路径
 
-```
-deploy/
-├── docker/                          # Dockerfile 统一存放
-│   ├── backend.Dockerfile
-│   └── frontend.Dockerfile
-├── scripts/
-│   ├── check-env.sh                 # 环境检查工具
-│   ├── dev.sh                       # 开发场景启动
-│   ├── dev-local.sh                 # 本地开发启动
-│   ├── prod.sh                      # 生产场景启动
-│   ├── test.sh                      # 测试场景启动
-│   ├── minimal.sh                   # 最小化场景启动
-│   ├── start-middleware.sh          # 启动中间件服务
-│   └── stop-middleware.sh           # 停止中间件服务
-├── docker-compose.yml               # 完整服务（开发环境）
-├── docker-compose.prod.yml          # 生产环境
-├── docker-compose-middleware.yml    # 中间件（db + redis）
-├── install.sh                       # 统一安装脚本
-├── quick-start.sh                   # 快速启动脚本
-├── deploy.sh                        # 镜像构建和推送脚本
-├── PRODUCTION_IP_GUIDE.md           # 生产环境 & 指定前后端 IP/域名 最佳实践
-└── .env.example                     # 环境变量配置示例
-```
-
-## 推荐阅读
-
-- [生产环境 & 指定前后端 IP/域名 最佳实践](./PRODUCTION_IP_GUIDE.md)
-
-## 快速开始
-
-### 方式一：一键启动（推荐）
+### 首次从源码部署
 
 ```bash
 cd deploy
-./quick-start.sh
+./deploy.sh doctor
+./deploy.sh local
 ```
 
-访问地址：
-- 前端: http://localhost:3000
-- 后端 API: http://localhost:8000
-- API 文档: http://localhost:8000/docs
+`local` 会完成环境准备、核心镜像构建、PostgreSQL/Redis 启动、数据库迁移和完整服务启动。
+缺少本地 SkillSpector 源码时，脚本默认检出 `v2.5.1`；可通过 `SKILLSPECTOR_REPO_REF` 覆盖。
 
-### 方式二：场景化脚本（推荐）
+### 日常快速启动或更新
 
 ```bash
 cd deploy
-
-# 开发场景
-./scripts/dev.sh
-
-# 生产场景（服务器）：使用预构建镜像
-./scripts/prod.sh
-# 跳过 MCP：./scripts/prod.sh --skip-mcp
-
-# 测试场景
-./scripts/test.sh
-
-# 最小化场景（仅中间件：db + redis，可选 MCP）
-./scripts/minimal.sh
-# 启动 MCP：./scripts/minimal.sh --with-mcp
-
-# 本地开发（后端/前端在本地跑，容器只启中间件）
-./scripts/dev-local.sh
+./deploy.sh up
 ```
 
-### 方式三：手动 Compose（高级）
+`up` 复用 `deploy/.env` 中配置的现有镜像，不重新构建，也不准备 SkillSpector 源码；它仍会执行环境预检和数据库迁移，适合重启、配置调整或镜像已提前准备好的场景。
 
-> 建议优先使用脚本（会处理初始化/检查/参数），手动方式仅用于排障或特殊定制。
+### 使用镜像仓库部署
 
 ```bash
 cd deploy
-cp .env.example .env
-cd ../backend && cp env.example .env
-cd ../deploy
-docker-compose up -d
+./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
+./deploy.sh up
 ```
 
-## 部署场景说明
+`pull` 会拉取 backend、frontend、orchestrator-rs 和 SkillSpector，并把完整镜像名写入 `deploy/.env`。固定版本 tag，不要在正式环境依赖 `latest`。
 
-> 场景的“单一入口”是 `deploy/scripts/*.sh`。命令行参数与细节请直接查看脚本源码或 `--help`（如支持）。
+## 常用命令
 
-| 场景 | 脚本 | 适用场景 | 说明 |
-|------|------|----------|------|
-| dev | `./scripts/dev.sh` | 本地 Docker 全量开发 | 前后端容器化运行，适合快速联调 |
-| prod | `./scripts/prod.sh` | 服务器生产部署 | 默认使用预构建镜像（可 `--skip-mcp`） |
-| test | `./scripts/test.sh` | CI/快速验证 | 最小化依赖，适合自动化 |
-| minimal | `./scripts/minimal.sh` | 本地跑后端/前端 | 只启中间件（db+redis），可选 MCP |
-| dev-local | `./scripts/dev-local.sh` | 本地代码 + 容器中间件 | IDE 友好，后端/前端本地启动 |
+| 命令 | 用途 |
+| --- | --- |
+| `./deploy.sh doctor` | 准备 env 并检查 Docker、架构、端口、Compose 和 Docker socket |
+| `./deploy.sh local` | 从源码构建核心镜像并启动完整本地栈 |
+| `./deploy.sh up` | 复用现有镜像，执行迁移后快速启动或更新 |
+| `./deploy.sh status` | 查看服务状态 |
+| `./deploy.sh logs [service...]` | 跟随全部或指定服务日志 |
+| `./deploy.sh restart [service...]` | 重启全部或指定服务 |
+| `./deploy.sh down` | 停止服务并保留数据卷 |
+| `./deploy.sh build [options]` | 构建镜像 |
+| `./deploy.sh push [options]` | 构建并推送镜像 |
+| `./deploy.sh pull [options]` | 拉取镜像并同步 `deploy/.env` |
 
-本地代码启动（配合 `dev-local` 或 `minimal`）：
-- 后端：见 [`backend/README.md`](../backend/README.md)
-- 前端：见 [`frontend/README.md`](../frontend/README.md)
-
-## 镜像构建（进阶）
-
-镜像构建、`deploy.sh`、多架构构建说明已拆分到：[`ADVANCED_BUILD.md`](./ADVANCED_BUILD.md)
-
-### 基本用法
+完整参数以脚本为准：
 
 ```bash
-# 构建前后端镜像（默认：linux/amd64,linux/arm64）
-./deploy.sh build
-
-# 构建所有镜像（包括 backend, frontend, openclaw）
-# 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
-./deploy.sh build --all
-
-# 构建并推送到仓库
-./deploy.sh push
-
-# 拉取最新镜像
-./deploy.sh pull
+./deploy.sh --help
 ```
 
-### 构建选项
+## 服务与端口
 
-```bash
-# 只构建后端镜像
-./deploy.sh build --backend-only
+| 服务 | 默认地址 | 说明 |
+| --- | --- | --- |
+| frontend | `http://localhost:3000` | Web 界面 |
+| api | `http://localhost:8000` | HTTP API |
+| API docs | `http://localhost:8000/docs` | OpenAPI UI |
+| orchestrator-rs | `localhost:9090` | 内部 gRPC，不应暴露公网 |
+| worker | `localhost:8002` | 健康检查端口 |
+| PostgreSQL | `localhost:5432` | 本地 profile 默认启用 |
+| Redis | `localhost:6379` | 本地 profile 默认启用 |
 
-# 只构建前端镜像
-./deploy.sh build --frontend-only
+运行时拓扑、职责和数据流见 [`../docs/ARCHITECTURE_CN.md`](../docs/ARCHITECTURE_CN.md)。
 
-# 只构建 OpenClaw 镜像
-./deploy.sh build --openclaw-only
+## 配置
 
-# 构建所有镜像 (包含 backend, frontend, openclaw)
-./deploy.sh build --all
+首次运行会按示例文件补齐：
 
-# 禁用 Docker 构建缓存
-./deploy.sh build --no-cache
+- `deploy/.env`
+- `backend/.env`
+- `frontend/.env`
 
-# 注意：MCP 服务镜像使用预构建镜像 docker.io/jdopensource/joysafeter-mcp:latest
-# 如需拉取 MCP 镜像，使用: ./deploy.sh pull
+优先修改 `deploy/.env`。常用配置包括：
 
-# 构建指定架构
-./deploy.sh build --arch amd64 --arch arm64
-
-# 构建时指定前端 API 地址
-./deploy.sh build --api-url http://api.example.com
-
-# 指定镜像仓库和标签
-./deploy.sh build --registry your-registry.com/namespace --tag v1.0.0
-```
-
-### 国内镜像源加速
-
-```bash
-# 使用华为云镜像源加速基础镜像和 pip
-./deploy.sh build --mirror huawei --pip-mirror aliyun
-
-# 支持的镜像源选项：
-# --mirror: aliyun, tencent, huawei, docker-cn
-# --pip-mirror: aliyun, tencent, huawei, jd
-```
-
-### 构建脚本环境变量
-
-可以通过环境变量覆盖 `deploy.sh` 脚本的默认配置：
-
-```bash
-# 镜像仓库配置
-export DOCKER_REGISTRY="your-registry.com/namespace"
-export BACKEND_IMAGE="agent-platform-backend"
-export FRONTEND_IMAGE="agent-platform-frontend"
-export OPENCLAW_IMAGE="joysafeter-openclaw"
-export IMAGE_TAG="v1.0.0"
-
-# 构建平台配置
-export BUILD_PLATFORMS="linux/amd64,linux/arm64"
-
-# 前端 API 地址
-export NEXT_PUBLIC_API_URL="http://api.example.com"
-
-# pip 镜像源
-export PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple"
-export UV_INDEX_URL="https://mirrors.aliyun.com/pypi/simple"
-```
-
-## 运行时环境变量配置
-
-项目需要配置两个环境变量文件，它们有不同的用途：
-
-### 1. Docker Compose 变量配置（deploy/.env）⭐ 必需
-
-`deploy/.env` 是 **Docker Compose 解析 `${VAR}`** 时读取的配置（同时也会作为脚本的默认配置来源）。
-
-**重要**：在本项目的 `docker-compose*.yml` 中，除了端口映射外，还有一部分容器环境变量也使用了 `${VAR}`（例如 `POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB`、`REDIS_URL` 等）。因此它不只是“端口映射”，也是 Compose 场景下的关键运行参数来源之一（属于历史机制，保留现状）。
-
-#### 创建配置文件
-
-```bash
-cd deploy
-cp .env.example .env
-```
-
-#### 配置说明
-
-`deploy/.env` 文件包含以下配置：
-
-```bash
-# 服务端口映射配置（宿主机端口）
+```dotenv
 BACKEND_PORT_HOST=8000
 FRONTEND_PORT_HOST=3000
 POSTGRES_PORT_HOST=5432
 REDIS_PORT_HOST=6379
+JOYSAFETER_GRPC_PORT_HOST=9090
 
-# 前后端集成（极度重要）
-# 必须为用户在浏览器中访问前端的真实公网绝对 URL，结尾不要加斜杠
-FRONTEND_URL=http://localhost:3000
-
-# 前端访问后端的公共 URL（供前端和浏览器访问）
-BACKEND_URL=http://localhost:8000
-
-# 数据库/缓存（Compose 解析期变量：会被 docker-compose*.yml 用到）
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=joysafeter
-REDIS_URL=redis://redis:6379/0
-
-# MCP Server 端口映射
-DEMO_MCP_SERVER_PORT=8001
-SCANNER_MCP_PORT=8002
-JEB_MCP_PORT=8008
-MCP_PORT_3=8003
-MCP_PORT_4=8004
-MCP_PORT_5=8005
-
-# 构建加速（可选）
-PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+BACKEND_FULL_IMAGE=joysafeter-backend:latest
+FRONTEND_FULL_IMAGE=joysafeter-frontend:latest
+ORCHESTRATOR_RS_FULL_IMAGE=joysafeter-orchestrator-rs:latest
+SKILLSPECTOR_FULL_IMAGE=joysafeter-skillspector:latest
 ```
 
-**作用**：
-- `*_PORT_HOST`：控制容器端口到宿主机的映射
-- `FRONTEND_URL/BACKEND_URL`：用于前后端集成（OAuth 回调、邮件内链、前端 API 地址注入等）
-- `POSTGRES_* / REDIS_URL`：用于 Compose 场景下数据库/缓存的初始化与连接（由 `docker-compose*.yml` 的 `${VAR}` 引用决定）
-
-### 2. 应用环境变量配置（backend/.env）⭐ 必需
-
-`backend/.env` 是 **后端应用进程** 读取的配置（Pydantic Settings 会加载 `backend/.env`）。
-
-在 Docker Compose 场景下，`docker-compose*.yml` 还会通过 `environment:` 对部分变量进行覆盖（例如 `POSTGRES_HOST=db` 等），所以你通常只需要在这里配置 **应用自身的必需项**。
+Apple Silicon、amd64 服务器或远程 Docker daemon 通常由脚本自动识别。需要强制架构时：
 
 ```bash
-# JWT 密钥（生产环境必须修改）
-SECRET_KEY=your-secret-key-change-in-production-CHANGE-THIS-IN-PRODUCTION
-
-# 运行模式（可选）
-DEBUG=false
-ENVIRONMENT=production
-
-# 其他应用配置...
-# 其他应用配置...
+./deploy.sh local --arch arm64
+./deploy.sh up --arch amd64
 ```
 
-**作用**：这些变量用于后端应用运行时配置（认证密钥、功能开关、可观测性等）。
+## 部署模式
 
-### 配置区别说明
+### 本地完整栈
 
-| 配置项 | deploy/.env | backend/.env |
-|--------|-------------|--------------|
-| **用途** | Docker Compose 解析 `${VAR}`（端口、镜像、部分运行参数） | 后端应用进程读取（应用配置为主） |
-| **生效时机** | Compose 解析与容器创建时 | 后端进程启动时（`backend/.env`） |
-| **端口变量** | `*_PORT_HOST`（宿主机端口映射） | `BACKEND_PORT`（容器内监听端口，通常无需改） |
-| **必需性** | ⭐ 必需 | ⭐ 必需（至少要有 `SECRET_KEY`） |
+使用 `local` 或 `up`。脚本启用 `local-redis` 与 `rust-orchestrator` profiles，并自动运行迁移。
 
-**重要提示**：
-- 不要混淆 **Compose 解析期 `${VAR}`** 与 **容器内 env_file**：两者读取来源不同。
-- 如果你在 `deploy/.env` 改了 `POSTGRES_PASSWORD` 等，生效与否取决于对应 `docker-compose*.yml` 是否用 `${POSTGRES_PASSWORD}` 进行了解析。
+### 云 PostgreSQL / Redis
 
-## 数据库 / 服务管理
-
-- 数据库初始化与手动操作：[`DATABASE.md`](./DATABASE.md)
-- 查看状态/日志/重启/停止：[`SERVICE_MANAGEMENT.md`](./SERVICE_MANAGEMENT.md)
-
-## 多架构构建（进阶）
-
-多架构构建说明已包含在：[`ADVANCED_BUILD.md`](./ADVANCED_BUILD.md)
-
-## 环境检查工具
-
-使用环境检查工具可以快速检查部署前置条件：
+在 `deploy/.env` 设置 `POSTGRES_*` 与 `REDIS_URL`。不要启用 `local-redis` profile；迁移和启动可直接使用同一 Compose 文件：
 
 ```bash
-cd deploy
-
-# 运行环境检查
-./scripts/check-env.sh
+docker compose --profile rust-orchestrator --profile init run --rm db-init
+docker compose --profile rust-orchestrator up -d --no-build
 ```
 
-检查内容包括：
-- ✅ Docker 安装和运行状态
-- ✅ Docker Compose 版本
-- ✅ 端口占用情况
-- ✅ 配置文件存在性
-- ✅ 磁盘空间
+### 高可用
+
+多实例约束与扩容建议见 [`HA.md`](./HA.md)。在项目上线前，必须完成 [`../docs/PRODUCTION_READINESS.md`](../docs/PRODUCTION_READINESS.md) 中的发布门禁。
+
+## 上线前最低要求
+
+- 使用不可变版本 tag，并记录镜像与 Git SHA 的对应关系。
+- PostgreSQL、Redis、对象存储和密钥服务使用独立持久化方案。
+- API 与 frontend 仅通过 HTTPS 暴露；gRPC、Docker socket 和数据库不暴露公网。
+- 验证数据库迁移、备份恢复、回滚和数据卷恢复流程。
+- 为 API、worker、orchestrator-rs、SkillSpector 和数据库配置监控告警。
+- 在目标 CPU 架构上执行一次完整部署和 Agent 任务冒烟测试。
 
 ## 故障排查
 
-- 故障排查与日志/重置指引：[`TROUBLESHOOTING.md`](./TROUBLESHOOTING.md)
-
-## 常用命令速查
+### 环境或 Compose 配置异常
 
 ```bash
-cd deploy
-
-# 交互式安装/生成配置
-./install.sh
-
-# 环境检查
-./scripts/check-env.sh
-
-# 一键启动（推荐新手）
-./quick-start.sh
-
-# 开发/生产/测试/最小化
-./scripts/dev.sh
-./scripts/prod.sh
-./scripts/test.sh
-./scripts/minimal.sh
-
-# 查看状态/日志
-docker-compose ps
-docker-compose logs -f
+./deploy.sh doctor
 ```
 
-## 生产部署（入口）
+### 镜像不存在
 
-生产部署请以这里为准：[`PRODUCTION_IP_GUIDE.md`](./PRODUCTION_IP_GUIDE.md)
+`up` 不构建镜像。先执行以下任一方式：
 
-该文档包含：
-- 前后端 URL / IP / 域名的正确配置方式（`FRONTEND_URL` / `BACKEND_URL`）
-- 反向代理 / HTTPS 建议
-- 生产安全项（`SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`、端口暴露策略等）
+```bash
+./deploy.sh local
+# 或
+./deploy.sh pull --registry registry.example.com/your-org --tag <version>
+```
 
-## 相关文档
+### 数据库表缺失
 
-- [Backend README](../backend/README.md) - 后端配置和 API 文档
-- [项目主 README](../README.md) - 项目整体介绍和架构说明
+本地 Redis：
+
+```bash
+docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init
+```
+
+云 Redis：
+
+```bash
+docker compose --profile rust-orchestrator --profile init run --rm db-init
+```
+
+### 端口冲突
+
+修改 `deploy/.env` 中对应的 `*_PORT_HOST`。`doctor` 会报告常用端口监听情况。
+
+### Sandbox 无法创建
+
+确认 `DOCKER_SOCKET_PATH` 指向 Docker daemon 侧 socket。Docker Desktop、Colima 和原生 Linux 通常使用：
+
+```dotenv
+DOCKER_SOCKET_PATH=/var/run/docker.sock
+```
+
+### Agent 任务缺少运行镜像
+
+核心服务镜像不包含 Agent runtime 镜像。按需构建或拉取：
+
+```bash
+./deploy.sh build --claudecode-only --arch arm64
+./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag <version>
+```
+
+仓库只维护 `deploy/docker-compose.yml` 一份 Compose 定义，避免多套部署文件漂移。

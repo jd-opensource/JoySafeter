@@ -1,191 +1,72 @@
-# JoySafeter 安装指南
+# JoySafeter 安装
 
-以下是全面的部署说明。根据您的需求，选择适合您的部署方案。
+JoySafeter 当前尚未正式上线。完整栈统一使用 Docker Compose 部署。
 
 ## 环境要求
 
-- Docker 20.10+ 与 Docker Compose 2.0+
-- Python 3.12+ 与 Node.js 20+（仅本地开发需要）
-- PostgreSQL/Redis 在 Docker 部署场景下会自动包含
+- Docker 20.10+
+- Docker Compose 2+
+- 完整本地栈建议至少 4 核 CPU、8 GB 内存
+- 仅宿主机开发模式需要 Python 3.12+、Rust 和 Bun
 
-## 推荐：一键启动（Docker）
-
-```bash
-./deploy/quick-start.sh
-```
-
-> 生产与更多 Docker 场景（预构建镜像、自定义 registry、仅中间件等）请以 [deploy/README.md](deploy/README.md) 为准。
-
-## 手动部署
+## 首次本地部署
 
 ```bash
 cd deploy
-
-# 1. 编译镜像
-sh deploy.sh build --all
-
-# 2. 初始化环境变量
-cp ../frontend/env.example ../frontend/.env
-cp ../backend/env.example ../backend/.env
-
-# 重要！！配置 TAVILY_API_KEY 搜索所用 key（自行注册 https://www.tavily.com/）
-# 请将 tvly-* 替换为您实际的 API Key
-echo 'TAVILY_API_KEY=tvly-*' >> ../backend/.env
-
-# 3. 初始化数据库
-docker compose --profile init up
-
-# 4. 启动服务
-docker compose -f docker-compose.yml up
-
-# 关闭服务
-docker compose -f docker-compose.yml down
-
-docker compose logs
+./deploy.sh doctor
+./deploy.sh local
 ```
 
-## 使用预构建的 Docker 镜像
+`local` 会构建核心镜像，启动 PostgreSQL 与 Redis，执行数据库迁移，并启动 frontend、API、worker、Rust orchestrator、Envoy 和 SkillSpector。
 
-我们提供预构建镜像（Docker Hub）：
+访问地址：
 
-- `docker.io/jdopensource/joysafeter-backend:latest`
-- `docker.io/jdopensource/joysafeter-frontend:latest`
-- `docker.io/jdopensource/joysafeter-mcp:latest`
+- 前端：`http://localhost:3000`
+- API：`http://localhost:8000`
+- API 文档：`http://localhost:8000/docs`
 
-使用方式：
+## 快速重启或更新
+
+本地已有镜像后：
 
 ```bash
 cd deploy
-export DOCKER_REGISTRY=docker.io/jdopensource
-docker-compose -f docker-compose.yml up -d
+./deploy.sh up
 ```
 
-所有镜像均支持多架构（amd64, arm64）。
+`up` 不构建镜像，也不准备 SkillSpector 源码，但仍执行环境预检和数据库迁移。
 
-## 其他配置方式
-
-> Docker 部署场景的单一入口： [deploy/README.md](deploy/README.md)
-
-### 方式 1：交互式安装
-
-使用安装向导来配置您的环境：
+## 部署预构建镜像
 
 ```bash
 cd deploy
-
-# 交互式安装
-./install.sh
-
-# 或快速安装用于开发
-./install.sh --mode dev --non-interactive
+./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
+./deploy.sh up
 ```
 
-安装完成后，使用针对特定场景的脚本运行服务：
+非本地开发环境必须使用不可变版本 tag。
 
-```bash
-# 开发环境
-./scripts/dev.sh
-
-# 生产环境
-./scripts/prod.sh
-
-# 测试环境
-./scripts/test.sh
-
-# 极简运行（仅中间件）
-./scripts/minimal.sh
-
-# 本地开发（后端和前端直接本地运行）
-./scripts/dev-local.sh
-```
-
-### 方式 2：手动执行 Docker Compose
-
-为希望获得完全控制权的高级用户准备：
+## 日常运维
 
 ```bash
 cd deploy
-
-# 1. 创建配置文件
-cp .env.example .env
-cd ../backend && cp env.example .env
-
-# 2. 启动中间件（PostgreSQL + Redis）
-cd ../deploy
-./scripts/start-middleware.sh
-
-# 3. 启动全量服务
-docker-compose up -d
+./deploy.sh status
+./deploy.sh logs api worker
+./deploy.sh restart frontend
+./deploy.sh down
 ```
 
-### 方式 3：环境检查
+## 宿主机开发
 
-在启动之前，您可以检查您的环境情况：
+需要直接运行 Python、Rust 和前端进程时，使用 [`DEVELOPMENT.md`](DEVELOPMENT.md)，或执行：
 
 ```bash
 cd deploy
-./scripts/check-env.sh
+./local-test.sh
 ```
 
-这将验证：
-- Docker 安装状态
-- Docker Compose 版本
-- 端口占用情况
-- 配置文件
-- 磁盘空间
+## 后续文档
 
-## 手动安装（本地开发）
-
-<details>
-<summary><strong>后端安装</strong></summary>
-
-```bash
-cd backend
-
-# 安装 uv 包管理器
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 创建环境并安装依赖
-uv venv && source .venv/bin/activate
-uv sync
-
-# 配置环境变量
-cp env.example .env
-# 编辑 .env 文件配置参数
-
-# 初始化数据库
-createdb joysafeter
-alembic upgrade head
-
-# 启动服务
-uv run uvicorn app.main:app --reload --port 8000
-```
-
-</details>
-
-<details>
-<summary><strong>前端安装</strong></summary>
-
-```bash
-cd frontend
-
-# 安装依赖
-bun install  # 或: npm install
-
-# 配置环境变量
-cp env.example .env.local
-
-# 启动开发服务器
-bun run dev
-```
-
-</details>
-
-## 访问地址
-
-| 服务 | 地址 |
-|------|------|
-| 前端 | http://localhost:3000 |
-| 后端 API | http://localhost:8000 |
-| API 文档 | http://localhost:8000/docs |
-| ReDoc | http://localhost:8000/redoc |
+- 部署模式与故障排查：[`deploy/README.md`](deploy/README.md)
+- 运行时架构：[`docs/ARCHITECTURE_CN.md`](docs/ARCHITECTURE_CN.md)
+- 上线前门禁：[`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md)

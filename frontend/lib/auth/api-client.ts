@@ -3,17 +3,20 @@
  *
  * Handles authentication-related API requests using the unified API client
  */
-import CryptoJS from 'crypto-js'
-
-import { apiGet, apiPost, ApiError, refreshAccessTokenOrRelogin } from '@/lib/api-client'
+import {
+  ApiError,
+  createApiError,
+  isUnauthorizedApiError,
+  managedGet,
+  managedPost,
+  refreshAccessTokenOrRelogin,
+} from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 
-import { setCsrfToken, getCsrfToken, clearCsrfToken } from './csrf'
+import { setCsrfToken, clearCsrfToken } from './csrf'
+import { notifySessionChange, onSessionChange, type SessionChangeType } from './session-events'
 
 const logger = createLogger('AuthAPI')
-
-// ==================== Re-export CSRF functions (maintain backward compatibility) ====================
-export { setCsrfToken, getCsrfToken, clearCsrfToken }
 
 // ==================== Type Definitions ====================
 export interface AuthUser {
@@ -61,43 +64,7 @@ export interface SessionResponse {
 export { ApiError as AuthError }
 
 // ==================== Session Management ====================
-const SESSION_CHANGE_KEY = 'auth_session_change'
-
-function notifySessionChange(type: 'signin' | 'logout' | 'refresh'): void {
-  if (typeof window === 'undefined') return
-  try {
-    const event = { type, timestamp: Date.now() }
-    localStorage.setItem(SESSION_CHANGE_KEY, JSON.stringify(event))
-    setTimeout(() => localStorage.removeItem(SESSION_CHANGE_KEY), 100)
-  } catch (e) {
-    console.warn('Failed to notify session change:', e)
-  }
-}
-
-export function onSessionChange(
-  callback: (type: 'signin' | 'logout' | 'refresh') => void,
-): () => void {
-  if (typeof window === 'undefined') return () => {}
-
-  const handler = (e: StorageEvent) => {
-    if (e.key === SESSION_CHANGE_KEY && e.newValue) {
-      try {
-        const event = JSON.parse(e.newValue)
-        callback(event.type)
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  window.addEventListener('storage', handler)
-  return () => window.removeEventListener('storage', handler)
-}
-
-// ==================== Utility Functions ====================
-function hashPassword(password: string): string {
-  return CryptoJS.SHA256(password).toString()
-}
+export { onSessionChange, type SessionChangeType }
 
 // ==================== Auth API ====================
 export const authApi = {
@@ -106,14 +73,13 @@ export const authApi = {
     password: string
     callbackURL?: string
   }): Promise<LoginResponse> {
-    const hashedPassword = hashPassword(params.password)
-    const response = await apiPost<LoginResponse>(
+    const response = await managedPost<LoginResponse>(
       'auth/sign-in/email',
       {
         email: params.email,
-        password: hashedPassword,
+        password: params.password,
       },
-      { withAuth: false },
+      { withAuth: false, skipManagedContext: true },
     )
 
     if (response.csrf_token) {
@@ -129,15 +95,14 @@ export const authApi = {
     password: string
     name: string
   }): Promise<SignUpResponse> {
-    const hashedPassword = hashPassword(params.password)
-    const response = await apiPost<SignUpResponse>(
+    const response = await managedPost<SignUpResponse>(
       'auth/sign-up/email',
       {
         email: params.email,
-        password: hashedPassword,
+        password: params.password,
         name: params.name,
       },
-      { withAuth: false },
+      { withAuth: false, skipManagedContext: true },
     )
 
     if (response.csrf_token) {
@@ -150,7 +115,7 @@ export const authApi = {
 
   async signOut(): Promise<void> {
     try {
-      await apiPost('auth/logout')
+      await managedPost('auth/logout', undefined, { skipManagedContext: true })
     } catch (error) {
       logger.warn('Logout request failed, clearing tokens anyway', { error })
     } finally {
@@ -160,8 +125,8 @@ export const authApi = {
   },
 
   async getSession(): Promise<SessionResponse | null> {
-    try {
-      const response = await apiGet<{
+    const fetchSession = async (): Promise<SessionResponse | null> => {
+      const response = await managedGet<{
         user: {
           id: string
           email: string
@@ -170,7 +135,7 @@ export const authApi = {
           email_verified: boolean
           is_super_user: boolean
         } | null
-      }>('auth/session')
+      }>('auth/session', { skipManagedContext: true })
 
       if (!response?.user) return null
 
@@ -184,65 +149,93 @@ export const authApi = {
           isSuperUser: response.user.is_super_user,
         },
       }
+    }
+
+    try {
+      return await fetchSession()
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        return null
+      if (isUnauthorizedApiError(error)) {
+        // The access-token cookie expired (common after switching tabs, when
+        // refetchOnWindowFocus re-checks the session). Try a one-shot refresh
+        // using the long-lived HttpOnly refresh-token cookie before concluding
+        // the user is logged out — otherwise a still-valid session would be
+        // torn down and the AuthGuard would bounce to /signin.
+        try {
+          await refreshAccessTokenOrRelogin()
+          return await fetchSession()
+        } catch (refreshError) {
+          if (isUnauthorizedApiError(refreshError)) {
+            // Refresh token is also invalid/expired — genuinely logged out.
+            return null
+          }
+          throw refreshError
+        }
       }
       logger.warn('Failed to get session', { error })
-      return null
+      throw error
     }
   },
 
   async refreshToken(): Promise<void> {
     await refreshAccessTokenOrRelogin()
-    notifySessionChange('refresh')
   },
 
   async forgetPassword(params: { email: string; redirectTo?: string }): Promise<void> {
-    await apiPost('auth/forgot-password', { email: params.email, redirect_to: params.redirectTo })
+    await managedPost(
+      'auth/forgot-password',
+      { email: params.email, redirect_to: params.redirectTo },
+      { skipManagedContext: true },
+    )
   },
 
   async resetPassword(params: { token: string; newPassword: string }): Promise<void> {
-    const hashedPassword = hashPassword(params.newPassword)
-    await apiPost('auth/reset-password', {
-      token: params.token,
-      new_password: hashedPassword,
-    })
+    await managedPost(
+      'auth/reset-password',
+      {
+        token: params.token,
+        new_password: params.newPassword,
+      },
+      { skipManagedContext: true },
+    )
   },
 
   async changePassword(params: { oldPassword: string; newPassword: string }): Promise<void> {
-    await apiPost('auth/me/change-password', {
+    await managedPost('auth/me/change-password', {
       old_password: params.oldPassword,
       new_password: params.newPassword,
     })
   },
 
   async verifyEmail(token: string): Promise<void> {
-    await apiPost('auth/verify-email', { token })
+    await managedPost('auth/verify-email', { token }, { skipManagedContext: true })
   },
 
   async resendVerificationEmail(): Promise<void> {
-    await apiPost('auth/resend-verification')
+    await managedPost('auth/resend-verification')
   },
 
   async sendVerificationOtp(params: {
     email: string
     type: 'sign-in' | 'email-verification' | 'forget-password'
   }): Promise<void> {
-    await apiPost('auth/email-otp/send', {
-      email: params.email,
-      type: params.type,
-    })
+    await managedPost(
+      'auth/email-otp/send',
+      {
+        email: params.email,
+        type: params.type,
+      },
+      { skipManagedContext: true },
+    )
   },
 
   async signInEmailOtp(params: { email: string; otp: string }): Promise<LoginResponse> {
-    const response = await apiPost<LoginResponse>(
+    const response = await managedPost<LoginResponse>(
       'auth/sign-in/email-otp',
       {
         email: params.email,
         otp: params.otp,
       },
-      { withAuth: false },
+      { withAuth: false, skipManagedContext: true },
     )
 
     if (response.csrf_token) {
@@ -265,7 +258,13 @@ export const signIn = {
       return { data: result, error: null }
     } catch (error) {
       const apiError =
-        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+        error instanceof ApiError
+          ? error
+          : createApiError(0, 'Unknown Error', {
+              code: 'UNKNOWN_ERROR',
+              message: String(error),
+              data: null,
+            })
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }
@@ -279,7 +278,13 @@ export const signIn = {
       return { data: result, error: null }
     } catch (error) {
       const apiError =
-        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+        error instanceof ApiError
+          ? error
+          : createApiError(0, 'Unknown Error', {
+              code: 'UNKNOWN_ERROR',
+              message: String(error),
+              data: null,
+            })
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }
@@ -296,7 +301,13 @@ export const signUp = {
       return { data: result, error: null }
     } catch (error) {
       const apiError =
-        error instanceof ApiError ? error : new ApiError(0, 'Unknown Error', String(error))
+        error instanceof ApiError
+          ? error
+          : createApiError(0, 'Unknown Error', {
+              code: 'UNKNOWN_ERROR',
+              message: String(error),
+              data: null,
+            })
       options?.onError?.({ error: apiError })
       return { data: null, error: apiError }
     }

@@ -1,0 +1,27 @@
+[package]
+name = "joysafeter-ctl"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "joysafeterctl"
+path = "src/main.rs"
+
+[features]
+default = ["tls-rustls"]
+tls-rustls = ["reqwest/rustls-tls"]
+tls-native = ["reqwest/native-tls"]
+
+[dependencies]
+clap = { version = "4", default-features = false, features = ["derive", "env", "help", "std", "usage"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+anyhow = { workspace = true }
+tar = { version = "0.4", default-features = false }
+flate2 = { workspace = true }
+base64 = { workspace = true }
+dialoguer = { version = "0.11", default-features = false }
+tempfile = "3"

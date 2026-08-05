@@ -1,29 +1,149 @@
 # =============================================================================
-# Docker Compose 配置文件
+# JoySafeter 三服务容器化部署（本地 PostgreSQL / 云 Redis）
 # =============================================================================
-# 注意：此文件中的端口映射使用环境变量，需要在 deploy/.env 文件中定义
-# 如果 deploy/.env 不存在，Docker Compose 会使用默认值
-#
-# 创建环境变量文件：
-#   cp .env.example .env
-#   然后根据需要修改 .env 文件中的端口配置
+# 用法：
+#   cd deploy
+#   Supported local stack:
+#     ./deploy.sh local
+#     ./deploy.sh up
+#     docker compose --profile local-redis --profile rust-orchestrator up -d --no-build
 # =============================================================================
 
+x-backend-build: &backend-build
+  context: ../backend
+  dockerfile: ../deploy/docker/backend.Dockerfile
+  args:
+    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
+    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    UV_INDEX_URL: ${UV_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
+
+x-orchestrator-rs-build: &orchestrator-rs-build
+  context: ..
+  dockerfile: deploy/docker/orchestrator-rs.Dockerfile
+  args:
+    RUST_IMAGE: ${RUST_IMAGE:-public.ecr.aws/docker/library/rust:1-bookworm}
+    RUNTIME_IMAGE: ${RUNTIME_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim}
+
+x-skillspector-build: &skillspector-build
+  context: ../backend/joysafeter_skillspector
+  dockerfile: ../../deploy/docker/skillspector-service.Dockerfile
+  additional_contexts:
+    skillspector: ${SKILLSPECTOR_SOURCE_PATH:-../.deps/SkillSpector}
+  args:
+    BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
+    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+
+x-backend-env-files: &backend-env-files
+  - path: ../backend/.env
+    required: false
+  - path: .env
+    required: false
+
+x-backend-common-env: &backend-common-env
+  CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
+  JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
+
+x-backend-volumes: &backend-volumes
+  - backend-logs:/app/app/logs
+  - backend-files:/app/data/files
+  - ../skills:/app/skills:ro
+  - ${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}:${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}
+  - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}
+  - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
+
+x-backend-depends: &backend-depends
+  postgres:
+    condition: service_healthy
+  skillspector:
+    condition: service_healthy
+
+x-backend-health-common: &backend-health-common
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 180s
+
 services:
-  # PostgreSQL 数据库
-  db:
-    image: ${DOCKER_REGISTRY:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io}/postgres:15-alpine
-    restart: always
+  joysafeter-envoy:
+    image: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
+    container_name: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    entrypoint: ["/bin/sh"]
+    command:
+      - -c
+      - |
+        set -eu
+        mkdir -p /sockets /envoy-config/sandboxes
+        if [ ! -s /envoy-config/lds.json ]; then
+          printf '{"version_info":"0","resources":[]}\n' > /envoy-config/lds.json
+        fi
+        if [ ! -s /envoy-config/cds.json ]; then
+          printf '{"version_info":"0","resources":[]}\n' > /envoy-config/cds.json
+        fi
+        while [ ! -s /envoy-config/bootstrap.json ]; do
+          sleep 0.2
+        done
+        exec envoy -c /envoy-config/bootstrap.json --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}
+    volumes:
+      - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:/sockets
+      - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:/envoy-config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - joysafeter-network
+
+  skillspector:
+    image: ${SKILLSPECTOR_FULL_IMAGE:-joysafeter-skillspector:latest}
+    build: *skillspector-build
+    container_name: joysafeter-skillspector
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      SKILLSPECTOR_VERSION: ${SKILLSPECTOR_VERSION:-local}
+      SKILLSPECTOR_SERVICE_SCAN_TIMEOUT: ${SKILLSPECTOR_SERVICE_SCAN_TIMEOUT:-120}
+      SKILLSPECTOR_SERVICE_MAX_FILES: ${SKILLSPECTOR_SERVICE_MAX_FILES:-100}
+      SKILLSPECTOR_SERVICE_MAX_FILE_BYTES: ${SKILLSPECTOR_SERVICE_MAX_FILE_BYTES:-1048576}
+      SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES: ${SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES:-5242880}
+      # Concurrency: scans are CPU-bound (semgrep), so worker count should
+      # track the CPU limit below. limit-concurrency sheds load past a small
+      # queue. Draft-save paths may record failed/scanning and continue, but
+      # runtime packing remains fail-closed for failed/scanning skills.
+      SKILLSPECTOR_WORKERS: ${SKILLSPECTOR_WORKERS:-2}
+      SKILLSPECTOR_LIMIT_CONCURRENCY: ${SKILLSPECTOR_LIMIT_CONCURRENCY:-4}
+    expose:
+      - "8010"
+    deploy:
+      resources:
+        limits:
+          # Keep CPU limit == SKILLSPECTOR_WORKERS so each worker gets a core.
+          cpus: "${SKILLSPECTOR_CPUS:-2}"
+          memory: ${SKILLSPECTOR_MEM_LIMIT:-2g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - joysafeter-network
+
+  postgres:
+    image: ${DB_IMAGE:-public.ecr.aws/docker/library/postgres:15}
     container_name: joysafeter-db
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-joysafeter}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT_HOST:-5432}:5432"
     volumes:
       - joysafeter-db-data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-joysafeter}
-      - PGDATA=/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT_HOST:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-joysafeter}"]
       interval: 5s
@@ -33,16 +153,16 @@ services:
     networks:
       - joysafeter-network
 
-  # Redis 缓存
   redis:
-    image: ${DOCKER_REGISTRY:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io}/redis:7-alpine
-    restart: always
+    profiles: ["local-redis"]
+    image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis:alpine3.22}
     container_name: joysafeter-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
     ports:
-      - "${REDIS_PORT_HOST:-6379}:6379"
+      - "${REDIS_BIND_HOST:-127.0.0.1}:${REDIS_PORT_HOST:-6379}:6379"
     volumes:
       - joysafeter-redis-data:/data
-    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -52,174 +172,150 @@ services:
     networks:
       - joysafeter-network
 
-  # 后端服务
-  backend:
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
-    build:
-      context: ../backend
-      dockerfile: ../deploy/docker/backend.Dockerfile
-      args:
-        # 基础镜像源配置（可选，用于国内加速）
-        # BASE_IMAGE_REGISTRY: "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
-        # pip 镜像源配置（默认使用清华大学镜像源，可切换到国内镜像）
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
-        UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
-        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
-    container_name: joysafeter-backend
+  api:
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
+    build: *backend-build
+    container_name: joysafeter-api
     restart: unless-stopped
-    env_file:
-      - ../backend/.env
-      - ../frontend/.env
+    env_file: *backend-env-files
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-joysafeter}
-      - POSTGRES_HOST=${POSTGRES_HOST:-db}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
-      - POSTGRES_MIN_POOL_SIZE=${POSTGRES_MIN_POOL_SIZE:-10}
-      - POSTGRES_MAX_POOL_SIZE=${POSTGRES_MAX_POOL_SIZE:-500}
-      - POSTGRES_SSL=${POSTGRES_SSL:-disable}
-      - DATABASE_ECHO=${DATABASE_ECHO:-false}
-      - DATABASE_POOL_SIZE=${DATABASE_POOL_SIZE:-10}
-      - DATABASE_MAX_OVERFLOW=${DATABASE_MAX_OVERFLOW:-20}
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
-      - CORS_ORIGINS=${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
+      <<: *backend-common-env
+      JOYSAFETER_SERVICE_ROLE: api
+      BACKEND_APP_MODULE: app.joysafeter_api.main:app
+      BACKEND_PORT: 8000
+      WORKERS: ${API_WORKERS:-1}
     ports:
-      - "${BACKEND_PORT_HOST:-8000}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      # 挂载日志目录（使用 Docker volume 避免权限问题）
-      - backend-logs:/app/app/logs
-      - backend-files:/app/data/files  # 文件存储 volume（持久化用户上传的文件）
-      - ../skills:/app/skills  # 自动加载 Skills
-      # Docker socket 挂载（用于 OpenClaw 容器管理）
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Docker CLI 挂载：macOS Docker Desktop 使用 /usr/local/bin/docker
-      # Linux 通常使用 /usr/bin/docker。如果路径不匹配，后端无法管理 OpenClaw 容器。
-      - ${DOCKER_BIN_PATH:-/usr/bin/docker}:/usr/bin/docker
+      - "${BACKEND_BIND_HOST:-0.0.0.0}:${BACKEND_PORT_HOST:-8000}:8000"
+    depends_on: *backend-depends
+    volumes: *backend-volumes
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=5)"]
+      <<: *backend-health-common
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+    networks:
+      - joysafeter-network
+
+  orchestrator-rs:
+    profiles: ["rust-orchestrator"]
+    image: ${ORCHESTRATOR_RS_FULL_IMAGE:-joysafeter-orchestrator-rs:latest}
+    build: *orchestrator-rs-build
+    container_name: joysafeter-orchestrator
+    restart: unless-stopped
+    env_file: *backend-env-files
+    environment:
+      <<: *backend-common-env
+      JOYSAFETER_INSTANCE_ID: ${JOYSAFETER_INSTANCE_ID:-orchestrator-rs-001}
+      JOYSAFETER_GRPC_HOST: 0.0.0.0
+      JOYSAFETER_GRPC_PORT: ${JOYSAFETER_GRPC_PORT:-9090}
+      JOYSAFETER_GRPC_PUBLIC_URL: ${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}
+    ports:
+      - "${JOYSAFETER_GRPC_BIND_HOST:-0.0.0.0}:${JOYSAFETER_GRPC_PORT_HOST:-9090}:9090"
+    depends_on:
+      <<: *backend-depends
+      joysafeter-envoy:
+        condition: service_started
+    volumes:
+      - backend-logs:/app/app/logs
+      - backend-files:/app/data/files
+      - ../skills:/app/skills:ro
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
+      - ${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}:${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}
+      - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}
+      - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
+    # Liveness only: the orchestrator speaks gRPC (no HTTP/gRPC-health service),
+    # so probe that the gRPC listener is accepting TCP. A crash-looping
+    # orchestrator stops listening and turns unhealthy instead of the stack
+    # reporting fully healthy. Relies on bash /dev/tcp, present and enabled in
+    # the default debian:bookworm-slim RUNTIME_IMAGE.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9090"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 180s
+      start_period: 60s
     networks:
       - joysafeter-network
 
-  # 数据库初始化服务（一次性运行）
-  db-init:
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${BACKEND_IMAGE:-joysafeter-backend}:${IMAGE_TAG:-latest}
-    container_name: joysafeter-db-init
-    volumes:
-      - ../skills:/app/skills  # 自动加载 Skills
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file:
-      - ../backend/.env
+  worker:
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
+    build: *backend-build
+    # No container_name: the worker hosts the cron scheduler, which is
+    # multi-instance-safe (FOR UPDATE SKIP LOCKED claim + stale-lock reclaim +
+    # hostname-derived worker_id) and the event-stream consumer (Redis consumer
+    # group + per-instance consumer name). Omitting container_name lets it scale:
+    #   docker compose ... up -d --scale worker=3
+    # See deploy/HA.md. WORKERS stays 1 (one scheduler loop per container);
+    # scale by adding container replicas, not uvicorn workers.
+    restart: unless-stopped
+    env_file: *backend-env-files
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-joysafeter}
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      <<: *backend-common-env
+      JOYSAFETER_SERVICE_ROLE: worker
+      BACKEND_APP_MODULE: app.joysafeter_worker.main:app
+      BACKEND_PORT: 8002
+      WORKER_HTTP_HOST: 0.0.0.0
+      WORKERS: 1
+    # Health port is exposed on the compose network (not published to a fixed
+    # host port) so N replicas don't collide on one host. Reach it via
+    # `docker compose exec worker curl localhost:8002/health` or the compose
+    # healthcheck below.
+    expose:
+      - "8002"
+    depends_on: *backend-depends
+    volumes: *backend-volumes
+    healthcheck:
+      <<: *backend-health-common
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=5)"]
     networks:
       - joysafeter-network
-    profiles:
-      - init  # 使用 profile 控制，默认不启动
-    command: ["python", "/app/scripts/db/init-db.py"]
 
-  # 前端服务
   frontend:
-    # 使用 deploy.sh 构建的镜像（默认: docker.io/jdopensource/joysafeter-frontend:latest）
-    # 如果镜像不存在，会使用 build 配置进行构建
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/${FRONTEND_IMAGE:-joysafeter-frontend}:${IMAGE_TAG:-latest}
+    image: ${FRONTEND_FULL_IMAGE:-joysafeter-frontend:latest}
     build:
       context: ../frontend
       dockerfile: ../deploy/docker/frontend.Dockerfile
       args:
-        # 基础镜像源配置（可选，用于国内加速）
-        # BASE_IMAGE_REGISTRY: "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
-        NEXT_PUBLIC_API_URL: "${BACKEND_URL:-http://localhost:8000}"
+        BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
     container_name: joysafeter-frontend
     restart: unless-stopped
     env_file:
-      - ../frontend/.env
+      - path: ../frontend/.env
+        required: false
     environment:
-      - NEXT_PUBLIC_API_URL=${BACKEND_URL:-http://localhost:8000}
-      - NEXT_PUBLIC_OPENCLAW_ENABLED=${OPENCLAW_ENABLED:-false}
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${BACKEND_URL:-http://localhost:8000}
+      NEXT_PUBLIC_APP_URL: ${FRONTEND_URL:-http://localhost:3000}
+      NEXT_PUBLIC_CSP_NECESSARY_DOMAIN: ${NEXT_PUBLIC_CSP_NECESSARY_DOMAIN:-http://localhost:* http://127.0.0.1:*}
+      NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED: ${NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED:-true}
+      NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES: ${NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES:-52428800}
     ports:
-      - "${FRONTEND_PORT_HOST:-3000}:3000"
+      - "${FRONTEND_BIND_HOST:-0.0.0.0}:${FRONTEND_PORT_HOST:-3000}:3000"
     depends_on:
-      backend:
+      api:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
     networks:
       - joysafeter-network
 
-  # MCP Server 服务（使用预构建镜像）
-  mcpserver:
-    image: ${DOCKER_REGISTRY:-docker.io/jdopensource}/joysafeter-mcp:latest
-    container_name: joysafeter-mcpserver
-    restart: unless-stopped
-    env_file:
-      - ../backend/.env
-    volumes:
-      # 日志目录（持久化）
-      - mcpserver-logs:/export/App/logs
-      # Supervisor运行时目录
-      - mcpserver-run:/export/App/run
-      # 文件存储 volume（与 backend 共享，用于访问用户上传的文件）
-      - backend-files:/app/data/files
-    ports:
-      # MCP HTTP/SSE服务端口映射（8001-8010）
-      # 根据实际需要添加或移除端口映射
-      # 格式: "宿主机端口:容器端口"
-      # 注意：MCP 服务内部始终监听默认的 8001-8010 端口，因此等号后半部分（容器端口）不应被变量覆盖。
-      - "${DEMO_MCP_SERVER_PORT:-8001}:8001"
-      - "${SCANNER_MCP_PORT:-8002}:8002"
-      - "${JEB_MCP_PORT:-8008}:8008"
-      - "${MCP_PORT_3:-8003}:8003"
-      - "${MCP_PORT_4:-8004}:8004"
-      - "${MCP_PORT_5:-8005}:8005"
-      # 如需更多端口，请添加更多映射行
-    healthcheck:
-      test: ["CMD", "supervisorctl", "-c", "/export/App/supervisor/supervisord.conf", "status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
+  db-init:
+    image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
+    build: *backend-build
+    container_name: joysafeter-db-init
+    profiles: ["init"]
+    env_file: *backend-env-files
+    environment:
+      <<: *backend-common-env
+    depends_on: *backend-depends
+    command: ["sh", "-c", "alembic upgrade head"]
+    volumes: *backend-volumes
     networks:
       - joysafeter-network
-    depends_on:
-      db:
-        condition: service_healthy
-
-
-  # OpenClaw base image build service (used by backend to create per-user containers)
-  # This service only builds the image; it does not run as a long-lived container.
-  # Per-user OpenClaw instances are dynamically created by the backend's
-  # OpenClawInstanceService using `docker run`.
-  openclaw-image:
-    image: joysafeter-openclaw:latest
-    build:
-      context: ./openclaw
-      dockerfile: Dockerfile
-    profiles:
-      - build
-    command: ["echo", "Image built successfully"]
 
 volumes:
   joysafeter-db-data:
@@ -231,10 +327,9 @@ volumes:
   backend-files:
     driver: local
     name: joysafeter-backend-files
-  mcpserver-logs:
+  joysafeter-sockets:
     driver: local
-  mcpserver-run:
-    driver: local
+    name: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
 
 networks:
   joysafeter-network:

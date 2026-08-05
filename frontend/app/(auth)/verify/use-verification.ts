@@ -1,9 +1,10 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { client, useSession } from '@/lib/auth/auth-client'
+import { ApiError } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
 
 const logger = createLogger('useVerification')
@@ -47,6 +48,24 @@ export function useVerification({
   const [errorMessage, setErrorMessage] = useState('')
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null)
   const [isInviteFlow, setIsInviteFlow] = useState(false)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const verifyRunRef = useRef(0)
+  const resendRunRef = useRef(0)
+
+  const clearRedirectTimer = useCallback(() => {
+    if (!redirectTimerRef.current) return
+    clearTimeout(redirectTimerRef.current)
+    redirectTimerRef.current = null
+  }, [])
+
+  useEffect(
+    () => () => {
+      verifyRunRef.current += 1
+      resendRunRef.current += 1
+      clearRedirectTimer()
+    },
+    [clearRedirectTimer],
+  )
 
   /**
    * Validate if redirect URL is safe
@@ -75,8 +94,11 @@ export function useVerification({
       }
 
       // Whitelist check: only allow specific paths
-      const allowedPaths = ['/chat', '/workspace', '/dashboard']
-      const isAllowed = allowedPaths.some((path) => url.startsWith(path))
+      const allowedPaths = ['/dashboard', '/managed', '/agents']
+      const pathname = url.split(/[?#]/, 1)[0]
+      const isAllowed = allowedPaths.some(
+        (path) => pathname === path || pathname.startsWith(`${path}/`),
+      )
 
       if (!isAllowed) {
         logger.warn('Invalid redirect URL: not in whitelist', { url })
@@ -130,6 +152,10 @@ export function useVerification({
   const verifyCode = useCallback(async () => {
     if (!isOtpComplete || !email) return
 
+    const runId = verifyRunRef.current + 1
+    verifyRunRef.current = runId
+    const isCurrentRun = () => verifyRunRef.current === runId
+
     setIsLoading(true)
     setIsInvalidOtp(false)
     setErrorMessage('')
@@ -141,6 +167,8 @@ export function useVerification({
         otp,
       })
 
+      if (!isCurrentRun()) return
+
       if (response && !response.error) {
         setIsVerified(true)
 
@@ -149,6 +177,8 @@ export function useVerification({
         } catch (e) {
           logger.warn('Failed to refetch session after verification', e)
         }
+
+        if (!isCurrentRun()) return
 
         if (typeof window !== 'undefined') {
           sessionStorage.removeItem('verificationEmail')
@@ -159,16 +189,23 @@ export function useVerification({
           }
         }
 
-        setTimeout(() => {
+        clearRedirectTimer()
+        redirectTimerRef.current = setTimeout(() => {
+          redirectTimerRef.current = null
+          if (!isCurrentRun()) return
           if (isInviteFlow && redirectUrl) {
             window.location.href = redirectUrl
           } else {
-            window.location.href = '/chat'
+            window.location.href = '/dashboard'
           }
         }, 1000)
       } else {
         logger.info('Setting invalid OTP state - API error response')
-        const message = 'Invalid verification code. Please check and try again.'
+        const code = response?.error?.code ?? ''
+        const message =
+          code === 'VERIFICATION_TOKEN_EXPIRED'
+            ? 'The verification code has expired. Please request a new one.'
+            : 'Invalid verification code. Please check and try again.'
         setIsInvalidOtp(true)
         setErrorMessage(message)
         logger.info('Error state after API error:', {
@@ -178,16 +215,16 @@ export function useVerification({
         setOtp('')
       }
     } catch (error: unknown) {
+      if (!isCurrentRun()) return
+
       let message = 'Verification failed. Please check your code and try again.'
 
-      const errorMessage = error instanceof Error ? error.message : ''
-      if (errorMessage.includes('expired')) {
+      const errorCode = error instanceof ApiError ? error.code : ''
+      if (errorCode === 'VERIFICATION_TOKEN_EXPIRED') {
         message = 'The verification code has expired. Please request a new one.'
-      } else if (errorMessage.includes('invalid')) {
+      } else if (errorCode === 'VERIFICATION_TOKEN_INVALID') {
         logger.info('Setting invalid OTP state - caught error')
         message = 'Invalid verification code. Please check and try again.'
-      } else if (errorMessage.includes('attempts')) {
-        message = 'Too many failed attempts. Please request a new code.'
       }
 
       setIsInvalidOtp(true)
@@ -199,32 +236,36 @@ export function useVerification({
 
       setOtp('')
     } finally {
-      setIsLoading(false)
+      if (isCurrentRun()) setIsLoading(false)
     }
-  }, [isOtpComplete, email, otp, refetchSession, isInviteFlow, redirectUrl])
+  }, [clearRedirectTimer, isOtpComplete, email, otp, refetchSession, isInviteFlow, redirectUrl])
 
-  function resendCode() {
+  async function resendCode() {
     if (!email || !hasEmailService || !isEmailVerificationEnabled) return
+
+    const runId = resendRunRef.current + 1
+    resendRunRef.current = runId
+    const isCurrentRun = () => resendRunRef.current === runId
 
     setIsLoading(true)
     setErrorMessage('')
 
     const normalizedEmail = email.trim().toLowerCase()
-    client.emailOtp
-      .sendVerificationOtp({
+    try {
+      await client.emailOtp.sendVerificationOtp({
         email: normalizedEmail,
         type: 'sign-in',
       })
-      .then(() => {})
-      .catch(() => {
-        setErrorMessage('Failed to resend verification code. Please try again later.')
-      })
-      .finally(() => {
-        setIsLoading(false)
-      })
+    } catch {
+      if (!isCurrentRun()) return
+      setErrorMessage('Failed to resend verification code. Please try again later.')
+    } finally {
+      if (isCurrentRun()) setIsLoading(false)
+    }
   }
 
   function handleOtpChange(value: string) {
+    verifyRunRef.current += 1
     if (value.length === 6) {
       setIsInvalidOtp(false)
       setErrorMessage('')
@@ -243,26 +284,29 @@ export function useVerification({
   }, [otp, email, isLoading, isVerified, verifyCode])
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (!isEmailVerificationEnabled) {
-        setIsVerified(true)
+    if (typeof window === 'undefined' || isEmailVerificationEnabled) return
 
-        const handleRedirect = async () => {
-          try {
-            await refetchSession()
-          } catch (error) {
-            logger.warn('Failed to refetch session during verification skip:', error)
-          }
+    let cancelled = false
+    setIsVerified(true)
 
-          if (isInviteFlow && redirectUrl) {
-            window.location.href = redirectUrl
-          } else {
-            router.push('/chat')
-          }
-        }
-
-        handleRedirect()
+    const handleRedirect = async () => {
+      try {
+        await refetchSession()
+      } catch (error) {
+        logger.warn('Failed to refetch session during verification skip:', error)
       }
+
+      if (cancelled) return
+      if (isInviteFlow && redirectUrl) {
+        window.location.href = redirectUrl
+      } else {
+        router.push('/managed/quickstart')
+      }
+    }
+
+    handleRedirect()
+    return () => {
+      cancelled = true
     }
   }, [isEmailVerificationEnabled, router, isInviteFlow, redirectUrl, refetchSession])
 

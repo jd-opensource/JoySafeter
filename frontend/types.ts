@@ -1,44 +1,3 @@
-export interface Position {
-  x: number
-  y: number
-}
-
-export interface Viewport {
-  x: number
-  y: number
-  zoom: number
-}
-
-export enum NodeType {
-  USER = 'USER',
-  AI = 'AI',
-}
-
-export interface Message {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: number
-  tool_calls?: ToolCall[]
-  isStreaming?: boolean
-  metadata?: {
-    lastNode?: string
-    lastRunId?: string
-    lastUpdate?: number
-    [key: string]: unknown
-  }
-}
-
-export interface ToolCall {
-  id: string
-  name: string
-  args: Record<string, unknown>
-  status: 'running' | 'completed' | 'failed'
-  result?: string | Record<string, unknown>
-  startTime: number
-  endTime?: number
-}
-
 // File extensions that are commonly used and safe
 export const COMMON_EXTENSIONS = new Set([
   '.md',
@@ -103,6 +62,21 @@ export interface SkillFile {
   language?: string
 }
 
+export interface SkillSecurityScanSummary {
+  status: 'passed' | 'warning' | 'blocked' | 'failed' | 'not_scanned' | string
+  score: number | null
+  severity: string | null
+  recommendation: string | null
+  issues_count: number
+  critical_count: number
+  high_count: number
+  medium_count: number
+  low_count: number
+  scanned_at: string | null
+  scan_id: string | null
+  target_hash: string | null
+}
+
 // File tree node for hierarchical display
 export interface FileTreeNode {
   name: string
@@ -134,57 +108,6 @@ export interface ParsedSkillMd {
   body: string
 }
 
-export interface Skill {
-  id: string
-  name: string
-  description: string
-  content: string // This is the markdown body from SKILL.md
-  tags: string[]
-  source_type: 'local' | 'git' | 's3'
-  source_url: string | null
-  root_path: string | null
-  owner_id: string | null
-  created_by_id: string
-  is_public: boolean
-  license: string | null
-  compatibility?: string | null // Max 500 characters (per Agent Skills spec)
-  metadata?: Record<string, string> // dict[str, str] (per Agent Skills spec)
-  allowed_tools?: string[] // list[str] (per Agent Skills spec)
-  created_at: string
-  updated_at: string
-  files?: SkillFile[]
-  // Legacy fields for backward compatibility (deprecated, use source_type instead)
-  source?: 'local' | 'git' | 's3' // Updated: 'aws' -> 's3' to match form schema
-  sourceUrl?: string
-  updatedAt?: number
-}
-
-export interface CanvasNode {
-  id: string
-  parentId: string | null
-  type: NodeType
-  content: string
-  position: Position
-  width: number
-  isStreaming?: boolean
-  createdAt: number
-  toolCalls?: ToolCall[]
-  data?: Record<string, unknown>
-}
-
-export interface Edge {
-  id: string
-  source: string
-  target: string
-}
-
-export interface ChatMessage {
-  role: 'user' | 'model'
-  parts: { text: string }[]
-}
-
-export type ViewMode = 'chat' | 'builder' | 'skills'
-
 // Execution Panel Types
 export type ExecutionStepType =
   | 'node_lifecycle'
@@ -192,6 +115,7 @@ export type ExecutionStepType =
   | 'tool_execution'
   | 'system_log'
   | 'model_io'
+  | 'artifact'
   | 'code_agent_thought'
   | 'code_agent_code'
   | 'code_agent_observation'

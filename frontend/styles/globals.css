@@ -3,11 +3,67 @@
 @tailwind utilities;
 
 /**
+ * JoySafeter sidebar theme override
+ * Forces the sidebar to use JoySafeter's exact color tokens and font
+ */
+.joysafeter-sidebar,
+.joysafeter-sidebar * {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+}
+
+.joysafeter-sidebar {
+  --foreground: 240 10% 3.9% !important;
+  --card: 0 0% 100% !important;
+  --card-foreground: 240 10% 3.9% !important;
+  --muted: 240 4.8% 95.9% !important;
+  --muted-foreground: 240 3.8% 46.1% !important;
+  --accent: 240 4.8% 95.9% !important;
+  --accent-foreground: 240 5.9% 10% !important;
+  --border: 240 5.9% 90% !important;
+  --primary: 221 83% 53% !important;
+  --primary-foreground: 0 0% 100% !important;
+  --background: 0 0% 100% !important;
+}
+
+.joysafeter-sidebar,
+.joysafeter-sidebar *,
+.joysafeter-sidebar *::before,
+.joysafeter-sidebar *::after {
+  border-color: hsl(240 5.9% 90%) !important;
+}
+
+.joysafeter-sidebar .overflow-y-auto {
+  scrollbar-width: none;
+}
+.joysafeter-sidebar .overflow-y-auto::-webkit-scrollbar {
+  display: none;
+}
+
+.dark .joysafeter-sidebar {
+  --foreground: 0 0% 98% !important;
+  --card: 240 10% 5% !important;
+  --card-foreground: 0 0% 98% !important;
+  --muted: 240 3.7% 15.9% !important;
+  --muted-foreground: 240 5% 64.9% !important;
+  --accent: 240 3.7% 15.9% !important;
+  --accent-foreground: 0 0% 98% !important;
+  --border: 240 3.7% 15.9% !important;
+  --primary: 217 91% 60% !important;
+  --primary-foreground: 0 0% 100% !important;
+  --background: 240 10% 3.9% !important;
+}
+
+/**
  * CSS-based layout dimensions
  */
 :root {
-  --sidebar-width: 140px;
+  --sidebar-width: 160px;
   --sidebar-width-collapsed: 64px;
+  --font-geist-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-geist-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 
 .sidebar-container {
@@ -44,13 +100,13 @@
   :root,
   .light {
     /* Surfaces */
-    --bg: #f4f5f7;
-    --surface-1: #f4f5f7;
+    --bg: #ffffff;
+    --surface-1: #ffffff;
     --surface-2: #fafbfc;
-    --surface-3: #eef0f2;
+    --surface-3: #f4f5f7;
     --surface-5: #e2e4e8;
     --surface-muted: #c6c9cf;
-    --surface-elevated: #fafbfc;
+    --surface-elevated: #ffffff;
 
     /* Text */
     --text-primary: #1c1917;
@@ -68,7 +124,7 @@
     --border-focus: #7c3aed;
 
     /* Brand */
-    --brand-50:  #f5f3ff;
+    --brand-50: #f5f3ff;
     --brand-100: #ede9fe;
     --brand-200: #ddd6fe;
     --brand-400: #8e4cfb;
@@ -79,23 +135,23 @@
     --brand-tertiary: #22c55e;
 
     /* Status */
-    --status-success:        #16a34a;
-    --status-success-bg:     #f0fdf4;
+    --status-success: #16a34a;
+    --status-success-bg: #f0fdf4;
     --status-success-border: #bbf7d0;
-    --status-success-hover:  #15803d;
+    --status-success-hover: #15803d;
     --status-success-strong: #14532d;
-    --status-warning:        #d97706;
-    --status-warning-bg:     #fffbeb;
+    --status-warning: #d97706;
+    --status-warning-bg: #fffbeb;
     --status-warning-border: #fde68a;
-    --status-error:        #dc2626;
-    --status-error-bg:     #fef2f2;
+    --status-error: #dc2626;
+    --status-error-bg: #fef2f2;
     --status-error-border: #fecaca;
-    --status-error-hover:  #b91c1c;
+    --status-error-hover: #b91c1c;
     --status-error-strong: #991b1b;
 
     /* Skill brand (emerald) */
-    --skill-brand:     #059669;
-    --skill-brand-50:  #ecfdf5;
+    --skill-brand: #059669;
+    --skill-brand-50: #ecfdf5;
     --skill-brand-100: #d1fae5;
     --skill-brand-200: #a7f3d0;
     --skill-brand-600: #059669;
@@ -108,6 +164,19 @@
     --gradient-secondary-from: #0ea5e9;
     --gradient-secondary-to: #67e8f9;
 
+    /* Chart palette (validated for CVD safety) */
+    --chart-1: #6f3dfa;
+    --chart-2: #0ea5e9;
+    --chart-3: #f59e0b;
+    --chart-4: #10b981;
+    --chart-5: #ef4444;
+    --chart-6: #ec4899;
+    --chart-7: #f97316;
+    --chart-8: #8b5cf6;
+    --chart-surface: #ffffff;
+    --chart-grid: #e5e7eb;
+    --chart-axis: #9ca3af;
+
     /* Misc */
     --code-bg: #0d1117;
     --canvas-dot: #cbd5e1;
@@ -116,24 +185,24 @@
     --radius: 0.5rem;
 
     /* shadcn/ui compatibility (HSL) — do not mix with hex tokens above */
-    --background: 220 16% 96%;
+    --background: 0 0% 100%;
     --foreground: 20 14.3% 4.1%;
-    --card: 220 16% 97%;
+    --card: 0 0% 100%;
     --card-foreground: 20 14.3% 4.1%;
-    --popover: 220 16% 97%;
+    --popover: 0 0% 100%;
     --popover-foreground: 20 14.3% 4.1%;
-    --primary: 262 83% 58%;
-    --primary-foreground: 60 9.1% 97.8%;
-    --secondary: 220 13% 91%;
+    --primary: 240 10% 3.9%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 24 9.8% 10%;
-    --muted: 220 13% 91%;
+    --muted: 240 4.8% 95.9%;
     --muted-foreground: 25 5.3% 44.7%;
-    --accent: 220 13% 91%;
+    --accent: 240 4.8% 95.9%;
     --accent-foreground: 24 9.8% 10%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 60 9.1% 97.8%;
-    --input: 220 13% 91%;
-    --ring: 262 83% 58%;
+    --input: 240 5.9% 90%;
+    --ring: 221 83% 53%;
   }
 
   .dark {
@@ -162,7 +231,7 @@
     --border-focus: #38bdf8;
 
     /* Brand (sky/cyan) */
-    --brand-50:  #0c1a24;
+    --brand-50: #0c1a24;
     --brand-100: #0d2535;
     --brand-200: #0f3347;
     --brand-400: #38bdf8;
@@ -173,23 +242,23 @@
     --brand-tertiary: #10b981;
 
     /* Status */
-    --status-success:        #4ade80;
-    --status-success-bg:     #052e16;
+    --status-success: #4ade80;
+    --status-success-bg: #052e16;
     --status-success-border: #166534;
-    --status-success-hover:  #86efac;
+    --status-success-hover: #86efac;
     --status-success-strong: #bbf7d0;
-    --status-warning:        #fbbf24;
-    --status-warning-bg:     #1c0f00;
+    --status-warning: #fbbf24;
+    --status-warning-bg: #1c0f00;
     --status-warning-border: #78350f;
-    --status-error:        #f87171;
-    --status-error-bg:     #1c0505;
+    --status-error: #f87171;
+    --status-error-bg: #1c0505;
     --status-error-border: #7f1d1d;
-    --status-error-hover:  #fca5a5;
+    --status-error-hover: #fca5a5;
     --status-error-strong: #fecaca;
 
     /* Skill brand (emerald) */
-    --skill-brand:     #34d399;
-    --skill-brand-50:  #022c22;
+    --skill-brand: #34d399;
+    --skill-brand-50: #022c22;
     --skill-brand-100: #064e3b;
     --skill-brand-200: #065f46;
     --skill-brand-600: #34d399;
@@ -201,6 +270,19 @@
     --gradient-brand-accent: #38bdf8;
     --gradient-secondary-from: #06b6d4;
     --gradient-secondary-to: #22d3ee;
+
+    /* Chart palette (validated for CVD safety — dark stepped) */
+    --chart-1: #7c3aed;
+    --chart-2: #0c8cbf;
+    --chart-3: #b07e00;
+    --chart-4: #0fa67b;
+    --chart-5: #dc4444;
+    --chart-6: #c94d85;
+    --chart-7: #d96525;
+    --chart-8: #8b6fd4;
+    --chart-surface: #141a21;
+    --chart-grid: #1e2938;
+    --chart-axis: #6b7280;
 
     /* Misc */
     --code-bg: #0a0e14;
@@ -215,8 +297,8 @@
     --card-foreground: 210 20% 92%;
     --popover: 210 22% 12%;
     --popover-foreground: 210 20% 92%;
-    --primary: 199 89% 48%;
-    --primary-foreground: 210 25% 8%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 10% 3.9%;
     --secondary: 210 18% 18%;
     --secondary-foreground: 210 20% 92%;
     --muted: 210 18% 18%;
@@ -232,10 +314,18 @@
 
 @layer utilities {
   .brand-gradient {
-    background-image: linear-gradient(to bottom right, var(--gradient-brand-from), var(--gradient-brand-to));
+    background-image: linear-gradient(
+      to bottom right,
+      var(--gradient-brand-from),
+      var(--gradient-brand-to)
+    );
   }
   .brand-gradient-text {
-    background-image: linear-gradient(to right, var(--gradient-brand-from), var(--gradient-brand-to));
+    background-image: linear-gradient(
+      to right,
+      var(--gradient-brand-from),
+      var(--gradient-brand-to)
+    );
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;

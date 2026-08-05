@@ -1,268 +1,522 @@
-# 架构设计
+# 架构（Architecture）
 
-## 整体架构
+本文档描述当前运行时架构，代码和自动化测试是最终事实来源。
 
-JoySafeter 采用分层架构模式，各层职责清晰：
+JoySafeter 是一个面向安全工作的 AI Agent 编排平台。用户定义一个 **Agent**（引擎 + 模型 +
+系统提示词 + 工具 + 技能 + MCP 服务器），打开一个 **Session**（会话）并发送消息。每条消息会变成一个
+**Task**，平台把它调度到隔离的**沙箱**容器中，由一个编码 Agent harness（Claude Code / Codex /
+自研 `ccb` runner）携带该 Agent 配置的能力执行。harness 做的一切——文本、思考、工具调用、工具结果、
+模型请求、子 Agent 生命周期——都以**事件**的形式流回、持久化，并通过 **SSE** 实时推送到浏览器。
 
-```mermaid
-flowchart TB
-    subgraph Row1[" "]
-        direction LR
+---
 
-        subgraph Frontend["前端层 (Next.js + React)"]
-            direction TB
-            Canvas["DeepAgents 画布<br/>ReactFlow"]
-            CodeEditor["代码编辑器<br/>CodeMirror"]
-            Trace["执行追踪<br/>SSE Stream"]
-            Workspace["工作空间管理<br/>RBAC"]
-            Copilot["Copilot AI<br/>图构建助手"]
-        end
+## 1. 部署拓扑
 
-        subgraph API["API 层 (FastAPI)"]
-            direction TB
-            REST["REST APIs<br/>Auth/Graphs/Chat/Skills"]
-            WS["WebSocket<br/>Chat/Copilot/Runs"]
-            SSE["SSE Stream<br/>实时事件"]
-            CodeAPI["Code API<br/>保存/运行"]
-        end
-
-        subgraph Services["服务层"]
-            direction TB
-            GraphSvc["GraphService"]
-            SkillSvc["SkillService"]
-            MemorySvc["MemoryService"]
-            McpSvc["McpClient<br/>Service"]
-            ToolSvc["ToolService"]
-        end
-
-        subgraph Engine["核心引擎"]
-            direction TB
-            DeepBuilder["DeepAgents<br/>构建器"]
-            CodeExec["代码执行器<br/>沙箱 exec()"]
-            Middleware["中间件系统<br/>Memory"]
-            SkillSys["技能系统<br/>渐进式加载"]
-            MemorySys["记忆系统<br/>长/短期记忆"]
-        end
-    end
-
-    subgraph Row2[" "]
-        direction LR
-
-        subgraph Runtime["运行时层"]
-            direction TB
-            LangGraph["LangGraph Runtime<br/>StateGraph"]
-            Checkpoint["Checkpointer<br/>状态持久化"]
-        end
-
-        subgraph Data["数据层"]
-            direction TB
-            PG["PostgreSQL<br/>图/技能/记忆"]
-            Redis["Redis<br/>缓存/会话"]
-        end
-
-        subgraph MCP["MCP 工具生态"]
-            direction TB
-            MCPServers["MCP Servers<br/>200+ 安全工具"]
-            Tools["工具注册表<br/>统一管理"]
-        end
-    end
-
-    Canvas --> REST
-    CodeEditor --> CodeAPI
-    Trace --> SSE
-    Workspace --> REST
-    Copilot --> WS
-
-    REST --> Services
-    WS --> Services
-    SSE --> Services
-    CodeAPI --> Services
-
-    Services --> Engine
-    Engine --> Runtime
-    Runtime --> Data
-    Runtime --> MCP
-
-    MCPServers --> Tools
-
-    style Row1 fill:transparent,stroke:transparent
-    style Row2 fill:transparent,stroke:transparent
-
-    style Frontend fill:#e1f5ff
-    style API fill:#f3e5f5
-    style Services fill:#fff3e0
-    style Engine fill:#e8f5e8
-    style Runtime fill:#fff8e1
-    style Data fill:#fce4ec
-    style MCP fill:#e0f2f1
-```
-
-### 核心模块
-
-#### 1. 图构建系统 — 两条路径
-
-系统支持两种图构建模式：
-
-```mermaid
-flowchart LR
-    Service[GraphService] -->|graph_mode = code| CodeExec[代码执行器<br/>exec → StateGraph.compile]
-    Service -->|画布模式| DeepBuilder[DeepAgents 构建器<br/>Manager-Worker 拓扑]
-
-    CodeExec --> LangGraph[LangGraph Runtime]
-    DeepBuilder --> LangGraph
-
-    style Service fill:#e1f5ff
-    style CodeExec fill:#fff3e0
-    style DeepBuilder fill:#e8f5e8
-```
-
-**Code 模式：**
-- 用户在浏览器编辑器中编写标准 LangGraph Python 代码
-- 后端在沙箱环境中执行代码（受限 builtins、import 白名单、执行超时）
-- 从执行结果中提取 `StateGraph` 实例，编译并运行
-- 零学习成本 — LangGraph 官方文档就是使用文档
-
-**DeepAgents 画布模式：**
-- 可视化拖拽构建多智能体编排
-- 三种节点类型：Agent、Code Agent、A2A Agent
-- 通过 `deepagents.create_deep_agent()` 构建 Manager-Worker 星型拓扑
-
-#### 2. DeepAgents 多智能体编排
-
-DeepAgents 实现星型拓扑，一个 Manager 协调多个 Worker：
+JoySafeter 以**两个 Python FastAPI 服务 + 一个 Rust orchestrator + 支撑基础设施**的形态运行。
+Python API 与 Worker 共享同一份代码库，并通过 `JOYSAFETER_SERVICE_ROLE`（`api` / `worker`）
+选择自身行为。orchestrator 是 `app/joysafeter_orchestrator_rs` 中的 Rust 二进制。
 
 ```mermaid
 flowchart TB
-    Manager[Manager Agent<br/>useDeepAgents=True<br/>DeepAgent]
+    FE["前端 Browser<br/>Next.js 16 / React 19"]
 
-    Manager -->|task| Worker1[Worker 1<br/>CompiledSubAgent]
-    Manager -->|task| Worker2[Worker 2<br/>CompiledSubAgent]
-    Manager -->|task| Worker3[Worker 3<br/>CompiledSubAgent]
-    Manager -->|task| CodeAgent[CodeAgent<br/>CompiledSubAgent]
-
-    subgraph Backend["共享 Docker 后端"]
-        Skills["/workspace/skills/<br/>预加载技能"]
+    subgraph API_S["API 服务　role=api"]
+        API["REST /api/v1/* · 鉴权"]
+        BC["SSE 端点<br/>SessionBroadcaster"]
     end
 
-    Worker1 --> Backend
-    Worker2 --> Backend
-    Worker3 --> Backend
-    CodeAgent --> Backend
+    subgraph ORCH_S["Rust Orchestrator 服务"]
+        SCHED["任务调度器<br/>DB 拉取 · FOR UPDATE SKIP LOCKED"]
+        GRPC["gRPC AgentBridge :9090"]
+        BUS["两相事件总线<br/>持久化 ∥ 广播"]
+    end
 
-    style Manager fill:#e1f5ff
-    style Worker1 fill:#fff4e1
-    style Worker2 fill:#fff4e1
-    style Worker3 fill:#fff4e1
-    style CodeAgent fill:#fff4e1
-    style Backend fill:#e8f5e8
+    WK["Worker 服务　role=worker<br/>Stream 消费 → 落库 → 再发布"]
+
+    subgraph REDIS["Redis（三种机制）"]
+        RLIST[("list<br/>global_queue")]
+        RSTREAM[("stream<br/>orchestrator:events")]
+        RPUB[("pub/sub<br/>session_events:{id}")]
+    end
+    PG[("PostgreSQL<br/>权威状态 + 事件日志")]
+    SKILLSPECTOR["skillspector<br/>技能安全扫描"]
+
+    subgraph SBX["沙箱容器（每会话，NetworkMode=none）"]
+        RUN["Rust sandbox-runner<br/>+ claude / codex / ccb harness"]
+    end
+    ENVOY["Envoy<br/>沙箱唯一网络出入口"]
+    EXT["外部：模型 API · MCP · 目标<br/>（域名白名单）"]
+
+    %% 提交与调度
+    FE -->|"POST /sessions/{id}/events"| API
+    API -->|"建 Task + rpush"| RLIST
+    API -->|"读/写"| PG
+    API -->|"写入时扫描"| SKILLSPECTOR
+    RLIST -.->|"唤醒信号"| SCHED
+    SCHED -->|"认领 pending（DB 权威）"| PG
+    SCHED -->|"provision 容器"| SBX
+
+    %% 沙箱流量全部经 Envoy
+    RUN <-->|"gRPC AgentBridge"| ENVOY
+    ENVOY <-->|"unix socket → TCP"| GRPC
+    RUN -->|"出站 HTTP"| ENVOY
+    ENVOY -->|"白名单放行"| EXT
+
+    %% 事件两相
+    GRPC -->|"harness 事件"| BUS
+    BUS -->|"① 持久化相 XADD"| RSTREAM
+    BUS -->|"② 广播相 PUBLISH"| RPUB
+    RSTREAM -->|"XREADGROUP（消费组）"| WK
+    WK -->|"seq/去重 落库"| PG
+    WK -.->|"再发布"| RPUB
+
+    %% SSE 回流到浏览器
+    RPUB -->|"订阅"| BC
+    BC -->|"SSE 事件流（可 ?after_seq 回放）"| FE
+
+    style API fill:#e1f5ff
+    style BC fill:#e1f5ff
+    style SCHED fill:#fff3e0
+    style GRPC fill:#fff3e0
+    style BUS fill:#fff3e0
+    style WK fill:#fce4ec
+    style RLIST fill:#ffebee
+    style RSTREAM fill:#ffebee
+    style RPUB fill:#ffebee
+    style RUN fill:#e8f5e8
+    style ENVOY fill:#ede7f6
 ```
 
-**DeepAgents 构建流水线：**
+### 服务与容器
 
-```
-build_deep_agents_graph()
-    ├── 1. resolve_all_configs()     — 纯配置提取，无副作用
-    ├── 2. 初始化共享后端              — 按需创建 Docker 沙箱
-    ├── 3. preload_skills()          — 批量预加载，自动去重
-    ├── 4. ModelResolver.resolve()   — 统一 LLM 解析，带缓存
-    ├── 5. 构建 Worker               — agent_factory 按节点类型创建
-    └── 6. create_deep_agent()       — 编译并最终化
-```
+| 组件 | Compose 服务 | 角色 | 关键职责 |
+|---|---|---|---|
+| **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`、SSE 执行流、通知 WebSocket、鉴权 |
+| **Orchestrator（Rust）** | `orchestrator-rs`（profile `rust-orchestrator`） | — | gRPC `AgentBridge` 服务、任务调度器、沙箱生命周期、事件总线 |
+| **Worker** | `worker` | `worker` | 消费 Redis 事件 Stream，批量持久化到 `joysafeter_session_events`，再发布供 SSE 使用 |
+| **前端** | `frontend` | — | Next.js App Router UI |
+| **PostgreSQL** | `db` | — | 所有状态的权威存储 |
+| **Redis** | `redis`（profile `local-redis`）或外部 | — | 事件 Streams、Pub/Sub 扇出、任务队列、协调 |
+| **Envoy** | `joysafeter-envoy` | — | 代理每个沙箱的 unix socket；强制每沙箱出口白名单 |
+| **skillspector** | `skillspector` | — | 独立的技能安全扫描服务；运行时闸门对不可用扫描状态 fail-closed |
+| **db-init** | `db-init`（profile `init`） | — | 一次性 Alembic 迁移 |
 
-**关键设计决策：**
-- **无继承** — 使用专用解析器组合（ModelResolver、ToolResolver、SkillsLoader）
-- **配置解析是纯函数** — 无副作用，每个节点只解析一次
-- **模型解析统一且带缓存** — 节点模型和记忆模型共用同一个解析器
-- **星型拓扑**：Manager 直接连接所有 SubAgent（非链式）
-- **共享后端**：Docker 后端在所有 Agent 间共享，用于技能和代码执行
+当前支持的本地栈使用部署脚本：
+`cd deploy && ./deploy.sh doctor && ./deploy.sh local`。
 
-#### 3. 代码执行器安全
+### 协同契约
 
-代码执行器通过多层安全机制运行用户 LangGraph 代码：
+每个服务只有一个清晰的所有权边界。跨服务调用应保持这些契约，而不是恢复旧的进程内捷径。
 
-| 安全层 | 保护措施 |
-|--------|---------|
-| **Builtins 黑名单** | 移除 `open`、`eval`、`exec`、`compile`、`globals`、`locals`、`vars`、`dir` |
-| **Import 黑名单** | 封锁 `os`、`sys`、`subprocess`、`socket`、`io`、`pathlib` 等 |
-| **Import 白名单** | 仅允许 `langgraph`、`langchain`、`typing`、`json`、`pydantic` 等 |
-| **执行超时** | exec 10 秒限制（`signal.alarm`） |
-| **调用超时** | ainvoke 30 秒限制（`asyncio.wait_for`） |
-| **权限检查** | 保存需要 member 角色，运行需要 viewer 角色 |
-| **错误脱敏** | 从错误信息中移除服务器文件路径 |
+| 参与方 | 拥有什么 | 消费什么 | 发布 / 修改什么 | 不应该做什么 |
+|---|---|---|---|---|
+| 前端 | 产品 UI 状态、鉴权跳转、SSE 订阅 | REST 响应、SSE 事件、通知 WS | 通过 REST 发起用户命令 | 直接访问 Redis、Postgres、orchestrator gRPC 或沙箱容器 |
+| API | Auth/RBAC、REST 校验、CRUD、任务创建、SSE 回放/实时桥接、Skill 写入时扫描调用 | 浏览器请求、DB 状态、Redis Pub/Sub 实时事件 | DB 行、Redis 任务唤醒、Redis 命令中继 | 运行 agent harness、创建沙箱、消费可靠事件 Stream |
+| Rust orchestrator | 调度、任务租约、沙箱生命周期、runner gRPC、控制命令 ACK、事件发射 | DB pending 任务、Redis 唤醒/命令、runner gRPC 流 | task/sandbox/session 状态、Redis Stream 事件、Redis Pub/Sub 广播 | 承载产品 REST API、拥有浏览器鉴权、作为主路径批量持久化事件日志 |
+| 沙箱 runner | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync | gRPC `SetupSandbox` / `StartTask`、注入的 env/secrets/files | gRPC runner 事件/结果、memory sync 消息 | 直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
+| Worker | 可靠事件持久化、`seq` 分配、Redis Stream 恢复/重投 | Redis Stream 消费组 | `joysafeter_session_events`、DB 写入后再发布 Pub/Sub | 调度任务、创建沙箱、暴露用户 API |
+| SkillSpector | 静态 Skill 安全扫描服务 | API/domain service 发送的 Skill 内容 | 供 Skill 领域逻辑消费的扫描 verdict | 自行决定运行时打包；运行时闸门仍在 JoySafeter Skill 逻辑中 |
+| PostgreSQL | 领域状态、task/session/sandbox FSM、事件日志的权威存储 | API/orchestrator/worker/db-init 写入 | 持久化行 | 充当队列或实时扇出总线 |
+| Redis | 唤醒、Streams、Pub/Sub、命令中继、ownership/heartbeat 协调 | API/orchestrator/worker 的 list/stream/pubsub 流量 | 临时消息与可靠 Stream 消息 | 被当作调度权威；pending task 行仍以 Postgres 为准 |
 
-#### 4. 技能系统（渐进式加载）
+### 故障归属
+
+| 现象 | 首要归属 | 优先检查 |
+|---|---|---|
+| 用户无法登录或 CRUD 资源 | API | `api` 日志、鉴权配置、数据库连通性 |
+| Session 已创建但任务不启动 | Orchestrator | pending task 行、`global_queue` 唤醒、orchestrator 日志、DB lease/fencing 配置 |
+| 沙箱一直未 ready | Orchestrator + Docker 宿主机 | Docker socket 挂载、sandbox 镜像、workspace volume、runner `RunnerReady` 超时 |
+| Agent 在跑但浏览器收不到实时事件 | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`、Redis Pub/Sub、浏览器 `?after_seq` 回放 |
+| 实时能看到事件但刷新后消失 | Worker | Redis Stream pending、worker 日志、Postgres 插入错误、advisory lock 竞争 |
+| Skill 运行时不可用 | Skill domain + SkillSpector | 扫描状态、审批状态、内容漂移、`SKILL_SECURITY_*` 配置 |
+| 沙箱无法访问模型/MCP/目标 | Envoy + orchestrator 沙箱配置 | allowlist、Envoy 配置文件、`JOYSAFETER_GRPC_PUBLIC_URL`、目标 DNS/网络策略 |
+
+---
+
+## 2. 核心闭环——从消息到实时事件
+
+这是最重要的一条链路。走通一次，其余架构自然贯通。
 
 ```mermaid
 sequenceDiagram
-    participant Node as Agent 节点
-    participant Loader as SkillSandboxLoader
-    participant Backend as Docker 后端
+    participant FE as 前端
+    participant API as API 服务
+    participant Q as Redis（list + streams + pubsub）
+    participant ORCH as Orchestrator
+    participant RUN as 沙箱 runner（Rust + harness）
+    participant WK as Worker
+    participant PG as PostgreSQL
 
-    Node->>Loader: 预加载技能（批量，去重）
-    Loader->>Backend: 写入技能文件到 /workspace/skills/
-    Backend-->>Loader: 技能加载完成
+    FE->>API: POST /sessions/{id}/events（user.message）
+    API->>PG: 创建 JoySafeterTask（status=pending）
+    API->>PG: session → running（+ 状态事件）
+    API->>Q: rpush joysafeter:global_queue <task_id>
 
-    Node->>Node: Agent 在系统提示中看到技能摘要
-    Node->>Backend: Agent 按需读取 /workspace/skills/{skill_name}/SKILL.md
-    Backend-->>Node: Agent 获取完整技能内容
+    Note over ORCH: 调度器认领 pending task（DB 为权威）
+    ORCH->>PG: task pending → scheduling → running
+    ORCH->>RUN: provision 沙箱（Docker，如需）
+    RUN->>ORCH: gRPC AgentBridge：RunnerReady
+    ORCH->>RUN: SetupSandbox（skills、mcp、tools、files、env）
+    ORCH->>RUN: StartTask（prompt、provider、model...）
+
+    loop harness 执行
+        RUN->>ORCH: RunnerHarnessEvent（text / thinking / tool_use / tool_result / model_request_* / task_notification）
+        ORCH->>ORCH: map_harness_event → JoySafeterEventEnvelope
+        ORCH->>Q: XADD joysafeter:orchestrator:events（持久化相）
+        ORCH->>Q: PUBLISH joysafeter:session_events:{id}（广播相）
+        Q-->>API: pub/sub → SessionBroadcaster
+        API-->>FE: SSE 事件（分配 seq）
+    end
+
+    RUN->>ORCH: RunnerHarnessResult（status、usage）+ RunnerIdle
+    ORCH->>PG: task → 终态，session → idle
+
+    Note over WK: 独立、可靠地
+    Q-->>WK: XREADGROUP joysafeter:orchestrator:events
+    WK->>PG: 批量插入 JoySafeterSessionEvent（分配 seq、去重）
+    WK->>Q: publish_session_event_realtime → SSE 扇出
 ```
 
-#### 5. 记忆系统（长/短期记忆）
+需要牢记两点：
 
-```mermaid
-sequenceDiagram
-    participant User as 用户输入
-    participant Middleware as MemoryMiddleware
-    participant Manager as MemoryManager
-    participant DB as PostgreSQL
-    participant Agent as Agent
+1. **调度的权威是数据库。** Redis list（`joysafeter:global_queue`）只是一个*唤醒信号*；orchestrator
+   通过 `FOR UPDATE SKIP LOCKED` 查询 `joysafeter_tasks` 来认领工作。即使 Redis 丢了信号，调度器
+   仍能找到 pending 行。
 
-    User->>Middleware: 用户消息
-    Middleware->>Manager: 检索相关记忆
-    Manager->>DB: 按 user_id/主题查询
-    DB-->>Manager: 返回记忆
-    Manager-->>Middleware: 注入记忆到上下文
-    Middleware->>Agent: 增强后的提示
-    Agent-->>Middleware: Agent 响应
-    Middleware->>Manager: 提取并持久化新记忆
-    Manager->>DB: 保存记忆
+2. **持久化与实时投递解耦。** orchestrator 的事件总线有*持久化相*（→ Redis Stream，由 Worker 可靠消费）
+   和*广播相*（→ Redis Pub/Sub，由 SSE 层临时消费）。浏览器快速拿到事件；Worker 保证事件带单调 `seq`
+   落库 Postgres，因此重连的客户端可从 `?after_seq` 回放。
+
+---
+
+## 3. 传输映射——谁与谁通信、如何通信
+
+运行时使用若干各司其职的通信通道。此表为权威参考。
+
+| 通道 | 机制 | 用途 | 锚点 |
+|---|---|---|---|
+| 浏览器 → API | HTTPS REST `/api/v1/*` | 所有 CRUD + 命令 | `joysafeter_api/api/v1/router.py` |
+| **实时事件 → 浏览器** | **SSE** `GET /sessions/{id}/events/stream` | 主执行流（`?after_seq` 回放 DB，再转实时） | `joysafeter_api/api/v1/sessions.py` |
+| 通知 → 浏览器 | WebSocket `/ws/notifications` | 用户级通知（进程内 `NotificationManager`） | `joysafeter_api/app.py`、`joysafeter_api/websocket/notification_manager.py` |
+| 单任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `joysafeter_api/api/v1/tasks.py` |
+| 任务入队 | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator 调度器弹出 | `joysafeter_api/services.py`、`joysafeter_orchestrator_rs/src/kernel/queue.rs` |
+| **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`、`joysafeter_worker/events/stream_consumer.py` |
+| **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`、`joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
+| 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input/shutdown 路由到拥有该沙箱的实例 | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`、`joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
+| orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090） | Agent 执行协议 | `proto/joysafeter.proto`、`joysafeter_orchestrator_rs/src/grpc/server.rs` |
+| runner 出口 | Envoy 代理（unix socket） | 每沙箱域名白名单，默认全拒 | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
+| 技能扫描 | HTTP → skillspector `:8010` | 技能写入时安全扫描；运行时拦截 failed/scanning/unscanned/blocked 技能 | `joysafeter_skill_security.py` |
+
+**API ↔ orchestrator 走 Redis，而非直接 gRPC。** Python API/worker 进程不再导入已删除的 Python
+orchestrator 包。它们只通过 `joysafeter_shared.orchestrator_bridge` 使用轻量 API 侧 helper 和测试 seam；
+运行时控制通过 Redis 命令中继和 ACK 闭合。gRPC *仅*用于 Rust orchestrator ↔ 沙箱内 runner 这一跳。
+
+---
+
+## 4. 服务详解
+
+### 4.1 API 服务（`app/joysafeter_api/`）
+
+API 面。装配 FastAPI 应用（`app.py`），通过 `ApiV1ResponseWrapperMiddleware`
+（`api/v1/middleware.py`）把每个 `/api/v1` 的 JSON 响应包成 `{success, code, message, data}`
+信封——该中间件会**跳过**任何 `/stream` 路径与任何 `StreamingResponse`，这就是 SSE 能直出
+`text/event-stream` 的原因。
+
+**鉴权**（`app/joysafeter_shared/common/joysafeter_auth/dependencies.py`）按优先级解析请求：
+`X-Api-Key` 头 → JWT（来自 `Authorization` 或 Cookie，并实时向 DB 复核 org/project 成员关系）→
+Cookie/session 回退（首次登录自动开通默认 org+project）。所有 project 作用域路由都按 `auth_ctx.project_id`
+过滤以实现多租户隔离。WebSocket 连接用 `GET /auth/ws-token` 的短时 token 鉴权。
+
+**启动**保持最小化：`run_api_startup()` 只为 SSE 装配 `SessionBroadcaster`。
+
+完整 REST 清单见 [§8 API 面](#8-api-面)。
+
+### 4.2 Orchestrator 服务（`app/joysafeter_orchestrator_rs/`）
+
+引擎室。托管 gRPC `AgentBridge` 服务以及一组数据库驱动的控制循环。Agent 代码**不**在本进程运行——
+它在沙箱 runner 内运行，通过 gRPC 触达。
+
+| 子系统 | 模块 | 职责 |
+|---|---|---|
+| gRPC 服务 | `src/grpc/server.rs` | `AgentBridge.Session` 双向流；处理 runner 消息、下发 orchestrator 命令 |
+| 任务调度器 | `src/kernel/scheduler.rs` | 认领 pending 任务（`FOR UPDATE SKIP LOCKED`），解析沙箱，推入沙箱队列 |
+| 任务控制器 | `src/kernel/task_controller.rs` | 生命周期、启动恢复、故障转移/重试 |
+| 沙箱控制器 | `src/kernel/sandbox_controller.rs` | 空闲清扫、provisioning 轮询、预热池、孤儿清理 |
+| 沙箱解析器 | `src/kernel/sandbox_resolver.rs` | 三段式解析：复用会话沙箱 → 从池认领 → 新建；注入 runner env |
+| 沙箱 bridge | `src/kernel/sandbox_bridge.rs` | 每沙箱的进程内状态：runner 流、状态、订阅者、控制队列 |
+| Redis 协调器 | `src/kernel/redis_coordinator.rs` | 跨实例 HA：owner 映射、心跳、队列、事件发布 |
+| 命令监听器 | `src/kernel/command_listener.rs` | Redis cancel/input/shutdown/memory_update 中继与 ACK |
+| 事件总线 | `src/events/bus.rs` | 进程内事件总线，驱动 stream 持久化和实时扇出 |
+| 会话广播器 | `src/kernel/session_broadcaster.rs` | 实时 SSE 扇出：Redis Pub/Sub |
+
+启动顺序（`src/main.rs`）：配置 + 数据库 + Redis 协调器 → 队列/调度器/控制器 → bridge 注册表 →
+沙箱 provider/控制器/解析器 → 会话广播器 → 内存订阅者 → Envoy/镜像构建器（按配置）→
+事件总线 + stream/realtime 订阅者 → 命令监听器 → `:9090` gRPC 服务 → 任务恢复与后台循环。
+
+### 4.3 Worker 服务（`app/joysafeter_worker/`）
+
+可靠持久化层。只跑一个循环：`EventStreamWorker`（`events/stream_consumer.py`）通过消费组消费 Redis Stream。
+
+- `XREADGROUP` 取新事件；`XAUTOCLAIM` 取空闲 > 60s 的消息（崩溃恢复/重投）。
+- 每条事件 → `EventBatchSender`（`events/batch_writer.py`）：按 `session_id` 分组，对每个 session 取
+  Postgres advisory lock，从 `MAX(seq)` 计算下一个 `seq`，去重，插入 `JoySafeterSessionEvent`。
+- 插入后调用 `publish_session_event_realtime()` → SSE 扇出。
+- **仅在 DB 写入成功后 ACK**——持久化失败则消息重投。
+
+> **注意：** 原始配置里 `event_stream_enabled` 默认为**假**，但当前支持的 Compose 栈会启用它。
+> 在拆分运行时中，Rust `orchestrator-rs` 将事件写入 Redis Stream，再由 Worker 持久化；
+> `JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB=true` 时，如果 Redis Stream 发布失败，orchestrator
+> 可降级为直接 DB 落库。
+
+---
+
+## 5. Agent 执行协议——gRPC `AgentBridge`
+
+定义于 `proto/joysafeter.proto`。一个双向流式 RPC：
+`rpc Session(stream RunnerMessage) returns (stream OrchestratorMessage)`。orchestrator 为服务端，
+沙箱内 Rust runner 为客户端。DB 是权威——gRPC 流承载执行，而非调度。
+
+### Runner → Orchestrator（`RunnerMessage`）
+
+| 消息 | 含义 |
+|---|---|
+| `RunnerReady` | 首条消息；携带 `sandbox_id`、`runner_token`（HMAC 校验）、可用 provider、重连状态 |
+| `RunnerHarnessEvent` | 实时事件流（见下） |
+| `RunnerHarnessResult` | 终态结果：`status`、`output`、`error`、`TokenUsage`（含按模型细分）、`duration_ms` |
+| `RunnerHeartbeat` | 存活（任何消息都会重置心跳期限；120s 超时） |
+| `RunnerIdle` | harness 进入空闲；把 `harness_session_id` / `work_dir` 持久化回会话 |
+| `MemoryFileSync` | Agent 在沙箱内写了 memory 文件 → 同步回来 |
+
+**`RunnerHarnessEvent`** 携带 `seq` + `timestamp_ms` + 一个 `oneof`：
+`TextEvent` · `ThinkingEvent` · `ToolUseEvent`（`tool`、`call_id`、`input_json`、
+`is_control_request`）· `ToolResultEvent` · `ErrorEvent` · `StatusEvent` · `LogEvent` ·
+`ModelRequestStartEvent`（`model`）· `ModelRequestEndEvent`（`model` + 4 个 token 计数）·
+`TaskNotificationEvent`（后台子 Agent 生命周期：phase、description、status、summary、result、
+token/tool 指标）。
+
+### Orchestrator → Runner（`OrchestratorMessage`）
+
+| 消息 | 载荷 |
+|---|---|
+| `SetupSandbox` | 一次性准备：`skills[]`（SkillArchive tar.gz）、`mcp_servers[]`、`custom_tools[]`、`setup_commands[]`、`memory_mounts[]`、`files[]`（内联）/ `file_refs[]`（按 URL）、`repos[]`、allowed/disallowed/ask 工具列表、`provider`、`model`、env |
+| `StartTask` | `task_id`、`provider`、`prompt`、`system_prompt`、`model`、`max_turns`、`timeout_seconds`、env、每任务的 `mcp_servers`/`repos`/`skills`/`custom_tools`、工具策略列表 |
+| `CancelTask` | `reason` |
+| `SendInput` | `content`（控制请求回复 / 中断注入） |
+| `Shutdown` | `reason` |
+| `MemoryFileUpdate` | 把 memory-store 文件变更推入沙箱 |
+
+> 密钥在 gRPC 上刻意**留空**——provider API key 通过沙箱创建时注入的容器环境变量触达 harness，绝不过线传输。
+
+---
+
+## 6. 引擎、沙箱与 runner
+
+### 6.1 引擎实际在哪里运行
+
+引擎选择只是一个字符串——Agent 的 `engine_kind`（`claude` / `codex` / `native`）作为 `SetupSandbox`/
+`StartTask` 的 `provider` 字段传递，**沙箱内 Rust runner** 据此挑选对应 harness，同时也据此选定 Docker
+镜像（`image_claude` / `image_codex` / `image_native`）。
+
+> Python 的 `runtime/*Adapter` 类（`ClaudeAdapter`、`CodexAdapter`、`NativeAdapter`、`MockAdapter`）
+> 与 `kernel/task_runner.py` 虽存在，但**不在实时路径上**（零调用者）——它们是 Rust runner 的参考/对齐孪生。
+> 真正的执行在 Rust。
+
+### 6.2 Rust sandbox-runner（`sandbox-runner/`）
+
+一个 Cargo workspace（edition 2024，tonic/prost gRPC）。四个 crate：
+
+| Crate | 角色 |
+|---|---|
+| `joysafeter-types` | 共享类型 + `HarnessAdapter` trait SPI（`start`/`cancel`/`send_input`/`provider`/`is_available`）、`HarnessInput`、`HarnessEvent`（镜像 proto oneof） |
+| `joysafeter-runtime` | `AdapterRegistry` + 具体引擎适配器（claude / codex / native / mock） |
+| `joysafeter-runner` | 沙箱内二进制，向 orchestrator 讲 gRPC `AgentBridge` |
+| `joysafeter-ctl` | `joysafeterctl` 运维/开发 CLI（声明式 REST 客户端） |
+
+runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`、`JOYSAFETER_RUNNER_TOKEN`），
+拨号 orchestrator（TCP 或经 Envoy 的 unix socket），发送 `RunnerReady`，并服务
+`StartTask`/`Setup`/`Cancel`/`Input`/`Shutdown`。每个任务按 `provider` 挑适配器，解包技能、跑 setup
+命令、克隆 repo、写 `.claude/settings.json`（MCP + 工具 + 工具规则）、构建 `HarnessInput`，把 harness
+作为常驻子进程拉起：
+
+| `provider` | 适配器 | 拉起 | 协议 |
+|---|---|---|---|
+| `claude` | `ClaudeAdapter` | `claude` CLI | stdin/stdout 上的 stream-json，`--permission-prompt-tool stdio` |
+| `codex` | `CodexAdapter` | `codex app-server --listen stdio://` | JSON-RPC |
+| `native` | `NativeAdapter` | **`ccb`** 二进制 | claude 风格 stream-json——自研 "Harness-Core" 引擎（仅在 Rust runner 侧为独立引擎） |
+| `mock` | `MockAdapter` | 测试替身 | 由 env 开关 |
+
+### 6.3 沙箱 provider（`app/joysafeter_orchestrator_rs/src/sandbox/`）
+
+由 `JOYSAFETER_SANDBOX_PROVIDER` 选择（默认 `docker`）。SPI：`SandboxProvider`
+（`create/start/stop/destroy/status/exec/inject_files/setup_networking/...`）。
+
+| Provider | 后端 | 说明 |
+|---|---|---|
+| **Docker** | 本地 `aiodocker` | 默认。挂载 `work_dir:/workspace`，memory 挂到 `/mnt/memory/<name>`。加固：`CapDrop ALL`、no-new-privileges、PidsLimit、非 root。受限网络 → `NetworkMode=none` + Envoy unix socket |
+| **E2B** | E2B REST（Firecracker VM） | 需 `E2B_API_KEY` + `E2B_TEMPLATE_ID` |
+| **Daytona** | Daytona REST | 需 `DAYTONA_API_URL` + `DAYTONA_API_KEY` |
+
+**Envoy**（`sandbox/envoy_manager.py`）给每个沙箱独立网络命名空间、无直接出口：runner 经 unix-socket gRPC
+管道触达 orchestrator，所有出站 HTTP 都过一个带**默认全拒域名白名单**的 Envoy listener。
+
+---
+
+## 7. 领域模型
+
+以异步 SQLAlchemy 2.0 持久化到 PostgreSQL。系统**没有 `execution`、`run` 或 `mission` 表**。
+运行单元是 `JoySafeterTask`；会话单元是带追加式事件日志的 `JoySafeterSession`。
+
+### 7.1 核心实体
+
+| 实体 | 表 | 角色 |
+|---|---|---|
+| `JoySafeterAgent` | `joysafeter_agents` | Agent 定义。能力（`skills`、`tools`、`mcp_configs`、`model`、`agents`、`commands`）以 **JSONB 反范式**存在行上，非 join 表。经 `joysafeter_agent_versions` 版本化 |
+| `JoySafeterSession` | `joysafeter_sessions` | 会话/线程。累计 token 用量；创建时快照 Agent |
+| `JoySafeterSessionEvent` | `joysafeter_session_events` | **追加式事件日志**，`unique(session_id, seq)`。即持久化的事件流 |
+| `JoySafeterTask` | `joysafeter_tasks` | 运行/执行单元。经 `chat_session_id` 关联会话 |
+| `JoySafeterSandbox` | `joysafeter_sandboxes` | 沙箱生命周期记录；每会话 ≤1 个活跃沙箱 |
+| `JoySafeterSecret` | `joysafeter_secrets` | provider API key，值 **AES-256-GCM 加密**。运行时作为 env 注入 |
+| `JoySafeterVault` / `VaultCredential` | `joysafeter_vaults` / `_vault_credentials` | MCP 服务器凭据（加密 token、OAuth 自动刷新） |
+| `JoySafeterSkill`（+ 版本、文件、扫描、协作者、用量） | `joysafeter_skills*` | 完整技能子系统：四级可见性、生命周期 FSM、安全扫描、版本快照 |
+| `JoySafeterMemoryStore` / `Memory` / `MemoryVersion` | `joysafeter_memory*` | Agent 可写 KV 存储，带追加式版本历史 |
+| `JoySafeterFile` / `SessionFile` / `SessionRepo` | `joysafeter_files*` | 挂入会话的上传文件与 git repo |
+| 身份 | `joysafeter_users`、`_auth_sessions`、`_oauth_account`、`_organizations`、`_organization_members`、`_organization_projects`、`_project_members`、`_api_keys` | 用户、会话、OAuth 关联、组织、项目、成员、API key |
+
+持久化模式：auth/skills 有一个薄 `BaseRepository[T]`，但大多数服务直接对每请求的 `AsyncSession` 下 SQLAlchemy
+语句并在服务方法内 commit（无 unit-of-work）。
+
+### 7.2 状态机
+
+四个不同 FSM 治理生命周期。转移带守卫（条件式 `UPDATE ... WHERE status = ...` 或 advisory-lock），并发写入不会破坏状态。
+
+| FSM | 实体 | 状态 | 终态 |
+|---|---|---|---|
+| **Task** | `JoySafeterTask` | `pending → scheduling → running → {completed, failed, aborted, timeout, cancelled}`（+ retry → `pending`） | 5 个结果 |
+| **Session** | `JoySafeterSession` | `idle ↔ running ↔ rescheduling`，任意 → `terminated` | `terminated`（可再激活） |
+| **Sandbox** | `JoySafeterSandbox` | `creating → provisioning → pooled → idle ↔ running → stopping → stopped / error → destroyed` | `destroyed` |
+| **技能生命周期** | `JoySafeterSkill` | `draft → pending_review → {approved, rejected}`、`approved → archived`、reopen/unarchive 边 | — |
+
+技能 FSM 之上还有**运行时闸门**：`is_skill_usable()` 仅当技能为 `approved`、其 `security_status` 在白名单、
+**且**内容哈希与上次扫描一致（漂移检测）时才把它纳入会话包。不合规或漂移的技能会被静默丢弃。
+
+---
+
+## 8. API 面
+
+所有路径在 `/api/v1` 下。路由在 `joysafeter_api/api/v1/router.py` 装配。**没有**独立的
+`models` / `mcp` / `tools` / `copilot` / `graphs` 路由——这些概念存于 Agent（JSONB 字段）或
+`secrets` / `vaults`。
+
+| 分组 | 前缀 | 要点 |
+|---|---|---|
+| **Auth** | `/auth` | 注册/登录、登出、refresh、密码重置、邮箱验证、`ws-token`、`switch-context`、projects、api-keys、members |
+| **OAuth / SSO** | `/auth/oauth` | provider 列表、authorize、callback、账号关联/解绑 |
+| **Agents** | `/agents` | CRUD、archive、versions、`/tasks`、`/sessions` |
+| **Tasks** | `/tasks` | 创建+入队、列表、获取、取消、**WS** `/tasks/{id}/stream` |
+| **Sessions** | `/sessions` | CRUD、archive、stop、`POST /events`（发送）、`GET /events`（历史）、**SSE** `/events/stream`、resources（文件/repo） |
+| **Environments** | `/environments` | 沙箱镜像/配置 CRUD |
+| **Secrets** | `/secrets` | provider 凭据（模型 API key）+ 默认选择 |
+| **Vaults** | `/vaults` | MCP 凭据 + OAuth 配置 |
+| **Skills** | `/skills` | CRUD、`import-zip`、files、versions、security-scans、生命周期转移、admin 重扫 |
+| **Skills AI 创作** | `/skills/ai-authoring` | **SSE** `/chat`（LLM 创作回合）、`/save-draft` |
+| **Sandboxes** | `/sandboxes` | 列表、获取、停止 |
+| **Memory stores** | `/memory_stores` | store + memory CRUD、versions、redact；沙箱 memory sync 经 Rust runtime 中继 |
+| **Files** | `/files` | 上传、列表、元数据、下载、删除 |
+| **Organizations** | `/organizations` | 组织 + 成员 CRUD、transfer-ownership |
+| **Quickstart** | `/quickstart` | **SSE** `/chat`——引导式 onboarding LLM 代理 |
+| **Health** | `/health` | 就绪（Postgres + Redis）、存活 |
+
+---
+
+## 9. 横切关注点
+
+### 9.1 多模型——"统一协议"
+
+后端**没有**编码化的多 provider 适配器注册表。共享 LLM 层
+（`joysafeter_shared/llm/openai_stream.py`）是一个 OpenAI 兼容的 SSE 流式辅助：凭据（`api_key`、
+`base_url`、`model`）由外部传入，绝不在此解析。任意 provider——OpenAI、Claude、Gemini、DeepSeek、
+Qwen 等——都通过把 `base_url` 指向其 OpenAI 兼容网关来泛化触达。该辅助只支撑第一方功能（技能创作、
+quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI harness**（Claude Code / Codex / `ccb`），
+因此真实的模型路由、重试与回退位于 runner 和 CLI 中，而非 Python。模型配置与凭据是 DB 驱动的
+（`joysafeter_secrets`，加密），经 Secrets UI 管理。
+
+### 9.2 技能——能力层
+
+技能是版本化的插件包（仓库内 30 个：21 个 pentest、约 5 个 utility、约 6 个 planning/meta），每个是一个
+以 `SKILL.md` 打头的目录。流水线横跨三层：
+
+1. **解析与校验**（`joysafeter_shared/skill/`）——SKILL.md YAML frontmatter + Agent-Skills 规范约束
+   （name/description/allowed-tools）、二进制/尺寸守卫。
+2. **权限闸门**（`joysafeter_shared/common/skill_permissions.py`）——四级可见性
+   （private/project/organization/public）+ 严格 active-org 隔离。
+3. **安全扫描**（`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector** 服务）——
+   扫描器失败会记录 failed/scanning 状态，拦截 `DO_NOT_INSTALL` 建议，规范 sha256 用于漂移检测。
+4. **打包与投递**——`SkillPacker` 在会话开始时把引用解析为 `tar.gz` `SkillArchive`，应用 `is_skill_usable`
+   闸门、记录用量；orchestrator 把归档注入沙箱，runner 解包。
+
+### 9.3 可观测性——全链路追踪
+
+`joysafeter_shared/observation/` 是货真价实的 OTel 实现：
+
+- 一个全局 `TracerProvider`（可选 OTLP 导出）+ **两个自定义 span processor**：
+  `PersistenceProcessor`（按 `execution.id` 分桶 span，批量落到 `traces` / `observations` 表，聚合
+  token/成本）与 `BroadcastProcessor`（实时 span 流）。
+- `TracingMiddleware` 在入口提取 W3C `traceparent` 并回显 `x-trace-id`；loguru 把实时 `trace_id`
+  注入每行日志以便关联。
+- token/成本计量记录在 span 属性（`llm.usage.*`、`llm.cost.*`）上，聚合进 `Trace` 总计。
+
+### 9.4 安全态势
+
+- **鉴权：** JWT（HS256）带 org/project/role 声明 + 实时 DB 复核；HttpOnly Cookie；变更请求带 CSRF token；
+  密码在客户端先做 SHA-256 预哈希。
+- **凭据加密：** provider secret 与 vault token 用 AES-256-GCM（`credential_encryption_key`），与 Rust
+  `agentd` 兼容的 cipher。
+- **SSRF 守卫：** 拦截云元数据 IP、解析 DNS 以挫败 rebinding；默认允许私有 RFC-1918（内部 LLM/MCP 端点），
+  可选加固开关。
+- **沙箱隔离：** 丢弃能力、非 root、no-new-privileges、PID 限制、Envoy 全拒出口。
+- **技能扫描：** 运行时只打包已审批、`security_status` 为 `passed` / `warning` 且内容未漂移的技能。
+
+---
+
+## 10. 源码布局
+
 ```
+backend/app/
+├── joysafeter_api/            # API 服务：REST 路由、SSE、WS 通知、鉴权依赖
+│   ├── api/v1/                #   路由（auth、agents、sessions、tasks、skills、secrets、vaults...）
+│   ├── websocket/             #   通知管理器 + WS 鉴权
+│   ├── app.py / main.py       #   应用装配 + 入口
+│   └── startup.py             #   装配 SessionBroadcaster
+├── joysafeter_orchestrator_rs/ # Rust Orchestrator 服务
+│   ├── src/grpc/              #   AgentBridge 服务（+ 生成的 proto）
+│   ├── src/kernel/            #   调度器、控制器、沙箱解析器/bridge、协调器、队列
+│   ├── src/runtime/           #   HarnessAdapter SPI + 适配器
+│   ├── src/sandbox/           #   Docker/E2B/Daytona provider、Envoy 管理器、镜像构建器
+│   ├── src/events/            #   事件总线 + stream/realtime 订阅者
+│   ├── src/main.rs            #   启停装配
+│   └── Cargo.toml             #   Rust crate manifest
+├── joysafeter_worker/         # Worker 服务
+│   └── events/                #   EventStreamWorker（Redis Stream 消费者）+ EventBatchSender
+├── joysafeter_domain/         # 数据模型 + 业务逻辑
+│   ├── models/                #   SQLAlchemy 表
+│   ├── repositories/          #   薄 base repo（auth/skills）
+│   ├── schemas/               #   Pydantic DTO
+│   └── services/              #   agent/task/session/skill/secret/vault/memory... 服务 + FSM
+└── joysafeter_shared/         # 跨服务基座
+    ├── llm/                   #   OpenAI 兼容 SSE 辅助
+    ├── skill/                 #   SKILL.md 解析 + 校验
+    ├── observation/           #   OTel provider + processor + trace/observation 模型
+    ├── security/ security.py  #   JWT、密码、SSRF 守卫、凭据密钥设置
+    ├── storage/               #   可插拔文件后端（local / s3 / oss）
+    ├── cache/                 #   池化 Redis 客户端 + 分布式锁
+    ├── oauth/                 #   可插拔 SSO（oauth2、jd_sso）
+    ├── runtime/               #   app_factory、lifecycle、docker_check（三服务共享）
+    ├── config/                #   settings + service_role（三服务切分开关）
+    └── database.py            #   异步 SQLAlchemy engine/session
 
-### 数据流
-
-**前端 ↔ 后端：**
-- **REST API**：图配置、技能管理、工具管理、工作空间操作
-- **WebSocket (`/ws/chat`)**：共享聊天协议，用于 Chat、Copilot 和 Skill Creator 会话；Copilot 通过 `extension: { kind: "copilot" }` 复用同一 WS 连接
-- **WebSocket (`/ws/runs`)**：实时运行观测 — 活跃 agent run 的事件回放和状态更新
-- **Code API**：保存和运行用户 LangGraph 代码
-- **SSE Stream**：实时执行状态、流式输出、节点执行事件
-
-**后端内部：**
-- **Code 模式**：`code_executor.execute_code()` → `StateGraph.compile()` → `ainvoke()`
-- **画布模式**：`build_deep_agents_graph()` → `create_deep_agent()` → `compile()` → `ainvoke()`
-- **Copilot 回合**：`execute_copilot_turn()` → `CopilotService._get_copilot_stream()` → 事件通过 Run Center 持久化到 `agent_run_events`
-- **LangGraph Runtime → MCP Servers → Tools**：工具调用和执行
-- **Middleware → Agent → Model**：请求处理管道
-
-**后端 ↔ 数据层：**
-- **PostgreSQL**：图配置、技能、记忆、会话、工作空间、agent runs/events/snapshots（Run Center）
-- **Redis**：缓存、限流、临时数据
-
-### 后端文件结构（图模块）
-
-```
-app/core/graph/
-├── __init__.py                    # 导出 build_deep_agents_graph()
-├── deep_agents/
-│   ├── builder.py                 # 构建编排（无继承）
-│   ├── config.py                  # 纯配置提取
-│   ├── model_resolver.py          # 统一 LLM 解析，带缓存
-│   ├── agent_factory.py           # 创建 agent/code_agent/a2a worker
-│   ├── skills_loader.py           # 批量技能预加载，去重
-│   ├── tool_resolver.py           # 工具名 → 实例解析
-│   └── middleware.py              # Memory 中间件
-├── node_secrets.py                # A2A secret 处理
-└── runtime_prompt_template.py     # 运行时 prompt 变量替换
-
-app/core/code_executor.py          # Code 模式沙箱执行
+proto/joysafeter.proto         # AgentBridge gRPC 契约
+sandbox-runner/                # Rust workspace：types / runtime / runner / ctl
+skills/                        # 30 个技能包（pentest / utility / planning）
+deploy/docker-compose.yml      # 三服务 + 基础设施拓扑（Rust orchestrator profile）
+frontend/                      # Next.js App Router UI
 ```

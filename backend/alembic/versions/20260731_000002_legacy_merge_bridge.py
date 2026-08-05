@@ -1,0 +1,27 @@
+"""legacy merge bridge before schema cleanup
+
+Revision ID: 20260731_000002
+Revises: 20260627_000001
+Create Date: 2026-08-03 00:00:00.000000
+
+Compatibility-only revision for databases that were already migrated with the
+pre-squash Alembic chain and are stamped at the old merge head.
+"""
+
+from __future__ import annotations
+
+from typing import Union
+
+# revision identifiers, used by Alembic.
+revision: str = "20260731_000002"
+down_revision: Union[str, None] = "20260627_000001"
+branch_labels: Union[str, None] = None
+depends_on: Union[str, None] = None
+
+
+def upgrade() -> None:
+    pass
+
+
+def downgrade() -> None:
+    pass

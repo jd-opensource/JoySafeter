@@ -1,6 +1,6 @@
 ---
 name: skill-security-auditor
-description: OpenClaw Skills 全方位安全审计工具，检测供应链投毒、Prompt注入、恶意代码模式、权限越权和依赖风险
+description: JoySafeter Skills 全方位安全审计工具，检测供应链投毒、Prompt注入、恶意代码模式、权限越权和依赖风险
 version: 1.0.0
 author: security-audit
 metadata: {
@@ -14,11 +14,11 @@ metadata: {
 
 # Skill Security Auditor
 
-基于《OpenClaw 极简安全实践指南》和《安全验证与攻防演练手册》的 Skill 安全审计工具。对 OpenClaw Skill 进行从源码到运行时的全生命周期安全审查，覆盖供应链投毒、Prompt 注入载荷、恶意代码模式、权限越权等威胁向量。
+基于 JoySafeter 安全实践的 Skill 安全审计工具。对 JoySafeter Skill 进行从源码到运行时的全生命周期安全审查，覆盖供应链投毒、Prompt 注入载荷、恶意代码模式、权限越权等威胁向量。
 
 ## Purpose
 
-OpenClaw Skills 是 Agent 能力的扩展机制，通过 `/workspace/skills/{skill_name}/SKILL.md` 被 Agent 加载执行。恶意 Skill 可以：
+JoySafeter Skills 是 Agent 能力的扩展机制，通过 `/workspace/skills/{skill_name}/SKILL.md` 被 Agent 加载执行。恶意 Skill 可以：
 - 通过 Prompt 注入劫持 Agent 行为
 - 在代码块中嵌入反弹 Shell、数据外传命令
 - 引用恶意外部依赖进行供应链攻击
@@ -79,7 +79,7 @@ OpenClaw Skills 是 Agent 能力的扩展机制，通过 `/workspace/skills/{ski
 
 | 代码类型 | 检测规则 | 风险等级 |
 |---------|---------|---------|
-| Bash | 反弹 Shell、数据外传、提权命令 | 参见 openclaw-threat-detect |
+| Bash | 反弹 Shell、数据外传、提权命令 | 检查高危命令与外联行为 |
 | Python | `exec()`, `eval()`, `subprocess`, `os.system`, `socket` | HIGH |
 | JavaScript | `child_process`, `eval`, `Function()`, `require('net')` | HIGH |
 | 混淆代码 | Base64 编码的命令, `\x` 转义序列, 多层编码 | CRITICAL |
@@ -174,13 +174,13 @@ Skill 安装/更新
          │ PASS
          ▼
 ┌─────────────────────┐
-│ openclaw-security-  │  ← 环境检查：Skill 加载后的配置影响
+│ env-security-check │  ← 环境检查：Skill 加载后的配置影响
 │ checker             │
 └────────┬────────────┘
          │ PASS
          ▼
 ┌─────────────────────┐
-│ openclaw-threat-    │  ← 运行时：Skill 执行中的行为监控
+│ threat-detection   │  ← 运行时：Skill 执行中的行为监控
 │ detect              │
 └─────────────────────┘
 ```

@@ -1,13 +1,5 @@
 // Export JWT authentication system
-export {
-  client as auth,
-  useSession,
-  signIn,
-  signUp,
-  signOut,
-  authApi,
-  clearTokens,
-} from './auth-client'
+export { client as auth, useSession, signIn, signUp, signOut, authApi } from './auth-client'
 
 // CSRF Token management
 export { setCsrfToken, getCsrfToken, clearCsrfToken } from './csrf'

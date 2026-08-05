@@ -5,11 +5,11 @@ import { persist } from 'zustand/middleware'
  * Sidebar state interface
  */
 interface SidebarState {
-  workspaceDropdownOpen: boolean
+  projectDropdownOpen: boolean
   sidebarWidth: number
   isCollapsed: boolean
   isAppSidebarCollapsed: boolean
-  setWorkspaceDropdownOpen: (isOpen: boolean) => void
+  setProjectDropdownOpen: (isOpen: boolean) => void
   setSidebarWidth: (width: number) => void
   setIsCollapsed: (isCollapsed: boolean) => void
   setIsAppSidebarCollapsed: (isCollapsed: boolean) => void
@@ -25,11 +25,11 @@ export const MIN_SIDEBAR_WIDTH = 200
 export const useSidebarStore = create<SidebarState>()(
   persist(
     (set, get) => ({
-      workspaceDropdownOpen: false,
+      projectDropdownOpen: false,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       isCollapsed: false,
       isAppSidebarCollapsed: false,
-      setWorkspaceDropdownOpen: (isOpen) => set({ workspaceDropdownOpen: isOpen }),
+      setProjectDropdownOpen: (isOpen) => set({ projectDropdownOpen: isOpen }),
       setSidebarWidth: (width) => {
         // Only enforce minimum - maximum is enforced dynamically by the resize hook
         const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, width)
@@ -41,9 +41,9 @@ export const useSidebarStore = create<SidebarState>()(
       },
       setIsCollapsed: (isCollapsed) => {
         set({ isCollapsed })
-        // Set width to 0 when collapsed (floating UI doesn't need sidebar space)
+        // Set width to 64px when collapsed (icon-only mode)
         if (isCollapsed && typeof window !== 'undefined') {
-          document.documentElement.style.setProperty('--sidebar-width', '0px')
+          document.documentElement.style.setProperty('--sidebar-width', '64px')
         } else if (!isCollapsed && typeof window !== 'undefined') {
           // Restore to stored width when expanding
           const currentWidth = get().sidebarWidth
@@ -65,8 +65,8 @@ export const useSidebarStore = create<SidebarState>()(
           if (!state.isCollapsed && state.sidebarWidth < MIN_SIDEBAR_WIDTH) {
             state.sidebarWidth = MIN_SIDEBAR_WIDTH
           }
-          // Use 0 width if collapsed (floating UI), otherwise use stored width
-          const width = state.isCollapsed ? 0 : state.sidebarWidth
+          // Use 64px width if collapsed (icon-only), otherwise use stored width
+          const width = state.isCollapsed ? 64 : state.sidebarWidth
           document.documentElement.style.setProperty('--sidebar-width', `${width}px`)
         }
       },

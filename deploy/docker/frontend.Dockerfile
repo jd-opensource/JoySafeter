@@ -2,7 +2,7 @@
 # 支持可配置的基础镜像源
 
 # 可配置的基础镜像（默认使用官方镜像，可通过 ARG 切换到国内镜像）
-ARG BASE_IMAGE_REGISTRY="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
+ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
 ARG NODE_VERSION=20-alpine
 FROM ${BASE_IMAGE_REGISTRY}node:${NODE_VERSION} AS base
 RUN apk add --no-cache libc6-compat
@@ -10,22 +10,22 @@ RUN apk add --no-cache libc6-compat
 FROM base AS deps
 WORKDIR /app
 RUN apk add --no-cache curl unzip bash && \
-    BUN_VERSION=1.3.7 curl -fsSL https://bun.sh/install | bash
+    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14
 COPY package.json bun.lock* ./
 RUN /root/.bun/bin/bun install --frozen-lockfile
 
 FROM base AS builder
 WORKDIR /app
 RUN apk add --no-cache curl unzip bash && \
-    BUN_VERSION=1.3.7 curl -fsSL https://bun.sh/install | bash
+    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock* ./
 COPY . .
-# 使用 ARG 传递 API URL，支持通过环境变量配置（默认值保持向后兼容）
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+# Public runtime envs are injected by next-runtime-env when the container starts.
+# Do not bake deployment domains into the static bundle at image build time.
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production \
-    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+    NODE_OPTIONS="--max-old-space-size=4096"
 RUN /root/.bun/bin/bun run build
 
 FROM base AS runner

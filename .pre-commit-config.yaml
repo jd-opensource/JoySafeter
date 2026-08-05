@@ -1,6 +1,6 @@
 # Pre-commit hooks configuration
-# Install: pip install pre-commit && pre-commit install
-# Run manually: pre-commit run --all-files
+# Install: cd backend && uv sync --dev && uv run pre-commit install --install-hooks
+# Run manually: backend/.venv/bin/python -m pre_commit run --all-files
 
 repos:
   # General hooks
@@ -21,7 +21,7 @@ repos:
 
   # Python - Ruff (fast linter and formatter)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.0
+    rev: v0.14.10
     hooks:
       - id: ruff
         args: [--fix]
@@ -29,8 +29,7 @@ repos:
       - id: ruff-format
         files: ^backend/
 
-  # Backend - Ruff check (强制检查，不允许错误)
-  # 注意：此 hook 会检查整个 backend 目录，确保没有 lint 错误
+  # Backend - Ruff strict check
   - repo: local
     hooks:
       - id: backend-ruff-check
@@ -39,22 +38,10 @@ repos:
         language: system
         files: ^backend/.*\.py$
         pass_filenames: false
-        always_run: false  # 只在有 Python 文件更改时运行
-        stages: [commit]
+        always_run: false
+        stages: [pre-commit]
 
-  # Python - Type checking (mypy runs in Backend CI job only; skipped in pre-commit)
-  # - repo: https://github.com/pre-commit/mirrors-mypy
-  #   rev: v1.13.0
-  #   hooks:
-  #     - id: mypy
-  #       files: ^backend/app/
-  #       args: [--ignore-missing-imports]
-  #       additional_dependencies:
-  #         - types-requests
-  #         - types-PyYAML
-
-  # Frontend - ESLint (强制检查，不允许错误)
-  # 注意：此 hook 会检查整个 frontend 目录，确保没有 lint 错误
+  # Frontend - ESLint + TypeScript type-check + Prettier format check
   - repo: local
     hooks:
       - id: frontend-lint
@@ -63,8 +50,26 @@ repos:
         language: system
         files: ^frontend/.*\.(ts|tsx|js|jsx)$
         pass_filenames: false
-        always_run: false  # 只在有前端文件更改时运行
-        stages: [commit]
+        always_run: false
+        stages: [pre-commit]
+
+      - id: frontend-type-check
+        name: Frontend TypeScript Check
+        entry: bash -c 'cd frontend && bun run type-check || exit 1'
+        language: system
+        files: ^frontend/.*\.(ts|tsx)$
+        pass_filenames: false
+        always_run: false
+        stages: [pre-commit]
+
+      - id: frontend-format-check
+        name: Frontend Prettier Check
+        entry: bash -c 'cd frontend && bun run format:check || exit 1'
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js|jsx|json|css|md)$
+        pass_filenames: false
+        always_run: false
+        stages: [pre-commit]
 
 # CI configuration
 ci:

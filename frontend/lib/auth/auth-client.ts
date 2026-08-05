@@ -5,7 +5,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
-import { ApiError } from '@/lib/api-client'
+import { ApiError, isUnauthorizedApiError } from '@/lib/api-client'
 
 import {
   authApi,
@@ -13,10 +13,11 @@ import {
   signUp,
   signOut,
   onSessionChange,
-  clearCsrfToken,
   type AuthUser,
   type AuthSession,
 } from './api-client'
+import { clearAuthenticatedClientState } from './auth-lifecycle'
+import { startSilentSessionRefresh } from './session-refresh'
 
 // ==================== Type Exports ====================
 export type { AuthUser, AuthSession }
@@ -43,19 +44,31 @@ export function useSession(): SessionHookResult {
       return response?.user ? { user: response.user } : null
     },
     staleTime: 5 * 60 * 1000,
-    retry: false,
+    retry: (failureCount, error) => !isUnauthorizedApiError(error) && failureCount < 2,
+    retryDelay: 1000,
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
   })
 
   useEffect(() => {
     const unsubscribe = onSessionChange((type) => {
       if (type === 'logout') {
+        clearAuthenticatedClientState(queryClient)
         queryClient.setQueryData(['session'], null)
+      } else if (type === 'signin') {
+        clearAuthenticatedClientState(queryClient)
+        refetch()
       } else {
         refetch()
       }
     })
     return unsubscribe
   }, [queryClient, refetch])
+
+  useEffect(() => {
+    if (!data?.user) return
+    return startSilentSessionRefresh(queryClient)
+  }, [data?.user, queryClient])
 
   return {
     data: data ?? null,
@@ -91,11 +104,6 @@ export const client = {
 
 // ==================== Exports ====================
 export { signIn, signUp, signOut, authApi, onSessionChange }
-
-/** @deprecated Use clearCsrfToken instead */
-export function clearTokens(): void {
-  clearCsrfToken()
-}
 
 /**
  * useActiveOrganization placeholder

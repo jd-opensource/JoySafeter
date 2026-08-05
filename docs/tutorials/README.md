@@ -1,6 +1,6 @@
 # JoySafeter 使用教程
 
-本目录包含 JoySafeter 的经典实际案例教程，每个教程都以实际场景为导向，帮助你快速上手平台核心功能。
+本目录包含 JoySafeter 的实战教程，以真实场景为导向，帮助你快速上手平台核心功能。
 
 ---
 
@@ -8,66 +8,35 @@
 
 | # | 教程 | 核心内容 | 难度 |
 |---|------|---------|------|
-| 01 | [模型配置：内置供应商与自定义供应商](./01-model-provider-setup.md) | OpenAI / OpenAI Compatible / Ollama 接入 | ⭐ 入门 |
-| 02 | [添加 MCP 服务](./02-mcp-service-setup.md) | 内置工具加载 / 自定义 MCP 工具注册 | ⭐⭐ 进阶 |
-| 03 | [导入 Skills](./03-skills-usage.md) | 从“导入成功”到“Agent 可用”的可验证闭环（DB → 同步 → Sandbox/Graph → 消费） | ⭐⭐ 进阶 |
-| 04b | [DeepAgents 动态多智能体协作](./04b-deepagents-building.md) | 使用星型拓扑架构，Manager 动态调遣 SubAgent 处理复杂任务 | ⭐️⭐️⭐️⭐️ 高级 |
-| 04c | [Code 模式 — 用 Python 代码构建图](./04c-code-mode.md) | 在浏览器中编写标准 LangGraph Python 代码定义图结构 | ⭐️⭐️⭐️ 进阶 |
-| 05 | [Copilot 使用指南](./05-copilot-usage.md) | 实时对话 / 中断介入 / AI 决策辅助 | ⭐ 入门 |
-| 06 | [OpenClaw（沙盒后端）配置与使用](./06-openclaw-usage.md) | 沙盒启动 / Skills 同步 / 预加载 / Copilot 消费闭环 | ⭐⭐ 进阶 |
-
----
-
-## 最新功能速查
-
-以下功能已在最新版本中上线，教程中已有覆盖或即将补充：
-
-| 功能 | 相关教程 | 状态 |
-|------|---------|------|
-| 技能版本化与协作者 | [教程 03](./03-skills-usage.md) | 已覆盖 |
-| 多租户沙箱引擎 (OpenClaw) | [教程 06](./06-openclaw-usage.md) | 已覆盖 |
-| Langfuse 可观测性 | [04b](./04b-deepagents-building.md) | 已覆盖 |
-| 企业 SSO | [教程 01](./01-model-provider-setup.md) | 已覆盖 |
-| Platform API Tokens | [教程 01](./01-model-provider-setup.md)（全局认证说明） | 已覆盖 |
-| Code 模式 | [教程 04c](./04c-code-mode.md) | 新增 |
+| 01 | [模型配置：用 Secrets 管理供应商密钥](./01-model-provider-setup.md) | 资源 → 密钥（`/managed/secrets`）配置 Anthropic / OpenAI 兼容端点；密钥经容器 env 注入沙箱 | ⭐ 入门 |
+| 02 | [为 Agent 接入 MCP 工具](./02-mcp-service-setup.md) | 在 Agent 编辑器配置 `mcp_configs`；凭据放托管智能体 → 凭证库（`/managed/vaults`）；运行时经 gRPC 下发 | ⭐⭐ 进阶 |
+| 03 | [Skills 的导入、安全扫描、投递与消费](./03-skills-usage.md) | SKILL.md → skillspector 扫描 → SkillPacker 打包 → 沙箱解压消费的闭环 | ⭐⭐ 进阶 |
+| 04 | [构建并运行一个 Agent](./04-agent-build-and-run.md) | 引擎/模型/技能/工具/MCP 组装 → 开 Session → SSE 实时观察 → 干预/停止 | ⭐⭐ 进阶 |
 
 ---
 
 ## 推荐学习路径
 
-### 🚀 快速开始（10 分钟）
+### 🚀 快速开始（15 分钟）
 
-1. **教程 01**：配置模型（OpenAI 或本地 Ollama）
-2. **教程 05**：用 Copilot 与 Agent 进行第一次对话
-3. **教程 04b**：构建一个 DeepAgents 多智能体协作图
-4. **教程 04c**：用 Code 模式编写 LangGraph 图
+1. **教程 01**：在 **资源 → 密钥**（`/managed/secrets`）配置一条模型凭据。
+2. **教程 04**：新建 Agent（选 `claude` 引擎），开会话发第一条消息，看 SSE 实时事件流。
 
-### 🔧 完整功能（1 小时）
+### 🔧 完整能力（1 小时）
 
-1. 完成快速开始路径
-2. **教程 06**：启动 OpenClaw，并验证 skills 同步与预加载链路（后续所有“可执行工具/脚本”的前提）
-3. **教程 03**：导入 Skills，并跑通“DB →（可选）OpenClaw → Sandbox/Graph → Agent 消费”的闭环
-4. **教程 02**：添加自定义 MCP 工具（让 Skill 不只是文档，而是可调用的工具能力）
-5. **教程 04b**：掌握 DeepAgents 多智能体协作模式
+1. 完成快速开始。
+2. **教程 03**：导入一个技能包，跑通“扫描 → approved → 挂到 Agent → 沙箱消费”闭环。
+3. **教程 02**：给 Agent 接入一个 MCP 工具（凭据放 Vaults）。
+4. **教程 04**：把工具 / 技能 / MCP 组合进同一个 Agent，构建自动化工作流。
 
-### 🏆 高级应用
+### 🏆 进阶应用
 
-- 结合教程 02 + 04 + 05，构建完整的自动化渗透测试工作流
-- 使用 DeepAgents 模式（教程 04b）构建 Manager-Worker 多 Agent 系统
-- 通过 Copilot 的 Human-in-the-Loop（教程 05 案例 B）实现审批流程
+- 组合教程 02 + 03 + 04，构建一个带自定义工具与技能的授权渗透测试 Agent。
+- 用工具授权策略（`always_ask`）在高危工具前插入人工确认（教程 04 §4）。
 
 ---
 
 ## 相关文档
 
-- [系统架构](../ARCHITECTURE.md)
-- [MCP 工具分析](../mcp-tools-analysis.md)
-
----
-
-## 贡献教程
-
-如果你有新的实际案例想分享，欢迎提交 PR：
-1. 在本目录新建 `0N-your-tutorial-name.md`
-2. 遵循现有教程的格式（场景说明、分步骤、常见问题）
-3. 在本 README 的教程列表中添加索引
+- [系统架构（中文）](../ARCHITECTURE_CN.md) · [Architecture (EN)](../ARCHITECTURE.md)
+- [分层架构图](../architecture-unified-event-model.mmd)

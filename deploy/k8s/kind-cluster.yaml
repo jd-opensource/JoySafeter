@@ -1,0 +1,10 @@
+# kind cluster for validating the JoySafeter K8sProvider (backend/app/joysafeter_orchestrator_rs/src/sandbox/k8s.rs).
+# 1 control-plane + 2 workers so kube-scheduler pod-spread across nodes can be observed
+# on a single Mac. Bring up:  kind create cluster --config deploy/k8s/kind-cluster.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: joysafeter
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

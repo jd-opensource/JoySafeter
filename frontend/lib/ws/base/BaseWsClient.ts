@@ -1,5 +1,7 @@
 'use client'
 
+import { createApiError } from '@/lib/api-client'
+
 import { HEARTBEAT, RECONNECT, UNRECOVERABLE_CLOSE_CODES, WS_CLOSE_CODE } from '../constants'
 
 export interface BaseConnectionState {
@@ -35,9 +37,11 @@ const DEFAULT_CONFIG: WsClientConfig = {
 export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConnectionState> {
   protected ws: WebSocket | null = null
   private connectPromise: Promise<void> | null = null
+  private pendingConnectReject: ((error: Error) => void) | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private reconnectAttempts = 0
+  private connectAttemptId = 0
   private lastPongTime = Date.now()
   protected isDisposed = false
   private state: TState
@@ -65,84 +69,133 @@ export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConn
       this.reconnectTimer = null
     }
 
-    this.connectPromise = this.getWsUrl()
-      .then(
-        (wsUrl) =>
-          new Promise<void>((resolve, reject) => {
-            const ws = new WebSocket(wsUrl)
-            this.ws = ws
-
-            ws.onopen = () => {
-              this.reconnectAttempts = 0
-              this.setConnectionState(true)
-              this.startHeartbeat()
-              this.connectPromise = null
-              resolve()
-            }
-
-            ws.onmessage = (event) => {
-              try {
-                const parsed = JSON.parse(event.data)
-                if (parsed.type === 'pong') {
-                  this.lastPongTime = Date.now()
-                  return
-                }
-                this.handleMessage(parsed)
-              } catch {
-                this.onParseError()
-              }
-            }
-
-            ws.onerror = () => {
-              this.setConnectionState(false)
-              if (this.connectPromise) {
-                this.connectPromise = null
-                reject(this.createConnectionError('WebSocket connection failed'))
-              }
-            }
-
-            ws.onclose = (event) => {
-              this.stopHeartbeat()
-              this.ws = null
-
-              if (this.connectPromise) {
-                this.connectPromise = null
-                reject(this.createConnectionError(`WebSocket connection failed (${event.code})`))
-              }
-
-              if (event.code === WS_CLOSE_CODE.UNAUTHORIZED) {
-                this.state = { ...this.state, isConnected: false, authExpired: true }
-                this.stateListeners.forEach((l) => l(this.state))
-                this.onAuthExpired()
-                return
-              }
-
-              this.setConnectionState(false)
-
-              if (event.code === WS_CLOSE_CODE.NORMAL || this.isDisposed) {
-                return
-              }
-
-              this.onUnexpectedClose()
-
-              if (UNRECOVERABLE_CLOSE_CODES.includes(event.code as (typeof UNRECOVERABLE_CLOSE_CODES)[number])) {
-                return
-              }
-
-              this.scheduleReconnect()
-            }
-          }),
-      )
-      .catch((err) => {
+    const attemptId = ++this.connectAttemptId
+    const isActiveAttempt = () => !this.isDisposed && this.connectAttemptId === attemptId
+    const clearPendingConnect = () => {
+      if (this.connectAttemptId === attemptId) {
         this.connectPromise = null
-        throw err
-      })
+        this.pendingConnectReject = null
+      }
+    }
+    const createCancelledError = () => this.createConnectionError('WebSocket connection cancelled')
+
+    this.connectPromise = new Promise<void>((resolve, reject) => {
+      this.pendingConnectReject = reject
+
+      void this.getWsUrl()
+        .then((wsUrl) => {
+          if (!isActiveAttempt()) {
+            reject(createCancelledError())
+            return
+          }
+
+          const ws = new WebSocket(wsUrl)
+
+          if (!isActiveAttempt()) {
+            ws.onopen = null
+            ws.onmessage = null
+            ws.onerror = null
+            ws.onclose = null
+            ws.close()
+            reject(createCancelledError())
+            return
+          }
+
+          this.ws = ws
+
+          ws.onopen = () => {
+            if (!isActiveAttempt() || this.ws !== ws) {
+              ws.close()
+              reject(createCancelledError())
+              return
+            }
+            this.reconnectAttempts = 0
+            this.setConnectionState(true, { authExpired: false } as Partial<TState>)
+            this.startHeartbeat()
+            clearPendingConnect()
+            resolve()
+          }
+
+          ws.onmessage = (event) => {
+            if (!isActiveAttempt() || this.ws !== ws) return
+            try {
+              const parsed = JSON.parse(event.data)
+              if (parsed.type === 'pong') {
+                this.lastPongTime = Date.now()
+                return
+              }
+              this.handleMessage(parsed)
+            } catch {
+              this.onParseError()
+            }
+          }
+
+          ws.onerror = () => {
+            if (!isActiveAttempt() || this.ws !== ws) return
+            this.setConnectionState(false)
+            if (this.pendingConnectReject) {
+              clearPendingConnect()
+              reject(this.createConnectionError('WebSocket connection failed'))
+            }
+          }
+
+          ws.onclose = (event) => {
+            if (!isActiveAttempt() || this.ws !== ws) return
+            this.stopHeartbeat()
+            this.ws = null
+
+            if (this.pendingConnectReject) {
+              clearPendingConnect()
+              reject(this.createConnectionError(`WebSocket connection failed (${event.code})`))
+            }
+
+            if (event.code === WS_CLOSE_CODE.UNAUTHORIZED) {
+              this.state = { ...this.state, isConnected: false, authExpired: true }
+              this.stateListeners.forEach((l) => l(this.state))
+              this.onAuthExpired()
+              return
+            }
+
+            this.setConnectionState(false)
+
+            if (event.code === WS_CLOSE_CODE.NORMAL || this.isDisposed) {
+              return
+            }
+
+            this.onUnexpectedClose()
+
+            if (
+              UNRECOVERABLE_CLOSE_CODES.includes(
+                event.code as (typeof UNRECOVERABLE_CLOSE_CODES)[number],
+              )
+            ) {
+              return
+            }
+
+            this.scheduleReconnect()
+          }
+        })
+        .catch((err) => {
+          clearPendingConnect()
+          reject(err)
+        })
+    }).catch((err) => {
+      clearPendingConnect()
+      throw err
+    })
 
     return this.connectPromise
   }
 
   disconnect(): void {
     this.isDisposed = true
+    this.connectAttemptId += 1
+    if (this.pendingConnectReject) {
+      const reject = this.pendingConnectReject
+      this.pendingConnectReject = null
+      reject(this.createConnectionError('WebSocket connection cancelled'))
+    }
+    this.connectPromise = null
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -158,7 +211,6 @@ export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConn
       }
       this.ws = null
     }
-    this.connectPromise = null
     this.setConnectionState(false)
     this.onDispose()
   }
@@ -202,7 +254,15 @@ export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConn
   protected onUnexpectedClose(): void {}
   protected onParseError(): void {}
   protected createConnectionError(message: string): Error {
-    return new Error(message)
+    const code =
+      message === 'WebSocket not connected'
+        ? 'WEBSOCKET_UNAVAILABLE'
+        : 'WEBSOCKET_CONNECTION_FAILED'
+    return createApiError(0, 'WebSocket Error', {
+      code,
+      message,
+      data: null,
+    })
   }
 
   // === Private internals ===
@@ -213,7 +273,9 @@ export abstract class BaseWsClient<TState extends BaseConnectionState = BaseConn
     this.heartbeatTimer = setInterval(() => {
       if (this.ws?.readyState !== WebSocket.OPEN) return
       if (Date.now() - this.lastPongTime > this.config.pongTimeoutMs) {
-        console.warn(`${this.config.name} Heartbeat timeout — no pong in ${this.config.pongTimeoutMs}ms, reconnecting`)
+        console.warn(
+          `${this.config.name} Heartbeat timeout — no pong in ${this.config.pongTimeoutMs}ms, reconnecting`,
+        )
         this.ws.close()
         return
       }

@@ -18,13 +18,13 @@ export const PUBLIC_ROUTES = [
  */
 export function isPublicRoute(pathname: string | null): boolean {
   if (!pathname) return false
-  return PUBLIC_ROUTES.some((route) => pathname.startsWith(route))
+  return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))
 }
 
 /**
  * Default redirect route after login
  */
-export const DEFAULT_AUTHENTICATED_ROUTE = '/chat'
+export const DEFAULT_AUTHENTICATED_ROUTE = '/managed/quickstart'
 
 /**
  * Default sign-in route

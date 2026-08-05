@@ -2,7 +2,7 @@
 # 支持可配置的基础镜像源和 pip 镜像源
 
 # 可配置的基础镜像（默认使用官方镜像，可通过 ARG 切换到国内镜像）
-ARG BASE_IMAGE_REGISTRY="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
+ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
 ARG PYTHON_VERSION=3.12-slim
 FROM ${BASE_IMAGE_REGISTRY}python:${PYTHON_VERSION} AS base
 
@@ -14,15 +14,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 可配置的 pip 镜像源（默认使用清华大学镜像源，可通过 ARG 切换到其他镜像）
-ARG PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 RUN pip install --no-cache-dir uv -i ${PIP_INDEX_URL}
 
 # 构建阶段
 FROM base AS builder
 
 # 传递 pip 镜像源到构建阶段
-ARG PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-ARG UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY pyproject.toml uv.lock* README.md ./
 
@@ -55,6 +55,6 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV UV_CACHE_DIR=/app/.cache/uv
 
-EXPOSE 8000
+EXPOSE 8000 8002
 
-CMD ["python", "-m", "gunicorn", "app.main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--preload", "--timeout", "120"]
+CMD ["sh", "-c", "python -m gunicorn ${BACKEND_APP_MODULE:-app.joysafeter_api.main:app} -w ${WORKERS:-1} -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${BACKEND_PORT:-8000} --timeout 120"]

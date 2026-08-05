@@ -5,11 +5,6 @@ import { useEffect } from 'react'
 
 import { useSession } from '@/lib/auth/auth-client'
 
-/**
- * Root page - redirects based on auth status
- * Logged in -> /chat
- * Not logged in -> /signin
- */
 export default function Page() {
   const router = useRouter()
   const session = useSession()
@@ -17,7 +12,7 @@ export default function Page() {
   useEffect(() => {
     if (!session.isPending) {
       if (session.data?.user) {
-        router.replace('/chat')
+        router.replace('/managed/quickstart')
       } else {
         router.replace('/signin')
       }

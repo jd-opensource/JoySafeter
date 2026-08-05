@@ -7,24 +7,7 @@
 // CSRF Token in-memory storage
 let csrfTokenMemory: string | null = null
 
-/**
- * Set CSRF token (called after successful login)
- */
-export function setCsrfToken(token: string): void {
-  csrfTokenMemory = token
-}
-
-/**
- * Get CSRF token
- * Priority: get from memory first, fallback to reading from Cookie
- */
-export function getCsrfToken(): string | null {
-  // Priority: get from memory first
-  if (csrfTokenMemory) {
-    return csrfTokenMemory
-  }
-
-  // Read from Cookie (fallback)
+function readCsrfTokenFromCookie(): string | null {
   if (typeof document === 'undefined') return null
 
   const cookieNames = [
@@ -46,6 +29,27 @@ export function getCsrfToken(): string | null {
   }
 
   return null
+}
+
+/**
+ * Set CSRF token (called after successful login)
+ */
+export function setCsrfToken(token: string): void {
+  csrfTokenMemory = token
+}
+
+/**
+ * Get CSRF token
+ * Priority: use the readable cookie first so cross-tab refreshes update stale memory.
+ */
+export function getCsrfToken(): string | null {
+  const cookieToken = readCsrfTokenFromCookie()
+  if (cookieToken) {
+    csrfTokenMemory = cookieToken
+    return cookieToken
+  }
+
+  return csrfTokenMemory
 }
 
 /**

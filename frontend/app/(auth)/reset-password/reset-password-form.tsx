@@ -3,7 +3,6 @@
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -84,7 +83,7 @@ export function RequestResetForm({
         disabled={isSubmitting}
         onMouseEnter={() => setIsButtonHovered(true)}
         onMouseLeave={() => setIsButtonHovered(false)}
-        className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] py-1.5 px-3 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+        className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] px-3 py-1.5 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
       >
         <span className="flex items-center gap-1" suppressHydrationWarning>
           {isSubmitting
@@ -142,10 +141,7 @@ export function SetNewPasswordForm({
         toastSuccess(statusMessage)
       }
     }
-    if (validationMessage) {
-      toastError(validationMessage)
-    }
-  }, [statusType, statusMessage, validationMessage])
+  }, [statusType, statusMessage])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -281,7 +277,7 @@ export function SetNewPasswordForm({
         type="submit"
         onMouseEnter={() => setIsButtonHovered(true)}
         onMouseLeave={() => setIsButtonHovered(false)}
-        className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] py-1.5 px-3 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+        className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] px-3 py-1.5 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
       >
         <span className="flex items-center gap-1" suppressHydrationWarning>
           {isSubmitting

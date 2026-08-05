@@ -2,20 +2,17 @@
 
 在不依赖 GitHub/Google 等真实 OAuth 服务的情况下，用本地 Mock 服务验证 OAuth 登录流程。
 
-## 方式一：使用内置 Mock 服务（推荐）
+## 方式一：使用外部 / 自建 Mock OAuth 服务
 
-### 1. 启动 Mock OAuth 服务
+### 1. 准备 Mock OAuth 服务
 
-```bash
-cd backend
-python scripts/mock_oauth_server.py
-```
+当前仓库不再内置本地 OAuth mock 脚本。如需本地闭环验证，请启动一个监听
+`http://localhost:9090` 的 OAuth2/OIDC mock 服务，并提供：
 
-默认监听 `http://localhost:9090`，提供：
-
-- `GET /authorize`：模拟授权页，直接重定向到后端的 callback 并带上 `code`、`state`
-- `POST /token`：用 code 换 access_token
-- `GET /userinfo`：用 Bearer token 返回 Mock 用户信息
+- `GET /authorize`：接收 `client_id`、`redirect_uri`、`response_type`、`scope`、`state`，并重定向到
+  `redirect_uri?code=<mock-code>&state=<state>`
+- `POST /token`：用 code 换 `access_token`
+- `GET /userinfo`：用 Bearer token 返回包含 `sub`、`email`、`name`、`picture` 的 Mock 用户信息
 
 ### 2. 配置环境变量
 
@@ -39,7 +36,7 @@ local:
 
 ### 4. 启动后端并验证
 
-- 启动后端（如 `uvicorn`，默认端口 8000）
+- 启动后端 API：`cd backend && uv run uvicorn app.joysafeter_api.main:app --reload --port 8000`
 - 前端登录页应出现「本地测试」按钮
 - 点击后跳转到 Mock 授权页，再被重定向回后端 callback，完成登录
 

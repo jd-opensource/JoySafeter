@@ -3,8 +3,7 @@
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useMemo, useState } from 'react'
-
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -63,6 +62,14 @@ const NAME_VALIDATIONS = {
   },
 }
 
+const isSafeRelativeRedirectUrl = (url: string): boolean => {
+  if (!url.startsWith('/')) return false
+  if (url.startsWith('//')) return false
+  if (url.includes('..') || url.includes('//')) return false
+  if (url.match(/^(javascript|data|vbscript|file):/i)) return false
+  return true
+}
+
 const getEmailErrorKey = (reason?: string): string => {
   if (!reason) return 'auth.emailInvalid'
   if (reason.includes('Invalid email format')) return 'auth.emailInvalidFormat'
@@ -101,8 +108,9 @@ function SignupFormContent() {
     const emailParam = searchParams.get('email') || ''
     const redirectParam = searchParams.get('redirect') || ''
     const inviteFlowParam = searchParams.get('invite_flow')
-    const isInvite = inviteFlowParam === 'true' || redirectParam.startsWith('/invite/')
-    return { emailParam, redirectParam, isInvite }
+    const safeRedirectParam = isSafeRelativeRedirectUrl(redirectParam) ? redirectParam : ''
+    const isInvite = inviteFlowParam === 'true' || safeRedirectParam.startsWith('/invite/')
+    return { emailParam, redirectParam: safeRedirectParam, isInvite }
   }, [searchParams])
 
   const [isLoading, setIsLoading] = useState(false)
@@ -117,7 +125,24 @@ function SignupFormContent() {
   const [showEmailValidationError, setShowEmailValidationError] = useState(false)
   const redirectUrl = initialSearchParamValues.redirectParam
   const isInviteFlow = initialSearchParamValues.isInvite
+  const signInHref = isInviteFlow
+    ? `/signin?invite_flow=true${redirectUrl ? `&callbackUrl=${encodeURIComponent(redirectUrl)}` : ''}`
+    : '/signin'
   const [isButtonHovered, setIsButtonHovered] = useState(false)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const submitRunRef = useRef(0)
+  const isMountedRef = useRef(false)
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      submitRunRef.current += 1
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
+      }
+    }
+  }, [])
 
   const [name, setName] = useState('')
   const [nameErrors, setNameErrors] = useState<string[]>([])
@@ -210,6 +235,9 @@ function SignupFormContent() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    const runId = submitRunRef.current + 1
+    submitRunRef.current = runId
+    const isCurrentSubmit = () => isMountedRef.current && submitRunRef.current === runId
     setIsLoading(true)
 
     const formData = new FormData(e.currentTarget)
@@ -271,25 +299,17 @@ function SignupFormContent() {
             const errorCode = typeof ctx.error.code === 'string' ? ctx.error.code : ''
             const errorMessage = typeof ctx.error.message === 'string' ? ctx.error.message : ''
 
-            if (
-              errorCode.includes('USER_ALREADY_EXISTS') ||
-              errorMessage.includes('already registered')
-            ) {
+            if (errorCode === 'USER_ALREADY_EXISTS') {
               toastError(t('auth.userAlreadyExists'))
-            } else if (
-              errorCode.includes('BAD_REQUEST') ||
-              errorMessage.includes('Email and password sign up is not enabled')
-            ) {
-              toastError(t('auth.emailSignInDisabled'))
-            } else if (errorCode.includes('INVALID_EMAIL')) {
+            } else if (errorCode === 'INVALID_EMAIL') {
               toastError(t('auth.emailInvalid'))
-            } else if (errorCode.includes('PASSWORD_TOO_SHORT')) {
+            } else if (errorCode === 'PASSWORD_TOO_SHORT') {
               toastError(t('auth.passwordMinLength'))
-            } else if (errorCode.includes('PASSWORD_TOO_LONG')) {
+            } else if (errorCode === 'PASSWORD_TOO_LONG') {
               toastError(t('auth.passwordMaxLength'))
-            } else if (errorCode.includes('network')) {
+            } else if (errorCode === 'network') {
               toastError(t('auth.networkError'))
-            } else if (errorCode.includes('rate limit')) {
+            } else if (errorCode === 'RATE_LIMITED') {
               toastError(t('auth.rateLimitError'))
             } else {
               toastError(errorMessage || t('auth.invalidCredentials'))
@@ -297,6 +317,8 @@ function SignupFormContent() {
           },
         },
       )
+
+      if (!isCurrentSubmit()) return
 
       if (!response || response.error) {
         setIsLoading(false)
@@ -317,10 +339,16 @@ function SignupFormContent() {
       }
 
       // Redirect to login page, don't auto-login
-      setTimeout(() => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
+      }
+      redirectTimerRef.current = setTimeout(() => {
+        redirectTimerRef.current = null
+        if (!isCurrentSubmit()) return
         router.push('/signin')
       }, 500)
     } catch (error) {
+      if (!isCurrentSubmit()) return
       logger.error('Signup error:', error)
       setIsLoading(false)
     }
@@ -432,7 +460,7 @@ function SignupFormContent() {
             type="submit"
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
-            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] py-1.5 px-3 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-500)] bg-gradient-to-b from-[var(--brand-400)] to-[var(--brand-500)] px-3 py-1.5 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
             disabled={isLoading}
             suppressHydrationWarning
           >
@@ -464,7 +492,7 @@ function SignupFormContent() {
           {mounted ? t('auth.alreadyHaveAccount') : 'Already have an account?'}{' '}
         </span>
         <Link
-          href={isInviteFlow ? `/signin?invite_flow=true&callbackUrl=${redirectUrl}` : '/signin'}
+          href={signInHref}
           className="font-medium text-[var(--brand-600)] underline-offset-4 transition hover:text-[var(--brand-700)] hover:underline"
         >
           {mounted ? t('auth.signIn') : 'Sign In'}

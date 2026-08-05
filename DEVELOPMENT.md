@@ -7,34 +7,42 @@ This document provides detailed instructions for setting up and running the JoyS
 - **Python 3.12+** with [uv](https://docs.astral.sh/uv/) package manager
 - **Node.js 20+** with [bun](https://bun.sh)
 - **PostgreSQL 15+**
-- **Redis** (optional, for caching)
+- **Redis** (required for task wakeups and event stream mode; `deploy/local-test.sh` starts it)
 - **Docker** (optional, for containerized development)
 
 ## Quick Start
 
-### 0. Install Pre-commit Hooks（必须）
+### 0. Install Pre-commit Hooks
 
-在提交代码前，**必须**在仓库根目录执行以下脚本，将 pre-commit 与后端 UV 环境绑定并安装 Git hooks：
-
-```bash
-# 在仓库根目录执行（需已安装 uv）
-./scripts/setup-pre-commit.sh
-```
-
-执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：`./scripts/run-pre-commit.sh` 或 `backend/.venv/bin/python -m pre_commit run --all-files`。
-
-### 1. Start Database Services
-
-Using Docker (recommended):
+在提交代码前，使用后端开发环境安装 Git hooks：
 
 ```bash
-cd backend/docker
-./start.sh
+cd backend
+uv sync --dev
+uv run pre-commit install --install-hooks
 ```
 
-Or manually start PostgreSQL and Redis on your system.
+执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：
 
-### 2. Start Backend
+```bash
+backend/.venv/bin/python -m pre_commit run --all-files
+```
+
+### 1. One-command local test
+
+```bash
+cd deploy
+./local-test.sh
+```
+
+This starts PostgreSQL, Redis, Python `api`, Rust `orchestrator-rs`, Python `worker`, and the
+frontend for local testing. The orchestrator process is the Rust binary under
+`backend/app/joysafeter_orchestrator_rs`.
+
+### 2. Start Backend Manually
+
+For manual local development, run the Python API, Rust orchestrator, and Python worker as
+separate processes.
 
 ```bash
 cd backend
@@ -56,15 +64,27 @@ cp env.example .env
 # Run database migrations
 alembic upgrade head
 
-# Start development server
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Start API
+JOYSAFETER_SERVICE_ROLE=api \
+uv run uvicorn app.joysafeter_api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Backend will be available at http://localhost:8000
+The API will be available at http://localhost:8000.
+
+In additional terminals, start the Rust orchestrator and worker:
+
+```bash
+cd backend/app/joysafeter_orchestrator_rs
+JOYSAFETER_GRPC_HOST=0.0.0.0 JOYSAFETER_GRPC_PORT=9090 cargo run --release
+
+cd backend
+JOYSAFETER_SERVICE_ROLE=worker \
+uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --workers 1
+```
 
 #### PyPI 镜像源配置 (PyPI Mirror Configuration)
 
-项目默认使用清华大学镜像源 (`https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple`) 以加速依赖安装。配置方式：
+项目默认使用清华大学镜像源 (`https://pypi.tuna.tsinghua.edu.cn/simple`) 以加速依赖安装。配置方式：
 
 1. **环境变量** (优先级最高):
    ```bash
@@ -95,7 +115,7 @@ cp env.example .env.local
 # Edit .env.local with your settings
 
 # Start development server
-bun run dev  # or: npm run dev
+bun run dev
 ```
 
 Frontend will be available at http://localhost:3000
@@ -114,7 +134,7 @@ pytest tests/ --cov=app --cov-report=html
 
 # Frontend tests
 cd frontend
-npm run test
+bun run test
 ```
 
 ### Code Formatting & Linting
@@ -128,23 +148,23 @@ mypy app            # Type check
 
 # Frontend
 cd frontend
-npm run lint        # ESLint
-npm run type-check  # TypeScript
+bun run lint        # ESLint
+bun run type-check  # TypeScript
 ```
 
 ### Using Pre-commit Hooks
 
-项目使用 pre-commit hooks 来确保代码质量。在提交代码之前，会自动运行代码检查。pre-commit 与后端 UV 环境绑定，请通过 Quick Start 中的 **安装 Pre-commit Hooks（必须）** 步骤完成安装。
+项目使用 pre-commit hooks 统一执行通用文件检查、后端 Ruff 和前端 lint/type/format 检查。
 
 #### 安装 Pre-commit Hooks
 
 在仓库根目录执行（需已安装 uv）：
 
 ```bash
-./scripts/setup-pre-commit.sh
+cd backend
+uv sync --dev
+uv run pre-commit install --install-hooks
 ```
-
-该脚本会执行：`cd backend && uv sync --dev`、`uv run pre-commit install --install-hooks` 等，无需单独安装全局 pre-commit。
 
 #### 检查内容
 
@@ -167,32 +187,15 @@ npm run type-check  # TypeScript
 
 #### 使用说明
 
-**正常提交流程：**
-
-当你执行 `git commit` 时，pre-commit hooks 会自动运行：
-
-```bash
-git add .
-git commit -m "your message"
-```
-
-如果检查失败，提交会被阻止。你需要：
-1. 修复报告的错误
-2. 重新添加文件 (`git add .`)
-3. 再次提交
-
 **手动运行检查：**
 
 ```bash
-# 检查所有文件（使用后端 UV 环境）
+# 检查所有文件
 backend/.venv/bin/python -m pre_commit run --all-files
 
-# 检查暂存的文件（在仓库根目录，需已通过上述脚本安装 hook）
-pre-commit run
-
 # 检查特定 hook
-pre-commit run ruff --all-files
-pre-commit run frontend-lint --all-files
+backend/.venv/bin/python -m pre_commit run ruff --all-files
+backend/.venv/bin/python -m pre_commit run frontend-lint --all-files
 ```
 
 **跳过 Hooks（不推荐）：**
@@ -220,13 +223,6 @@ git commit --no-verify -m "emergency fix"
 1. 确保已安装 bun：`curl -fsSL https://bun.sh/install | bash`
 2. 确保 frontend 目录下已安装依赖：`cd frontend && bun install`
 
-**问题：Hooks 运行太慢**
-
-解决方案：
-- Hooks 默认只检查更改的文件
-- 如果需要跳过某些检查，可以临时使用 `--no-verify`
-- 考虑优化检查配置，排除不需要检查的文件
-
 #### 更新 Hooks
 
 ```bash
@@ -236,8 +232,6 @@ backend/.venv/bin/python -m pre_commit autoupdate
 # 然后重新安装
 backend/.venv/bin/python -m pre_commit install --install-hooks
 ```
-
-更多详细信息请参考 [Pre-commit Setup Guide](.pre-commit-setup.md)。
 
 ### Database Migrations
 
@@ -256,52 +250,72 @@ alembic downgrade -1
 
 ## Architecture Overview
 
+The runtime is split into Python `api`, Rust `orchestrator-rs`, and Python `worker` services.
+`JOYSAFETER_SERVICE_ROLE` selects only the Python service role (`api` or `worker`). See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
+
 ```
-agent-platform/
-├── backend/           # FastAPI backend
-│   ├── app/
-│   │   ├── api/       # REST API routes
-│   │   ├── core/      # Core business logic (agents, graphs)
-│   │   ├── models/    # SQLAlchemy database models
-│   │   ├── schemas/   # Pydantic schemas
-│   │   ├── services/  # Business services
-│   │   └── utils/     # Utilities
-│   ├── alembic/       # Database migrations
-│   └── tests/         # Test suite
+JoySafeter/
+├── backend/app/
+│   ├── joysafeter_api/            # API service: REST routers, SSE, WS notifications, auth
+│   ├── joysafeter_orchestrator_rs/# Rust orchestrator: gRPC AgentBridge, scheduler, sandbox lifecycle, event bus
+│   ├── joysafeter_worker/         # Worker: Redis Stream consumer → event persistence
+│   ├── joysafeter_domain/         # SQLAlchemy models, schemas, services, state machines
+│   └── joysafeter_shared/         # Cross-service foundation (config, llm, security, storage, cache)
 │
-├── frontend/          # Next.js frontend
+├── frontend/          # Next.js App Router UI (product surface under /managed/**)
 │   ├── app/           # App Router pages
 │   ├── components/    # React components
 │   ├── lib/           # Utilities, API clients
-│   ├── stores/        # Zustand state stores
-│   └── services/      # API service layer
+│   └── stores/        # Zustand state stores
 │
-└── deploy/            # Deployment configurations
+├── proto/             # AgentBridge gRPC contract (joysafeter.proto)
+├── sandbox-runner/    # Rust workspace: types / runtime / runner / ctl
+├── skills/            # Pre-built skill packs
+└── deploy/            # Docker Compose + deployment configs
 ```
 
 ## Environment Variables
 
-See `backend/env.example` and `frontend/env.example` for all available configuration options.
+环境变量按"唯一真相源"原则管理：
+
+| 文件 | 角色 | 说明 |
+|------|------|------|
+| `backend/env.example` | 后端唯一真相源 | 所有后端变量的完整定义、默认值与注释 |
+| `frontend/env.example` | 前端唯一真相源 | 所有前端变量的完整定义、默认值与注释 |
+| `deploy/.env.example` | 部署差异覆盖层 | 仅列出与开发默认值不同的覆盖项和部署专属配置 |
+
+新增变量只需改对应的 `env.example`，`deploy/.env.example` 只在部署需要不同默认值时才添加。
 
 ### Key Backend Variables
 
 | Variable | Description |
 |----------|-------------|
+| `JOYSAFETER_SERVICE_ROLE` | Python service role: `api` or `worker`; the orchestrator is the Rust binary |
 | `POSTGRES_HOST` | PostgreSQL host address |
 | `POSTGRES_PORT` | PostgreSQL port |
 | `POSTGRES_USER` | PostgreSQL username |
 | `POSTGRES_PASSWORD` | PostgreSQL password |
 | `POSTGRES_DB` | PostgreSQL database name |
+| `REDIS_URL` | Redis connection URL (event streams, pub/sub, task queue) |
 | `SECRET_KEY` | JWT signing key |
+| `CREDENTIAL_ENCRYPTION_KEY` | AES-256-GCM key for encrypting Secrets and Vault credentials |
 | `DEBUG` | Enable debug mode |
 | `CORS_ORIGINS` | Allowed CORS origins |
 
 ### Key Frontend Variables
 
+完整列表见 `frontend/env.example`。以下为常用变量：
+
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_API_URL` | Backend API URL |
-| `BETTER_AUTH_SECRET` | Auth secret key |
+| `NEXT_PUBLIC_API_URL` | Optional backend API URL override; defaults to `http://localhost:8000` in `lib/api-client.ts` |
+| `NEXT_PUBLIC_APP_URL` | Public frontend URL used for generated links in Docker/production |
+| `NEXT_PUBLIC_MAX_UPLOAD_FILE_BYTES` | Browser-side upload size limit; keep aligned with backend `JOYSAFETER_MAX_UPLOAD_FILE_BYTES` |
+| `NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED` | Shows the email/password signup entry point in the auth UI; backend auth policy still applies |
+| `NEXT_PUBLIC_CSP_*` | CSP security policy: `NECESSARY_DOMAIN`, `CONNECT_SRC_EXTRA`, `FRAME_SRC_EXTRA`, `REPORT_URI`, `WHITELIST`, `ALLOW_EMBED`, `ENABLE_CSP_IN_DEV`, `FORCE_HTTPS` |
+| `SSO_DEFAULT_PROVIDER` | Auto-redirect to this SSO provider on the login page |
+| `DISABLE_REGISTRATION` / `EMAIL_VERIFICATION_ENABLED` | Frontend server auth UI flags; backend enforcement still comes from backend auth config |
 
 ## Troubleshooting
 
@@ -314,7 +328,7 @@ See `backend/env.example` and `frontend/env.example` for all available configura
 ### Frontend Build Errors
 
 1. Clear Next.js cache: `rm -rf .next`
-2. Reinstall dependencies: `rm -rf node_modules && npm install`
+2. Reinstall dependencies: `rm -rf node_modules && bun install`
 3. Check Node.js version: `node --version` (should be 20+)
 
 ### Import Errors

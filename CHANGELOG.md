@@ -103,7 +103,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 - Docker 构建流程优化：限制为仅构建，仅在 release 时推送镜像
 - 新增 Docker Hub 双推送支持（ghcr.io + docker.io）
-- 移除 MCP 镜像并跳过 openclaw 的 DockerHub 推送
+- 移除 MCP 镜像并跳过 DockerHub 推送
 
 ### 其他
 
@@ -243,7 +243,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### System Architecture
 
 - **Multi-Tenant Sandbox Engine**
-  - Strict per-user isolation for code execution environments (OpenClaw)
+  - Strict per-user isolation for code execution environments
   - Guarantees data sovereignty and prevents state leakage between concurrent sessions
 
 - **Glass-Box Observability**

@@ -79,7 +79,7 @@ providers:
   # JD SSA (non-standard OAuth2)
   # Note: callback domain must be under *.jd.com or JD-allowed domains
   jd:
-    enabled: true
+    enabled: false
     display_name: "JD SSO"
     icon: "building"
     protocol: "jd_sso"
@@ -96,6 +96,6 @@ providers:
       avatar: ""
 
 settings:
-  default_redirect_url: "/chat"
+  default_redirect_url: "/managed/quickstart"
   allow_registration: true
   auto_link_by_email: true

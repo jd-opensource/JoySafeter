@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowRight, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { OAuthButtons } from '@/components/auth/oauth-buttons'
@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ApiError, managedGet } from '@/lib/api-client'
 import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
 import { getEnv, isFalsy } from '@/lib/core/config/env'
 import { getBaseUrl } from '@/lib/core/utils/urls'
@@ -26,12 +27,27 @@ import { createLogger } from '@/lib/logs/console/logger'
 import { cn } from '@/lib/utils'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { quickValidateEmail } from '@/services/email/validation'
+import { useProjectStore } from '@/stores/managed/project-store'
 import { inter } from '@/styles/fonts/inter/inter'
 import { soehne } from '@/styles/fonts/soehne/soehne'
 
 import { loginFormSchema, type LoginFormData } from './schemas/loginFormSchema'
 
 const logger = createLogger('LoginForm')
+const SSO_AUTO_ATTEMPTED_KEY = 'sso_auto_attempted'
+const SSO_AUTO_ATTEMPTED_TTL_MS = 60_000
+
+interface OAuthProvider {
+  id: string
+}
+
+interface OAuthProvidersResponse {
+  providers: OAuthProvider[]
+}
+
+interface OAuthAuthorizationResponse {
+  authorization_url: string
+}
 
 const getEmailErrorKey = (reason?: string): string => {
   if (!reason) return 'auth.emailInvalid'
@@ -45,15 +61,62 @@ const getEmailErrorKey = (reason?: string): string => {
   return 'auth.emailInvalid'
 }
 
+const getAuthErrorMessageKey = (errorCode: string): string | null => {
+  switch (errorCode) {
+    case 'INVALID_CREDENTIALS':
+    case 'MISSING_CREDENTIALS':
+    case 'FAILED_TO_CREATE_SESSION':
+      return 'auth.invalidCredentials'
+    case 'USER_NOT_FOUND':
+      return 'auth.userNotFound'
+    case 'EMAIL_PASSWORD_DISABLED':
+      return 'auth.emailSignInDisabled'
+    case 'RATE_LIMITED':
+      return 'auth.tooManyAttempts'
+    case 'NETWORK_ERROR':
+    case 'REQUEST_TIMEOUT':
+      return 'auth.networkError'
+    default:
+      return null
+  }
+}
+
+const getOAuthCallbackErrorKey = (errorCode?: string | null): string => {
+  switch (errorCode) {
+    case 'OAUTH_ACCESS_DENIED':
+      return 'auth.oauthDenied'
+    case 'OAUTH_STATE_INVALID':
+    case 'OAUTH_STATE_MISSING':
+    case 'OAUTH_PROVIDER_MISMATCH':
+      return 'auth.oauthInvalidState'
+    case 'OAUTH_DISCOVERY_FAILED':
+    case 'OAUTH_TOKEN_ENDPOINT_DISCOVERY_FAILED':
+    case 'OAUTH_USERINFO_ENDPOINT_DISCOVERY_FAILED':
+      return 'auth.oauthDiscoveryFailed'
+    case 'OAUTH_AUTHORIZE_URL_MISSING':
+      return 'auth.oauthAuthorizeUrlMissing'
+    case 'OAUTH_TOKEN_URL_MISSING':
+      return 'auth.oauthTokenUrlMissing'
+    case 'OAUTH_USERINFO_URL_MISSING':
+      return 'auth.oauthUserinfoUrlMissing'
+    case 'OAUTH_TOKEN_EXCHANGE_FAILED':
+    case 'OAUTH_USERINFO_FETCH_FAILED':
+      return 'auth.oauthFailed'
+    default:
+      return 'auth.oauthError'
+  }
+}
+
 const validateCallbackUrl = (url: string): boolean => {
   try {
     if (url.startsWith('/')) {
-      return true
+      return !url.startsWith('//') && !url.includes('..') && !url.includes('//')
     }
 
     const currentOrigin = typeof window !== 'undefined' ? window.location.origin : ''
-    if (url.startsWith(currentOrigin)) {
-      return true
+    if (currentOrigin) {
+      const parsedUrl = new URL(url)
+      return parsedUrl.origin === currentOrigin
     }
 
     return false
@@ -63,27 +126,54 @@ const validateCallbackUrl = (url: string): boolean => {
   }
 }
 
+function hasRecentSsoAutoAttempt(): boolean {
+  const raw = sessionStorage.getItem(SSO_AUTO_ATTEMPTED_KEY)
+  if (!raw) return false
+
+  const attemptedAt = Number(raw)
+  if (!Number.isFinite(attemptedAt)) {
+    sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+    return false
+  }
+
+  if (Date.now() - attemptedAt > SSO_AUTO_ATTEMPTED_TTL_MS) {
+    sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+    return false
+  }
+
+  return true
+}
+
 export default function LoginPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { refetch: refetchSession } = useSession()
+  const { data: sessionData, isPending: isSessionPending, refetch: refetchSession } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [isButtonHovered, setIsButtonHovered] = useState(false)
 
-  const [callbackUrl, setCallbackUrl] = useState('/chat')
+  const [callbackUrl, setCallbackUrl] = useState('/managed/quickstart')
   const [isInviteFlow, setIsInviteFlow] = useState(false)
 
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false)
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('')
   const [isSubmittingReset, setIsSubmittingReset] = useState(false)
   const [isResetButtonHovered, setIsResetButtonHovered] = useState(false)
-  const [resetStatus, setResetStatus] = useState<{
+  const resetDialogCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loginRedirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(false)
+  const resetRequestRunRef = useRef(0)
+  const [, setResetStatus] = useState<{
     type: 'success' | 'error' | null
     message: string
   }>({ type: null, message: '' })
+
+  // When bypass_sso=true (SSO fallback), always show email/password form
+  const isBypassSso = searchParams?.get('bypass_sso') === 'true'
+  const showEmailPasswordForm =
+    isBypassSso || !isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED'))
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginFormSchema),
@@ -92,6 +182,37 @@ export default function LoginPage() {
   })
 
   const [oauthError, setOauthError] = useState<string | null>(null)
+
+  const clearResetDialogCloseTimer = useCallback(() => {
+    if (!resetDialogCloseTimerRef.current) return
+    clearTimeout(resetDialogCloseTimerRef.current)
+    resetDialogCloseTimerRef.current = null
+  }, [])
+
+  const clearLoginRedirectTimer = useCallback(() => {
+    if (!loginRedirectTimerRef.current) return
+    clearTimeout(loginRedirectTimerRef.current)
+    loginRedirectTimerRef.current = null
+  }, [])
+
+  const setForgotPasswordDialogOpen = useCallback(
+    (open: boolean) => {
+      clearResetDialogCloseTimer()
+      resetRequestRunRef.current += 1
+      setForgotPasswordOpen(open)
+    },
+    [clearResetDialogCloseTimer],
+  )
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      resetRequestRunRef.current += 1
+      clearResetDialogCloseTimer()
+      clearLoginRedirectTimer()
+    }
+  }, [clearLoginRedirectTimer, clearResetDialogCloseTimer])
 
   useEffect(() => {
     setMounted(true)
@@ -110,41 +231,103 @@ export default function LoginPage() {
       setIsInviteFlow(inviteFlow)
 
       // handle OAuth errors
-      const error = searchParams.get('error')
-      const errorDescription = searchParams.get('error_description')
-      if (error) {
-        let errorMessage = t('auth.oauthError')
-        if (error === 'oauth_denied') {
-          errorMessage = t('auth.oauthDenied')
-        } else if (error === 'invalid_state') {
-          errorMessage = t('auth.oauthInvalidState')
-        } else if (error === 'oauth_failed') {
-          errorMessage = errorDescription || t('auth.oauthFailed')
-        } else if (errorDescription) {
-          errorMessage = errorDescription
-        }
+      const errorCode = searchParams.get('error_code')
+      const errorMessageParam = searchParams.get('error_message')
+      if (errorCode) {
+        const errorKey = getOAuthCallbackErrorKey(errorCode)
+        const errorMessage =
+          errorMessageParam &&
+          (errorKey === 'auth.oauthFailed' ||
+            errorKey === 'auth.oauthError' ||
+            errorKey === 'auth.oauthDiscoveryFailed')
+            ? errorMessageParam
+            : t(errorKey)
         setOauthError(errorMessage)
         // clear error params from URL
         const url = new URL(window.location.href)
-        url.searchParams.delete('error')
-        url.searchParams.delete('error_description')
+        url.searchParams.delete('error_code')
+        url.searchParams.delete('error_message')
         window.history.replaceState({}, '', url.toString())
       }
     }
-
   }, [searchParams, t])
+
+  useEffect(() => {
+    if (isSessionPending || !sessionData?.user) {
+      return
+    }
+
+    // Clear SSO auto-redirect flag on successful login
+    sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+    const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/managed/quickstart'
+    router.replace(safeCallbackUrl)
+  }, [callbackUrl, isSessionPending, router, sessionData?.user])
+
+  // SSO auto-redirect: if no OAuth error and not bypassed, redirect to SSO directly
+  useEffect(() => {
+    if (!mounted) return
+    if (sessionData?.user) return
+    if (oauthError) return
+    if (isBypassSso) return
+    // Prevent infinite redirect loop
+    if (hasRecentSsoAutoAttempt()) return
+    sessionStorage.setItem(SSO_AUTO_ATTEMPTED_KEY, String(Date.now()))
+
+    let cancelled = false
+    const redirectToSso = async () => {
+      try {
+        const providersResponse = await managedGet<OAuthProvidersResponse>('auth/oauth/providers', {
+          withAuth: false,
+          skipManagedContext: true,
+        })
+        const ssoProvider = providersResponse.providers?.[0]?.id
+        if (!ssoProvider) {
+          sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+          return
+        }
+
+        const params = new URLSearchParams()
+        params.set('callback_url', callbackUrl)
+        const response = await managedGet<OAuthAuthorizationResponse>(
+          `auth/oauth/${encodeURIComponent(ssoProvider)}?${params.toString()}`,
+          {
+            withAuth: false,
+            skipManagedContext: true,
+          },
+        )
+        if (!cancelled) {
+          window.location.href = response.authorization_url
+        } else {
+          sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+        }
+      } catch (error) {
+        if (!cancelled) logger.warn('Failed to initiate SSO auto-redirect:', { error })
+        // No redirect happened, so clear the flag and let the next login page retry.
+        sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+      }
+    }
+
+    redirectToSso()
+    return () => {
+      cancelled = true
+    }
+  }, [mounted, sessionData?.user, oauthError, isBypassSso, callbackUrl])
 
   const handleForgotPassword = useCallback(async () => {
     if (!forgotPasswordEmail) {
-      toastError('Please enter your email address')
+      toastError(t('auth.emailRequired'))
       return
     }
 
     const emailValidation = quickValidateEmail(forgotPasswordEmail.trim().toLowerCase())
     if (!emailValidation.isValid) {
-      toastError('Please enter a valid email address')
+      toastError(t('auth.emailInvalid'))
       return
     }
+
+    const runId = resetRequestRunRef.current + 1
+    resetRequestRunRef.current = runId
+    const isCurrentResetRequest = () => isMountedRef.current && resetRequestRunRef.current === runId
 
     try {
       setIsSubmittingReset(true)
@@ -155,31 +338,41 @@ export default function LoginPage() {
         redirectTo: `${getBaseUrl()}/reset-password`,
       })
 
-      toastSuccess('Password reset link sent to your email')
+      if (!isCurrentResetRequest()) return
 
-      setTimeout(() => {
+      toastSuccess(t('auth.passwordResetLinkSent'))
+
+      clearResetDialogCloseTimer()
+      resetDialogCloseTimerRef.current = setTimeout(() => {
+        resetDialogCloseTimerRef.current = null
+        if (!isCurrentResetRequest()) return
         setForgotPasswordOpen(false)
         setResetStatus({ type: null, message: '' })
       }, 2000)
     } catch (error) {
+      if (!isCurrentResetRequest()) return
       logger.error('Error requesting password reset:', { error })
 
-      let errorMessage = 'Failed to request password reset'
-      if (error instanceof Error) {
-        if (error.message.includes('invalid email')) {
-          errorMessage = 'Please enter a valid email address'
-        } else if (error.message.includes('Email is required')) {
-          errorMessage = 'Please enter your email address'
+      let errorMessage = t('auth.passwordResetRequestFailed')
+      if (error instanceof ApiError) {
+        if (error.code === 'INVALID_EMAIL') {
+          errorMessage = t('auth.emailInvalid')
+        } else if (error.code === 'EMAIL_REQUIRED') {
+          errorMessage = t('auth.emailRequired')
         } else {
           errorMessage = error.message
         }
+      } else if (error instanceof Error) {
+        errorMessage = error.message
       }
 
       toastError(errorMessage)
     } finally {
-      setIsSubmittingReset(false)
+      if (isCurrentResetRequest()) {
+        setIsSubmittingReset(false)
+      }
     }
-  }, [forgotPasswordEmail])
+  }, [clearResetDialogCloseTimer, forgotPasswordEmail, t])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -195,6 +388,7 @@ export default function LoginPage() {
   }, [forgotPasswordEmail, forgotPasswordOpen, handleForgotPassword])
 
   async function onSubmit(data: LoginFormData) {
+    clearLoginRedirectTimer()
     setIsLoading(true)
 
     const email = data.email.trim().toLowerCase()
@@ -211,7 +405,7 @@ export default function LoginPage() {
     }
 
     try {
-      const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/chat'
+      const safeCallbackUrl = validateCallbackUrl(callbackUrl) ? callbackUrl : '/managed/quickstart'
 
       logger.info('Attempting login with email:', email)
       const result = await client.signIn.email(
@@ -227,39 +421,15 @@ export default function LoginPage() {
             const errorCode = typeof ctx.error.code === 'string' ? ctx.error.code : ''
             const errorMessage = typeof ctx.error.message === 'string' ? ctx.error.message : ''
 
-            if (errorCode.includes('EMAIL_NOT_VERIFIED')) {
+            if (errorCode === 'EMAIL_NOT_VERIFIED') {
               return
             }
 
             let displayMessage = t('auth.invalidCredentials')
 
-            if (
-              errorCode.includes('BAD_REQUEST') ||
-              errorMessage.includes('Email and password sign in is not enabled')
-            ) {
-              displayMessage = t('auth.emailSignInDisabled')
-            } else if (
-              errorCode.includes('INVALID_CREDENTIALS') ||
-              errorMessage.includes('invalid password') ||
-              errorMessage.includes('Incorrect email or password')
-            ) {
-              displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode.includes('USER_NOT_FOUND') || errorMessage.includes('not found')) {
-              displayMessage = t('auth.userNotFound')
-            } else if (errorCode.includes('MISSING_CREDENTIALS')) {
-              displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode.includes('EMAIL_PASSWORD_DISABLED')) {
-              displayMessage = t('auth.emailSignInDisabled')
-            } else if (errorCode.includes('FAILED_TO_CREATE_SESSION')) {
-              displayMessage = t('auth.invalidCredentials')
-            } else if (errorCode.includes('too many attempts')) {
-              displayMessage = t('auth.tooManyAttempts')
-            } else if (errorCode.includes('account locked')) {
-              displayMessage = t('auth.accountLocked')
-            } else if (errorCode.includes('network') || errorMessage.includes('network')) {
-              displayMessage = t('auth.networkError')
-            } else if (errorMessage.includes('rate limit')) {
-              displayMessage = t('auth.rateLimitError')
+            const messageKey = getAuthErrorMessageKey(errorCode)
+            if (messageKey) {
+              displayMessage = t(messageKey)
             } else if (errorMessage) {
               displayMessage = errorMessage
             }
@@ -270,6 +440,7 @@ export default function LoginPage() {
       )
 
       logger.info('Login result:', result)
+      if (!isMountedRef.current) return
       logger.info('Login result structure:', {
         hasResult: !!result,
         hasError: !!result?.error,
@@ -286,22 +457,9 @@ export default function LoginPage() {
 
           let displayMessage = t('auth.invalidCredentials')
 
-          if (
-            errorCode.includes('INVALID_CREDENTIALS') ||
-            errorMsg.includes('invalid password') ||
-            errorMsg.includes('Incorrect email or password')
-          ) {
-            displayMessage = t('auth.invalidCredentials')
-          } else if (errorCode.includes('USER_NOT_FOUND') || errorMsg.includes('not found')) {
-            displayMessage = t('auth.userNotFound')
-          } else if (errorCode.includes('too many attempts')) {
-            displayMessage = t('auth.tooManyAttempts')
-          } else if (errorCode.includes('account locked')) {
-            displayMessage = t('auth.accountLocked')
-          } else if (errorCode.includes('network') || errorMsg.includes('network')) {
-            displayMessage = t('auth.networkError')
-          } else if (errorMsg.includes('rate limit')) {
-            displayMessage = t('auth.rateLimitError')
+          const messageKey = getAuthErrorMessageKey(errorCode)
+          if (messageKey) {
+            displayMessage = t(messageKey)
           } else if (errorMsg) {
             displayMessage = errorMsg
           }
@@ -315,6 +473,7 @@ export default function LoginPage() {
       }
 
       logger.info('Login successful, result data:', result.data)
+      useProjectStore.getState().setContext('', '', [], [])
 
       // Check CSRF token (not HttpOnly, can be read)
       const csrfToken = document.cookie
@@ -343,7 +502,10 @@ export default function LoginPage() {
       logger.info('Login successful, redirecting to:', safeCallbackUrl)
 
       // Use setTimeout to ensure all async operations complete, but don't wait too long
-      setTimeout(() => {
+      clearLoginRedirectTimer()
+      loginRedirectTimerRef.current = setTimeout(() => {
+        loginRedirectTimerRef.current = null
+        if (!isMountedRef.current) return
         logger.info('Executing redirect to:', safeCallbackUrl)
         try {
           window.location.href = safeCallbackUrl
@@ -355,7 +517,7 @@ export default function LoginPage() {
       }, 50)
     } catch (err: unknown) {
       const error = err as { message?: string; code?: string }
-      if (error.message?.includes('not verified') || error.code?.includes('EMAIL_NOT_VERIFIED')) {
+      if (error.code === 'EMAIL_NOT_VERIFIED') {
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('verificationEmail', email)
         }
@@ -367,7 +529,9 @@ export default function LoginPage() {
       const errorMessage = error.message || t('auth.invalidCredentials')
       toastError(errorMessage)
     } finally {
-      setIsLoading(false)
+      if (isMountedRef.current) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -390,12 +554,14 @@ export default function LoginPage() {
 
       {/* OAuth error message */}
       {oauthError && (
-        <div className="mt-4 rounded-md bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error)]">{oauthError}</div>
+        <div className="mt-4 rounded-md bg-[var(--status-error-bg)] p-3 text-sm text-[var(--status-error)]">
+          {oauthError}
+        </div>
       )}
 
-      {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
+      {showEmailPasswordForm && (
         <form
-          onSubmit={form.handleSubmit(onSubmit)}
+          onSubmit={(event) => void form.handleSubmit(onSubmit)(event)}
           className={`${inter.className} mt-8 space-y-8`}
         >
           <div className="space-y-6">
@@ -414,7 +580,7 @@ export default function LoginPage() {
                 {...form.register('email')}
                 className={cn(
                   'rounded-auth shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
-                    'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
+                  'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                 )}
               />
             </div>
@@ -425,7 +591,7 @@ export default function LoginPage() {
                 </Label>
                 <button
                   type="button"
-                  onClick={() => setForgotPasswordOpen(true)}
+                  onClick={() => setForgotPasswordDialogOpen(true)}
                   className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
                   suppressHydrationWarning
                 >
@@ -463,7 +629,7 @@ export default function LoginPage() {
             type="submit"
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
-            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-1.5 px-3 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+            className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] px-3 py-1.5 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
             disabled={isLoading}
             suppressHydrationWarning
           >
@@ -488,12 +654,9 @@ export default function LoginPage() {
       )}
 
       {/* OAuth/SSO login buttons */}
-      <OAuthButtons
-        callbackUrl={callbackUrl}
-        showDivider={!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED'))}
-      />
+      <OAuthButtons callbackUrl={callbackUrl} showDivider={showEmailPasswordForm} />
 
-      {!isFalsy(getEnv('NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED')) && (
+      {showEmailPasswordForm && (
         <div
           className={`${inter.className} pt-6 text-center text-base font-light`}
           suppressHydrationWarning
@@ -510,7 +673,7 @@ export default function LoginPage() {
         </div>
       )}
 
-      <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
+      <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordDialogOpen}>
         <DialogContent className="auth-card auth-card-shadow max-w-[540px] rounded-auth border backdrop-blur-sm">
           <DialogHeader>
             <DialogTitle
@@ -541,7 +704,7 @@ export default function LoginPage() {
                 type="email"
                 className={cn(
                   'rounded-auth shadow-sm transition-colors focus:border-[var(--brand-400)] focus:ring-2 focus:ring-[var(--brand-100)]',
-                    'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
+                  'border-[var(--status-error)] focus:border-[var(--status-error)] focus:ring-[var(--status-error-bg)] focus-visible:ring-[var(--status-error)]',
                 )}
               />
             </div>
@@ -550,7 +713,7 @@ export default function LoginPage() {
               onClick={handleForgotPassword}
               onMouseEnter={() => setIsResetButtonHovered(true)}
               onMouseLeave={() => setIsResetButtonHovered(false)}
-              className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] py-1.5 px-3 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
+              className="group inline-flex w-full items-center justify-center gap-2 rounded-auth border border-[var(--brand-600)] bg-gradient-to-b from-[var(--brand-500)] to-[var(--brand-600)] px-3 py-1.5 pr-2.5 text-base text-white shadow-[inset_0_2px_4px_0_var(--brand-200)] transition-all"
               disabled={isSubmittingReset}
             >
               <span className="flex items-center gap-1" suppressHydrationWarning>

@@ -1,0 +1,36 @@
+# Root build context is used by the Rust orchestrator and agent runtime images.
+# Keep it small so Docker does not send frontend node_modules, backend venv,
+# local Rust targets, logs, or other large development artifacts.
+*
+!sandbox-runner/
+!sandbox-runner/**
+!proto/
+!proto/**
+!backend/
+!backend/app/
+!backend/app/joysafeter_orchestrator_rs/
+!backend/app/joysafeter_orchestrator_rs/**
+!deploy/
+!deploy/docker/
+!deploy/docker/**
+
+**/target/
+**/.git/
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/.pytest_cache/
+**/logs/
+**/*.log
+
+# The optional Native runtime copies a prebuilt runner from repo-root target/.
+!target/
+!target/x86_64-unknown-linux-gnu/
+!target/x86_64-unknown-linux-gnu/release/
+!target/x86_64-unknown-linux-gnu/release/joysafeter-runner
+!target/aarch64-unknown-linux-gnu/
+!target/aarch64-unknown-linux-gnu/release/
+!target/aarch64-unknown-linux-gnu/release/joysafeter-runner
+!target/aarch64-unknown-linux-musl/
+!target/aarch64-unknown-linux-musl/release/
+!target/aarch64-unknown-linux-musl/release/joysafeter-runner
