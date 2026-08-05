@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::{Api, AttachParams, DeleteParams, ListParams, PostParams};
+use kube::api::{Api, AttachParams, DeleteParams, PostParams};
 use kube::Client;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -354,7 +354,6 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn status(&self, external_id: &str) -> anyhow::Result<SandboxStatus> {
-        // Read from PodWatcher cache — zero K8s API calls.
         Ok(self.pod_watcher.status(external_id).await)
     }
 
@@ -376,7 +375,6 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn list_active(&self) -> anyhow::Result<Vec<ProviderSandboxInfo>> {
-        // Read from PodWatcher cache — zero K8s API calls.
         Ok(self.pod_watcher.list_active().await)
     }
 

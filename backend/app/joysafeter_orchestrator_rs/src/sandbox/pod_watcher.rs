@@ -7,9 +7,12 @@
 //!
 //! Design (borrowed from Orchard/Microsoft):
 //! - One long-lived Watch connection per K8sProvider instance
-//! - Events (Added/Modified/Deleted) update the local HashMap
+//! - `kube::runtime::watcher` drives the list-then-watch state machine and
+//!   re-lists automatically on timeout/Gone (410); steady-state Apply/Delete
+//!   events update the live HashMap in place
+//! - A re-list is buffered into a staging map and swapped in atomically, so
+//!   readers never observe an empty or half-populated cache mid-resync
 //! - `status()` and `list_active()` read the HashMap (no API calls)
-//! - Automatic re-list on watch timeout/Gone (410) errors
 //! - Thread-safe via `Arc<RwLock<HashMap>>`
 
 use std::collections::HashMap;
@@ -17,13 +20,16 @@ use std::sync::Arc;
 
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::ListParams;
 use kube::runtime::watcher::{self, Event};
 use kube::{Api, Client};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use super::provider::{ProviderSandboxInfo, SandboxStatus};
+
+/// Label selector identifying sandbox pods. Must match the label applied in
+/// `K8sProvider::build_manifest`.
+const SANDBOX_LABEL_SELECTOR: &str = "app.kubernetes.io/name=joysafeter-sandbox";
 
 /// Cached pod state — lightweight subset of full Pod object.
 #[derive(Clone, Debug)]
@@ -93,18 +99,9 @@ impl PodWatcher {
     /// Create a new PodWatcher and spawn the background watch loop.
     pub fn new(client: Client, namespace: &str) -> Self {
         let cache = Arc::new(RwLock::new(HashMap::new()));
-        let watcher = Self {
-            cache: cache.clone(),
-        };
-
-        // Spawn the watch loop as a background task
         let pods: Api<Pod> = Api::namespaced(client, namespace);
-        let cache_handle = cache;
-        tokio::spawn(async move {
-            Self::watch_loop(pods, cache_handle).await;
-        });
-
-        watcher
+        tokio::spawn(Self::watch_loop(pods, cache.clone()));
+        Self { cache }
     }
 
     /// Get the status of a specific pod by name (from cache, zero API calls).
@@ -124,42 +121,20 @@ impl PodWatcher {
 
     /// Background watch loop — maintains the cache via K8s Watch events.
     async fn watch_loop(pods: Api<Pod>, cache: Arc<RwLock<HashMap<String, CachedPod>>>) {
-        let lp = ListParams::default().labels("app.kubernetes.io/name=joysafeter-sandbox");
-
         loop {
             info!("PodWatcher: starting watch stream");
-
-            // Initial list to populate cache
-            match pods.list(&lp).await {
-                Ok(pod_list) => {
-                    let mut c = cache.write().await;
-                    c.clear();
-                    for pod in &pod_list.items {
-                        if let Some(cached) = CachedPod::from_pod(pod) {
-                            c.insert(cached.name.clone(), cached);
-                        }
-                    }
-                    info!(pod_count = c.len(), "PodWatcher: initial list populated");
-                }
-                Err(e) => {
-                    warn!(error = %e, "PodWatcher: initial list failed, retrying in 5s");
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    continue;
-                }
-            }
-
-            // Watch for changes
             let stream = watcher::watcher(
                 pods.clone(),
-                watcher::Config::default().labels("app.kubernetes.io/name=joysafeter-sandbox"),
+                watcher::Config::default().labels(SANDBOX_LABEL_SELECTOR),
             );
-
             let mut stream = Box::pin(stream);
+
+            // Buffers a re-list burst so it can be swapped into the live cache
+            // atomically at InitDone (readers never see a partial cache).
+            let mut staging: HashMap<String, CachedPod> = HashMap::new();
             loop {
                 match stream.try_next().await {
-                    Ok(Some(event)) => {
-                        Self::handle_event(&cache, event).await;
-                    }
+                    Ok(Some(event)) => Self::handle_event(&cache, &mut staging, event).await,
                     Ok(None) => {
                         info!("PodWatcher: watch stream ended, restarting");
                         break;
@@ -174,9 +149,13 @@ impl PodWatcher {
         }
     }
 
-    async fn handle_event(cache: &Arc<RwLock<HashMap<String, CachedPod>>>, event: Event<Pod>) {
+    async fn handle_event(
+        cache: &Arc<RwLock<HashMap<String, CachedPod>>>,
+        staging: &mut HashMap<String, CachedPod>,
+        event: Event<Pod>,
+    ) {
         match event {
-            Event::Apply(pod) | Event::InitApply(pod) => {
+            Event::Apply(pod) => {
                 if let Some(cached) = CachedPod::from_pod(&pod) {
                     debug!(pod = %cached.name, phase = %cached.phase, "PodWatcher: pod updated");
                     cache.write().await.insert(cached.name.clone(), cached);
@@ -188,13 +167,17 @@ impl PodWatcher {
                     cache.write().await.remove(name);
                 }
             }
-            Event::Init => {
-                cache.write().await.clear();
-                debug!("PodWatcher: watch stream re-syncing");
+            Event::Init => staging.clear(),
+            Event::InitApply(pod) => {
+                if let Some(cached) = CachedPod::from_pod(&pod) {
+                    staging.insert(cached.name.clone(), cached);
+                }
             }
             Event::InitDone => {
-                let count = cache.read().await.len();
-                debug!(count, "PodWatcher: re-sync complete");
+                let mut c = cache.write().await;
+                std::mem::swap(&mut *c, staging);
+                staging.clear();
+                info!(pod_count = c.len(), "PodWatcher: cache synced");
             }
         }
     }
