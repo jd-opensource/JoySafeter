@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: packages — 安装依赖
 # ---------------------------------------------------------------------------
-ARG FRONTEND_BASE_IMAGE=llm-app-dev-sys/joysafeter-frontend-base:v20260805.161016-7abedcb1-Tv78n1
+ARG FRONTEND_BASE_IMAGE=is.jd.local/llm-app-dev-sys/joysafeter-frontend-base:v20260805.161016-7abedcb1-Tv78n1
 
 FROM ${FRONTEND_BASE_IMAGE} AS packages
 
