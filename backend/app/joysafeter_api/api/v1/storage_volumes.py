@@ -4,6 +4,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.schemas.joysafeter_storage_mount import (
@@ -28,6 +29,13 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 from app.joysafeter_shared.database import get_db
 
 router = APIRouter(tags=["joysafeter-storage-volumes"])
+
+
+class PaginatedStorageMountAuditResponse(BaseModel):
+    data: list[StorageMountAuditResponse]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
 
 
 @router.get("/catalog")
@@ -81,24 +89,33 @@ async def create_storage_volume(
 @router.get("/audit/logs")
 async def list_storage_mount_audit(
     volume_id: Optional[uuid.UUID] = Query(None),
+    q: str = Query("", max_length=100),
     limit: int = Query(100, ge=1, le=500),
+    after_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
-) -> dict[str, list[StorageMountAuditResponse]]:
+) -> PaginatedStorageMountAuditResponse:
     svc = StorageMountService(db)
     if auth_ctx.is_super_user:
         # Platform admin: see all audit logs (optionally filtered by volume).
-        rows = await svc.list_audit(volume_id=volume_id, limit=limit)
+        rows, has_more = await svc.list_audit_page(volume_id=volume_id, limit=limit, after_id=after_id, q=q)
     else:
         # Org admin: see audit logs scoped to their organization's projects.
         if volume_id is not None:
             await svc.ensure_project_volume_access(volume_id, auth_ctx.project_id)
-        rows = await svc.list_audit(
+        rows, has_more = await svc.list_audit_page(
             org_id=auth_ctx.org_id,
             volume_id=volume_id,
             limit=limit,
+            after_id=after_id,
+            q=q,
         )
-    return {"data": [StorageMountAuditResponse.model_validate(row) for row in rows]}
+    return PaginatedStorageMountAuditResponse(
+        data=[StorageMountAuditResponse.model_validate(row) for row in rows],
+        has_more=has_more,
+        first_id=str(rows[0].id) if rows else None,
+        last_id=str(rows[-1].id) if rows else None,
+    )
 
 
 @router.get("/{volume_id}")

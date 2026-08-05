@@ -3,12 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { managedDelete, managedGet, managedPatch, managedPost } from '@/lib/api-client'
-import {
-  apiCollectionPath,
-  apiResourceId,
-  apiResourcePath,
-  apiResourceSubpath,
-} from '@/lib/managed/api-paths'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { apiCollectionPath, apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -250,20 +246,18 @@ export function useDeleteAgentTrigger() {
   })
 }
 
-export function useTriggerRuns(triggerId: string | undefined, limit = 50) {
-  const scope = useManagedRequestScope()
-  return useQuery({
-    queryKey: ['trigger-runs', scope.key, triggerId, limit],
-    queryFn: () =>
-      managedGet<TriggerRun[]>(
-        apiResourceSubpath('triggers', triggerId, ['runs'], { limit }),
-        managedRequestOptions(scope),
-      ),
-    enabled: !!triggerId && hasManagedRequestScope(scope),
+export function useTriggerRuns(triggerId: string | undefined, limit = 10) {
+  const path = triggerId ? `/triggers/${apiResourceId(triggerId)}/runs` : '/triggers/runs'
+  return usePaginatedList<TriggerRun>({
+    queryKey: 'trigger-runs',
+    path,
+    limit,
+    pageSizeOptions: [10, 25, 50, 100],
+    enabled: !!triggerId,
     // Poll only while a run is still in flight so a just-fired run advances to
     // its terminal state without a manual refresh. Idle when all are terminal.
-    refetchInterval: (query) => {
-      const runs = query.state.data ?? []
+    refetchInterval: (page) => {
+      const runs = page?.data ?? []
       return runs.some((r) => ACTIVE_RUN_STATUSES.has(r.status)) ? 5000 : false
     },
   })
@@ -288,9 +282,9 @@ export function useRunTrigger(defaultId = '') {
         { ...options, headers },
       )
     },
-    onSuccess: (_data, vars) =>
+    onSuccess: () =>
       qc.invalidateQueries({
-        queryKey: ['trigger-runs', scope.key, apiResourceId(vars?.id ?? defaultId)],
+        queryKey: ['trigger-runs', scope.key],
       }),
   })
 }
@@ -306,8 +300,7 @@ export function useTestFireWebhook(triggerId: string) {
         {},
         managedRequestOptions(scope),
       ),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['trigger-runs', scope.key, apiResourceId(triggerId)] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['trigger-runs', scope.key] }),
   })
 }
 

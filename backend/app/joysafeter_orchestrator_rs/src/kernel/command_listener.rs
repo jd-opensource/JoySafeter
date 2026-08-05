@@ -33,6 +33,7 @@ pub struct CommandListener {
     bridge_registry: BridgeRegistry,
     provider: Arc<dyn SandboxProvider>,
     envoy_manager: Option<Arc<EnvoyManager>>,
+    llm_egress_allowed_hosts: Vec<String>,
     image_builder: Option<Arc<ImageBuilder>>,
     redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -46,6 +47,7 @@ impl CommandListener {
         bridge_registry: BridgeRegistry,
         provider: Arc<dyn SandboxProvider>,
         envoy_manager: Option<Arc<EnvoyManager>>,
+        llm_egress_allowed_hosts: Vec<String>,
         image_builder: Option<Arc<ImageBuilder>>,
         redis_coordinator: Option<Arc<RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -57,6 +59,7 @@ impl CommandListener {
             bridge_registry,
             provider,
             envoy_manager,
+            llm_egress_allowed_hosts,
             image_builder,
             redis_coordinator,
             memory_subscribers,
@@ -181,6 +184,21 @@ impl CommandListener {
             return result.map(|_| ());
         }
 
+        if cmd_type == "network_policy_refresh" {
+            let result = self.handle_network_policy_refresh(&cmd, sandbox_id).await;
+            match &result {
+                Ok(payload) => self.publish_ack_payload(&cmd, payload.clone()).await,
+                Err(ref e) => {
+                    self.publish_ack_payload(
+                        &cmd,
+                        serde_json::json!({"ok": false, "error": e.to_string()}),
+                    )
+                    .await;
+                }
+            }
+            return result.map(|_| ());
+        }
+
         let bridge = match self.bridge_registry.get_by_db_id(sandbox_id) {
             Some(b) => b,
             None => {
@@ -244,6 +262,39 @@ impl CommandListener {
             )
             .await?;
         Ok(sandbox_file_response_to_json(response))
+    }
+
+    async fn handle_network_policy_refresh(
+        &self,
+        _cmd: &serde_json::Value,
+        sandbox_id: Uuid,
+    ) -> anyhow::Result<serde_json::Value> {
+        let sandbox = queries::get_sandbox(&self.pool, sandbox_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("sandbox not found: {sandbox_id}"))?;
+
+        match crate::kernel::sandbox_resolver::reconcile_sandbox_networking(
+            &self.pool,
+            self.provider.as_ref(),
+            &sandbox,
+            &self.llm_egress_allowed_hosts,
+        )
+        .await?
+        {
+            crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::NotLimited => {
+                Ok(serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}))
+            }
+            crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::Refreshed {
+                policy_hash,
+            } => {
+                info!(sandbox_id = %sandbox_id, policy_hash = %policy_hash, "Refreshed sandbox network policy");
+                Ok(serde_json::json!({
+                    "ok": true,
+                    "refreshed": true,
+                    "policy_hash": policy_hash,
+                }))
+            }
+        }
     }
 
     async fn handle_destroy_sandbox(
@@ -672,6 +723,7 @@ mod tests {
             BridgeRegistry::new(),
             provider,
             None,
+            vec![],
             None,
             None,
             Arc::new(MemoryStoreSubscribers::new()),

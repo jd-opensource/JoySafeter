@@ -117,9 +117,6 @@ export default function EnvironmentListPage() {
   const [description, setDescription] = useState('')
   const networkType = 'limited'
   const [allowedHosts, setAllowedHosts] = useState('')
-  const [aptPackages, setAptPackages] = useState('')
-  const [pipPackages, setPipPackages] = useState('')
-  const [npmPackages, setNpmPackages] = useState('')
   const [envVars, setEnvVars] = useState('')
   const [egressServices, setEgressServices] = useState<EgressServiceForm[]>([])
   const [mountResources, setMountResources] = useState<MountResourceForm[]>([])
@@ -210,9 +207,6 @@ export default function EnvironmentListPage() {
     setName('')
     setDescription('')
     setAllowedHosts('')
-    setAptPackages('')
-    setPipPackages('')
-    setNpmPackages('')
     setEnvVars('')
     setEgressServices([])
     setMountResources([])
@@ -322,12 +316,6 @@ export default function EnvironmentListPage() {
         },
       }
 
-      const packages: Record<string, string[]> = {}
-      if (aptPackages.trim()) packages.apt = splitLines(aptPackages)
-      if (pipPackages.trim()) packages.pip = splitLines(pipPackages)
-      if (npmPackages.trim()) packages.npm = splitLines(npmPackages)
-      if (Object.keys(packages).length > 0) config.packages = packages
-
       const ev = parseEnvVars(envVars)
       if (Object.keys(ev).length > 0) config.env_vars = ev
 
@@ -374,9 +362,6 @@ export default function EnvironmentListPage() {
     description,
     networkType,
     allowedHosts,
-    aptPackages,
-    pipPackages,
-    npmPackages,
     envVars,
     egressServices,
     mountResources,
@@ -642,39 +627,6 @@ export default function EnvironmentListPage() {
                   onChange={(e) => setEnvVars(e.target.value)}
                 />
               </div>
-
-              <div className="pt-4">
-                <FormFieldLabel optional={t('managed.environments.optional')} className="mb-3">
-                  {t('managed.environments.packages')}
-                </FormFieldLabel>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <label className="space-y-1.5 text-sm">
-                    <span className="font-medium">APT</span>
-                    <Input
-                      placeholder="curl, git, build-essential"
-                      value={aptPackages}
-                      onChange={(e) => setAptPackages(e.target.value)}
-                    />
-                  </label>
-                  <label className="space-y-1.5 text-sm">
-                    <span className="font-medium">PyPI</span>
-                    <Input
-                      placeholder="numpy, pandas, requests"
-                      value={pipPackages}
-                      onChange={(e) => setPipPackages(e.target.value)}
-                    />
-                  </label>
-                  <label className="space-y-1.5 text-sm">
-                    <span className="font-medium">npm</span>
-                    <Input
-                      placeholder="typescript, eslint, prettier"
-                      value={npmPackages}
-                      onChange={(e) => setNpmPackages(e.target.value)}
-                    />
-                  </label>
-                </div>
-              </div>
-
               <div className="pt-4">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div>

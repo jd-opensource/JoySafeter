@@ -45,6 +45,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    def model_post_init(self, __context) -> None:
+        """Populate redis_url from REDIS_* split fields if REDIS_URL is not set."""
+        if self.redis_url is None:
+            built = self.effective_redis_url
+            if built is not None:
+                object.__setattr__(self, "redis_url", built)
+
     # App
     app_name: str = Field(default="JoySafeter", description="Application name")
     app_version: str = Field(default=__version__, exclude=True, description="Application version")
@@ -169,8 +176,13 @@ class Settings(BaseSettings):
             # remote or docker-compose: prefer POSTGRES_PORT, default 5432 (container-internal port)
             postgres_port = os.getenv("POSTGRES_PORT", "5432")
 
+        # URL-encode user and password to handle special chars (@, #, !, etc.)
+        from urllib.parse import quote
+        safe_user = quote(postgres_user, safe="")
+        safe_password = quote(postgres_password, safe="")
+
         database_url = (
-            f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
+            f"postgresql+asyncpg://{safe_user}:{safe_password}@{postgres_host}:{postgres_port}/{postgres_db}"
         )
 
         # auto-fix port for localhost (see scripts/view_db.py)
@@ -198,7 +210,38 @@ class Settings(BaseSettings):
         """Synchronous database URL (for Alembic)."""
         return self.database_url.replace("+asyncpg", "")
 
+    @property
+    def effective_redis_url(self) -> Optional[str]:
+        """Build Redis URL from REDIS_* env vars, auto-encoding password.
+
+        Priority: REDIS_URL (if set, used as-is) > REDIS_HOST+REDIS_PASSWORD+REDIS_PORT+REDIS_DB.
+        """
+        from urllib.parse import quote
+
+        # If REDIS_URL is explicitly set, use it directly (user must encode themselves)
+        raw_url = os.getenv("REDIS_URL")
+        if raw_url:
+            return raw_url
+
+        # Build from REDIS_* split fields with auto-encoding
+        redis_host = os.getenv("REDIS_HOST")
+        if not redis_host:
+            return None
+
+        redis_port = os.getenv("REDIS_PORT", "6379")
+        redis_password = os.getenv("REDIS_PASSWORD", "")
+        redis_db = os.getenv("REDIS_DB", "0")
+        redis_scheme = os.getenv("REDIS_SCHEME", "redis")  # redis or rediss (TLS)
+
+        if redis_password:
+            safe_password = quote(redis_password, safe="")
+            return f"{redis_scheme}://:{safe_password}@{redis_host}:{redis_port}/{redis_db}"
+        else:
+            return f"{redis_scheme}://{redis_host}:{redis_port}/{redis_db}"
+
     # Redis (cache & rate limiting)
+    # Callers use settings.redis_url; the field is populated from REDIS_URL env
+    # or built from REDIS_HOST/PASSWORD/PORT/DB via effective_redis_url.
     redis_url: Optional[str] = Field(default=None, validation_alias="REDIS_URL", description="Redis connection URL")
     redis_pool_size: int = Field(
         default=50,

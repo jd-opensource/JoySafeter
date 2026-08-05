@@ -6,7 +6,7 @@ use bollard::container::{
     StopContainerOptions, UploadToContainerOptions,
 };
 use bollard::exec::{CreateExecOptions, StartExecResults};
-use bollard::models::HostConfig;
+use bollard::models::{HostConfig, Mount, MountTypeEnum, MountVolumeOptions};
 use bollard::Docker;
 use futures::StreamExt;
 use sqlx::PgPool;
@@ -15,10 +15,7 @@ use uuid::Uuid;
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
-use super::lds_backend::{
-    CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
-    SandboxCredentials,
-};
+use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
 use super::mounts::SandboxMount;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
@@ -71,6 +68,16 @@ where
     Err(last_error.unwrap_or_else(|| anyhow::anyhow!("retry_docker: no attempts made")))
 }
 
+fn docker_api_at_least(api_version: &str, min_major: u64, min_minor: u64) -> bool {
+    let mut parts = api_version.split('.');
+    let major = parts.next().and_then(|part| part.parse::<u64>().ok());
+    let minor = parts.next().and_then(|part| part.parse::<u64>().ok());
+    match (major, minor) {
+        (Some(major), Some(minor)) => (major, minor) >= (min_major, min_minor),
+        _ => false,
+    }
+}
+
 /// Docker-backed sandbox provider using bollard.
 ///
 /// Owns all Docker-specific subsystems: Envoy sidecar, image builder, xDS.
@@ -80,6 +87,7 @@ pub struct DockerProvider {
     docker: Arc<Docker>,
     config: JoySafeterConfig,
     socket_volume: Option<String>,
+    socket_subpath_mount: bool,
     hardening: SandboxHardening,
     /// Envoy network isolation manager (None when envoy_enabled=false).
     envoy_manager: Option<Arc<EnvoyManager>>,
@@ -111,43 +119,54 @@ impl DockerProvider {
 
         let docker = Arc::new(docker);
 
+        let socket_subpath_mount = if config.envoy_socket_subpath_mount {
+            match docker.version().await.ok().and_then(|v| v.api_version) {
+                Some(api_version) if docker_api_at_least(&api_version, 1, 45) => true,
+                Some(api_version) => {
+                    warn!(
+                        api_version,
+                        "Docker API is older than 1.45; falling back to full socket-volume mount"
+                    );
+                    false
+                }
+                None => {
+                    warn!("Could not determine Docker API version; falling back to full socket-volume mount");
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
         // Build Envoy manager + xDS service if Envoy is enabled
         let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
         let envoy_manager = if config.envoy_enabled {
-            let (lds, cds): (Arc<dyn LdsBackend>, Arc<dyn CdsBackend>) =
-                if config.envoy_xds_mode == "grpc" {
-                    let server = DeltaXdsServer::new();
-                    xds_service = Some(server.clone());
-                    (
-                        Arc::new(GrpcLds::new(server.clone())),
-                        Arc::new(GrpcCds::new(server)),
-                    )
-                } else {
-                    (
-                        Arc::new(FilesystemLds::new(
-                            docker.clone(),
-                            config.envoy_container_name.clone(),
-                        )),
-                        Arc::new(FilesystemCds::new(
-                            docker.clone(),
-                            config.envoy_container_name.clone(),
-                        )),
-                    )
-                };
+            let lds: Arc<dyn LdsBackend> = if config.envoy_xds_mode == "grpc" {
+                let server = DeltaXdsServer::new();
+                xds_service = Some(server.clone());
+                Arc::new(GrpcLds::new(server))
+            } else {
+                Arc::new(FilesystemLds::new(config.envoy_config_dir.clone()))
+            };
             Some(Arc::new(EnvoyManager::new(
                 docker.clone(),
                 EnvoyConfig {
                     envoy_image: config.envoy_image.clone(),
                     socket_volume: config.envoy_socket_volume.clone(),
+                    socket_host_dir: config.envoy_socket_host_dir.clone(),
                     config_dir: config.envoy_config_dir.clone(),
                     envoy_network: config.envoy_network.clone(),
                     grpc_target_host: config.envoy_grpc_host.clone(),
                     grpc_target_port: config.envoy_grpc_port,
                     container_name: config.envoy_container_name.clone(),
                     xds_mode: config.envoy_xds_mode.clone(),
+                    write_debug_entries: config.envoy_write_debug_entries,
+                    socket_ready_timeout_ms: config.envoy_socket_ready_timeout_ms,
+                    health_check_interval_sec: config.envoy_health_check_interval_sec,
+                    health_failure_threshold: config.envoy_health_failure_threshold,
+                    skip_socket_dir_prep: false,
                 },
                 lds,
-                cds,
             )))
         } else {
             None
@@ -157,6 +176,7 @@ impl DockerProvider {
             docker,
             config: config.clone(),
             socket_volume: Some(config.envoy_socket_volume.clone()),
+            socket_subpath_mount,
             hardening: SandboxHardening {
                 drop_all_caps: config.sandbox_drop_all_caps,
                 no_new_privileges: config.sandbox_no_new_privileges,
@@ -174,6 +194,7 @@ impl DockerProvider {
             docker: Arc::new(Docker::connect_with_local_defaults().unwrap()),
             config: JoySafeterConfig::from_env(),
             socket_volume: None,
+            socket_subpath_mount: false,
             hardening: SandboxHardening {
                 drop_all_caps: true,
                 no_new_privileges: true,
@@ -407,19 +428,95 @@ impl SandboxProvider for DockerProvider {
 
         let mut env_map = config.env.clone();
         let mut binds = Vec::new();
+        let mut mounts = Vec::new();
 
         if config.network.as_deref() == Some("none") {
-            let socket_volume = self
-                .socket_volume
-                .clone()
-                .unwrap_or_else(|| "joysafeter-sockets".to_string());
-            binds.push(format!("{socket_volume}:/sockets"));
-            let orchestrator_url = format!("unix:///sockets/{}/grpc.sock", config.sandbox_id);
+            let control_host_dir = &self.config.runner_control_socket_host_dir;
+            let control_container_path = &self.config.runner_control_socket_container_path;
+            let control_container_dir = control_container_path
+                .rsplit_once('/')
+                .map(|(dir, _)| if dir.is_empty() { "/" } else { dir })
+                .unwrap_or("/control");
+            if let Some(control_volume) = self.config.runner_control_socket_volume.as_deref() {
+                mounts.push(Mount {
+                    target: Some(control_container_dir.to_string()),
+                    source: Some(control_volume.to_string()),
+                    typ: Some(MountTypeEnum::VOLUME),
+                    read_only: Some(false),
+                    volume_options: Some(MountVolumeOptions {
+                        no_copy: Some(true),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+            } else {
+                binds.push(format!("{control_host_dir}:{control_container_dir}"));
+            }
+
+            if let Some(ref manager) = self.envoy_manager {
+                manager.prepare_socket_dir(config.sandbox_id).await?;
+            }
+            if let Some(socket_host_dir) = self.config.envoy_socket_host_dir.as_deref() {
+                let sandbox_socket_dir = format!("{socket_host_dir}/{}", config.sandbox_id);
+                binds.push(format!(
+                    "{sandbox_socket_dir}:/sockets/{}",
+                    config.sandbox_id
+                ));
+            } else if self.socket_subpath_mount {
+                let socket_volume = self
+                    .socket_volume
+                    .clone()
+                    .unwrap_or_else(|| "joysafeter-sockets".to_string());
+                // Mount only this sandbox's subdirectory from the shared socket
+                // volume. Envoy still owns `/sockets/<sandbox_id>`, but the sandbox
+                // cannot enumerate or connect to sibling sandbox sockets.
+                mounts.push(Mount {
+                    target: Some(format!("/sockets/{}", config.sandbox_id)),
+                    source: Some(socket_volume),
+                    typ: Some(MountTypeEnum::VOLUME),
+                    read_only: Some(false),
+                    volume_options: Some(MountVolumeOptions {
+                        no_copy: Some(true),
+                        subpath: Some(config.sandbox_id.to_string()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+            } else {
+                let socket_volume = self
+                    .socket_volume
+                    .clone()
+                    .unwrap_or_else(|| "joysafeter-sockets".to_string());
+                // Compatibility fallback for older Docker engines/API versions
+                // that reject volume subpaths. Keep route-level proxy auth and
+                // per-sandbox token protection enabled even though mount scope is
+                // wider.
+                warn!(
+                    sandbox_id = %config.sandbox_id,
+                    "Using legacy full socket-volume mount; subpath mount is disabled or unsupported"
+                );
+                mounts.push(Mount {
+                    target: Some("/sockets".to_string()),
+                    source: Some(socket_volume),
+                    typ: Some(MountTypeEnum::VOLUME),
+                    read_only: Some(false),
+                    volume_options: Some(MountVolumeOptions {
+                        no_copy: Some(true),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+            }
+            let orchestrator_url = format!("unix://{control_container_path}");
             env_map.insert(
                 "JOYSAFETER_ORCHESTRATOR_URL".to_string(),
                 orchestrator_url.clone(),
             );
             env_map.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), orchestrator_url);
+            env_map.insert(
+                "JOYSAFETER_EGRESS_HTTP_SOCKET_PATH".to_string(),
+                format!("/sockets/{}/http.sock", config.sandbox_id),
+            );
         }
 
         let env: Vec<String> = env_map.iter().map(|(k, v)| format!("{k}={v}")).collect();
@@ -483,6 +580,9 @@ impl SandboxProvider for DockerProvider {
 
         if !binds.is_empty() {
             host_config.binds = Some(binds);
+        }
+        if !mounts.is_empty() {
+            host_config.mounts = Some(mounts);
         }
 
         // ExtraHosts: enable host.docker.internal on Linux
@@ -550,31 +650,40 @@ impl SandboxProvider for DockerProvider {
 
         let container_id = response.id;
 
-        // Start container; clean up on failure (Python L118-125)
-        if let Err(e) = self
-            .docker
-            .start_container(&container_id, None::<StartContainerOptions<String>>)
-            .await
-        {
-            let _ = self
+        if config.start_immediately {
+            // Start container; clean up on failure (Python L118-125)
+            if let Err(e) = self
                 .docker
-                .remove_container(
-                    &container_id,
-                    Some(RemoveContainerOptions {
-                        force: true,
-                        ..Default::default()
-                    }),
-                )
-                .await;
-            return Err(e.into());
-        }
+                .start_container(&container_id, None::<StartContainerOptions<String>>)
+                .await
+            {
+                let _ = self
+                    .docker
+                    .remove_container(
+                        &container_id,
+                        Some(RemoveContainerOptions {
+                            force: true,
+                            ..Default::default()
+                        }),
+                    )
+                    .await;
+                return Err(e.into());
+            }
 
-        info!(
-            sandbox_id = %config.sandbox_id,
-            container_name = %container_name,
-            image = %config.image,
-            "Docker container created and started"
-        );
+            info!(
+                sandbox_id = %config.sandbox_id,
+                container_name = %container_name,
+                image = %config.image,
+                "Docker container created and started"
+            );
+        } else {
+            info!(
+                sandbox_id = %config.sandbox_id,
+                container_name = %container_name,
+                image = %config.image,
+                "Docker container created but not started"
+            );
+        }
 
         // Return container_name (not container_id) — matches Python L127
         Ok(container_name)
@@ -794,6 +903,9 @@ impl SandboxProvider for DockerProvider {
 
     async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
+            if let Some(ref xds) = self.xds_service {
+                xds.attach_db_pool(pool.clone()).await;
+            }
             if let Err(e) = manager.init().await {
                 warn!("EnvoyManager initialization failed: {e}");
                 return Ok(()); // non-fatal: sandboxes without Envoy still work
@@ -804,6 +916,9 @@ impl SandboxProvider for DockerProvider {
             {
                 warn!("EnvoyManager LDS recovery from DB failed: {e}");
             }
+            manager
+                .clone()
+                .spawn_health_monitor(pool.clone(), self.config.llm_egress_allowed_hosts.clone());
             info!(
                 xds_mode = %self.config.envoy_xds_mode,
                 "EnvoyManager initialized"
@@ -822,11 +937,24 @@ impl SandboxProvider for DockerProvider {
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
+            tracing::info!(sandbox_id = %sandbox_id, "Configuring Envoy networking for sandbox");
             manager
                 .setup_for_sandbox(sandbox_id, networking, credentials)
                 .await?;
+            tracing::info!(sandbox_id = %sandbox_id, "Envoy networking configured for sandbox");
         }
         Ok(())
+    }
+
+    async fn refresh_networking(
+        &self,
+        sandbox_id: Uuid,
+        sandbox_external_id: &str,
+        networking: Option<&serde_json::Value>,
+        credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        self.setup_networking(sandbox_id, sandbox_external_id, networking, credentials)
+            .await
     }
 
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {

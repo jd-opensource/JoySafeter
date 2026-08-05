@@ -1,4 +1,5 @@
 mod archive;
+mod egress_bridge;
 #[cfg(target_os = "linux")]
 mod memory_fuse;
 mod repos;
@@ -14,9 +15,11 @@ use proto::agent_bridge_client::AgentBridgeClient;
 use proto::{RunnerHarnessResult, RunnerHeartbeat, RunnerIdle, RunnerMessage};
 
 use joysafeter_runtime::AdapterRegistry;
+use std::os::unix::fs::FileTypeExt;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Streaming;
@@ -86,6 +89,79 @@ fn get_heartbeat_runtime_state(state: &Arc<Mutex<HeartbeatRuntimeState>>) -> Hea
     }
 }
 
+async fn wait_for_unix_socket(path: &Path, purpose: &str) -> bool {
+    let mut last_status = "not checked".to_string();
+    for _ in 0..50 {
+        match tokio::fs::metadata(path).await {
+            Ok(metadata) if metadata.file_type().is_socket() => return true,
+            Ok(metadata) => {
+                last_status = format!(
+                    "path exists but is not a socket: {:?}",
+                    metadata.file_type()
+                );
+            }
+            Err(error) => {
+                last_status = error.to_string();
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    warn!(
+        path = %path.display(),
+        purpose = %purpose,
+        status = %last_status,
+        "Unix socket was not ready before startup; connection retry loop will continue"
+    );
+    false
+}
+
+fn configure_proxy_env(runner_token: Option<&String>) {
+    let port = egress_bridge::BRIDGE_PORT;
+    let proxy = runner_token
+        .map(|token| format!("http://sandbox:{}@127.0.0.1:{port}", url_escape(token)))
+        .unwrap_or_else(|| format!("http://127.0.0.1:{port}"));
+    std::env::set_var("HTTP_PROXY", &proxy);
+    std::env::set_var("HTTPS_PROXY", &proxy);
+    std::env::set_var("http_proxy", &proxy);
+    std::env::set_var("https_proxy", &proxy);
+    std::env::set_var("ALL_PROXY", &proxy);
+    std::env::set_var("all_proxy", &proxy);
+}
+
+/// Start the in-process HTTP egress bridge (replaces the external `socat`
+/// sidecar). The TCP listener binds synchronously so the proxy endpoint is
+/// reachable immediately; the accept/forward loop then connects to the Envoy
+/// Unix socket lazily per connection, retrying until it appears. Returns whether
+/// the listener bound successfully.
+async fn start_http_proxy_bridge(http_sock: PathBuf) -> bool {
+    match egress_bridge::bind().await {
+        Ok(listener) => {
+            tokio::spawn(egress_bridge::serve(listener, http_sock));
+            true
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                port = egress_bridge::BRIDGE_PORT,
+                "Failed to bind in-process HTTP proxy bridge; egress will be unavailable"
+            );
+            false
+        }
+    }
+}
+
+async fn wait_for_http_proxy_bridge_ready(mut receiver: watch::Receiver<bool>) {
+    if *receiver.borrow() {
+        return;
+    }
+    while receiver.changed().await.is_ok() {
+        if *receiver.borrow() {
+            return;
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -115,43 +191,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
     });
 
-    // Derive http.sock path from orchestrator URL (e.g. unix:///sockets/{id}/grpc.sock → http.sock)
-    let http_sock_path = if orch_url.starts_with("unix://") {
+    let grpc_sock_path = if orch_url.starts_with("unix://") {
         let grpc_path = orch_url.strip_prefix("unix://").unwrap();
-        let parent = std::path::Path::new(grpc_path)
-            .parent()
-            .unwrap_or(std::path::Path::new("/tmp/proxy"));
-        Some(parent.join("http.sock"))
+        Some(PathBuf::from(grpc_path))
     } else {
         None
     };
 
-    if let Some(ref http_sock) = http_sock_path {
-        if http_sock.exists() {
-            info!("Restricted networking detected, starting socat HTTP proxy bridge");
-            match tokio::process::Command::new("socat")
-                .args([
-                    "TCP-LISTEN:3128,fork,reuseaddr",
-                    &format!("UNIX-CONNECT:{}", http_sock.display()),
-                ])
-                .spawn()
-            {
-                Ok(_child) => {
-                    let proxy = "http://127.0.0.1:3128";
-                    std::env::set_var("HTTP_PROXY", proxy);
-                    std::env::set_var("HTTPS_PROXY", proxy);
-                    std::env::set_var("http_proxy", proxy);
-                    std::env::set_var("https_proxy", proxy);
-                    std::env::set_var("ALL_PROXY", proxy);
-                    std::env::set_var("all_proxy", proxy);
-                    info!("socat HTTP proxy bridge started on 127.0.0.1:3128");
-                }
-                Err(e) => {
-                    warn!(error = %e, "Failed to start socat bridge, HTTP proxy will be unavailable");
-                }
-            }
-        }
+    let http_sock_path = std::env::var("JOYSAFETER_EGRESS_HTTP_SOCKET_PATH")
+        .ok()
+        .filter(|path| !path.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            // Backward-compatible fallback for the old Envoy-proxied control
+            // layout: unix:///sockets/{id}/grpc.sock -> /sockets/{id}/http.sock.
+            grpc_sock_path.as_ref().map(|grpc_path| {
+                let parent = grpc_path.parent().unwrap_or(Path::new("/tmp/proxy"));
+                parent.join("http.sock")
+            })
+        });
+
+    if let Some(ref grpc_sock) = grpc_sock_path {
+        wait_for_unix_socket(grpc_sock, "orchestrator gRPC").await;
     }
+
+    let http_proxy_ready = if let Some(ref http_sock) = http_sock_path {
+        configure_proxy_env(runner_token.as_ref());
+        let http_sock = http_sock.clone();
+        // Bind the bridge listener up front (synchronous, immediate) so the proxy
+        // endpoint is ready before the agent starts. The accept loop connects to
+        // the Envoy socket lazily, so we no longer block on socket materialization.
+        let ready = start_http_proxy_bridge(http_sock).await;
+        let (_ready_tx, ready_rx) = watch::channel(ready);
+        // `_ready_tx` is dropped here; receivers read the initial `ready` value
+        // via borrow(). A dropped sender just means no further transitions, which
+        // is correct — readiness is decided once, at bind time.
+        Some(ready_rx)
+    } else {
+        None
+    };
 
     info!("Discovering available agent CLIs...");
     let adapters = Arc::new(AdapterRegistry::discover().await);
@@ -169,16 +247,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let channel = if orch_url.starts_with("unix://") {
             let path = orch_url.strip_prefix("unix://").unwrap().to_string();
             info!(path = %path, "Connecting via Unix socket");
-            match tonic::transport::Endpoint::from_static("http://[::]:50051")
-                .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
-                    let path = path.clone();
+            let connect_path = path.clone();
+            let endpoint = tonic::transport::Endpoint::from_static("http://[::]:50051")
+                .connect_timeout(Duration::from_secs(5));
+            let connect = endpoint.connect_with_connector(tower::service_fn(
+                move |_: tonic::transport::Uri| {
+                    let path = connect_path.clone();
                     async move {
-                        let stream = tokio::net::UnixStream::connect(&path).await?;
-                        Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream))
+                        match tokio::time::timeout(
+                            Duration::from_secs(5),
+                            tokio::net::UnixStream::connect(&path),
+                        )
+                        .await
+                        {
+                            Ok(Ok(stream)) => {
+                                Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream))
+                            }
+                            Ok(Err(error)) => {
+                                warn!(path = %path, error = %error, "Unix socket connect attempt failed");
+                                Err(error)
+                            }
+                            Err(_) => {
+                                let error = std::io::Error::new(
+                                    std::io::ErrorKind::TimedOut,
+                                    "timed out connecting to Unix socket",
+                                );
+                                warn!(path = %path, error = %error, "Unix socket connect attempt timed out");
+                                Err(error)
+                            }
+                        }
                     }
-                }))
-                .await
-            {
+                },
+            ));
+            match connect.await {
                 Ok(ch) => ch,
                 Err(e) => {
                     error!(error = %e, "Failed to connect via Unix socket");
@@ -298,6 +399,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &adapters,
             &mut session_config,
             &mut surviving_task,
+            http_proxy_ready.clone(),
         )
         .await;
 
@@ -327,6 +429,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Runner shutting down");
     Ok(())
+}
+
+fn url_escape(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                escaped.push(byte as char)
+            }
+            _ => escaped.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    escaped
 }
 
 async fn handle_retry(retry_count: &mut u32, surviving_task: &Option<SurvivingTask>) -> bool {
@@ -409,6 +524,7 @@ async fn run_session(
     adapters: &Arc<AdapterRegistry>,
     session_config: &mut runner::SessionConfig,
     surviving_task: &mut Option<SurvivingTask>,
+    http_proxy_ready: Option<watch::Receiver<bool>>,
 ) -> ConnectionResult {
     let heartbeat_state = Arc::new(Mutex::new(HeartbeatRuntimeState::idle()));
     let heartbeat_tx = runner_tx.clone();
@@ -619,7 +735,11 @@ async fn run_session(
 
                 let task_adapters = adapters.clone();
                 let task_session_config = session_config.clone();
+                let task_http_proxy_ready = http_proxy_ready.clone();
                 let mut task_handle = tokio::spawn(async move {
+                    if let Some(receiver) = task_http_proxy_ready {
+                        wait_for_http_proxy_bridge_ready(receiver).await;
+                    }
                     runner::handle_task(
                         start_task,
                         &task_session_config,

@@ -1,5 +1,5 @@
-use std::env;
 use std::net::SocketAddr;
+use std::{env, path::Path};
 
 /// JoySafeter kernel configuration.
 ///
@@ -85,6 +85,15 @@ pub struct JoySafeterConfig {
     pub grpc_max_connections: usize,
     pub grpc_max_executions: usize,
     pub grpc_max_memories_per_store: i64,
+    /// Host directory containing the shared Unix socket used by restricted
+    /// sandbox runners to connect to the orchestrator control-plane gRPC API.
+    pub runner_control_socket_host_dir: String,
+    /// Optional Docker volume name for the shared runner control socket. This
+    /// is primarily for Docker Desktop/macOS where Unix sockets on host bind
+    /// mounts cannot be connected to from Linux containers.
+    pub runner_control_socket_volume: Option<String>,
+    /// Container-side path mounted into restricted sandboxes for runner gRPC.
+    pub runner_control_socket_container_path: String,
 
     // Scheduler
     pub scheduler_batch_size: usize,
@@ -93,6 +102,7 @@ pub struct JoySafeterConfig {
     pub envoy_enabled: bool,
     pub envoy_image: String,
     pub envoy_socket_volume: String,
+    pub envoy_socket_host_dir: Option<String>,
     pub envoy_config_dir: String,
     pub envoy_network: String,
     pub envoy_grpc_host: String,
@@ -100,6 +110,21 @@ pub struct JoySafeterConfig {
     pub envoy_container_name: String,
     /// LDS transport: `"filesystem"` (default, `lds.json`) or `"grpc"` (Delta xDS).
     pub envoy_xds_mode: String,
+    /// Write per-sandbox non-secret debug entry files under Envoy config dir.
+    /// Disabled by default because gRPC xDS recovery derives state from DB and
+    /// these files add one Docker exec/tar upload per policy push.
+    pub envoy_write_debug_entries: bool,
+    /// Mount only this sandbox's socket subdirectory via Docker volume subpath.
+    /// Disable only if the target Docker Engine/API rejects volume subpaths.
+    pub envoy_socket_subpath_mount: bool,
+    /// Max time to wait for Envoy to materialize per-sandbox Unix sockets after
+    /// listener config is accepted. xDS ACK only proves config acceptance; the
+    /// runner cannot start until the UDS files actually exist on the bind mount.
+    pub envoy_socket_ready_timeout_ms: u64,
+    /// Health-check interval for the shared Envoy container. 0 disables checks.
+    pub envoy_health_check_interval_sec: u64,
+    /// Consecutive failed checks before restarting Envoy and recovering xDS.
+    pub envoy_health_failure_threshold: u64,
     /// Hosts that LLM egress credential routes may target. This protects the
     /// Envoy-side key injection path from sending credentials to arbitrary
     /// user-controlled base URLs.
@@ -131,6 +156,13 @@ pub struct JoySafeterConfig {
     pub k8s_namespace: String,
     pub k8s_kubectl_path: String,
     pub k8s_orchestrator_url: Option<String>,
+
+    // Leader Election (K8s Lease-based HA)
+    pub leader_election_enabled: bool,
+    pub leader_lease_name: String,
+    pub leader_lease_duration_sec: u64,
+    pub leader_renew_interval_sec: u64,
+    pub leader_identity: String,
 
     // Database
     pub database_url: String,
@@ -221,12 +253,26 @@ impl JoySafeterConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(2000),
+            runner_control_socket_host_dir: env_str(
+                "JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR",
+                "/tmp/joysafeter-runner-control",
+            ),
+            runner_control_socket_volume: env::var("JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            runner_control_socket_container_path: env_str(
+                "JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH",
+                "/control/grpc.sock",
+            ),
 
             scheduler_batch_size: env_usize("JOYSAFETER_SCHEDULER_BATCH_SIZE", 10),
 
             envoy_enabled: env_bool("JOYSAFETER_ENVOY_ENABLED", false),
             envoy_image: env_str("JOYSAFETER_ENVOY_IMAGE", "envoyproxy/envoy:v1.31-latest"),
             envoy_socket_volume: env_str("JOYSAFETER_ENVOY_SOCKET_VOLUME", "joysafeter-sockets"),
+            envoy_socket_host_dir: env::var("JOYSAFETER_ENVOY_SOCKET_HOST_DIR")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
             envoy_config_dir: env_str(
                 "JOYSAFETER_ENVOY_CONFIG_DIR",
                 "/tmp/joysafeter-envoy-config",
@@ -236,6 +282,17 @@ impl JoySafeterConfig {
             envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 9090),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
             envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", "filesystem"),
+            envoy_write_debug_entries: env_bool("JOYSAFETER_ENVOY_WRITE_DEBUG_ENTRIES", false),
+            envoy_socket_subpath_mount: env_bool("JOYSAFETER_ENVOY_SOCKET_SUBPATH_MOUNT", true),
+            envoy_socket_ready_timeout_ms: env_u64(
+                "JOYSAFETER_ENVOY_SOCKET_READY_TIMEOUT_MS",
+                30_000,
+            ),
+            envoy_health_check_interval_sec: env_u64(
+                "JOYSAFETER_ENVOY_HEALTH_CHECK_INTERVAL_SEC",
+                30,
+            ),
+            envoy_health_failure_threshold: env_u64("JOYSAFETER_ENVOY_HEALTH_FAILURE_THRESHOLD", 3),
             llm_egress_allowed_hosts: env_list("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS"),
 
             image_builder_enabled: env_bool("JOYSAFETER_IMAGE_BUILDER_ENABLED", false),
@@ -264,8 +321,19 @@ impl JoySafeterConfig {
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
 
+            leader_election_enabled: env_bool("JOYSAFETER_LEADER_ELECTION_ENABLED", false),
+            leader_lease_name: env_str(
+                "JOYSAFETER_LEADER_LEASE_NAME",
+                "joysafeter-orchestrator-leader",
+            ),
+            leader_lease_duration_sec: env_u64("JOYSAFETER_LEADER_LEASE_DURATION_SEC", 10),
+            leader_renew_interval_sec: env_u64("JOYSAFETER_LEADER_RENEW_INTERVAL_SEC", 3),
+            leader_identity: env::var("POD_NAME")
+                .or_else(|_| env::var("HOSTNAME"))
+                .unwrap_or_else(|_| format!("orch-{}", uuid::Uuid::now_v7())),
+
             database_url: build_database_url(),
-            redis_url: env::var("REDIS_URL").ok(),
+            redis_url: build_redis_url(),
         }
     }
 
@@ -274,6 +342,34 @@ impl JoySafeterConfig {
         format!("{}:{}", self.grpc_host, self.grpc_port)
             .parse()
             .expect("invalid gRPC listen address")
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if let Some(control_volume) = self.runner_control_socket_volume.as_deref() {
+            if control_volume == self.envoy_socket_volume {
+                anyhow::bail!(
+                    "JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME and JOYSAFETER_ENVOY_SOCKET_VOLUME must be different; both are {:?}. Leave JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME empty when using host-dir control sockets.",
+                    control_volume
+                );
+            }
+        }
+        if let Some(envoy_socket_host_dir) = self.envoy_socket_host_dir.as_deref() {
+            ensure_distinct_host_dirs(
+                "JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR",
+                &self.runner_control_socket_host_dir,
+                "JOYSAFETER_ENVOY_SOCKET_HOST_DIR",
+                envoy_socket_host_dir,
+            )?;
+        }
+        if !self.runner_control_socket_container_path.starts_with('/')
+            || self.runner_control_socket_container_path.ends_with('/')
+        {
+            anyhow::bail!(
+                "JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH must be an absolute Unix socket file path, got {:?}",
+                self.runner_control_socket_container_path
+            );
+        }
+        Ok(())
     }
 
     /// Select the Docker image for a given engine_kind (provider).
@@ -290,6 +386,45 @@ impl JoySafeterConfig {
             _ => self.sandbox_image.clone(),
         }
     }
+}
+
+fn ensure_distinct_host_dirs(
+    left_name: &str,
+    left: &str,
+    right_name: &str,
+    right: &str,
+) -> anyhow::Result<()> {
+    let left_path = normalize_path(left);
+    let right_path = normalize_path(right);
+    if left_path == right_path {
+        anyhow::bail!(
+            "{left_name} and {right_name} must be different directories; both resolve to {}. The runner control directory should contain only grpc.sock and must not be shared with Envoy sandbox sockets.",
+            left_path.display()
+        );
+    }
+    if left_path.starts_with(&right_path) || right_path.starts_with(&left_path) {
+        anyhow::bail!(
+            "{left_name} ({}) and {right_name} ({}) must not be nested. Use separate host directories for runner control grpc.sock and Envoy sandbox sockets.",
+            left_path.display(),
+            right_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn normalize_path(value: &str) -> std::path::PathBuf {
+    let path = Path::new(value);
+    let mut normalized = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +512,8 @@ fn hostname() -> String {
 }
 
 /// Build the Postgres connection URL from `POSTGRES_*` env vars.
+/// Falls back to `DATABASE_URL` if set directly.
+/// Automatically URL-encodes user/password to handle special chars (@, #, !, etc.).
 fn build_database_url() -> String {
     if let Ok(url) = env::var("DATABASE_URL") {
         return url;
@@ -388,7 +525,46 @@ fn build_database_url() -> String {
     let db = env_str("POSTGRES_DB", "joysafeter");
     let port = env_str("POSTGRES_PORT", "5432");
 
-    format!("postgres://{user}:{password}@{host}:{port}/{db}")
+    // URL-encode user/password so special chars don't break the URL structure
+    let safe_user = url_encode(&user);
+    let safe_password = url_encode(&password);
+
+    format!("postgres://{safe_user}:{safe_password}@{host}:{port}/{db}")
+}
+
+/// Percent-encode a string for use in a URL (user/password component).
+fn url_encode(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            _ => format!("%{:02X}", c as u8),
+        })
+        .collect()
+}
+
+/// Build Redis URL from `REDIS_*` env vars with auto-encoding.
+/// Falls back to `REDIS_URL` if set directly.
+fn build_redis_url() -> Option<String> {
+    // Priority 1: explicit REDIS_URL (user must encode themselves)
+    if let Ok(url) = env::var("REDIS_URL") {
+        if !url.trim().is_empty() {
+            return Some(url);
+        }
+    }
+
+    // Priority 2: build from REDIS_HOST + REDIS_PASSWORD + REDIS_PORT + REDIS_DB
+    let host = env::var("REDIS_HOST").ok().filter(|v| !v.trim().is_empty())?;
+    let port = env_str("REDIS_PORT", "6379");
+    let password = env::var("REDIS_PASSWORD").unwrap_or_default();
+    let db = env_str("REDIS_DB", "0");
+    let scheme = env_str("REDIS_SCHEME", "redis"); // "redis" or "rediss" (TLS)
+
+    if password.is_empty() {
+        Some(format!("{scheme}://{host}:{port}/{db}"))
+    } else {
+        let safe_password = url_encode(&password);
+        Some(format!("{scheme}://:{safe_password}@{host}:{port}/{db}"))
+    }
 }
 
 #[cfg(test)]

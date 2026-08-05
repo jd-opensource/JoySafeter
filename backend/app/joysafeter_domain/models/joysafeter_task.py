@@ -67,6 +67,9 @@ class JoySafeterTask(JoySafeterBaseModel):
         Index("idx_ct_user_status", "user_id", "status"),
         Index("idx_ct_status_created", "status", "created_at"),
         Index("idx_ct_status_updated", "status", "updated_at"),
+        Index("idx_ct_status_next_schedule", "status", "next_schedule_at"),
+        Index("idx_ct_started", "started_at"),
+        Index("idx_ct_completed", "completed_at"),
         Index("idx_ct_project_status_created", "project_id", "status", "created_at"),
         Index("idx_ct_sandbox_status", "sandbox_id", "status"),
         Index("idx_ct_sandbox_status_created", "sandbox_id", "status", "created_at"),
@@ -112,6 +115,11 @@ class JoySafeterTask(JoySafeterBaseModel):
     timeout_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=7200)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    schedule_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_schedule_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_schedule_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_schedule_error_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scheduling_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     idempotency_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

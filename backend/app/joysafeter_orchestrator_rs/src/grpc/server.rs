@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -8,10 +9,11 @@ use futures::Stream;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use tokio::net::UnixListener;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::{ReceiverStream, UnixListenerStream};
 use tokio_stream::StreamExt as _;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, error, info, warn};
@@ -718,6 +720,7 @@ async fn multi_task_loop(
             pool,
             sandbox_provider,
             bridge,
+            sandbox_db_id,
             sandbox_external_id,
             session_id,
         )
@@ -1965,6 +1968,19 @@ mod tests {
             .bind(agent_id)
             .execute(pool)
             .await;
+    }
+
+    #[test]
+    fn provider_injection_id_prefers_db_external_id_over_runner_sandbox_id() {
+        assert_eq!(
+            choose_provider_external_id(Some("joysafeter-019fc6f8"), "019fc6f8"),
+            "joysafeter-019fc6f8"
+        );
+        assert_eq!(
+            choose_provider_external_id(Some(""), "019fc6f8"),
+            "019fc6f8"
+        );
+        assert_eq!(choose_provider_external_id(None, "019fc6f8"), "019fc6f8");
     }
 
     async fn create_mounted_memory_store(pool: &PgPool, session_id: Uuid) -> Uuid {
@@ -5366,11 +5382,32 @@ async fn session_files_signature(pool: &PgPool, session_id: Uuid) -> anyhow::Res
     Ok(signature.unwrap_or_default())
 }
 
+fn choose_provider_external_id(db_external_id: Option<&str>, runner_sandbox_id: &str) -> String {
+    db_external_id
+        .map(str::trim)
+        .filter(|external_id| !external_id.is_empty())
+        .unwrap_or(runner_sandbox_id)
+        .to_string()
+}
+
+async fn resolve_provider_external_id_for_injection(
+    pool: &PgPool,
+    sandbox_db_id: Uuid,
+    runner_sandbox_id: &str,
+) -> anyhow::Result<String> {
+    let sandbox = queries::get_sandbox(pool, sandbox_db_id).await?;
+    Ok(choose_provider_external_id(
+        sandbox.as_ref().and_then(|row| row.external_id.as_deref()),
+        runner_sandbox_id,
+    ))
+}
+
 async fn inject_session_files_before_start(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
     bridge: &Arc<SandboxBridge>,
-    sandbox_external_id: &str,
+    sandbox_db_id: Uuid,
+    runner_sandbox_id: &str,
     session_id: Option<Uuid>,
 ) -> anyhow::Result<()> {
     let Some(session_id) = session_id else {
@@ -5394,9 +5431,18 @@ async fn inject_session_files_before_start(
         }
     }
 
+    let provider_external_id =
+        resolve_provider_external_id_for_injection(pool, sandbox_db_id, runner_sandbox_id)
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to resolve provider external_id for sandbox {sandbox_db_id}: {e}"
+                )
+            })?;
+
     let ctx = crate::sandbox::file_injection::FileInjectionContext {
         session_id,
-        external_id: sandbox_external_id.to_string(),
+        external_id: provider_external_id.clone(),
         workspace_path: None,
         runner_capabilities: vec![],
         is_pool_sandbox: true,
@@ -5406,13 +5452,14 @@ async fn inject_session_files_before_start(
         .await
         .map_err(|e| {
             anyhow::anyhow!(
-                "failed to inject updated session files into sandbox {sandbox_external_id} for session {session_id}: {e}"
+                "failed to inject updated session files into provider sandbox {provider_external_id} (runner sandbox {runner_sandbox_id}) for session {session_id}: {e}"
             )
         })?;
     *bridge.injected_session_files_signature.lock().await = Some(signature);
     info!(
         session_id = %session_id,
-        sandbox_id = %sandbox_external_id,
+        sandbox_id = %runner_sandbox_id,
+        provider_external_id = %provider_external_id,
         file_count = files.len(),
         "Injected updated session files before StartTask"
     );
@@ -5598,6 +5645,11 @@ async fn send_setup(
         timeout_sec: None,
         retry_count: 0,
         max_retries: 0,
+        schedule_attempts: 0,
+        next_schedule_at: None,
+        last_schedule_error: None,
+        last_schedule_error_type: None,
+        scheduling_started_at: None,
         started_at: None,
         completed_at: None,
         duration_ms: None,
@@ -6894,25 +6946,31 @@ pub async fn start_grpc_server(
     runtime_config: Arc<RuntimeConfig>,
     xds_service: Option<Arc<crate::sandbox::lds_backend::DeltaXdsServer>>,
 ) -> anyhow::Result<JoinHandle<()>> {
-    let service = AgentBridgeService::new(
+    let service = Arc::new(AgentBridgeService::new(
         bridge_registry,
         event_bus,
         queue,
         pool,
-        config,
+        config.clone(),
         sandbox_provider,
         redis_coordinator,
         memory_subscribers,
         runtime_config,
-    );
+    ));
+
+    let control_socket_path = prepare_runner_control_socket(&config).await?;
 
     // Build the service with message size limits
-    let svc = AgentBridgeServer::new(service)
+    let svc = AgentBridgeServer::from_arc(service.clone())
+        .max_decoding_message_size(GRPC_MAX_RECV_MESSAGE_SIZE)
+        .max_encoding_message_size(GRPC_MAX_SEND_MESSAGE_SIZE);
+
+    let control_svc = AgentBridgeServer::from_arc(service)
         .max_decoding_message_size(GRPC_MAX_RECV_MESSAGE_SIZE)
         .max_encoding_message_size(GRPC_MAX_SEND_MESSAGE_SIZE);
 
     let handle = tokio::spawn(async move {
-        info!(addr = %addr, xds = xds_service.is_some(), "gRPC server listening (services: joysafeter.AgentBridge[, envoy ADS])");
+        info!(addr = %addr, control_socket = %control_socket_path.display(), xds = xds_service.is_some(), "gRPC server listening (TCP services: joysafeter.AgentBridge[, envoy ADS]; UDS service: joysafeter.AgentBridge)");
 
         let mut builder = tonic::transport::Server::builder()
             // Fix 1.2: transport-level keepalive for dead connection detection
@@ -6924,19 +6982,68 @@ pub async fn start_grpc_server(
         // LDS backend is in gRPC mode, the Delta ADS service is registered on
         // the SAME server — tonic routes by service path, so runners and Envoy
         // coexist on one port with no interference.
-        let serve_result = if let Some(xds) = xds_service {
+        let tcp_server = if let Some(xds) = xds_service {
             use envoy_types::pb::envoy::service::discovery::v3::aggregated_discovery_service_server::AggregatedDiscoveryServiceServer;
             let ads = AggregatedDiscoveryServiceServer::from_arc(xds);
-            builder.add_service(svc).add_service(ads).serve(addr).await
+            builder.add_service(svc).add_service(ads).serve(addr)
         } else {
-            builder.add_service(svc).serve(addr).await
+            builder.add_service(svc).serve(addr)
         };
 
-        if let Err(e) = serve_result {
-            error!("gRPC server error: {e}");
+        let control_listener = match UnixListener::bind(&control_socket_path) {
+            Ok(listener) => listener,
+            Err(e) => {
+                error!(path = %control_socket_path.display(), "failed to bind runner control UDS: {e}");
+                return;
+            }
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) = tokio::fs::set_permissions(
+                &control_socket_path,
+                std::fs::Permissions::from_mode(0o666),
+            )
+            .await
+            {
+                warn!(path = %control_socket_path.display(), "failed to chmod runner control UDS: {e}");
+            }
+        }
+        let control_server = tonic::transport::Server::builder()
+            .add_service(control_svc)
+            .serve_with_incoming(UnixListenerStream::new(control_listener));
+
+        tokio::select! {
+            result = tcp_server => {
+                if let Err(e) = result {
+                    error!("TCP gRPC server error: {e}");
+                }
+            }
+            result = control_server => {
+                if let Err(e) = result {
+                    error!("runner control UDS gRPC server error: {e}");
+                }
+            }
         }
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
     Ok(handle)
+}
+
+async fn prepare_runner_control_socket(config: &JoySafeterConfig) -> anyhow::Result<PathBuf> {
+    let dir = PathBuf::from(&config.runner_control_socket_host_dir);
+    tokio::fs::create_dir_all(&dir).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).await?;
+    }
+    let socket_path = dir.join("grpc.sock");
+    match tokio::fs::remove_file(&socket_path).await {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(socket_path)
 }

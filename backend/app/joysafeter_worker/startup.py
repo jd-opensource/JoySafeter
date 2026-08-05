@@ -8,14 +8,10 @@ from loguru import logger
 
 
 async def run_worker_startup() -> None:
-    await _check_docker_availability()
+    # Sandbox provisioning is owned by the Rust orchestrator. The Python worker
+    # no longer talks to Docker directly, so do not warn when this service runs
+    # without a mounted Docker socket in container/Kubernetes deployments.
     await _recover_stuck_scanning_skills()
-
-
-async def _check_docker_availability() -> None:
-    from app.joysafeter_shared.runtime.lifecycle import _check_docker_availability as _check
-
-    await _check()
 
 
 async def _recover_stuck_scanning_skills() -> None:

@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 
@@ -41,6 +41,10 @@ redis = { version = "0.27", features = ["tokio-comp", "aio"] }
 
 # Docker
 bollard = "0.18"
+
+# Kubernetes
+kube = { version = "0.98", features = ["client", "runtime", "ws"] }
+k8s-openapi = { version = "0.24", features = ["v1_32"] }
 
 # HTTP client (for Daytona/E2B providers)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }

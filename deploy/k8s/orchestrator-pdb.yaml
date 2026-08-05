@@ -1,0 +1,12 @@
+# PodDisruptionBudget: ensure at least 1 orchestrator pod is always available
+# during voluntary disruptions (node drain, cluster upgrade, etc.)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: joysafeter-orchestrator
+  namespace: joysafeter
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: joysafeter-orchestrator

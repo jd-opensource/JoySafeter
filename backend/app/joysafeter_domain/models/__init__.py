@@ -19,6 +19,7 @@ from .joysafeter_oauth_account import OAuthAccount
 from .joysafeter_organization import Member, Organization
 from .joysafeter_project import Project, ProjectMember
 from .joysafeter_sandbox import JoySafeterSandbox  # noqa: F401 — alembic discovery
+from .joysafeter_sandbox_network_policy import JoySafeterSandboxNetworkPolicy  # noqa: F401 — alembic discovery
 from .joysafeter_secret import JoySafeterSecret  # noqa: F401 — alembic discovery
 from .joysafeter_security_audit_log import SecurityAuditLog
 from .joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
@@ -73,4 +74,5 @@ __all__ = [
     "JoySafeterSession",
     "JoySafeterSessionEvent",
     "JoySafeterSandbox",
+    "JoySafeterSandboxNetworkPolicy",
 ]

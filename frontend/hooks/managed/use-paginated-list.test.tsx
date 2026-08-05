@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
-import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,12 +11,6 @@ import { managedGet } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 
 import { usePaginatedList } from './use-paginated-list'
-
-const dom = new JSDOM('<!doctype html><html><body></body></html>')
-globalThis.window = dom.window as unknown as Window & typeof globalThis
-globalThis.document = dom.window.document
-globalThis.navigator = dom.window.navigator
-globalThis.HTMLElement = dom.window.HTMLElement
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 
@@ -101,12 +94,14 @@ describe('usePaginatedList managed context isolation', () => {
   beforeEach(() => {
     managedGetMock.mockReset()
     useProjectStore.setState({ currentOrgId: null, currentProjectId: null })
+    window.sessionStorage.clear()
   })
 
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
     useProjectStore.setState({ currentOrgId: null, currentProjectId: null })
+    window.sessionStorage.clear()
   })
 
   it('does not request managed lists until org and project context are available', async () => {
@@ -419,5 +414,46 @@ describe('usePaginatedList managed context isolation', () => {
     })
 
     expect(getByTestId('items').textContent).toBe('Second page')
+  })
+
+  it('restores the current page after returning to the same list scope', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path.includes('after_id=item-1')) {
+        return {
+          data: [{ id: 'item-2', name: 'Second page' }],
+          has_more: false,
+          last_id: 'item-2',
+        }
+      }
+      return {
+        data: [{ id: 'item-1', name: 'First page' }],
+        has_more: true,
+        last_id: 'item-1',
+      }
+    })
+
+    const firstView = renderWithQueryClient(<HarnessWithNext />)
+
+    await act(async () => {
+      await wait(20)
+    })
+
+    await act(async () => {
+      firstView.getByTestId('next').click()
+      await wait(20)
+    })
+
+    expect(firstView.getByTestId('page').textContent).toBe('2')
+    expect(firstView.getByTestId('items').textContent).toBe('Second page')
+
+    firstView.unmount()
+
+    const secondView = renderWithQueryClient(<HarnessWithNext />)
+
+    await waitFor(() => {
+      expect(secondView.getByTestId('page').textContent).toBe('2')
+      expect(secondView.getByTestId('items').textContent).toBe('Second page')
+    })
   })
 })

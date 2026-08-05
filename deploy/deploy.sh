@@ -91,13 +91,12 @@ DOCKER_MIRROR="${DOCKER_MIRROR:-docker.m.daocloud.io}"
 # 是否禁用 Docker 构建缓存（默认使用缓存）
 NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
-PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
-UV_INDEX_URL="${UV_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
+UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 # Rust 镜像从 BASE_IMAGE_REGISTRY 派生
-RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1.97.1-bookworm}"
+RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1-bookworm}"
 RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
-SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-}"
-SKILLSPECTOR_REPO_REF="${SKILLSPECTOR_REPO_REF:-}"
+SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-https://github.com/NVIDIA/SkillSpector.git}"
 DEFAULT_SKILLSPECTOR_SOURCE_PATH="$PROJECT_ROOT/.deps/SkillSpector"
 
 # 规范化镜像仓库地址
@@ -137,7 +136,6 @@ show_usage() {
 命令:
   doctor             本地部署环境预检（不启动容器）
   local              本地 Docker Compose 一键部署（自动按 Docker CPU 架构选择平台）
-  up                 使用现有镜像快速启动/更新本地栈（不重新构建）
   build              构建核心部署镜像（backend, frontend, orchestrator-rs, skillspector）
   push               构建并推送多架构镜像到仓库
   pull               拉取镜像，并把拉取到的镜像名同步到 deploy/.env
@@ -158,11 +156,11 @@ show_usage() {
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
   --skillspector-only    只处理 SkillSpector 镜像
-  --runtime-only         只处理正式 agent 运行镜像（claudecode, codex）
+  --runtime-only         只处理 agent 运行镜像（claudecode, codex, native）
   --claudecode-only      只处理 Claude Code 运行镜像
   --codex-only           只处理 Codex 运行镜像
-  --native-only          只处理可选 Native 运行镜像（需要本地私有 tgz）
-  --all                  构建所有正式镜像（核心镜像 + claudecode/codex）
+  --native-only          只处理 Native 运行镜像
+  --all                  构建所有镜像（核心部署镜像 + agent runtime 镜像）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
   --mirror MIRROR        使用国内镜像源加速（aliyun, tencent, huawei, daocloud）
                          同时设置 BASE_IMAGE_REGISTRY 和 DOCKER_MIRROR
@@ -179,14 +177,13 @@ show_usage() {
   NATIVE_IMAGE           Native 运行镜像名称（默认: joysafeter-native）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
-  PIP_INDEX_URL          pip 镜像源（默认: https://pypi.tuna.tsinghua.edu.cn/simple）
-  UV_INDEX_URL           uv 镜像源（默认: https://pypi.tuna.tsinghua.edu.cn/simple）
+  PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
+  UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
   BASE_IMAGE_REGISTRY    官方库镜像前缀（默认: public.ecr.aws/docker/library/）
   DOCKER_MIRROR          第三方镜像代理前缀（默认: docker.m.daocloud.io）
   SKILLSPECTOR_SOURCE_PATH SkillSpector 源码路径（local 默认: ../.deps/SkillSpector）
   SKILLSPECTOR_REPO_URL    SkillSpector 缺失时克隆的仓库地址
-  SKILLSPECTOR_REPO_REF    SkillSpector 克隆版本（默认: v2.5.1）
   NO_CACHE               是否禁用构建缓存（默认: false，使用缓存）
 
 示例:
@@ -195,9 +192,6 @@ show_usage() {
 
   # 按 Docker daemon CPU 架构自动部署本地完整栈
   $0 local
-
-  # 复用现有镜像，执行迁移并快速启动/更新
-  $0 up
 
   # 强制按 amd64 或 arm64 部署
   $0 local --arch amd64
@@ -435,6 +429,7 @@ read_env_value() {
 }
 
 # vault 密钥合法性校验：64 位 hex（Rust 兼容）或 base64 解码后为 32 字节。
+# 无 openssl 时无法校验，返回成功以避免误报。
 vault_key_is_valid() {
     local key="$1"
     if printf '%s' "$key" | grep -Eq '^[0-9a-fA-F]{64}$'; then
@@ -446,78 +441,7 @@ vault_key_is_valid() {
         [ "$decoded_bytes" = "32" ] && return 0
         return 1
     fi
-    return 1
-}
-
-secret_value_is_valid() {
-    local value="$1"
-    [ "${#value}" -ge 32 ] || return 1
-    case "$value" in
-        CHANGE_ME*|change-me*|changeme*|postgres)
-            return 1
-            ;;
-    esac
     return 0
-}
-
-ensure_auth_secret() {
-    local deploy_env="$1"
-    local backend_env="$2"
-    local key_var="SECRET_KEY"
-    local deploy_value backend_value effective=""
-
-    deploy_value="$(read_env_value "$deploy_env" "$key_var")"
-    backend_value="$(read_env_value "$backend_env" "$key_var")"
-
-    if secret_value_is_valid "$deploy_value"; then
-        effective="$deploy_value"
-    elif secret_value_is_valid "$backend_value"; then
-        effective="$backend_value"
-        log_info "复用 backend/.env 中已有的 ${key_var}"
-    else
-        if ! command -v openssl >/dev/null 2>&1; then
-            log_error "未检测到 openssl，无法生成 ${key_var}；请手动设置至少 32 字符的随机密钥"
-            return 1
-        fi
-        effective="$(openssl rand -hex 32)"
-        log_success "已自动生成 ${key_var}（JWT 签名密钥）"
-    fi
-
-    set_env_value "$deploy_env" "$key_var" "$effective"
-    set_env_value "$backend_env" "$key_var" "$effective"
-}
-
-postgres_data_volume_exists() {
-    docker volume ls --format '{{.Name}}' 2>/dev/null | grep -Eq '(^|_)joysafeter-db-data$'
-}
-
-ensure_postgres_password() {
-    local deploy_env="$1"
-    local backend_env="$2"
-    local deploy_env_created="$3"
-    local key_var="POSTGRES_PASSWORD"
-    local password
-
-    password="$(read_env_value "$deploy_env" "$key_var")"
-    if secret_value_is_valid "$password"; then
-        set_env_value "$backend_env" "$key_var" "$password"
-        return 0
-    fi
-
-    if [ "$deploy_env_created" != true ] && postgres_data_volume_exists; then
-        log_error "检测到已有 PostgreSQL 数据卷，但 ${key_var} 仍为空、默认值或占位符；拒绝自动改密以避免数据库失联"
-        log_error "请先为数据库用户设置强密码，再在 deploy/.env 与 backend/.env 写入同一 ${key_var}"
-        return 1
-    fi
-    if ! command -v openssl >/dev/null 2>&1; then
-        log_error "未检测到 openssl，无法生成 ${key_var}；请手动设置至少 32 字符的随机密码"
-        return 1
-    fi
-
-    password="$(openssl rand -hex 24)"
-    set_env_value "$deploy_env" "$key_var" "$password"
-    set_env_value "$backend_env" "$key_var" "$password"
-    log_success "已自动生成 ${key_var}"
 }
 
 # 确保 vault 加密密钥在 deploy/.env 与 backend/.env 中【存在且为同一把】。
@@ -543,27 +467,26 @@ ensure_vault_encryption_key() {
     local effective=""
     if [ "$deploy_real" = true ]; then
         if ! vault_key_is_valid "$deploy_key"; then
-            log_error "deploy/.env 的 ${key_var} 不是合法 32 字节密钥（64 位 hex 或 base64）"
-            return 1
+            log_warning "deploy/.env 的 $key_var 已设置但不是合法 32 字节密钥（64 位 hex 或 base64）；托管密钥会失败，请修正后再部署（本次不改动 backend/.env）"
+            return 0
         fi
         effective="$deploy_key"
     elif [ "$backend_real" = true ]; then
         if vault_key_is_valid "$backend_key"; then
             effective="$backend_key"
-            log_info "复用 backend/.env 中已有的 ${key_var} 作为 vault 密钥真源"
+            log_info "复用 backend/.env 中已有的 $key_var 作为 vault 密钥真源"
         else
-            log_error "backend/.env 的 ${key_var} 已设置但不是合法 32 字节密钥"
-            return 1
+            log_warning "backend/.env 的 $key_var 已设置但不是合法 32 字节密钥；将忽略它并生成新密钥"
         fi
     fi
 
     if [ -z "$effective" ]; then
         if ! command -v openssl >/dev/null 2>&1; then
-            log_error "未检测到 openssl，无法生成 ${key_var}；请手动在 deploy/.env 与 backend/.env 设置同一把 32 字节密钥"
-            return 1
+            log_warning "未检测到 openssl，无法自动生成 $key_var；托管密钥功能将不可用。请手动在 deploy/.env 与 backend/.env 设置同一把（openssl rand -base64 32）"
+            return 0
         fi
         effective="$(openssl rand -base64 32)"
-        log_success "已自动生成 ${key_var}（vault 凭证加密密钥）"
+        log_success "已自动生成 $key_var（vault 凭证加密密钥）"
         log_warning "该密钥一经启用请勿更改，否则已加密的托管密钥密文将无法解密"
     fi
 
@@ -572,7 +495,7 @@ ensure_vault_encryption_key() {
     fi
     if [ "$backend_key" != "$effective" ]; then
         if [ "$backend_real" = true ]; then
-            log_warning "backend/.env 原有一把不同的 ${key_var}，已同步为 deploy/.env 的权威密钥（compose 中 deploy/.env 本就覆盖 backend/.env）"
+            log_warning "backend/.env 原有一把不同的 $key_var，已同步为 deploy/.env 的权威密钥（compose 中 deploy/.env 本就覆盖 backend/.env）"
         fi
         set_env_value "$backend_env" "$key_var" "$effective"
     fi
@@ -651,18 +574,13 @@ skillspector_source_valid() {
 
 clone_skillspector() {
     local dest="$1"
-    local repo_url="${SKILLSPECTOR_REPO_URL:-$(read_env_value "$SCRIPT_DIR/.env" "SKILLSPECTOR_REPO_URL")}"
-    local repo_ref="${SKILLSPECTOR_REPO_REF:-$(read_env_value "$SCRIPT_DIR/.env" "SKILLSPECTOR_REPO_REF")}"
-    repo_url="${repo_url:-https://github.com/NVIDIA/SkillSpector.git}"
-    repo_ref="${repo_ref:-v2.5.1}"
-
     check_command git || exit 1
     if [ -d "$dest" ]; then
         rm -rf "$dest"
     fi
     mkdir -p "$(dirname "$dest")"
-    log_info "克隆 SkillSpector: $repo_url@$repo_ref -> $dest"
-    git clone --depth 1 --branch "$repo_ref" "$repo_url" "$dest"
+    log_info "克隆 SkillSpector: $SKILLSPECTOR_REPO_URL -> $dest"
+    git clone --depth 1 "$SKILLSPECTOR_REPO_URL" "$dest"
 }
 
 ensure_skillspector_source() {
@@ -714,7 +632,7 @@ check_local_ports() {
     warn_if_port_busy "Rust orchestrator gRPC" "$(read_env_value "$deploy_env" "JOYSAFETER_GRPC_PORT_HOST")"
 }
 
-require_sandbox_runtime_image() {
+warn_if_sandbox_runtime_image_missing() {
     local deploy_env="$1"
     local sandbox_image="${JOYSAFETER_SANDBOX_IMAGE:-$(read_env_value "$deploy_env" "JOYSAFETER_SANDBOX_IMAGE")}"
     sandbox_image="${sandbox_image:-joysafeter-claudecode:latest}"
@@ -724,9 +642,8 @@ require_sandbox_runtime_image() {
         return
     fi
 
-    log_error "Sandbox runtime image missing: $sandbox_image; refusing to start a stack that cannot execute agent tasks"
-    log_error "Build it with: ./deploy.sh build --claudecode-only --arch $(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
-    return 1
+    log_warning "Sandbox runtime image missing: $sandbox_image; agent task execution will fail until it is built/pulled"
+    log_warning "Build it with: ./deploy.sh build --claudecode-only --arch $(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 }
 
 validate_local_compose_config() {
@@ -837,20 +754,12 @@ require_single_platform() {
 
 configure_local_compose_env() {
     local deploy_env="$SCRIPT_DIR/.env"
-    local require_skillspector_source="${1:-true}"
-    local deploy_env_created=false
-
-    if [ ! -f "$deploy_env" ]; then
-        deploy_env_created=true
-    fi
 
     ensure_env_file "$deploy_env" "$SCRIPT_DIR/.env.example"
     ensure_env_file "$PROJECT_ROOT/backend/.env" "$PROJECT_ROOT/backend/env.example"
     ensure_env_file "$PROJECT_ROOT/frontend/.env" "$PROJECT_ROOT/frontend/env.example"
 
     ensure_vault_encryption_key "$deploy_env" "$PROJECT_ROOT/backend/.env"
-    ensure_auth_secret "$deploy_env" "$PROJECT_ROOT/backend/.env"
-    ensure_postgres_password "$deploy_env" "$PROJECT_ROOT/backend/.env" "$deploy_env_created"
 
     set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$BASE_IMAGE_REGISTRY"
     set_env_value "$deploy_env" "RUST_IMAGE" "$RUST_IMAGE"
@@ -860,9 +769,7 @@ configure_local_compose_env() {
     set_env_value "$deploy_env" "JOYSAFETER_ENVOY_IMAGE" "${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR}/envoyproxy/envoy:v1.37.1}"
     set_env_value "$deploy_env" "DOCKER_DEFAULT_PLATFORM" "$PLATFORMS"
 
-    if [ "$require_skillspector_source" = true ]; then
-        ensure_skillspector_source "$deploy_env"
-    fi
+    ensure_skillspector_source "$deploy_env"
 
     # detect_docker_socket_path 返回的是“容器内挂载源”，即 daemon 侧路径。VM 型运行时
     # 会返回虚拟机内的 /var/run/docker.sock，它在宿主机上并不存在，所以这里不能再用
@@ -876,27 +783,12 @@ configure_local_compose_env() {
     fi
 }
 
-prepare_local_compose() {
-    local require_skillspector_source="${1:-true}"
-
-    require_single_platform
-    configure_local_compose_env "$require_skillspector_source"
-    check_local_ports "$SCRIPT_DIR/.env"
-    require_sandbox_runtime_image "$SCRIPT_DIR/.env"
-    validate_local_compose_config
-}
-
-start_local_compose() {
-    (
-        cd "$SCRIPT_DIR"
-        log_info "启动本地 Compose 服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
-    )
-    log_success "本地 Compose 服务已启动"
-}
-
 run_local_compose() {
-    prepare_local_compose
+    require_single_platform
+    configure_local_compose_env
+    check_local_ports "$SCRIPT_DIR/.env"
+    warn_if_sandbox_runtime_image_missing "$SCRIPT_DIR/.env"
+    validate_local_compose_config
 
     log_info "Docker daemon 平台: $PLATFORMS"
     log_info "基础镜像源: $BASE_IMAGE_REGISTRY"
@@ -904,26 +796,26 @@ run_local_compose() {
 
     build_local_compose_images
     run_local_migrations
-    start_local_compose
-}
 
-run_local_up() {
-    prepare_local_compose false
-
-    log_info "复用 deploy/.env 中配置的现有镜像，不执行构建"
-    run_local_migrations
-    start_local_compose
+    (
+        cd "$SCRIPT_DIR"
+        log_info "启动本地 Compose 服务..."
+        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
+    )
 }
 
 run_local_doctor() {
-    prepare_local_compose
+    require_single_platform
+    configure_local_compose_env
+    check_local_ports "$SCRIPT_DIR/.env"
+    warn_if_sandbox_runtime_image_missing "$SCRIPT_DIR/.env"
+    validate_local_compose_config
 
     log_success "本地部署环境预检完成"
     echo ""
     echo "下一步:"
     echo "  cd deploy"
-    echo "  ./deploy.sh local  # 首次源码构建"
-    echo "  ./deploy.sh up     # 已有镜像时快速启动"
+    echo "  ./deploy.sh local"
 }
 
 # ---- 生命周期管理命令 ----
@@ -1075,7 +967,6 @@ build_image() {
     if [ -n "$UV_INDEX_URL" ]; then
         build_args+=("--build-arg" "UV_INDEX_URL=$UV_INDEX_URL")
     fi
-    build_args+=("--build-arg" "GIT_COMMIT_SHA=${GIT_COMMIT_SHA}")
 
     # 前端镜像：NEXT_PUBLIC_* 通过 next-runtime-env 在容器启动时注入，无需 build-arg
     if [ "$service" = "前端" ]; then
@@ -1090,9 +981,9 @@ build_image() {
         local python_version="3.12-slim-bookworm"
         build_args+=("--build-arg" "PYTHON_VERSION=${python_version}")
         log_info "后端使用 Python 版本: ${python_version}"
+        build_args+=("--build-arg" "GIT_COMMIT_SHA=${GIT_COMMIT_SHA}")
+        log_info "后端构建溯源 GIT_COMMIT_SHA: ${GIT_COMMIT_SHA}"
     fi
-
-    log_info "构建溯源 GIT_COMMIT_SHA: ${GIT_COMMIT_SHA}"
 
     if [ "$service" = "Rust Orchestrator" ]; then
         build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
@@ -1258,8 +1149,10 @@ runtime_dockerfile_for() {
     local engine=$1
     local platform=$2
     case "$engine:$platform" in
-        claudecode:*) echo "$SCRIPT_DIR/docker/claudecode.Dockerfile" ;;
-        codex:*) echo "$SCRIPT_DIR/docker/codex.Dockerfile" ;;
+        claudecode:linux/amd64) echo "$SCRIPT_DIR/docker/claudecode-amd64.Dockerfile" ;;
+        claudecode:linux/arm64) echo "$SCRIPT_DIR/docker/claudecode-arm64.Dockerfile" ;;
+        codex:linux/amd64) echo "$SCRIPT_DIR/docker/codex-amd64.Dockerfile" ;;
+        codex:linux/arm64) echo "$SCRIPT_DIR/docker/codex-arm64.Dockerfile" ;;
         native:linux/amd64) echo "$SCRIPT_DIR/docker/native-amd64.Dockerfile" ;;
         native:linux/arm64) echo "$SCRIPT_DIR/docker/native-arm64.Dockerfile" ;;
         *)
@@ -1269,16 +1162,7 @@ runtime_dockerfile_for() {
     esac
 }
 
-ensure_native_runtime_artifact() {
-    local artifact="$SCRIPT_DIR/docker/claude-code-best-2.5.5.tgz"
-    if [ ! -f "$artifact" ]; then
-        log_error "Native runtime 需要未入库的私有构建包: $artifact"
-        log_error "请提供该文件后使用 --native-only；正式发布与默认 runtime 池不包含 Native"
-        exit 1
-    fi
-}
-
-runtime_runner_target_for() {
+rust_target_for_platform() {
     local platform=$1
     case "$platform" in
         linux/amd64)
@@ -1288,10 +1172,45 @@ runtime_runner_target_for() {
             echo "aarch64-unknown-linux-gnu"
             ;;
         *)
-            log_error "runner 暂不支持平台: $platform"
+            log_error "Rust 二进制暂不支持平台: $platform"
             exit 1
             ;;
     esac
+}
+
+runtime_runner_target_for() {
+    rust_target_for_platform "$1"
+}
+
+ensure_orchestrator_binary() {
+    local platform=$1
+    local target
+    target=$(rust_target_for_platform "$platform")
+    local output="$PROJECT_ROOT/target/$target/release/joysafeter-orchestrator"
+
+    if [ -x "$output" ] && [ "${FORCE_ORCHESTRATOR_REBUILD:-0}" != "1" ]; then
+        local newer_src
+        newer_src=$(find "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs" "$PROJECT_ROOT/proto" -type f \
+            \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' -o -name '*.proto' \) \
+            -newer "$output" -print -quit 2>/dev/null)
+        if [ -z "$newer_src" ]; then
+            log_success "orchestrator-rs 二进制已是最新: $output"
+            return
+        fi
+        log_info "检测到 orchestrator-rs 源码更新，重新编译二进制"
+    fi
+
+    log_info "编译 orchestrator-rs 二进制: $target"
+    docker run --rm \
+        --platform "$platform" \
+        -v "$PROJECT_ROOT:/workspace" \
+        -v joysafeter-cargo-registry:/usr/local/cargo/registry \
+        -v joysafeter-cargo-git:/usr/local/cargo/git \
+        -w /workspace/backend/app/joysafeter_orchestrator_rs \
+        "$RUST_IMAGE" \
+        bash -lc "export PATH=/usr/local/cargo/bin:\$PATH CARGO_HTTP_TIMEOUT=600 CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10 CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 && apt-get update && apt-get install -y --no-install-recommends protobuf-compiler pkg-config libssl-dev ca-certificates && if command -v rustup >/dev/null 2>&1; then rustup target add $target; fi && cargo build --release --target $target && mkdir -p /workspace/target/$target/release && cp target/$target/release/joysafeter-orchestrator /workspace/target/$target/release/joysafeter-orchestrator"
+    chmod +x "$output"
+    log_success "orchestrator-rs 二进制编译完成: $output"
 }
 
 ensure_runtime_runner_binary() {
@@ -1331,18 +1250,19 @@ build_runtime_image() {
     local engine=$2
     local image_name=$3
 
-    local dockerfile
-    dockerfile=$(runtime_dockerfile_for "$engine" "$PLATFORMS")
-
-    if [ "$engine" = "native" ]; then
-        ensure_native_runtime_artifact
-        if echo "$PLATFORMS" | grep -q ","; then
-            log_error "Native runtime 仍使用本地预编译 runner，一次只支持单架构；请指定 --arch amd64 或 --arch arm64"
+    if echo "$PLATFORMS" | grep -q ","; then
+        if [ "$PUSH" != true ]; then
+            log_error "agent 运行镜像本地构建一次只支持单架构；请指定 --arch amd64/--arch arm64"
             exit 1
         fi
-        ensure_runtime_runner_binary "$PLATFORMS"
+        log_error "agent 运行镜像多架构 push 暂未自动合并 manifest，请分别按架构构建后手动发布"
+        exit 1
     fi
 
+    ensure_runtime_runner_binary "$PLATFORMS"
+
+    local dockerfile
+    dockerfile=$(runtime_dockerfile_for "$engine" "$PLATFORMS")
     build_image "$service" "$dockerfile" "$PROJECT_ROOT" "$image_name"
 }
 
@@ -1393,7 +1313,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
-        BUILD_NATIVE=false
+        BUILD_NATIVE=true
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1430,7 +1350,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
-        BUILD_NATIVE=false
+        BUILD_NATIVE=true
     fi
 
     # 规范化镜像仓库地址
@@ -1455,12 +1375,15 @@ build_all_images() {
         NATIVE_FULL_IMAGE="${NATIVE_IMAGE}:${TAG}"
     fi
 
-    if [ "$BUILD_NATIVE" = true ]; then
+    if [ "$BUILD_CLAUDECODE" = true ] || [ "$BUILD_CODEX" = true ] || [ "$BUILD_NATIVE" = true ]; then
         if echo "$PLATFORMS" | grep -q ","; then
-            log_error "Native runtime 一次只支持单架构；请指定 --arch amd64 或 --arch arm64"
+            if [ "$PUSH" = true ]; then
+                log_error "agent runtime 镜像暂不支持多架构 push；请分别使用 --arch amd64 / --arch arm64 构建发布，避免核心镜像先推送后才失败"
+            else
+                log_error "agent runtime 镜像本地构建一次只支持单架构；请指定 --arch amd64 或 --arch arm64"
+            fi
             exit 1
         fi
-        ensure_native_runtime_artifact
     fi
 
     # 初始化 Buildx（如果需要）
@@ -1494,8 +1417,13 @@ build_all_images() {
     fi
 
     if [ "$BUILD_ORCHESTRATOR" = true ]; then
+        if echo "$PLATFORMS" | grep -q ","; then
+            log_error "Rust Orchestrator 快速本地二进制打包一次只支持单架构；请指定 --arch amd64/--arch arm64"
+            exit 1
+        fi
+        ensure_orchestrator_binary "$PLATFORMS"
         build_image "Rust Orchestrator" \
-            "$SCRIPT_DIR/docker/orchestrator-rs.Dockerfile" \
+            "$SCRIPT_DIR/docker/orchestrator-rs-binary.Dockerfile" \
             "$PROJECT_ROOT" \
             "$ORCHESTRATOR_RS_FULL_IMAGE"
         echo ""
@@ -1593,7 +1521,7 @@ pull_images() {
         PULL_SKILLSPECTOR=false
         PULL_CLAUDECODE=true
         PULL_CODEX=true
-        PULL_NATIVE=false
+        PULL_NATIVE=true
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
@@ -1615,7 +1543,7 @@ pull_images() {
     elif [ "$BUILD_ALL" = true ]; then
         PULL_CLAUDECODE=true
         PULL_CODEX=true
-        PULL_NATIVE=false
+        PULL_NATIVE=true
     fi
 
     if [ -n "$NORMALIZED_REGISTRY" ]; then
@@ -1756,7 +1684,7 @@ main() {
                         DOCKER_MIRROR="${2%/}"
                         ;;
                 esac
-                RUST_IMAGE="${BASE_IMAGE_REGISTRY}rust:1.97.1-bookworm"
+                RUST_IMAGE="${BASE_IMAGE_REGISTRY}rust:1-bookworm"
                 RUNTIME_IMAGE="${BASE_IMAGE_REGISTRY}debian:bookworm-slim"
                 shift 2
                 ;;
@@ -1825,7 +1753,7 @@ main() {
                 NO_CACHE=true
                 shift
                 ;;
-            doctor|local|up|build|push|pull|down|logs|restart|status)
+            doctor|local|build|push|pull|down|logs|restart|status)
                 COMMAND="$1"
                 shift
                 ;;
@@ -1907,9 +1835,6 @@ main() {
         (local)
             run_local_compose
             ;;
-        (up)
-            run_local_up
-            ;;
         (push)
             PUSH=true
             build_all_images
@@ -1937,6 +1862,5 @@ main() {
     esac
 }
 
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-    main "$@"
-fi
+# 运行主函数
+main "$@"

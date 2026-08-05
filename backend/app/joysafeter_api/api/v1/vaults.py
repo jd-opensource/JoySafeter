@@ -6,6 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
 from app.joysafeter_api.api.v1.id_helpers import parse_cred_id, parse_vault_id
+from app.joysafeter_api.api.v1.network_policy_refresh import (
+    refresh_live_limited_sandbox_network_policies,
+)
 from app.joysafeter_api.services import VaultService
 from app.joysafeter_domain.schemas.joysafeter_vault import (
     CreateCredentialRequest,
@@ -284,6 +287,13 @@ async def create_credential(
         target_id=str(cred.id),
         details={"vault_id": str(vault_id), "name": cred.name, "credential_type": cred.credential_type},
     )
+    await refresh_live_limited_sandbox_network_policies(
+        db,
+        project_id=auth_ctx.project_id,
+        reason="vault_credential.created",
+        source_type="vault_credential",
+        source_id=str(cred.id),
+    )
     return VaultCredentialResponse.model_validate(cred)
 
 
@@ -363,6 +373,13 @@ async def update_credential(
         target_id=str(updated.id),
         details={"vault_id": str(vault_id), "name": updated.name, "credential_type": updated.credential_type},
     )
+    await refresh_live_limited_sandbox_network_policies(
+        db,
+        project_id=auth_ctx.project_id,
+        reason="vault_credential.updated",
+        source_type="vault_credential",
+        source_id=str(updated.id),
+    )
     return VaultCredentialResponse.model_validate(updated)
 
 
@@ -392,6 +409,13 @@ async def archive_credential(
         target_id=str(cred_id),
         details={"vault_id": str(vault_id), "name": cred.name, "credential_type": cred.credential_type},
     )
+    await refresh_live_limited_sandbox_network_policies(
+        db,
+        project_id=auth_ctx.project_id,
+        reason="vault_credential.archived",
+        source_type="vault_credential",
+        source_id=str(cred_id),
+    )
     return {"status": "archived"}
 
 
@@ -420,5 +444,12 @@ async def delete_credential(
         target_type="vault_credential",
         target_id=str(cred_id),
         details={"vault_id": str(vault_id), "name": cred.name, "credential_type": cred.credential_type},
+    )
+    await refresh_live_limited_sandbox_network_policies(
+        db,
+        project_id=auth_ctx.project_id,
+        reason="vault_credential.deleted",
+        source_type="vault_credential",
+        source_id=str(cred_id),
     )
     return {"deleted": True}

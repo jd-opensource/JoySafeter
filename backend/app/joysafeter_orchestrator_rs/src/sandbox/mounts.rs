@@ -50,9 +50,9 @@ struct StorageVolumeSpec {
     max_access: String,
     #[serde(default)]
     allowed_prefixes: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_docker_spec")]
     docker: Option<StorageDockerSpec>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_k8s_spec")]
     k8s: Option<StorageK8sSpec>,
 }
 
@@ -66,6 +66,42 @@ struct StorageK8sSpec {
     pvc: String,
     #[serde(default)]
     namespace: Option<String>,
+}
+
+fn deserialize_optional_docker_spec<'de, D>(
+    deserializer: D,
+) -> Result<Option<StorageDockerSpec>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.as_object().is_some_and(|object| object.is_empty()) {
+        return Ok(None);
+    }
+    StorageDockerSpec::deserialize(value)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
+}
+
+fn deserialize_optional_k8s_spec<'de, D>(
+    deserializer: D,
+) -> Result<Option<StorageK8sSpec>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.as_object().is_some_and(|object| object.is_empty()) {
+        return Ok(None);
+    }
+    StorageK8sSpec::deserialize(value)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
 }
 
 fn default_storage() -> String {
@@ -406,5 +442,44 @@ mod tests {
         assert!(
             matches!(mounts[0], SandboxMount::K8sPvc { ref claim_name, read_only: true, .. } if claim_name == "pvc-storage-assets-prod")
         );
+    }
+
+    #[test]
+    fn ignores_empty_runtime_specs_for_other_providers() {
+        let host_path =
+            std::env::temp_dir().join(format!("joysafeter-mounts-test-{}", std::process::id()));
+        std::fs::create_dir_all(&host_path).unwrap();
+        let host_path = host_path.to_string_lossy().to_string();
+        let env = serde_json::json!({
+            "mount_resources": [{
+                "type": "storage",
+                "name": "nfs_demo",
+                "volume_ref": "nfs_demo",
+                "sub_path": "",
+                "mount_path": "/workspace/storage/nfs_demo",
+                "access": "read_only"
+            }]
+        });
+        let catalog = serde_json::json!({
+            "nfs_demo": {
+                "max_access": "read_only",
+                "allowed_prefixes": [],
+                "docker": {"host_path": host_path},
+                "k8s": {}
+            }
+        });
+
+        let (mounts, fingerprints) =
+            resolve_mount_resources(Some(&env), &catalog, "docker").unwrap();
+
+        assert_eq!(mounts.len(), 1);
+        assert_eq!(fingerprints.len(), 1);
+        assert!(matches!(
+            mounts[0],
+            SandboxMount::DockerBind {
+                read_only: true,
+                ..
+            }
+        ));
     }
 }

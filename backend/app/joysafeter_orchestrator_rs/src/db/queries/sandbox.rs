@@ -1,3 +1,4 @@
+use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -11,6 +12,16 @@ use crate::db::models::JoySafeterSandbox;
 pub struct CommandDestroySandboxClaim {
     pub external_id: Option<String>,
     pub previous_status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpsertNetworkPolicy<'a> {
+    pub sandbox_id: Uuid,
+    pub session_id: Option<Uuid>,
+    pub task_id: Option<Uuid>,
+    pub policy_hash: &'a str,
+    pub desired_policy_json: &'a Value,
+    pub rendered_summary_json: &'a Value,
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +77,54 @@ pub async fn list_live_sandboxes_for_recovery(
         ORDER BY created_at
         "#,
     )
+    .fetch_all(pool)
+    .await
+}
+
+/// List live limited-networking sandboxes for a project. Used by API-triggered
+/// credential/environment refreshes to push updated Envoy policies immediately.
+pub async fn list_live_limited_sandboxes_for_project(
+    pool: &PgPool,
+    project_id: Option<&str>,
+) -> Result<Vec<JoySafeterSandbox>, sqlx::Error> {
+    sqlx::query_as::<_, JoySafeterSandbox>(
+        r#"
+        SELECT * FROM joysafeter_sandboxes
+        WHERE status IN ('idle', 'running', 'creating', 'provisioning')
+          AND destroyed_at IS NULL
+          AND ($1::text IS NULL OR project_id = $1)
+          AND config #>> '{fingerprint,networking,type}' = 'limited'
+        ORDER BY created_at
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// List live limited-networking sandboxes whose Envoy egress policy is NOT in
+/// the `ready` state — a push failed, NACK'd, or was left degraded (e.g. a
+/// transient xDS/Docker hiccup during provisioning). The networking-reconcile
+/// loop re-pushes these so a sandbox self-heals instead of running with no
+/// egress until the next task. Ordered oldest-updated-first so the
+/// longest-degraded sandbox is retried first.
+pub async fn list_degraded_limited_sandboxes(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<JoySafeterSandbox>, sqlx::Error> {
+    sqlx::query_as::<_, JoySafeterSandbox>(
+        r#"
+        SELECT * FROM joysafeter_sandboxes
+        WHERE status IN ('idle', 'running', 'provisioning')
+          AND destroyed_at IS NULL
+          AND external_id IS NOT NULL
+          AND config #>> '{fingerprint,networking,type}' = 'limited'
+          AND networking_status IN ('pending', 'nacked', 'failed')
+        ORDER BY updated_at
+        LIMIT $1
+        "#,
+    )
+    .bind(limit)
     .fetch_all(pool)
     .await
 }
@@ -436,6 +495,391 @@ pub async fn update_sandbox_status_and_config(
     Ok(result.rows_affected() > 0)
 }
 
+/// Mark the sandbox networking control-plane status.
+pub async fn update_sandbox_networking_status(
+    pool: &PgPool,
+    sandbox_id: Uuid,
+    status: &str,
+    policy_hash: Option<&str>,
+    policy_version: Option<i64>,
+    last_error: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET networking_status = $2,
+            networking_policy_hash = COALESCE($3, networking_policy_hash),
+            networking_policy_version = COALESCE($4, networking_policy_version),
+            networking_last_error = $5,
+            networking_ready_at = CASE WHEN $2 = 'ready' THEN NOW() ELSE networking_ready_at END,
+            updated_at = NOW()
+        WHERE id = $1
+          AND destroyed_at IS NULL
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(status)
+    .bind(policy_hash)
+    .bind(policy_version)
+    .bind(last_error)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Prepare a sandbox network-policy push on the hot path.
+///
+/// The sandbox row is the authoritative latest-state record. We only write when
+/// the effective policy hash changed or the previous status was not ready;
+/// repeated healthy refreshes avoid database writes entirely.
+pub async fn prepare_sandbox_network_policy_push(
+    pool: &PgPool,
+    sandbox_id: Uuid,
+    policy_hash: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    let row = sqlx::query_as::<_, (i64,)>(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET networking_status = 'pending',
+            networking_policy_hash = $2,
+            networking_policy_version = CASE
+                WHEN networking_policy_hash IS DISTINCT FROM $2
+                    THEN GREATEST(networking_policy_version, 0) + 1
+                ELSE networking_policy_version
+            END,
+            networking_last_error = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+          AND destroyed_at IS NULL
+          AND (
+              networking_policy_hash IS DISTINCT FROM $2
+              OR networking_status <> 'ready'
+              OR networking_last_error IS NOT NULL
+          )
+        RETURNING networking_policy_version
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(policy_hash)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|(policy_version,)| policy_version))
+}
+
+/// Mark an accepted network-policy push without touching audit history.
+pub async fn mark_sandbox_network_policy_acked(
+    pool: &PgPool,
+    sandbox_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET networking_status = 'ready',
+            networking_last_error = NULL,
+            networking_ready_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+          AND destroyed_at IS NULL
+          AND (networking_status <> 'ready' OR networking_last_error IS NOT NULL)
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Persist a failed policy application as sparse audit history.
+///
+/// Successful ACKs remain on `joysafeter_sandboxes`; failures are durable so the
+/// platform diagnostics page can explain why a sandbox cannot be scheduled.
+pub async fn record_network_policy_failure(
+    pool: &PgPool,
+    sandbox_id: Uuid,
+    reason: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        WITH sandbox AS (
+            SELECT id,
+                   chat_session_id,
+                   NULLIF(networking_policy_hash, '') AS policy_hash,
+                   GREATEST(networking_policy_version, 1) AS policy_version,
+                   COALESCE(config->'fingerprint', '{}'::jsonb) AS fingerprint
+            FROM joysafeter_sandboxes
+            WHERE id = $1
+              AND destroyed_at IS NULL
+        ), status_update AS (
+            UPDATE joysafeter_sandboxes s
+            SET networking_status = 'nacked',
+                networking_last_error = $2,
+                updated_at = NOW()
+            FROM sandbox
+            WHERE s.id = sandbox.id
+            RETURNING s.id
+        )
+        INSERT INTO joysafeter_sandbox_network_policies (
+            id, sandbox_id, session_id, task_id, policy_hash, policy_version,
+            desired_policy_json, rendered_summary_json, status,
+            last_error, last_nack_reason, created_at, updated_at
+        )
+        SELECT gen_random_uuid(),
+               sandbox.id,
+               sandbox.chat_session_id,
+               NULL,
+               COALESCE(sandbox.policy_hash, 'unknown'),
+               sandbox.policy_version,
+               jsonb_build_object('fingerprint', sandbox.fingerprint, 'recorded_on', 'failure'),
+               '{}'::jsonb,
+               'nacked',
+               $2,
+               $2,
+               NOW(),
+               NOW()
+        FROM sandbox
+        ON CONFLICT (sandbox_id, policy_version) DO UPDATE
+        SET status = 'nacked',
+            last_error = EXCLUDED.last_error,
+            last_nack_reason = EXCLUDED.last_nack_reason,
+            updated_at = NOW()
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(reason)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Persist a failed policy application with the redacted desired/rendered policy.
+pub async fn record_network_policy_failure_detail(
+    pool: &PgPool,
+    policy: UpsertNetworkPolicy<'_>,
+    reason: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        WITH sandbox AS (
+            SELECT id,
+                   chat_session_id,
+                   GREATEST(networking_policy_version, 1) AS policy_version
+            FROM joysafeter_sandboxes
+            WHERE id = $1
+              AND destroyed_at IS NULL
+        ), status_update AS (
+            UPDATE joysafeter_sandboxes s
+            SET networking_status = 'nacked',
+                networking_policy_hash = $2,
+                networking_last_error = $6,
+                updated_at = NOW()
+            FROM sandbox
+            WHERE s.id = sandbox.id
+            RETURNING s.id
+        )
+        INSERT INTO joysafeter_sandbox_network_policies (
+            id, sandbox_id, session_id, task_id, policy_hash, policy_version,
+            desired_policy_json, rendered_summary_json, status,
+            last_error, last_nack_reason, created_at, updated_at
+        )
+        SELECT gen_random_uuid(),
+               sandbox.id,
+               COALESCE($3, sandbox.chat_session_id),
+               $4,
+               $2,
+               sandbox.policy_version,
+               $5,
+               $7,
+               'nacked',
+               $6,
+               $6,
+               NOW(),
+               NOW()
+        FROM sandbox
+        ON CONFLICT (sandbox_id, policy_version) DO UPDATE
+        SET session_id = COALESCE(EXCLUDED.session_id, joysafeter_sandbox_network_policies.session_id),
+            task_id = COALESCE(EXCLUDED.task_id, joysafeter_sandbox_network_policies.task_id),
+            policy_hash = EXCLUDED.policy_hash,
+            desired_policy_json = EXCLUDED.desired_policy_json,
+            rendered_summary_json = EXCLUDED.rendered_summary_json,
+            status = 'nacked',
+            last_error = EXCLUDED.last_error,
+            last_nack_reason = EXCLUDED.last_nack_reason,
+            updated_at = NOW()
+        "#,
+    )
+    .bind(policy.sandbox_id)
+    .bind(policy.policy_hash)
+    .bind(policy.session_id)
+    .bind(policy.task_id)
+    .bind(policy.desired_policy_json)
+    .bind(reason)
+    .bind(policy.rendered_summary_json)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Insert a new desired network-policy revision for a sandbox.
+pub async fn create_network_policy_revision(
+    pool: &PgPool,
+    policy: UpsertNetworkPolicy<'_>,
+) -> Result<i64, sqlx::Error> {
+    let row: (i64,) = sqlx::query_as(
+        r#"
+        WITH next_version AS (
+            SELECT COALESCE(MAX(policy_version), 0) + 1 AS version
+            FROM joysafeter_sandbox_network_policies
+            WHERE sandbox_id = $1
+        ), inserted AS (
+            INSERT INTO joysafeter_sandbox_network_policies (
+                id, sandbox_id, session_id, task_id, policy_hash, policy_version,
+                desired_policy_json, rendered_summary_json, status, created_at, updated_at
+            )
+            SELECT gen_random_uuid(), $1, $2, $3, $4, version, $5, $6, 'pending', NOW(), NOW()
+            FROM next_version
+            RETURNING policy_version
+        )
+        SELECT policy_version FROM inserted
+        "#,
+    )
+    .bind(policy.sandbox_id)
+    .bind(policy.session_id)
+    .bind(policy.task_id)
+    .bind(policy.policy_hash)
+    .bind(policy.desired_policy_json)
+    .bind(policy.rendered_summary_json)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row.0)
+}
+
+/// Mark a sandbox policy revision as pushed to Envoy.
+pub async fn mark_network_policy_pushed(
+    pool: &PgPool,
+    sandbox_id: Uuid,
+    policy_version: i64,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_sandbox_network_policies
+        SET status = 'pushed', pushed_at = NOW(), updated_at = NOW(), last_error = NULL
+        WHERE sandbox_id = $1 AND policy_version = $2
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(policy_version)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Mark the latest policy for a sandbox as ACKed by Envoy.
+pub async fn mark_latest_network_policy_acked(
+    pool: &PgPool,
+    sandbox_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        WITH latest AS (
+            SELECT id, policy_hash, policy_version
+            FROM joysafeter_sandbox_network_policies
+            WHERE sandbox_id = $1
+            ORDER BY policy_version DESC
+            LIMIT 1
+        ), policy_update AS (
+            UPDATE joysafeter_sandbox_network_policies p
+            SET status = 'acked', acked_at = NOW(), updated_at = NOW(), last_error = NULL, last_nack_reason = NULL
+            FROM latest
+            WHERE p.id = latest.id
+            RETURNING latest.policy_hash, latest.policy_version
+        )
+        UPDATE joysafeter_sandboxes s
+        SET networking_status = 'ready',
+            networking_policy_hash = policy_update.policy_hash,
+            networking_policy_version = policy_update.policy_version,
+            networking_last_error = NULL,
+            networking_ready_at = NOW(),
+            updated_at = NOW()
+        FROM policy_update
+        WHERE s.id = $1
+          AND s.destroyed_at IS NULL
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Mark the latest policy for a sandbox as NACKed/failed.
+pub async fn mark_latest_network_policy_nacked(
+    pool: &PgPool,
+    sandbox_id: Uuid,
+    reason: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        WITH latest AS (
+            SELECT id
+            FROM joysafeter_sandbox_network_policies
+            WHERE sandbox_id = $1
+            ORDER BY policy_version DESC
+            LIMIT 1
+        ), policy_update AS (
+            UPDATE joysafeter_sandbox_network_policies p
+            SET status = 'nacked', last_error = $2, last_nack_reason = $2, updated_at = NOW()
+            FROM latest
+            WHERE p.id = latest.id
+            RETURNING p.sandbox_id
+        )
+        UPDATE joysafeter_sandboxes s
+        SET networking_status = 'nacked',
+            networking_last_error = $2,
+            updated_at = NOW()
+        FROM policy_update
+        WHERE s.id = policy_update.sandbox_id
+          AND s.destroyed_at IS NULL
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(reason)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Merge non-secret sandbox config metadata while preserving lifecycle fields.
+pub async fn merge_sandbox_config(
+    pool: &PgPool,
+    sandbox_id: Uuid,
+    config: &serde_json::Value,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET config = COALESCE(config, '{}'::jsonb) || $2::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+          AND destroyed_at IS NULL
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(config)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 /// Mark sandbox as destroyed.
 pub async fn destroy_sandbox(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query(
@@ -489,12 +933,14 @@ pub async fn claim_sandbox_for_command_destroy(
 }
 
 /// Mark a passively observed sandbox as destroyed only if the row still matches
-/// the status/external id observed by the cleanup path.
+/// the cleanup claim/external id.
 ///
 /// Passive sweeps and command-driven provider deletion must not convert a
-/// sandbox that concurrently restarted, reconnected, or moved to a different
-/// lifecycle state into `destroyed` based on a stale pre-provider-call
-/// observation.
+/// A graceful stop path can race after a passive cleanup claim and move the row
+/// from `stopping` to `stopped` after the provider runtime has already been
+/// destroyed. Accept that narrow cleanup-owned transition too; otherwise the
+/// stopped row keeps occupying `idx_csb_active_session_unique` and blocks
+/// rescheduling the session forever.
 pub async fn destroy_sandbox_if_status_and_external_id(
     pool: &PgPool,
     sandbox_id: Uuid,
@@ -509,9 +955,14 @@ pub async fn destroy_sandbox_if_status_and_external_id(
             updated_at = NOW(),
             idle_since = NULL
         WHERE id = $1
-          AND status = $2
+          AND (status = $2 OR ($2 = 'stopping' AND status = 'stopped'))
           AND destroyed_at IS NULL
           AND external_id IS NOT DISTINCT FROM $3
+          AND NOT EXISTS (
+              SELECT 1 FROM joysafeter_tasks
+              WHERE sandbox_id = $1
+                AND status IN ('pending', 'scheduling', 'running')
+          )
         "#,
     )
     .bind(sandbox_id)

@@ -1333,7 +1333,13 @@ async def test_trigger_run_children_reject_cross_project_parent_at_service_bound
     assert [str(run.id) for run in project_b_runs] == [str(task_b_id)]
 
     with pytest.raises(AppError) as exc_info:
-        await list_trigger_runs(trigger_b_id, 50, 0, db_session, _admin_ctx(project_a.id, org_a.id))
+        await list_trigger_runs(
+            trigger_b_id,
+            50,
+            None,
+            db_session,
+            _admin_ctx(project_a.id, org_a.id),
+        )
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "TRIGGER_NOT_FOUND",
@@ -1343,6 +1349,62 @@ async def test_trigger_run_children_reject_cross_project_parent_at_service_bound
         "retryable": False,
         "user_action": "refresh",
     }
+
+
+@pytest.mark.asyncio
+async def test_trigger_run_history_uses_cursor_pagination(db_session):
+    org, project, agent = await _create_project_with_agent(db_session, name="TriggerRunsPage")
+    trigger = await _create_due_trigger(
+        db_session,
+        project=project,
+        agent=agent,
+        name="run-history-page",
+    )
+    base_time = utc_now()
+    tasks = [
+        JoySafeterTask(
+            agent_id=agent.id,
+            trigger_id=trigger.id,
+            project_id=project.id,
+            prompt=f"scheduled run {index}",
+            status=JoySafeterTaskStatus.SUCCEEDED.value,
+            created_at=base_time + timedelta(minutes=index),
+        )
+        for index in range(3)
+    ]
+    db_session.add_all(tasks)
+    await db_session.flush()
+    trigger_id = trigger.id
+    task_ids = [task.id for task in tasks]
+    org_id = org.id
+    project_id = project.id
+    await db_session.commit()
+
+    first_page = await list_trigger_runs(
+        trigger_id,
+        2,
+        None,
+        db_session,
+        _admin_ctx(project_id, org_id),
+    )
+
+    assert first_page.has_more is True
+    assert [run.id for run in first_page.data] == [task_ids[2], task_ids[1]]
+    assert first_page.first_id == str(task_ids[2])
+    assert first_page.last_id == str(task_ids[1])
+
+    second_page = await list_trigger_runs(
+        trigger_id,
+        2,
+        first_page.data[-1].id,
+        db_session,
+        _admin_ctx(project_id, org_id),
+    )
+
+    assert second_page.has_more is False
+    assert [run.id for run in second_page.data] == [task_ids[0]]
+    assert second_page.first_id == str(task_ids[0])
+    assert second_page.last_id == str(task_ids[0])
 
 
 @pytest.mark.asyncio

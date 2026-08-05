@@ -59,6 +59,11 @@ pub struct JoySafeterTask {
     pub timeout_sec: Option<i32>,
     pub retry_count: i32,
     pub max_retries: i32,
+    pub schedule_attempts: i32,
+    pub next_schedule_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_schedule_error: Option<String>,
+    pub last_schedule_error_type: Option<String>,
+    pub scheduling_started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: Option<i64>,
@@ -94,6 +99,11 @@ pub struct JoySafeterSandbox {
     pub chat_session_id: Option<Uuid>,
     pub image: Option<String>,
     pub disconnected_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub networking_status: String,
+    pub networking_policy_hash: Option<String>,
+    pub networking_policy_version: i64,
+    pub networking_last_error: Option<String>,
+    pub networking_ready_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 // ---------------------------------------------------------------------------
