@@ -14,15 +14,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 可配置的 pip 镜像源（默认使用清华大学镜像源，可通过 ARG 切换到其他镜像）
-ARG PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 RUN pip install --no-cache-dir uv -i ${PIP_INDEX_URL}
 
 # 构建阶段
 FROM base AS builder
 
 # 传递 pip 镜像源到构建阶段
-ARG PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-ARG UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY pyproject.toml uv.lock* README.md ./
 

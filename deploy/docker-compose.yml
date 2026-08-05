@@ -14,8 +14,8 @@ x-backend-build: &backend-build
   dockerfile: ../deploy/docker/backend.Dockerfile
   args:
     BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
-    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
-    UV_INDEX_URL: ${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    UV_INDEX_URL: ${UV_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
     GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
 
 x-orchestrator-rs-build: &orchestrator-rs-build
@@ -32,7 +32,7 @@ x-skillspector-build: &skillspector-build
     skillspector: ${SKILLSPECTOR_SOURCE_PATH:-../.deps/SkillSpector}
   args:
     BASE_IMAGE_REGISTRY: ${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}
-    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}
+    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
 
 x-backend-env-files: &backend-env-files
   - path: ../backend/.env

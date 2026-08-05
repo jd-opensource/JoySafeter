@@ -84,7 +84,7 @@ uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --wor
 
 #### PyPI 镜像源配置 (PyPI Mirror Configuration)
 
-项目默认使用清华大学镜像源 (`https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple`) 以加速依赖安装。配置方式：
+项目默认使用清华大学镜像源 (`https://pypi.tuna.tsinghua.edu.cn/simple`) 以加速依赖安装。配置方式：
 
 1. **环境变量** (优先级最高):
    ```bash

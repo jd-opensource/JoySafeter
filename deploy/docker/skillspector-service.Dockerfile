@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE_REGISTRY}python:${PYTHON_VERSION}
 
 WORKDIR /app
 
-ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 RUN python -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"

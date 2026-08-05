@@ -91,8 +91,8 @@ DOCKER_MIRROR="${DOCKER_MIRROR:-docker.m.daocloud.io}"
 # 是否禁用 Docker 构建缓存（默认使用缓存）
 NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
-PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
-UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
+PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+UV_INDEX_URL="${UV_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
 # Rust 镜像从 BASE_IMAGE_REGISTRY 派生
 RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1.97.1-bookworm}"
 RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
@@ -179,8 +179,8 @@ show_usage() {
   NATIVE_IMAGE           Native 运行镜像名称（默认: joysafeter-native）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
-  PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
-  UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
+  PIP_INDEX_URL          pip 镜像源（默认: https://pypi.tuna.tsinghua.edu.cn/simple）
+  UV_INDEX_URL           uv 镜像源（默认: https://pypi.tuna.tsinghua.edu.cn/simple）
   RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
   BASE_IMAGE_REGISTRY    官方库镜像前缀（默认: public.ecr.aws/docker/library/）
   DOCKER_MIRROR          第三方镜像代理前缀（默认: docker.m.daocloud.io）

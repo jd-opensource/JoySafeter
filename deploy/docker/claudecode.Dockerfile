@@ -25,7 +25,7 @@ FROM ${BASE_IMAGE_REGISTRY}node:${NODE_VERSION} AS node-runtime
 FROM ${BASE_IMAGE_REGISTRY}python:${PYTHON_VERSION} AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG PIP_INDEX_URL="https://pypi.org/simple"
+ARG PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
 ARG NPM_REGISTRY="https://registry.npmjs.org"
 ARG UV_VERSION="0.11.29"
 ARG YARN_VERSION="1.22.22"

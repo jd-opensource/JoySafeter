@@ -490,7 +490,7 @@ class Settings(BaseSettings):
 
     # UV Package Manager Configuration
     uv_index_url: str = Field(
-        default="https://pypi.org/simple",
+        default="https://pypi.tuna.tsinghua.edu.cn/simple",
         validation_alias=AliasChoices("UV_INDEX_URL", "PIP_INDEX_URL"),
         description="PyPI index URL for UV and pip",
     )

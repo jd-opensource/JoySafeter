@@ -61,11 +61,11 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout SkillSpector
         if: matrix.image.skillspector
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: NVIDIA/SkillSpector
           ref: v2.5.1
@@ -89,5 +89,5 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GIT_COMMIT_SHA=${{ github.sha }}
-            PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/simple
-            UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/simple
+            PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+            UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
