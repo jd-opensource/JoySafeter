@@ -7,5 +7,5 @@ dockerfile_name: frontend.Dockerfile
 build_context: ./frontend    # 执行dockerfile构建的context
 build_args:
   # 先通过 frontend-base-build.yam 构建/推送基础镜像，再把这里替换成生成的不可变 tag。
-  FRONTEND_BASE_IMAGE: is.jd.local/llm-app-dev-sys/joysafeter-frontend-base:latest
+  FRONTEND_BASE_IMAGE: llm-app-dev-sys/joysafeter-frontend-base:v20260805.161016-7abedcb1-Tv78n1
 build_target: production   # 多阶段构建，要触发的target
