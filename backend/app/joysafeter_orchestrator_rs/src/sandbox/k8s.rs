@@ -14,6 +14,7 @@ use uuid::Uuid;
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
 use super::mounts::SandboxMount;
+use super::pod_watcher::PodWatcher;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
     SandboxProvider, SandboxStatus,
@@ -40,6 +41,8 @@ pub struct K8sProvider {
     envoy_manager: Option<Arc<EnvoyManager>>,
     /// Delta xDS server for gRPC xDS mode.
     xds_service: Option<Arc<DeltaXdsServer>>,
+    /// Local pod cache backed by K8s Watch — zero API calls for status/list.
+    pod_watcher: PodWatcher,
 }
 
 impl K8sProvider {
@@ -98,10 +101,14 @@ impl K8sProvider {
             None
         };
 
+        // Start PodWatcher — background Watch stream keeps local pod cache synced.
+        // status() and list_active() read from this cache (zero API calls).
+        let pod_watcher = PodWatcher::new(client.clone(), &config.k8s_namespace);
+
         info!(
             namespace = %config.k8s_namespace,
             envoy_enabled = config.envoy_enabled,
-            "K8sProvider initialized (kube-rs SDK)"
+            "K8sProvider initialized (kube-rs SDK + PodWatcher)"
         );
 
         Ok(Self {
@@ -111,6 +118,7 @@ impl K8sProvider {
             orchestrator_url: config.k8s_orchestrator_url.clone(),
             envoy_manager,
             xds_service,
+            pod_watcher,
         })
     }
 
@@ -346,23 +354,8 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn status(&self, external_id: &str) -> anyhow::Result<SandboxStatus> {
-        match self.pods().get(external_id).await {
-            Ok(pod) => {
-                let phase = pod
-                    .status
-                    .as_ref()
-                    .and_then(|s| s.phase.as_deref())
-                    .unwrap_or("Unknown");
-                Ok(match phase {
-                    "Running" => SandboxStatus::Running,
-                    "Pending" => SandboxStatus::Unknown("Pending".to_string()),
-                    "Succeeded" | "Failed" => SandboxStatus::Stopped,
-                    other => SandboxStatus::Unknown(other.to_string()),
-                })
-            }
-            Err(kube::Error::Api(err)) if err.code == 404 => Ok(SandboxStatus::NotFound),
-            Err(e) => Err(e.into()),
-        }
+        // Read from PodWatcher cache — zero K8s API calls.
+        Ok(self.pod_watcher.status(external_id).await)
     }
 
     async fn exec(&self, external_id: &str, cmd: &[&str]) -> anyhow::Result<String> {
@@ -383,37 +376,8 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn list_active(&self) -> anyhow::Result<Vec<ProviderSandboxInfo>> {
-        let lp = ListParams::default().labels("app.kubernetes.io/name=joysafeter-sandbox");
-        let pods = self.pods().list(&lp).await?;
-        let mut result = Vec::new();
-        for pod in pods.items {
-            let name = pod.metadata.name.unwrap_or_default();
-            let image = pod
-                .spec
-                .as_ref()
-                .and_then(|s| s.containers.first())
-                .map(|c| c.image.clone().unwrap_or_default())
-                .unwrap_or_default();
-            let status = pod
-                .status
-                .as_ref()
-                .and_then(|s| s.phase.clone())
-                .unwrap_or_else(|| "Unknown".to_string());
-            let labels = pod
-                .metadata
-                .labels
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
-            result.push(ProviderSandboxInfo {
-                id: name.clone(),
-                name,
-                status,
-                image,
-                labels,
-            });
-        }
-        Ok(result)
+        // Read from PodWatcher cache — zero K8s API calls.
+        Ok(self.pod_watcher.list_active().await)
     }
 
     fn provider_name(&self) -> &'static str {

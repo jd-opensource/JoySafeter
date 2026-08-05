@@ -10,5 +10,6 @@ pub mod image_builder;
 pub mod k8s;
 pub mod lds_backend;
 pub mod mounts;
+pub mod pod_watcher;
 pub mod provider;
 pub mod storage;
