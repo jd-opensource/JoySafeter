@@ -1,6 +1,6 @@
 # ============================================================================
 # JoySafeter Frontend — JDOS 生产部署 Dockerfile
-# 基础镜像: is.jd.local/llm-app-dev-sys/autosec-frontend-base
+# 基础镜像: is.jd.local/llm-app-dev-sys/joysafeter-frontend-base
 # 项目类型: Next.js (standalone) + pm2
 # 包管理器: bun
 # ============================================================================
@@ -8,15 +8,11 @@
 # ---------------------------------------------------------------------------
 # Stage 1: packages — 安装依赖
 # ---------------------------------------------------------------------------
-FROM is.jd.local/llm-app-dev-sys/autosec-langfuse-web-base:v20250824.101509-89d28a67-ItlU5q AS packages
+ARG FRONTEND_BASE_IMAGE=is.jd.local/llm-app-dev-sys/joysafeter-frontend-base:latest
+
+FROM ${FRONTEND_BASE_IMAGE} AS packages
 
 WORKDIR /home/export/App/frontend
-
-# 安装 bun (需要 unzip)
-RUN apt-get update && apt-get install -y --no-install-recommends unzip && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
-    ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
@@ -24,14 +20,9 @@ RUN bun install --frozen-lockfile
 # ---------------------------------------------------------------------------
 # Stage 2: builder — 构建 Next.js standalone
 # ---------------------------------------------------------------------------
-FROM is.jd.local/llm-app-dev-sys/autosec-langfuse-web-base:v20250824.101509-89d28a67-ItlU5q AS builder
+FROM ${FRONTEND_BASE_IMAGE} AS builder
 
 WORKDIR /home/export/App/frontend
-
-RUN apt-get update && apt-get install -y --no-install-recommends unzip && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.14 && \
-    ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
 COPY --from=packages /home/export/App/frontend .
 COPY . .
@@ -45,7 +36,7 @@ RUN bun run build
 # ---------------------------------------------------------------------------
 # Stage 3: production — 生产运行镜像
 # ---------------------------------------------------------------------------
-FROM is.jd.local/llm-app-dev-sys/autosec-langfuse-web-base:v20250824.101509-89d28a67-ItlU5q AS production
+FROM ${FRONTEND_BASE_IMAGE} AS production
 
 WORKDIR /home/export/App/frontend
 
@@ -63,26 +54,7 @@ ENV NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000
 
 EXPOSE 3000
 
-# 运维基础设施
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget openssl openssh-client openssh-server \
-        netcat-traditional net-tools bash-completion vim \
-        tcpdump logrotate cron sudo dmidecode tzdata && \
-    ln -sf /usr/share/zoneinfo/${TZ} /etc/localtime && \
-    echo ${TZ} > /etc/timezone && \
-    mkdir -p /run/sshd && chmod 755 /run/sshd && \
-    ssh-keygen -A && \
-    ln -sf /bin/bash /bin/sh && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# pm2
-RUN npm config delete proxy 2>/dev/null; \
-    npm config delete https-proxy 2>/dev/null; \
-    http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" \
-    npm install -g pm2 --registry https://registry.npmmirror.com && \
-    mkdir -p /.pm2
-
+# 运维基础设施、bun 和 pm2 已预置在 frontend-base 镜像中。
 ENV PM2_HOME=/.pm2
 
 # Next.js standalone 产物
