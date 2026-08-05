@@ -19,13 +19,14 @@ interface PageResult<T> {
   last_id?: string
 }
 
-interface UsePaginatedListOptions {
+interface UsePaginatedListOptions<T extends { id?: string }> {
   queryKey: string
   path: string
   limit?: number
   pageSizeOptions?: number[]
   enabled?: boolean
   includeArchived?: boolean
+  refetchInterval?: (page: PageResult<T> | undefined) => number | false
 }
 
 interface UsePaginatedListResult<T> {
@@ -135,7 +136,8 @@ export function usePaginatedList<T extends { id?: string }>({
   pageSizeOptions = [10, 25, 50],
   enabled = true,
   includeArchived = false,
-}: UsePaginatedListOptions): UsePaginatedListResult<T> {
+  refetchInterval,
+}: UsePaginatedListOptions<T>): UsePaginatedListResult<T> {
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
   const defaultPageSize = pageSizeOptions.includes(limit) ? limit : pageSizeOptions[0]
@@ -178,6 +180,9 @@ export function usePaginatedList<T extends { id?: string }>({
       }
       return undefined
     },
+    refetchInterval: refetchInterval
+      ? (query) => refetchInterval(query.state.data as PageResult<T> | undefined)
+      : undefined,
     staleTime: 30_000,
   })
 

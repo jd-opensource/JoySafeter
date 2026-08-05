@@ -11,6 +11,8 @@ import type {
   StorageVolume,
 } from '@/types/managed'
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { apiResourceId } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -433,12 +435,14 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
         `/storage-volumes?include_disabled=true${platformMode ? '' : '&scope=organization'}`,
       ),
   })
-  const auditQuery = useQuery({
-    queryKey: ['storage-volumes-audit', requestScope.key, selectedVolume?.id || 'all'],
-    queryFn: () =>
-      managedGet<CollectionResponse<StorageMountAudit>>(
-        `/storage-volumes/audit/logs?limit=100${selectedVolume ? `&volume_id=${selectedVolume.id}` : ''}`,
-      ),
+  const auditPath = selectedVolume
+    ? `/storage-volumes/audit/logs?volume_id=${encodeURIComponent(apiResourceId(selectedVolume.id))}`
+    : '/storage-volumes/audit/logs'
+  const auditQuery = usePaginatedList<StorageMountAudit>({
+    queryKey: 'storage-volumes-audit',
+    path: auditPath,
+    limit: 25,
+    pageSizeOptions: [25, 50, 100],
   })
   const projectsQuery = useQuery({
     queryKey: ['storage-volumes-projects', requestScope.key],
@@ -454,7 +458,7 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   })
 
   const volumes = collectionData(volumesQuery.data)
-  const auditRows = collectionData(auditQuery.data)
+  const auditRows = auditQuery.data
   const projects = collectionData(projectsQuery.data)
   const organizations = collectionData(organizationsQuery.data)
   const projectNameById = useMemo(
@@ -462,6 +466,39 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
       new Map(projects.map((project) => [project.id, project.name || project.slug || project.id])),
     [projects],
   )
+  const auditColumns: Column<StorageMountAudit>[] = [
+    {
+      key: 'created_at',
+      header: '时间',
+      render: (row) => <RelativeTime date={row.created_at} />,
+    },
+    {
+      key: 'action',
+      header: '动作',
+      render: (row) => <span className="font-medium">{row.action}</span>,
+    },
+    {
+      key: 'volume_ref',
+      header: 'Volume',
+      render: (row) => row.volume_ref || '-',
+    },
+    {
+      key: 'project_id',
+      header: '项目',
+      render: (row) =>
+        row.project_id ? projectNameById.get(row.project_id) || row.project_id : '-',
+    },
+    {
+      key: 'path',
+      header: '路径',
+      render: (row) => row.mount_path || row.sub_path || '-',
+    },
+    {
+      key: 'result',
+      header: '结果',
+      render: (row) => row.result,
+    },
+  ]
   const organizationNameById = useMemo(
     () => new Map(organizations.map((org) => [org.id, organizationOptionLabel(org)])),
     [organizations],
@@ -855,43 +892,24 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
           当前筛选：
           {selectedVolume ? selectedVolume.display_name : platformMode ? '全部存储卷' : '当前项目'}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="py-2 pr-3">时间</th>
-                <th className="py-2 pr-3">动作</th>
-                <th className="py-2 pr-3">Volume</th>
-                <th className="py-2 pr-3">项目</th>
-                <th className="py-2 pr-3">路径</th>
-                <th className="py-2 pr-3">结果</th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditRows.map((row) => (
-                <tr key={row.id} className="border-b last:border-0">
-                  <td className="py-2 pr-3">
-                    <RelativeTime date={row.created_at} />
-                  </td>
-                  <td className="py-2 pr-3 font-medium">{row.action}</td>
-                  <td className="py-2 pr-3">{row.volume_ref || '-'}</td>
-                  <td className="py-2 pr-3">
-                    {row.project_id ? projectNameById.get(row.project_id) || row.project_id : '-'}
-                  </td>
-                  <td className="py-2 pr-3">{row.mount_path || row.sub_path || '-'}</td>
-                  <td className="py-2 pr-3">{row.result}</td>
-                </tr>
-              ))}
-              {!auditRows.length ? (
-                <tr>
-                  <td className="py-6 text-center text-muted-foreground" colSpan={6}>
-                    暂无审计记录
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          data={auditRows}
+          columns={auditColumns}
+          loading={auditQuery.isLoading}
+          fetching={auditQuery.isFetching}
+          pagination={{
+            hasNext: auditQuery.hasNext,
+            hasPrev: auditQuery.hasPrev,
+            page: auditQuery.page,
+            pageSize: auditQuery.pageSize,
+            pageSizeOptions: auditQuery.pageSizeOptions,
+            onNext: auditQuery.goNext,
+            onPrev: auditQuery.goPrev,
+            onPageChange: auditQuery.goToPage,
+            onPageSizeChange: auditQuery.setPageSize,
+          }}
+          emptyMessage="暂无审计记录"
+        />
       </section>
 
       <Dialog open={!!volumeForm} onOpenChange={(open) => !open && setVolumeForm(null)}>

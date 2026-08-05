@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_trigger_id
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_trigger import (
     TriggerCreateRequest,
     TriggerFireResponse,
@@ -211,28 +212,35 @@ async def run_trigger_now(
     )
 
 
-@router.get("/{trigger_id}/runs", response_model=List[TriggerRunResponse])
+@router.get("/{trigger_id}/runs", response_model=PaginatedResponse[TriggerRunResponse])
 async def list_trigger_runs(
     trigger_id: uuid.UUID = Depends(parse_trigger_id),
     limit: int = Query(50, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    after_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> List[TriggerRunResponse]:
-    runs = await JoySafeterTriggerService(db).list_runs(
+) -> PaginatedResponse[TriggerRunResponse]:
+    page = await JoySafeterTriggerService(db).list_runs_page(
         trigger_id,
         project_id=auth_ctx.project_id,
         limit=limit,
-        offset=offset,
+        after_id=after_id,
     )
-    if runs is None:
+    if page is None:
         raise NotFoundError(
             code="TRIGGER_NOT_FOUND",
             message="Trigger not found",
             data={"trigger_id": str(trigger_id)},
             user_action="refresh",
         )
-    return [TriggerRunResponse.model_validate(task) for task in runs]
+    runs, has_more = page
+    data = [TriggerRunResponse.model_validate(task) for task in runs]
+    return PaginatedResponse(
+        data=data,
+        has_more=has_more,
+        first_id=str(data[0].id) if data else None,
+        last_id=str(data[-1].id) if data else None,
+    )
 
 
 @router.post("/{trigger_id}/webhook", status_code=202, response_model=TriggerFireResponse)
