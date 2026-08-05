@@ -1,14 +1,15 @@
-# JoySafeter Installation Guide
+# JoySafeter Installation
 
-Below you will find comprehensive setup instructions depending on your deployment needs.
+JoySafeter is not yet released for production. Use Docker Compose for the supported full-stack setup.
 
-## Prerequisites
+## Requirements
 
-- Docker 20.10+ and Docker Compose 2.0+
-- Python 3.12+ and Node.js 20+ (only for local development)
-- PostgreSQL/Redis are included in Docker deployment
+- Docker 20.10+
+- Docker Compose 2+
+- At least 4 CPU cores and 8 GB RAM recommended for the complete local stack
+- Python 3.12+, Rust, and Bun are only required for host-based development
 
-## Recommended: Docker Compose
+## First Local Deployment
 
 ```bash
 cd deploy
@@ -16,143 +17,56 @@ cd deploy
 ./deploy.sh local
 ```
 
-`doctor` prepares missing env files and checks Docker, Compose, the Docker daemon CPU
-architecture, SkillSpector sources, Docker socket access, ports, and the Compose config. It
-does not start containers. `local` repeats the checks, starts PostgreSQL/Redis/SkillSpector,
-waits for local Redis, runs database migrations, and then starts the full local stack.
+`local` builds the core images, starts PostgreSQL and Redis, runs database migrations, and starts frontend, API, worker, Rust orchestrator, Envoy, and SkillSpector.
 
-Access points:
+Open:
 
 - Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:8000`
-- API Docs: `http://localhost:8000/docs`
+- API: `http://localhost:8000`
+- API docs: `http://localhost:8000/docs`
 
-The backend runtime is split into Python `api`, Rust `orchestrator-rs`, and Python `worker`
-services, alongside PostgreSQL, Redis, Envoy, and SkillSpector. The Python orchestrator profile
-has been removed; use the `rust-orchestrator` profile through `deploy.sh local`.
+## Fast Restart or Update
 
-`deploy.sh local` starts the control-plane services only. It does not build the agent runtime
-image (`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native`), so the control plane
-comes up healthy but real agent tasks fail until you build or pull one:
+After images exist locally:
 
 ```bash
 cd deploy
-./deploy.sh build --claudecode-only --arch arm64   # or --arch amd64
-# or use a prebuilt image
-./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag v0.3.2
+./deploy.sh up
 ```
 
-For cloud PostgreSQL/Redis, image building, prebuilt images, and troubleshooting, see
-[deploy/README.md](deploy/README.md).
-For service ownership, runtime topology, data flow, and deployment-mode selection, also see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+`up` skips image builds and SkillSpector source preparation, but still runs preflight checks and database migrations.
 
-## Using Pre-built Docker Images
+## Deploy Pre-built Images
 
 ```bash
 cd deploy
-./deploy.sh doctor
-
-# Pull writes BACKEND_FULL_IMAGE, FRONTEND_FULL_IMAGE, ORCHESTRATOR_RS_FULL_IMAGE,
-# and SKILLSPECTOR_FULL_IMAGE into deploy/.env after the images are pulled.
 ./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
-docker compose --profile local-redis --profile rust-orchestrator up -d --no-build
+./deploy.sh up
 ```
 
-## Local Test One-Command Startup
+Use immutable version tags outside local development.
+
+## Operations
+
+```bash
+cd deploy
+./deploy.sh status
+./deploy.sh logs api worker
+./deploy.sh restart frontend
+./deploy.sh down
+```
+
+## Host-based Development
+
+For Python, Rust, and frontend processes running directly on the host, use [`DEVELOPMENT.md`](DEVELOPMENT.md) or:
 
 ```bash
 cd deploy
 ./local-test.sh
 ```
 
+## Next Documents
 
-## Environment Check
-
-```bash
-cd deploy
-./deploy.sh doctor
-```
-
-## Manual Setup
-
-<details>
-<summary><strong>Backend Setup</strong></summary>
-
-```bash
-cd backend
-
-# Install uv package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Create environment and install dependencies
-uv venv && source .venv/bin/activate
-uv sync
-
-# Configure environment
-cp env.example .env
-# Edit .env with your settings
-
-# Initialize database
-createdb joysafeter
-alembic upgrade head
-
-# Start API
-JOYSAFETER_SERVICE_ROLE=api \
-uv run uvicorn app.joysafeter_api.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-> To match the Compose runtime, also start Rust orchestrator and the worker:
->
-> ```bash
-> cd backend/app/joysafeter_orchestrator_rs
-> JOYSAFETER_GRPC_HOST=0.0.0.0 JOYSAFETER_GRPC_PORT=9090 cargo run --release
->
-> cd backend
-> JOYSAFETER_SERVICE_ROLE=worker \
-> uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --workers 1
-> ```
->
-> See [DEVELOPMENT.md](DEVELOPMENT.md).
-
-</details>
-
-<details>
-<summary><strong>Frontend Setup</strong></summary>
-
-```bash
-cd frontend
-
-# Install dependencies
-bun install
-
-# Configure environment
-cp env.example .env.local
-
-# Start development server
-bun run dev
-```
-
-</details>
-
-## Access Points
-
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
-| API Documentation | http://localhost:8000/docs |
-| ReDoc | http://localhost:8000/redoc |
-
-## Troubleshooting
-
-- Run `cd deploy && ./deploy.sh doctor` first. It validates the same env, platform, socket,
-  port, SkillSpector, and Compose prerequisites used by `./deploy.sh local`.
-- If you are on Apple Silicon or Colima, let `deploy.sh local` auto-detect the Docker daemon
-  architecture, or force it with `./deploy.sh local --arch arm64`.
-- If database tables are missing after a manual Compose start with local Redis, run
-  `docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init`.
-- If you use cloud Redis, leave off the `local-redis` profile and set `REDIS_URL` in `deploy/.env`.
-  For cloud Redis migrations, use
-  `docker compose --profile rust-orchestrator --profile init run --rm db-init`. For cloud PostgreSQL,
-  override the `POSTGRES_*` variables there as well.
+- Deployment modes and troubleshooting: [`deploy/README.md`](deploy/README.md)
+- Runtime architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Pre-release gates: [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md)

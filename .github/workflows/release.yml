@@ -6,88 +6,108 @@ on:
       - 'v*.*.*'
 
 jobs:
-  create-release:
-    name: Create GitHub Release
+  prepare-release:
+    name: Validate Release Metadata
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.version.outputs.TAG }}
-      version: ${{ steps.version.outputs.VERSION }}
-    permissions:
-      contents: write
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      body: ${{ steps.changelog.outputs.body }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Extract version from tag
+      - name: Validate tag and package versions
         id: version
+        shell: bash
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          echo "TAG=${TAG}" >> $GITHUB_OUTPUT
-          echo "VERSION=${TAG#v}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#v}"
+          backend_version="$(awk -F'"' '/^version = / { print $2; exit }' backend/pyproject.toml)"
+          frontend_version="$(node -p "require('./frontend/package.json').version")"
+
+          if [[ "$tag" != "v$version" || -z "$version" ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          if [[ "$backend_version" != "$version" || "$frontend_version" != "$version" ]]; then
+            echo "Version mismatch: tag=$version backend=$backend_version frontend=$frontend_version" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog section
         id: changelog
+        shell: bash
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          # Extract the section for this version from CHANGELOG.md
-          BODY=$(awk -v tag="## ${TAG}" '
-            $0 ~ tag { found=1; next }
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          body="$(awk -v heading="## ${tag}" '
+            index($0, heading) == 1 { found=1; next }
             found && /^## / { exit }
             found && /^---$/ { exit }
             found { print }
-          ' CHANGELOG.md)
-          if [ -z "$BODY" ]; then
-            BODY="See [CHANGELOG.md](CHANGELOG.md) for details."
+          ' CHANGELOG.md)"
+
+          if [[ -z "${body//[[:space:]]/}" ]]; then
+            echo "CHANGELOG.md is missing a non-empty '${tag}' section" >&2
+            exit 1
           fi
-          # Use delimiter to handle multiline output
-          echo "body<<CHANGELOG_EOF" >> $GITHUB_OUTPUT
-          echo "$BODY" >> $GITHUB_OUTPUT
-          echo "CHANGELOG_EOF" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.TAG }}
-          name: Release ${{ steps.version.outputs.TAG }}
-          body: |
-            ## What's Changed
-
-            ${{ steps.changelog.outputs.body }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          {
+            echo 'body<<CHANGELOG_EOF'
+            echo "$body"
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
 
   build-and-push:
-    name: Build and Push Release Images
-    needs: create-release
+    name: Publish ${{ matrix.image.name }}
+    needs: prepare-release
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     strategy:
+      fail-fast: false
       matrix:
         image:
           - name: joysafeter-backend
             context: ./backend
             dockerfile: ./deploy/docker/backend.Dockerfile
-            push_dockerhub: true
+            skillspector: false
+            build_contexts: ''
           - name: joysafeter-frontend
             context: ./frontend
             dockerfile: ./deploy/docker/frontend.Dockerfile
-            push_dockerhub: true
-          - name: joysafeter-sandbox
-            context: ./deploy/docker
-            dockerfile: ./deploy/docker/sandbox.Dockerfile
-            push_dockerhub: true
+            skillspector: false
+            build_contexts: ''
+          - name: joysafeter-orchestrator-rs
+            context: .
+            dockerfile: ./deploy/docker/orchestrator-rs.Dockerfile
+            skillspector: false
+            build_contexts: ''
+          - name: joysafeter-skillspector
+            context: ./backend/joysafeter_skillspector
+            dockerfile: ./deploy/docker/skillspector-service.Dockerfile
+            skillspector: true
+            build_contexts: skillspector=./.deps/SkillSpector
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout SkillSpector
+        if: matrix.image.skillspector
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/SkillSpector
+          ref: v2.5.1
+          path: .deps/SkillSpector
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -96,7 +116,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
-        if: matrix.image.push_dockerhub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -111,20 +130,19 @@ jobs:
 
       - name: Compute image tags
         id: tags
+        shell: bash
         run: |
-          GHCR_TAGS="ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.tag }},ghcr.io/jd-opensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.version }},ghcr.io/jd-opensource/${{ matrix.image.name }}:latest"
-          if [ "${{ matrix.image.push_dockerhub }}" = "true" ]; then
-            DOCKER_TAGS="docker.io/jdopensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.tag }},docker.io/jdopensource/${{ matrix.image.name }}:${{ needs.create-release.outputs.version }},docker.io/jdopensource/${{ matrix.image.name }}:latest"
-            echo "tags=${DOCKER_TAGS},${GHCR_TAGS}" >> $GITHUB_OUTPUT
-          else
-            echo "tags=${GHCR_TAGS}" >> $GITHUB_OUTPUT
-          fi
+          version="${{ needs.prepare-release.outputs.version }}"
+          tag="${{ needs.prepare-release.outputs.tag }}"
+          image="${{ matrix.image.name }}"
+          echo "tags=docker.io/jdopensource/${image}:${tag},docker.io/jdopensource/${image}:${version},docker.io/jdopensource/${image}:latest,ghcr.io/jd-opensource/${image}:${tag},ghcr.io/jd-opensource/${image}:${version},ghcr.io/jd-opensource/${image}:latest" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image
+      - name: Build and push image
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.dockerfile }}
+          build-contexts: ${{ matrix.image.build_contexts }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.tags.outputs.tags }}
@@ -132,5 +150,27 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GIT_COMMIT_SHA=${{ github.sha }}
-            PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-            UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+            PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/simple
+            UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/simple
+
+  create-release:
+    name: Create GitHub Release
+    needs:
+      - prepare-release
+      - build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: Release ${{ needs.prepare-release.outputs.tag }}
+          body: |
+            ## What's Changed
+
+            ${{ needs.prepare-release.outputs.body }}
+          draft: false
+          prerelease: false

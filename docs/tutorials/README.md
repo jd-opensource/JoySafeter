@@ -1,7 +1,5 @@
 # JoySafeter 使用教程
 
-> **状态：** 已按 v2 真实代码核对（2026-07-03）。
-
 本目录包含 JoySafeter 的实战教程，以真实场景为导向，帮助你快速上手平台核心功能。
 
 ---
@@ -14,10 +12,6 @@
 | 02 | [为 Agent 接入 MCP 工具](./02-mcp-service-setup.md) | 在 Agent 编辑器配置 `mcp_configs`；凭据放托管智能体 → 凭证库（`/managed/vaults`）；运行时经 gRPC 下发 | ⭐⭐ 进阶 |
 | 03 | [Skills 的导入、安全扫描、投递与消费](./03-skills-usage.md) | SKILL.md → skillspector 扫描 → SkillPacker 打包 → 沙箱解压消费的闭环 | ⭐⭐ 进阶 |
 | 04 | [构建并运行一个 Agent](./04-agent-build-and-run.md) | 引擎/模型/技能/工具/MCP 组装 → 开 Session → SSE 实时观察 → 干预/停止 | ⭐⭐ 进阶 |
-
-> **v1 用户注意**：DeepAgents 可视化图画布、Code 模式（浏览器写 LangGraph）、Copilot 图生成器等功能
-> 已在 v2 移除，相关教程（04b / 04c / 05）已删除。v2 的 Agent 是声明式定义 + 沙箱内 CLI harness 执行，
-> 对应新教程 04。
 
 ---
 

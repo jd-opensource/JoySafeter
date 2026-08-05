@@ -12,16 +12,21 @@ This document provides detailed instructions for setting up and running the JoyS
 
 ## Quick Start
 
-### 0. Install Pre-commit Hooks（必须）
+### 0. Install Pre-commit Hooks
 
-在提交代码前，**必须**在仓库根目录执行以下脚本，将 pre-commit 与后端 UV 环境绑定并安装 Git hooks：
+在提交代码前，使用后端开发环境安装 Git hooks：
 
 ```bash
-# 在仓库根目录执行（需已安装 uv）
-./scripts/setup-pre-commit.sh
+cd backend
+uv sync --dev
+uv run pre-commit install --install-hooks
 ```
 
-执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：`./scripts/run-pre-commit.sh` 或 `backend/.venv/bin/python -m pre_commit run --all-files`。
+执行后，每次 `git commit` 将自动运行代码校验。手动全量检查：
+
+```bash
+backend/.venv/bin/python -m pre_commit run --all-files
+```
 
 ### 1. One-command local test
 
@@ -37,8 +42,7 @@ frontend for local testing. The orchestrator process is the Rust binary under
 ### 2. Start Backend Manually
 
 For manual local development, run the Python API, Rust orchestrator, and Python worker as
-separate processes. The old Python orchestrator and legacy all-in-one compatibility entrypoint
-are not present in the current codebase.
+separate processes.
 
 ```bash
 cd backend
@@ -150,17 +154,17 @@ bun run type-check  # TypeScript
 
 ### Using Pre-commit Hooks
 
-项目使用 pre-commit hooks 来确保代码质量。在提交代码之前，会自动运行代码检查。pre-commit 与后端 UV 环境绑定，请通过 Quick Start 中的 **安装 Pre-commit Hooks（必须）** 步骤完成安装。
+项目使用 pre-commit hooks 统一执行通用文件检查、后端 Ruff 和前端 lint/type/format 检查。
 
 #### 安装 Pre-commit Hooks
 
 在仓库根目录执行（需已安装 uv）：
 
 ```bash
-./scripts/setup-pre-commit.sh
+cd backend
+uv sync --dev
+uv run pre-commit install --install-hooks
 ```
-
-该脚本会执行：`cd backend && uv sync --dev`、`uv run pre-commit install --install-hooks` 等，无需单独安装全局 pre-commit。
 
 #### 检查内容
 
@@ -183,32 +187,15 @@ bun run type-check  # TypeScript
 
 #### 使用说明
 
-**正常提交流程：**
-
-当你执行 `git commit` 时，pre-commit hooks 会自动运行：
-
-```bash
-git add .
-git commit -m "your message"
-```
-
-如果检查失败，提交会被阻止。你需要：
-1. 修复报告的错误
-2. 重新添加文件 (`git add .`)
-3. 再次提交
-
 **手动运行检查：**
 
 ```bash
-# 检查所有文件（使用后端 UV 环境）
+# 检查所有文件
 backend/.venv/bin/python -m pre_commit run --all-files
 
-# 检查暂存的文件（在仓库根目录，需已通过上述脚本安装 hook）
-pre-commit run
-
 # 检查特定 hook
-pre-commit run ruff --all-files
-pre-commit run frontend-lint --all-files
+backend/.venv/bin/python -m pre_commit run ruff --all-files
+backend/.venv/bin/python -m pre_commit run frontend-lint --all-files
 ```
 
 **跳过 Hooks（不推荐）：**
@@ -236,13 +223,6 @@ git commit --no-verify -m "emergency fix"
 1. 确保已安装 bun：`curl -fsSL https://bun.sh/install | bash`
 2. 确保 frontend 目录下已安装依赖：`cd frontend && bun install`
 
-**问题：Hooks 运行太慢**
-
-解决方案：
-- Hooks 默认只检查更改的文件
-- 如果需要跳过某些检查，可以临时使用 `--no-verify`
-- 考虑优化检查配置，排除不需要检查的文件
-
 #### 更新 Hooks
 
 ```bash
@@ -252,8 +232,6 @@ backend/.venv/bin/python -m pre_commit autoupdate
 # 然后重新安装
 backend/.venv/bin/python -m pre_commit install --install-hooks
 ```
-
-更多详细信息请参考 [Pre-commit Setup Guide](.pre-commit-setup.md)。
 
 ### Database Migrations
 

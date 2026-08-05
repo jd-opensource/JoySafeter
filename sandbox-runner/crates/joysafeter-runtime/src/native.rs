@@ -865,6 +865,7 @@ mod tests {
         let input = HarnessInput {
             prompt: "hello".into(),
             system_prompt: Some("sys".into()),
+            system_prompt_mode: "append".into(),
             session_id: None,
             model: Some("opus".into()),
             max_turns: Some(10),
@@ -886,6 +887,7 @@ mod tests {
         let input1 = HarnessInput {
             prompt: "hello".into(),
             system_prompt: None,
+            system_prompt_mode: "append".into(),
             session_id: Some("abc".into()),
             model: Some("opus".into()),
             max_turns: Some(5),
@@ -900,6 +902,7 @@ mod tests {
         let input2 = HarnessInput {
             prompt: "different prompt".into(),
             system_prompt: None,
+            system_prompt_mode: "append".into(),
             session_id: Some("xyz".into()),
             model: Some("opus".into()),
             max_turns: Some(100),
@@ -922,6 +925,7 @@ mod tests {
         let input1 = HarnessInput {
             prompt: "hello".into(),
             system_prompt: None,
+            system_prompt_mode: "append".into(),
             session_id: None,
             model: Some("opus".into()),
             max_turns: None,

@@ -1,14 +1,12 @@
 # 教程 01：模型配置 —— 用 Secrets 管理供应商密钥
 
-> **状态：** 已按 v2 真实代码核对（2026-07-03）。
 > **适合人群**：初次配置 JoySafeter 模型，或需要接入私有 / 第三方 OpenAI 兼容端点的用户。
 
 ---
 
-## 机制先行：v2 里“模型配置”长什么样？
+## 机制先行：模型配置由什么组成？
 
-v1 的三层对象（Provider / ModelInstance / ModelCredential）以及 `/api/v1/models`、
-`/api/v1/model-credentials`、独立的“Models 设置页”**都已移除**。v2 把模型配置收敛成两件事：
+模型配置由两部分组成：
 
 1. **Secret（凭据）** —— 一条加密存储的供应商密钥记录，表 `joysafeter_secrets`，API `/api/v1/secrets`，
    UI 在 **资源 → 密钥** 页（`/managed/secrets`）。字段：
@@ -24,8 +22,7 @@ v1 的三层对象（Provider / ModelInstance / ModelCredential）以及 `/api/v
 沙箱内的 CLI harness（Claude Code / Codex / `ccb`）读取这些环境变量直连模型。**密钥绝不经 gRPC 过线**，
 只经容器 env 注入。
 
-> 换句话说：v2 里“模型流量”由沙箱内的 CLI 引擎直接发起，平台 Python 侧不再有 ModelRouter / 供应商
-> 适配器层。你配置的是“往沙箱注入哪些密钥环境变量”，而不是一个中心化的模型网关。
+> 模型流量由沙箱内的 CLI 引擎直接发起。你配置的是“往沙箱注入哪些密钥环境变量”，而不是一个中心化的模型网关。
 
 ---
 

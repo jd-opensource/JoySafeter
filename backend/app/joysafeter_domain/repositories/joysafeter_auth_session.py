@@ -31,6 +31,12 @@ class AuthSessionRepository(BaseRepository[AuthSession]):
         await self.db.flush()
         return getattr(result, "rowcount", 0) or 0
 
+    async def delete_by_user_id(self, user_id: str) -> int:
+        """Delete every session for a user; return the number of deleted rows."""
+        result = await self.db.execute(delete(AuthSession).where(AuthSession.user_id == user_id))
+        await self.db.flush()
+        return getattr(result, "rowcount", 0) or 0
+
     async def purge_expired(self, now: datetime) -> int:
         """Purge expired sessions; return the number of deleted rows."""
         result = await self.db.execute(delete(AuthSession).where(AuthSession.expires_at < now))

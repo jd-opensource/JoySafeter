@@ -17,8 +17,19 @@ class _NoActiveTaskResult:
         return None
 
 
+class _TriggerLockResult:
+    def scalar_one_or_none(self):
+        return uuid.uuid4()
+
+
 class _FakeDb:
+    def __init__(self):
+        self.execute_count = 0
+
     async def execute(self, _stmt):
+        self.execute_count += 1
+        if self.execute_count in {1, 3}:
+            return _TriggerLockResult()
         return _NoActiveTaskResult()
 
 

@@ -1,10 +1,6 @@
 # Architecture
 
-> **Status:** As-built, verified against the `joysafeter-v2` branch (2026-07-03).
-> This document describes the code that actually ships. The pre-v2 single-process
-> design (DispatchService / ExecutionOrchestrator / EngineRegistry / in-process
-> `ExecutionEventBus` / `/ws/executions`) has been **removed** — see
-> [§11 Migration notes](#11-migration-notes-v1--v2) if you are looking for the old model.
+This document describes the current runtime architecture. Source code and automated tests are the final authority.
 
 JoySafeter is an AI-agent orchestration platform for security work. A user defines
 an **Agent** (engine + model + system prompt + tools + skills + MCP servers), opens a
@@ -239,15 +235,14 @@ Core ownership rules:
 
 ## 3. Transport map — what talks to what, and how
 
-The old docs described one in-process WebSocket bus. Reality is several purpose-built
-channels. This table is the definitive reference.
+Runtime communication uses several purpose-built channels. This table is the definitive reference.
 
 | Channel | Mechanism | Purpose | Anchor |
 |---|---|---|---|
 | Browser → API | HTTPS REST `/api/v1/*` | All CRUD + commands | `joysafeter_api/api/v1/router.py` |
 | **Live events → browser** | **SSE** `GET /sessions/{id}/events/stream` | Primary execution stream (DB replay via `?after_seq`, then live) | `joysafeter_api/api/v1/sessions.py` |
 | Notifications → browser | WebSocket `/ws/notifications` | User-level notifications (in-memory `NotificationManager`) | `joysafeter_api/app.py`, `joysafeter_api/websocket/notification_manager.py` |
-| Legacy task stream | WebSocket `/tasks/{id}/stream` | Per-task output (bridge queue → Redis fallback) | `joysafeter_api/api/v1/tasks.py` |
+| Per-task stream | WebSocket `/tasks/{id}/stream` | Per-task output (bridge queue → Redis fallback) | `joysafeter_api/api/v1/tasks.py` |
 | Task enqueue | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator scheduler pops | `joysafeter_api/services.py`, `joysafeter_orchestrator_rs/src/kernel/queue.rs` |
 | **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`, `joysafeter_worker/events/stream_consumer.py` |
 | **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`, `joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
@@ -256,9 +251,8 @@ channels. This table is the definitive reference.
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | Skill scan | HTTP → skillspector `:8010` | Security scan on skill writes; runtime blocks failed/scanning/unscanned/blocked skills | `joysafeter_skill_security.py` |
 
-**API ↔ orchestrator is Redis, not direct gRPC.** Python API/worker processes do not import
-the removed Python orchestrator package. They use `joysafeter_shared.orchestrator_bridge`
-only for lightweight API-side helpers and optional test seams; runtime control flows through
+**API ↔ orchestrator is Redis, not direct gRPC.** Python API/worker processes use
+`joysafeter_shared.orchestrator_bridge` only for lightweight API-side helpers and optional test seams; runtime control flows through
 Redis command relay and ACKs. gRPC is used *only* for the Rust orchestrator ↔ in-sandbox-runner hop.
 
 ---
@@ -279,8 +273,7 @@ real-time DB re-verification of org/project membership) → cookie/session fallb
 by `auth_ctx.project_id` for multi-tenant isolation. WebSocket connections authenticate via
 a short-lived token from `GET /auth/ws-token`.
 
-**Startup** does almost nothing now — `run_api_startup()` only wires the `SessionBroadcaster`
-for SSE; the v1 model-registry and MCP-server startup hooks were deleted.
+**Startup** is deliberately small: `run_api_startup()` only wires the `SessionBroadcaster` for SSE.
 
 The full REST inventory is in [§8 API surface](#8-api-surface).
 
@@ -425,8 +418,8 @@ outbound HTTP goes through an Envoy listener with a **deny-all-by-default domain
 
 ## 7. Domain model
 
-Persisted in PostgreSQL via async SQLAlchemy 2.0. The v2 vocabulary differs from v1: there is
-**no `execution`, `run`, or `mission` table**. The run unit is `JoySafeterTask`; the
+Persisted in PostgreSQL via async SQLAlchemy 2.0. There is **no `execution`, `run`, or `mission` table**.
+The run unit is `JoySafeterTask`; the
 conversation unit is `JoySafeterSession` with an append-only event log.
 
 ### 7.1 Central entities
@@ -592,25 +585,4 @@ sandbox-runner/                # Rust workspace: types / runtime / runner / ctl
 skills/                        # 30 skill packs (pentest / utility / planning)
 deploy/docker-compose.yml      # 3-service + infra topology (Rust orchestrator profile)
 frontend/                      # Next.js App Router UI
-```
-
----
-
-## 11. Migration notes (v1 → v2)
-
-If you have seen the old architecture doc, here is what changed and why the old names no longer
-resolve in the codebase:
-
-| v1 (removed) | v2 (current) |
-|---|---|
-| Single process | API and Worker Python services plus the Rust `orchestrator-rs` service |
-| In-process `ExecutionEventBus` | Two-phase bus → **Redis Streams** (durable, Worker) + **Redis Pub/Sub** (live, SSE) |
-| WebSocket `/ws/executions` | **SSE** `/sessions/{id}/events/stream`; WS only for `/ws/notifications` |
-| `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` | API enqueues via Redis; orchestrator scheduler pulls from DB |
-| `CLIEngine` / `LangGraphVisualEngine` / `CopilotEngine` in-process | Rust `sandbox-runner` executes the harness over gRPC `AgentBridge` |
-| `Execution` / `Run` / `Task` / `Mission` entities | `JoySafeterTask` (run unit) + `JoySafeterSession` + `JoySafeterSessionEvent` (log) |
-| `ModelPort` / model provider registry | OpenAI-compatible helper + DB-stored secrets; workload routing in the CLI harness |
-
-**Surviving concepts** (verified still present, though relocated): centralized state machines,
-the `AppError` / `ErrorDescriptor` error model, and the OTel-based observation layer.
 ```

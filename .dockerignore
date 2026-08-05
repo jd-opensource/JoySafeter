@@ -1,4 +1,4 @@
-# Root build context is only used by claudecode/codex runtime images.
+# Root build context is used by the Rust orchestrator and agent runtime images.
 # Keep it small so Docker does not send frontend node_modules, backend venv,
 # local Rust targets, logs, or other large development artifacts.
 *

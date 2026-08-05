@@ -16,12 +16,12 @@ Covers two surfaces under a single `/api/v1/auth` prefix:
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Literal, Optional, cast
+from typing import Annotated, Literal, Optional, cast
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -337,16 +337,35 @@ def _set_auth_cookies(response: Response, result: dict) -> None:
 # --- Identity-flow schemas --------------------------------------------------
 
 
+def _validate_password_policy(password: str) -> str:
+    if not any(character.isupper() for character in password):
+        raise ValueError("Password must include at least one uppercase letter")
+    if not any(character.islower() for character in password):
+        raise ValueError("Password must include at least one lowercase letter")
+    if not any(character.isdigit() for character in password):
+        raise ValueError("Password must include at least one number")
+    if not any(character in "#?!@$%^&*-" for character in password):
+        raise ValueError("Password must include at least one special character")
+    return password
+
+
+PasswordValue = Annotated[
+    str,
+    Field(min_length=8, max_length=100),
+    AfterValidator(_validate_password_policy),
+]
+
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
-    password: str = Field(..., min_length=6, max_length=100)
+    password: PasswordValue
     image: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=1, max_length=100)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -355,11 +374,12 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str = Field(..., min_length=6, max_length=100)
+    new_password: PasswordValue
 
 
-class ResetPasswordForCurrentUserRequest(BaseModel):
-    new_password: str = Field(..., min_length=6, max_length=100)
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(..., min_length=1, max_length=100)
+    new_password: PasswordValue
 
 
 class UserResponse(BaseModel):
@@ -640,32 +660,29 @@ async def reset_password(
 @router.post("/me/reset-password")
 async def reset_password_for_current_user(
     http_request: Request,
-    body: ResetPasswordForCurrentUserRequest,
+    body: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
 ):
-    """Reset password for the current logged-in user (no old password required)."""
+    """Change password for the current logged-in user."""
     current_user = await _get_current_auth_user(token, db, http_request)
     service = AuthService(db)
-    await service.reset_password_for_current_user(
+    await service.change_password_for_current_user(
         user=current_user,
+        old_password=body.old_password,
         new_password=body.new_password,
     )
-    return success_response(message="Password reset successful")
+    return success_response(message="Password changed successfully")
 
 
-# Backwards-compat alias: the frontend calls `auth/me/change-password` for
-# the "change my own password" flow. There's no separate change-password
-# endpoint on the server; we route it to the same reset-for-current-user
-# handler so it accepts the same payload shape.
 @router.post("/me/change-password")
 async def change_password_for_current_user(
     http_request: Request,
-    body: ResetPasswordForCurrentUserRequest,
+    body: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
 ):
-    """Alias for /me/reset-password — used by the frontend's `change password` UI."""
+    """Change the current user's password after verifying the old password."""
     return await reset_password_for_current_user(
         http_request=http_request,
         body=body,

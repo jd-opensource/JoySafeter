@@ -7,6 +7,7 @@ the user sees a submitted turn while the task may never run.
 """
 
 import json
+import logging
 import uuid
 
 import pytest
@@ -351,8 +352,21 @@ async def test_command_ack_wait_requires_matching_success_payload():
 
 
 @pytest.mark.asyncio
-async def test_command_ack_wait_failure_logs_structured_boundary_error(caplog):
-    with caplog.at_level("DEBUG", logger="app.joysafeter_shared.orchestrator_bridge.runtime_commands"):
+async def test_command_ack_wait_failure_logs_structured_boundary_error():
+    records: list[logging.LogRecord] = []
+
+    class RecordHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    target_logger = logging.getLogger("app.joysafeter_shared.orchestrator_bridge.runtime_commands")
+    previous_level = target_logger.level
+    previous_disabled = target_logger.disabled
+    handler = RecordHandler()
+    target_logger.addHandler(handler)
+    target_logger.setLevel(logging.DEBUG)
+    target_logger.disabled = False
+    try:
         result = await _publish_command_and_wait_for_ack(
             _AckWaitFailingRedis({"command_id": "cmd-1", "ok": True}),
             "joysafeter:cmd:owner-1",
@@ -360,9 +374,13 @@ async def test_command_ack_wait_failure_logs_structured_boundary_error(caplog):
             command_id="cmd-1",
             ack_key="joysafeter:cmd_ack:cmd-1",
         )
+    finally:
+        target_logger.removeHandler(handler)
+        target_logger.setLevel(previous_level)
+        target_logger.disabled = previous_disabled
 
     assert result is False
-    errors = [getattr(record, "error", None) for record in caplog.records if getattr(record, "error", None)]
+    errors = [getattr(record, "error", None) for record in records if getattr(record, "error", None)]
     assert errors
     error = errors[0]
     assert error["code"] == "SESSION_REDIS_COMMAND_ACK_WAIT_FAILED"

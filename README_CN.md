@@ -226,7 +226,6 @@ cd deploy
 配套基础设施：PostgreSQL、Redis、Envoy（每沙箱出站代理）、skillspector（Skill 安全扫描服务）。
 内置 Redis 服务由 `local-redis` profile 控制；如果使用云 Redis，不启用该 profile，改 `deploy/.env`
 里的 `REDIS_URL` 即可。
-Python orchestrator 已移除；本地和容器化部署都使用 `rust-orchestrator` profile。
 
 运行时协同：
 
@@ -259,6 +258,7 @@ cd deploy
 cd deploy
 ./deploy.sh doctor                         # 本地 Docker/Compose/env 预检
 ./deploy.sh local                          # 完整本地 Docker Compose 部署
+./deploy.sh up                             # 复用现有镜像快速启动/更新
 ./deploy.sh local --arch arm64             # 强制目标平台
 ./deploy.sh build                          # 构建核心部署镜像
 ./deploy.sh build --all                    # 构建核心 + agent runtime 镜像
@@ -410,7 +410,7 @@ JoySafeter 实现了 Anthropic 为
 ### 深入了解
 - [docs/README.md](docs/README.md) — 文档地图
 - [docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md) — 架构总览
-- [docs/DOCUMENTATION_STATUS.md](docs/DOCUMENTATION_STATUS.md) — 当前文档复核状态
+- [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) — 上线前生产门禁
 - [backend/README.md](backend/README.md) — 后端指南
 - [frontend/README.md](frontend/README.md) — 前端指南
 

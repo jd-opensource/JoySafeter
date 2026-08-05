@@ -1,8 +1,0 @@
-version: v1alpha
-
-architecture: x86
-artifact_type: app_image
-dockerfile_path: ./.jdos/docker/
-dockerfile_name: frontend.Dockerfile
-build_context: ./frontend    # 执行dockerfile构建的context
-build_target: production   # 多阶段构建，要触发的target

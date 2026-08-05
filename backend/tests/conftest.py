@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
+ALEMBIC = Path(sys.executable).with_name("alembic")
 
 # testcontainers talks to Docker via docker-py, which defaults to the socket at
 # /var/run/docker.sock. On colima / Docker Desktop the real socket lives
@@ -60,7 +62,7 @@ def postgres_url() -> Iterator[str]:
         os.environ["POSTGRES_PASSWORD"] = url.password or "postgres"
         os.environ["POSTGRES_DB"] = (url.database or "joysafeter").lstrip("/")
         subprocess.run(
-            ["uv", "run", "alembic", "upgrade", "head"],
+            [ALEMBIC, "upgrade", "head"],
             cwd=BACKEND_ROOT,
             check=True,
             env=os.environ.copy(),
@@ -89,7 +91,7 @@ def postgres_url() -> Iterator[str]:
 
         # Apply the real migration chain — this also validates new migrations.
         subprocess.run(
-            ["uv", "run", "alembic", "upgrade", "head"],
+            [ALEMBIC, "upgrade", "head"],
             cwd=BACKEND_ROOT,
             check=True,
             env=os.environ.copy(),

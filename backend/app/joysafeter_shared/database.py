@@ -41,7 +41,7 @@ _connect_args = {
 #
 # asyncpg defaults to attempting SSL (sslmode=prefer), which makes it probe the
 # libpq client-cert path /root/.postgresql/postgresql.key. When the process runs
-# as a non-root user (e.g. `admin` in JDOS), that path is unreadable and even
+# as a non-root container user, that path is unreadable and even
 # Path.exists() raises PermissionError, crashing connection setup.
 #
 # POSTGRES_SSL controls this explicitly:

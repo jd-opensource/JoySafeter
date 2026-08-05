@@ -1845,6 +1845,8 @@ fn toml_escape(s: &str) -> String {
 mod tests {
     use super::*;
 
+    static TEST_HOME_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[test]
     fn codex_token_usage_prefers_last_and_normalizes_fields() {
         let data = serde_json::json!({
@@ -1995,6 +1997,7 @@ mod tests {
     async fn merge_codex_mcp_servers_writes_toml_block() {
         use joysafeter_types::agent::McpServerConfig;
 
+        let _guard = TEST_HOME_LOCK.lock().await;
         let tmp = std::env::temp_dir().join(format!("codex_mcp_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::env::set_var("HOME", &tmp);
@@ -2027,6 +2030,7 @@ mod tests {
     async fn merge_codex_mcp_servers_preserves_existing_file_content() {
         use joysafeter_types::agent::McpServerConfig;
 
+        let _guard = TEST_HOME_LOCK.lock().await;
         let tmp = std::env::temp_dir().join(format!("codex_mcp_preserve_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join(".codex")).unwrap();

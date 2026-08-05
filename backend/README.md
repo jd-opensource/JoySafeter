@@ -89,6 +89,8 @@ Docker Compose 可启动完整本地三服务栈：
 cd deploy
 ./deploy.sh doctor
 ./deploy.sh local
+# 后续复用现有镜像快速启动
+./deploy.sh up
 ```
 
 `doctor` 只做 Docker/Compose/env/SkillSpector/socket/端口预检，不启动容器；
@@ -130,7 +132,7 @@ app/
 
 ## Triggers 触发器
 
-触发器让 Agent **自动运行**：按 cron 周期或一次性时间（`type=cron`），或被入站签名 webhook（`type=webhook`）触发。所有触发器统一走 `/api/v1/triggers`（旧的 `/schedules` 已下线）。cron 触发由 worker 内的 scheduler 以 `FOR UPDATE SKIP LOCKED` 认领执行，内置重试/退避，连续失败达到阈值会自动禁用（dead-letter）。
+触发器让 Agent **自动运行**：按 cron 周期或一次性时间（`type=cron`），或被入站签名 webhook（`type=webhook`）触发。所有触发器统一走 `/api/v1/triggers`。cron 触发由 worker 内的 scheduler 以 `FOR UPDATE SKIP LOCKED` 认领执行，内置重试/退避，连续失败达到阈值会自动禁用（dead-letter）。
 
 ### 端点一览
 

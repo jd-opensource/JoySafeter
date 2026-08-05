@@ -184,6 +184,7 @@ mod tests {
         HarnessInput {
             prompt: prompt.to_string(),
             system_prompt: None,
+            system_prompt_mode: "append".to_string(),
             session_id: Some("mock_session".to_string()),
             model: None,
             max_turns: None,

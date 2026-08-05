@@ -5,6 +5,7 @@ __pycache__/
 
 .superpowers/
 .worktrees/
+/.tmp/
 # C extensions
 *.so
 

@@ -1,17 +1,19 @@
-# JoySafeter Docs
+# JoySafeter 文档
 
-This directory contains code-reviewed documentation for the current v2 managed-agent platform.
-Use the repository code as the source of truth when updating these files.
+这里仅保留与当前代码直接相关的活文档。代码与自动化测试是最终事实来源。
 
-## Start Here
+## 当前文档
 
-- [Documentation status](./DOCUMENTATION_STATUS.md) - current review coverage and known follow-up areas.
-- [Architecture overview](./ARCHITECTURE.md) / [中文架构总览](./ARCHITECTURE_CN.md) - service collaboration contracts, runtime topology, data flow, sandbox isolation, and deployment shape.
-- [Tutorials](./tutorials/README.md) - step-by-step guides for model secrets, MCP, skills, and running an Agent.
-- [API notes](./api/openapi.md) - current API surface notes and response envelope details.
+- [架构总览](./ARCHITECTURE_CN.md) / [Architecture](./ARCHITECTURE.md)：服务职责、运行时拓扑、数据流与隔离边界。
+- [教程](./tutorials/README.md)：模型、MCP、Skills 与 Agent 使用流程。
+- [API 说明](./api/openapi.md)：当前 API、响应结构和任务流程。
+- [上线前门禁](./PRODUCTION_READINESS.md)：项目正式发布前必须完成的验证清单。
+- [部署指南](../deploy/README.md)：首次构建、快速启动、镜像部署与故障排查。
+- [素材清单](./assets/README.md)：仓库内图片与演示素材维护说明。
 
-## Supporting Docs
+## 文档原则
 
-- [Production hardening plan](./production-hardening-plan.md) - implemented reliability pieces and remaining production work.
-- [Historical plans](./plans/) - implementation plans and parity notes; each file may include a current status banner.
-- [Assets inventory](./assets/README.md) - committed images and screenshot refresh notes.
+- 不在主分支长期保留已完成的实施计划、编码步骤、临时审计报告或代理执行指令。
+- 未完成事项进入 Issue；稳定设计写入架构文档；可执行操作写入部署或开发 Runbook。
+- 文档不复制脚本参数清单，命令细节以 `--help` 和自动化配置为准。
+- 修改行为时同步更新对应活文档，避免用“状态追踪文档”二次记录。

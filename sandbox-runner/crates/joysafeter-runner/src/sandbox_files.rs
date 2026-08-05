@@ -327,8 +327,11 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    static TEST_WORKSPACE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test(flavor = "current_thread")]
     async fn lists_reads_and_archives_workspace_files() {
+        let _guard = TEST_WORKSPACE_LOCK.lock().await;
         let temp = tempdir().expect("temp workspace");
         std::env::set_var("JOYSAFETER_TEST_WORKSPACE_ROOT", temp.path());
         fs::write(temp.path().join("hello.txt"), b"hello artifact").expect("write file");
@@ -379,6 +382,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn rejects_workspace_escape_and_oversized_downloads() {
+        let _guard = TEST_WORKSPACE_LOCK.lock().await;
         let temp = tempdir().expect("temp workspace");
         std::env::set_var("JOYSAFETER_TEST_WORKSPACE_ROOT", temp.path());
         let outside = tempdir().expect("outside");

@@ -233,8 +233,6 @@ containers:
 Supporting infrastructure: PostgreSQL, Redis, Envoy (per-sandbox egress proxy), and
 skillspector (skill security scanner). The bundled Redis service is behind the `local-redis`
 profile; for cloud Redis, leave that profile off and set `REDIS_URL` in `deploy/.env`.
-The Python orchestrator package has been removed. Use the Rust orchestrator
-profile for local and containerized orchestration.
 
 Runtime collaboration:
 
@@ -269,6 +267,7 @@ Docker provides PostgreSQL and Redis. For normal containerized local deployment,
 cd deploy
 ./deploy.sh doctor                         # preflight local Docker/Compose/env setup
 ./deploy.sh local                          # full local Docker Compose deployment
+./deploy.sh up                             # fast start/update with existing images
 ./deploy.sh local --arch arm64             # force a target platform
 ./deploy.sh build                          # build core deployment images
 ./deploy.sh build --all                    # build core + agent runtime images
@@ -420,7 +419,7 @@ Combining our current capabilities with the managed-agent frontier, the next wor
 ### Deep Dive
 - [docs/README.md](docs/README.md) — Documentation map
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Architecture overview
-- [docs/DOCUMENTATION_STATUS.md](docs/DOCUMENTATION_STATUS.md) — Current documentation review status
+- [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) — Pre-release production gates
 - [backend/README.md](backend/README.md) — Backend guide
 - [frontend/README.md](frontend/README.md) — Frontend guide
 

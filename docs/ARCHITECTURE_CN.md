@@ -1,9 +1,6 @@
 # 架构（Architecture）
 
-> **状态：** 已按 `joysafeter-v2` 分支的真实代码核对（2026-07-03）。
-> 本文档描述的是**当前实际运行的代码**。v2 之前的单进程设计
-> （DispatchService / ExecutionOrchestrator / EngineRegistry / 进程内 `ExecutionEventBus` / `/ws/executions`）
-> 已被**移除**——若你在找旧模型，见 [§11 迁移说明](#11-迁移说明v1--v2)。
+本文档描述当前运行时架构，代码和自动化测试是最终事实来源。
 
 JoySafeter 是一个面向安全工作的 AI Agent 编排平台。用户定义一个 **Agent**（引擎 + 模型 +
 系统提示词 + 工具 + 技能 + MCP 服务器），打开一个 **Session**（会话）并发送消息。每条消息会变成一个
@@ -194,14 +191,14 @@ sequenceDiagram
 
 ## 3. 传输映射——谁与谁通信、如何通信
 
-旧文档只描述了一个进程内 WebSocket 总线。实际是若干各司其职的通道。此表为权威参考。
+运行时使用若干各司其职的通信通道。此表为权威参考。
 
 | 通道 | 机制 | 用途 | 锚点 |
 |---|---|---|---|
 | 浏览器 → API | HTTPS REST `/api/v1/*` | 所有 CRUD + 命令 | `joysafeter_api/api/v1/router.py` |
 | **实时事件 → 浏览器** | **SSE** `GET /sessions/{id}/events/stream` | 主执行流（`?after_seq` 回放 DB，再转实时） | `joysafeter_api/api/v1/sessions.py` |
 | 通知 → 浏览器 | WebSocket `/ws/notifications` | 用户级通知（进程内 `NotificationManager`） | `joysafeter_api/app.py`、`joysafeter_api/websocket/notification_manager.py` |
-| 遗留任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `joysafeter_api/api/v1/tasks.py` |
+| 单任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `joysafeter_api/api/v1/tasks.py` |
 | 任务入队 | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator 调度器弹出 | `joysafeter_api/services.py`、`joysafeter_orchestrator_rs/src/kernel/queue.rs` |
 | **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`、`joysafeter_worker/events/stream_consumer.py` |
 | **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`、`joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
@@ -230,8 +227,7 @@ API 面。装配 FastAPI 应用（`app.py`），通过 `ApiV1ResponseWrapperMidd
 Cookie/session 回退（首次登录自动开通默认 org+project）。所有 project 作用域路由都按 `auth_ctx.project_id`
 过滤以实现多租户隔离。WebSocket 连接用 `GET /auth/ws-token` 的短时 token 鉴权。
 
-**启动**现在几乎不做事——`run_api_startup()` 只为 SSE 装配 `SessionBroadcaster`；v1 的模型注册表与
-MCP 服务器启动钩子已删除。
+**启动**保持最小化：`run_api_startup()` 只为 SSE 装配 `SessionBroadcaster`。
 
 完整 REST 清单见 [§8 API 面](#8-api-面)。
 
@@ -367,7 +363,7 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 
 ## 7. 领域模型
 
-以异步 SQLAlchemy 2.0 持久化到 PostgreSQL。v2 词汇与 v1 不同：**没有 `execution`、`run` 或 `mission` 表**。
+以异步 SQLAlchemy 2.0 持久化到 PostgreSQL。系统**没有 `execution`、`run` 或 `mission` 表**。
 运行单元是 `JoySafeterTask`；会话单元是带追加式事件日志的 `JoySafeterSession`。
 
 ### 7.1 核心实体
@@ -524,22 +520,3 @@ skills/                        # 30 个技能包（pentest / utility / planning�
 deploy/docker-compose.yml      # 三服务 + 基础设施拓扑（Rust orchestrator profile）
 frontend/                      # Next.js App Router UI
 ```
-
----
-
-## 11. 迁移说明（v1 → v2）
-
-如果你见过旧架构文档，下面说明变了什么、以及为何旧名字在代码里已无法解析：
-
-| v1（已移除） | v2（当前） |
-|---|---|
-| 单进程 | API / Worker 两个 Python 服务 + Rust `orchestrator-rs` 服务 |
-| 进程内 `ExecutionEventBus` | 两相总线 → **Redis Streams**（可靠，Worker）+ **Redis Pub/Sub**（实时，SSE） |
-| WebSocket `/ws/executions` | **SSE** `/sessions/{id}/events/stream`；WS 只用于 `/ws/notifications` |
-| `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` | API 经 Redis 入队；orchestrator 调度器从 DB 拉取 |
-| 进程内 `CLIEngine` / `LangGraphVisualEngine` / `CopilotEngine` | Rust `sandbox-runner` 经 gRPC `AgentBridge` 执行 harness |
-| `Execution` / `Run` / `Task` / `Mission` 实体 | `JoySafeterTask`（运行单元）+ `JoySafeterSession` + `JoySafeterSessionEvent`（日志） |
-| `ModelPort` / 模型 provider 注册表 | OpenAI 兼容辅助 + DB 存储 secret；工作负载路由在 CLI harness |
-
-**仍存的概念**（核实仍在，虽位置迁移）：集中式状态机、`AppError` / `ErrorDescriptor` 错误模型、
-基于 OTel 的观测层。

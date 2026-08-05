@@ -1,14 +1,10 @@
 # 教程 02：为 Agent 接入 MCP 工具
 
-> **状态：** 已按 v2 真实代码核对（2026-07-03）。
 > **适合人群**：希望把外部工具（如安全扫描器、内部服务）通过 MCP 协议提供给 Agent 的用户。
 
 ---
 
-## 机制先行：v2 没有独立的 MCP 服务注册中心
-
-v1 的 `mcp_servers` 表、`/api/v1/mcp/*` 系列端点、内存 `ToolRegistry`、`server::tool` 键、
-以及“把 MCP 挂到 Graph 节点”的整套东西**都已移除**。v2 里 MCP 是 **Agent 配置的一部分**：
+## 机制先行：MCP 是 Agent 配置的一部分
 
 - **MCP 服务器定义** 存在 Agent 行的 `mcp_configs`（JSONB 数组），在 **Agent 编辑器**里编辑
   （前端表现为 `mcp_toolset` 工具项，带 `permission_policy`）。每条包含 `name`、连接方式
@@ -25,7 +21,7 @@ v1 的 `mcp_servers` 表、`/api/v1/mcp/*` 系列端点、内存 `ToolRegistry`�
 4. runner 把 MCP 配置写入沙箱内的 `.claude/settings.json`（Claude 引擎），CLI harness 据此连接 MCP
    服务器并调用工具。
 
-> 所以“工具能不能用”不再取决于某个中心注册表，而取决于：**该 Agent 的 `mcp_configs` 里有没有这条
+> “工具能不能用”取决于：**该 Agent 的 `mcp_configs` 里有没有这条
 > server + Vault 里有没有对应凭据 + 沙箱能否网络到达该 MCP 端点（Envoy 出口白名单）**。
 
 ---
@@ -75,16 +71,6 @@ MCP 工具是**可执行的外部能力**（尤其安全扫描 / 利用类）。
 - **沙箱隔离**：每个会话独享一个加固沙箱（丢弃能力、非 root、Envoy 出口白名单），即便工具高危，
   影响也被限制在该沙箱内。
 - **凭据隔离**：MCP token 放 Vault 加密存储，运行时才注入请求头，不落 Agent 明文、不进事件流。
-
----
-
-## 常见问题
-
-**Q：以前的 `/api/v1/mcp/test` / `refresh` / `tools/execute` 还在吗？**
-不在。v2 没有独立 MCP 端点；MCP 随 Agent 配置在会话启动时下发给沙箱，工具的连通性在实际会话里体现。
-
-**Q：`server::tool` 这种引用格式呢？**
-已废弃——v2 不再有 Graph 节点按 `server::tool` 引用工具的机制。工具集由 Agent 配置整体下发。
 
 ---
 

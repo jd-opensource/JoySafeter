@@ -96,7 +96,8 @@ UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simp
 # Rust 镜像从 BASE_IMAGE_REGISTRY 派生
 RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1-bookworm}"
 RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
-SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-https://github.com/NVIDIA/SkillSpector.git}"
+SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-}"
+SKILLSPECTOR_REPO_REF="${SKILLSPECTOR_REPO_REF:-}"
 DEFAULT_SKILLSPECTOR_SOURCE_PATH="$PROJECT_ROOT/.deps/SkillSpector"
 
 # 规范化镜像仓库地址
@@ -136,6 +137,7 @@ show_usage() {
 命令:
   doctor             本地部署环境预检（不启动容器）
   local              本地 Docker Compose 一键部署（自动按 Docker CPU 架构选择平台）
+  up                 使用现有镜像快速启动/更新本地栈（不重新构建）
   build              构建核心部署镜像（backend, frontend, orchestrator-rs, skillspector）
   push               构建并推送多架构镜像到仓库
   pull               拉取镜像，并把拉取到的镜像名同步到 deploy/.env
@@ -184,6 +186,7 @@ show_usage() {
   DOCKER_MIRROR          第三方镜像代理前缀（默认: docker.m.daocloud.io）
   SKILLSPECTOR_SOURCE_PATH SkillSpector 源码路径（local 默认: ../.deps/SkillSpector）
   SKILLSPECTOR_REPO_URL    SkillSpector 缺失时克隆的仓库地址
+  SKILLSPECTOR_REPO_REF    SkillSpector 克隆版本（默认: v2.5.1）
   NO_CACHE               是否禁用构建缓存（默认: false，使用缓存）
 
 示例:
@@ -192,6 +195,9 @@ show_usage() {
 
   # 按 Docker daemon CPU 架构自动部署本地完整栈
   $0 local
+
+  # 复用现有镜像，执行迁移并快速启动/更新
+  $0 up
 
   # 强制按 amd64 或 arm64 部署
   $0 local --arch amd64
@@ -429,7 +435,6 @@ read_env_value() {
 }
 
 # vault 密钥合法性校验：64 位 hex（Rust 兼容）或 base64 解码后为 32 字节。
-# 无 openssl 时无法校验，返回成功以避免误报。
 vault_key_is_valid() {
     local key="$1"
     if printf '%s' "$key" | grep -Eq '^[0-9a-fA-F]{64}$'; then
@@ -441,7 +446,78 @@ vault_key_is_valid() {
         [ "$decoded_bytes" = "32" ] && return 0
         return 1
     fi
+    return 1
+}
+
+secret_value_is_valid() {
+    local value="$1"
+    [ "${#value}" -ge 32 ] || return 1
+    case "$value" in
+        CHANGE_ME*|change-me*|changeme*|postgres)
+            return 1
+            ;;
+    esac
     return 0
+}
+
+ensure_auth_secret() {
+    local deploy_env="$1"
+    local backend_env="$2"
+    local key_var="SECRET_KEY"
+    local deploy_value backend_value effective=""
+
+    deploy_value="$(read_env_value "$deploy_env" "$key_var")"
+    backend_value="$(read_env_value "$backend_env" "$key_var")"
+
+    if secret_value_is_valid "$deploy_value"; then
+        effective="$deploy_value"
+    elif secret_value_is_valid "$backend_value"; then
+        effective="$backend_value"
+        log_info "复用 backend/.env 中已有的 ${key_var}"
+    else
+        if ! command -v openssl >/dev/null 2>&1; then
+            log_error "未检测到 openssl，无法生成 ${key_var}；请手动设置至少 32 字符的随机密钥"
+            return 1
+        fi
+        effective="$(openssl rand -hex 32)"
+        log_success "已自动生成 ${key_var}（JWT 签名密钥）"
+    fi
+
+    set_env_value "$deploy_env" "$key_var" "$effective"
+    set_env_value "$backend_env" "$key_var" "$effective"
+}
+
+postgres_data_volume_exists() {
+    docker volume ls --format '{{.Name}}' 2>/dev/null | grep -Eq '(^|_)joysafeter-db-data$'
+}
+
+ensure_postgres_password() {
+    local deploy_env="$1"
+    local backend_env="$2"
+    local deploy_env_created="$3"
+    local key_var="POSTGRES_PASSWORD"
+    local password
+
+    password="$(read_env_value "$deploy_env" "$key_var")"
+    if secret_value_is_valid "$password"; then
+        set_env_value "$backend_env" "$key_var" "$password"
+        return 0
+    fi
+
+    if [ "$deploy_env_created" != true ] && postgres_data_volume_exists; then
+        log_error "检测到已有 PostgreSQL 数据卷，但 ${key_var} 仍为空、默认值或占位符；拒绝自动改密以避免数据库失联"
+        log_error "请先为数据库用户设置强密码，再在 deploy/.env 与 backend/.env 写入同一 ${key_var}"
+        return 1
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+        log_error "未检测到 openssl，无法生成 ${key_var}；请手动设置至少 32 字符的随机密码"
+        return 1
+    fi
+
+    password="$(openssl rand -hex 24)"
+    set_env_value "$deploy_env" "$key_var" "$password"
+    set_env_value "$backend_env" "$key_var" "$password"
+    log_success "已自动生成 ${key_var}"
 }
 
 # 确保 vault 加密密钥在 deploy/.env 与 backend/.env 中【存在且为同一把】。
@@ -467,26 +543,27 @@ ensure_vault_encryption_key() {
     local effective=""
     if [ "$deploy_real" = true ]; then
         if ! vault_key_is_valid "$deploy_key"; then
-            log_warning "deploy/.env 的 $key_var 已设置但不是合法 32 字节密钥（64 位 hex 或 base64）；托管密钥会失败，请修正后再部署（本次不改动 backend/.env）"
-            return 0
+            log_error "deploy/.env 的 ${key_var} 不是合法 32 字节密钥（64 位 hex 或 base64）"
+            return 1
         fi
         effective="$deploy_key"
     elif [ "$backend_real" = true ]; then
         if vault_key_is_valid "$backend_key"; then
             effective="$backend_key"
-            log_info "复用 backend/.env 中已有的 $key_var 作为 vault 密钥真源"
+            log_info "复用 backend/.env 中已有的 ${key_var} 作为 vault 密钥真源"
         else
-            log_warning "backend/.env 的 $key_var 已设置但不是合法 32 字节密钥；将忽略它并生成新密钥"
+            log_error "backend/.env 的 ${key_var} 已设置但不是合法 32 字节密钥"
+            return 1
         fi
     fi
 
     if [ -z "$effective" ]; then
         if ! command -v openssl >/dev/null 2>&1; then
-            log_warning "未检测到 openssl，无法自动生成 $key_var；托管密钥功能将不可用。请手动在 deploy/.env 与 backend/.env 设置同一把（openssl rand -base64 32）"
-            return 0
+            log_error "未检测到 openssl，无法生成 ${key_var}；请手动在 deploy/.env 与 backend/.env 设置同一把 32 字节密钥"
+            return 1
         fi
         effective="$(openssl rand -base64 32)"
-        log_success "已自动生成 $key_var（vault 凭证加密密钥）"
+        log_success "已自动生成 ${key_var}（vault 凭证加密密钥）"
         log_warning "该密钥一经启用请勿更改，否则已加密的托管密钥密文将无法解密"
     fi
 
@@ -495,7 +572,7 @@ ensure_vault_encryption_key() {
     fi
     if [ "$backend_key" != "$effective" ]; then
         if [ "$backend_real" = true ]; then
-            log_warning "backend/.env 原有一把不同的 $key_var，已同步为 deploy/.env 的权威密钥（compose 中 deploy/.env 本就覆盖 backend/.env）"
+            log_warning "backend/.env 原有一把不同的 ${key_var}，已同步为 deploy/.env 的权威密钥（compose 中 deploy/.env 本就覆盖 backend/.env）"
         fi
         set_env_value "$backend_env" "$key_var" "$effective"
     fi
@@ -574,13 +651,18 @@ skillspector_source_valid() {
 
 clone_skillspector() {
     local dest="$1"
+    local repo_url="${SKILLSPECTOR_REPO_URL:-$(read_env_value "$SCRIPT_DIR/.env" "SKILLSPECTOR_REPO_URL")}"
+    local repo_ref="${SKILLSPECTOR_REPO_REF:-$(read_env_value "$SCRIPT_DIR/.env" "SKILLSPECTOR_REPO_REF")}"
+    repo_url="${repo_url:-https://github.com/NVIDIA/SkillSpector.git}"
+    repo_ref="${repo_ref:-v2.5.1}"
+
     check_command git || exit 1
     if [ -d "$dest" ]; then
         rm -rf "$dest"
     fi
     mkdir -p "$(dirname "$dest")"
-    log_info "克隆 SkillSpector: $SKILLSPECTOR_REPO_URL -> $dest"
-    git clone --depth 1 "$SKILLSPECTOR_REPO_URL" "$dest"
+    log_info "克隆 SkillSpector: $repo_url@$repo_ref -> $dest"
+    git clone --depth 1 --branch "$repo_ref" "$repo_url" "$dest"
 }
 
 ensure_skillspector_source() {
@@ -632,7 +714,7 @@ check_local_ports() {
     warn_if_port_busy "Rust orchestrator gRPC" "$(read_env_value "$deploy_env" "JOYSAFETER_GRPC_PORT_HOST")"
 }
 
-warn_if_sandbox_runtime_image_missing() {
+require_sandbox_runtime_image() {
     local deploy_env="$1"
     local sandbox_image="${JOYSAFETER_SANDBOX_IMAGE:-$(read_env_value "$deploy_env" "JOYSAFETER_SANDBOX_IMAGE")}"
     sandbox_image="${sandbox_image:-joysafeter-claudecode:latest}"
@@ -642,8 +724,9 @@ warn_if_sandbox_runtime_image_missing() {
         return
     fi
 
-    log_warning "Sandbox runtime image missing: $sandbox_image; agent task execution will fail until it is built/pulled"
-    log_warning "Build it with: ./deploy.sh build --claudecode-only --arch $(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+    log_error "Sandbox runtime image missing: $sandbox_image; refusing to start a stack that cannot execute agent tasks"
+    log_error "Build it with: ./deploy.sh build --claudecode-only --arch $(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+    return 1
 }
 
 validate_local_compose_config() {
@@ -754,12 +837,20 @@ require_single_platform() {
 
 configure_local_compose_env() {
     local deploy_env="$SCRIPT_DIR/.env"
+    local require_skillspector_source="${1:-true}"
+    local deploy_env_created=false
+
+    if [ ! -f "$deploy_env" ]; then
+        deploy_env_created=true
+    fi
 
     ensure_env_file "$deploy_env" "$SCRIPT_DIR/.env.example"
     ensure_env_file "$PROJECT_ROOT/backend/.env" "$PROJECT_ROOT/backend/env.example"
     ensure_env_file "$PROJECT_ROOT/frontend/.env" "$PROJECT_ROOT/frontend/env.example"
 
     ensure_vault_encryption_key "$deploy_env" "$PROJECT_ROOT/backend/.env"
+    ensure_auth_secret "$deploy_env" "$PROJECT_ROOT/backend/.env"
+    ensure_postgres_password "$deploy_env" "$PROJECT_ROOT/backend/.env" "$deploy_env_created"
 
     set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$BASE_IMAGE_REGISTRY"
     set_env_value "$deploy_env" "RUST_IMAGE" "$RUST_IMAGE"
@@ -769,7 +860,9 @@ configure_local_compose_env() {
     set_env_value "$deploy_env" "JOYSAFETER_ENVOY_IMAGE" "${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR}/envoyproxy/envoy:v1.37.1}"
     set_env_value "$deploy_env" "DOCKER_DEFAULT_PLATFORM" "$PLATFORMS"
 
-    ensure_skillspector_source "$deploy_env"
+    if [ "$require_skillspector_source" = true ]; then
+        ensure_skillspector_source "$deploy_env"
+    fi
 
     # detect_docker_socket_path 返回的是“容器内挂载源”，即 daemon 侧路径。VM 型运行时
     # 会返回虚拟机内的 /var/run/docker.sock，它在宿主机上并不存在，所以这里不能再用
@@ -783,12 +876,27 @@ configure_local_compose_env() {
     fi
 }
 
-run_local_compose() {
+prepare_local_compose() {
+    local require_skillspector_source="${1:-true}"
+
     require_single_platform
-    configure_local_compose_env
+    configure_local_compose_env "$require_skillspector_source"
     check_local_ports "$SCRIPT_DIR/.env"
-    warn_if_sandbox_runtime_image_missing "$SCRIPT_DIR/.env"
+    require_sandbox_runtime_image "$SCRIPT_DIR/.env"
     validate_local_compose_config
+}
+
+start_local_compose() {
+    (
+        cd "$SCRIPT_DIR"
+        log_info "启动本地 Compose 服务..."
+        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
+    )
+    log_success "本地 Compose 服务已启动"
+}
+
+run_local_compose() {
+    prepare_local_compose
 
     log_info "Docker daemon 平台: $PLATFORMS"
     log_info "基础镜像源: $BASE_IMAGE_REGISTRY"
@@ -796,26 +904,26 @@ run_local_compose() {
 
     build_local_compose_images
     run_local_migrations
+    start_local_compose
+}
 
-    (
-        cd "$SCRIPT_DIR"
-        log_info "启动本地 Compose 服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
-    )
+run_local_up() {
+    prepare_local_compose false
+
+    log_info "复用 deploy/.env 中配置的现有镜像，不执行构建"
+    run_local_migrations
+    start_local_compose
 }
 
 run_local_doctor() {
-    require_single_platform
-    configure_local_compose_env
-    check_local_ports "$SCRIPT_DIR/.env"
-    warn_if_sandbox_runtime_image_missing "$SCRIPT_DIR/.env"
-    validate_local_compose_config
+    prepare_local_compose
 
     log_success "本地部署环境预检完成"
     echo ""
     echo "下一步:"
     echo "  cd deploy"
-    echo "  ./deploy.sh local"
+    echo "  ./deploy.sh local  # 首次源码构建"
+    echo "  ./deploy.sh up     # 已有镜像时快速启动"
 }
 
 # ---- 生命周期管理命令 ----
@@ -1713,7 +1821,7 @@ main() {
                 NO_CACHE=true
                 shift
                 ;;
-            doctor|local|build|push|pull|down|logs|restart|status)
+            doctor|local|up|build|push|pull|down|logs|restart|status)
                 COMMAND="$1"
                 shift
                 ;;
@@ -1795,6 +1903,9 @@ main() {
         (local)
             run_local_compose
             ;;
+        (up)
+            run_local_up
+            ;;
         (push)
             PUSH=true
             build_all_images
@@ -1822,5 +1933,6 @@ main() {
     esac
 }
 
-# 运行主函数
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi
