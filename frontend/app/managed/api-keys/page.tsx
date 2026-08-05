@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { managedPost, managedDelete } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -22,6 +22,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Plus, Trash2, Copy, Check } from 'lucide-react'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import {
   DataTable,
   FilterBar,
@@ -83,15 +84,25 @@ export default function ApiKeysPage() {
   const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
-
   const {
-    data: keys = [],
+    data: keys,
     isLoading,
+    isFetching,
     isError,
     error,
-  } = useQuery({
-    queryKey: ['api-keys', currentOrgId, currentProjectId],
-    queryFn: async () => managedGet<ApiKey[]>('/auth/api-keys'),
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+    reset: resetApiKeyPagination,
+  } = usePaginatedList<ApiKey>({
+    queryKey: 'api-keys',
+    path: '/auth/api-keys',
   })
 
   useEffect(
@@ -119,7 +130,8 @@ export default function ApiKeysPage() {
     setNewRawKey(null)
     setCopied(false)
     setDeleteTarget(null)
-  }, [managedScope])
+    resetApiKeyPagination()
+  }, [managedScope, resetApiKeyPagination])
 
   useEffect(() => {
     if (!projectReadOnly) return
@@ -199,11 +211,6 @@ export default function ApiKeysPage() {
     return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
   }
 
-  const apiKeysQueryKey = (scope = managedScopeRef.current) => {
-    const [orgId = '', projectId = ''] = scope.split(':', 2)
-    return ['api-keys', orgId || null, projectId || null] as const
-  }
-
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
     managedScopeRef.current === scope && getCurrentManagedScope() === scope
 
@@ -223,7 +230,8 @@ export default function ApiKeysPage() {
     onSuccess: ({ res, runId, scope }) => {
       if (!currentManagedScopeAllowsWrite(scope)) return
       if (runId !== createKeyRunRef.current) return
-      queryClient.invalidateQueries({ queryKey: apiKeysQueryKey(scope) })
+      resetApiKeyPagination()
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
       setNewRawKey(res.raw_key)
       setShowCreate(false)
       setKeyName('')
@@ -274,7 +282,8 @@ export default function ApiKeysPage() {
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) return
-      queryClient.invalidateQueries({ queryKey: apiKeysQueryKey(scope) })
+      resetApiKeyPagination()
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
     },
     onError: (error, { runId, scope }) => {
       if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) return
@@ -287,7 +296,8 @@ export default function ApiKeysPage() {
     if (!currentManagedScopeAllowsWrite()) return null
     return (
       queryClient
-        .getQueryData<ApiKey[]>(['api-keys', currentOrgId, currentProjectId])
+        .getQueriesData<{ data: ApiKey[] }>({ queryKey: ['api-keys'] })
+        .flatMap(([, page]) => page?.data ?? [])
         ?.find((candidate) => candidate.id === key.id) ?? null
     )
   }
@@ -326,7 +336,7 @@ export default function ApiKeysPage() {
       <ResourceErrorState
         error={error}
         resource="apiKey"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: apiKeysQueryKey() })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['api-keys'] })}
       />
     )
   }
@@ -442,7 +452,19 @@ export default function ApiKeysPage() {
         columns={columns}
         data={filteredKeys}
         loading={isLoading}
+        fetching={isFetching}
         emptyMessage={t('manage.apiKeys.empty')}
+        pagination={{
+          hasNext,
+          hasPrev,
+          page,
+          pageSize,
+          pageSizeOptions,
+          onNext: goNext,
+          onPrev: goPrev,
+          onPageChange: goToPage,
+          onPageSizeChange: setPageSize,
+        }}
         actionMenu={
           !projectReadOnly
             ? (key) => [

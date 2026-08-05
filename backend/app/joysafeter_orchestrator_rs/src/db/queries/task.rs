@@ -34,8 +34,13 @@ pub async fn claim_pending_task_by_id(
     sqlx::query_as::<_, JoySafeterTask>(
         r#"
         UPDATE joysafeter_tasks
-        SET status = 'scheduling', started_at = NOW(), updated_at = NOW()
-        WHERE id = $1 AND status = 'pending'
+        SET status = 'scheduling',
+            started_at = NOW(),
+            scheduling_started_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+          AND status = 'pending'
+          AND (next_schedule_at IS NULL OR next_schedule_at <= NOW())
         RETURNING *
         "#,
     )
@@ -53,10 +58,14 @@ pub async fn claim_pending_tasks(
     sqlx::query_as::<_, JoySafeterTask>(
         r#"
         UPDATE joysafeter_tasks
-        SET status = 'scheduling', started_at = NOW(), updated_at = NOW()
+        SET status = 'scheduling',
+            started_at = NOW(),
+            scheduling_started_at = NOW(),
+            updated_at = NOW()
         WHERE id IN (
             SELECT id FROM joysafeter_tasks
             WHERE status = 'pending'
+              AND (next_schedule_at IS NULL OR next_schedule_at <= NOW())
             ORDER BY created_at ASC
             FOR UPDATE SKIP LOCKED
             LIMIT $1
@@ -134,6 +143,7 @@ pub async fn reset_scheduling_task_to_pending(
         SET status = 'pending',
             sandbox_id = NULL,
             started_at = NULL,
+            scheduling_started_at = NULL,
             updated_at = NOW()
         WHERE id = $1 AND status = 'scheduling'
         "#,
@@ -574,7 +584,43 @@ pub async fn fail_lease_expired_task(
 /// Scheduler failure callbacks are based on stale async observations; this CAS
 /// prevents a late resolver failure from moving a task that already reached
 /// RUNNING back to PENDING.
-pub async fn increment_scheduling_retry(
+pub async fn increment_scheduling_retry_keep_scheduling(
+    pool: &PgPool,
+    task_id: Uuid,
+    expected_retry_count: i32,
+    backoff_seconds: i64,
+    error_type: &str,
+    error_message: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_tasks
+        SET sandbox_id = NULL,
+            started_at = NULL,
+            schedule_attempts = schedule_attempts + 1,
+            retry_count = retry_count + 1,
+            next_schedule_at = NOW() + ($3 * INTERVAL '1 second'),
+            last_schedule_error_type = $4,
+            last_schedule_error = $5,
+            updated_at = NOW()
+        WHERE id = $1
+          AND status = 'scheduling'
+          AND retry_count = $2
+        "#,
+    )
+    .bind(task_id)
+    .bind(expected_retry_count)
+    .bind(backoff_seconds)
+    .bind(error_type)
+    .bind(error_message)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Move a retried scheduling task back to PENDING while preserving next_schedule_at.
+pub async fn release_scheduling_retry_to_pending(
     pool: &PgPool,
     task_id: Uuid,
     expected_retry_count: i32,
@@ -582,11 +628,7 @@ pub async fn increment_scheduling_retry(
     let result = sqlx::query(
         r#"
         UPDATE joysafeter_tasks
-        SET status = 'pending',
-            sandbox_id = NULL,
-            started_at = NULL,
-            retry_count = retry_count + 1,
-            updated_at = NOW()
+        SET status = 'pending', scheduling_started_at = NULL, updated_at = NOW()
         WHERE id = $1
           AND status = 'scheduling'
           AND retry_count = $2
@@ -598,6 +640,28 @@ pub async fn increment_scheduling_retry(
     .await?;
 
     Ok(result.rows_affected() > 0)
+}
+
+/// Immediate retry helper for non-scheduler controllers that already perform
+/// their own backoff/lifecycle coordination.
+pub async fn increment_scheduling_retry(
+    pool: &PgPool,
+    task_id: Uuid,
+    expected_retry_count: i32,
+) -> Result<bool, sqlx::Error> {
+    let updated = increment_scheduling_retry_keep_scheduling(
+        pool,
+        task_id,
+        expected_retry_count,
+        0,
+        "runtime_retry",
+        "runtime retry",
+    )
+    .await?;
+    if !updated {
+        return Ok(false);
+    }
+    release_scheduling_retry_to_pending(pool, task_id, expected_retry_count + 1).await
 }
 
 /// Check if a task has produced agent.message events (for failover decisions).
@@ -632,7 +696,13 @@ pub async fn task_has_agent_output(
 /// Find all pending tasks (for startup re-enqueue).
 pub async fn find_pending_tasks(pool: &PgPool, limit: i64) -> Result<Vec<(Uuid,)>, sqlx::Error> {
     sqlx::query_as::<_, (Uuid,)>(
-        "SELECT id FROM joysafeter_tasks WHERE status = 'pending' ORDER BY created_at LIMIT $1",
+        r#"
+        SELECT id FROM joysafeter_tasks
+        WHERE status = 'pending'
+          AND (next_schedule_at IS NULL OR next_schedule_at <= NOW())
+        ORDER BY created_at
+        LIMIT $1
+        "#,
     )
     .bind(limit)
     .fetch_all(pool)

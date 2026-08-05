@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from uuid_utils import uuid7
@@ -45,6 +45,10 @@ class JoySafeterMemory(JoySafeterBaseModel):
 
 class JoySafeterMemoryVersion(Base):
     __tablename__ = "joysafeter_memory_versions"
+    __table_args__ = (
+        Index("idx_joysafeter_memory_versions_store_created", "store_id", "created_at"),
+        Index("idx_joysafeter_memory_versions_session_created", "session_id", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
     store_id: Mapped[uuid.UUID] = mapped_column(
@@ -67,7 +71,10 @@ class JoySafeterMemoryVersion(Base):
 
 class JoySafeterSessionMemoryStore(Base):
     __tablename__ = "joysafeter_session_memory_stores"
-    __table_args__ = (UniqueConstraint("session_id", "store_id"),)
+    __table_args__ = (
+        UniqueConstraint("session_id", "store_id"),
+        Index("idx_joysafeter_session_memory_stores_created", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
     session_id: Mapped[uuid.UUID] = mapped_column(

@@ -45,6 +45,8 @@ class JoySafeterSession(JoySafeterBaseModel):
         Index("idx_csess_agent", "agent_id"),
         Index("idx_csess_created", "created_at"),
         Index("idx_csess_project", "project_id"),
+        Index("idx_csess_updated", "updated_at"),
+        Index("idx_csess_archived", "archived_at"),
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(

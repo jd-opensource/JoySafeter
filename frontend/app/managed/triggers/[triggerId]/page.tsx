@@ -483,6 +483,17 @@ export default function TriggerDetailPage({ params }: { params: Promise<{ trigge
         data={runs}
         loading={runsQuery.isLoading}
         fetching={runsQuery.isFetching}
+        pagination={{
+          hasNext: runsQuery.hasNext,
+          hasPrev: runsQuery.hasPrev,
+          page: runsQuery.page,
+          pageSize: runsQuery.pageSize,
+          pageSizeOptions: runsQuery.pageSizeOptions,
+          onNext: runsQuery.goNext,
+          onPrev: runsQuery.goPrev,
+          onPageChange: runsQuery.goToPage,
+          onPageSizeChange: runsQuery.setPageSize,
+        }}
         emptyMessage={t('managed.triggers.runs.empty')}
       />
 

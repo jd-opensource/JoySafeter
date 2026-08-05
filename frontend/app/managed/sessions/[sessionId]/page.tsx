@@ -29,6 +29,8 @@ import {
   Plus,
   Trash2,
   GitBranch,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react'
 import {
   managedDelete,
@@ -72,6 +74,7 @@ import type {
   SessionResource,
   SessionSkillUsage,
   FileRecord,
+  NetworkPolicyStatus,
 } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -276,6 +279,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     queryFn: () =>
       managedGet<{ data: SessionSkillUsage[] }>(
         apiResourcePath('sessions', id, 'skill-usage'),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!id && hasManagedRequestScope(managedScope),
+  })
+
+  const { data: networkPolicyStatus } = useQuery({
+    queryKey: ['session-network-policy', sessionScope],
+    queryFn: () =>
+      managedGet<NetworkPolicyStatus | null>(
+        apiResourceSubpath('network-policies', 'sessions', [apiResourceId(id)]),
         managedRequestOptions(managedScope),
       ),
     enabled: !!id && hasManagedRequestScope(managedScope),
@@ -1085,6 +1098,41 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
               </button>
             </span>
           ))}
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+          <div className="flex items-center gap-1.5 font-medium text-foreground">
+            {networkPolicyStatus?.networking_last_error ? (
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+            ) : (
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+            )}
+            {t('managed.sessions.networkPolicy.title')}
+          </div>
+          {networkPolicyStatus ? (
+            <>
+              <Badge variant="outline">{networkPolicyStatus.networking_status}</Badge>
+              <span className="text-muted-foreground">
+                {t('managed.sessions.networkPolicy.version', { version: networkPolicyStatus.networking_policy_version || 0 })}
+              </span>
+              {networkPolicyStatus.networking_policy_hash ? (
+                <code className="rounded bg-background px-1.5 py-0.5 text-[11px]">
+                  {networkPolicyStatus.networking_policy_hash.slice(0, 12)}
+                </code>
+              ) : null}
+              {networkPolicyStatus.networking_ready_at ? (
+                <span className="text-muted-foreground">
+                  {t('managed.sessions.networkPolicy.readyAt')} <RelativeTime date={networkPolicyStatus.networking_ready_at} />
+                </span>
+              ) : null}
+              {networkPolicyStatus.networking_last_error ? (
+                <span className="min-w-0 flex-1 truncate text-destructive" title={networkPolicyStatus.networking_last_error}>
+                  {networkPolicyStatus.networking_last_error}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className="text-muted-foreground">{t('managed.sessions.networkPolicy.empty')}</span>
+          )}
         </div>
       </div>
 
@@ -1975,16 +2023,6 @@ function EnvDrawer({
                     : t('managed.sessions.disabled')}
                 </span>
               </div>
-              <div className="flex items-center text-sm">
-                <span className="w-28 shrink-0 text-muted-foreground">
-                  {t('managed.sessions.packages')}
-                </span>
-                <span className="text-foreground">
-                  {networking?.allow_package_managers
-                    ? t('managed.sessions.enabled')
-                    : t('managed.sessions.disabled')}
-                </span>
-              </div>
               {networking?.allowed_hosts && networking.allowed_hosts.length > 0 && (
                 <div className="flex items-start text-sm">
                   <span className="w-28 shrink-0 pt-0.5 text-muted-foreground">
@@ -2002,85 +2040,71 @@ function EnvDrawer({
             </div>
           </section>
 
-          {/* Packages */}
+          {/* Packages — hidden for now */}
+
+          {/* Environment Variables */}
           <section>
             <h3 className="mb-2 text-sm font-semibold text-foreground">
-              {t('managed.sessions.packages')}
+              {t('managed.sessions.envVars', '环境变量')}
             </h3>
-            {hasPackages ? (
+            {env.config?.env_vars && Object.keys(env.config.env_vars).length > 0 ? (
+              <div className="space-y-1.5">
+                {Object.entries(env.config.env_vars).map(([key, value]) => (
+                  <div key={key} className="flex items-start text-sm">
+                    <code className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground" title={key}>
+                      {key}
+                    </code>
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+                      ••••••
+                    </code>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm italic text-muted-foreground">
+                {t('managed.sessions.noneConfigured')}
+              </p>
+            )}
+          </section>
+
+          {/* Egress Services (第三方服务) */}
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-foreground">
+              {t('managed.sessions.egressServices', '第三方服务')}
+            </h3>
+            {env.config?.egress_services && env.config.egress_services.length > 0 ? (
               <div className="space-y-2">
-                {packages.apt && packages.apt.length > 0 && (
-                  <div className="flex items-start text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">apt</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {packages.apt.map((p) => (
-                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
-                          {p}
-                        </code>
-                      ))}
-                    </div>
+                {env.config.egress_services.map((svc: { name?: string; base_url?: string }, i: number) => (
+                  <div key={i} className="rounded border border-border/60 px-3 py-2">
+                    {svc.name && (
+                      <div className="text-sm font-medium text-foreground">{svc.name}</div>
+                    )}
+                    {svc.base_url && (
+                      <code className="text-xs text-muted-foreground">{svc.base_url}</code>
+                    )}
                   </div>
-                )}
-                {packages.pip && packages.pip.length > 0 && (
-                  <div className="flex items-start text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">pip</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {packages.pip.map((p) => (
-                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
-                          {p}
-                        </code>
-                      ))}
-                    </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm italic text-muted-foreground">
+                {t('managed.sessions.noneConfigured')}
+              </p>
+            )}
+          </section>
+
+          {/* Storage Volumes (数据卷挂载) */}
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-foreground">
+              {t('managed.sessions.storageVolumes', '数据卷挂载')}
+            </h3>
+            {env.config?.storage_volumes && env.config.storage_volumes.length > 0 ? (
+              <div className="space-y-2">
+                {env.config.storage_volumes.map((vol: { name?: string; mount_path?: string; volume_id?: string }, i: number) => (
+                  <div key={i} className="flex items-center text-sm">
+                    <span className="w-28 shrink-0 text-muted-foreground">{vol.name || vol.volume_id || `vol-${i}`}</span>
+                    <code className="font-mono text-xs text-foreground">{vol.mount_path || '-'}</code>
                   </div>
-                )}
-                {packages.npm && packages.npm.length > 0 && (
-                  <div className="flex items-start text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">npm</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {packages.npm.map((p) => (
-                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
-                          {p}
-                        </code>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {packages.cargo && packages.cargo.length > 0 && (
-                  <div className="flex items-start text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">cargo</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {packages.cargo.map((p) => (
-                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
-                          {p}
-                        </code>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {packages.gem && packages.gem.length > 0 && (
-                  <div className="flex items-start text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">gem</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {packages.gem.map((p) => (
-                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
-                          {p}
-                        </code>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {packages.go && packages.go.length > 0 && (
-                  <div className="flex items-start text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">go</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {packages.go.map((p) => (
-                        <code key={p} className="rounded bg-muted px-2 py-0.5 font-mono text-xs">
-                          {p}
-                        </code>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                ))}
               </div>
             ) : (
               <p className="text-sm italic text-muted-foreground">

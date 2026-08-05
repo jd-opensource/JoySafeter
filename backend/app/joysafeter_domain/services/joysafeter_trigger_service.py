@@ -16,6 +16,7 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTaskStatus,
 )
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_fire_service import TriggerFireService
@@ -590,11 +591,30 @@ class JoySafeterTriggerService:
         result = await self.db.execute(
             select(JoySafeterTask)
             .where(JoySafeterTask.trigger_id == trigger_id)
-            .order_by(JoySafeterTask.created_at.desc())
+            .order_by(JoySafeterTask.created_at.desc(), JoySafeterTask.id.desc())
             .limit(limit)
             .offset(offset)
         )
         return result.scalars().all()
+
+    async def list_runs_page(
+        self,
+        trigger_id: uuid.UUID,
+        *,
+        project_id: Optional[str],
+        limit: int = 50,
+        after_id: Optional[uuid.UUID] = None,
+    ) -> Optional[tuple[list[JoySafeterTask], bool]]:
+        trigger = await self.get(trigger_id, project_id=project_id, include_deleted=True)
+        if trigger is None:
+            return None
+
+        query = select(JoySafeterTask).where(JoySafeterTask.trigger_id == trigger_id)
+        query = apply_created_at_desc_cursor(query, JoySafeterTask, after_id).limit(limit + 1)
+        result = await self.db.execute(query)
+        runs = list(result.scalars().all())
+        has_more = len(runs) > limit
+        return runs[:limit], has_more
 
     async def advance_after_fire(
         self,

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, type MutableRefObject } from 'react'
 import { useTranslation } from '@/lib/i18n'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { managedGet, managedPost, managedPut, managedDelete } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,14 +22,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { UserPlus, Trash2, Search } from 'lucide-react'
-import { DataTable, RelativeTime, type Column, PageHeader } from '@/components/managed/shared'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { DataTable, FilterBar, RelativeTime, type Column, type FilterDef, PageHeader } from '@/components/managed/shared'
 import { toastOperationError } from '@/lib/managed/errors'
+import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { useSession } from '@/lib/auth/auth-client'
 import { normalizeManagedRole, roleLabel, roleOptions } from '@/lib/managed/roles'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
 
 interface MemberRecord {
+  id?: string
   user_id: string
   email: string
   display_name: string
@@ -54,6 +57,8 @@ export default function MembersPage() {
   const [showInvite, setShowInvite] = useState(false)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('developer')
+  const [memberSearch, setMemberSearch] = useState('')
+  const [createdFilter, setCreatedFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<
     { id: string; email: string; name: string; image?: string; already_member: boolean }[]
@@ -70,10 +75,28 @@ export default function MembersPage() {
   const [removeTarget, setRemoveTarget] = useState<MemberRecord | null>(null)
 
   // ── Queries ──
-  const { data: members = [], isLoading } = useQuery({
-    queryKey: ['org-members', currentOrgId],
-    queryFn: () => managedGet<MemberRecord[]>('auth/members'),
+  const {
+    data: members,
+    isLoading,
+    isFetching,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+    reset: resetMembersPagination,
+  } = usePaginatedList<MemberRecord>({
+    queryKey: 'org-members',
+    path: `/auth/members${memberSearch.trim() ? `?q=${encodeURIComponent(memberSearch.trim())}` : ''}`,
   })
+  const filteredMembers = members.filter((member) =>
+    filterByCreatedTime(member.joined_at || '', createdFilter) &&
+    matchesSearch(memberSearch, [member.user_id, member.display_name, member.email]),
+  )
 
   const getCurrentOrgScope = () => useProjectStore.getState().currentOrgId ?? ''
 
@@ -87,7 +110,8 @@ export default function MembersPage() {
     if (!member) return null
     if (!currentOrgScopeIsActive()) return null
     const current = queryClient
-      .getQueryData<MemberRecord[]>(['org-members', orgScopeRef.current])
+      .getQueriesData<{ data: MemberRecord[] }>({ queryKey: ['org-members'] })
+      .flatMap(([, page]) => page?.data ?? [])
       ?.find((candidate) => candidate.user_id === member.user_id)
     return current && normalizeManagedRole(current.role) !== 'owner' ? current : null
   }
@@ -125,13 +149,16 @@ export default function MembersPage() {
     setShowInvite(false)
     setEmail('')
     setRole('developer')
+    setMemberSearch('')
+    setCreatedFilter('all')
     setSearchQuery('')
     setSearchResults([])
     setShowDropdown(false)
     setRoleTarget(null)
     setNewRole('developer')
     setRemoveTarget(null)
-  }, [orgScope])
+    resetMembersPagination()
+  }, [orgScope, resetMembersPagination])
 
   useEffect(() => {
     const currentById = new Map(members.map((member) => [member.user_id, member]))
@@ -168,7 +195,8 @@ export default function MembersPage() {
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(inviteRunRef, runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['org-members', scope] })
+      resetMembersPagination()
+      queryClient.invalidateQueries({ queryKey: ['org-members'] })
       resetInviteDialog(false)
     },
     onError: (err: Error, variables) => {
@@ -186,7 +214,8 @@ export default function MembersPage() {
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(removeRunRef, runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['org-members', scope] })
+      resetMembersPagination()
+      queryClient.invalidateQueries({ queryKey: ['org-members'] })
       setRemoveTarget(null)
     },
     onError: (err: Error, variables) => {
@@ -218,7 +247,7 @@ export default function MembersPage() {
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(roleRunRef, runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['org-members', scope] })
+      queryClient.invalidateQueries({ queryKey: ['org-members'] })
       setRoleTarget(null)
     },
     onError: (err: Error, variables) => {
@@ -290,7 +319,8 @@ export default function MembersPage() {
     if (!trimmedEmail) return
     if (!currentOrgScopeIsActive()) return
     const emailAlreadyMember = queryClient
-      .getQueryData<MemberRecord[]>(['org-members', orgScopeRef.current])
+      .getQueriesData<{ data: MemberRecord[] }>({ queryKey: ['org-members'] })
+      .flatMap(([, page]) => page?.data ?? [])
       ?.some((member) => member.email.toLowerCase() === trimmedEmail.toLowerCase())
     if (emailAlreadyMember) return
     const runId = inviteRunRef.current + 1
@@ -405,6 +435,13 @@ export default function MembersPage() {
         ),
     },
   ]
+  const filters: FilterDef[] = [
+    {
+      ...createCreatedTimeFilter(t),
+      value: createdFilter,
+      onChange: setCreatedFilter,
+    },
+  ]
 
   return (
     <div className="w-full">
@@ -421,11 +458,33 @@ export default function MembersPage() {
         }
       />
 
+      <FilterBar
+        searchPlaceholder="按姓名、邮箱或 ID 搜索成员"
+        searchValue={memberSearch}
+        onSearchChange={(value) => {
+          resetMembersPagination()
+          setMemberSearch(value)
+        }}
+        filters={filters}
+      />
+
       <DataTable
         columns={columns}
-        data={members}
+        data={filteredMembers}
         loading={isLoading}
+        fetching={isFetching}
         emptyMessage={t('manage.members.empty')}
+        pagination={{
+          hasNext,
+          hasPrev,
+          page,
+          pageSize,
+          pageSizeOptions,
+          onNext: goNext,
+          onPrev: goPrev,
+          onPageChange: goToPage,
+          onPageSizeChange: setPageSize,
+        }}
         actionMenu={
           canAdmin
             ? (member) =>

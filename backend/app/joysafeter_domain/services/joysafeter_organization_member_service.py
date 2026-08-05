@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
@@ -208,6 +209,33 @@ class OrganizationMemberService:
             .order_by(Member.created_at)
         )
         return [MemberWithUser(member=member, user=user) for member, user in result.all()]
+
+    async def list_members_page(
+        self,
+        organization_id: str,
+        *,
+        limit: int,
+        after_id: str | None = None,
+        q: str = "",
+    ) -> tuple[list[MemberWithUser], bool]:
+        query = (
+            select(Member, AuthUser)
+            .outerjoin(AuthUser, Member.user_id == AuthUser.id)
+            .where(Member.organization_id == organization_id)
+        )
+        if q.strip():
+            pattern = f"%{q.strip()}%"
+            query = query.where(
+                or_(
+                    Member.user_id.ilike(pattern),
+                    AuthUser.email.ilike(pattern),
+                    AuthUser.name.ilike(pattern),
+                )
+            )
+        query = apply_created_at_desc_cursor(query, Member, after_id).limit(limit + 1)
+        result = await self.db.execute(query)
+        rows = [MemberWithUser(member=member, user=user) for member, user in result.all()]
+        return rows[:limit], len(rows) > limit
 
     async def add_member(
         self,

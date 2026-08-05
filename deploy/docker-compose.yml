@@ -48,6 +48,9 @@ x-backend-volumes: &backend-volumes
   - backend-logs:/app/app/logs
   - backend-files:/app/data/files
   - ../skills:/app/skills:ro
+  - ${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}:${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}
+  - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}
+  - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
 
 x-backend-depends: &backend-depends
   postgres:
@@ -74,14 +77,18 @@ services:
       - |
         set -eu
         mkdir -p /sockets /envoy-config/sandboxes
-        printf '{"version_info":"0","resources":[]}\n' > /envoy-config/lds.json
-        printf '{"version_info":"0","resources":[]}\n' > /envoy-config/cds.json
+        if [ ! -s /envoy-config/lds.json ]; then
+          printf '{"version_info":"0","resources":[]}\n' > /envoy-config/lds.json
+        fi
+        if [ ! -s /envoy-config/cds.json ]; then
+          printf '{"version_info":"0","resources":[]}\n' > /envoy-config/cds.json
+        fi
         while [ ! -s /envoy-config/bootstrap.json ]; do
           sleep 0.2
         done
         exec envoy -c /envoy-config/bootstrap.json --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}
     volumes:
-      - joysafeter-sockets:/sockets
+      - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:/sockets
       - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:/envoy-config
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -212,6 +219,9 @@ services:
       - ../skills:/app/skills:ro
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
       - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
+      - ${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}:${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}
+      - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}
+      - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
     # Liveness only: the orchestrator speaks gRPC (no HTTP/gRPC-health service),
     # so probe that the gRPC listener is accepting TCP. A crash-looping
     # orchestrator stops listening and turns unhealthy instead of the stack

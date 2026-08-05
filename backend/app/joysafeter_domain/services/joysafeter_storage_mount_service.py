@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -14,6 +14,7 @@ from app.joysafeter_domain.models.joysafeter_storage_mount import (
     JoySafeterStorageProjectGrant,
     JoySafeterStorageVolume,
 )
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.schemas.joysafeter_storage_mount import (
     CreateStorageVolumeRequest,
     StorageOrganizationGrantInput,
@@ -601,6 +602,24 @@ class StorageMountService:
         volume_id: Optional[uuid.UUID] = None,
         limit: int = 100,
     ) -> list[JoySafeterStorageMountAudit]:
+        rows, _ = await self.list_audit_page(
+            project_id=project_id,
+            org_id=org_id,
+            volume_id=volume_id,
+            limit=limit,
+        )
+        return rows
+
+    async def list_audit_page(
+        self,
+        *,
+        project_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+        volume_id: Optional[uuid.UUID] = None,
+        limit: int = 100,
+        after_id: Optional[uuid.UUID] = None,
+        q: str = "",
+    ) -> tuple[list[JoySafeterStorageMountAudit], bool]:
         conditions = []
         if project_id is not None:
             conditions.append(JoySafeterStorageMountAudit.project_id == project_id)
@@ -611,12 +630,26 @@ class StorageMountService:
             )
         if volume_id is not None:
             conditions.append(JoySafeterStorageMountAudit.volume_id == volume_id)
+        if q.strip():
+            pattern = f"%{q.strip()}%"
+            conditions.append(
+                or_(
+                    JoySafeterStorageMountAudit.action.ilike(pattern),
+                    JoySafeterStorageMountAudit.volume_ref.ilike(pattern),
+                    JoySafeterStorageMountAudit.project_id.ilike(pattern),
+                    JoySafeterStorageMountAudit.mount_path.ilike(pattern),
+                    JoySafeterStorageMountAudit.sub_path.ilike(pattern),
+                    JoySafeterStorageMountAudit.access.ilike(pattern),
+                    JoySafeterStorageMountAudit.result.ilike(pattern),
+                )
+            )
         query = select(JoySafeterStorageMountAudit)
         if conditions:
             query = query.where(and_(*conditions))
-        query = query.order_by(JoySafeterStorageMountAudit.created_at.desc()).limit(limit)
+        query = apply_created_at_desc_cursor(query, JoySafeterStorageMountAudit, after_id).limit(limit + 1)
         result = await self.db.execute(query)
-        return list(result.scalars().all())
+        rows = list(result.scalars().all())
+        return rows[:limit], len(rows) > limit
 
     def _grant_model(self, volume_id: uuid.UUID, grant: StorageProjectGrantInput) -> JoySafeterStorageProjectGrant:
         return JoySafeterStorageProjectGrant(

@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,6 +43,9 @@ class JoySafeterSandbox(JoySafeterBaseModel):
             ),
         ),
         Index("idx_csb_project", "project_id"),
+        Index("idx_csb_last_used", "last_used_at"),
+        Index("idx_csb_updated", "updated_at"),
+        Index("idx_csb_destroyed", "destroyed_at"),
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
@@ -74,3 +77,8 @@ class JoySafeterSandbox(JoySafeterBaseModel):
     disconnected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     destroyed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     workspace_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    networking_status: Mapped[str] = mapped_column(Text, nullable=False, default="disabled", server_default="disabled")
+    networking_policy_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    networking_policy_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    networking_last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    networking_ready_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

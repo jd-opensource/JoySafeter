@@ -52,6 +52,10 @@ pub struct SandboxCreateConfig {
     pub cpu_limit: Option<f64>,
     pub memory_limit_mb: Option<u64>,
     pub network: Option<String>,
+    /// Whether the provider should start the sandbox immediately after
+    /// creating it. Docker/Envoy restricted networking sets this to false so
+    /// the per-sandbox sockets can be created before the runner process starts.
+    pub start_immediately: bool,
     pub workspace_path: Option<String>,
     /// Memory store mounts: (host_path, container_mount_path).
     /// Each entry maps a host directory to a container path like `/mnt/memory/<mount_name>`.
@@ -153,6 +157,22 @@ pub trait SandboxProvider: Send + Sync + 'static {
         _credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    /// Refresh an existing sandbox's egress networking policy.
+    ///
+    /// Docker/Envoy can hot-replace listeners and clusters for a sandbox. Other
+    /// providers may keep the default setup implementation if their networking
+    /// API is idempotent, or override this with a cheaper patch call.
+    async fn refresh_networking(
+        &self,
+        sandbox_id: Uuid,
+        sandbox_external_id: &str,
+        networking: Option<&serde_json::Value>,
+        credentials: SandboxCredentials,
+    ) -> anyhow::Result<()> {
+        self.setup_networking(sandbox_id, sandbox_external_id, networking, credentials)
+            .await
     }
 
     /// Tear down sandbox networking configuration.

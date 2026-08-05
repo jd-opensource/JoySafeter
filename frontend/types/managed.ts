@@ -108,6 +108,34 @@ export interface SessionStats {
   active_seconds?: number | null
 }
 
+export interface NetworkPolicyStatus {
+  sandbox_id: string
+  session_id?: string | null
+  task_id?: string | null
+  project_id?: string | null
+  session_title?: string | null
+  agent_name?: string | null
+  sandbox_status: string
+  networking_status: string
+  networking_policy_hash?: string | null
+  networking_policy_version: number
+  networking_last_error?: string | null
+  networking_ready_at?: string | null
+  sandbox_updated_at: string
+  latest_policy_status?: string | null
+  latest_policy_error?: string | null
+  latest_policy_nack_reason?: string | null
+  latest_policy_updated_at?: string | null
+  rendered_summary?: Record<string, unknown>
+}
+
+export interface NetworkPolicyListResponse {
+  data: NetworkPolicyStatus[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface SessionEvent {
   id: string
   type: string
@@ -203,6 +231,12 @@ export interface EnvironmentMountResource {
   required?: boolean
 }
 
+export interface EnvironmentStorageVolume {
+  name?: string
+  volume_id?: string
+  mount_path?: string
+}
+
 export interface StorageVolumeCatalogItem {
   volume_ref: string
   backend_type?: string
@@ -277,6 +311,7 @@ export interface EnvironmentConfig {
   env_vars?: Record<string, string>
   secret_refs?: string[]
   egress_services?: EnvironmentEgressService[]
+  storage_volumes?: EnvironmentStorageVolume[]
   mount_resources?: EnvironmentMountResource[]
 }
 

@@ -1,0 +1,14 @@
+version: v1alpha
+
+architecture: x86
+artifact_type: base_image
+dockerfile_path: ./.jdos/docker/
+dockerfile_name: frontend-base.Dockerfile
+build_context: ./.jdos/docker
+resources:
+  requests:
+    cpu: 4
+    mem: 32768
+  limits:
+    cpu: 4
+    mem: 32768

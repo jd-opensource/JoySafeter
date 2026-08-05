@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck, ShieldOff, Search } from 'lucide-react'
+import { Search, ShieldCheck, ShieldOff } from 'lucide-react'
 import { managedPut } from '@/lib/api-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -55,11 +55,10 @@ export default function PlatformUsersPage() {
     goPrev,
     goToPage,
     setPageSize,
+    reset,
   } = usePaginatedList<PlatformUser>({
     queryKey: 'platform-users',
     path: usersPath,
-    limit: 25,
-    pageSizeOptions: [10, 25, 50, 100],
   })
 
   const updateMutation = useMutation({

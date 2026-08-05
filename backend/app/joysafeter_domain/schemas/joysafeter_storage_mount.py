@@ -380,6 +380,11 @@ class StorageMountAuditResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator("detail", mode="before")
+    @classmethod
+    def normalize_detail(cls, value: Any) -> dict[str, Any]:
+        return value or {}
+
     @field_serializer("id", "volume_id", "session_id", "environment_id")
     def serialize_uuid(self, value: Optional[uuid.UUID]) -> Optional[str]:
         return str(value) if value else None

@@ -40,6 +40,10 @@ class JoySafeterTrigger(JoySafeterBaseModel):
         ),
         Index("idx_joysafeter_triggers_project", "project_id"),
         Index("idx_joysafeter_triggers_type_enabled", "type", "enabled"),
+        Index("idx_joysafeter_triggers_project_created", "project_id", "created_at"),
+        Index("idx_joysafeter_triggers_updated", "updated_at"),
+        Index("idx_joysafeter_triggers_last_attempt", "last_attempt_at"),
+        Index("idx_joysafeter_triggers_deleted", "deleted_at"),
         Index(
             "idx_joysafeter_triggers_cron_due",
             "next_run_at",

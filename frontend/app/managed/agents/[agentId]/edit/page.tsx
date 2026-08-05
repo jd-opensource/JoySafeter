@@ -16,6 +16,7 @@ import {
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
+import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
 import type { Agent } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -315,16 +316,23 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
   // ── MCP server helpers ──
   const addMcpServer = () => {
-    if (!mcpName.trim() || !mcpUrl.trim()) return
+    const trimmedName = mcpName.trim()
+    const trimmedUrl = mcpUrl.trim()
+    if (!trimmedName || !trimmedUrl) return
+    const nameError = validateUniqueMcpServerName(trimmedName, mcpServers)
+    if (nameError) {
+      toastOperationError(t, new Error(nameError), 'common.error')
+      return
+    }
     // URL scheme validation
-    const urlError = validateUrlScheme(mcpUrl.trim())
+    const urlError = validateUrlScheme(trimmedUrl)
     if (urlError) {
       toastOperationError(t, new Error(urlError), 'common.error')
       return
     }
     setMcpServers((prev) => [
       ...prev,
-      { name: mcpName.trim(), url: mcpUrl.trim(), policy: 'always_ask' },
+      { name: trimmedName, url: trimmedUrl, policy: 'always_ask' },
     ])
     markDirty()
     setMcpName('')

@@ -34,4 +34,5 @@ class JoySafeterSessionFile(Base):
     __table_args__ = (
         Index("idx_session_files_session", "session_id"),
         Index("idx_session_files_file", "file_id"),
+        Index("idx_session_files_created", "created_at"),
     )

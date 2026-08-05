@@ -11,6 +11,7 @@ mod kernel;
 mod runtime_config;
 mod sandbox;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use config::JoySafeterConfig;
@@ -31,6 +32,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = JoySafeterConfig::from_env();
+    config.validate()?;
 
     info!(
         instance_id = %config.instance_id,
@@ -157,7 +159,11 @@ async fn main() -> anyhow::Result<()> {
                 xds,
             )
         }
-        "k8s" | "kubernetes" => (Arc::new(sandbox::k8s::K8sProvider::new(&config)), None),
+        "k8s" | "kubernetes" => {
+            let provider = sandbox::k8s::K8sProvider::new(&config).await?;
+            let xds = provider.xds_service();
+            (Arc::new(provider), xds)
+        }
         other => {
             return Err(anyhow::anyhow!(
                     "Unsupported JOYSAFETER_SANDBOX_PROVIDER={other}. Expected docker, k8s, daytona, or e2b."
@@ -168,6 +174,44 @@ async fn main() -> anyhow::Result<()> {
         provider = %config.sandbox_provider,
         "Sandbox provider initialized"
     );
+
+    // ── Leader Election (K8s Lease-based HA) ──────────────────────────────
+    // When enabled (K8s deployment with replicas>1), only the leader instance
+    // runs services. Standby instances wait for the Lease to expire/release.
+    // When disabled (single-instance / Docker Compose), skip entirely.
+    let leader_election = if config.leader_election_enabled {
+        let kube_client = kube::Client::try_default().await.map_err(|e| {
+            anyhow::anyhow!(
+                "Leader election enabled but K8s client init failed: {e}. \
+                 Set JOYSAFETER_LEADER_ELECTION_ENABLED=false for non-K8s deployments."
+            )
+        })?;
+        let le = Arc::new(kernel::leader_election::LeaderElection::new(
+            kube_client,
+            &config.k8s_namespace,
+            &config.leader_lease_name,
+            &config.leader_identity,
+            std::time::Duration::from_secs(config.leader_lease_duration_sec),
+            std::time::Duration::from_secs(config.leader_renew_interval_sec),
+        ));
+        le.clone().spawn();
+        info!(
+            identity = %config.leader_identity,
+            lease = %config.leader_lease_name,
+            "Waiting for leader election..."
+        );
+        le.wait_until_leading().await;
+        info!(identity = %config.leader_identity, "Acquired leadership — starting services");
+        Some(le)
+    } else {
+        None
+    };
+
+    // Health server — expose readiness/liveness for K8s probes.
+    // Starts early (both leader and standby expose /healthz/live).
+    // ready_flag is set to true only after services are fully started.
+    let ready_flag = Arc::new(AtomicBool::new(!config.leader_election_enabled));
+    spawn_health_server(9091, ready_flag.clone());
 
     // Provider startup: Envoy init, DB recovery, ImageBuilder, etc.
     if let Err(e) = sandbox_provider.on_startup(&db_pool).await {
@@ -304,6 +348,7 @@ async fn main() -> anyhow::Result<()> {
             bridge_registry.clone(),
             sandbox_provider.clone(),
             None, // envoy_manager
+            config.llm_egress_allowed_hosts.clone(),
             None, // image_builder
             redis_coordinator.clone(),
             memory_subscribers.clone(),
@@ -347,21 +392,51 @@ async fn main() -> anyhow::Result<()> {
         + subscriber_handles.len()
         + if cmd_listener_handle.is_some() { 1 } else { 0 };
     info!(total_tasks, "JoySafeter kernel fully started");
+    ready_flag.store(true, Ordering::Release);
 
-    // Wait for shutdown signal
-    shutdown_signal().await;
-    info!("Shutdown signal received, stopping...");
+    // Wait for shutdown signal OR leadership loss
+    if let Some(ref le) = leader_election {
+        tokio::select! {
+            _ = shutdown_signal() => {
+                info!("Shutdown signal received, releasing leadership...");
+                le.release().await;
+            }
+            _ = le.wait_until_lost() => {
+                warn!("Lost leadership — shutting down to yield to new leader");
+            }
+        }
+    } else {
+        shutdown_signal().await;
+    }
 
-    // Graceful shutdown
-    // 1. Send shutdown to all connected runners
+    // ── Graceful drain ─────────────────────────────────────────────────────
+    // Mark not-ready FIRST so K8s Service stops sending new traffic, then
+    // drain in-flight work before stopping services.
+    ready_flag.store(false, Ordering::Release);
+    info!("Marked not-ready; draining in-flight work...");
+
+    // Stop scheduler immediately (no new tasks claimed).
+    scheduler_handle.abort();
+
+    // Give in-flight runner streams and gRPC calls time to finish.
+    // Runners that are mid-task will continue autonomously (agent runs locally);
+    // they reconnect to the new leader and report results there.
+    const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+    let active_bridges = bridge_registry.all_bridges().len();
+    if active_bridges > 0 {
+        info!(
+            active_bridges,
+            "Waiting up to {DRAIN_TIMEOUT:?} for active bridges to finish"
+        );
+        tokio::time::sleep(DRAIN_TIMEOUT).await;
+    }
+
+    // Send shutdown to remaining connected runners
     bridge_registry.shutdown_all().await;
 
-    // 2. Stop background tasks
-    // #26: gRPC graceful shutdown with 5s grace period (Python L448: stop(grace=5))
+    // Stop remaining background tasks
     grpc_handle.abort();
-    // Give in-flight RPCs 5s to complete
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    scheduler_handle.abort();
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     task_ctrl_handle.abort();
     for h in sandbox_ctrl_handles {
         h.abort();
@@ -403,4 +478,44 @@ async fn shutdown_signal() {
     {
         ctrl_c.await.expect("failed to listen for Ctrl+C");
     }
+}
+
+/// Minimal HTTP health server for K8s readinessProbe / livenessProbe.
+/// - GET /healthz/ready → 200 if leader (Service routes traffic), 503 if standby
+/// - GET /healthz/live  → 200 always (process is alive)
+fn spawn_health_server(port: u16, ready: Arc<AtomicBool>) {
+    use tokio::io::AsyncWriteExt;
+    tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
+            Ok(l) => l,
+            Err(e) => {
+                warn!(port, error = %e, "Health server bind failed");
+                return;
+            }
+        };
+        info!(port, "Health server listening");
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                continue;
+            };
+            let is_ready = ready.load(Ordering::Acquire);
+            let ready_clone = ready.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 512];
+                let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
+                let req = String::from_utf8_lossy(&buf);
+                let response = if req.contains("/healthz/ready") {
+                    if ready_clone.load(Ordering::Acquire) {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"
+                    } else {
+                        "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 7\r\n\r\nstandby"
+                    }
+                } else {
+                    // /healthz/live or any other path → always 200
+                    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"
+                };
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+        }
+    });
 }

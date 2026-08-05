@@ -93,6 +93,8 @@ class JoySafeterSessionStorageMount(JoySafeterBaseModel):
         Index("idx_joysafeter_session_storage_mounts_session", "session_id"),
         Index("idx_joysafeter_session_storage_mounts_volume", "volume_id"),
         Index("idx_joysafeter_session_storage_mounts_project", "project_id"),
+        Index("idx_joysafeter_session_storage_mounts_created", "created_at"),
+        Index("idx_joysafeter_session_storage_mounts_detached", "detached_at"),
         UniqueConstraint("session_id", "mount_path", name="uq_joysafeter_session_storage_mount_path"),
     )
 
@@ -128,6 +130,8 @@ class JoySafeterStorageMountAudit(JoySafeterBaseModel):
         Index("idx_joysafeter_storage_audit_session", "session_id"),
         Index("idx_joysafeter_storage_audit_volume", "volume_id"),
         Index("idx_joysafeter_storage_audit_action", "action"),
+        Index("idx_joysafeter_storage_audit_created", "created_at"),
+        Index("idx_joysafeter_storage_audit_result_created", "result", "created_at"),
     )
 
     volume_id: Mapped[Optional[uuid.UUID]] = mapped_column(

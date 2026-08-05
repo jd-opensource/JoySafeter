@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use anyhow::Context;
 use base64::Engine as _;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -26,6 +27,42 @@ use super::llm_providers::{
     llm_provider_registry, CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY,
 };
 
+/// Hard client-side bound on a provider networking setup/refresh call (Envoy
+/// socket prep + xDS push + ACK/socket-readiness wait). The individual steps are
+/// bounded, but this outer bound guarantees the sandbox-provisioning path can
+/// never block indefinitely on a wedged Envoy/xDS: on timeout the sandbox is
+/// marked `failed` (fail-closed: it keeps network=none, no egress) and the
+/// networking-reconcile loop retries it. Prevents a single stuck setup from
+/// freezing task scheduling.
+const SETUP_NETWORKING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn mcp_credential_url_keys(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut keys = vec![trimmed.to_string()];
+    if let Ok(mut url) = Url::parse(trimmed) {
+        if let Some(host) = url.host_str().map(|host| host.to_ascii_lowercase()) {
+            let _ = url.set_host(Some(&host));
+        }
+        let path = url.path().to_string();
+        if path != "/" {
+            url.set_path(path.trim_end_matches('/'));
+        }
+        keys.push(url.to_string());
+        if url.path() != "/" {
+            let with_slash_path = format!("{}/", url.path().trim_end_matches('/'));
+            url.set_path(&with_slash_path);
+            keys.push(url.to_string());
+        }
+    }
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
 /// 3-stage sandbox resolution with full Python parity:
 /// 1. Reuse existing active sandbox for the session (with fingerprint check)
 /// 1b. Restart stopped sandbox for the session
@@ -39,6 +76,11 @@ pub struct SandboxResolver {
     config: JoySafeterConfig,
     /// Per-session locks to prevent concurrent resolution
     session_locks: dashmap::DashMap<Uuid, Arc<tokio::sync::Mutex<()>>>,
+    /// In-process confirmation that this orchestrator has successfully pushed
+    /// the sandbox's current Envoy policy. DB state alone is not enough after a
+    /// process restart because xDS state is in-memory; the first reuse after
+    /// restart refreshes Envoy and repopulates this cache.
+    network_policy_ready: dashmap::DashMap<Uuid, String>,
 }
 
 impl SandboxResolver {
@@ -48,6 +90,7 @@ impl SandboxResolver {
             provider,
             config,
             session_locks: dashmap::DashMap::new(),
+            network_policy_ready: dashmap::DashMap::new(),
         }
     }
 
@@ -114,7 +157,7 @@ impl SandboxResolver {
         // Stage 1: Try to reuse existing sandbox for this session
         if let Some(sid) = session_id {
             if let Some(sandbox) = queries::find_sandbox_for_session(&self.pool, sid).await? {
-                if !fingerprint_matches(
+                if !runtime_fingerprint_matches(
                     sandbox.config.as_ref(),
                     sandbox.image.as_deref(),
                     &context.expected,
@@ -142,6 +185,12 @@ impl SandboxResolver {
                         //      provisioning timeout). For provisioning, return as-is.
                         "idle" | "running" => {
                             if let Some(ref ext_id) = sandbox.external_id {
+                                if context.is_limited_networking() {
+                                    self.refresh_reused_sandbox_networking(
+                                        &sandbox, ext_id, &context,
+                                    )
+                                    .await?;
+                                }
                                 info!(
                                     sandbox_id = %sandbox.id,
                                     task_id = %task_id,
@@ -223,7 +272,7 @@ impl SandboxResolver {
             if let Ok(Some(sandbox)) =
                 queries::find_stopped_sandbox_for_session(&self.pool, sid).await
             {
-                if !fingerprint_matches(
+                if !runtime_fingerprint_matches(
                     sandbox.config.as_ref(),
                     sandbox.image.as_deref(),
                     &context.expected,
@@ -424,6 +473,10 @@ impl SandboxResolver {
             sandbox_db_id.to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
+        // Disable Claude Code telemetry — the sandbox has no route to
+        // api.anthropic.com and telemetry attempts just produce NR 404 noise.
+        env.entry("DISABLE_TELEMETRY".to_string())
+            .or_insert_with(|| "1".to_string());
 
         let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());
@@ -450,6 +503,7 @@ impl SandboxResolver {
             labels.insert("joysafeter.project_id".to_string(), project_id.clone());
         }
 
+        let limited_networking = context.network.as_deref() == Some("none");
         let create_config = SandboxCreateConfig {
             sandbox_id: sandbox_db_id,
             image: image.clone(),
@@ -458,6 +512,13 @@ impl SandboxResolver {
             cpu_limit: self.config.sandbox_cpu,
             memory_limit_mb: self.config.sandbox_memory_mb,
             network: context.network.clone(),
+            // Restricted sandboxes are created stopped, then started explicitly
+            // right after create() — BEFORE the Envoy egress push — so the runner
+            // (which reaches the orchestrator over a direct control UDS, not
+            // Envoy) boots without waiting on xDS. The egress push and socket
+            // materialization happen off the critical path; the runner's
+            // in-process HTTP bridge retries the egress socket until it appears.
+            start_immediately: !limited_networking,
             // Use session_id for workspace path (Python L332-333: workspace_root/session_id)
             workspace_path: self.config.sandbox_workspace_root.as_ref().map(|root| {
                 if let Some(sid) = context.session_id {
@@ -469,23 +530,6 @@ impl SandboxResolver {
             memory_mounts: context.memory_mounts.clone(),
             mounts: context.mounts.clone(),
         };
-
-        if create_config.network.as_deref() == Some("none") {
-            if !self.provider.capabilities().has_egress_management {
-                anyhow::bail!(
-                    "limited sandbox networking requires egress management, but provider does not support it"
-                );
-            }
-            let external_id = format!("joysafeter-{}", sandbox_db_id);
-            self.provider
-                .setup_networking(
-                    sandbox_db_id,
-                    &external_id,
-                    context.networking.as_ref(),
-                    context.credentials.clone(),
-                )
-                .await?;
-        }
 
         // #13: File injection — write local session files to workspace before start.
         //
@@ -552,6 +596,116 @@ impl SandboxResolver {
             let _ = self.provider.destroy(&external_id).await;
             let _ = self.teardown_networking(sandbox_db_id).await;
             return Err(e.into());
+        }
+
+        // Start the container as soon as it exists, BEFORE pushing Envoy egress
+        // config. This takes Envoy off the sandbox-start critical path:
+        //   * runner control-plane gRPC uses a direct orchestrator UDS, not Envoy,
+        //     so the runner can connect and receive Setup/StartTask immediately;
+        //   * the runner's in-process HTTP egress bridge binds instantly and
+        //     connects to the per-sandbox Envoy socket lazily (retrying until it
+        //     appears), so the egress socket need not exist at start time.
+        // A slow or failing Envoy push therefore only delays *outbound* traffic,
+        // never sandbox/runner boot. (For non-limited networking the container was
+        // already started inside `create()` via start_immediately.)
+        if !create_config.start_immediately {
+            if let Err(e) = self.provider.start(&external_id).await {
+                self.network_policy_ready.remove(&sandbox_db_id);
+                let _ = self.provider.destroy(&external_id).await;
+                let _ = self.teardown_networking(sandbox_db_id).await;
+                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
+                return Err(e.context("failed to start sandbox after control-plane setup"));
+            }
+            info!(
+                sandbox_id = %sandbox_db_id,
+                external_id = %external_id,
+                "Started sandbox (egress config applied asynchronously)"
+            );
+        }
+
+        if limited_networking {
+            if !self.provider.capabilities().has_egress_management {
+                let _ = self.provider.destroy(&external_id).await;
+                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
+                anyhow::bail!(
+                    "limited sandbox networking requires egress management, but provider does not support it"
+                );
+            }
+            info!(
+                sandbox_id = %sandbox_db_id,
+                external_id = %external_id,
+                policy_hash = %context.expected.egress_policy_hash,
+                "Preparing Envoy networking (sandbox already started)"
+            );
+            if let Err(e) = queries::prepare_sandbox_network_policy_push(
+                &self.pool,
+                sandbox_db_id,
+                &context.expected.egress_policy_hash,
+            )
+            .await
+            {
+                let _ = self.provider.destroy(&external_id).await;
+                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
+                return Err(anyhow::anyhow!(
+                    "failed to mark sandbox network policy pending: {e}"
+                ));
+            }
+            info!(
+                sandbox_id = %sandbox_db_id,
+                external_id = %external_id,
+                "Pushing Envoy networking (off the sandbox-start critical path)"
+            );
+            let setup_result = tokio::time::timeout(
+                SETUP_NETWORKING_TIMEOUT,
+                self.provider.setup_networking(
+                    sandbox_db_id,
+                    &external_id,
+                    context.networking.as_ref(),
+                    context
+                        .credentials
+                        .clone()
+                        .with_proxy_auth_token(Some(runner_token.clone())),
+                ),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                Err(anyhow::anyhow!(
+                    "setup_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+                ))
+            });
+            if let Err(e) = setup_result {
+                self.network_policy_ready.remove(&sandbox_db_id);
+                warn!(
+                    sandbox_id = %sandbox_db_id,
+                    external_id = %external_id,
+                    error = %e,
+                    "Envoy egress networking setup failed; sandbox already started with degraded egress (runner control gRPC uses direct UDS). The networking reconcile loop will retry."
+                );
+                let _ = queries::update_sandbox_networking_status(
+                    &self.pool,
+                    sandbox_db_id,
+                    "failed",
+                    Some(&context.expected.egress_policy_hash),
+                    None,
+                    Some(&e.to_string()),
+                )
+                .await;
+                let _ = self
+                    .persist_network_policy_failure(sandbox_db_id, Some(task_id), &context, &e)
+                    .await;
+            } else {
+                info!(
+                    sandbox_id = %sandbox_db_id,
+                    external_id = %external_id,
+                    "Envoy networking ready"
+                );
+                self.network_policy_ready
+                    .insert(sandbox_db_id, context.expected.egress_policy_hash.clone());
+                if self.config.envoy_xds_mode != "grpc" {
+                    let _ =
+                        queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_db_id).await;
+                }
+            }
         }
 
         let transitioned =
@@ -668,8 +822,12 @@ impl SandboxResolver {
                 )
                 .await,
             );
-            credentials = SandboxCredentials { routes };
+            credentials = SandboxCredentials {
+                routes,
+                proxy_auth_token: None,
+            };
         }
+        let egress_policy_hash = egress_policy_hash(networking.as_ref(), &credentials);
 
         let storage_catalog = self
             .load_storage_volume_catalog(project_id.as_deref())
@@ -691,6 +849,7 @@ impl SandboxResolver {
                 networking,
                 env,
                 mounts: mount_fingerprint,
+                egress_policy_hash,
             },
             memory_mounts: vec![], // populated by caller when memory stores are resolved
             mounts,
@@ -729,6 +888,125 @@ impl SandboxResolver {
         .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
+    }
+
+    async fn refresh_reused_sandbox_networking(
+        &self,
+        sandbox: &crate::db::models::JoySafeterSandbox,
+        external_id: &str,
+        context: &ResolveContext,
+    ) -> anyhow::Result<()> {
+        if sandbox.networking_status == "ready"
+            && sandbox.networking_policy_hash.as_deref()
+                == Some(context.expected.egress_policy_hash.as_str())
+            && self
+                .network_policy_ready
+                .get(&sandbox.id)
+                .map(|hash| hash.value() == &context.expected.egress_policy_hash)
+                .unwrap_or(false)
+        {
+            debug!(
+                sandbox_id = %sandbox.id,
+                "Reusing ready Envoy policy without refresh"
+            );
+            return Ok(());
+        }
+
+        let _ = queries::prepare_sandbox_network_policy_push(
+            &self.pool,
+            sandbox.id,
+            &context.expected.egress_policy_hash,
+        )
+        .await?;
+        let refresh_result = tokio::time::timeout(
+            SETUP_NETWORKING_TIMEOUT,
+            self.provider.refresh_networking(
+                sandbox.id,
+                external_id,
+                context.networking.as_ref(),
+                context
+                    .credentials
+                    .clone()
+                    .with_proxy_auth_token(sandbox_runner_token(sandbox)),
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(anyhow::anyhow!(
+                "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+            ))
+        })
+        .with_context(|| format!("failed to refresh Envoy policy for sandbox {}", sandbox.id));
+        if let Err(e) = refresh_result {
+            self.network_policy_ready.remove(&sandbox.id);
+            let _ = self
+                .persist_network_policy_failure(sandbox.id, None, context, &e)
+                .await;
+            warn!(
+                sandbox_id = %sandbox.id,
+                error = %e,
+                "Envoy policy refresh failed for reused sandbox; continuing with degraded networking"
+            );
+            return Ok(());
+        }
+
+        self.network_policy_ready
+            .insert(sandbox.id, context.expected.egress_policy_hash.clone());
+        if self.config.envoy_xds_mode != "grpc" {
+            let _ = queries::mark_sandbox_network_policy_acked(&self.pool, sandbox.id).await;
+        }
+
+        queries::merge_sandbox_config(
+            &self.pool,
+            sandbox.id,
+            &serde_json::json!({"fingerprint": context.expected.to_json()}),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "failed to persist refreshed Envoy policy fingerprint for sandbox {}",
+                sandbox.id
+            )
+        })?;
+        Ok(())
+    }
+
+    async fn persist_network_policy_failure(
+        &self,
+        sandbox_id: Uuid,
+        task_id: Option<Uuid>,
+        context: &ResolveContext,
+        error: &anyhow::Error,
+    ) -> anyhow::Result<()> {
+        let desired_policy = serde_json::json!({
+            "fingerprint": context.expected.to_json(),
+            "networking": context.networking.clone().unwrap_or_else(|| serde_json::json!({})),
+            "recorded_on": "failure",
+        });
+        let rendered_policy = context.credentials.to_policy(
+            &sandbox_id,
+            allowed_hosts_from_networking(context.networking.as_ref()),
+        );
+        let rendered_summary =
+            crate::sandbox::lds_backend::egress_policy_summary(&sandbox_id, &rendered_policy);
+        let reason = error.to_string();
+        queries::record_network_policy_failure_detail(
+            &self.pool,
+            queries::UpsertNetworkPolicy {
+                sandbox_id,
+                session_id: context.session_id,
+                task_id,
+                policy_hash: &context.expected.egress_policy_hash,
+                desired_policy_json: &desired_policy,
+                rendered_summary_json: &rendered_summary,
+            },
+            &reason,
+        )
+        .await?;
+        if task_id.is_none() {
+            debug!(sandbox_id = %sandbox_id, "Recorded sandbox network policy failure without task context");
+        }
+        Ok(())
     }
 
     async fn load_storage_volume_catalog(
@@ -991,12 +1269,22 @@ impl SandboxResolver {
             env.insert(placeholder_var.to_string(), placeholder_val.to_string());
         }
 
-        // Repoint the agent at the placeholder egress host (plaintext http://).
-        // The real host/port/path is only known to Envoy via the egress route.
-        env.insert(
-            base_url_var.to_string(),
-            format!("http://{LLM_EGRESS_HOST}"),
-        );
+        // Repoint the agent at the real upstream host but downgrade to plaintext
+        // http:// so the request goes through the HTTP proxy as a normal request
+        // (not a CONNECT tunnel). This lets Envoy see and inject headers. Envoy
+        // does TLS origination via the shared dynamic_forward_proxy_tls cluster.
+        let base_url_for_sandbox = if upstream_tls {
+            format!(
+                "http://{}:{}{}",
+                upstream_host, upstream_port, upstream_prefix
+            )
+        } else {
+            format!(
+                "http://{}:{}{}",
+                upstream_host, upstream_port, upstream_prefix
+            )
+        };
+        env.insert(base_url_var.to_string(), base_url_for_sandbox);
 
         let header_value = if spec.is_bearer {
             format!("Bearer {key_value}")
@@ -1007,8 +1295,8 @@ impl SandboxResolver {
         vec![EgressCredentialRoute {
             id: "llm".to_string(),
             kind: EgressKind::Llm,
-            exposure: EgressExposure::Placeholder,
-            match_host: LLM_EGRESS_HOST.to_string(),
+            exposure: EgressExposure::Transparent,
+            match_host: upstream_host.clone(),
             match_prefix: "/".to_string(),
             exact_path: false,
             upstream_host,
@@ -1115,14 +1403,19 @@ impl SandboxResolver {
                             "failed to decrypt vault credential for MCP server '{url}' in vault {vault_id}: {e}"
                         )
                     })?;
-                    token_by_url.insert(url, tok);
+                    for key in mcp_credential_url_keys(&url) {
+                        token_by_url.insert(key, tok.clone());
+                    }
                 }
             }
         }
 
         let mut egress = Vec::new();
         for (name, url) in mcp_servers {
-            let Some(token) = token_by_url.get(&url) else {
+            let token = mcp_credential_url_keys(&url)
+                .into_iter()
+                .find_map(|key| token_by_url.get(&key));
+            let Some(token) = token else {
                 continue;
             };
             let upstream = UpstreamTarget::from_url(&url)
@@ -1130,9 +1423,9 @@ impl SandboxResolver {
             egress.push(EgressCredentialRoute {
                 id: format!("mcp:{name}"),
                 kind: EgressKind::Mcp,
-                exposure: EgressExposure::Placeholder,
-                match_host: MCP_EGRESS_HOST.to_string(),
-                match_prefix: format!("/mcp/{name}/"),
+                exposure: EgressExposure::Transparent,
+                match_host: upstream.host.clone(),
+                match_prefix: normalize_prefix(&upstream.prefix),
                 exact_path: false,
                 upstream_host: upstream.host,
                 upstream_port: upstream.port,
@@ -1613,6 +1906,7 @@ impl SandboxResolver {
             cpu_limit: self.config.sandbox_cpu,
             memory_limit_mb: self.config.sandbox_memory_mb,
             network: None,
+            start_immediately: true,
             // Warm-pool sandboxes are not bound to a session yet. Mounting the
             // workspace root here would expose every persisted session
             // workspace under /workspace inside an otherwise idle pooled
@@ -1629,6 +1923,7 @@ impl SandboxResolver {
             networking: None,
             env: create_config.env.clone(),
             mounts: vec![],
+            egress_policy_hash: egress_policy_hash(None, &SandboxCredentials::default()),
         };
         let sandbox_config = provisioning_config(
             "pool_warm",
@@ -1718,11 +2013,19 @@ pub(crate) async fn rebuild_sandbox_credentials(
     let mut routes = Vec::new();
 
     let Some(session_id) = sandbox.chat_session_id else {
-        return SandboxCredentials { routes };
+        return SandboxCredentials {
+            routes,
+            proxy_auth_token: sandbox_runner_token(sandbox),
+        };
     };
     let session = match queries::get_session(pool, session_id).await {
         Ok(Some(s)) => s,
-        _ => return SandboxCredentials { routes },
+        _ => {
+            return SandboxCredentials {
+                routes,
+                proxy_auth_token: sandbox_runner_token(sandbox),
+            }
+        }
     };
     let live_agent = match session.agent_id {
         Some(aid) => queries::get_agent(pool, aid).await.ok().flatten(),
@@ -1764,6 +2067,17 @@ pub(crate) async fn rebuild_sandbox_credentials(
                 llm_egress_allowed_hosts,
             ));
         }
+        routes.extend(
+            SandboxResolver::build_external_egress(
+                pool,
+                environment.as_ref(),
+                session
+                    .project_id
+                    .as_deref()
+                    .or(agent_ref.project_id.as_deref()),
+            )
+            .await,
+        );
     }
 
     match SandboxResolver::build_mcp_egress(pool, Some(session_id), agent.as_ref()).await {
@@ -1782,7 +2096,109 @@ pub(crate) async fn rebuild_sandbox_credentials(
             "Failed to rebuild Git egress credentials during sandbox recovery: {e}"
         ),
     }
-    SandboxCredentials { routes }
+    SandboxCredentials {
+        routes,
+        proxy_auth_token: sandbox_runner_token(sandbox),
+    }
+}
+
+/// Outcome of a networking reconcile attempt for one sandbox.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NetworkingReconcileOutcome {
+    /// Sandbox is not limited-networking; nothing to do.
+    NotLimited,
+    /// Policy was (re)pushed and marked ready.
+    Refreshed { policy_hash: String },
+}
+
+/// Rebuild a sandbox's egress policy from current DB state and (re)push it to
+/// the provider's Envoy, marking it ready on success. This is the single shared
+/// implementation behind both the API-triggered `network_policy_refresh` command
+/// and the background networking-reconcile loop, so credential rotation and
+/// self-healing follow identical, tested logic.
+///
+/// On provider failure the sandbox's networking status is recorded as `failed`
+/// (fail-closed: it keeps `network=none` and simply has no egress) and the error
+/// is returned so the caller can log/retry. The reconcile loop will pick it up
+/// again on its next tick.
+pub(crate) async fn reconcile_sandbox_networking(
+    pool: &PgPool,
+    provider: &dyn SandboxProvider,
+    sandbox: &JoySafeterSandbox,
+    llm_egress_allowed_hosts: &[String],
+) -> anyhow::Result<NetworkingReconcileOutcome> {
+    let sandbox_id = sandbox.id;
+    let Some(external_id) = sandbox
+        .external_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
+        anyhow::bail!("sandbox {sandbox_id} has no external_id");
+    };
+
+    let networking = sandbox
+        .config
+        .as_ref()
+        .and_then(|config| config.get("fingerprint"))
+        .and_then(|fingerprint| fingerprint.get("networking"));
+    if networking
+        .and_then(|value| value.get("type"))
+        .and_then(|value| value.as_str())
+        != Some("limited")
+    {
+        return Ok(NetworkingReconcileOutcome::NotLimited);
+    }
+
+    let credentials = rebuild_sandbox_credentials(pool, sandbox, llm_egress_allowed_hosts).await;
+    let policy = credentials.to_policy(&sandbox_id, allowed_hosts_from_networking(networking));
+    crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
+    let summary = crate::sandbox::lds_backend::egress_policy_summary(&sandbox_id, &policy);
+    let policy_hash = network_policy_hash(networking, &summary);
+
+    queries::prepare_sandbox_network_policy_push(pool, sandbox_id, &policy_hash).await?;
+    let refresh_result = tokio::time::timeout(
+        SETUP_NETWORKING_TIMEOUT,
+        provider.refresh_networking(sandbox_id, external_id, networking, credentials),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(anyhow::anyhow!(
+            "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+        ))
+    });
+    if let Err(e) = refresh_result {
+        // Fail-closed: record the failure; the sandbox keeps network=none and
+        // will be retried by the reconcile loop.
+        let _ = queries::update_sandbox_networking_status(
+            pool,
+            sandbox_id,
+            "failed",
+            Some(&policy_hash),
+            None,
+            Some(&e.to_string()),
+        )
+        .await;
+        return Err(e);
+    }
+    queries::mark_sandbox_network_policy_acked(pool, sandbox_id).await?;
+
+    Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
+}
+
+/// Hash the effective egress policy (networking allowlist + rendered credential
+/// summary) into the `networking_policy_hash` used for drift detection and the
+/// policy-version audit row. Shared by the refresh command and reconcile loop.
+pub(crate) fn network_policy_hash(
+    networking: Option<&serde_json::Value>,
+    summary: &serde_json::Value,
+) -> String {
+    let material = serde_json::json!({
+        "networking": networking.cloned().unwrap_or_else(|| serde_json::json!({})),
+        "summary": summary,
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(material.to_string().as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 /// Standalone environment loader for recovery (mirrors `load_environment`).
@@ -1814,6 +2230,7 @@ struct ExpectedFingerprint {
     networking: Option<serde_json::Value>,
     env: HashMap<String, String>,
     mounts: Vec<SandboxMountFingerprint>,
+    egress_policy_hash: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1858,11 +2275,12 @@ impl ExpectedFingerprint {
             "networking": self.networking.clone().unwrap_or_else(|| serde_json::json!({})),
             "env": env_hashes,
             "mounts": self.mounts,
+            "egress_policy_hash": self.egress_policy_hash,
         })
     }
 }
 
-fn fingerprint_matches(
+fn runtime_fingerprint_matches(
     config: Option<&serde_json::Value>,
     sandbox_image: Option<&str>,
     expected: &ExpectedFingerprint,
@@ -1871,9 +2289,72 @@ fn fingerprint_matches(
         return sandbox_image == Some(expected.image.as_str());
     };
     match config.get("fingerprint") {
-        Some(actual) => actual == &expected.to_json(),
+        Some(actual) => {
+            let mut actual_runtime = actual.clone();
+            if let Some(obj) = actual_runtime.as_object_mut() {
+                obj.remove("egress_policy_hash");
+            }
+            let mut expected_runtime = expected.to_json();
+            if let Some(obj) = expected_runtime.as_object_mut() {
+                obj.remove("egress_policy_hash");
+            }
+            actual_runtime == expected_runtime
+        }
         None => sandbox_image == Some(expected.image.as_str()),
     }
+}
+
+fn egress_policy_hash(
+    networking: Option<&serde_json::Value>,
+    credentials: &SandboxCredentials,
+) -> String {
+    let material = egress_policy_summary(networking, credentials);
+    let mut hasher = Sha256::new();
+    hasher.update(material.to_string().as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn egress_policy_summary(
+    networking: Option<&serde_json::Value>,
+    credentials: &SandboxCredentials,
+) -> serde_json::Value {
+    let mut route_hashes: Vec<serde_json::Value> = credentials
+        .routes
+        .iter()
+        .map(|route| {
+            let header_hashes: Vec<serde_json::Value> = route
+                .inject_headers
+                .iter()
+                .map(|(name, value)| {
+                    let mut hasher = Sha256::new();
+                    hasher.update(value.as_bytes());
+                    serde_json::json!({
+                        "name": name.to_ascii_lowercase(),
+                        "value_sha256": hex::encode(hasher.finalize()),
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "kind": format!("{:?}", route.kind),
+                "exposure": format!("{:?}", route.exposure),
+                "match_host": route.match_host,
+                "match_prefix": route.match_prefix,
+                "exact_path": route.exact_path,
+                "upstream_host": route.upstream_host,
+                "upstream_port": route.upstream_port,
+                "upstream_prefix": route.upstream_prefix,
+                "upstream_tls": route.upstream_tls,
+                "inject_headers": header_hashes,
+                "remove_headers": route.remove_headers,
+            })
+        })
+        .collect();
+    route_hashes.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+
+    serde_json::json!({
+        "networking": networking.cloned().unwrap_or_else(|| serde_json::json!({})),
+        "routes": route_hashes,
+    })
 }
 
 fn provisioning_config(
@@ -1905,6 +2386,16 @@ fn provisioning_config(
     }
 
     config
+}
+
+fn sandbox_runner_token(sandbox: &crate::db::models::JoySafeterSandbox) -> Option<String> {
+    sandbox
+        .config
+        .as_ref()?
+        .get("runner_token")?
+        .as_str()
+        .filter(|token| !token.trim().is_empty())
+        .map(ToOwned::to_owned)
 }
 
 /// Generate a random runner token (hex-encoded 32 bytes).
@@ -1976,6 +2467,19 @@ fn networking_type(networking: Option<&serde_json::Value>) -> Option<&str> {
             .or_else(|| value.get("net_type"))
             .and_then(|value| value.as_str())
     })
+}
+
+pub(crate) fn allowed_hosts_from_networking(networking: Option<&serde_json::Value>) -> Vec<String> {
+    networking
+        .and_then(|value| value.get("allowed_hosts"))
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn merge_mcp_hosts(
@@ -2355,6 +2859,78 @@ mod egress_tests {
             .next()
     }
 
+    fn expected_fingerprint(egress_policy_hash: &str) -> ExpectedFingerprint {
+        ExpectedFingerprint {
+            image: "joysafeter-agent:latest".to_string(),
+            engine_kind: "claude".to_string(),
+            networking: Some(serde_json::json!({
+                "type": "limited",
+                "allowed_hosts": ["api.example.com"]
+            })),
+            env: HashMap::from([("SAFE_ENV".to_string(), "value".to_string())]),
+            mounts: vec![],
+            egress_policy_hash: egress_policy_hash.to_string(),
+        }
+    }
+
+    #[test]
+    fn mcp_credential_url_keys_matches_trailing_slash_variants() {
+        let keys = mcp_credential_url_keys("https://AI-Legal-Test.JD.com/legal-mcp/mcp/");
+
+        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp".to_string()));
+        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp/".to_string()));
+    }
+
+    #[test]
+    fn runtime_fingerprint_ignores_egress_policy_hash_only() {
+        let expected = expected_fingerprint("new-policy");
+        let mut stored = expected_fingerprint("old-policy").to_json();
+
+        assert!(runtime_fingerprint_matches(
+            Some(&serde_json::json!({"fingerprint": stored.clone()})),
+            Some("different-column-image"),
+            &expected,
+        ));
+
+        stored["image"] = serde_json::Value::String("other-image".to_string());
+        assert!(!runtime_fingerprint_matches(
+            Some(&serde_json::json!({"fingerprint": stored})),
+            Some("joysafeter-agent:latest"),
+            &expected,
+        ));
+    }
+
+    #[test]
+    fn egress_policy_hash_tracks_header_secret_without_leaking_it() {
+        let mut credentials = SandboxCredentials {
+            routes: vec![EgressCredentialRoute {
+                id: "external_svc".to_string(),
+                kind: EgressKind::External,
+                exposure: EgressExposure::Placeholder,
+                match_host: "external-egress.internal".to_string(),
+                match_prefix: "/svc/".to_string(),
+                upstream_host: "api.example.com".to_string(),
+                upstream_port: 443,
+                upstream_prefix: "/".to_string(),
+                upstream_tls: true,
+                cluster_name: "external_svc".to_string(),
+                exact_path: false,
+                inject_headers: vec![("authorization".to_string(), "Bearer first".to_string())],
+                remove_headers: vec![],
+            }],
+            proxy_auth_token: None,
+        };
+        let networking = serde_json::json!({"type": "limited"});
+
+        let first = egress_policy_hash(Some(&networking), &credentials);
+        credentials.routes[0].inject_headers[0].1 = "Bearer second".to_string();
+        let second = egress_policy_hash(Some(&networking), &credentials);
+
+        assert_ne!(first, second);
+        assert!(!first.contains("first"));
+        assert!(!second.contains("second"));
+    }
+
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
             .ok()
@@ -2516,7 +3092,7 @@ mod egress_tests {
         assert!(!e.contains_key("ANTHROPIC_AUTH_TOKEN"));
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
-            "http://llm-egress.internal"
+            "http://llm.internal.example.com:443/v1/"
         );
         // Non-LLM env var is untouched.
         assert_eq!(e.get("DB_PASSWORD").unwrap(), "keepme");
@@ -2607,7 +3183,7 @@ mod egress_tests {
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
             e.get("OPENAI_BASE_URL").unwrap(),
-            "http://llm-egress.internal"
+            "http://gw.internal:443/v1/"
         );
     }
 
@@ -2632,7 +3208,7 @@ mod egress_tests {
         assert!(!egress.upstream_tls);
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
-            "http://llm-egress.internal"
+            "http://llm.internal:8080/v1/"
         );
     }
 
@@ -2652,7 +3228,7 @@ mod egress_tests {
         // base URL is repointed at the plaintext egress placeholder host.
         assert_eq!(
             e.get("GOOGLE_GEMINI_BASE_URL").unwrap(),
-            "http://llm-egress.internal"
+            "http://generativelanguage.googleapis.com:443/"
         );
     }
 
@@ -3049,6 +3625,7 @@ mod egress_tests {
                 networking: None,
                 env: HashMap::new(),
                 mounts: vec![],
+                egress_policy_hash: egress_policy_hash(None, &SandboxCredentials::default()),
             };
             let sandbox_config = provisioning_config(
                 "pool_warm",
@@ -3171,6 +3748,7 @@ mod egress_tests {
                 networking: None,
                 env: HashMap::new(),
                 mounts: vec![],
+                egress_policy_hash: egress_policy_hash(None, &SandboxCredentials::default()),
             };
             let sandbox_config = provisioning_config(
                 "pool_warm",
@@ -3299,6 +3877,7 @@ mod egress_tests {
                 networking: None,
                 env: HashMap::new(),
                 mounts: vec![],
+                egress_policy_hash: egress_policy_hash(None, &SandboxCredentials::default()),
             };
             let sandbox_config = provisioning_config(
                 "pool_warm",
@@ -3556,6 +4135,7 @@ mod egress_tests {
                 networking: None,
                 env: HashMap::new(),
                 mounts: vec![],
+                egress_policy_hash: egress_policy_hash(None, &SandboxCredentials::default()),
             };
             let sandbox_config = provisioning_config(
                 "stopped_for_restart",
@@ -3691,6 +4271,7 @@ mod egress_tests {
                 networking: None,
                 env: HashMap::new(),
                 mounts: vec![],
+                egress_policy_hash: egress_policy_hash(None, &SandboxCredentials::default()),
             };
             let sandbox_config = provisioning_config(
                 "stopped_for_restart",
@@ -3821,6 +4402,7 @@ mod egress_tests {
                 networking: None,
                 env: HashMap::new(),
                 mounts: vec![],
+                egress_policy_hash: egress_policy_hash(None, &SandboxCredentials::default()),
             };
             let sandbox_config = provisioning_config(
                 "stale_creating",

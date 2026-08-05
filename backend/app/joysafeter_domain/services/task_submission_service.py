@@ -147,6 +147,7 @@ class TaskSubmissionService:
         auto_created_session_id: Optional[uuid.UUID] = None,
         enforce_admission: bool = True,
         enforce_user_quota: bool = True,
+        emit_user_message: bool = True,
     ) -> Tuple[JoySafeterTask, bool]:
         """Persist the task, mark the session running, and enqueue it.
 
@@ -201,6 +202,15 @@ class TaskSubmissionService:
             )
             if not running_accepted:
                 raise RuntimeError("Session already has another active task")
+            # Emit the user.message event so the conversation timeline shows what
+            # the user (or API/cron caller) asked. Skipped when the caller already
+            # emitted it (e.g. interactive chat via POST /sessions/{id}/events).
+            if emit_user_message:
+                await session_svc.send_event(
+                    chat_session_id,
+                    "user.message",
+                    {"content": [{"type": "text", "text": task.prompt}], "task_id": str(task.id)},
+                )
             await session_svc.send_event(
                 chat_session_id,
                 "session.status_running",

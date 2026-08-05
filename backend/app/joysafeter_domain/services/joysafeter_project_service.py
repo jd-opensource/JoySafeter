@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
@@ -202,6 +203,19 @@ class ProjectService:
         result = await self.db.execute(select(ProjectMember).where(ProjectMember.project_id == project_id))
         return list(result.scalars().all())
 
+    async def list_project_members_page(
+        self,
+        project_id: str,
+        *,
+        limit: int,
+        after_id: str | None = None,
+    ) -> tuple[list[ProjectMember], bool]:
+        query = select(ProjectMember).where(ProjectMember.project_id == project_id)
+        query = apply_created_at_desc_cursor(query, ProjectMember, after_id).limit(limit + 1)
+        result = await self.db.execute(query)
+        rows = list(result.scalars().all())
+        return rows[:limit], len(rows) > limit
+
     async def get_project_member_role(self, project_id: str, user_id: str) -> str | None:
         """The caller's explicit ProjectMember role for a project, or None if no row.
 
@@ -264,6 +278,28 @@ class ProjectService:
             conditions.append(Project.id.in_(member_project_ids))
         result = await self.db.execute(select(Project).where(and_(*conditions)).order_by(Project.created_at))
         return list(result.scalars().all())
+
+    async def list_accessible_projects_page(
+        self,
+        *,
+        org_id: str,
+        user_id: str,
+        org_role: str | JoySafeterRole,
+        include_archived: bool = False,
+        limit: int,
+        after_id: str | None = None,
+    ) -> tuple[list[Project], bool]:
+        conditions = [Project.org_id == org_id]
+        if not include_archived:
+            conditions.append(Project.archived_at.is_(None))
+        if not self.role_has_org_wide_project_access(org_role):
+            member_project_ids = select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)
+            conditions.append(Project.id.in_(member_project_ids))
+        query = select(Project).where(and_(*conditions))
+        query = apply_created_at_desc_cursor(query, Project, after_id).limit(limit + 1)
+        result = await self.db.execute(query)
+        rows = list(result.scalars().all())
+        return rows[:limit], len(rows) > limit
 
     async def get_accessible_project(
         self,

@@ -6,12 +6,13 @@ aligned with the unified Organization + Project model.
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
 from app.joysafeter_domain.services.joysafeter_organization_service import OrganizationService
 from app.joysafeter_shared.common.app_errors import (
@@ -53,6 +54,22 @@ class OrganizationResponse(BaseModel):
     created_at: str
 
 
+class OrganizationListItem(BaseModel):
+    id: str
+    name: str
+    slug: str
+    logo: Optional[str] = None
+    role: str
+    created_at: Optional[str] = None
+
+
+class PaginatedOrganizationsResponse(BaseModel):
+    data: list[OrganizationListItem]
+    has_more: bool
+    first_id: Optional[str] = None
+    last_id: Optional[str] = None
+
+
 class MemberResponse(BaseModel):
     id: str
     user_id: str
@@ -74,28 +91,45 @@ def _organization_not_found_error(organization_id: str) -> AppError:
 @router.get("")
 async def list_organizations(
     current_user: CurrentUser,
+    q: str = Query("", max_length=100),
+    limit: int = Query(50, ge=1, le=200),
+    after_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
+) -> PaginatedOrganizationsResponse:
+    query = (
         select(Organization, Member)
         .join(Member, Member.organization_id == Organization.id)
         .where(Member.user_id == current_user.id)
-        .order_by(Organization.created_at.desc())
     )
+    if q.strip():
+        pattern = f"%{q.strip()}%"
+        query = query.where(
+            or_(
+                Organization.id.ilike(pattern),
+                Organization.name.ilike(pattern),
+                Organization.slug.ilike(pattern),
+            )
+        )
+    query = apply_created_at_desc_cursor(query, Organization, after_id).limit(limit + 1)
+    result = await db.execute(query)
     rows = result.all()
-    return {
-        "data": [
-            {
-                "id": org.id,
-                "name": org.name,
-                "slug": org.slug,
-                "logo": org.logo,
-                "role": JoySafeterRole.normalize(member.role).value,
-                "created_at": org.created_at.isoformat() if org.created_at else None,
-            }
-            for org, member in rows
-        ]
-    }
+    page_rows = rows[:limit]
+    return PaginatedOrganizationsResponse(
+        data=[
+            OrganizationListItem(
+                id=org.id,
+                name=org.name,
+                slug=org.slug,
+                logo=org.logo,
+                role=JoySafeterRole.normalize(member.role).value,
+                created_at=org.created_at.isoformat() if org.created_at else None,
+            )
+            for org, member in page_rows
+        ],
+        has_more=len(rows) > limit,
+        first_id=page_rows[0][0].id if page_rows else None,
+        last_id=page_rows[-1][0].id if page_rows else None,
+    )
 
 
 @router.post("", status_code=201)

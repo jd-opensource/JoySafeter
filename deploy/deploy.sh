@@ -1278,7 +1278,7 @@ ensure_native_runtime_artifact() {
     fi
 }
 
-runtime_runner_target_for() {
+rust_target_for_platform() {
     local platform=$1
     case "$platform" in
         linux/amd64)
@@ -1288,10 +1288,45 @@ runtime_runner_target_for() {
             echo "aarch64-unknown-linux-gnu"
             ;;
         *)
-            log_error "runner 暂不支持平台: $platform"
+            log_error "Rust 二进制暂不支持平台: $platform"
             exit 1
             ;;
     esac
+}
+
+runtime_runner_target_for() {
+    rust_target_for_platform "$1"
+}
+
+ensure_orchestrator_binary() {
+    local platform=$1
+    local target
+    target=$(rust_target_for_platform "$platform")
+    local output="$PROJECT_ROOT/target/$target/release/joysafeter-orchestrator"
+
+    if [ -x "$output" ] && [ "${FORCE_ORCHESTRATOR_REBUILD:-0}" != "1" ]; then
+        local newer_src
+        newer_src=$(find "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs" "$PROJECT_ROOT/proto" -type f \
+            \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' -o -name '*.proto' \) \
+            -newer "$output" -print -quit 2>/dev/null)
+        if [ -z "$newer_src" ]; then
+            log_success "orchestrator-rs 二进制已是最新: $output"
+            return
+        fi
+        log_info "检测到 orchestrator-rs 源码更新，重新编译二进制"
+    fi
+
+    log_info "编译 orchestrator-rs 二进制: $target"
+    docker run --rm \
+        --platform "$platform" \
+        -v "$PROJECT_ROOT:/workspace" \
+        -v joysafeter-cargo-registry:/usr/local/cargo/registry \
+        -v joysafeter-cargo-git:/usr/local/cargo/git \
+        -w /workspace/backend/app/joysafeter_orchestrator_rs \
+        "$RUST_IMAGE" \
+        bash -lc "export PATH=/usr/local/cargo/bin:\$PATH CARGO_HTTP_TIMEOUT=600 CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10 CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 && apt-get update && apt-get install -y --no-install-recommends protobuf-compiler pkg-config libssl-dev ca-certificates && if command -v rustup >/dev/null 2>&1; then rustup target add $target; fi && cargo build --release --target $target && mkdir -p /workspace/target/$target/release && cp target/$target/release/joysafeter-orchestrator /workspace/target/$target/release/joysafeter-orchestrator"
+    chmod +x "$output"
+    log_success "orchestrator-rs 二进制编译完成: $output"
 }
 
 ensure_runtime_runner_binary() {
@@ -1494,8 +1529,13 @@ build_all_images() {
     fi
 
     if [ "$BUILD_ORCHESTRATOR" = true ]; then
+        if echo "$PLATFORMS" | grep -q ","; then
+            log_error "Rust Orchestrator 快速本地二进制打包一次只支持单架构；请指定 --arch amd64/--arch arm64"
+            exit 1
+        fi
+        ensure_orchestrator_binary "$PLATFORMS"
         build_image "Rust Orchestrator" \
-            "$SCRIPT_DIR/docker/orchestrator-rs.Dockerfile" \
+            "$SCRIPT_DIR/docker/orchestrator-rs-binary.Dockerfile" \
             "$PROJECT_ROOT" \
             "$ORCHESTRATOR_RS_FULL_IMAGE"
         echo ""

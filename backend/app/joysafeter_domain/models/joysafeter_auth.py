@@ -111,6 +111,8 @@ class AuthSession(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_joysafeter_auth_sessions_user_id", "user_id"),
         Index("ix_joysafeter_auth_sessions_token", "token", unique=True),
+        Index("idx_joysafeter_auth_sessions_expires", "expires_at"),
+        Index("idx_joysafeter_auth_sessions_last_activity", "last_activity_at"),
     )
 
     id: Mapped[str] = mapped_column(

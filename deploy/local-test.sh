@@ -46,8 +46,8 @@ read_env() {
 }
 
 report_dev_toggles() {
-  # 宿主机开发模式下，api/orchestrator 读的是 backend/.env（默认 skill 扫描与 envoy 都关）。
-  # 本脚本不启动 skillspector / envoy 容器。这里把实际状态打印出来，避免“为什么没扫描/没隔离”
+  # 宿主机开发模式下，api/worker/orchestrator 读的是 backend/.env，并以本地进程运行。
+  # PostgreSQL/Redis/Envoy 作为本地开发依赖容器运行。这里把实际状态打印出来，避免“为什么没扫描/没隔离”
   # 的静默困惑，并在扫描被打开但 scanner URL 指向宿主机连不到的容器 DNS 时明确告警。
   local scan envoy scanner
   scan="$(read_env SKILL_SECURITY_SCAN_ENABLED)"; scan="${scan:-false}"
@@ -74,15 +74,84 @@ report_dev_toggles() {
       esac
       ;;
     *)
-      echo "  提示：宿主机开发模式默认关闭 skill 扫描与 envoy 出站隔离；要验证这两条链路请用 cd deploy && ./deploy.sh local。"
+      echo "  提示：宿主机开发模式会启动 Envoy 依赖容器；受限沙箱的出口仍走 Envoy。"
       ;;
   esac
+}
+
+start_envoy() {
+  local socket_dir config_dir image container_name
+  socket_dir="$(read_env JOYSAFETER_ENVOY_SOCKET_HOST_DIR)"
+  socket_volume="$(read_env JOYSAFETER_ENVOY_SOCKET_VOLUME)"; socket_volume="${socket_volume:-joysafeter-sockets}"
+  config_dir="$(read_env JOYSAFETER_ENVOY_CONFIG_DIR)"; config_dir="${config_dir:-/tmp/joysafeter-envoy-config}"
+  image="$(read_env JOYSAFETER_ENVOY_IMAGE)"; image="${image:-envoyproxy/envoy:v1.37.1}"
+  container_name="$(read_env JOYSAFETER_ENVOY_CONTAINER_NAME)"; container_name="${container_name:-joysafeter-envoy}"
+
+  log "启动 Envoy 出口网关容器（本地开发依赖）"
+  mkdir -p "$config_dir/sandboxes"
+  if [ -n "$socket_dir" ]; then
+    mkdir -p "$socket_dir"
+    socket_mount=(-v "$socket_dir:/sockets")
+  else
+    docker volume create "$socket_volume" >/dev/null
+    socket_mount=(-v "$socket_volume:/sockets")
+  fi
+  [ -s "$config_dir/lds.json" ] || printf '{"version_info":"0","resources":[]}\n' > "$config_dir/lds.json"
+  [ -s "$config_dir/cds.json" ] || printf '{"version_info":"0","resources":[]}\n' > "$config_dir/cds.json"
+
+  local host_gateway_args=()
+  # Docker Desktop already provides host.docker.internal. Overriding it with
+  # host-gateway on macOS can point Envoy at a non-listening gateway IP and make
+  # xDS to the host orchestrator fail with Connection refused.
+  if [[ "${OSTYPE:-}" != darwin* ]]; then
+    host_gateway_args=(--add-host host.docker.internal:host-gateway)
+  fi
+
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
+  docker run -d --name "$container_name" \
+    "${socket_mount[@]}" \
+    -v "$config_dir:/envoy-config" \
+    "${host_gateway_args[@]}" \
+    --entrypoint /bin/sh \
+    "$image" \
+    -c "set -eu; mkdir -p /sockets /envoy-config/sandboxes; while [ ! -s /envoy-config/bootstrap.json ]; do sleep 0.2; done; exec envoy -c /envoy-config/bootstrap.json --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}" >/dev/null
+}
+
+start_runner_control_proxy() {
+  local volume container_path container_dir container_name image
+  volume="$(read_env JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME)"
+  [ -n "$volume" ] || return 0
+  container_path="$(read_env JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH)"; container_path="${container_path:-/control/grpc.sock}"
+  container_dir="${container_path%/*}"; [ -n "$container_dir" ] || container_dir="/sockets"
+  container_name="${JOYSAFETER_RUNNER_CONTROL_PROXY_CONTAINER:-joysafeter-runner-control-proxy}"
+  image="${JOYSAFETER_RUNNER_CONTROL_PROXY_IMAGE:-aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest}"
+
+  log "启动 Runner 控制面 UDS 代理容器（Docker Desktop 本地开发）"
+  docker volume create "$volume" >/dev/null
+  docker rm -f "$container_name" >/dev/null 2>&1 || true
+  docker run --rm --user 0 --entrypoint sh \
+    -v "$volume:$container_dir" \
+    "$image" \
+    -lc "rm -f '$container_path'" >/dev/null
+  local host_gateway_args=()
+  if [[ "${OSTYPE:-}" != darwin* ]]; then
+    host_gateway_args=(--add-host host.docker.internal:host-gateway)
+  fi
+  docker run -d --name "$container_name" \
+    --user 0 \
+    --entrypoint socat \
+    -v "$volume:$container_dir" \
+    "${host_gateway_args[@]}" \
+    "$image" \
+    UNIX-LISTEN:"$container_path",fork,mode=666,reuseaddr TCP:host.docker.internal:${JOYSAFETER_GRPC_PORT:-9090} >/dev/null
 }
 
 start_infra() {
   log "启动 PostgreSQL / Redis"
   cd "$DEPLOY"
   compose -f docker-compose.yml up -d db redis
+  start_envoy
+  start_runner_control_proxy
 
   log "等待 PostgreSQL 就绪"
   local ready=false
@@ -111,6 +180,15 @@ start_backend() {
   cd "$ROOT/backend"
   export JOYSAFETER_EVENT_STREAM_ENABLED=true
   export JOYSAFETER_GRPC_PUBLIC_URL="${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}"
+  export JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR="${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}"
+  export JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME="${JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME:-}"
+  export JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH="${JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH:-/control/grpc.sock}"
+  export JOYSAFETER_ENVOY_SOCKET_HOST_DIR="${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-$(read_env JOYSAFETER_ENVOY_SOCKET_HOST_DIR)}"
+  export JOYSAFETER_ENVOY_SOCKET_VOLUME="${JOYSAFETER_ENVOY_SOCKET_VOLUME:-$(read_env JOYSAFETER_ENVOY_SOCKET_VOLUME)}"
+  export JOYSAFETER_ENVOY_XDS_MODE="${JOYSAFETER_ENVOY_XDS_MODE:-$(read_env JOYSAFETER_ENVOY_XDS_MODE)}"
+  if [ -z "${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-}" ]; then
+    export JOYSAFETER_ENVOY_XDS_MODE="${JOYSAFETER_ENVOY_XDS_MODE:-grpc}"
+  fi
 
   log "启动 API :8000"
   JOYSAFETER_SERVICE_ROLE=api uv run uvicorn app.joysafeter_api.main:app --host 0.0.0.0 --port 8000 &
@@ -121,6 +199,12 @@ start_backend() {
     cd "$ROOT/backend/app/joysafeter_orchestrator_rs"
     JOYSAFETER_GRPC_HOST=0.0.0.0 \
       JOYSAFETER_GRPC_PORT="${JOYSAFETER_GRPC_PORT:-9090}" \
+      JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR="$JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR" \
+      JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME="$JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME" \
+      JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH="$JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH" \
+      JOYSAFETER_ENVOY_SOCKET_HOST_DIR="$JOYSAFETER_ENVOY_SOCKET_HOST_DIR" \
+      JOYSAFETER_ENVOY_SOCKET_VOLUME="$JOYSAFETER_ENVOY_SOCKET_VOLUME" \
+      JOYSAFETER_ENVOY_XDS_MODE="$JOYSAFETER_ENVOY_XDS_MODE" \
       cargo run --release
   ) &
   PIDS+=("$!")

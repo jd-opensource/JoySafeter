@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
 import { useState } from 'react'
 
-import { DataTable, type Column, PageHeader } from '@/components/managed/shared'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { DataTable, FilterBar, type Column, type FilterDef, PageHeader } from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -24,15 +25,18 @@ import {
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { roleLabel, projectRoleLabel } from '@/lib/managed/roles'
 
 interface ProjectMemberRecord {
+  id?: string
   user_id: string
   email: string
   display_name: string
   org_role: string
   access: 'org_wide' | 'explicit' | 'none' | string
   project_role?: string | null
+  joined_at?: string | null
 }
 
 interface ProjectSummary {
@@ -51,6 +55,8 @@ export default function ProjectMembersPage() {
   const projectId = params?.projectId ?? ''
 
   const [removeTarget, setRemoveTarget] = useState<ProjectMemberRecord | null>(null)
+  const [memberSearch, setMemberSearch] = useState('')
+  const [createdFilter, setCreatedFilter] = useState('all')
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -59,20 +65,37 @@ export default function ProjectMembersPage() {
   })
 
   const {
-    data: members = [],
+    data: members,
     isLoading,
+    isFetching,
     isError,
-  } = useQuery({
-    queryKey: ['project-members', projectId],
-    queryFn: () => managedGet<ProjectMemberRecord[]>(`auth/projects/${projectId}/members`),
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+    reset: resetMembersPagination,
+  } = usePaginatedList<ProjectMemberRecord>({
+    queryKey: 'project-members',
+    path: `/auth/projects/${projectId}/members${memberSearch.trim() ? `?q=${encodeURIComponent(memberSearch.trim())}` : ''}`,
     enabled: Boolean(projectId),
-    retry: false,
   })
+  const filteredMembers = members.filter((member) =>
+    filterByCreatedTime(member.joined_at || '', createdFilter) &&
+    matchesSearch(memberSearch, [member.user_id, member.display_name, member.email]),
+  )
 
   const grantMut = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       managedPost(`auth/projects/${projectId}/members`, { user_id: userId, role }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project-members', projectId] }),
+    onSuccess: () => {
+      resetMembersPagination()
+      queryClient.invalidateQueries({ queryKey: ['project-members'] })
+    },
     onError: (err: Error) => toastOperationError(t, err, 'common.operationFailed'),
   })
 
@@ -80,7 +103,8 @@ export default function ProjectMembersPage() {
     mutationFn: ({ userId }: { userId: string }) =>
       managedDelete(`auth/projects/${projectId}/members/${userId}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-members', projectId] })
+      resetMembersPagination()
+      queryClient.invalidateQueries({ queryKey: ['project-members'] })
       setRemoveTarget(null)
     },
     onError: (err: Error) => toastOperationError(t, err, 'common.operationFailed'),
@@ -148,6 +172,13 @@ export default function ProjectMembersPage() {
       },
     },
   ]
+  const filters: FilterDef[] = [
+    {
+      ...createCreatedTimeFilter(t),
+      value: createdFilter,
+      onChange: setCreatedFilter,
+    },
+  ]
 
   if (isError) {
     return (
@@ -162,11 +193,33 @@ export default function ProjectMembersPage() {
     <div className="w-full">
       <PageHeader title={t('manage.projectMembers.title')} subtitle={subtitle} />
 
+      <FilterBar
+        searchPlaceholder="按姓名、邮箱或 ID 搜索成员"
+        searchValue={memberSearch}
+        onSearchChange={(value) => {
+          resetMembersPagination()
+          setMemberSearch(value)
+        }}
+        filters={filters}
+      />
+
       <DataTable
         columns={columns}
-        data={members}
+        data={filteredMembers}
         loading={isLoading}
+        fetching={isFetching}
         emptyMessage={t('manage.members.empty')}
+        pagination={{
+          hasNext,
+          hasPrev,
+          page,
+          pageSize,
+          pageSizeOptions,
+          onNext: goNext,
+          onPrev: goPrev,
+          onPageChange: goToPage,
+          onPageSizeChange: setPageSize,
+        }}
       />
 
       {/* Remove confirm dialog (destructive path of the inline role select) */}
