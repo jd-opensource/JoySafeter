@@ -39,8 +39,9 @@ class JSONRepairingLLMClient:
         schema_name: str | None = None,
         **extra: Any,
     ) -> ChatResponse:
+        response_schema_text = _response_format_schema_text(response_format)
         response = await self._delegate.chat(
-            messages,
+            _messages_with_response_format_schema(messages, response_schema_text),
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -82,6 +83,7 @@ class JSONRepairingLLMClient:
                             attempt=attempt,
                             max_attempts=self._max_repair_attempts,
                             schema=schema,
+                            response_schema_text=response_schema_text,
                         ),
                     )
                 ],
@@ -215,12 +217,35 @@ def _valid_json_object(text: str) -> str | None:
 
 def _provider_response_format(response_format: Any | None) -> Any | None:
     if _is_pydantic_model_class(response_format):
-        return None
+        return {"type": "json_object"}
     return response_format
 
 
 def _is_pydantic_model_class(value: Any | None) -> bool:
     return isinstance(value, type) and callable(getattr(value, "model_validate_json", None))
+
+
+def _response_format_schema_text(response_format: Any | None) -> str | None:
+    if not _is_pydantic_model_class(response_format):
+        return None
+    schema = response_format.model_json_schema()
+    schema_name = str(schema.get("title") or response_format.__name__)
+    return (
+        "You must return exactly one JSON object that conforms to this JSON Schema. "
+        "Return no markdown fences, no prose, and no keys outside the schema.\n\n"
+        f"Schema name: {schema_name}\n"
+        "JSON Schema:\n"
+        f"{json.dumps(schema, ensure_ascii=False, sort_keys=True)}"
+    )
+
+
+def _messages_with_response_format_schema(
+    messages: list[ChatMessage],
+    response_schema_text: str | None,
+) -> list[ChatMessage]:
+    if response_schema_text is None:
+        return messages
+    return [ChatMessage(role="system", content=response_schema_text), *messages]
 
 
 def _validate_structured_response(
@@ -304,10 +329,13 @@ def _repair_prompt(
     attempt: int,
     max_attempts: int,
     schema: _JSONSchema | None = None,
+    response_schema_text: str | None = None,
 ) -> str:
     schema_text = ""
+    if response_schema_text is not None:
+        schema_text = f"\n\nRequired response_format schema:\n{response_schema_text}"
     if schema is not None:
-        schema_text = (
+        schema_text += (
             "\n\nRequired schema:\n"
             f"Name: {schema.name}\n"
             f"{schema.instructions}\n"
@@ -315,15 +343,21 @@ def _repair_prompt(
             "text or prompt context; otherwise use an empty value with the "
             "correct JSON type."
         )
+    repair_instruction = (
+        "Convert the following model output into exactly one valid JSON object "
+        "that satisfies the required schema. "
+        if schema_text
+        else "Fix only the JSON syntax in the following text. "
+    )
     return (
-        "Fix only the JSON syntax in the following text. "
+        repair_instruction +
         "Do not translate or change any facts. "
-        "Return only one valid JSON object.\n\n"
+        "Return only one valid JSON object and no prose.\n\n"
         f"Repair attempt: {attempt} of {max_attempts}\n"
         f"Validation category: {validation_category}\n"
         f"Previous validation error: {validation_error}"
         f"{schema_text}\n\n"
-        "Malformed JSON text:\n"
+        "Previous model output:\n"
         f"{malformed_content}"
     )
 

@@ -163,7 +163,7 @@ async def test_json_repairing_llm_leaves_non_json_content_alone():
     assert len(llm.calls) == 1
 
 
-async def test_json_repairing_llm_parses_pydantic_response_format_without_provider_schema():
+async def test_json_repairing_llm_parses_pydantic_response_format_with_initial_schema_instruction():
     from app.everos.component.llm.structured import JSONRepairingLLMClient
 
     original = ChatResponse(
@@ -181,7 +181,11 @@ async def test_json_repairing_llm_parses_pydantic_response_format_without_provid
     assert response.parsed.subject == "Merged"
     assert response.parsed.content == "Merged memory"
     assert response.content == original.content
-    assert llm.calls[0]["response_format"] is None
+    assert llm.calls[0]["response_format"] == {"type": "json_object"}
+    first_prompt = llm.calls[0]["messages"][0].content
+    assert "JSON Schema" in first_prompt
+    assert '"subject"' in first_prompt
+    assert '"content"' in first_prompt
 
 
 async def test_json_repairing_llm_repairs_then_parses_pydantic_response_format():
@@ -205,7 +209,31 @@ async def test_json_repairing_llm_repairs_then_parses_pydantic_response_format()
     assert isinstance(response.parsed, ReflectOutput)
     assert response.parsed.content == "Merged memory"
     assert len(llm.calls) == 2
-    assert llm.calls[0]["response_format"] is None
+    assert llm.calls[0]["response_format"] == {"type": "json_object"}
+
+
+async def test_json_repairing_llm_converts_freeform_pydantic_response_during_repair():
+    from app.everos.component.llm.structured import JSONRepairingLLMClient
+
+    narrative = ChatResponse(content="Merged memory: 用户正在验证 Dreaming 聚合记忆。", model="model-a")
+    repaired = ChatResponse(
+        content='{"subject":"Dreaming 验证","content":"用户正在验证 Dreaming 聚合记忆。"}',
+        model="model-a",
+    )
+    llm = FakeLLM([narrative, repaired])
+
+    response = await JSONRepairingLLMClient(llm).chat(
+        [ChatMessage(role="user", content="Write a merged memory narrative")],
+        response_format=ReflectOutput,
+    )
+
+    assert isinstance(response.parsed, ReflectOutput)
+    assert response.parsed.content == "用户正在验证 Dreaming 聚合记忆。"
+    assert len(llm.calls) == 2
+    repair_prompt = llm.calls[1]["messages"][-1].content
+    assert "Convert the following model output" in repair_prompt
+    assert "No complete JSON object found." in repair_prompt
+    assert "Merged memory:" in repair_prompt
 
 
 async def test_json_repairing_llm_repairs_pydantic_schema_invalid_response():
@@ -226,7 +254,10 @@ async def test_json_repairing_llm_repairs_pydantic_schema_invalid_response():
     assert isinstance(response.parsed, ReflectOutput)
     assert response.parsed.subject == "Merged"
     assert len(llm.calls) == 2
-    assert "JSON object does not match response_format" in llm.calls[1]["messages"][-1].content
+    repair_prompt = llm.calls[1]["messages"][-1].content
+    assert "JSON object does not match response_format" in repair_prompt
+    assert "JSON Schema" in repair_prompt
+    assert '"content"' in repair_prompt
 
 
 async def test_json_repairing_llm_does_not_repair_freeform_text_with_braces():

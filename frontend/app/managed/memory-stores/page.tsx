@@ -35,6 +35,12 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { managedGet, managedPost } from '@/lib/api-client'
+import {
+  dreamingButtonLabelForStatus,
+  dreamingRunPollInterval,
+  isDreamingRunActive,
+  isDreamingRunTerminal,
+} from '@/lib/managed/dreaming-run-status'
 import { cn } from '@/lib/utils'
 
 type MemoryKind = 'profile' | 'episode' | 'agent_case' | 'agent_skill'
@@ -1858,11 +1864,11 @@ export default function MemoryStoreListPage() {
       return managedGet<DreamingRunStatus>(`/everos_memory/dreaming/runs/${dreamingRunId}`)
     },
     enabled: Boolean(dreamingRunId),
-    refetchInterval: (query) => (query.state.data?.status === 'running' ? 2000 : false),
+    refetchInterval: (query) => dreamingRunPollInterval(query.state.data?.status),
     refetchOnWindowFocus: true,
   })
   const dreamingRunState = dreamingRunStatus?.status
-  const dreamingRunIsTerminal = ['success', 'failed', 'dead_letter', 'crashed'].includes(dreamingRunState || '')
+  const dreamingRunIsTerminal = isDreamingRunTerminal(dreamingRunState)
   const displayedDreamingRunStatus = dreamingRunStatus
     ? (
       dreamingRunIsTerminal && !dreamingTerminalReady
@@ -1875,15 +1881,11 @@ export default function MemoryStoreListPage() {
         : undefined
   )
   const displayedDreamingRunState = displayedDreamingRunStatus?.status
-  const dreamingIsRunning = dreamingMutation.isPending || displayedDreamingRunState === 'running'
-  const dreamingButtonLabel = dreamingIsRunning
-    ? 'Dreaming run...'
-    : displayedDreamingRunState === 'success'
-      ? 'Dreaming Complete'
-      : 'Dreaming'
+  const dreamingIsRunning = dreamingMutation.isPending || isDreamingRunActive(displayedDreamingRunState)
+  const dreamingButtonLabel = dreamingButtonLabelForStatus(displayedDreamingRunState, dreamingMutation.isPending)
 
   useEffect(() => {
-    if (dreamingRunState && ['success', 'failed', 'dead_letter', 'crashed'].includes(dreamingRunState)) {
+    if (isDreamingRunTerminal(dreamingRunState)) {
       void refetch()
     }
   }, [dreamingRunState, refetch])
