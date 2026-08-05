@@ -104,6 +104,8 @@ jobs:
         working-directory: backend
         env:
           JOYSAFETER_TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/test_db
+          JOYSAFETER_VAULT_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          SECRET_KEY: ci-only-secret-key-not-for-production
         run: uv run pytest tests/ -q
 
   # Frontend tests and production build
