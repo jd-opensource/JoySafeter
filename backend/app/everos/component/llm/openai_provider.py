@@ -13,6 +13,7 @@ collector — those are deployment concerns layered on top.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -59,6 +60,15 @@ class OpenAIProvider:
             base_url=base_url,
             timeout=timeout,
         )
+        # Serialize in-flight requests on this client. The upstream gateway
+        # (ai-api.jdcloud.com) has been observed to cross concurrent responses
+        # — e.g. an episode-extraction request receiving a parallel
+        # foresight-extraction request's body — which then fails schema
+        # validation downstream. Extraction is background / best-effort, so
+        # trading intra-client concurrency for correctness is the right call.
+        # The lock is per client instance (per-project singleton), so distinct
+        # projects still run in parallel.
+        self._request_lock = asyncio.Lock()
 
     async def chat(
         self,
@@ -86,7 +96,8 @@ class OpenAIProvider:
         request.update(extra)
 
         try:
-            completion = await self._client.chat.completions.create(**request)
+            async with self._request_lock:
+                completion = await self._client.chat.completions.create(**request)
         except openai.OpenAIError as exc:
             raise LLMError(str(exc)) from exc
 

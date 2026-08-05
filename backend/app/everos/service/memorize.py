@@ -133,7 +133,10 @@ def _get_engine() -> OfflineEngine:
             )
         )
         engine.register(extract_atomic_facts)
-        engine.register(extract_foresight)
+        # Foresight disabled: not used, and its extraction fires concurrently
+        # with episode on the same conversation, which triggers the upstream
+        # gateway to cross responses (episode receiving the foresight body).
+        # engine.register(extract_foresight)
         engine.register(extract_agent_case)
         engine.register(trigger_skill_clustering)
         engine.register(extract_agent_skill)

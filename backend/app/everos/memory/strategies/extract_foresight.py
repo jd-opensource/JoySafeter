@@ -19,6 +19,13 @@ from collections.abc import Mapping
 
 from everalgo.user_memory import ForesightExtractor
 
+try:  # base prompt used to re-anchor a retry that carries the failure reason
+    from everalgo.user_memory.prompts.en.foresight import (
+        FORESIGHT_GENERATION_PROMPT as _DEFAULT_FORESIGHT_PROMPT,
+    )
+except Exception:  # pragma: no cover - defensive against everalgo layout changes
+    _DEFAULT_FORESIGHT_PROMPT = None
+
 from app.everos.component.llm import get_project_llm_client
 from app.everos.component.utils.datetime import from_timestamp, to_iso_format
 from app.everos.core.observability.logging import get_logger
@@ -28,10 +35,13 @@ from app.everos.infra.ome.decorator import offline_strategy
 from app.everos.infra.ome.triggers import Immediate
 from app.everos.infra.persistence.markdown import ForesightWriter
 from app.everos.memory.events import UserPipelineStarted
+from app.everos.memory.extract._retry import aextract_with_feedback
 from app.everos.memory.language_policy import ensure_chinese_memory_llm
 from app.everos.memory.models import Foresight
 
 logger = get_logger(__name__)
+
+_FORESIGHT_EXTRACT_MAX_ATTEMPTS = 3
 
 _writer: ForesightWriter | None = None
 
@@ -64,9 +74,22 @@ async def extract_foresight(event: UserPipelineStarted, ctx: StrategyContext) ->
     )
 
     # 2. Run the LLM extractor once per sender (prompt is per-sender).
+    #    Retry on schema/JSON failure, feeding the previous reason back so the
+    #    model self-corrects (also absorbs occasional gateway response
+    #    cross-talk that yields a non-foresight body).
     foresights: list[Foresight] = []
     for sid in sender_ids:
-        algo_foresights = await extractor.aextract(memcell, sender_id=sid)
+        algo_foresights = await aextract_with_feedback(
+            lambda p, _sid=sid: extractor.aextract(memcell, sender_id=_sid, prompt=p),
+            base_prompt=None,
+            default_prompt=_DEFAULT_FORESIGHT_PROMPT,
+            max_attempts=_FORESIGHT_EXTRACT_MAX_ATTEMPTS,
+            must_return=(
+                'a single JSON object with a "foresights" array, each item '
+                "containing the required foresight fields"
+            ),
+            log_event="foresight_extract_schema_mismatch_retry",
+        )
         foresights.extend(
             Foresight.from_algo(
                 algo_fs,

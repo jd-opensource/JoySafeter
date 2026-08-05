@@ -20,11 +20,19 @@ from typing import TYPE_CHECKING, Any
 from everalgo.types import MemCell as AlgoMemCell
 from everalgo.user_memory import EpisodeExtractor
 
+try:  # base prompt used to re-anchor a retry that carries the failure reason
+    from everalgo.user_memory.prompts.en.episode import (
+        EPISODE_GENERATION_PROMPT as _DEFAULT_EPISODE_PROMPT,
+    )
+except Exception:  # pragma: no cover - defensive against everalgo layout changes
+    _DEFAULT_EPISODE_PROMPT = None
+
 from app.everos.component.llm.protocol import ChatMessage
 from app.everos.component.utils.datetime import from_timestamp, to_iso_format
 from app.everos.core.observability.logging import get_logger
 from app.everos.memory import Episode, IngestResult, PipelineOutcome
 from app.everos.memory.events import EpisodeExtracted, UserPipelineStarted
+from app.everos.memory.extract._retry import build_correction
 from app.everos.memory.language_policy import ensure_chinese_memory_llm
 from app.everos.memory.prompt_slots import PromptLoader
 
@@ -270,16 +278,75 @@ async def _extract_episode_with_summary_retry(
     cell: AlgoMemCell,
     prompt: str | None,
 ) -> Any:
-    """Run the primary episode extractor up to three times for a valid summary."""
+    """Run the primary episode extractor up to three times for a valid summary.
+
+    Also retries on ``ValueError`` raised by ``aextract``. A ``ValueError``
+    here means the LLM response failed episode schema validation (missing
+    ``title`` / ``content``) or JSON parsing. In practice this is dominated by
+    the upstream LLM gateway occasionally returning a *different* concurrent
+    call's body for this request — e.g. a ``foresights`` payload from the
+    foresight strategy that runs in parallel with episode extraction — a
+    transient response cross-talk that a fresh attempt recovers from. Without
+    retrying, a single crossed response drops the whole Episode (and its
+    downstream atomic_fact / foresight fan-out).
+
+    On each retry the previous failure reason is appended to the prompt so the
+    model can self-correct (e.g. "you returned foresights; return only
+    ``{title, content}``"). This only helps genuine model format mistakes — a
+    gateway that substitutes the whole response body ignores the prompt — but
+    it is cheap and strictly improves recovery odds.
+    """
+    # Base prompt to re-anchor a corrective retry: the caller's override if
+    # present, else the algo default (matches sender_id=None branch). If neither
+    # is available we simply retry with the original prompt (no feedback).
+    base_prompt = prompt if prompt is not None else _DEFAULT_EPISODE_PROMPT
+    effective_prompt = prompt
     last_episode: Any | None = None
+    last_error: ValueError | None = None
     for _attempt in range(_EPISODE_SUMMARY_EXTRACTION_ATTEMPTS):
-        last_episode = await extractor.aextract(cell, sender_id=None, prompt=prompt)
+        try:
+            last_episode = await extractor.aextract(
+                cell, sender_id=None, prompt=effective_prompt
+            )
+        except ValueError as err:
+            last_error = err
+            logger.warning(
+                "episode_extract_schema_mismatch_retry",
+                extra={
+                    "attempt": _attempt + 1,
+                    "max_attempts": _EPISODE_SUMMARY_EXTRACTION_ATTEMPTS,
+                    "error": str(err)[:200],
+                    "hint": (
+                        "episode LLM response missing required keys — likely "
+                        "gateway response cross-talk; retrying with feedback"
+                    ),
+                },
+            )
+            if base_prompt is not None:
+                effective_prompt = base_prompt + _episode_retry_correction(err)
+            continue
         if _summary_is_valid(
             getattr(last_episode, "summary", None),
             str(getattr(last_episode, "episode", "")),
         ):
             return last_episode
+    if last_episode is None and last_error is not None:
+        # Every attempt raised — surface the last error so the caller keeps its
+        # existing failure semantics (best-effort memorize logs a warning).
+        raise last_error
     return last_episode
+
+
+def _episode_retry_correction(err: ValueError) -> str:
+    """Corrective instruction appended to the prompt on a retry.
+
+    Carries the previous failure reason back to the model so it can fix a
+    format mistake instead of blindly repeating it.
+    """
+    return build_correction(
+        err, 'a single JSON object with EXACTLY the keys "title" and "content" '
+        "(both strings)"
+    )
 
 
 async def _ensure_episode_summary(

@@ -343,7 +343,19 @@ def _resolve_schema(
 ) -> _JSONSchema | None:
     if schema_name:
         return _SCHEMAS.get(schema_name)
-    prompt = "\n".join(message.content for message in messages if isinstance(message.content, str)).lower()
+    # Detect the schema from the TASK prompt only. System messages carry the
+    # EverOS language policy, whose text enumerates every memory type
+    # ("...atomic facts, foresights, agent cases...") — matching it here made
+    # every extractor resolve to the foresight schema, so the repair pass
+    # rewrote correct output (e.g. atomic_facts) into the wrong shape. The
+    # schema is defined by the task (user prompt), never by the output-language
+    # policy, so exclude system-role messages from detection.
+    prompt = "\n".join(
+        message.content
+        for message in messages
+        if isinstance(message.content, str)
+        and getattr(message, "role", "user") != "system"
+    ).lower()
     if not prompt:
         return None
     if "compressed_messages" in prompt:
