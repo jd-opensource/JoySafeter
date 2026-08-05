@@ -113,19 +113,14 @@ fn is_true(v: &bool) -> bool {
     *v
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum PermissionPolicy {
     #[serde(rename = "always_allow")]
+    #[default]
     AlwaysAllow,
     #[serde(rename = "always_ask")]
     AlwaysAsk,
-}
-
-impl Default for PermissionPolicy {
-    fn default() -> Self {
-        Self::AlwaysAllow
-    }
 }
 
 impl PermissionPolicy {

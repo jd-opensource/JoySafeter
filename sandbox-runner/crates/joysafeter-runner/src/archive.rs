@@ -20,7 +20,11 @@ pub fn archive_extract_dir(path: &Path) -> Option<PathBuf> {
     let lower = filename.to_ascii_lowercase();
     for suffix in SUPPORTED_ARCHIVE_SUFFIXES {
         if lower.ends_with(suffix) {
-            return Some(path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf());
+            return Some(
+                path.parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .to_path_buf(),
+            );
         }
     }
     None
@@ -180,8 +184,8 @@ fn has_windows_drive(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::Compression;
     use flate2::write::GzEncoder;
+    use flate2::Compression;
     use std::io::Write;
     use tar::{Builder, EntryType, Header};
 
@@ -207,7 +211,10 @@ mod tests {
 
     #[test]
     fn safe_member_path_rejects_traversal_and_windows_paths() {
-        assert_eq!(safe_member_path(Path::new("safe/SKILL.md")).unwrap(), PathBuf::from("safe/SKILL.md"));
+        assert_eq!(
+            safe_member_path(Path::new("safe/SKILL.md")).unwrap(),
+            PathBuf::from("safe/SKILL.md")
+        );
         assert!(safe_member_path(Path::new("../outside.txt")).is_none());
         assert!(safe_member_path(Path::new("/tmp/outside.txt")).is_none());
         assert!(safe_member_path(Path::new("C:/Windows/System32/pwn.txt")).is_none());

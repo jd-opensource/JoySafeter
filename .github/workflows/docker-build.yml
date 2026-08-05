@@ -11,10 +11,18 @@ on:
       - develop
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build ${{ matrix.image.name }}
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     strategy:
       fail-fast: false
@@ -40,6 +48,16 @@ jobs:
             dockerfile: ./deploy/docker/skillspector-service.Dockerfile
             skillspector: true
             build_contexts: skillspector=./.deps/SkillSpector
+          - name: joysafeter-claudecode
+            context: .
+            dockerfile: ./deploy/docker/claudecode.Dockerfile
+            skillspector: false
+            build_contexts: ''
+          - name: joysafeter-codex
+            context: .
+            dockerfile: ./deploy/docker/codex.Dockerfile
+            skillspector: false
+            build_contexts: ''
 
     steps:
       - name: Checkout code

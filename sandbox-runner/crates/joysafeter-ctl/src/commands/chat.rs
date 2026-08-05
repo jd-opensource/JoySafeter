@@ -298,11 +298,9 @@ fn render_new_events(
                     .collect::<String>();
                 println!("  \x1b[33m[custom tool]\x1b[0m {}: {}", name, input_str);
             }
-            "session.status_running" => {
-                if !*printed_running {
-                    println!("  \x1b[90m[agent running...]\x1b[0m");
-                    *printed_running = true;
-                }
+            "session.status_running" if !*printed_running => {
+                println!("  \x1b[90m[agent running...]\x1b[0m");
+                *printed_running = true;
             }
             _ => {}
         }

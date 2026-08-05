@@ -79,9 +79,7 @@ fn set_heartbeat_runtime_state(
     }
 }
 
-fn get_heartbeat_runtime_state(
-    state: &Arc<Mutex<HeartbeatRuntimeState>>,
-) -> HeartbeatRuntimeState {
+fn get_heartbeat_runtime_state(state: &Arc<Mutex<HeartbeatRuntimeState>>) -> HeartbeatRuntimeState {
     match state.lock() {
         Ok(guard) => guard.clone(),
         Err(poisoned) => poisoned.into_inner().clone(),
@@ -109,7 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let token = std::fs::read_to_string(&path).ok()?.trim().to_string();
                 // Delete the file after reading — one-shot.
                 let _ = std::fs::remove_file(&path);
-                if token.is_empty() { None } else { Some(token) }
+                if token.is_empty() {
+                    None
+                } else {
+                    Some(token)
+                }
             })
     });
 
@@ -274,17 +276,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 replayed += 1;
             }
-            loop {
-                match task.event_rx.try_recv() {
-                    Ok(msg) => {
-                        if runner_tx.send(msg).await.is_err() {
-                            warn!("Lost connection while replaying buffer");
-                            break;
-                        }
-                        replayed += 1;
-                    }
-                    Err(_) => break,
+            while let Ok(msg) = task.event_rx.try_recv() {
+                if runner_tx.send(msg).await.is_err() {
+                    warn!("Lost connection while replaying buffer");
+                    break;
                 }
+                replayed += 1;
             }
             if replayed > 0 {
                 info!(
@@ -357,16 +354,11 @@ async fn drain_event_buffer(
     runner_tx: &mpsc::Sender<RunnerMessage>,
 ) -> usize {
     let mut count = 0;
-    loop {
-        match event_rx.try_recv() {
-            Ok(msg) => {
-                if runner_tx.send(msg).await.is_err() {
-                    break;
-                }
-                count += 1;
-            }
-            Err(_) => break,
+    while let Ok(msg) = event_rx.try_recv() {
+        if runner_tx.send(msg).await.is_err() {
+            break;
         }
+        count += 1;
     }
     count
 }
@@ -479,7 +471,6 @@ async fn run_session(
                             break runner::TaskMetadata {
                                 work_dir: task.work_dir.clone().unwrap_or_default(),
                                 session_id: task.session_id.clone(),
-                                aborted: false,
                             };
                         }
                         Err(e) => {
@@ -500,7 +491,6 @@ async fn run_session(
                             break runner::TaskMetadata {
                                 work_dir: task.work_dir.clone().unwrap_or_default(),
                                 session_id: task.session_id.clone(),
-                                aborted: false,
                             };
                         }
                     }
@@ -671,7 +661,6 @@ async fn run_session(
                                     break runner::TaskMetadata {
                                         work_dir: task_work_dir.clone().unwrap_or_default(),
                                         session_id: task_session_id.clone(),
-                                        aborted: false,
                                     };
                                 }
                                 Err(e) => {
@@ -692,7 +681,6 @@ async fn run_session(
                                     break runner::TaskMetadata {
                                         work_dir: task_work_dir.clone().unwrap_or_default(),
                                         session_id: task_session_id.clone(),
-                                        aborted: false,
                                     };
                                 }
                             }
@@ -858,7 +846,9 @@ async fn run_session(
                 let response = sandbox_files::handle_request(request).await;
                 let _ = runner_tx
                     .send(RunnerMessage {
-                        payload: Some(proto::runner_message::Payload::SandboxFileResponse(response)),
+                        payload: Some(proto::runner_message::Payload::SandboxFileResponse(
+                            response,
+                        )),
                     })
                     .await;
             }

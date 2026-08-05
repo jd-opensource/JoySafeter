@@ -94,7 +94,7 @@ NO_CACHE="${NO_CACHE:-false}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 # Rust 镜像从 BASE_IMAGE_REGISTRY 派生
-RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1-bookworm}"
+RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1.97.1-bookworm}"
 RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
 SKILLSPECTOR_REPO_URL="${SKILLSPECTOR_REPO_URL:-}"
 SKILLSPECTOR_REPO_REF="${SKILLSPECTOR_REPO_REF:-}"
@@ -158,11 +158,11 @@ show_usage() {
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
   --skillspector-only    只处理 SkillSpector 镜像
-  --runtime-only         只处理 agent 运行镜像（claudecode, codex, native）
+  --runtime-only         只处理正式 agent 运行镜像（claudecode, codex）
   --claudecode-only      只处理 Claude Code 运行镜像
   --codex-only           只处理 Codex 运行镜像
-  --native-only          只处理 Native 运行镜像
-  --all                  构建所有镜像（核心部署镜像 + agent runtime 镜像）
+  --native-only          只处理可选 Native 运行镜像（需要本地私有 tgz）
+  --all                  构建所有正式镜像（核心镜像 + claudecode/codex）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
   --mirror MIRROR        使用国内镜像源加速（aliyun, tencent, huawei, daocloud）
                          同时设置 BASE_IMAGE_REGISTRY 和 DOCKER_MIRROR
@@ -1075,6 +1075,7 @@ build_image() {
     if [ -n "$UV_INDEX_URL" ]; then
         build_args+=("--build-arg" "UV_INDEX_URL=$UV_INDEX_URL")
     fi
+    build_args+=("--build-arg" "GIT_COMMIT_SHA=${GIT_COMMIT_SHA}")
 
     # 前端镜像：NEXT_PUBLIC_* 通过 next-runtime-env 在容器启动时注入，无需 build-arg
     if [ "$service" = "前端" ]; then
@@ -1089,9 +1090,9 @@ build_image() {
         local python_version="3.12-slim-bookworm"
         build_args+=("--build-arg" "PYTHON_VERSION=${python_version}")
         log_info "后端使用 Python 版本: ${python_version}"
-        build_args+=("--build-arg" "GIT_COMMIT_SHA=${GIT_COMMIT_SHA}")
-        log_info "后端构建溯源 GIT_COMMIT_SHA: ${GIT_COMMIT_SHA}"
     fi
+
+    log_info "构建溯源 GIT_COMMIT_SHA: ${GIT_COMMIT_SHA}"
 
     if [ "$service" = "Rust Orchestrator" ]; then
         build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
@@ -1257,10 +1258,8 @@ runtime_dockerfile_for() {
     local engine=$1
     local platform=$2
     case "$engine:$platform" in
-        claudecode:linux/amd64) echo "$SCRIPT_DIR/docker/claudecode-amd64.Dockerfile" ;;
-        claudecode:linux/arm64) echo "$SCRIPT_DIR/docker/claudecode-arm64.Dockerfile" ;;
-        codex:linux/amd64) echo "$SCRIPT_DIR/docker/codex-amd64.Dockerfile" ;;
-        codex:linux/arm64) echo "$SCRIPT_DIR/docker/codex-arm64.Dockerfile" ;;
+        claudecode:*) echo "$SCRIPT_DIR/docker/claudecode.Dockerfile" ;;
+        codex:*) echo "$SCRIPT_DIR/docker/codex.Dockerfile" ;;
         native:linux/amd64) echo "$SCRIPT_DIR/docker/native-amd64.Dockerfile" ;;
         native:linux/arm64) echo "$SCRIPT_DIR/docker/native-arm64.Dockerfile" ;;
         *)
@@ -1268,6 +1267,15 @@ runtime_dockerfile_for() {
             exit 1
             ;;
     esac
+}
+
+ensure_native_runtime_artifact() {
+    local artifact="$SCRIPT_DIR/docker/claude-code-best-2.5.5.tgz"
+    if [ ! -f "$artifact" ]; then
+        log_error "Native runtime 需要未入库的私有构建包: $artifact"
+        log_error "请提供该文件后使用 --native-only；正式发布与默认 runtime 池不包含 Native"
+        exit 1
+    fi
 }
 
 runtime_runner_target_for() {
@@ -1323,19 +1331,18 @@ build_runtime_image() {
     local engine=$2
     local image_name=$3
 
-    if echo "$PLATFORMS" | grep -q ","; then
-        if [ "$PUSH" != true ]; then
-            log_error "agent 运行镜像本地构建一次只支持单架构；请指定 --arch amd64/--arch arm64"
-            exit 1
-        fi
-        log_error "agent 运行镜像多架构 push 暂未自动合并 manifest，请分别按架构构建后手动发布"
-        exit 1
-    fi
-
-    ensure_runtime_runner_binary "$PLATFORMS"
-
     local dockerfile
     dockerfile=$(runtime_dockerfile_for "$engine" "$PLATFORMS")
+
+    if [ "$engine" = "native" ]; then
+        ensure_native_runtime_artifact
+        if echo "$PLATFORMS" | grep -q ","; then
+            log_error "Native runtime 仍使用本地预编译 runner，一次只支持单架构；请指定 --arch amd64 或 --arch arm64"
+            exit 1
+        fi
+        ensure_runtime_runner_binary "$PLATFORMS"
+    fi
+
     build_image "$service" "$dockerfile" "$PROJECT_ROOT" "$image_name"
 }
 
@@ -1386,7 +1393,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
-        BUILD_NATIVE=true
+        BUILD_NATIVE=false
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1423,7 +1430,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
-        BUILD_NATIVE=true
+        BUILD_NATIVE=false
     fi
 
     # 规范化镜像仓库地址
@@ -1448,15 +1455,12 @@ build_all_images() {
         NATIVE_FULL_IMAGE="${NATIVE_IMAGE}:${TAG}"
     fi
 
-    if [ "$BUILD_CLAUDECODE" = true ] || [ "$BUILD_CODEX" = true ] || [ "$BUILD_NATIVE" = true ]; then
+    if [ "$BUILD_NATIVE" = true ]; then
         if echo "$PLATFORMS" | grep -q ","; then
-            if [ "$PUSH" = true ]; then
-                log_error "agent runtime 镜像暂不支持多架构 push；请分别使用 --arch amd64 / --arch arm64 构建发布，避免核心镜像先推送后才失败"
-            else
-                log_error "agent runtime 镜像本地构建一次只支持单架构；请指定 --arch amd64 或 --arch arm64"
-            fi
+            log_error "Native runtime 一次只支持单架构；请指定 --arch amd64 或 --arch arm64"
             exit 1
         fi
+        ensure_native_runtime_artifact
     fi
 
     # 初始化 Buildx（如果需要）
@@ -1589,7 +1593,7 @@ pull_images() {
         PULL_SKILLSPECTOR=false
         PULL_CLAUDECODE=true
         PULL_CODEX=true
-        PULL_NATIVE=true
+        PULL_NATIVE=false
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
@@ -1611,7 +1615,7 @@ pull_images() {
     elif [ "$BUILD_ALL" = true ]; then
         PULL_CLAUDECODE=true
         PULL_CODEX=true
-        PULL_NATIVE=true
+        PULL_NATIVE=false
     fi
 
     if [ -n "$NORMALIZED_REGISTRY" ]; then
@@ -1752,7 +1756,7 @@ main() {
                         DOCKER_MIRROR="${2%/}"
                         ;;
                 esac
-                RUST_IMAGE="${BASE_IMAGE_REGISTRY}rust:1-bookworm"
+                RUST_IMAGE="${BASE_IMAGE_REGISTRY}rust:1.97.1-bookworm"
                 RUNTIME_IMAGE="${BASE_IMAGE_REGISTRY}debian:bookworm-slim"
                 shift 2
                 ;;

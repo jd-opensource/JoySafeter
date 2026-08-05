@@ -537,10 +537,16 @@ fn sandbox_file_response_to_json(response: proto::SandboxFileResponse) -> serde_
             );
         }
         if !response.encoding.is_empty() {
-            obj.insert("encoding".to_string(), serde_json::Value::String(response.encoding));
+            obj.insert(
+                "encoding".to_string(),
+                serde_json::Value::String(response.encoding),
+            );
         }
         if !response.content.is_empty() {
-            obj.insert("content".to_string(), serde_json::Value::String(response.content));
+            obj.insert(
+                "content".to_string(),
+                serde_json::Value::String(response.content),
+            );
         }
         if !response.content_bytes.is_empty() {
             obj.insert(
@@ -551,10 +557,16 @@ fn sandbox_file_response_to_json(response: proto::SandboxFileResponse) -> serde_
             );
         }
         if !response.filename.is_empty() {
-            obj.insert("filename".to_string(), serde_json::Value::String(response.filename));
+            obj.insert(
+                "filename".to_string(),
+                serde_json::Value::String(response.filename),
+            );
         }
         if !response.content_type.is_empty() {
-            obj.insert("content_type".to_string(), serde_json::Value::String(response.content_type));
+            obj.insert(
+                "content_type".to_string(),
+                serde_json::Value::String(response.content_type),
+            );
         }
         if response.size > 0 {
             obj.insert("size".to_string(), serde_json::Value::from(response.size));

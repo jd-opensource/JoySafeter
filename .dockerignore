@@ -23,7 +23,7 @@
 **/logs/
 **/*.log
 
-# Runtime images copy the prebuilt runner binary from repo-root target/.
+# The optional Native runtime copies a prebuilt runner from repo-root target/.
 !target/
 !target/x86_64-unknown-linux-gnu/
 !target/x86_64-unknown-linux-gnu/release/

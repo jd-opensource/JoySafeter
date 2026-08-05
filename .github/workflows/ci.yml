@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main, develop]
   pull_request:
@@ -11,11 +12,19 @@ env:
   UV_VERSION: "0.11.29"
   BUN_VERSION: "1.3.14"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Pre-commit: 强制校验（与本地 hook 一致，失败则 CI 失败）
   pre-commit:
     name: Pre-commit
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -50,6 +59,7 @@ jobs:
   backend:
     name: Backend CI
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -98,6 +108,7 @@ jobs:
   frontend:
     name: Frontend CI
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -130,10 +141,51 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:8000
         run: bun run build
 
+  rust:
+    name: Rust CI (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: orchestrator
+            working-directory: backend/app/joysafeter_orchestrator_rs
+            strict_clippy: false
+          - name: sandbox-runner
+            working-directory: sandbox-runner
+            strict_clippy: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+
+      - name: Check formatting
+        working-directory: ${{ matrix.working-directory }}
+        run: cargo +1.97.1 fmt --all -- --check
+
+      - name: Run strict Clippy
+        if: matrix.strict_clippy
+        working-directory: ${{ matrix.working-directory }}
+        run: cargo +1.97.1 clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Run Clippy with warning reporting
+        if: ${{ !matrix.strict_clippy }}
+        working-directory: ${{ matrix.working-directory }}
+        run: cargo +1.97.1 clippy --workspace --all-targets --locked
+
+      - name: Run Rust tests
+        working-directory: ${{ matrix.working-directory }}
+        run: cargo +1.97.1 test --workspace --all-targets --locked
+
   # Security scanning
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code

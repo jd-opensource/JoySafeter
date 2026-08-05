@@ -671,7 +671,9 @@ impl SandboxResolver {
             credentials = SandboxCredentials { routes };
         }
 
-        let storage_catalog = self.load_storage_volume_catalog(project_id.as_deref()).await?;
+        let storage_catalog = self
+            .load_storage_volume_catalog(project_id.as_deref())
+            .await?;
         let (mounts, mount_fingerprint) = resolve_mount_resources(
             environment.as_ref().map(|env| &env.config),
             &storage_catalog,
@@ -729,7 +731,10 @@ impl SandboxResolver {
         .map_err(Into::into)
     }
 
-    async fn load_storage_volume_catalog(&self, project_id: Option<&str>) -> anyhow::Result<serde_json::Value> {
+    async fn load_storage_volume_catalog(
+        &self,
+        project_id: Option<&str>,
+    ) -> anyhow::Result<serde_json::Value> {
         let Some(project_id) = project_id else {
             return Ok(serde_json::Value::Object(serde_json::Map::new()));
         };
@@ -764,9 +769,12 @@ impl SandboxResolver {
             let volume_max_access: String = row.try_get("volume_max_access")?;
             let org_grant_max_access: Option<String> = row.try_get("org_grant_max_access")?;
             let grant_max_access: Option<String> = row.try_get("grant_max_access")?;
-            let volume_allowed_prefixes: serde_json::Value = row.try_get("volume_allowed_prefixes")?;
-            let org_grant_allowed_prefixes: Option<serde_json::Value> = row.try_get("org_grant_allowed_prefixes")?;
-            let grant_allowed_prefixes: Option<serde_json::Value> = row.try_get("grant_allowed_prefixes")?;
+            let volume_allowed_prefixes: serde_json::Value =
+                row.try_get("volume_allowed_prefixes")?;
+            let org_grant_allowed_prefixes: Option<serde_json::Value> =
+                row.try_get("org_grant_allowed_prefixes")?;
+            let grant_allowed_prefixes: Option<serde_json::Value> =
+                row.try_get("grant_allowed_prefixes")?;
             let docker: serde_json::Value = row.try_get("docker")?;
             let k8s: serde_json::Value = row.try_get("k8s")?;
             let volume_prefixes = volume_allowed_prefixes
@@ -781,7 +789,8 @@ impl SandboxResolver {
                 .as_ref()
                 .and_then(|value| value.as_array().cloned())
                 .unwrap_or_default();
-            let allowed_prefixes = effective_prefixes(vec![volume_prefixes, org_grant_prefixes, grant_prefixes]);
+            let allowed_prefixes =
+                effective_prefixes(vec![volume_prefixes, org_grant_prefixes, grant_prefixes]);
             let max_access = if volume_max_access == "read_only"
                 || org_grant_max_access.as_deref() == Some("read_only")
                 || grant_max_access.as_deref() == Some("read_only")

@@ -5,10 +5,23 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  verify:
+    name: Verify release candidate
+    uses: ./.github/workflows/ci.yml
+
   prepare-release:
     name: Validate Release Metadata
+    needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
@@ -68,6 +81,7 @@ jobs:
     name: Publish ${{ matrix.image.name }}
     needs: prepare-release
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -96,6 +110,16 @@ jobs:
             dockerfile: ./deploy/docker/skillspector-service.Dockerfile
             skillspector: true
             build_contexts: skillspector=./.deps/SkillSpector
+          - name: joysafeter-claudecode
+            context: .
+            dockerfile: ./deploy/docker/claudecode.Dockerfile
+            skillspector: false
+            build_contexts: ''
+          - name: joysafeter-codex
+            context: .
+            dockerfile: ./deploy/docker/codex.Dockerfile
+            skillspector: false
+            build_contexts: ''
 
     steps:
       - name: Checkout code
@@ -159,6 +183,7 @@ jobs:
       - prepare-release
       - build-and-push
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
 

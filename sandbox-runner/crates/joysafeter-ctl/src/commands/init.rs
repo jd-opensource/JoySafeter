@@ -4,16 +4,15 @@ use base64::Engine as _;
 use dialoguer::{Confirm, Input, Select};
 use std::path::Path;
 
+#[derive(Default)]
 enum StepResult {
     UsedExisting,
-    Created { id: String, name: String },
+    Created {
+        id: String,
+        name: String,
+    },
+    #[default]
     Skipped,
-}
-
-impl Default for StepResult {
-    fn default() -> Self {
-        Self::Skipped
-    }
 }
 
 #[derive(Default)]
@@ -689,7 +688,7 @@ fn pick_or_create(
     if existing.is_empty() {
         let mut options = Vec::new();
         if skippable {
-            options.push(format!("Skip (not required)"));
+            options.push("Skip (not required)".to_string());
         }
         options.push(format!("+ Create new {}", resource));
         if allow_back {
@@ -725,11 +724,10 @@ fn pick_or_create(
         labels.push("\u{2190} Back to previous step".to_string());
     }
 
-    let default_idx = if skippable { 0 } else { 0 };
     let idx = Select::new()
         .with_prompt(format!("Select or create {}", resource))
         .items(&labels)
-        .default(default_idx)
+        .default(0)
         .interact()?;
 
     if allow_back && idx == labels.len() - 1 {

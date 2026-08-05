@@ -109,6 +109,12 @@ pub struct CodexAdapter {
     session: Arc<Mutex<Option<PersistentCodex>>>,
 }
 
+impl Default for CodexAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CodexAdapter {
     pub fn new() -> Self {
         Self {
@@ -120,10 +126,7 @@ impl CodexAdapter {
         let mut guard = self.session.lock().await;
 
         let alive = if let Some(ref mut session) = *guard {
-            match session.child.try_wait() {
-                Ok(None) => true,
-                _ => false,
-            }
+            matches!(session.child.try_wait(), Ok(None))
         } else {
             false
         };
@@ -611,10 +614,7 @@ impl HarnessAdapter for CodexAdapter {
         let current_turn_for_completion = current_turn.clone();
         let last_usage_for_completion = session_last_usage.clone();
         tokio::spawn(async move {
-            let aborted = match td_rx.await {
-                Ok(aborted) => aborted,
-                Err(_) => true,
-            };
+            let aborted = td_rx.await.unwrap_or(true);
 
             // Wait briefly for late notifications (tokenUsage, turn/completed)
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -949,6 +949,7 @@ fn derive_approval_tool_name(method: &str, params: &Value) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_notification(
     method: &str,
     params: &Value,
@@ -1156,6 +1157,7 @@ async fn handle_legacy_event(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_raw_notification(
     method: &str,
     params: &Value,
@@ -1332,10 +1334,7 @@ async fn handle_item_notification(
                 // and the empty-set check would wrongly declare the turn
                 // complete. By the time the child's turn/started arrives
                 // we'd be too late. Note: insertions are idempotent.
-                if let Some(receivers) = item
-                    .get("receiverThreadIds")
-                    .and_then(|v| v.as_array())
-                {
+                if let Some(receivers) = item.get("receiverThreadIds").and_then(|v| v.as_array()) {
                     for r in receivers {
                         if let Some(tid) = r.as_str() {
                             note_thread_active(current_turn, tid).await;
@@ -1634,10 +1633,7 @@ fn find_usage_object(data: &Value) -> Option<&serde_json::Map<String, Value>> {
 }
 
 fn usage_from_value(data: &Value) -> Option<TokenUsage> {
-    let usage_obj = match find_usage_object(data) {
-        Some(obj) => obj,
-        None => return None,
-    };
+    let usage_obj = find_usage_object(data)?;
 
     let get_u64 = |keys: &[&str]| -> u64 {
         for key in keys {
@@ -1721,10 +1717,7 @@ async fn signal_thread_done(
 /// a no-op. Called on `turn/started`, on busy `thread/status/changed`, and
 /// proactively for every receiver in `collabAgentToolCall item/started`
 /// so the spawn handshake doesn't race the child's own `turn/started`.
-async fn note_thread_active(
-    current_turn: &Arc<Mutex<Option<TurnState>>>,
-    thread_id: &str,
-) {
+async fn note_thread_active(current_turn: &Arc<Mutex<Option<TurnState>>>, thread_id: &str) {
     let mut guard = current_turn.lock().await;
     if let Some(ref mut turn) = *guard {
         turn.active_threads.insert(thread_id.to_string());

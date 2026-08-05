@@ -64,17 +64,12 @@ impl MemoryOperation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryAccess {
+    #[default]
     ReadWrite,
     ReadOnly,
-}
-
-impl Default for MemoryAccess {
-    fn default() -> Self {
-        Self::ReadWrite
-    }
 }
 
 impl std::fmt::Display for MemoryAccess {

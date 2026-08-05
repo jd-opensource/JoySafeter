@@ -14,15 +14,16 @@
 - [x] 部署预检自动生成并同步 JWT、Vault、全新 PostgreSQL 密钥；非法密钥、已有数据卷默认密码和缺失 Sandbox runtime 镜像均 fail-closed。
 - [x] PostgreSQL 与 Redis 的 Compose 端口默认只绑定 `127.0.0.1`。
 - [x] `sandbox-runner` 全 workspace 测试恢复通过，并消除测试构造器字段漂移与全局环境变量并发污染。
+- [x] CI 已覆盖两个 Rust workspace 的 fmt、Clippy 和全量测试（sandbox 严格零告警，orchestrator 先报告历史告警），release tag 必须先通过可复用 CI。
+- [x] Claude Code 与 Codex runtime 使用固定 CLI 版本、镜像内编译 runner，并进入 amd64/arm64 正式构建发布矩阵。
+- [x] Native runtime 已明确为可选本地能力：缺失私有 tgz 时提前失败，且不进入默认池、`--all` 或正式发布矩阵。
 
 仍然阻断正式发布：
 
-- [ ] CI 尚未执行 Rust test/fmt/clippy，release tag 也未依赖通过的 CI 结果。
-- [ ] Claude Code、Codex、Native runtime 镜像尚未纳入正式构建发布；Native 镜像还依赖仓库外的 tgz 文件。
 - [ ] 发布镜像尚无阻断式漏洞扫描、SBOM、provenance、签名与 attestations。
 - [ ] 备份恢复、指标告警、数据保留和真实回滚演练尚无可复现证据。
 
-本轮验证证据：backend `863 passed`，frontend `206 passed`，sandbox-runner `51 passed`；TypeScript、Ruff、Prettier、Next.js production build、Compose 配置和部署脚本语法均通过。
+本轮验证证据：backend `863 passed`，frontend `206 passed`，orchestrator `149 passed`，sandbox-runner 在 macOS 与 Linux arm64 均 `51 passed`；Linux 严格 Clippy、pre-commit、TypeScript、Ruff、Prettier、Next.js production build、Compose 配置和部署脚本语法均通过；Claude Code `2.1.215` 与 Codex `0.146.0` arm64 runtime 镜像已完成真实构建和版本检查。
 
 ## 1. 发布与回滚
 

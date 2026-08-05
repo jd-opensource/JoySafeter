@@ -1,6 +1,6 @@
 # Rust orchestrator production image
 
-ARG RUST_IMAGE=public.ecr.aws/docker/library/rust:1-bookworm
+ARG RUST_IMAGE=public.ecr.aws/docker/library/rust:1.97.1-bookworm
 ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
 
 FROM ${RUST_IMAGE} AS builder
@@ -28,7 +28,7 @@ WORKDIR /src/backend/app/joysafeter_orchestrator_rs
 ENV CARGO_BUILD_JOBS=1
 ENV CARGO_PROFILE_RELEASE_LTO=false
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-RUN cargo build --release
+RUN cargo build --locked --release
 
 FROM ${RUNTIME_IMAGE} AS runner
 
@@ -40,6 +40,10 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY --from=builder /src/backend/app/joysafeter_orchestrator_rs/target/release/joysafeter-orchestrator /usr/local/bin/joysafeter-orchestrator
+
+ARG GIT_COMMIT_SHA="unknown"
+LABEL org.opencontainers.image.revision="${GIT_COMMIT_SHA}"
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
 
 ENV RUST_LOG=info
 ENV JOYSAFETER_ENABLED=true
