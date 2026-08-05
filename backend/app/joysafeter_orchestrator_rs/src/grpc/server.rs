@@ -721,6 +721,7 @@ async fn multi_task_loop(
             pool,
             sandbox_provider,
             bridge,
+            sandbox_db_id,
             sandbox_external_id,
             session_id,
         )
@@ -5416,6 +5417,7 @@ async fn inject_session_files_before_start(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
     bridge: &Arc<SandboxBridge>,
+    sandbox_db_id: Uuid,
     sandbox_external_id: &str,
     session_id: Option<Uuid>,
 ) -> anyhow::Result<()> {
@@ -5440,9 +5442,26 @@ async fn inject_session_files_before_start(
         }
     }
 
+    // The runner reports its bare sandbox UUID as `sandbox_external_id`, but the
+    // Docker provider addresses containers by the persisted external_id
+    // (`joysafeter-<uuid>`). Using the bare UUID for provider-level injection
+    // (docker cp) fails with "404 No such container". Resolve the stored
+    // external_id so the fallback targets the real container name.
+    let resolved_external_id = match queries::get_sandbox(pool, sandbox_db_id).await {
+        Ok(Some(sandbox)) => sandbox
+            .external_id
+            .unwrap_or_else(|| sandbox_external_id.to_string()),
+        Ok(None) => sandbox_external_id.to_string(),
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "failed to load sandbox {sandbox_db_id} for session file injection: {e}"
+            ));
+        }
+    };
+
     let ctx = crate::sandbox::file_injection::FileInjectionContext {
         session_id,
-        external_id: sandbox_external_id.to_string(),
+        external_id: resolved_external_id.clone(),
         workspace_path: None,
         runner_capabilities: vec![],
         is_pool_sandbox: true,
@@ -5452,13 +5471,13 @@ async fn inject_session_files_before_start(
         .await
         .map_err(|e| {
             anyhow::anyhow!(
-                "failed to inject updated session files into sandbox {sandbox_external_id} for session {session_id}: {e}"
+                "failed to inject updated session files into sandbox {resolved_external_id} for session {session_id}: {e}"
             )
         })?;
     *bridge.injected_session_files_signature.lock().await = Some(signature);
     info!(
         session_id = %session_id,
-        sandbox_id = %sandbox_external_id,
+        sandbox_id = %resolved_external_id,
         file_count = files.len(),
         "Injected updated session files before StartTask"
     );
