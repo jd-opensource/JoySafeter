@@ -85,6 +85,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     strategy:
       fail-fast: false
@@ -134,19 +137,19 @@ jobs:
           path: .deps/SkillSpector
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -159,23 +162,89 @@ jobs:
           version="${{ needs.prepare-release.outputs.version }}"
           tag="${{ needs.prepare-release.outputs.tag }}"
           image="${{ matrix.image.name }}"
-          echo "tags=docker.io/jdopensource/${image}:${tag},docker.io/jdopensource/${image}:${version},docker.io/jdopensource/${image}:latest,ghcr.io/jd-opensource/${image}:${tag},ghcr.io/jd-opensource/${image}:${version},ghcr.io/jd-opensource/${image}:latest" >> "$GITHUB_OUTPUT"
+          candidate="sha-${GITHUB_SHA}"
+          echo "docker_repository=docker.io/jdopensource/${image}" >> "$GITHUB_OUTPUT"
+          echo "ghcr_repository=ghcr.io/jd-opensource/${image}" >> "$GITHUB_OUTPUT"
+          echo "docker_candidate=docker.io/jdopensource/${image}:${candidate}" >> "$GITHUB_OUTPUT"
+          echo "ghcr_candidate=ghcr.io/jd-opensource/${image}:${candidate}" >> "$GITHUB_OUTPUT"
+          echo "candidate_tags=docker.io/jdopensource/${image}:${candidate},ghcr.io/jd-opensource/${image}:${candidate}" >> "$GITHUB_OUTPUT"
+          echo "release_tags=${tag} ${version} latest" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push image
-        uses: docker/build-push-action@v5
+      - name: Build and push candidate image
+        id: build
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.dockerfile }}
           build-contexts: ${{ matrix.image.build_contexts }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ steps.tags.outputs.candidate_tags }}
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             GIT_COMMIT_SHA=${{ github.sha }}
             PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/simple
             UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/simple
+
+      - name: Scan candidate image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.tags.outputs.ghcr_candidate }}@${{ steps.build.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Attest Docker Hub provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.tags.outputs.docker_repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest GHCR provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.tags.outputs.ghcr_repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign candidate digest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          DOCKER_REPOSITORY: ${{ steps.tags.outputs.docker_repository }}
+          GHCR_REPOSITORY: ${{ steps.tags.outputs.ghcr_repository }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${DOCKER_REPOSITORY}@${DIGEST}"
+          cosign sign --yes "${GHCR_REPOSITORY}@${DIGEST}"
+
+      - name: Promote verified release tags
+        shell: bash
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          DOCKER_CANDIDATE: ${{ steps.tags.outputs.docker_candidate }}
+          DOCKER_REPOSITORY: ${{ steps.tags.outputs.docker_repository }}
+          GHCR_CANDIDATE: ${{ steps.tags.outputs.ghcr_candidate }}
+          GHCR_REPOSITORY: ${{ steps.tags.outputs.ghcr_repository }}
+          RELEASE_TAGS: ${{ steps.tags.outputs.release_tags }}
+        run: |
+          set -euo pipefail
+          docker_args=()
+          ghcr_args=()
+          for tag in ${RELEASE_TAGS}; do
+            docker_args+=(--tag "${DOCKER_REPOSITORY}:${tag}")
+            ghcr_args+=(--tag "${GHCR_REPOSITORY}:${tag}")
+          done
+          docker buildx imagetools create "${docker_args[@]}" "${DOCKER_CANDIDATE}@${DIGEST}"
+          docker buildx imagetools create "${ghcr_args[@]}" "${GHCR_CANDIDATE}@${DIGEST}"
 
   create-release:
     name: Create GitHub Release

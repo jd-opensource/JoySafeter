@@ -17,10 +17,11 @@
 - [x] CI 已覆盖两个 Rust workspace 的 fmt、Clippy 和全量测试（sandbox 严格零告警，orchestrator 先报告历史告警），release tag 必须先通过可复用 CI。
 - [x] Claude Code 与 Codex runtime 使用固定 CLI 版本、镜像内编译 runner，并进入 amd64/arm64 正式构建发布矩阵。
 - [x] Native runtime 已明确为可选本地能力：缺失私有 tgz 时提前失败，且不进入默认池、`--all` 或正式发布矩阵。
+- [x] Release 先推送 SHA 候选 digest，经高危/严重漏洞阻断扫描后生成 SBOM、最大化 provenance、GitHub attestation 与 Cosign keyless 签名，再晋级版本和 `latest` 标签。
 
 仍然阻断正式发布：
 
-- [ ] 发布镜像尚无阻断式漏洞扫描、SBOM、provenance、签名与 attestations。
+- [ ] 尚需用首次真实 release 验证两个 registry 的 SBOM/provenance/签名可查询，并在部署侧落地签名身份校验策略。
 - [ ] 备份恢复、指标告警、数据保留和真实回滚演练尚无可复现证据。
 
 本轮验证证据：backend `863 passed`，frontend `206 passed`，orchestrator `149 passed`，sandbox-runner 在 macOS 与 Linux arm64 均 `51 passed`；Linux 严格 Clippy、pre-commit、TypeScript、Ruff、Prettier、Next.js production build、Compose 配置和部署脚本语法均通过；Claude Code `2.1.215` 与 Codex `0.146.0` arm64 runtime 镜像已完成真实构建和版本检查。
