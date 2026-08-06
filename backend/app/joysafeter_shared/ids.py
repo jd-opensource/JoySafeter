@@ -92,3 +92,28 @@ class SkillSecurityScanId(EntityId):  prefix = "sklscan_"
 class EventId(EntityId):              prefix = "evt_"
 class FileId(EntityId):               prefix = "file_"
 class SessionResourceId(EntityId):    prefix = "sesrsc_"
+
+
+from sqlalchemy.dialects.postgresql import UUID as _PgUUID
+from sqlalchemy.types import TypeDecorator
+
+
+class EntityIdType(TypeDecorator):
+    """Store an EntityId as a native UUID column; hydrate back to the typed id."""
+
+    impl = _PgUUID(as_uuid=True)
+    cache_ok = True
+
+    def __init__(self, id_cls: type[EntityId]) -> None:
+        self.id_cls = id_cls
+        super().__init__()
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, EntityId):
+            return value.uuid
+        return self.id_cls(value).uuid
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else self.id_cls(value)
