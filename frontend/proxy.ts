@@ -107,19 +107,19 @@ function addSecurityHeaders(
   const isProduction = process.env.NODE_ENV === 'production'
   const isHttps = request.nextUrl.protocol === 'https:'
 
-  // 1. X-Content-Type-Options: Prevent MIME type sniffing
+  // X-Content-Type-Options: Prevent MIME type sniffing
   response.headers.set('X-Content-Type-Options', 'nosniff')
 
-  // 2. Referrer-Policy: Control referrer information
+  // Referrer-Policy: Control referrer information
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
 
-  // 3. Permissions-Policy: Control browser features
+  // Permissions-Policy: Control browser features
   response.headers.set(
     'Permissions-Policy',
     'geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()',
   )
 
-  // 4. Strict-Transport-Security (HSTS): Force HTTPS (only in production and when using HTTPS)
+  // Strict-Transport-Security (HSTS): Force HTTPS (only in production and when using HTTPS)
   if (isProduction && isHttps) {
     response.headers.set(
       'Strict-Transport-Security',
@@ -127,7 +127,7 @@ function addSecurityHeaders(
     )
   }
 
-  // 5. If nonce is provided, add to response headers (for CSP)
+  // If nonce is provided, add to response headers (for CSP)
   if (nonce) {
     response.headers.set('x-nonce', nonce)
   }

@@ -1,15 +1,12 @@
+const ID_PREFIX_RE =
+  /^(agent_|trig_|task_|sess_|env_|vault_|cred_|evt_|memstore_|mem_|file_|skill_|sklver_|sklfile_|secret_)/
+
 export function stripIdPrefix(id: string): string {
   let value = id
-  let next = value.replace(
-    /^(agent_|trig_|task_|sess_|env_|vault_|cred_|evt_|memstore_|mem_|file_|skill_|sklver_|sklfile_|secret_)/,
-    '',
-  )
+  let next = value.replace(ID_PREFIX_RE, '')
   while (next !== value) {
     value = next
-    next = value.replace(
-      /^(agent_|trig_|task_|sess_|env_|vault_|cred_|evt_|memstore_|mem_|file_|skill_|sklver_|sklfile_|secret_)/,
-      '',
-    )
+    next = value.replace(ID_PREFIX_RE, '')
   }
   return value
 }

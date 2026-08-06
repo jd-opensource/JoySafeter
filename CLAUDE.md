@@ -1,5 +1,11 @@
 # Repository guidance for Claude Code
 
+## Third-party dependencies
+
+Don't read or modify `.deps/SkillSpector` unless a task specifically requires it.
+
+Why: it's a vendored third-party library, not part of this repo's codebase.
+
 ## Backend tests
 
 Run from `backend/`, never bare `pytest` at the repo root:
