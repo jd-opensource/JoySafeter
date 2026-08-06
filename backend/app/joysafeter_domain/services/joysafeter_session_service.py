@@ -16,7 +16,8 @@ from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import joysafeter_config
-from app.joysafeter_shared.utils.id_utils import parse_event_id, same_id
+from app.joysafeter_shared.ids import as_uuid
+from app.joysafeter_shared.utils.id_utils import parse_event_id
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ async def publish_session_event_realtime(
         ensure_ascii=False,
         default=str,
     )
-    channel = f"joysafeter:session_events:{session_id}"
+    channel = f"joysafeter:session_events:{as_uuid(session_id)}"
     try:
         await redis.publish(channel, wrapper)
     except Exception as exc:
@@ -528,7 +529,7 @@ class SessionService:
 
         task_result = await self.db.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))
         task = task_result.scalar_one_or_none()
-        if not task or not same_id(task.chat_session_id, session_id):
+        if not task or task.chat_session_id != session_id:
             return False
 
         terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]

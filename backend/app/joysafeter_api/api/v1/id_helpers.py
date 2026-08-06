@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import Path, Query
 
 from app.joysafeter_shared.common.app_errors import AppError, InvalidRequestError
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, SessionId
 
 
 def _invalid_id_error(*, raw: str, field: str, prefix: str) -> AppError:
@@ -42,8 +42,11 @@ def parse_agent_id(agent_id: str = Path(...)) -> AgentId:
     return AgentId(_strip_prefix(agent_id, "agent_", "agent_id"))
 
 
-def parse_session_id(session_id: str = Path(...)) -> uuid.UUID:
-    return _strip_prefix(session_id, "sess_", "session_id")
+def parse_session_id(session_id: str = Path(...)) -> SessionId:
+    # Success returns the typed id; bad input keeps the frozen structured
+    # SESSION_ID_INVALID contract (a ValueError from a Depends is not a
+    # RequestValidationError, so the global handler would not catch it here).
+    return SessionId(_strip_prefix(session_id, "sess_", "session_id"))
 
 
 def parse_task_id(task_id: str = Path(...)) -> uuid.UUID:

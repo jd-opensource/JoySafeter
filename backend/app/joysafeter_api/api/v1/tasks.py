@@ -34,6 +34,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import SessionId
 from app.joysafeter_shared.utils.id_utils import format_session_id, format_task_id, same_id
 
 logger = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
             requested_value=req.agent_id,
             existing_value=existing.agent_id,
         )
-    if req.chat_session_id is not None and not same_id(existing.chat_session_id, req.chat_session_id):
+    if req.chat_session_id is not None and existing.chat_session_id != req.chat_session_id:
         raise _task_idempotency_conflict_error(
             existing=existing,
             field="chat_session_id",
@@ -373,7 +374,7 @@ async def create_task(
 
     # Auto-create a ChatSession for the task if none provided
     chat_session_id = req.chat_session_id
-    auto_created_session_id: uuid.UUID | None = None
+    auto_created_session_id: SessionId | None = None
     session_svc = None
     if not chat_session_id:
         environment_ref = req.environment_ref or getattr(agent, "environment_ref", None)

@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, SessionId
 from app.joysafeter_shared.utils.id_utils import format_task_id
 
 
@@ -34,7 +34,7 @@ class TriggerCreateRequest(BaseModel):
     description: Optional[str] = None
     enabled: bool = True
     session_mode: str = "fresh"
-    pinned_session_id: Optional[uuid.UUID] = None
+    pinned_session_id: Optional[SessionId] = None
     session_key: Optional[str] = None
     filter: dict[str, Any] = Field(default_factory=dict)
     timeout_sec: int = Field(default=7200, ge=1)
@@ -83,7 +83,7 @@ class TriggerUpdateRequest(BaseModel):
     description: Optional[str] = None
     enabled: Optional[bool] = None
     session_mode: Optional[str] = None
-    pinned_session_id: Optional[uuid.UUID] = None
+    pinned_session_id: Optional[SessionId] = None
     session_key: Optional[str] = None
     filter: Optional[dict[str, Any]] = None
     timeout_sec: Optional[int] = Field(default=None, ge=1)
@@ -154,8 +154,8 @@ class TriggerResponse(BaseModel):
     environment_ref: Optional[str]
     enabled: bool
     session_mode: str
-    pinned_session_id: Optional[uuid.UUID]
-    reusable_session_id: Optional[uuid.UUID]
+    pinned_session_id: Optional[SessionId]
+    reusable_session_id: Optional[SessionId]
     session_key: Optional[str] = None
     filter: dict[str, Any]
     config: dict[str, Any]
@@ -178,7 +178,7 @@ class TriggerResponse(BaseModel):
     auto_disabled_at: Optional[datetime] = None
     disabled_reason: Optional[str] = None
     last_task_id: Optional[uuid.UUID]
-    last_session_id: Optional[uuid.UUID]
+    last_session_id: Optional[SessionId]
     last_payload: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -186,12 +186,6 @@ class TriggerResponse(BaseModel):
     @field_serializer("id")
     def _serialize_id(self, value: uuid.UUID) -> str:
         return f"trig_{value}"
-
-    @field_serializer("pinned_session_id", "reusable_session_id", "last_session_id")
-    def _serialize_uuid(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        if value is None:
-            return None
-        return str(value)
 
     @field_serializer("last_task_id")
     def _serialize_last_task_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
@@ -227,7 +221,7 @@ class TriggerRunResponse(BaseModel):
     status: str
     retry_count: int
     max_retries: int
-    chat_session_id: Optional[uuid.UUID]
+    chat_session_id: Optional[SessionId]
     error: Optional[str]
     created_at: datetime
     started_at: Optional[datetime]
@@ -240,7 +234,3 @@ class TriggerRunResponse(BaseModel):
     @field_serializer("trigger_id")
     def _serialize_trigger_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
         return f"trig_{value}" if value is not None else None
-
-    @field_serializer("chat_session_id")
-    def _serialize_chat_session_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return f"sess_{value}" if value is not None else None

@@ -20,6 +20,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import SessionId
 from app.joysafeter_shared.storage import get_storage
 
 logger = logging.getLogger(__name__)
@@ -56,9 +57,8 @@ def _file_not_found_error(file_id: str) -> AppError:
 def _parse_session_scope(scope_id: str | None) -> uuid.UUID | None:
     if not scope_id:
         return None
-    s = scope_id.removeprefix("sess_")
     try:
-        return uuid.UUID(s)
+        return SessionId(scope_id).uuid
     except ValueError:
         raise InvalidRequestError(
             code="SESSION_ID_INVALID",

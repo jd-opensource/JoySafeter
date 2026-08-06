@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import EntityIdType, SessionId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -20,8 +21,8 @@ class JoySafeterSessionRepo(Base):
     __tablename__ = "joysafeter_session_repos"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    session_id: Mapped[SessionId] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id", ondelete="CASCADE"),
         nullable=False,
     )

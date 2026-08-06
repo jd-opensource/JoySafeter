@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
+from app.joysafeter_shared.ids import EntityIdType, SessionId
 
 
 class JoySafeterSandbox(JoySafeterBaseModel):
@@ -51,7 +52,7 @@ class JoySafeterSandbox(JoySafeterBaseModel):
     provider: Mapped[str] = mapped_column(Text, nullable=False, default="docker")
     status: Mapped[str] = mapped_column(Text, nullable=False, default="creating")
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
-    chat_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    chat_session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
     image: Mapped[str] = mapped_column(Text, nullable=False)
     last_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

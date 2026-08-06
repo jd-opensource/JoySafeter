@@ -2254,7 +2254,7 @@ async def test_scheduled_task_cancel_does_not_mark_cancelled_when_runtime_relay_
         "message": "Failed to cancel task in sandbox runtime.",
         "data": {
             "task_id": f"task_{task_id}",
-            "session_id": f"sess_{session_id}",
+            "session_id": str(session_id),
             "sandbox_id": f"sbx_{sandbox_id}",
         },
         "source": "runtime",
@@ -2499,7 +2499,7 @@ async def test_scheduled_pending_task_cancel_fails_closed_if_sandbox_is_assigned
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_STATE_SYNC_FAILED",
         "message": "Task cancel could not be finalized because task ownership changed.",
-        "data": {"task_id": f"task_{task_id}", "session_id": f"sess_{session_id}"},
+        "data": {"task_id": f"task_{task_id}", "session_id": str(session_id)},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",

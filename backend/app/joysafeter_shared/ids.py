@@ -105,6 +105,20 @@ class FileId(EntityId):               prefix = "file_"
 class SessionResourceId(EntityId):    prefix = "sesrsc_"
 
 
+def as_uuid(value: "uuid.UUID | EntityId | str") -> uuid.UUID:
+    """Return the bare UUID for a value that may be a typed EntityId.
+
+    Physical-boundary helpers (advisory-lock keys, cross-language Redis channel
+    names) need the raw UUID and must behave identically whether a caller hands
+    them a typed EntityId or a bare UUID/str.
+    """
+    if isinstance(value, EntityId):
+        return value.uuid
+    if isinstance(value, uuid.UUID):
+        return value
+    return uuid.UUID(str(value))
+
+
 from sqlalchemy.dialects.postgresql import UUID as _PgUUID
 from sqlalchemy.types import TypeDecorator
 

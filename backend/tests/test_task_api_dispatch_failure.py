@@ -372,7 +372,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": f"task_{task.id}", "session_id": f"sess_{task.chat_session_id}"},
+        "data": {"task_id": f"task_{task.id}", "session_id": str(task.chat_session_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -389,7 +389,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         "type": "error",
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": f"task_{task.id}", "session_id": f"sess_{task.chat_session_id}"},
+        "data": {"task_id": f"task_{task.id}", "session_id": str(task.chat_session_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -630,7 +630,7 @@ async def test_create_task_idempotent_retry_after_enqueue_failure_stays_503(db_s
     assert await handled_app_error_payload(second_exc.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": f"task_{tasks[0].id}", "session_id": f"sess_{tasks[0].chat_session_id}"},
+        "data": {"task_id": f"task_{tasks[0].id}", "session_id": str(tasks[0].chat_session_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -1165,7 +1165,7 @@ async def test_cancel_running_task_without_runtime_owner_fails_closed(db_session
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_STATE_SYNC_FAILED",
         "message": "Task cancel could not be finalized because task has no runtime owner.",
-        "data": {"task_id": f"task_{task_id}", "session_id": f"sess_{session_id}"},
+        "data": {"task_id": f"task_{task_id}", "session_id": str(session_id)},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",
@@ -1240,7 +1240,7 @@ async def test_cancel_task_reports_session_idle_write_failure(db_session, monkey
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_SESSION_SYNC_FAILED",
         "message": "Task was cancelled, but failed to mark the linked session idle.",
-        "data": {"task_id": f"task_{task_id}", "session_id": f"sess_{session_id}"},
+        "data": {"task_id": f"task_{task_id}", "session_id": str(session_id)},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",

@@ -1289,7 +1289,7 @@ async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_pro
 
     response = await delete_session_endpoint(session_id, db_session, auth_ctx)
 
-    assert response == {"id": f"sess_{session_id}", "object": "session", "deleted": True}
+    assert response == {"id": str(session_id), "object": "session", "deleted": True}
     assert len(redis.published) == 1
     channel, payload = redis.published[0]
     assert channel == "joysafeter:cmd:owner-1"

@@ -17,7 +17,7 @@ from pydantic import (
 )
 
 from app.joysafeter_domain.schemas.joysafeter_environment import MountResource
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, SessionId
 
 # ---------------------------------------------------------------------------
 # JoySafeter Session Schemas
@@ -317,7 +317,7 @@ class UpdateRepoResourceRequest(BaseModel):
 
 
 class SessionResponse(BaseModel):
-    id: uuid.UUID
+    id: SessionId
     type: str = "session"
     agent: SessionAgent
     environment_id: Optional[str] = None
@@ -336,10 +336,6 @@ class SessionResponse(BaseModel):
     archived_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sess_{v}"
 
 
 class SingleEventRequest(BaseModel):

@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
+from app.joysafeter_shared.ids import EntityIdType, SessionId
 
 
 class JoySafeterSandboxNetworkPolicy(JoySafeterBaseModel):
@@ -26,8 +27,8 @@ class JoySafeterSandboxNetworkPolicy(JoySafeterBaseModel):
     sandbox_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("joysafeter_sandboxes.id", ondelete="CASCADE"), nullable=False
     )
-    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
+    session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
     task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("joysafeter_tasks.id", ondelete="SET NULL"), nullable=True

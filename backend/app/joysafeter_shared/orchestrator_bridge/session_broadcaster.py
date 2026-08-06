@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.ids import as_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class SessionBroadcaster:
         The first subscriber for a session starts ONE shared Redis subscriber that
         fans remote events out to every local queue; later subscribers reuse it.
         """
+        session_id = as_uuid(session_id)
         if session_id not in self._channels:
             self._channels[session_id] = []
         q: asyncio.Queue = asyncio.Queue(maxsize=256)
@@ -61,6 +63,7 @@ class SessionBroadcaster:
         Note: async in Python for ergonomic awaiting by callers; Rust version is
         sync but spawns a tokio task for Redis publish.
         """
+        session_id = as_uuid(session_id)
         if session_id in self._channels:
             local_event = {**event, "_sse_source": event.get("_sse_source") or "local_broadcast"}
             for q in self._channels[session_id]:
@@ -100,6 +103,7 @@ class SessionBroadcaster:
 
         Matches Rust's remove() method which drops the channel entry.
         """
+        session_id = as_uuid(session_id)
         self._channels.pop(session_id, None)
         task = self._redis_tasks.pop(session_id, None)
         if task and not task.done():
@@ -111,6 +115,7 @@ class SessionBroadcaster:
         The shared Redis subscriber is torn down only when the LAST queue for the
         session is removed, so remaining viewers keep receiving remote events.
         """
+        session_id = as_uuid(session_id)
         remaining = self._channels.get(session_id)
         if remaining is not None:
             self._channels[session_id] = [x for x in remaining if x is not q]

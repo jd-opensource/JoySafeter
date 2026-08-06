@@ -9,7 +9,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.ids import AgentId, EntityIdType
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId
 
 from .base import JoySafeterBaseModel
 
@@ -63,11 +63,11 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     session_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fresh", server_default="fresh")
     session_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    pinned_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
+    pinned_session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
-    reusable_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
+    reusable_session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
     secret_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     secret_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -110,7 +110,7 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     last_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("joysafeter_tasks.id", ondelete="SET NULL"), nullable=True
     )
-    last_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
+    last_session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
     last_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")

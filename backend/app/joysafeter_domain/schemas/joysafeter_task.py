@@ -10,10 +10,9 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, SessionId
 from app.joysafeter_shared.utils.id_utils import (
     format_sandbox_id,
-    format_session_id,
     format_task_id,
 )
 
@@ -29,7 +28,7 @@ class JoySafeterCreateTaskRequest(BaseModel):
     agent_name: Optional[str] = None
     prompt: str = Field(max_length=MAX_PROMPT_CHARS)
     system: Optional[str] = Field(default=None, max_length=MAX_PROMPT_CHARS)
-    chat_session_id: Optional[uuid.UUID] = None
+    chat_session_id: Optional[SessionId] = None
     environment_ref: Optional[str] = None
     timeout_sec: int = Field(default=7200, ge=1)
     max_retries: int = Field(default=2, ge=0)
@@ -49,7 +48,7 @@ class JoySafeterCreateTaskResponse(BaseModel):
 class JoySafeterTaskResponse(BaseModel):
     id: uuid.UUID
     agent_id: AgentId
-    chat_session_id: Optional[uuid.UUID] = None
+    chat_session_id: Optional[SessionId] = None
     status: str
     prompt: str
     system: Optional[str] = Field(default=None, validation_alias="system_prompt")
@@ -70,10 +69,6 @@ class JoySafeterTaskResponse(BaseModel):
     @field_serializer("id")
     def serialize_id(self, value: uuid.UUID) -> str:
         return format_task_id(value)
-
-    @field_serializer("chat_session_id")
-    def serialize_session_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return format_session_id(value) if value is not None else None
 
     @field_serializer("sandbox_id")
     def serialize_sandbox_id(self, value: Optional[uuid.UUID]) -> Optional[str]:

@@ -632,7 +632,7 @@ class EventBatchSender:
 
         async with AsyncSessionLocal() as db:
             async with db.begin():
-                lock_key = int.from_bytes(event.session_id.bytes[8:], "big", signed=True)
+                lock_key = session_advisory_lock_key(event.session_id)
                 await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
                 result = await db.execute(

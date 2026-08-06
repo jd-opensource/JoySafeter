@@ -18,7 +18,7 @@ from app.joysafeter_api.api.v1.id_helpers import parse_session_id as _parse_sess
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_domain.models.joysafeter_storage_mount import JoySafeterSessionStorageMount
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, as_uuid
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
@@ -60,7 +60,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.utils.id_utils import format_task_id, same_id
+from app.joysafeter_shared.utils.id_utils import format_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -634,11 +634,11 @@ async def list_session_skill_usage(
             user_action="refresh",
         )
 
-    canonical_session_id = f"sess_{session_id}"
+    bare_session_id = as_uuid(session_id)
     stmt = (
         select(JoySafeterSkillUsageLog)
         .where(
-            JoySafeterSkillUsageLog.session_id.in_([canonical_session_id, str(session_id)]),
+            JoySafeterSkillUsageLog.session_id.in_([f"sess_{bare_session_id}", str(bare_session_id)]),
         )
         .order_by(JoySafeterSkillUsageLog.created_at.desc(), JoySafeterSkillUsageLog.id.desc())
         .limit(limit + 1)
@@ -773,7 +773,7 @@ async def delete_session(
     if broadcaster:
         broadcaster.remove(session_id)
 
-    session_id_str = f"sess_{session_id}"
+    session_id_str = str(session_id)
     return {"id": session_id_str, "object": "session", "deleted": True}
 
 
@@ -969,7 +969,7 @@ async def stop_session(
         )
 
     return {
-        "id": f"sess_{session_id}",
+        "id": str(session_id),
         "status": "idle",
         "cancelled_tasks": cancelled_count,
     }
@@ -1318,7 +1318,7 @@ async def _idempotent_user_message_replay_response(
         project_id=project_id,
     )
     if existing_task is not None:
-        if not same_id(existing_task.chat_session_id, session_id):
+        if existing_task.chat_session_id != session_id:
             raise ResourceConflictError(
                 code="SESSION_IDEMPOTENCY_KEY_MISMATCH",
                 message="Idempotency-Key was already used for a different session",

@@ -21,7 +21,9 @@ from app.joysafeter_api.api.v1.network_policies import NetworkPolicyStatusRespon
 from app.joysafeter_domain.schemas.analytics import CallRecord
 from app.joysafeter_domain.schemas.joysafeter_file import FileResponse
 from app.joysafeter_domain.schemas.joysafeter_sandbox import SandboxResponse
+from app.joysafeter_domain.schemas.joysafeter_session import SessionAgent, SessionResponse
 from app.joysafeter_shared.common.app_errors import AppError
+from app.joysafeter_shared.ids import AgentId, SessionId
 
 pytestmark = pytest.mark.no_db
 
@@ -48,7 +50,7 @@ async def test_parse_agent_id_invalid_value_returns_structured_error():
 def test_parse_session_id_accepts_prefixed_uuid():
     session_id = uuid.uuid4()
 
-    assert parse_session_id(f"sess_{session_id}") == session_id
+    assert parse_session_id(f"sess_{session_id}") == SessionId(session_id)
 
 
 def test_parse_task_id_accepts_prefixed_uuid():
@@ -131,6 +133,20 @@ def test_file_response_uses_canonical_session_prefix():
 def test_file_scope_rejects_removed_session_prefix():
     with pytest.raises(AppError):
         _parse_session_scope(f"sesn_{uuid.uuid4()}")
+
+
+def test_session_response_serializes_canonical_session_prefix():
+    session_id = uuid.uuid4()
+    response = SessionResponse(
+        id=SessionId(session_id),
+        agent=SessionAgent(id=AgentId(uuid.uuid4()), version=1, name="a"),
+        status="idle",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    assert response.model_dump(mode="json")["id"] == f"sess_{session_id}"
+    assert str(response.model_dump()["id"]) == f"sess_{session_id}"
 
 
 def test_parse_trigger_id_accepts_prefixed_uuid():

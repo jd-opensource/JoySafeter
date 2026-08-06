@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
-from app.joysafeter_shared.ids import AgentId, EntityIdType
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId
 
 from .base import JoySafeterBaseModel
 
@@ -40,6 +40,7 @@ class JoySafeterSession(JoySafeterBaseModel):
         Index("idx_csess_archived", "archived_at"),
     )
 
+    id: Mapped[SessionId] = mapped_column(EntityIdType(SessionId), primary_key=True, default=SessionId.new)
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         ForeignKey("joysafeter_organization_projects.id"),
@@ -90,8 +91,8 @@ class JoySafeterSessionEvent(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    session_id: Mapped[SessionId] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id"),
         nullable=False,
     )

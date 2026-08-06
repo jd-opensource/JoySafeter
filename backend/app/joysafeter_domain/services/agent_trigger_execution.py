@@ -22,7 +22,6 @@ from app.joysafeter_domain.services.joysafeter_session_service import SessionSer
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, RequestValidationAppError
-from app.joysafeter_shared.utils.id_utils import same_id
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 _SESSION_KEY_MAX_CHARS = 512
@@ -259,7 +258,7 @@ class AgentTriggerExecutor:
             enforce_admission=False,
             enforce_user_quota=False,
         )
-        if not created and created_session and not same_id(task.chat_session_id, session.id):
+        if not created and created_session and task.chat_session_id != session.id:
             # Idempotent replay: create_and_dispatch dropped the fresh session we
             # auto-created for this attempt and returned the pre-existing task.
             # Return that task's real session so callers (mark_attempt.last_session_id)

@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.ids import AgentId, EntityIdType
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId
 
 from .base import JoySafeterBaseModel
 
@@ -102,8 +102,8 @@ class JoySafeterTask(JoySafeterBaseModel):
         ForeignKey("joysafeter_agents.id"),
         nullable=False,
     )
-    chat_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    chat_session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id"),
         nullable=True,
     )

@@ -9,6 +9,7 @@ from uuid_utils import uuid7
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import EntityIdType, SessionId
 
 
 class JoySafeterMemoryStore(JoySafeterBaseModel):
@@ -62,7 +63,7 @@ class JoySafeterMemoryVersion(Base):
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content_sha256: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
     api_key_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     redacted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -77,8 +78,8 @@ class JoySafeterSessionMemoryStore(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    session_id: Mapped[SessionId] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id"),
         nullable=False,
     )

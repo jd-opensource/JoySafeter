@@ -24,6 +24,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import SessionId
 from app.joysafeter_shared.rate_limit import get_client_ip, rate_limit
 from app.joysafeter_shared.utils.id_utils import format_task_id
 
@@ -206,7 +207,7 @@ async def run_trigger_now(
     return TriggerFireResponse(
         status=status,
         task_id=f"task_{task.id}" if task is not None else None,
-        session_id=f"sess_{session_id}" if session_id is not None else None,
+        session_id=str(SessionId(session_id)) if session_id is not None else None,
         deduped=deduped,
         reason=reason,
     )
@@ -310,7 +311,7 @@ async def fire_webhook_trigger(
     return TriggerFireResponse(
         status=status,
         task_id=(f"task_{task.id}" if task else None),
-        session_id=(f"sess_{session_id}" if session_id else None),
+        session_id=(str(SessionId(session_id)) if session_id else None),
         reason=reason,
         deduped=deduped,
     )
@@ -357,7 +358,7 @@ async def test_fire_webhook_trigger(
     return TriggerFireResponse(
         status=status,
         task_id=(f"task_{task.id}" if task else None),
-        session_id=(f"sess_{session_id}" if session_id else None),
+        session_id=(str(SessionId(session_id)) if session_id else None),
         reason=reason,
         deduped=deduped,
     )
