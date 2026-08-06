@@ -662,6 +662,7 @@ class JoySafeterConfig(BaseSettings):
     image_claude: str = ""
     image_codex: str = ""
     image_native: str = ""
+    image_pi: str = ""
 
     # Event batching
     event_batch_enabled: bool = True
@@ -812,6 +813,10 @@ class JoySafeterConfig(BaseSettings):
                 if self.image_native
                 else (self.image_claude if self.image_claude else self.sandbox_image)
             )
+        # pi mirrors native: it needs its OWN image and must not fall back to
+        # another engine's image. Only sandbox_image is the shared default.
+        if engine_kind == "pi" and self.image_pi:
+            return self.image_pi
         return self.sandbox_image
 
 
