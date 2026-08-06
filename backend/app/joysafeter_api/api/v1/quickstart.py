@@ -11,10 +11,10 @@ from typing import Literal, Optional, cast
 import httpx
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.services import SecretService
+from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
@@ -34,18 +34,17 @@ class QuickstartMessage(BaseModel):
 class QuickstartAgentContext(BaseModel):
     """Validated agent context — only known fields, values truncated."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(default="", max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
     model: Optional[str] = Field(default=None, max_length=100)
     engine_kind: Optional[str] = Field(default=None, max_length=50)
-    system_prompt: Optional[str] = Field(default=None, max_length=5000)
+    system: Optional[str] = Field(default=None, max_length=5000)
     tools: Optional[list] = Field(default=None, max_length=10)
     mcp_servers: Optional[list] = Field(default=None, max_length=10)
     skills: Optional[list] = Field(default=None, max_length=20)
     secret_ref: Optional[str] = Field(default=None, max_length=100)
-
-    class Config:
-        extra = "ignore"
 
 
 class QuickstartChatRequest(BaseModel):
@@ -87,7 +86,7 @@ When a user describes what they want an agent to do, you will:
 
 1. **Extract Core Intent**: Identify the fundamental purpose, key responsibilities, and success criteria for the agent.
 2. **Design Expert Persona**: Create a compelling expert identity that embodies deep domain knowledge relevant to the task.
-3. **Architect Comprehensive Instructions**: Develop a system_prompt that establishes clear behavioral boundaries, provides specific methodologies, anticipates edge cases, and defines output format expectations.
+3. **Architect Comprehensive Instructions**: Develop a system field that establishes clear behavioral boundaries, provides specific methodologies, anticipates edge cases, and defines output format expectations.
 4. **Optimize for Performance**: Include decision-making frameworks, quality control mechanisms, efficient workflow patterns, and escalation strategies.
 5. **Create Name**: Design a concise, descriptive name that clearly indicates the agent's primary function.
 
@@ -96,7 +95,7 @@ If the description is clear and detailed, generate the config immediately using 
 When generating config via `generate_agent_config`, provide:
 - name: concise, descriptive (e.g., "Daily News Reporter", "Code Reviewer")
 - description: what the agent does, when to use it (in user's language)
-- system_prompt: comprehensive instructions written in second person ("You are...", "You will..."), structured for maximum clarity and effectiveness
+- system: comprehensive instructions written in second person ("You are...", "You will..."), structured for maximum clarity and effectiveness
 - model: leave the final runtime model to the UI-selected engine; do not force a specific vendor here
 - tools: default [{{"type": "agent_toolset_20260401"}}]
 - metadata: language, schedule, topic etc.
@@ -134,11 +133,11 @@ def _build_tools(step: int) -> list[dict]:
                         "name": {"type": "string"},
                         "description": {"type": "string"},
                         "model": {"type": "string"},
-                        "system_prompt": {"type": "string"},
+                        "system": {"type": "string"},
                         "tools": {"type": "array", "items": {"type": "object"}},
                         "metadata": {"type": "object"},
                     },
-                    "required": ["name", "description", "system_prompt"],
+                    "required": ["name", "description", "system"],
                 },
             }
         ]

@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
 from app.joysafeter_api.api.v1.id_helpers import parse_secret_id
-from app.joysafeter_api.services import SecretService
 from app.joysafeter_domain.schemas.joysafeter_secret import (
     CreateSecretRequest,
     SecretListItem,
@@ -18,6 +17,7 @@ from app.joysafeter_domain.schemas.joysafeter_secret import (
     TestSecretRequest,
     UpdateSecretRequest,
 )
+from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
     InvalidRequestError,

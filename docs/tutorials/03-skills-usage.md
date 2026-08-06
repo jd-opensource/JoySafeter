@@ -110,8 +110,8 @@ def write_test_log():
 - **版本化**：`POST /api/v1/skills/{id}/versions` 把当前文件快照为不可变版本（SemVer）；可从历史版本恢复
   （`restore`）。已发布版本带独立的安全扫描记录。
 - **协作者**：按角色分级（viewer < editor < admin），支持转移所有权。
-- **可见性**：四级 —— `private` / `project` / `organization` / `public`（旧的 `is_public` 布尔已被
-  `visibility` 取代）。设为 `public` 后出现在公共技能大厅；他人使用时，代码会被打包进**他自己**的隔离沙箱执行。
+- **可见性**：四级 —— `private` / `project` / `organization` / `public`。设为 `public` 后出现在
+  公共技能大厅；他人使用时，代码会被打包进**他自己**的隔离沙箱执行。
 
 ---
 

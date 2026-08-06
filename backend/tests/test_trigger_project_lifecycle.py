@@ -1050,7 +1050,6 @@ async def test_manual_fire_rechecks_deleted_trigger_before_creating_session_or_t
         enabled=trigger.enabled,
         agent_id=trigger.agent_id,
         prompt_template=trigger.prompt_template,
-        system_prompt=trigger.system_prompt,
         environment_ref=trigger.environment_ref,
         filter=trigger.filter,
         timeout_sec=trigger.timeout_sec,
@@ -1264,7 +1263,7 @@ async def test_manual_trigger_run_stores_full_execution_snapshot(db_session, mon
     agent.model = {"provider": "openai", "model": "snapshot-model"}
     agent.system_prompt = "snapshot system"
     agent.env = {"SNAPSHOT_ENV": "before"}
-    agent.mcp_configs = [{"name": "snapshot-mcp", "url": "https://mcp.before.test"}]
+    agent.mcp_servers = [{"name": "snapshot-mcp", "url": "https://mcp.before.test"}]
     agent.tools = [{"name": "snapshot-tool"}]
     agent.permission_mode = "bypassPermissions"
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="manual-snapshot")
@@ -1283,9 +1282,9 @@ async def test_manual_trigger_run_stores_full_execution_snapshot(db_session, mon
     snapshot = session.agent_snapshot
     assert snapshot["schema"] == "joysafeter.agent_execution_snapshot.v1"
     assert snapshot["model"] == {"provider": "openai", "model": "snapshot-model"}
-    assert snapshot["system_prompt"] == "snapshot system"
+    assert snapshot["system"] == "snapshot system"
     assert snapshot["env"] == {"SNAPSHOT_ENV": "before"}
-    assert snapshot["mcp_configs"] == [{"name": "snapshot-mcp", "url": "https://mcp.before.test"}]
+    assert snapshot["mcp_servers"] == [{"name": "snapshot-mcp", "url": "https://mcp.before.test"}]
     assert snapshot["tools"] == [{"name": "snapshot-tool"}]
     assert snapshot["environment_ref"] == environment_ref
     assert snapshot["environment"]["config"] == {"setup_commands": ["echo before"], "network": {"mode": "egress"}}
@@ -1367,7 +1366,7 @@ async def test_trigger_run_history_uses_cursor_pagination(db_session):
             trigger_id=trigger.id,
             project_id=project.id,
             prompt=f"scheduled run {index}",
-            status=JoySafeterTaskStatus.SUCCEEDED.value,
+            status=JoySafeterTaskStatus.COMPLETED.value,
             created_at=base_time + timedelta(minutes=index),
         )
         for index in range(3)
@@ -1389,7 +1388,7 @@ async def test_trigger_run_history_uses_cursor_pagination(db_session):
     )
 
     assert first_page.has_more is True
-    assert [run.id for run in first_page.data] == [task_ids[2], task_ids[1]]
+    assert [str(run.id) for run in first_page.data] == [str(task_ids[2]), str(task_ids[1])]
     assert first_page.first_id == str(task_ids[2])
     assert first_page.last_id == str(task_ids[1])
 
@@ -1402,7 +1401,7 @@ async def test_trigger_run_history_uses_cursor_pagination(db_session):
     )
 
     assert second_page.has_more is False
-    assert [run.id for run in second_page.data] == [task_ids[0]]
+    assert [str(run.id) for run in second_page.data] == [str(task_ids[0])]
     assert second_page.first_id == str(task_ids[0])
     assert second_page.last_id == str(task_ids[0])
 

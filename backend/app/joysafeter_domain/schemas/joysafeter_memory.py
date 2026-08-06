@@ -86,8 +86,9 @@ class CreateMemoryRequest(BaseModel):
 
 
 class UpdateMemoryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     content: Optional[str] = None
-    if_sha256: Optional[str] = None
     precondition: Optional[dict[str, Any]] = None
 
     @field_validator("content")

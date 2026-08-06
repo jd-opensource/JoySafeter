@@ -50,10 +50,10 @@ async def _project(db, *, org_id: str) -> Project:
     return proj
 
 
-def _svc(db) -> SkillService:
+def _svc(db, *, org_id: str) -> SkillService:
     """A SkillService whose security scan is stubbed out — creation is gated at
     the API layer, so the scan is orthogonal to the uniqueness contract."""
-    svc = SkillService(db, active_org_id=None, caller_org_role=JoySafeterRole.MEMBER)
+    svc = SkillService(db, active_org_id=org_id, caller_org_role=JoySafeterRole.MEMBER)
     svc.security_service.scan_for_write = AsyncMock(return_value=None)
     return svc
 
@@ -65,7 +65,7 @@ async def test_same_name_same_project_conflicts_at_service_layer(db_session):
     proj = await _project(db_session, org_id=org.id)
     alice = await _user(db_session, name="Alice")
     bob = await _user(db_session, name="Bob")
-    svc = _svc(db_session)
+    svc = _svc(db_session, org_id=org.id)
 
     await svc.create_skill(
         created_by_id=alice.id,
@@ -92,7 +92,7 @@ async def test_same_name_different_projects_allowed(db_session):
     proj_a = await _project(db_session, org_id=org.id)
     proj_b = await _project(db_session, org_id=org.id)
     alice = await _user(db_session, name="Alice")
-    svc = _svc(db_session)
+    svc = _svc(db_session, org_id=org.id)
 
     s_a = await svc.create_skill(
         created_by_id=alice.id,

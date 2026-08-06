@@ -15,9 +15,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_session_id as _parse_session_id
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
-from app.joysafeter_api.services import SessionService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_domain.models.joysafeter_storage_mount import JoySafeterSessionStorageMount
@@ -42,7 +39,10 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
 )
 from app.joysafeter_domain.schemas.joysafeter_skill import SkillUsageResponse as SessionSkillUsageResponse
 from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS
+from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
+from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
@@ -166,12 +166,12 @@ def _extract_host(url: str) -> str | None:
         return None
 
 
-def _networking_with_agent_mcp_hosts(networking: dict, mcp_configs: list[dict] | None) -> dict:
+def _networking_with_agent_mcp_hosts(networking: dict, mcp_servers: list[dict] | None) -> dict:
     if networking.get("type") != "limited":
         return networking
 
     allowed = list(networking.get("allowed_hosts", []))
-    for mcp in mcp_configs or []:
+    for mcp in mcp_servers or []:
         if isinstance(mcp, dict) and mcp.get("url"):
             host = _extract_host(str(mcp["url"]))
             if host and host not in allowed:
@@ -209,7 +209,7 @@ def _session_to_response(
         system=agent.system_prompt if agent else agent_snapshot.get("system"),
         tools=agent.tools if agent else agent_snapshot.get("tools") or [],
         skills=agent.skills if agent else agent_snapshot.get("skills") or [],
-        mcp_servers=agent.mcp_configs if agent else agent_snapshot.get("mcp_servers") or [],
+        mcp_servers=agent.mcp_servers if agent else agent_snapshot.get("mcp_servers") or [],
     )
     usage_data = session.usage or {}
     resource_responses = []
@@ -381,7 +381,7 @@ async def create_session(
         agent_snapshot = {**agent_snapshot, "environment": env_snapshot}
 
     # --- Compute mount_name for each resource ---
-    from app.joysafeter_api.services import JoySafeterMemoryService as MemoryService
+    from app.joysafeter_domain.services.joysafeter_memory_service import MemoryService
 
     mem_svc = MemoryService(db)
     resource_dicts = []
@@ -410,7 +410,7 @@ async def create_session(
 
     # --- Validate vault_ids belong to this project ---
     if req.vault_ids:
-        from app.joysafeter_api.services import VaultService
+        from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
 
         vault_svc = VaultService(db)
         for vid_raw in req.vault_ids:
@@ -680,7 +680,7 @@ async def delete_session(
             retryable=True,
             user_action="interrupt",
         )
-    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+    from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
 
     active_tasks = await TaskService(db).list_active_tasks_by_session(session_id, project_id=auth_ctx.project_id)
     if active_tasks:
@@ -697,7 +697,7 @@ async def delete_session(
     broadcaster = get_session_broadcaster()
 
     # Clean up sandbox container linked to this session
-    from app.joysafeter_api.services import SandboxService
+    from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 
     sandbox_svc = SandboxService(db)
     sandbox = await sandbox_svc.find_by_session(session_id, project_id=auth_ctx.project_id)
@@ -831,7 +831,7 @@ async def stop_session(
             user_action="fix_input",
         )
 
-    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+    from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
     from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
     from app.joysafeter_shared.orchestrator_bridge import get_session_broadcaster
 
@@ -1307,7 +1307,7 @@ async def _idempotent_user_message_replay_response(
     project_id: Optional[str],
     expected_prompt: Optional[str] = None,
 ) -> SessionEventResponse | None:
-    from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+    from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
 
     existing_task = await TaskService(db).get_by_idempotency_key(
         idempotency_key,
@@ -1403,7 +1403,7 @@ async def _mark_session_running_for_active_task(
     broadcaster=None,
 ) -> bool:
     if task_id is None:
-        from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+        from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
 
         active_tasks = await TaskService(svc.db).list_active_tasks_by_session(session_id, project_id=project_id)
         if len(active_tasks) != 1:
@@ -1566,7 +1566,7 @@ async def send_event(
                     retryable=True,
                     user_action="retry",
                 )
-            from app.joysafeter_api.services import JoySafeterTaskService as TaskService
+            from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
 
             active_tasks = await TaskService(db).list_active_tasks_by_session(
                 session_id,

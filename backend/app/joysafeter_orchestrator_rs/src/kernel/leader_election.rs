@@ -23,7 +23,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use kube::api::{Api, ObjectMeta, PostParams};
 use kube::Client;
 use tokio::sync::Notify;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Leader election state.
 #[derive(Clone)]

@@ -5,8 +5,7 @@ The JoySafeter HTTP API is served under the `/api/v1` prefix by the **API servic
 `http://localhost:8000/docs` (Swagger UI) and `http://localhost:8000/redoc`.
 
 This page summarizes the router groups and the programmatic run flow (create an agent → open
-a session → send a message → stream events). It also calls out a few compatibility details
-that are easy to miss when using the raw API. For complete request/response schemas, use the
+a session → send a message → stream events). For complete request/response schemas, use the
 live OpenAPI docs at `/docs`.
 
 ---
@@ -65,11 +64,8 @@ All paths are under `/api/v1`.
 | **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
 | **Health** | `/health` | readiness (Postgres + Redis), liveness |
 
-> There are **no** mounted `audit`, `models`, `model-credentials`, `model-providers`, `mcp`,
-> `tools`, `copilot`, `graphs`, or `openapi/graph/*` routers. Model configuration lives in
-> the agent's `model` JSONB field plus a `secret_ref` into **Secrets**; MCP credentials live
-> in **Vaults**. `backend/app/joysafeter_api/api/v1/audit.py` is a helper used by other
-> routers for security-audit logging; it is not included in `router.py`.
+Model configuration lives in the agent's `model` JSONB field plus a `secret_ref` into
+**Secrets**; MCP credentials live in **Vaults**.
 
 ## ID formats
 

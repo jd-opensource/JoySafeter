@@ -21,11 +21,13 @@ class JoySafeterCreateTaskRequest(BaseModel):
     agent_id: Optional[uuid.UUID] = None
     agent_name: Optional[str] = None
     prompt: str = Field(max_length=MAX_PROMPT_CHARS)
-    system_prompt: Optional[str] = Field(default=None, max_length=MAX_PROMPT_CHARS)
+    system: Optional[str] = Field(default=None, max_length=MAX_PROMPT_CHARS)
     chat_session_id: Optional[uuid.UUID] = None
     environment_ref: Optional[str] = None
     timeout_sec: int = Field(default=7200, ge=1)
     max_retries: int = Field(default=2, ge=0)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class JoySafeterCreateTaskResponse(BaseModel):
@@ -39,7 +41,7 @@ class JoySafeterTaskResponse(BaseModel):
     chat_session_id: Optional[uuid.UUID] = None
     status: str
     prompt: str
-    system_prompt: Optional[str] = None
+    system: Optional[str] = Field(default=None, validation_alias="system_prompt")
     sandbox_id: Optional[uuid.UUID] = None
     output: str = ""
     error: Optional[str] = None

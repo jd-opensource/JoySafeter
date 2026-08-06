@@ -1,9 +1,8 @@
-"""Security utilities package compatibility exports."""
+"""Security utilities."""
 
 from __future__ import annotations
 
 import hashlib
-import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -15,7 +14,6 @@ from pydantic import BaseModel
 from app.joysafeter_shared.config.settings import settings
 
 _BCRYPT_ROUNDS = 12
-_BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
 
 
 class TokenPayload(BaseModel):
@@ -60,27 +58,14 @@ def _password_material(password: str) -> bytes:
     return hashlib.sha256(password.encode("utf-8")).hexdigest().encode("ascii")
 
 
-def is_legacy_password_hash(hashed_password: str) -> bool:
-    normalized = hashed_password.strip().lower()
-    return len(normalized) == 64 and all(character in "0123456789abcdef" for character in normalized)
-
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not plain_password or not hashed_password:
         return False
 
-    normalized_hash = hashed_password.strip()
-    if normalized_hash.startswith(_BCRYPT_PREFIXES):
-        try:
-            return bcrypt.checkpw(_password_material(plain_password), normalized_hash.encode("ascii"))
-        except (ValueError, UnicodeEncodeError):
-            return False
-
-    if is_legacy_password_hash(normalized_hash):
-        legacy_candidate = hashlib.sha256(plain_password.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(legacy_candidate, normalized_hash.lower())
-
-    return False
+    try:
+        return bcrypt.checkpw(_password_material(plain_password), hashed_password.strip().encode("ascii"))
+    except (ValueError, UnicodeEncodeError):
+        return False
 
 
 def get_password_hash(password: str) -> str:
@@ -149,6 +134,5 @@ __all__ = [
     "generate_token",
     "get_password_hash",
     "hash_security_token",
-    "is_legacy_password_hash",
     "verify_password",
 ]

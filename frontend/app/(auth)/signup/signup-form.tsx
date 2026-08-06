@@ -8,7 +8,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
+import { ApiError, client, useSession } from '@/lib/auth/auth-client'
 import { getEnv, isFalsy } from '@/lib/core/config/env'
 import { useTranslation } from '@/lib/i18n'
 import { createLogger } from '@/lib/logs/console/logger'
@@ -293,7 +293,7 @@ function SignupFormContent() {
           name: sanitizedName,
         },
         {
-          onError: (ctx: { error: AuthError }) => {
+          onError: (ctx: { error: ApiError }) => {
             logger.error('Signup error:', ctx.error)
             // Safely get code and message
             const errorCode = typeof ctx.error.code === 'string' ? ctx.error.code : ''

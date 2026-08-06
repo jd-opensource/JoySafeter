@@ -48,6 +48,7 @@ async def test_list_skills_includes_runtime_eligibility(monkeypatch):
     svc.db = object()
     svc.repo = _Repo([skill])
     svc._caller_org_role = None
+    svc._active_org_id = "org-a"
 
     monkeypatch.setattr(skill_service_mod, "SkillVersionRepository", _VersionRepo)
 

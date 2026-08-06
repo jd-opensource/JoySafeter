@@ -106,7 +106,7 @@ flowchart TB
 
 ### 协同契约
 
-每个服务只有一个清晰的所有权边界。跨服务调用应保持这些契约，而不是恢复旧的进程内捷径。
+每个服务只有一个清晰的所有权边界。跨服务调用必须保持这些契约。
 
 | 参与方 | 拥有什么 | 消费什么 | 发布 / 修改什么 | 不应该做什么 |
 |---|---|---|---|---|
@@ -370,7 +370,7 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 
 | 实体 | 表 | 角色 |
 |---|---|---|
-| `JoySafeterAgent` | `joysafeter_agents` | Agent 定义。能力（`skills`、`tools`、`mcp_configs`、`model`、`agents`、`commands`）以 **JSONB 反范式**存在行上，非 join 表。经 `joysafeter_agent_versions` 版本化 |
+| `JoySafeterAgent` | `joysafeter_agents` | Agent 定义。能力（`skills`、`tools`、`mcp_servers`、`model`、`agents`、`commands`）以 **JSONB 反范式**存在行上，非 join 表。经 `joysafeter_agent_versions` 版本化 |
 | `JoySafeterSession` | `joysafeter_sessions` | 会话/线程。累计 token 用量；创建时快照 Agent |
 | `JoySafeterSessionEvent` | `joysafeter_session_events` | **追加式事件日志**，`unique(session_id, seq)`。即持久化的事件流 |
 | `JoySafeterTask` | `joysafeter_tasks` | 运行/执行单元。经 `chat_session_id` 关联会话 |

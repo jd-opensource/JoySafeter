@@ -1,15 +1,18 @@
 # JoySafeter Installation
 
-JoySafeter is not yet released for production. Use Docker Compose for the supported full-stack setup.
+JoySafeter maintains one full-stack installation path: **Docker Compose through
+`deploy/deploy.sh`**. Running Python, Rust, and Bun processes on the host is a development
+workflow, not a deployment mode.
 
 ## Requirements
 
-- Docker 20.10+
-- Docker Compose 2+
-- At least 4 CPU cores and 8 GB RAM recommended for the complete local stack
-- Python 3.12+, Rust, and Bun are only required for host-based development
+- Docker Engine or Docker Desktop
+- Docker Compose v2
+- Git
+- At least 4 CPU cores and 8 GB RAM recommended
+- `linux/amd64` or `linux/arm64`
 
-## First Local Deployment
+## First Installation
 
 ```bash
 cd deploy
@@ -17,7 +20,11 @@ cd deploy
 ./deploy.sh local
 ```
 
-`local` builds the core images, starts PostgreSQL and Redis, runs database migrations, and starts frontend, API, worker, Rust orchestrator, Envoy, and SkillSpector.
+`doctor` checks Docker, Compose, ports, environment files, and the target architecture without
+starting services. `local` prepares environment files, generates and synchronizes the stable
+application/Vault keys plus the database password, builds the core services and the default
+Claude Code runtime, runs database migrations, and starts the complete stack. Existing valid keys
+are preserved.
 
 Open:
 
@@ -25,48 +32,21 @@ Open:
 - API: `http://localhost:8000`
 - API docs: `http://localhost:8000/docs`
 
-## Fast Restart or Update
-
-After images exist locally:
+## Daily Operations
 
 ```bash
 cd deploy
-./deploy.sh up
-```
-
-`up` skips image builds and SkillSpector source preparation, but still runs preflight checks and database migrations.
-
-## Deploy Pre-built Images
-
-```bash
-cd deploy
-./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
-./deploy.sh up
-```
-
-Use immutable version tags outside local development.
-
-## Operations
-
-```bash
-cd deploy
-./deploy.sh status
-./deploy.sh logs api worker
-./deploy.sh restart frontend
-./deploy.sh down
-```
-
-## Host-based Development
-
-For Python, Rust, and frontend processes running directly on the host, use [`DEVELOPMENT.md`](DEVELOPMENT.md) or:
-
-```bash
-cd deploy
-./local-test.sh
+./deploy.sh up                 # Start or update with existing images
+./deploy.sh status             # Show service status
+./deploy.sh logs api worker    # Follow logs
+./deploy.sh down               # Stop services and keep data volumes
 ```
 
 ## Next Documents
 
-- Deployment modes and troubleshooting: [`deploy/README.md`](deploy/README.md)
-- Runtime architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Builds, image publishing, and deployment: [`deploy/README.md`](deploy/README.md)
+- Host-based development and tests: [`DEVELOPMENT.md`](DEVELOPMENT.md)
 - Pre-release gates: [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md)
+
+Use `./deploy.sh --help` as the command reference. Other documents intentionally avoid copying
+the complete option list.

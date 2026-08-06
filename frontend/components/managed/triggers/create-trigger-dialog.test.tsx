@@ -69,7 +69,6 @@ function completedOneOffTrigger(): AgentTrigger {
     type: 'cron',
     agent_id: 'agt_1',
     prompt_template: 'run once',
-    system_prompt: null,
     environment_ref: null,
     enabled: true,
     session_mode: 'fresh',

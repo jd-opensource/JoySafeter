@@ -586,7 +586,7 @@ async def test_update_memory_precondition_mismatch_returns_structured_error(db_s
         await update_memory(
             store_id,
             memory.id,
-            UpdateMemoryRequest(content="second", if_sha256="stale"),
+            UpdateMemoryRequest(content="second", precondition={"content_sha256": "stale"}),
             path=None,
             view=None,
             db=db_session,

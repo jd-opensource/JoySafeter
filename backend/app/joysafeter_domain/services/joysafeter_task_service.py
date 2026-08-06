@@ -36,13 +36,6 @@ class JoySafeterTaskService:
         project_scope = project_id if project_id is not None else "__no_project__"
         return f"project:{project_scope}:{idempotency_key}"
 
-    @classmethod
-    def _idempotency_key_candidates(cls, idempotency_key: str, project_id: Optional[str]) -> list[str]:
-        # Include the raw key as a legacy fallback for rows created before keys
-        # were project-scoped in storage.
-        scoped = cls.scoped_idempotency_key(idempotency_key, project_id)
-        return [scoped, idempotency_key] if scoped != idempotency_key else [scoped]
-
     async def create_task(
         self,
         agent_id: uuid.UUID,
@@ -121,7 +114,7 @@ class JoySafeterTaskService:
         not just the task INSERT.
         """
         conditions: list[ColumnElement[bool]] = [
-            JoySafeterTask.idempotency_key.in_(self._idempotency_key_candidates(idempotency_key, project_id))
+            JoySafeterTask.idempotency_key == self.scoped_idempotency_key(idempotency_key, project_id)
         ]
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)

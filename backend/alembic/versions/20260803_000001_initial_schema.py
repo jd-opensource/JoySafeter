@@ -1,13 +1,11 @@
-"""init joysafeter schema
+"""initial JoySafeter schema
 
-Revision ID: 20260627_000001
+Revision ID: 20260803_000001
 Revises:
-Create Date: 2026-06-27 00:00:00.000000
+Create Date: 2026-08-03 00:00:00.000000
 
-Squashed baseline migration for clean deployments.
-This file explicitly creates the final JoySafeter table/index/constraint schema
-in one migration. Legacy incremental repair migrations are intentionally removed
-for fresh installs.
+This migration creates the complete pre-release schema, including indexes,
+constraints, runtime sequences, and cluster membership objects.
 """
 
 from __future__ import annotations
@@ -20,7 +18,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "20260627_000001"
+revision: str = "20260803_000001"
 down_revision: Union[str, None] = None
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
@@ -47,7 +45,7 @@ def upgrade() -> None:
     sa.Column('system_prompt', sa.Text(), nullable=True),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('env', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
-    sa.Column('mcp_configs', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
+    sa.Column('mcp_servers', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
     sa.Column('skills', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
     sa.Column('tools', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
     sa.Column('agents', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
@@ -516,7 +514,7 @@ def upgrade() -> None:
     op.create_table('joysafeter_skill_usage_log',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('skill_id', sa.UUID(), nullable=True),
-    sa.Column('skill_version', sa.String(length=64), nullable=True),
+    sa.Column('skill_version', sa.String(length=64), nullable=False),
     sa.Column('skill_version_id', sa.UUID(), nullable=True),
     sa.Column('skill_name', sa.String(length=64), nullable=True),
     sa.Column('skill_source_type', sa.String(length=50), nullable=True),
@@ -765,7 +763,6 @@ def upgrade() -> None:
     sa.Column('type', sa.String(length=16), nullable=False),
     sa.Column('agent_id', sa.UUID(), nullable=False),
     sa.Column('prompt_template', sa.Text(), nullable=False),
-    sa.Column('system_prompt', sa.Text(), nullable=True),
     sa.Column('environment_ref', sa.String(length=255), nullable=True),
     sa.Column('enabled', sa.Boolean(), server_default=sa.text('true'), nullable=False),
     sa.Column('session_mode', sa.String(length=16), server_default='fresh', nullable=False),

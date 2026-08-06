@@ -37,7 +37,6 @@ import {
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
 
-const LEGACY_STORAGE_KEY = 'joysafeter:skill-authoring-state:v1'
 const STORAGE_KEY_PREFIX = 'joysafeter:skill-authoring-state:v2'
 
 const passthroughTranslator = (key: string) => key
@@ -191,7 +190,6 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       if (typeof window !== 'undefined') {
         try {
           window.localStorage.removeItem(storageKeyRef.current)
-          window.localStorage.removeItem(LEGACY_STORAGE_KEY)
         } catch {
           /* noop */
         }
@@ -249,7 +247,6 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     if (typeof window !== 'undefined') {
       try {
         window.localStorage.removeItem(storageKeyRef.current)
-        window.localStorage.removeItem(LEGACY_STORAGE_KEY)
       } catch {
         /* noop */
       }

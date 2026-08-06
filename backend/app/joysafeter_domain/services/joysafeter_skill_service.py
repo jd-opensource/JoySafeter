@@ -1,14 +1,4 @@
-"""
-JoySafeter skill management services.
-
-Merged from skill_service.py, skill_version_service.py, and
-skill_lifecycle_service.py (v1 cleanup consolidation):
-  - SkillService — skill CRUD + file management + scan dispatch
-  - SkillVersionService — version publish / list / restore
-  - SkillLifecycleService / LifecycleTransition — lifecycle state machine
-
-Security/packing/runtime-policy live in joysafeter_skill_security.py.
-"""
+"""Skill lifecycle, CRUD, version, and promotion services."""
 
 from __future__ import annotations
 
@@ -113,16 +103,13 @@ class SkillLifecycleService:
         self,
         db: AsyncSession,
         *,
-        active_org_id: Optional[str] = None,
+        active_org_id: str,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
+        if not active_org_id:
+            raise ValueError("active_org_id is required")
         self.db = db
         self.skill_repo = SkillRepository(db)
-        # P2.9: active org for strict isolation in ``check_skill_access``.
-        # When the API layer constructs this service from a
-        # JoySafeterAuthContext, the org id is threaded through so a
-        # multi-org admin can't fire transitions from a different org
-        # context. ``None`` falls back to pre-P2.9 behavior.
         self._active_org_id = active_org_id
         # Single-axis redesign: the caller's org role is threaded through
         # to ``check_skill_access`` so an org super-user resolves to ADMIN
@@ -277,20 +264,16 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         self,
         db,
         *,
-        active_org_id: Optional[str] = None,
+        active_org_id: str,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
+        if not active_org_id:
+            raise ValueError("active_org_id is required")
         super().__init__(db)
         self.repo = SkillVersionRepository(db)
         self.file_repo = SkillVersionFileRepository(db)
         self.skill_repo = SkillRepository(db)
         self.skill_file_repo = SkillFileRepository(db)
-        # P2.10 — strict org isolation. Mirrors ``SkillService`` and
-        # ``SkillSecurityService``: threaded through to every
-        # ``check_skill_access`` call below so version reads / writes
-        # also respect the caller's active org context. ``None``
-        # falls back to pre-P2.9 cross-org-friendly behavior; legacy
-        # callers stay safe.
         self._active_org_id = active_org_id
         self._caller_org_role = caller_org_role
 
@@ -315,7 +298,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
 
         # Runtime-readiness gate — publishing a snapshot that no agent can
         # load creates a dead version and breaks the product contract between
-        # Skills, Agent picker, and orchestrator. Keep the historical
+        # Skills, Agent picker, and orchestrator. Use the specific
         # ``SKILL_SECURITY_BLOCKED`` code for the high-risk verdict, but fail
         # every other runtime-ineligible state with a precise reason.
         # When security scanning is disabled globally, skip all scan gates.
@@ -722,19 +705,15 @@ class SkillService(BaseService[JoySafeterSkill]):
         self,
         db,
         *,
-        active_org_id: Optional[str] = None,
+        active_org_id: str,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
+        if not active_org_id:
+            raise ValueError("active_org_id is required")
         super().__init__(db)
         self.repo = SkillRepository(db)
         self.file_repo = SkillFileRepository(db)
         self.security_service = SkillSecurityService(db, active_org_id=active_org_id, caller_org_role=caller_org_role)
-        # P2.9: when the API layer constructs ``SkillService`` it
-        # passes ``JoySafeterAuthContext.org_id`` here. The service
-        # then threads it into every ``check_skill_access`` call so the
-        # capability gate respects strict org isolation. ``None`` falls
-        # back to the pre-P2.9 behavior; kept for legacy callers we
-        # haven't migrated yet.
         self._active_org_id = active_org_id
         # Single-axis redesign: the caller's org role, threaded into
         # every ``check_skill_access`` call so an org super-user resolves
@@ -1069,11 +1048,10 @@ class SkillService(BaseService[JoySafeterSkill]):
 
     async def list_skills(
         self,
-        current_user_id: Optional[str] = None,
+        current_user_id: str,
         include_public: bool = True,
         tags: Optional[List[str]] = None,
         project_id: Optional[str] = None,
-        org_id: Optional[str] = None,
         limit: int = 20,
         after_id: Optional[uuid.UUID] = None,
     ) -> tuple[List[JoySafeterSkill], bool]:
@@ -1089,7 +1067,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             include_public=include_public,
             tags=tags,
             project_id=project_id,
-            org_id=org_id,
+            org_id=self._active_org_id,
             caller_org_role=self._caller_org_role,
             limit=limit,
             after_id=after_id,
@@ -1108,7 +1086,7 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def get_skill(
         self,
         skill_id: uuid.UUID,
-        current_user_id: Optional[str] = None,
+        current_user_id: str,
     ) -> JoySafeterSkill:
         """Get Skill details"""
         skill = await self.repo.get_with_files(skill_id)
@@ -1116,27 +1094,16 @@ class SkillService(BaseService[JoySafeterSkill]):
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
 
             # Permission check: requires READ project capability
-        if current_user_id:
-            await check_skill_access(
-                self.db,
-                skill,
-                current_user_id,
-                ProjectCapability.READ,
-                caller_org_role=self._caller_org_role,
-                active_org_id=self._active_org_id,
-            )
-        else:
-            # Anonymous read: only the ``public`` visibility tier opens
-            # the row to a missing caller. Use the same fallback as
-            # ``check_skill_access``.
-            effective = skill.visibility or JoySafeterSkillVisibility.PROJECT.value
-            if effective != "public":
-                raise AccessDeniedError(
-                    "You don't have permission to access this skill",
-                    code="SKILL_ACCESS_DENIED",
-                )
+        await check_skill_access(
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.READ,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
+        )
 
-                # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
+        # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
         skill = await self._attach_latest_version(skill)
         self._annotate_runtime_eligibility(skill)
         await self._annotate_skill_impact(skill)
@@ -2161,8 +2128,7 @@ from app.joysafeter_domain.services.joysafeter_skill_security import (
 )
 
 # Tiers a version may be promoted to. ``project`` is the no-review default
-# tier and is never a promotion target; ``private`` is legacy and unreachable
-# here.
+# tier and is never a promotion target.
 _PROMOTABLE_TIERS = frozenset(
     {
         JoySafeterSkillVisibility.ORGANIZATION.value,
@@ -2180,9 +2146,11 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         self,
         db,
         *,
-        active_org_id: Optional[str] = None,
+        active_org_id: str,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
+        if not active_org_id:
+            raise ValueError("active_org_id is required")
         super().__init__(db)
         self.skill_repo = SkillRepository(db)
         self.version_repo = SkillVersionRepository(db)
@@ -2231,10 +2199,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         takedown an org-B skill by id — a cross-tenant privilege escalation
         (exposing or pulling another tenant's content). Mirrors the org
         isolation ``check_skill_access`` applies on the ``submit`` side. A
-        ``None`` active org disables the gate (legacy callers), same as there.
         """
-        if self._active_org_id is None:
-            return
         skill_org_id = await resolve_skill_org_id(self.db, skill)
         if skill_org_id != self._active_org_id:
             raise AccessDeniedError(

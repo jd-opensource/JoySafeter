@@ -100,19 +100,3 @@ async def _run_common_shutdown() -> None:
 
     await close_db()
     logger.info("Application shutdown")
-
-
-async def start_worker_loops() -> list[asyncio.Task]:
-    """Compatibility wrapper for worker service loops."""
-
-    from app.joysafeter_worker.lifecycle import start_worker_loops as _start_worker_loops
-
-    return await _start_worker_loops()
-
-
-async def stop_worker_loops(tasks: list[asyncio.Task]) -> None:
-    """Compatibility wrapper for worker service loop shutdown."""
-
-    from app.joysafeter_worker.lifecycle import stop_worker_loops as _stop_worker_loops
-
-    await _stop_worker_loops(tasks)

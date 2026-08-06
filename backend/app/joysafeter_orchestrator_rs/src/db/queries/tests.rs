@@ -301,7 +301,7 @@ async fn observed_owner_epoch_transition_does_not_mutate_reclaimed_task() {
         .bind(null_owner_task)
         .execute(&pool)
         .await
-        .expect("simulate reclaim after legacy null-owner observation");
+        .expect("simulate reclaim after null-owner observation");
 
         let stale_null_transition = transition_task_cas_observed_owner_epoch(
             &pool,

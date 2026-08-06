@@ -123,7 +123,6 @@ class TriggerFireService:
                 name=trigger.name,
                 source=source,
                 prompt=render_prompt_template(trigger.prompt_template, payload),
-                system_prompt=trigger.system_prompt,
                 environment_ref=environment_ref,
                 timeout_sec=trigger.timeout_sec,
                 max_retries=trigger.max_retries,

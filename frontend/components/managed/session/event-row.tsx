@@ -19,7 +19,7 @@ export function EventRow({ event, sessionStart, selected, onClick, mode }: Event
   const elapsed = getElapsedTime(sessionStart, eventTime)
   const preview = getPreview(event, mode, t)
   const metrics = getMetrics(event, t)
-  const eventType = event.type || event.event_type || ''
+  const eventType = event.type
   const toolName = event.tool || event.tool_name || event.name
 
   // Identify stdio-protocol events that are not real LLM tool executions but
@@ -101,7 +101,7 @@ function getPreview(
   mode: 'transcript' | 'debug',
   t: (key: string, options?: Record<string, unknown>) => string,
 ): ReactNode {
-  const eventType = event.type || event.event_type || ''
+  const eventType = event.type
   const withCollapsedCount = (label: string) => {
     const collapsedSuffix =
       event._collapsedCount && event._collapsedCount > 1 ? ` ×${event._collapsedCount}` : ''
@@ -245,7 +245,7 @@ const ClockIcon = () => (
 )
 
 function getMetrics(event: SessionEvent, t: (key: string) => string): ReactNode | null {
-  const eventType = event.type || event.event_type || ''
+  const eventType = event.type
   if (eventType === 'span.model_request_end') return null
 
   const isTool = TOOL_USE_TYPES.has(eventType)
@@ -355,7 +355,7 @@ function stripSandboxCwdInCommand(cmd: string): string {
 
 function formatToolUsePreview(event: SessionEvent): ReactNode {
   const toolName = String(event.tool || event.tool_name || event.name || '')
-  if (!toolName) return event.type || event.event_type || ''
+  if (!toolName) return event.type
   const arg = extractToolArgString(event, toolName)
   if (!arg) {
     return <span className="font-medium text-foreground">{toolName}</span>
@@ -369,16 +369,8 @@ function formatToolUsePreview(event: SessionEvent): ReactNode {
 }
 
 function extractToolArgString(event: SessionEvent, toolName: string): string {
-  // Normalize: event.input may be an object or a (legacy) JSON string.
-  let raw = event.input as unknown
-  if (typeof raw === 'string') {
-    try {
-      raw = JSON.parse(raw)
-    } catch {
-      /* keep as string */
-    }
-  }
-  const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  const input =
+    event.input && typeof event.input === 'object' ? (event.input as Record<string, unknown>) : null
 
   let arg: string | null = null
   if (input) {

@@ -29,16 +29,18 @@ def test_usage_log_table_name():
 
 
 def test_usage_log_columns_and_nullability():
-    """Audit rows must allow NULL on every contextual id — partial
-    context is the norm (cron jobs without a session, sandbox packs
-    before user_id was wired, etc.)."""
+    """Every audit row identifies the concrete published version loaded.
+
+    Request context ids remain nullable because not every execution has a
+    user-facing session or actor.
+    """
     cols = {c.name: c for c in SkillUsageLog.__table__.columns}
     expected_nullable = {
         "id": False,
         "created_at": False,
         "updated_at": False,
         "skill_id": True,
-        "skill_version": True,
+        "skill_version": False,
         "session_id": True,
         "agent_id": True,
         "project_id": True,

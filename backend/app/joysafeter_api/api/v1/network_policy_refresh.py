@@ -9,8 +9,8 @@ from typing import Optional
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.runtime_commands import publish_to_sandbox_owner_via_redis
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+from app.joysafeter_shared.orchestrator_bridge.runtime_commands import publish_to_sandbox_owner_via_redis
 
 logger = logging.getLogger(__name__)
 

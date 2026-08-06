@@ -1,16 +1,4 @@
-"""
-JoySafeter session services.
-
-Merged from session_event_realtime.py, joysafeter_session_lifecycle.py, and
-session_service.py (v1 cleanup consolidation):
-  - build_session_event_payload / publish_session_event_realtime — SSE helpers
-  - JoySafeterSessionLifecycleService — session state transitions
-  - SessionService — session CRUD + event ingestion
-
-Note: ``_RETRYABLE_DB_ERROR_MARKERS`` / ``_is_retryable_db_error`` were defined
-identically in two of the source modules; the SessionService copy (last section)
-is the one that wins.
-"""
+"""Session lifecycle, persistence, and realtime event services."""
 
 from __future__ import annotations
 

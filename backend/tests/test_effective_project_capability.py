@@ -41,11 +41,10 @@ def test_capability_is_ordered_for_threshold_checks():
     assert not (ProjectCapability.READ >= ProjectCapability.WRITE)
 
 
-def test_project_role_normalizes_legacy_values():
-    assert ProjectRole.normalize("owner") is ProjectRole.ADMIN
-    assert ProjectRole.normalize("developer") is ProjectRole.EDITOR
-    assert ProjectRole.normalize("member") is ProjectRole.EDITOR
+def test_project_role_accepts_only_current_values():
     assert ProjectRole.normalize("viewer") is ProjectRole.VIEWER
     assert ProjectRole.normalize("editor") is ProjectRole.EDITOR
+    assert ProjectRole.normalize("admin") is ProjectRole.ADMIN
+    assert ProjectRole.normalize("owner") is ProjectRole.VIEWER
     assert ProjectRole.normalize(None) is None
     assert ProjectRole.normalize("") is None

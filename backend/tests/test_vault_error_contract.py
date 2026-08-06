@@ -15,7 +15,6 @@ from app.joysafeter_api.api.v1.vaults import (
     update_credential,
     update_vault,
 )
-from app.joysafeter_api.services import VaultService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -27,6 +26,7 @@ from app.joysafeter_domain.schemas.joysafeter_vault import (
     UpdateVaultRequest,
 )
 from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
+from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now

@@ -15,7 +15,7 @@ pub async fn get_agent(
     sqlx::query_as::<_, JoySafeterAgent>(
         r#"
         SELECT id, project_id, name, engine_kind, model->>'id' AS model, system_prompt,
-               description, env, mcp_configs, skills, agents, commands, tools,
+               description, env, mcp_servers, skills, agents, commands, tools,
                permission_mode, metadata, multiagent, version, environment_ref, secret_ref
         FROM joysafeter_agents
         WHERE id = $1 AND deleted_at IS NULL

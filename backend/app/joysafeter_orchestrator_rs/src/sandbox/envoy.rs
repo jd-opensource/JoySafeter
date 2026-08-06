@@ -15,16 +15,15 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::lds_backend::{
-    validate_egress_policy, CdsBackend, LdsBackend, ListenerKind, ListenerSpec, SandboxCredentials,
+    validate_egress_policy, LdsBackend, ListenerKind, ListenerSpec, SandboxCredentials,
     SandboxEgressPolicy,
 };
 
 /// Per-sandbox network isolation via a shared Envoy proxy sidecar container.
 ///
-/// Listener config is delivered through a pluggable [`LdsBackend`] and per-upstream
-/// clusters through a [`CdsBackend`] — either the filesystem path
-/// (`lds.json`/`cds.json`) or Delta gRPC xDS — selected by
-/// [`EnvoyConfig::xds_mode`]. The bootstrap written here is generated to match
+/// Listener config is delivered through a pluggable [`LdsBackend`] using either
+/// the filesystem path or Delta gRPC xDS, selected by [`EnvoyConfig::xds_mode`].
+/// The bootstrap written here is generated to match
 /// the active mode. Everything else (socket dirs, the wait-for-sockets loop, the
 /// data plane) is identical across modes. The authoritative config lives in the
 /// backends; a per-sandbox JSON file is still written under
@@ -454,20 +453,6 @@ impl EnvoyManager {
         self.add_sandbox_with_policy(sandbox_id, policy).await
     }
 
-    /// Backward-compatible entry point for legacy credential builders.
-    pub async fn add_sandbox(
-        &self,
-        sandbox_id: Uuid,
-        allowed_hosts: Vec<String>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        self.add_sandbox_with_policy(
-            sandbox_id,
-            credentials.to_policy(&sandbox_id, allowed_hosts),
-        )
-        .await
-    }
-
     async fn add_sandbox_with_policy(
         &self,
         sandbox_id: Uuid,
@@ -819,8 +804,11 @@ impl EnvoyManager {
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
         let allowed_hosts = extract_allowed_hosts(networking_config);
-        self.add_sandbox(sandbox_id, allowed_hosts, credentials)
-            .await
+        self.add_sandbox_policy(
+            sandbox_id,
+            credentials.to_policy(&sandbox_id, allowed_hosts),
+        )
+        .await
     }
 
     /// Teardown networking for a sandbox.

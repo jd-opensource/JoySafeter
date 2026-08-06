@@ -187,6 +187,7 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(task.id)}),
         ("session.status_running", {"task_id": str(task.id)})
     ]
 
@@ -407,6 +408,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(task.id)}),
         ("session.status_running", {"task_id": str(task.id)}),
         (
             "session.status_idle",
@@ -504,6 +506,7 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(response.id)}),
         ("session.status_running", {"task_id": str(response.id)})
     ]
 

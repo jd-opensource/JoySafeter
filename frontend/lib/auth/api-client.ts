@@ -60,8 +60,7 @@ export interface SessionResponse {
   user: AuthUser | null
 }
 
-// Use unified ApiError, but keep backward-compatible AuthError alias
-export { ApiError as AuthError }
+export { ApiError }
 
 // ==================== Session Management ====================
 export { onSessionChange, type SessionChangeType }

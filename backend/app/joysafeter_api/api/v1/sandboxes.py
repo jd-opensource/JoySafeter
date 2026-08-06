@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_sandbox_id
-from app.joysafeter_api.services import SandboxService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_sandbox import SandboxResponse
+from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 from app.joysafeter_shared.common.app_errors import AppError, NotFoundError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,

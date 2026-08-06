@@ -164,8 +164,6 @@ class JoySafeterSkill(BaseModel):
     # Lifecycle gate, independent of security verdict. The runtime loader
     # only accepts ``approved``. New skills start in ``draft`` so the owner
     # has a chance to scan and verify before letting agents pick them up.
-    # Legacy data is promoted to ``approved`` by
-    # 20260625_000004_promote_legacy_skills_approved.
     lifecycle_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=JoySafeterSkillLifecycleStatus.DRAFT.value
     )
@@ -449,8 +447,8 @@ class JoySafeterSkillVersionFile(BaseModel):
     # ---------------------------------------------------------------------------
     # Skill usage log — append-only pack/load audit trail
     #
-    # Append-only event log: one row per time a SkillPacker successfully packs
-    # a skill into a sandbox bundle. Deliberately decoupled from
+    # Append-only event log: one row per time the orchestrator packs a skill
+    # into a sandbox bundle. Deliberately decoupled from
     # ``joysafeter_skill_security_scans`` — scans record what was *checked*,
     # usage logs record what was *executed*. Both matter independently.
     # ---------------------------------------------------------------------------
@@ -478,12 +476,8 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
         ForeignKey("joysafeter_skills.id", ondelete="SET NULL"),
         nullable=True,
     )
-    # Resolved version label, if any. Free-form to admit both semver
-    # strings ("1.2.3"), the ``"latest"`` keyword (which the packer
-    # rewrites to a concrete version before logging), and ``"draft"``.
-    # Nullable for legacy ``tar_gz_b64`` direct-packed sessions where
-    # there is no DB-side skill version.
-    skill_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Concrete published version loaded by the orchestrator.
+    skill_version: Mapped[str] = mapped_column(String(64), nullable=False)
     skill_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),

@@ -128,6 +128,7 @@ describe('CreateCredentialDialog object lifecycle', () => {
         name: 'Project A',
         slug: 'project-a',
         is_default: true,
+        capability: 'write',
         archived_at: null,
       },
       organizations: [],

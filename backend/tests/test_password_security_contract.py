@@ -1,4 +1,3 @@
-import hashlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,7 +10,6 @@ from app.joysafeter_shared.common.app_errors import AuthenticationError
 from app.joysafeter_shared.security import (
     get_password_hash,
     hash_security_token,
-    is_legacy_password_hash,
     verify_password,
 )
 
@@ -30,13 +28,8 @@ def test_password_hash_is_salted_and_not_replayable():
     assert not verify_password("Wrong-Horse1!", first_hash)
 
 
-def test_legacy_sha256_hash_accepts_raw_password_but_not_hash_replay():
-    password = "Legacy-Password1!"
-    legacy_hash = hashlib.sha256(password.encode()).hexdigest()
-
-    assert is_legacy_password_hash(legacy_hash)
-    assert verify_password(password, legacy_hash)
-    assert not verify_password(legacy_hash, legacy_hash)
+def test_non_bcrypt_password_hash_is_rejected():
+    assert not verify_password("Password1!", "0" * 64)
 
 
 def test_one_time_token_digest_is_stable_without_storing_raw_token():

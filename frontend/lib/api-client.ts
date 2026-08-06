@@ -29,8 +29,7 @@ import { trimConfigStringFields } from '@/lib/utils/url-trim'
 import { useProjectStore } from '@/stores/managed/project-store'
 
 // ==================== Error taxonomy ====================
-// ApiError field types. Colocated here (api-client is the only consumer) after
-// the legacy types/agent-run.ts module was retired in the v1 frontend cleanup.
+// ApiError field types.
 export type ErrorSource =
   | 'api'
   | 'engine'
@@ -57,15 +56,6 @@ export const API_BASE_URL = `${getBaseUrl()}/api`
 export const API_VERSION = 'v1'
 /** Complete API base path */
 export const API_BASE = `${API_BASE_URL}/${API_VERSION}`
-/**
- * Managed-context base path. Historically distinct from API_BASE — the
- * codebase used to expose two parallel surfaces, v1 (legacy) and v2
- * (managed). v1 is fully retired now and the surviving surface has been
- * remounted under /api/v1, so both constants point at the same prefix.
- * Kept as a separate export only so existing `MANAGED_API_BASE` import
- * sites don't need to change.
- */
-export const MANAGED_API_BASE = `${API_BASE_URL}/${API_VERSION}`
 
 /** Common endpoint constants (simplify path concatenation) */
 export const API_ENDPOINTS = {
@@ -443,7 +433,7 @@ export async function refreshAccessTokenOrRelogin(timeout = 10000): Promise<void
         })
       }
 
-      const response = await fetch(`${MANAGED_API_BASE}/auth/refresh`, {
+      const response = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -859,7 +849,7 @@ function buildManagedUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path
   }
-  return `${MANAGED_API_BASE}/${path.replace(/^\/+/, '')}`
+  return `${API_BASE}/${path.replace(/^\/+/, '')}`
 }
 
 function getManagedHeaders(

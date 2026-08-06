@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 
-import { ApiError, apiStream, MANAGED_API_BASE, managedPost } from '@/lib/api-client'
+import { API_BASE, ApiError, apiStream, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { getOperationErrorMessage } from '@/lib/managed/errors'
 import { stripIdPrefix } from '@/lib/managed/id'
@@ -455,7 +455,7 @@ export function useQuickstartChat(
           return next
         })
 
-        const sessionCurl = `curl -X POST ${MANAGED_API_BASE}/sessions \\
+        const sessionCurl = `curl -X POST ${API_BASE}/sessions \\
   -H "Content-Type: application/json" \\
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(body, null, 2)}'`
@@ -524,7 +524,7 @@ export function useQuickstartChat(
         })
         setCreatedResourceIds((prev) => new Set([...prev, environmentId]))
 
-        const envCurl = `curl -X POST ${MANAGED_API_BASE}/environments \\
+        const envCurl = `curl -X POST ${API_BASE}/environments \\
   -H "Content-Type: application/json" \\
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(envBody, null, 2)}'`
@@ -583,7 +583,7 @@ export function useQuickstartChat(
         })
         setCreatedResourceIds((prev) => new Set([...prev, vaultId]))
 
-        const vaultCurl = `curl -X POST ${MANAGED_API_BASE}/vaults \\
+        const vaultCurl = `curl -X POST ${API_BASE}/vaults \\
   -H "Content-Type: application/json" \\
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(vaultBody, null, 2)}'`
@@ -853,7 +853,7 @@ export function useQuickstartChat(
   const generateTestMessage = useCallback(async (): Promise<string> => {
     const agent = configRef.current.agent as Record<string, unknown> | undefined
     const agentName = (agent?.name as string) || 'agent'
-    const agentDesc = (agent?.system_prompt as string) || (agent?.system as string) || ''
+    const agentDesc = (agent?.system as string) || ''
     const tools = (agent?.tools as unknown[]) || []
 
     const prompt = `Based on this agent configuration, generate ONE short test message (1-2 sentences) that a user would send to verify the agent works. Only output the message text, nothing else.

@@ -14,16 +14,6 @@ from app.joysafeter_shared.database import Base
 
 from .base import JoySafeterBaseModel
 
-# ---------------------------------------------------------------------------
-# JoySafeter Session models
-#
-# Sessions run on ``JoySafeterSession`` / ``JoySafeterSessionEvent`` below
-# (tables ``joysafeter_sessions`` / ``joysafeter_session_events``). The legacy
-# unprefixed ``Thread`` model and its ``threads`` table were removed in the v1
-# cleanup (table dropped in alembic 20260626_000001); this module was renamed
-# from ``thread.py`` to match.
-# ---------------------------------------------------------------------------
-
 
 class SessionStatus(str, enum.Enum):
     IDLE = "idle"

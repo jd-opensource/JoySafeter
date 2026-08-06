@@ -40,12 +40,8 @@ class WebhookAuthService:
 
     @staticmethod
     def auth_methods(config: Any) -> frozenset[str]:
-        if config is None:
-            return _WEBHOOK_AUTH_METHODS
         if not isinstance(config, dict):
             return frozenset()
-        if "auth_methods" not in config or config.get("auth_methods") is None:
-            return _WEBHOOK_AUTH_METHODS
         configured = config.get("auth_methods")
         if not isinstance(configured, list) or not configured:
             return frozenset()

@@ -1,11 +1,4 @@
-"""
-Sandbox Model (v2 JoySafeterSandbox).
-
-NOTE: the legacy ``UserSandbox`` model (table ``user_sandbox``) was removed in
-the v1 cleanup — managed sandboxes run entirely on ``JoySafeterSandbox`` below.
-The ``user_sandbox`` table was dropped in alembic 20260626_000002; this module
-was renamed from ``sandbox.py`` to ``joysafeter_sandbox.py`` to match the table.
-"""
+"""JoySafeter sandbox model."""
 
 import uuid
 from datetime import datetime

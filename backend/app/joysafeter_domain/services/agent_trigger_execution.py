@@ -90,7 +90,6 @@ class AgentTriggerRunConfig:
     name: str
     source: str
     prompt: str
-    system_prompt: Optional[str]
     environment_ref: Optional[str]
     timeout_sec: int
     max_retries: int
@@ -246,7 +245,7 @@ class AgentTriggerExecutor:
         task, created = await submission.create_and_dispatch(
             agent_id=config.agent.id,
             prompt=config.prompt,
-            system_prompt=config.system_prompt,
+            system_prompt=None,
             chat_session_id=session.id,
             session_svc=session_svc,
             timeout_sec=config.timeout_sec,

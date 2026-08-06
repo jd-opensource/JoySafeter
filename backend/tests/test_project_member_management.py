@@ -99,9 +99,11 @@ async def test_list_project_members_annotates_access_status(db_session):
     db_session.add(ProjectMember(project_id=non_default.id, user_id=granted_dev.id, role="editor"))
     await db_session.commit()
 
-    response = await list_project_members(non_default.id, db_session, _admin_ctx(org.id))
+    response = await list_project_members(
+        non_default.id, q="", limit=50, after_id=None, db=db_session, auth_ctx=_admin_ctx(org.id)
+    )
 
-    access_by_user = {m.user_id: m.access for m in response}
+    access_by_user = {m.user_id: m.access for m in response.data}
     assert access_by_user[admin.id] == "org_wide"
     assert access_by_user[granted_dev.id] == "explicit"
     assert access_by_user[ungranted_dev.id] == "none"

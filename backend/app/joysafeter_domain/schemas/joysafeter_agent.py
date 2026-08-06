@@ -7,11 +7,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     field_serializer,
@@ -80,9 +79,11 @@ AgentTool = Union[AgentToolsetTool, McpToolsetTool, CustomTool]
 
 
 class McpServerConfig(BaseModel):
-    type: str = "url"
+    type: Literal["url"] = "url"
     name: str
     url: str
+
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("url")
     @classmethod
@@ -98,37 +99,37 @@ class PackedItem(BaseModel):
     name: str
     tar_gz_b64: str
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class SkillRef(BaseModel):
-    type: Literal["custom", "anthropic"] = "custom"
+    type: Literal["custom"] = "custom"
     skill_id: str
-    version: Optional[str] = "latest"
+    version: str = "latest"
 
+    model_config = ConfigDict(extra="forbid")
 
-def _parse_skill_entry(v):
-    if isinstance(v, (SkillRef, PackedItem)):
-        return v
-    if isinstance(v, dict):
-        if "skill_id" in v:
-            return SkillRef(**{k: v[k] for k in ("type", "skill_id", "version") if k in v})
-        if "tar_gz_b64" in v:
-            return PackedItem(**{k: v[k] for k in ("name", "tar_gz_b64") if k in v})
-    raise ValueError("Skill entry must have 'skill_id' or 'tar_gz_b64'")
-
-
-SkillEntry = Annotated[Union[SkillRef, PackedItem], BeforeValidator(_parse_skill_entry)]
+    @field_validator("skill_id", "version")
+    @classmethod
+    def trim_required_value(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be empty")
+        if normalized == "draft":
+            raise ValueError("agents may only reference published skill versions")
+        return normalized
 
 
 class JoySafeterCreateAgentRequest(BaseModel):
     name: str
     engine_kind: JoySafeterEngineKind = JoySafeterEngineKind.CLAUDE
     model: Union[str, JoySafeterModelConfig, None] = None
-    system: Optional[str] = Field(default=None, alias="system_prompt")
+    system: Optional[str] = None
     description: Optional[str] = None
     metadata: dict[str, str] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
     mcp_servers: list[McpServerConfig] = Field(default_factory=list)
-    skills: list[SkillEntry] = Field(default_factory=list)
+    skills: list[SkillRef] = Field(default_factory=list)
     agents: list[PackedItem] = Field(default_factory=list)
     commands: list[PackedItem] = Field(default_factory=list)
     tools: list[AgentTool] = Field(default_factory=list)
@@ -136,7 +137,7 @@ class JoySafeterCreateAgentRequest(BaseModel):
     environment_ref: Optional[str] = None
     secret_ref: Optional[str] = None
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("name", "description", "environment_ref", "secret_ref")
     @classmethod
@@ -158,12 +159,12 @@ class JoySafeterUpdateAgentRequest(BaseModel):
     name: Optional[str] = None
     engine_kind: Optional[JoySafeterEngineKind] = None
     model: Union[str, JoySafeterModelConfig, None] = None
-    system: Optional[str] = Field(default=None, alias="system_prompt")
+    system: Optional[str] = None
     description: Optional[str] = None
     metadata: Optional[dict[str, str]] = None
     env: Optional[dict[str, str]] = None
     mcp_servers: Optional[list[McpServerConfig]] = None
-    skills: Optional[list[SkillEntry]] = None
+    skills: Optional[list[SkillRef]] = None
     agents: Optional[list[PackedItem]] = None
     commands: Optional[list[PackedItem]] = None
     tools: Optional[list[AgentTool]] = None
@@ -171,7 +172,7 @@ class JoySafeterUpdateAgentRequest(BaseModel):
     environment_ref: Optional[str] = None
     secret_ref: Optional[str] = None
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("name", "description", "environment_ref", "secret_ref")
     @classmethod
@@ -199,7 +200,7 @@ class JoySafeterAgentResponse(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
     mcp_servers: list[McpServerConfig] = Field(default_factory=list)
-    skills: list[SkillEntry] = Field(default_factory=list)
+    skills: list[SkillRef] = Field(default_factory=list)
     agents: list[PackedItem] = Field(default_factory=list)
     commands: list[PackedItem] = Field(default_factory=list)
     tools: list[AgentTool] = Field(default_factory=list)

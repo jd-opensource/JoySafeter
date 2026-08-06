@@ -550,15 +550,14 @@ async fn build_agent_execution_snapshot(
         "engine_kind": agent.engine_kind.clone(),
         "description": agent.description.clone(),
         "model": agent.model.clone(),
-        "system_prompt": agent.system_prompt.clone(),
+        "system": agent.system_prompt.clone(),
         "metadata": agent.metadata.clone(),
         "env": agent.env.clone(),
         "tools": agent.tools.clone(),
         "skills": agent.skills.clone(),
         "agents": agent.agents.clone(),
         "commands": agent.commands.clone(),
-        "mcp_servers": agent.mcp_configs.clone(),
-        "mcp_configs": agent.mcp_configs.clone(),
+        "mcp_servers": agent.mcp_servers.clone(),
         "permission_mode": agent.permission_mode.clone(),
         "multiagent": agent.multiagent.clone(),
         "environment_ref": agent.environment_ref.clone(),
@@ -695,7 +694,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO joysafeter_agents (
-                id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                id, name, engine_kind, model, system_prompt, env, mcp_servers,
                 skills, tools, agents, commands, permission_mode, metadata,
                 multiagent, version
             )
@@ -1293,7 +1292,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     multiagent, version, environment_ref
                 )
@@ -1385,7 +1384,7 @@ mod tests {
                 Some("scheduler-snapshot-model")
             );
             assert_eq!(
-                stored_snapshot.get("system_prompt").and_then(Value::as_str),
+                stored_snapshot.get("system").and_then(Value::as_str),
                 Some("scheduler snapshot system")
             );
             assert_eq!(

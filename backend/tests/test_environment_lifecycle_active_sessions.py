@@ -321,7 +321,7 @@ async def test_archive_environment_rejects_legacy_bare_uuid_session_reference(db
     await db_session.refresh(agent)
     env_id = env.id
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=str(env.id))
+    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=f"env_{env.id}")
     db_session.add(session)
     await db_session.commit()
 

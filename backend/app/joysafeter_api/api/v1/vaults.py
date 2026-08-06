@@ -9,7 +9,6 @@ from app.joysafeter_api.api.v1.id_helpers import parse_cred_id, parse_vault_id
 from app.joysafeter_api.api.v1.network_policy_refresh import (
     refresh_live_limited_sandbox_network_policies,
 )
-from app.joysafeter_api.services import VaultService
 from app.joysafeter_domain.schemas.joysafeter_vault import (
     CreateCredentialRequest,
     CreateVaultRequest,
@@ -18,6 +17,7 @@ from app.joysafeter_domain.schemas.joysafeter_vault import (
     VaultCredentialResponse,
     VaultResponse,
 )
+from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
 from app.joysafeter_shared.common.app_errors import AppError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,

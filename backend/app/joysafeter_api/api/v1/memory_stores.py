@@ -8,13 +8,6 @@ from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_memory_id, parse_memory_store_id, parse_memory_version_id
-from app.joysafeter_api.services import (
-    JoySafeterMemoryService as MemoryService,
-)
-from app.joysafeter_api.services import (
-    MemoryStoreLimitExceeded,
-    PreconditionFailed,
-)
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_memory import (
     MEMORY_MAX_CONTENT_BYTES,
@@ -26,6 +19,11 @@ from app.joysafeter_domain.schemas.joysafeter_memory import (
     MemoryVersionResponse,
     UpdateMemoryRequest,
     UpdateMemoryStoreRequest,
+)
+from app.joysafeter_domain.services.joysafeter_memory_service import (
+    MemoryService,
+    MemoryStoreLimitExceeded,
+    PreconditionFailed,
 )
 from app.joysafeter_shared.common.app_errors import AppError, InvalidRequestError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import (
@@ -653,10 +651,7 @@ async def update_memory(
     svc = MemoryService(db)
     await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
 
-    # Handle precondition: support both legacy if_sha256 and new precondition object
-    precondition_sha256 = req.if_sha256
-    if req.precondition is not None:
-        precondition_sha256 = req.precondition.get("content_sha256")
+    precondition_sha256 = req.precondition.get("content_sha256") if req.precondition is not None else None
 
     # Handle path move
     if path is not None:
@@ -694,7 +689,7 @@ async def update_memory(
                     store_id,
                     memory_id,
                     req.content,
-                    if_sha256=None,
+                    expected_sha256=None,
                     project_id=auth_ctx.project_id,
                 )
             except PreconditionFailed as e:
@@ -716,7 +711,7 @@ async def update_memory(
             store_id,
             memory_id,
             req.content,
-            if_sha256=precondition_sha256,
+            expected_sha256=precondition_sha256,
             project_id=auth_ctx.project_id,
         )
     except PreconditionFailed as e:

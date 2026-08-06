@@ -129,10 +129,6 @@ class TracingMiddleware:
             await self.app(scope, receive, send)
 
 
-# Keep the old name as an alias so main.py import doesn't break
-LoggingMiddleware = TracingMiddleware
-
-
 def setup_logging():
     """
     Configure loguru logging.

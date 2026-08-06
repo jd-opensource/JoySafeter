@@ -21,7 +21,7 @@ import { startSilentSessionRefresh } from './session-refresh'
 
 // ==================== Type Exports ====================
 export type { AuthUser, AuthSession }
-export { ApiError as AuthError }
+export { ApiError }
 
 // ==================== Session Hook ====================
 export type SessionHookResult = {
@@ -80,7 +80,7 @@ export function useSession(): SessionHookResult {
   }
 }
 
-// ==================== Client Object (compatible with Better Auth) ====================
+// ==================== Client Object ====================
 export const client = {
   signIn: {
     email: signIn.email,
@@ -104,10 +104,3 @@ export const client = {
 
 // ==================== Exports ====================
 export { signIn, signUp, signOut, authApi, onSessionChange }
-
-/**
- * useActiveOrganization placeholder
- */
-export function useActiveOrganization() {
-  return { data: null, isPending: false, error: null }
-}

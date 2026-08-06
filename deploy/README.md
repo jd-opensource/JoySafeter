@@ -1,10 +1,14 @@
-# JoySafeter 部署
+# JoySafeter 构建与部署
 
-当前项目尚未正式上线。部署目标是：**本地闭环简单、重复部署快速、上线前配置显式**。
+`deploy/deploy.sh` 是完整栈的唯一构建和部署入口。当前支持边界：
 
-## 最短路径
+- 使用 `deploy/docker-compose.yml` 启动完整栈。
+- 每次命令只处理一个目标架构：`amd64` 或 `arm64`。
+- `local` 面向首次本地安装，`up` 面向已有镜像的重复启动。
+- `deploy/k8s/` 仅用于 orchestrator 开发验证，不是完整生产部署方案。
+- 宿主机开发统一使用 [`local-test.sh`](./local-test.sh)，说明见 [`../DEVELOPMENT.md`](../DEVELOPMENT.md)。
 
-### 首次从源码部署
+## 首次本地部署
 
 ```bash
 cd deploy
@@ -12,172 +16,121 @@ cd deploy
 ./deploy.sh local
 ```
 
-`local` 会完成环境准备、核心镜像构建、PostgreSQL/Redis 启动、数据库迁移和完整服务启动。
-缺少本地 SkillSpector 源码时，脚本默认检出 `v2.5.1`；可通过 `SKILLSPECTOR_REPO_REF` 覆盖。
+`local` 会完成以下步骤：
 
-### 日常快速启动或更新
+1. 创建缺失的 `deploy/.env`、`backend/.env` 和 `frontend/.env`。
+2. 生成并同步 `SECRET_KEY`、`JOYSAFETER_VAULT_ENCRYPTION_KEY` 和数据库密码；已有有效密钥不会被替换。
+3. 自动识别 Docker daemon 的 `amd64` 或 `arm64` 架构。
+4. 准备 SkillSpector 源码。
+5. 构建 backend、frontend、orchestrator-rs、SkillSpector 和默认 Claude Code runtime。
+6. 启动 PostgreSQL、Redis，执行 Alembic 迁移。
+7. 启动完整 Compose 服务。
 
-```bash
-cd deploy
-./deploy.sh up
-```
+访问地址：
 
-`up` 复用 `deploy/.env` 中配置的现有镜像，不重新构建，也不准备 SkillSpector 源码；它仍会执行环境预检和数据库迁移，适合重启、配置调整或镜像已提前准备好的场景。
-
-### 使用镜像仓库部署
-
-```bash
-cd deploy
-./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
-./deploy.sh up
-```
-
-`pull` 会拉取 backend、frontend、orchestrator-rs 和 SkillSpector，并把完整镜像名写入 `deploy/.env`。固定版本 tag，不要在正式环境依赖 `latest`。
-
-## 常用命令
-
-| 命令 | 用途 |
+| 服务 | 默认地址 |
 | --- | --- |
-| `./deploy.sh doctor` | 准备 env 并检查 Docker、架构、端口、Compose 和 Docker socket |
-| `./deploy.sh local` | 从源码构建核心镜像并启动完整本地栈 |
-| `./deploy.sh up` | 复用现有镜像，执行迁移后快速启动或更新 |
-| `./deploy.sh status` | 查看服务状态 |
-| `./deploy.sh logs [service...]` | 跟随全部或指定服务日志 |
-| `./deploy.sh restart [service...]` | 重启全部或指定服务 |
-| `./deploy.sh down` | 停止服务并保留数据卷 |
-| `./deploy.sh build [options]` | 构建镜像 |
-| `./deploy.sh push [options]` | 构建并推送镜像 |
-| `./deploy.sh pull [options]` | 拉取镜像并同步 `deploy/.env` |
+| Frontend | `http://localhost:3000` |
+| API | `http://localhost:8000` |
+| API 文档 | `http://localhost:8000/docs` |
+| Orchestrator gRPC | `localhost:9090`，仅内部使用 |
 
-完整参数以脚本为准：
+## 编译与构建
+
+```bash
+cd deploy
+
+./deploy.sh build                    # 核心服务镜像
+./deploy.sh build --all              # 核心服务 + Claude Code/Codex runtime
+./deploy.sh build --all --arch amd64 # 指定目标架构
+```
+
+默认目标架构来自 Docker daemon。完整镜像集不在一次命令中同时构建多个架构；CI 应分别构建
+`amd64`、`arm64`，再合并镜像 manifest。
+
+## 发布镜像
+
+在构建机上使用不可变 tag，并显式指定目标架构：
+
+```bash
+cd deploy
+./deploy.sh push --all \
+  --registry registry.example.com/your-org \
+  --tag <version-or-git-sha> \
+  --arch amd64
+```
+
+另一目标架构使用独立构建任务执行相同命令。正式发布的 manifest、签名、SBOM 和漏洞扫描由
+CI release workflow 负责，不在本地脚本中重复实现。
+
+## 部署已发布镜像
+
+在目标主机执行：
+
+```bash
+cd deploy
+./deploy.sh doctor
+./deploy.sh pull --all \
+  --registry registry.example.com/your-org \
+  --tag <version-or-git-sha> \
+  --arch amd64
+./deploy.sh up --arch amd64
+```
+
+`pull` 会把镜像名同步到 `deploy/.env`；`up` 不重新构建，但会执行预检和数据库迁移。
+
+## 配置唯一来源
+
+| 文件 | 用途 |
+| --- | --- |
+| `backend/env.example` | 后端变量、默认值和说明 |
+| `frontend/env.example` | 前端变量、默认值和说明 |
+| `deploy/.env.example` | Compose、镜像和部署差异配置 |
+
+首次运行会生成对应 `.env` 文件。新增变量应先进入所属组件的 `env.example`，只有部署默认值
+不同或 Compose 专用时才写入 `deploy/.env.example`。
+
+## 日常运维
+
+```bash
+./deploy.sh status
+./deploy.sh logs
+./deploy.sh logs api worker
+./deploy.sh restart frontend
+./deploy.sh down
+```
+
+`down` 保留命名数据卷。如需清空本地数据，明确执行：
+
+```bash
+docker compose down -v
+```
+
+## 常见问题
+
+### `up` 提示镜像不存在
+
+`up` 不构建镜像。首次本地安装执行 `./deploy.sh local`；镜像部署先执行 `./deploy.sh pull`。
+
+### 端口冲突
+
+修改 `deploy/.env` 中对应的 `*_PORT_HOST`，再执行 `./deploy.sh doctor`。
+
+### Sandbox runtime 不存在
+
+```bash
+./deploy.sh build --claudecode-only --arch amd64
+```
+
+Apple Silicon 使用 `--arch arm64`。`local` 会自动构建默认 Claude Code runtime。
+
+### Sandbox 无法创建
+
+确认 `deploy/.env` 中的 `DOCKER_SOCKET_PATH` 指向 Docker daemon 可见的 socket。Docker Desktop、
+Colima 和原生 Linux 通常使用 `/var/run/docker.sock`。
+
+完整命令参数以以下输出为准：
 
 ```bash
 ./deploy.sh --help
 ```
-
-## 服务与端口
-
-| 服务 | 默认地址 | 说明 |
-| --- | --- | --- |
-| frontend | `http://localhost:3000` | Web 界面 |
-| api | `http://localhost:8000` | HTTP API |
-| API docs | `http://localhost:8000/docs` | OpenAPI UI |
-| orchestrator-rs | `localhost:9090` | 内部 gRPC，不应暴露公网 |
-| worker | `localhost:8002` | 健康检查端口 |
-| PostgreSQL | `localhost:5432` | 本地 profile 默认启用 |
-| Redis | `localhost:6379` | 本地 profile 默认启用 |
-
-运行时拓扑、职责和数据流见 [`../docs/ARCHITECTURE_CN.md`](../docs/ARCHITECTURE_CN.md)。
-
-## 配置
-
-首次运行会按示例文件补齐：
-
-- `deploy/.env`
-- `backend/.env`
-- `frontend/.env`
-
-优先修改 `deploy/.env`。常用配置包括：
-
-```dotenv
-BACKEND_PORT_HOST=8000
-FRONTEND_PORT_HOST=3000
-POSTGRES_PORT_HOST=5432
-REDIS_PORT_HOST=6379
-JOYSAFETER_GRPC_PORT_HOST=9090
-
-BACKEND_FULL_IMAGE=joysafeter-backend:latest
-FRONTEND_FULL_IMAGE=joysafeter-frontend:latest
-ORCHESTRATOR_RS_FULL_IMAGE=joysafeter-orchestrator-rs:latest
-SKILLSPECTOR_FULL_IMAGE=joysafeter-skillspector:latest
-```
-
-Apple Silicon、amd64 服务器或远程 Docker daemon 通常由脚本自动识别。需要强制架构时：
-
-```bash
-./deploy.sh local --arch arm64
-./deploy.sh up --arch amd64
-```
-
-## 部署模式
-
-### 本地完整栈
-
-使用 `local` 或 `up`。脚本启用 `local-redis` 与 `rust-orchestrator` profiles，并自动运行迁移。
-
-### 云 PostgreSQL / Redis
-
-在 `deploy/.env` 设置 `POSTGRES_*` 与 `REDIS_URL`。不要启用 `local-redis` profile；迁移和启动可直接使用同一 Compose 文件：
-
-```bash
-docker compose --profile rust-orchestrator --profile init run --rm db-init
-docker compose --profile rust-orchestrator up -d --no-build
-```
-
-### 高可用
-
-多实例约束与扩容建议见 [`HA.md`](./HA.md)。在项目上线前，必须完成 [`../docs/PRODUCTION_READINESS.md`](../docs/PRODUCTION_READINESS.md) 中的发布门禁。
-
-## 上线前最低要求
-
-- 使用不可变版本 tag，并记录镜像与 Git SHA 的对应关系。
-- PostgreSQL、Redis、对象存储和密钥服务使用独立持久化方案。
-- API 与 frontend 仅通过 HTTPS 暴露；gRPC、Docker socket 和数据库不暴露公网。
-- 验证数据库迁移、备份恢复、回滚和数据卷恢复流程。
-- 为 API、worker、orchestrator-rs、SkillSpector 和数据库配置监控告警。
-- 在目标 CPU 架构上执行一次完整部署和 Agent 任务冒烟测试。
-
-## 故障排查
-
-### 环境或 Compose 配置异常
-
-```bash
-./deploy.sh doctor
-```
-
-### 镜像不存在
-
-`up` 不构建镜像。先执行以下任一方式：
-
-```bash
-./deploy.sh local
-# 或
-./deploy.sh pull --registry registry.example.com/your-org --tag <version>
-```
-
-### 数据库表缺失
-
-本地 Redis：
-
-```bash
-docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init
-```
-
-云 Redis：
-
-```bash
-docker compose --profile rust-orchestrator --profile init run --rm db-init
-```
-
-### 端口冲突
-
-修改 `deploy/.env` 中对应的 `*_PORT_HOST`。`doctor` 会报告常用端口监听情况。
-
-### Sandbox 无法创建
-
-确认 `DOCKER_SOCKET_PATH` 指向 Docker daemon 侧 socket。Docker Desktop、Colima 和原生 Linux 通常使用：
-
-```dotenv
-DOCKER_SOCKET_PATH=/var/run/docker.sock
-```
-
-### Agent 任务缺少运行镜像
-
-核心服务镜像不包含 Agent runtime 镜像。按需构建或拉取：
-
-```bash
-./deploy.sh build --claudecode-only --arch arm64
-./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag <version>
-```
-
-仓库只维护 `deploy/docker-compose.yml` 一份 Compose 定义，避免多套部署文件漂移。

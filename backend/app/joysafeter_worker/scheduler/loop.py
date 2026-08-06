@@ -461,7 +461,6 @@ class SchedulerLoop:
                     name=trigger.name,
                     source=f"trigger:cron:{trigger.id}",
                     prompt=rendered_prompt,
-                    system_prompt=trigger.system_prompt,
                     environment_ref=environment_ref,
                     timeout_sec=trigger.timeout_sec,
                     max_retries=trigger.max_retries,

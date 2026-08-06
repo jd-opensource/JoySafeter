@@ -122,7 +122,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [environmentRef, setEnvironmentRef] = useState('')
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
-  /** skill_id → chosen version keyword ("latest", "draft") or semver string. */
+  /** skill_id → chosen published version keyword or semver string. */
   const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -249,10 +249,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       toastOperationError(t, new Error(urlError), 'common.error')
       return
     }
-    setMcpServers((prev) => [
-      ...prev,
-      { name: trimmedName, url: trimmedUrl, policy: 'always_ask' },
-    ])
+    setMcpServers((prev) => [...prev, { name: trimmedName, url: trimmedUrl, policy: 'always_ask' }])
     setMcpName('')
     setMcpUrl('')
     setShowMcpForm(false)
@@ -355,13 +352,12 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           name: name.trim(),
           description: description.trim() || null,
           engine_kind: engineKind,
-          system_prompt: systemPrompt || null,
+          system: systemPrompt || null,
           metadata: { system_prompt_mode: systemPromptMode },
           ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
           ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
           tools,
           mcp_servers: mcpServers.map((m) => ({ type: 'url', name: m.name, url: m.url })),
-          skill_ids: currentSelectedSkillIds,
           skills: currentSelectedSkillIds.map((id) => ({
             type: 'custom' as const,
             skill_id: id,

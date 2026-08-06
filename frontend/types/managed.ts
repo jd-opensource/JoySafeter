@@ -6,9 +6,7 @@ export interface Agent {
   tools?: AgentTool[]
   mcp_servers?: McpServer[]
   skills?: AgentSkillRef[]
-  skill_ids?: string[]
   system?: string | null
-  system_prompt?: string
   version?: number
   metadata?: Record<string, unknown>
   env?: Record<string, string>
@@ -162,10 +160,6 @@ export interface SessionEvent {
   cache_write_tokens?: number
   task_id?: string
   processed_at?: string | null
-  // Legacy compat
-  session_id?: string
-  event_type?: string
-  payload?: unknown
   _collapsedCount?: number
 }
 
@@ -489,8 +483,8 @@ export interface SkillRecord {
   metadata: Record<string, unknown>
   license: string
   compatibility: Record<string, unknown>
-  visibility?: SkillVisibility
-  lifecycle_status?: SkillLifecycleStatus
+  visibility: SkillVisibility
+  lifecycle_status: SkillLifecycleStatus
   // Version currently served at each tier, set only through the promotion
   // approval flow. ``null`` when the skill is not exposed at that tier.
   org_version_id?: string | null
@@ -517,7 +511,7 @@ export interface SkillVersionRecord {
   // Promotion state: ``lifecycle_status`` is the version's review state
   // (approved / pending_review / rejected); when pending,
   // ``review_target_visibility`` is the tier the submission targets.
-  lifecycle_status?: SkillLifecycleStatus
+  lifecycle_status: SkillLifecycleStatus
   review_target_visibility?: SkillVisibility | null
   created_at: string
 }

@@ -17,7 +17,6 @@
 #   --from-literal=DATABASE_URL="..." \
 #   --from-literal=REDIS_URL="..." \
 #   --from-literal=SECRET_KEY="..." \
-#   --from-literal=JWT_SECRET_KEY="..." \
 #   --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="..."
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -29,9 +28,6 @@ REDIS_URL=redis://:password@redis-host:6379/0
 
 # 应用密钥 (openssl rand -hex 32)
 SECRET_KEY=CHANGE_ME
-
-# JWT 签名密钥 (openssl rand -hex 32)
-JWT_SECRET_KEY=CHANGE_ME
 
 # Vault 加密密钥 (openssl rand -base64 32)
 JOYSAFETER_VAULT_ENCRYPTION_KEY=CHANGE_ME
@@ -120,7 +116,7 @@ DISABLE_TELEMETRY=1
 # JOYSAFETER_ENVOY_WRITE_DEBUG_ENTRIES=false
 # JOYSAFETER_ENVOY_IMAGE=envoyproxy/envoy:v1.37.1
 
-# K8s 高级 (已迁移到 kube-rs,kubectl 不再需要)
+# K8s 高级（控制器使用 kube-rs，不依赖 kubectl）
 # JOYSAFETER_K8S_KUBECTL_PATH=kubectl
 # JOYSAFETER_K8S_ORCHESTRATOR_URL=http://joysafeter-orchestrator:9090
 

@@ -40,16 +40,14 @@ pub fn agent_for_execution(
             .or_else(|| live.and_then(|agent| agent.engine_kind.clone())),
         model: snapshot_model_override(snapshot)
             .unwrap_or_else(|| live.and_then(|agent| agent.model.clone())),
-        system_prompt: snapshot_string_override(snapshot, "system_prompt")
-            .or_else(|| snapshot_string_override(snapshot, "system"))
+        system_prompt: snapshot_string_override(snapshot, "system")
             .unwrap_or_else(|| live.and_then(|agent| agent.system_prompt.clone())),
         description: snapshot_string_override(snapshot, "description")
             .unwrap_or_else(|| live.and_then(|agent| agent.description.clone())),
         env: snapshot_value_override(snapshot, "env")
             .unwrap_or_else(|| live.and_then(|agent| agent.env.clone())),
-        mcp_configs: snapshot_value_override(snapshot, "mcp_configs")
-            .or_else(|| snapshot_value_override(snapshot, "mcp_servers"))
-            .unwrap_or_else(|| live.and_then(|agent| agent.mcp_configs.clone())),
+        mcp_servers: snapshot_value_override(snapshot, "mcp_servers")
+            .unwrap_or_else(|| live.and_then(|agent| agent.mcp_servers.clone())),
         skills: snapshot_value_override(snapshot, "skills")
             .unwrap_or_else(|| live.and_then(|agent| agent.skills.clone())),
         agents: snapshot_value_override(snapshot, "agents")

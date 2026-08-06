@@ -498,7 +498,6 @@ fn spawn_health_server(port: u16, ready: Arc<AtomicBool>) {
             let Ok((mut stream, _)) = listener.accept().await else {
                 continue;
             };
-            let is_ready = ready.load(Ordering::Acquire);
             let ready_clone = ready.clone();
             tokio::spawn(async move {
                 let mut buf = [0u8; 512];

@@ -45,7 +45,7 @@ async def test_publish_version_nonsemver_stored_highest_raises_400(monkeypatch):
     )
     svc = SkillVersionService.__new__(SkillVersionService)
     svc.db = MagicMock()
-    svc._active_org_id = None
+    svc._active_org_id = "org-test"
     svc._caller_org_role = None
     svc.repo = MagicMock()
     svc.repo.get_highest_version_str = AsyncMock(return_value="not-a-semver")
@@ -94,7 +94,7 @@ async def test_restore_draft_populates_latest_version(monkeypatch):
     svc.db.commit = AsyncMock()
     svc.db.refresh = AsyncMock()
     svc.db.add = MagicMock()
-    svc._active_org_id = None
+    svc._active_org_id = "org-test"
     svc._caller_org_role = None
     svc.repo = MagicMock()
     svc.repo.get_by_version = AsyncMock(return_value=sv)

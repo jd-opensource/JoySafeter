@@ -40,9 +40,6 @@ interface SkillVersionSelectProps {
  * "draft (working copy)" is intentionally NOT offered here, so an agent
  * can never be pinned to an unpublished, still-changing revision.
  *
- * Keeps the displayed value valid even if `value` doesn't match a published
- * version (renders the raw value as a one-off entry) — this also covers a
- * legacy agent that was previously pinned to "draft".
  */
 export function SkillVersionSelect({
   skillId,
@@ -67,11 +64,6 @@ export function SkillVersionSelect({
 
   const versions = useMemo(() => data?.data || [], [data])
 
-  const knownValues = useMemo(
-    () => new Set(['latest', ...versions.map((v) => v.version)]),
-    [versions],
-  )
-
   return (
     <Select value={value || 'latest'} onValueChange={onChange}>
       <SelectTrigger className={className || 'h-7 w-40 text-xs'}>
@@ -86,16 +78,6 @@ export function SkillVersionSelect({
             v{v.version}
           </SelectItem>
         ))}
-        {/* If the agent already references a version no longer in the
-            published list (including a legacy "draft" pin), keep it
-            selectable so the current value stays visible. */}
-        {value && !knownValues.has(value) && (
-          <SelectItem value={value}>
-            {value === 'draft'
-              ? t('managed.skills.version.draft', 'Draft (working copy)')
-              : `v${value} (missing)`}
-          </SelectItem>
-        )}
       </SelectContent>
     </Select>
   )

@@ -91,7 +91,7 @@ export function EventTimeline({ events, sessionStart, selectedId, onSelect }: Ev
         onMouseLeave={() => setHoverIndex(null)}
       >
         {events.map((evt, i) => {
-          const type = evt.type || evt.event_type || ''
+          const type = evt.type
           const color = getEventColor(type)
           const isSelected = i === selectedIndex
           const isHovered = i === hoverIndex
@@ -128,7 +128,7 @@ export function EventTimeline({ events, sessionStart, selectedId, onSelect }: Ev
             transform: 'translateX(-50%)',
           }}
         >
-          {events[hoverIndex].type || events[hoverIndex].event_type || 'event'}
+          {events[hoverIndex].type || 'event'}
         </div>
       )}
     </div>

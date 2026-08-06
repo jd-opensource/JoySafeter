@@ -390,12 +390,12 @@ class VaultService:
     async def resolve_mcp_credentials(
         self,
         vault_ids: list[str],
-        mcp_configs: list[dict],
+        mcp_servers: list[dict],
         project_id: Optional[str] = None,
     ) -> list[dict]:
         """Match MCP server URLs against vault credentials and inject auth headers."""
-        if not vault_ids or not mcp_configs:
-            return mcp_configs
+        if not vault_ids or not mcp_servers:
+            return mcp_servers
 
         creds_by_url: dict[str, tuple[JoySafeterVaultCredential, str, dict]] = {}
         for vid_str in vault_ids:
@@ -415,7 +415,7 @@ class VaultService:
                     creds_by_url[c.mcp_server_url] = (c, token_value, oauth_config)
 
         enriched = []
-        for cfg in mcp_configs:
+        for cfg in mcp_servers:
             cfg_copy = dict(cfg)
             url = cfg_copy.get("url", "")
             resolved = creds_by_url.get(url)

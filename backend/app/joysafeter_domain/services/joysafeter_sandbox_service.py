@@ -1,11 +1,9 @@
 """
 JoySafeter sandbox services.
 
-Merged from sandbox_manager.py, joysafeter_sandbox_state_machine.py, and the
-sandbox_service.py shim (v1 cleanup consolidation):
+Contains the sandbox state machine and database lifecycle service:
   - JoySafeterSandboxStateMachine / InvalidSandboxTransition — status FSM
-  - JoySafeterSandboxService — sandbox pool + lifecycle management
-  - SandboxService — backwards-compatible alias of JoySafeterSandboxService
+  - SandboxService — sandbox pool + lifecycle management
 """
 
 from __future__ import annotations
@@ -184,9 +182,8 @@ This service only owns the JoySafeterSandbox database record — state
 machine transitions, bridge connect/disconnect markers, pool claims, and
 list queries used by the reaper sweepers in orchestrator-rs.
 
-The legacy ``SandboxManagerService`` / ``get_sandbox_handle`` / in-process
-``SandboxPool`` / ``PydanticSandboxAdapter`` cluster was removed along with
-the old DispatchService / ExecutionOrchestrator chain.
+Runtime dispatch stays in the Rust orchestrator; this service only manages
+database state and lifecycle queries.
 """
 
 
@@ -195,7 +192,7 @@ from datetime import timedelta
 from sqlalchemy import func, update
 
 
-class JoySafeterSandboxService:
+class SandboxService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.state_machine = JoySafeterSandboxStateMachine(db)
@@ -520,7 +517,3 @@ class JoySafeterSandboxService:
             )
         )
         return list(result.scalars().all())
-
-
-# Backwards-compatible alias (was sandbox_service.py)
-SandboxService = JoySafeterSandboxService

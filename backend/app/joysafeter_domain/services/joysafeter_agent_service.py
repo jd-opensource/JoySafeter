@@ -29,7 +29,7 @@ from app.joysafeter_shared.utils.datetime import utc_now  # noqa: E402
 TERMINAL_TASK_STATUSES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
 
 
-def _merge_packed_items(skills: list, agents: list, commands: list) -> list[dict]:
+def _merge_agent_assets(skills: list, agents: list, commands: list) -> list[dict]:
     merged = []
     for item in skills:
         d = item.model_dump() if hasattr(item, "model_dump") else dict(item)
@@ -46,17 +46,19 @@ def _merge_packed_items(skills: list, agents: list, commands: list) -> list[dict
     return merged
 
 
-def _split_packed_items(merged: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+def _split_agent_assets(merged: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     skills, agents, commands = [], [], []
     for item in merged:
         item_copy = {k: v for k, v in item.items() if k != "target"}
-        target = item.get("target", "skills")
+        target = item.get("target")
         if target == "agents":
             agents.append(item_copy)
         elif target == "commands":
             commands.append(item_copy)
-        else:
+        elif target == "skills":
             skills.append(item_copy)
+        else:
+            raise ValueError("Agent asset target must be skills, agents, or commands")
     return skills, agents, commands
 
 
@@ -86,7 +88,7 @@ class JoySafeterAgentService:
         environment_ref: Optional[str] = None,
         version: Optional[int] = None,
     ) -> dict:
-        skills, agents, commands = _split_packed_items(agent.skills or [])
+        skills, agents, commands = _split_agent_assets(agent.skills or [])
         effective_environment_ref = environment_ref if environment_ref is not None else agent.environment_ref
         snapshot = {
             "schema": "joysafeter.agent_execution_snapshot.v1",
@@ -95,11 +97,11 @@ class JoySafeterAgentService:
             "name": agent.name,
             "engine_kind": agent.engine_kind,
             "model": agent.model,
-            "system_prompt": agent.system_prompt,
+            "system": agent.system_prompt,
             "description": agent.description,
             "metadata": agent.metadata_,
             "env": agent.env,
-            "mcp_configs": agent.mcp_configs,
+            "mcp_servers": agent.mcp_servers,
             "skills": skills,
             "agents": agents,
             "commands": commands,
@@ -260,8 +262,8 @@ class JoySafeterAgentService:
             description=req.description,
             metadata_=req.metadata,
             env=req.env,
-            mcp_configs=[s.model_dump() for s in req.mcp_servers],
-            skills=_merge_packed_items(req.skills, req.agents, req.commands),
+            mcp_servers=[s.model_dump() for s in req.mcp_servers],
+            skills=_merge_agent_assets(req.skills, req.agents, req.commands),
             tools=[t.model_dump() for t in req.tools],
             multiagent=req.multiagent,
             version=1,
@@ -367,16 +369,16 @@ class JoySafeterAgentService:
             changed = True
         if req.mcp_servers is not None:
             new_mcp = [s.model_dump() for s in req.mcp_servers]
-            if new_mcp != agent.mcp_configs:
-                agent.mcp_configs = new_mcp
+            if new_mcp != agent.mcp_servers:
+                agent.mcp_servers = new_mcp
                 changed = True
         if req.skills is not None or req.agents is not None or req.commands is not None:
-            cur_skills, cur_agents, cur_commands = _split_packed_items(agent.skills or [])
+            cur_skills, cur_agents, cur_commands = _split_agent_assets(agent.skills or [])
             new_skills = req.skills if req.skills is not None else cur_skills
             new_agents = req.agents if req.agents is not None else cur_agents
             new_commands = req.commands if req.commands is not None else cur_commands
             await self._validate_skill_refs(list(new_skills or []), project_id)
-            merged = _merge_packed_items(new_skills, new_agents, new_commands)
+            merged = _merge_agent_assets(new_skills, new_agents, new_commands)
             if merged != (agent.skills or []):
                 agent.skills = merged
                 changed = True

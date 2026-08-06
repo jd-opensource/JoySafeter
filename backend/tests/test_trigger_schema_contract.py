@@ -25,7 +25,6 @@ def test_cron_trigger_create_trims_strings_before_validation() -> None:
         concurrency_policy="  forbid  ",
         environment_ref="   ",
         description="  ",
-        system_prompt="  be concise  ",
     )
 
     assert req.name == "Daily report"
@@ -36,7 +35,6 @@ def test_cron_trigger_create_trims_strings_before_validation() -> None:
     assert req.concurrency_policy == "forbid"
     assert req.environment_ref is None
     assert req.description is None
-    assert req.system_prompt == "be concise"
 
 
 def test_trigger_create_schema_leaves_business_invariants_to_domain_policy() -> None:
@@ -123,7 +121,6 @@ def test_trigger_update_allows_clearing_nullable_fields_and_trims_values() -> No
         timezone="  UTC  ",
         environment_ref="   ",
         description=" ",
-        system_prompt="  use markdown  ",
     )
 
     assert req.name == "Weekly report"
@@ -132,7 +129,21 @@ def test_trigger_update_allows_clearing_nullable_fields_and_trims_values() -> No
     assert req.timezone == "UTC"
     assert req.environment_ref is None
     assert req.description is None
-    assert req.system_prompt == "use markdown"
+
+
+def test_trigger_requests_reject_removed_system_prompt_field() -> None:
+    with pytest.raises(ValidationError):
+        TriggerCreateRequest(
+            name="Daily report",
+            type="cron",
+            agent_id=uuid.uuid4(),
+            prompt_template="summarize",
+            cron_expr="0 9 * * *",
+            system_prompt="removed",
+        )
+
+    with pytest.raises(ValidationError):
+        TriggerUpdateRequest(system_prompt="removed")
 
 
 def test_trigger_responses_serialize_managed_id_prefixes() -> None:
@@ -149,7 +160,6 @@ def test_trigger_responses_serialize_managed_id_prefixes() -> None:
         type="cron",
         agent_id=agent_id,
         prompt_template="summarize",
-        system_prompt=None,
         environment_ref=None,
         enabled=True,
         session_mode="fresh",

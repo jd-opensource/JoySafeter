@@ -21,17 +21,12 @@ def _strip_optional(value: Optional[str]) -> Optional[str]:
 
 
 class TriggerCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=255)
     type: str = "webhook"
     agent_id: uuid.UUID
     prompt_template: str = Field(min_length=1)
-    system_prompt: Optional[str] = Field(
-        default=None,
-        description=(
-            "Deprecated. Trigger-specific instructions should live in prompt_template; "
-            "the agent's system_prompt remains the base behavior. Retained for API compatibility."
-        ),
-    )
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: bool = True
@@ -49,7 +44,7 @@ class TriggerCreateRequest(BaseModel):
 
     secret_ref: Optional[str] = None
     secret_key: Optional[str] = "WEBHOOK_SECRET"
-    auth_methods: list[str] = Field(default_factory=lambda: ["hmac", "bearer", "token"])
+    auth_methods: Optional[list[str]] = None
     dedupe_header: Optional[str] = "x-joysafeter-delivery"
 
     @field_validator("name", "type", "prompt_template", "session_mode", "timezone", "concurrency_policy", mode="before")
@@ -60,7 +55,6 @@ class TriggerCreateRequest(BaseModel):
         return value
 
     @field_validator(
-        "system_prompt",
         "environment_ref",
         "description",
         "cron_expr",
@@ -78,15 +72,10 @@ class TriggerCreateRequest(BaseModel):
 
 
 class TriggerUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     prompt_template: Optional[str] = Field(default=None, min_length=1)
-    system_prompt: Optional[str] = Field(
-        default=None,
-        description=(
-            "Deprecated. Trigger-specific instructions should live in prompt_template; "
-            "the agent's system_prompt remains the base behavior. Retained for API compatibility."
-        ),
-    )
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: Optional[bool] = None
@@ -115,7 +104,6 @@ class TriggerUpdateRequest(BaseModel):
         return value
 
     @field_validator(
-        "system_prompt",
         "environment_ref",
         "description",
         "cron_expr",
@@ -160,7 +148,6 @@ class TriggerResponse(BaseModel):
     type: Literal["cron", "webhook", "manual"]
     agent_id: uuid.UUID
     prompt_template: str
-    system_prompt: Optional[str]
     environment_ref: Optional[str]
     enabled: bool
     session_mode: str

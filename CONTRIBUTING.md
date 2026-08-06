@@ -32,51 +32,16 @@ This project and everyone participating in it is governed by our [Code of Conduc
 
 ## Development Setup
 
-### Prerequisites
-
-- Python 3.12+
-- Node.js 20+ with Bun 1.2+
-- PostgreSQL 15+
-- Redis
-- Git
-
-### Backend Setup
+Use the repository development guide instead of maintaining a second setup procedure here:
 
 ```bash
-cd backend
-
-# Create virtual environment
-uv venv
-source .venv/bin/activate
-
-# Install dependencies including dev tools
-uv sync --dev
-
-# Copy and configure environment
-cp env.example .env
-
-# Set up database
-createdb joysafeter
-alembic upgrade head
-
-# Run tests to verify setup
-pytest
+cd deploy
+./local-test.sh
 ```
 
-### Frontend Setup
-
-```bash
-cd frontend
-
-# Install dependencies
-bun install
-
-# Copy and configure environment
-cp env.example .env.local
-
-# Run development server
-bun run dev
-```
+See [`DEVELOPMENT.md`](DEVELOPMENT.md) for prerequisites, component commands, tests, formatting,
+and database migrations. Full-stack installation and deployment use
+[`deploy/deploy.sh`](deploy/README.md).
 
 ## How to Contribute
 

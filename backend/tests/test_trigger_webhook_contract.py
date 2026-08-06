@@ -145,12 +145,12 @@ def test_webhook_delivery_id_ignores_transport_request_id_for_body_hash_fallback
 
 @pytest.mark.no_db
 @pytest.mark.asyncio
-async def test_webhook_auth_methods_empty_config_fails_closed_but_missing_uses_default():
+async def test_webhook_auth_methods_missing_or_empty_fail_closed():
     svc = _StubSecretTriggerService("s3kret")
     raw_body = b'{"kind":"wanted"}'
     signature = f"sha256={JoySafeterTriggerService._sign('s3kret', raw_body)}"
 
-    assert await svc.verify_webhook_auth(
+    assert not await svc.verify_webhook_auth(
         SimpleNamespace(config={}),
         raw_body,
         signature=signature,

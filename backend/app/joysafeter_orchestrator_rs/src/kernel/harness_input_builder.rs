@@ -127,7 +127,7 @@ impl HarnessInputBuilder {
         };
 
         if let Some(ref agent) = agent {
-            input.mcp_servers = parse_mcp_configs(agent.mcp_configs.as_ref());
+            input.mcp_servers = parse_mcp_servers(agent.mcp_servers.as_ref());
             input.custom_tools = parse_custom_tools(agent.tools.as_ref());
             let (allowed, ask) = parse_tool_permission_rules(agent.tools.as_ref());
             input.allowed_tools = allowed;
@@ -445,27 +445,29 @@ impl HarnessInputBuilder {
         agent: &crate::db::models::JoySafeterAgent,
         task: &crate::db::models::JoySafeterTask,
     ) -> anyhow::Result<proto::SkillArchive> {
-        if let Some(encoded) = item.get("tar_gz_b64").and_then(|v| v.as_str()) {
-            match base64::engine::general_purpose::STANDARD.decode(encoded) {
-                Ok(data) => {
-                    return Ok(proto::SkillArchive {
-                        name: item
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string(),
-                        tar_gz: data,
-                        target: target.to_string(),
-                    });
-                }
-                Err(e) => {
-                    anyhow::bail!("failed to decode packed skill archive for target {target}: {e}");
-                }
-            }
+        if target != "skills" {
+            let encoded = item
+                .get("tar_gz_b64")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| anyhow::anyhow!("packed {target} item is missing tar_gz_b64"))?;
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|error| {
+                    anyhow::anyhow!("failed to decode packed {target} archive: {error}")
+                })?;
+            let name = item
+                .get("name")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| anyhow::anyhow!("packed {target} item is missing name"))?;
+            return Ok(proto::SkillArchive {
+                name: name.to_string(),
+                tar_gz: data,
+                target: target.to_string(),
+            });
         }
 
         let Some(skill_id) = item.get("skill_id").and_then(|v| v.as_str()) else {
-            anyhow::bail!("skill item for target {target} has neither tar_gz_b64 nor skill_id");
+            anyhow::bail!("skill item is missing skill_id");
         };
         let version = item
             .get("version")
@@ -491,18 +493,7 @@ impl HarnessInputBuilder {
             .await?
             .ok_or_else(|| anyhow::anyhow!("skill not found: {skill_id}"))?;
         ensure_skill_runtime_ready(&skill)?;
-        // Version keyword semantics (mirrors the Python skill_packer):
-        //  - "draft"            → the mutable working copy (skill_files)
-        //  - "latest"/empty     → the highest published version; fail closed
-        //                         when nothing has been published yet
-        //  - explicit "x.y.z"   → that exact published version
-        let (resolved_version, version_meta, files) = if version == "draft" {
-            (
-                "draft".to_string(),
-                None,
-                self.load_skill_files(skill_id).await?,
-            )
-        } else if version == "latest" || version.is_empty() {
+        let (resolved_version, version_meta, files) = if version == "latest" {
             let resolved = self
                 .highest_published_version(skill_id)
                 .await
@@ -662,21 +653,6 @@ impl HarnessInputBuilder {
             .filter_map(|v| parse_semver(&v).map(|key| (key, v)))
             .max_by(|a, b| a.0.cmp(&b.0))
             .map(|(_, v)| v)
-    }
-
-    async fn load_skill_files(&self, skill_id: Uuid) -> anyhow::Result<Vec<SkillFileForArchive>> {
-        sqlx::query_as::<_, SkillFileForArchive>(
-            r#"
-            SELECT path, file_name, content
-            FROM joysafeter_skill_files
-            WHERE skill_id = $1
-            ORDER BY path, file_name
-            "#,
-        )
-        .bind(skill_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Into::into)
     }
 
     async fn load_skill_version_files(
@@ -1463,9 +1439,9 @@ mod tests {
             "name": agent_name,
             "engine_kind": "claude",
             "model": {"id": "snapshot-model"},
-            "system_prompt": "snapshot system",
+            "system": "snapshot system",
             "env": {"AGENT_LEVEL": "snapshot-agent-env"},
-            "mcp_configs": [{
+            "mcp_servers": [{
                 "name": "snapshot-mcp",
                 "type": "http",
                 "url": "https://mcp.snapshot.example"
@@ -1536,7 +1512,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     version, environment_ref, secret_ref
                 )
@@ -1690,7 +1666,7 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_configs, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands, permission_mode,
                     metadata, version
                 )
                 VALUES (
@@ -1862,7 +1838,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -2003,7 +1979,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -2138,35 +2114,19 @@ fn resolve_model_from_secrets(input: &mut HarnessInput) {
     });
 }
 
-fn parse_mcp_configs(value: Option<&serde_json::Value>) -> Vec<proto::McpConfig> {
+fn parse_mcp_servers(value: Option<&serde_json::Value>) -> Vec<proto::McpConfig> {
     value
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
                 .map(|item| proto::McpConfig {
                     name: item["name"].as_str().unwrap_or("").to_string(),
-                    command: item["command"].as_str().unwrap_or("").to_string(),
-                    args: item["args"]
-                        .as_array()
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    env: json_object_to_string_map(item.get("env")),
-                    // mcp_configs store transport under "type" (schema McpServerConfig);
-                    // accept legacy "server_type"/"transport" too. The sandbox runner
-                    // ultimately keys off url-present to pick http vs stdio, but pass the
-                    // declared type through so sse can be distinguished from http.
-                    server_type: item["type"]
-                        .as_str()
-                        .or_else(|| item["server_type"].as_str())
-                        .or_else(|| item["transport"].as_str())
-                        .unwrap_or("stdio")
-                        .to_string(),
+                    command: String::new(),
+                    args: Vec::new(),
+                    env: HashMap::new(),
+                    server_type: item["type"].as_str().unwrap_or("url").to_string(),
                     url: item["url"].as_str().unwrap_or("").to_string(),
-                    headers: json_object_to_string_map(item.get("headers")),
+                    headers: HashMap::new(),
                 })
                 .collect()
         })
@@ -2675,7 +2635,7 @@ pub fn extract_tool_name_sets(
         }
     }
 
-    if let Some(ref mcp_val) = agent.mcp_configs {
+    if let Some(ref mcp_val) = agent.mcp_servers {
         if let Some(arr) = mcp_val.as_array() {
             for item in arr {
                 if let Some(name) = item.get("name").and_then(|v| v.as_str()) {

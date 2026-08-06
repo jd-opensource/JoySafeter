@@ -7,7 +7,7 @@ import {
   createApiError,
   extractErrorFromResponse,
   isUnauthorizedApiError,
-  MANAGED_API_BASE,
+  API_BASE,
   refreshAccessTokenOrRelogin,
 } from '@/lib/api-client'
 import { getCsrfToken } from '@/lib/auth/csrf'
@@ -84,7 +84,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
 
       try {
         const afterSeq = lastSeqRef.current
-        const url = `${MANAGED_API_BASE}${apiResourcePath('sessions', sessionId, 'events', 'stream')}?after_seq=${afterSeq}`
+        const url = `${API_BASE}${apiResourcePath('sessions', sessionId, 'events', 'stream')}?after_seq=${afterSeq}`
 
         if (process.env.NODE_ENV !== 'production') {
           // eslint-disable-next-line no-console

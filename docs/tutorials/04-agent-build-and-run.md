@@ -7,8 +7,8 @@
 
 ## 0. 心智模型
 
-- **Agent**：一份定义（`joysafeter_agents`）——引擎 `engine_kind`、`model`、`system_prompt`，以及能力
-  （`skills` / `tools` / `mcp_configs`，均为该行上的 JSONB）。
+- **Agent**：一份定义——引擎 `engine_kind`、`model`、`system`，以及能力
+  （`skills` / `tools` / `mcp_servers`）。
 - **Session（会话）**：一段对话（`joysafeter_sessions`），创建时快照当时的 Agent 定义。
 - **Task（任务）**：会话里的每条用户消息变成一个 Task（`joysafeter_tasks`），被调度到沙箱执行。
 - **事件流**：harness 的一切输出（文本 / 思考 / 工具调用 / 工具结果 / 模型请求 / 子任务）以事件形式
@@ -26,10 +26,10 @@
 |------|------|
 | **引擎（engine_kind）** | `claude`（Claude Code CLI）/ `codex`（Codex app-server）/ `native`（自研 `ccb`）。决定沙箱镜像与运行时 harness。 |
 | **模型（model）** | 引擎支持的模型名；密钥由该 Agent 关联的 Secret 注入（见教程 01）。 |
-| **系统提示词（system_prompt）** | Agent 的角色与行为约束。 |
+| **系统提示词（system）** | Agent 的角色与行为约束。 |
 | **技能（skills）** | 勾选已 `approved` 的技能（见教程 03），可选特定版本。 |
 | **工具 + 策略（tools）** | 勾选内置工具，并对高危工具设 `always_ask`（运行时人工确认）。 |
-| **MCP 服务器（mcp_configs）** | 外部工具服务（见教程 02），凭据放 Vaults。 |
+| **MCP 服务器（mcp_servers）** | URL 型外部工具服务（见教程 02），凭据放 Vaults。 |
 | **权限模式（permission_mode）** | 如 `bypassPermissions` / `default`，影响工具放行策略。 |
 
 保存后，Agent 会**版本化**（`joysafeter_agent_versions` 记录快照）。
@@ -43,10 +43,10 @@ curl -X POST http://localhost:8000/api/v1/agents \
     "name": "recon-helper",
     "engine_kind": "claude",
     "model": { "id": "Claude-Opus-4.6" },
-    "system_prompt": "你是一名授权范围内的安全侦察助手。",
+    "system": "你是一名授权范围内的安全侦察助手。",
     "skills": [ { "type": "skill_id", "skill_id": "<id>", "version": "1.0.0" } ],
     "tools": [ ],
-    "mcp_configs": [ ]
+    "mcp_servers": [ ]
   }'
 ```
 

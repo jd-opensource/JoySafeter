@@ -2010,7 +2010,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     multiagent, version
                 )
@@ -2189,7 +2189,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO joysafeter_agents (
-                id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                id, name, engine_kind, model, system_prompt, env, mcp_servers,
                 skills, tools, agents, commands, permission_mode, metadata,
                 multiagent, version
             )
@@ -2904,7 +2904,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     multiagent, version
                 )
@@ -3151,7 +3151,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     multiagent, version
                 )
@@ -3308,7 +3308,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     multiagent, version
                 )

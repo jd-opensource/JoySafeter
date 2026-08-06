@@ -574,24 +574,20 @@ function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions:
           </section>
 
           {/* System prompt */}
-          {(selectedAgent.system || selectedAgent.system_prompt) && (
+          {selectedAgent.system && (
             <section>
               <h3 className="mb-2 text-sm font-medium text-foreground">
                 {t('managed.agents.systemPrompt')}
               </h3>
               <div className="relative">
                 <pre className="max-h-[300px] overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs">
-                  {selectedAgent.system || selectedAgent.system_prompt}
+                  {selectedAgent.system}
                 </pre>
                 <Button
                   variant="outline"
                   size="icon"
                   className="absolute right-2 top-2 h-7 w-7"
-                  onClick={() =>
-                    navigator.clipboard.writeText(
-                      selectedAgent.system || selectedAgent.system_prompt || '',
-                    )
-                  }
+                  onClick={() => navigator.clipboard.writeText(selectedAgent.system || '')}
                   title={t('common.copyAll')}
                 >
                   <svg

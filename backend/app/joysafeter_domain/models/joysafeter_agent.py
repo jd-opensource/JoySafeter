@@ -13,17 +13,6 @@ from app.joysafeter_shared.database import Base
 
 from .base import JoySafeterBaseModel, TimestampMixin
 
-# ---------------------------------------------------------------------------
-# JoySafeter Agent models
-#
-# NOTE: the legacy unprefixed ``Agent`` / ``AgentVersion`` / ``AgentRelease``
-# models (tables ``agents`` / ``agent_versions`` / ``agent_releases``) were
-# removed in the v1 cleanup — managed agents run entirely on the
-# ``JoySafeter*`` models below (``joysafeter_agents`` / ``joysafeter_agent_versions``).
-# Only the ORM classes were dropped; the old tables are left in place
-# (no drop migration).
-# ---------------------------------------------------------------------------
-
 
 class JoySafeterAgent(JoySafeterBaseModel):
     __tablename__ = "joysafeter_agents"
@@ -59,7 +48,7 @@ class JoySafeterAgent(JoySafeterBaseModel):
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     env: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
-    mcp_configs: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
+    mcp_servers: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     skills: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     tools: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     agents: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")

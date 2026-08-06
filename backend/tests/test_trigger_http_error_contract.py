@@ -87,6 +87,28 @@ async def test_create_invalid_webhook_auth_method_returns_semantic_error_without
 
 @pytest.mark.no_db
 @pytest.mark.asyncio
+async def test_create_missing_webhook_auth_methods_returns_semantic_error_without_db_access():
+    app = _app(_NoDb(), _ctx())
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "missing-auth",
+                "type": "webhook",
+                "agent_id": str(uuid.uuid4()),
+                "prompt_template": "run",
+                "secret_ref": "hook-secret",
+            },
+        )
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRIGGER_AUTH_METHODS_REQUIRED"
+    assert resp.json()["user_action"] == "fix_input"
+    assert resp.json()["data"] == {"type": "webhook"}
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
 async def test_create_blank_webhook_secret_key_returns_semantic_error_without_db_access():
     app = _app(_NoDb(), _ctx())
     async with _client(app) as client:

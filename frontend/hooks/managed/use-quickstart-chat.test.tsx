@@ -42,7 +42,7 @@ vi.mock('@/lib/api-client', () => {
 
   return {
     ApiError: MockApiError,
-    MANAGED_API_BASE: base,
+    API_BASE: base,
     apiStream: vi.fn(postRequest),
     extractErrorFromResponse: vi.fn(
       async (response: Response) => new MockApiError(response.status, `API ${response.status}`),
@@ -71,7 +71,7 @@ function quickstartAgentConfigResponse(resourceId?: string): Response {
         {
           type: 'config_update',
           step: 2,
-          config: { name: 'Research Agent', system_prompt: 'Research carefully.' },
+          config: { name: 'Research Agent', system: 'Research carefully.' },
         },
         {
           type: 'step_complete',
@@ -142,6 +142,7 @@ function setCurrentProject(archivedAt: string | null = null) {
       name: 'Project A',
       slug: 'project-a',
       is_default: true,
+      capability: 'write',
       archived_at: archivedAt,
     },
     organizations: [],
@@ -777,7 +778,7 @@ describe('useQuickstartChat resource creation', () => {
         `data: ${JSON.stringify({
           type: 'config_update',
           step: 2,
-          config: { name: 'Terminal Agent', system_prompt: 'Use the final frame.' },
+          config: { name: 'Terminal Agent', system: 'Use the final frame.' },
         })}`,
       ),
     ) as typeof fetch
@@ -790,7 +791,7 @@ describe('useQuickstartChat resource creation', () => {
 
     expect(result.current.config.agent).toMatchObject({
       name: 'Terminal Agent',
-      system_prompt: 'Use the final frame.',
+      system: 'Use the final frame.',
     })
   })
 

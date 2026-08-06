@@ -535,8 +535,6 @@ export async function convertFilesToSkillFiles(
         size: content.length,
         created_at: now,
         updated_at: now,
-        name: filename,
-        language: fileType,
       })
     } catch (e) {
       rejectedFiles.push({ path: relativePath, reason: 'read_error' })

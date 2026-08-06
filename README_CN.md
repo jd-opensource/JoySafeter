@@ -190,14 +190,9 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 </tr>
 </table>
 
-> 这些构建块与 Claude Managed Agents 特性集的逐项对照、以及路线图，见
-> [与 Claude Managed Agents 的能力对齐与路线图](#与-claude-managed-agents-的能力对齐与路线图)。
-
 ---
 
 ## 快速开始
-
-### Docker Compose 部署（推荐）
 
 ```bash
 cd deploy
@@ -205,66 +200,19 @@ cd deploy
 ./deploy.sh local
 ```
 
-`doctor` 只做本地环境预检，不启动容器。`local` 会创建缺失的 `.env`，
-按 Docker daemon 的 CPU 架构自动选择 `linux/arm64` 或 `linux/amd64`，
-配置多架构基础镜像，准备 SkillSpector 源码，执行数据库迁移，然后启动完整本地栈。
+这是当前唯一支持的完整安装路径。`local` 会自动选择 Docker daemon 的 `amd64` 或 `arm64`
+架构，构建核心服务与默认 Claude Code runtime，执行数据库迁移并启动完整栈。
 
 访问地址：
 
 | 服务 | 地址 |
 |------|------|
 | 前端 | http://localhost:3000 |
-| 后端 API | http://localhost:8000 |
+| API | http://localhost:8000 |
 | API 文档 | http://localhost:8000/docs |
 
-后端由两个 Python 服务和 Rust orchestrator 组成，作为独立容器部署：
-
-- `api`：REST `/api/v1/*`、SSE 事件流、通知 WebSocket、鉴权。
-- `orchestrator-rs`：任务调度、gRPC `AgentBridge`、sandbox 生命周期。
-- `worker`：消费 Redis 事件流并将事件落库到 Postgres。
-
-配套基础设施：PostgreSQL、Redis、Envoy（每沙箱出站代理）、skillspector（Skill 安全扫描服务）。
-内置 Redis 服务由 `local-redis` profile 控制；如果使用云 Redis，不启用该 profile，改 `deploy/.env`
-里的 `REDIS_URL` 即可。
-
-运行时协同：
-
-| 参与方 | 职责 |
-|------|------|
-| 前端 | 产品 UI、REST 命令、SSE 订阅 |
-| API | Auth/RBAC、CRUD、任务创建、SkillSpector 写入时扫描、SSE 回放/实时桥接 |
-| Rust `orchestrator-rs` | DB 权威调度、任务租约、沙箱生命周期、runner gRPC、事件发射 |
-| Sandbox runner | 容器内 Claude/Codex/native harness 执行，通过 `AgentBridge` 回连 |
-| Worker | Redis Stream 消费、事件 `seq` 分配、可靠事件落库 |
-| PostgreSQL / Redis | PostgreSQL 是调度/状态权威；Redis 提供唤醒、Streams、Pub/Sub 和命令中继 |
-
-主数据流：浏览器命令 → API → PostgreSQL task 行 + Redis 唤醒 → Rust orchestrator 认领 →
-sandbox runner 执行 → Redis Stream/PubSub 事件 → Worker 可靠落库 + API SSE 投递 → 浏览器。
-完整拓扑、职责所有权和故障归属见 [docs/ARCHITECTURE_CN.md](docs/ARCHITECTURE_CN.md)。
-
-### 本地测试一键启动
-
-```bash
-cd deploy
-./local-test.sh
-```
-
-仅当你希望 Python/Node 进程直接跑在宿主机、Docker 只提供 PostgreSQL/Redis 时使用它。
-普通容器化本地部署请使用 `./deploy.sh local`。
-
-### 常用部署命令
-
-```bash
-cd deploy
-./deploy.sh doctor                         # 本地 Docker/Compose/env 预检
-./deploy.sh local                          # 完整本地 Docker Compose 部署
-./deploy.sh up                             # 复用现有镜像快速启动/更新
-./deploy.sh local --arch arm64             # 强制目标平台
-./deploy.sh build                          # 构建核心部署镜像
-./deploy.sh build --all                    # 构建核心 + agent runtime 镜像
-```
-
-> **环境要求：** Docker + Docker Compose。部署细节请参考 [deploy/README.md](deploy/README.md)。
+安装说明见 [INSTALL_CN.md](INSTALL_CN.md)，构建与部署命令见
+[deploy/README.md](deploy/README.md)，宿主机开发见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ---
 
@@ -337,75 +285,12 @@ flowchart LR
 
 ---
 
-## 最新动态
-
-> 完整更新记录：[CHANGELOG.md](CHANGELOG.md)
-
-| 标签 | 功能 | 一句话说明 |
-|------|------|-----------|
-| **NEW** | **拆分运行时架构** | 单进程单体拆分为 Python `api` / `worker` 与 Rust `orchestrator-rs`，作为独立容器部署 |
-| **NEW** | **Redis 事件总线** | 两阶段总线扇出到 Redis Streams（持久，Worker 消费）与 Redis Pub/Sub（实时 SSE），取代旧的进程内 WebSocket 总线 |
-| **NEW** | **SSE 实时事件流** | 浏览器订阅 `GET /api/v1/sessions/{id}/events/stream`，支持 `?after_seq` 回放；WebSocket 仅用于通知 |
-| **NEW** | **沙箱 gRPC 执行** | Rust `sandbox-runner` 在每会话容器内运行 harness，经 gRPC `AgentBridge` 协议回连 orchestrator |
-| **NEW** | **可插拔引擎** | `claude`（Claude Code CLI）、`codex`（Codex app-server）、`native`（自研 `ccb`），按 Agent 选择 |
-| **NEW** | **可插拔沙箱** | Docker（默认，加固）、E2B、Daytona，统一 SPI |
-| **NEW** | **AI Skill 创作** | 工作区内 LLM 辅助的 Skill 起草、代码编辑与版本 diff |
-| **NEW** | **Secrets 与 Vaults** | AES-256-GCM 加密的 Provider API Key（Secrets）与 MCP 凭据（Vaults），运行时注入沙箱 |
-| **NEW** | **Skill 安全扫描** | SkillSpector 扫描技能内容；运行时拦截未审批、未扫描、failed、blocked、scanning 或漂移的技能 |
-| **NEW** | **每沙箱出站管控** | Envoy 代理对每个沙箱执行默认拒绝的域名白名单 |
-| **NEW** | **trace_id 全链路追踪** | 基于 OpenTelemetry 的端到端请求追踪，实现完整可观测性 |
-
----
-
-## 与 Claude Managed Agents 的能力对齐与路线图
-
-JoySafeter 实现了 Anthropic 为
-[Claude Managed Agents](https://claude.com/blog/claude-managed-agents) 描述的同一套
-**托管智能体运行模型** —— 你声明 Agent 的工具、技能与护栏，平台在托管 harness 上以沙箱执行、
-会话、作用域权限与全链路可观测运行它。不同之处在于：JoySafeter 是**开源、可自托管、引擎无关**
-（Claude Code / Codex / 自研 `ccb`）、并**面向安全场景专门化**的。下表逐项对照该模型与 JoySafeter 当前的落地情况。
-
-**图例：** ✅ 已交付 · 🟡 部分实现 · ⬜ 规划中（见路线图）
-
-| Managed-agent 能力 | JoySafeter | 我们如何实现 |
-|---|:---:|---|
-| 托管 Agent harness / 编排 | ✅ | Orchestrator + gRPC `AgentBridge` + 沙箱内 Rust `sandbox-runner` harness |
-| 沙箱执行 | ✅ | 每会话独立加固容器；Docker（默认）/ E2B / Daytona，统一 SPI |
-| 工具、自定义工具 & MCP | ✅ | 每 Agent 的内置工具、自定义工具与 `mcp_configs`，经 gRPC 下发到沙箱 |
-| 作用域权限 / 护栏 | ✅ | 每工具策略（`always_ask` / `always_allow`）+ 人工确认（HITL） |
-| 凭据管理 | ✅ | Secrets（Provider Key）+ Vaults（MCP 凭据），AES-256-GCM 加密，作为沙箱 env 注入 |
-| 会话与可恢复执行 | ✅ | `JoySafeterSession` + 追加式事件日志；重连时按 harness 会话/工作目录恢复 |
-| 记忆库（Memory Store） | ✅ | 版本化、Agent 可写的记忆库，与沙箱双向同步 |
-| 可观测性 / 会话追踪 | ✅ | OTel traces + `observations`，外加每个工具调用与决策的实时 SSE 事件流 |
-| 部署 CLI + 控制台 | ✅ | `joysafeterctl`（声明式 REST CLI）+ Web 工作台 |
-| 定时与事件触发器 | ✅ | Cron / 一次性 `run_at` / 入站签名 webhook 触发器自动运行 Agent；重试/退避、死信自动禁用、每次触发的会话模式 |
-| 多智能体编排（lead → specialists） | 🟡 | 目前为 harness 驱动的子 Agent，经 `TaskNotification` 事件呈现；一等公民式的 lead/specialist 编排在路线图中 |
-| 持久化 checkpoint | 🟡 | 目前为会话级恢复；步级持久 checkpoint 规划中 |
-| Outcomes（rubric + grader 自我纠错闭环） | ⬜ | 规划中 |
-| Dreaming（定时记忆整理 / 自我进化） | ⬜ | 规划中 |
-| Webhooks（任务/结果完成通知） | ⬜ | 规划中 |
-
-### 路线图 / TODO
-
-结合我们已有的能力与 managed-agent 前沿特性，下一步工作项：
-
-- [ ] **Outcomes** —— 用户定义 rubric（评分标准），由独立 grader 在自己的上下文中评估每次结果，Agent 自我纠错直至达标（无需逐次人工审查）。
-- [ ] **一等公民式多智能体编排** —— lead agent 委派给各 specialist 子 Agent（各自独立的模型 / 提示词 / 工具），在共享会话工作区上并行执行，并对每个子 Agent 提供完整追踪（目前子 Agent 由 harness 拉起，仅通过 `agent.bg_task_*` 事件观测）。
-- [ ] **Dreaming** —— 定时任务回顾历史会话与记忆库，提炼反复出现的模式与错误，整理记忆（可选自动更新或先审后改）。
-- [ ] **Webhooks** —— 任务或 outcome 完成时通知外部系统（或触发后续 Agent）。
-- [ ] **步级持久 checkpoint** —— 支持长任务中途续跑，超越当前的会话/工作目录重连恢复。
-- [ ] **会话时长计量与成本分析** —— 在控制台呈现每会话运行时长 + token/成本核算。
-
-> 有用例急需其中某项？欢迎提 issue —— 路线图由社区共同驱动。
-
----
-
 ## 文档
 
 ### 快速上手
-- [INSTALL_CN.md](INSTALL_CN.md) — 安装指南（Docker / 手动 / 预构建镜像）
+- [INSTALL_CN.md](INSTALL_CN.md) — 统一安装入口
 - [DEVELOPMENT.md](DEVELOPMENT.md) — 本地开发
-- [deploy/README.md](deploy/README.md) — Docker 部署
+- [deploy/README.md](deploy/README.md) — 构建、镜像发布与部署
 
 ### 深入了解
 - [docs/README.md](docs/README.md) — 文档地图

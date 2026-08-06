@@ -1,16 +1,4 @@
-"""
-JoySafeter authentication services.
-
-Merged from the former auth_session_service.py, auth_service.py,
-oauth_service.py, and login_init.py (v1 cleanup consolidation):
-  - AuthSessionService     — auth session persistence + active-org context
-  - AuthService            — password login / signup / session issuance
-  - OAuthService           — OAuth provider login / callback / linking
-  - run_post_login_init()  — shared post-login bookkeeping + audit
-
-Each former module's full body is kept verbatim below under a section banner;
-redundant imports across sections are harmless.
-"""
+"""Authentication, OAuth, login initialization, and session services."""
 
 # ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
 
@@ -236,7 +224,6 @@ from app.joysafeter_shared.security import (
     generate_password_reset_token,
     get_password_hash,
     hash_security_token,
-    is_legacy_password_hash,
     verify_password,
 )
 
@@ -258,12 +245,6 @@ class AuthService(BaseService):
         self.user_repo = AuthUserRepository(db)
         self.session_service = AuthSessionService(db)
         self.audit_service = SecurityAuditService(db)
-
-    # ------------------------------------------------------------------ utils
-    def _issue_token(self, user_id: str) -> tuple[str, datetime]:
-        expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-        token = secrets.token_urlsafe(32)
-        return token, expires
 
     async def _issue_jwt_tokens(self, user_id: str) -> tuple[str, str, str, datetime, datetime]:
         """Generate JWT access token, refresh token, and CSRF token."""
@@ -318,7 +299,7 @@ class AuthService(BaseService):
                 await ProjectService(self.db).grant_project_membership(
                     project_id=default_project.id,
                     user_id=user_id,
-                    role="owner",
+                    role="admin",
                 )
 
             org_id = membership.organization_id
@@ -339,16 +320,25 @@ class AuthService(BaseService):
             if project:
                 project_id = project.id
         except Exception as exc:
-            logger.bind(
-                error=_oauth_service_error_payload(
+            raise InternalServiceError(
+                "Failed to resolve authentication context",
+                code="AUTH_JWT_CONTEXT_RESOLVE_FAILED",
+                data=_oauth_service_error_payload(
                     code="AUTH_JWT_CONTEXT_RESOLVE_FAILED",
                     message="Failed to resolve org/project for JWT claims",
                     operation="resolve_jwt_context",
                     boundary="auth_service",
                     data={"user_id": user_id},
                     detail=exc.__class__.__name__,
-                )
-            ).debug("Failed to resolve org/project for JWT claims")
+                ),
+            ) from exc
+
+        if not org_id or not project_id or not role:
+            raise InternalServiceError(
+                "Authentication context is incomplete",
+                code="AUTH_JWT_CONTEXT_INCOMPLETE",
+                data={"user_id": user_id},
+            )
 
         # generate access token (JWT) with org/project context
         access_token = create_access_token(
@@ -390,7 +380,7 @@ class AuthService(BaseService):
         return access_token, refresh_token, csrf_token, access_expires, refresh_expires
 
     def _refresh_session_token(self, refresh_token: str) -> str:
-        """Namespace refresh tokens so they cannot be used as legacy access sessions."""
+        """Namespace refresh tokens so they cannot authenticate access requests."""
         return f"{self._REFRESH_SESSION_PREFIX}{refresh_token}"
 
     async def _store_refresh_session(
@@ -529,51 +519,6 @@ class AuthService(BaseService):
             user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
         )
 
-    async def _build_login_response(
-        self,
-        user: AuthUser,
-        session_token: str,
-        expires_at: datetime,
-        session: Optional[AuthSession] = None,
-    ) -> dict:
-        """Build login response (aligned with better-auth format)."""
-
-        response: Dict[str, Any] = {
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "name": user.name,
-                "image": user.image,
-                "emailVerified": user.email_verified,
-                "isSuperUser": user.is_super_user,
-                "createdAt": user.created_at.isoformat() if user.created_at else None,
-                "updatedAt": user.updated_at.isoformat() if user.updated_at else None,
-            },
-        }
-
-        if session:
-            response["session"] = {
-                "id": session.id,
-                "token": session.token,
-                "expiresAt": session.expires_at.isoformat() if session.expires_at else None,
-                "userId": session.user_id,
-                "activeOrganizationId": session.active_organization_id,
-                "ipAddress": session.ip_address,
-                "userAgent": session.user_agent,
-                "createdAt": session.created_at.isoformat() if session.created_at else None,
-                "updatedAt": session.updated_at.isoformat() if session.updated_at else None,
-            }
-        else:
-            response["session"] = {
-                "token": session_token,
-                "expiresAt": expires_at.isoformat() if expires_at else None,
-            }
-            response["access_token"] = session_token
-            response["token_type"] = "bearer"
-            response["expires_in"] = int((expires_at - datetime.now(timezone.utc)).total_seconds())
-
-        return response
-
     # ---------------------------------------------------------------- register/login
     async def register(
         self,
@@ -685,9 +630,6 @@ class AuthService(BaseService):
 
             if password_match:
                 login_success = True
-                if is_legacy_password_hash(stored_password):
-                    user.hashed_password = get_password_hash(password)
-                    await self.commit()
             else:
                 try:
                     await self.audit_service.log_event(

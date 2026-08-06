@@ -97,7 +97,6 @@ async def create_trigger(
         type=body.type,
         agent_id=body.agent_id,
         prompt_template=body.prompt_template,
-        system_prompt=body.system_prompt,
         environment_ref=body.environment_ref,
         description=body.description,
         enabled=body.enabled,

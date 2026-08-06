@@ -23,6 +23,7 @@ const projectA: ProjectInfo = {
   name: 'Project A',
   slug: 'project-a',
   is_default: true,
+  capability: 'write',
 }
 
 describe('managed project store context semantics', () => {
@@ -81,6 +82,13 @@ describe('managed project store context semantics', () => {
           archived_at: '2026-01-02T00:00:00Z',
         },
       ],
+    })
+
+    expect(currentProjectAllowsWrite()).toBe(false)
+
+    useProjectStore.setState({
+      currentProject: { ...projectA, capability: undefined },
+      projects: [{ ...projectA, capability: undefined }],
     })
 
     expect(currentProjectAllowsWrite()).toBe(false)

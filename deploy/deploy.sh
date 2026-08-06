@@ -1,6 +1,6 @@
 #!/bin/bash
-# JoySafeter - 镜像构建和推送脚本
-# 支持：构建多架构镜像、推送镜像、拉取镜像
+# JoySafeter - 统一构建与部署入口
+# 支持：本地完整栈、镜像构建、镜像推送和镜像拉取
 #
 # 所有 Dockerfile 统一位于 deploy/docker/ 目录
 
@@ -54,11 +54,9 @@ platform_from_arch() {
         arm64|aarch64)
             echo "linux/arm64"
             ;;
-        armv7l|arm/v7)
-            echo "linux/arm/v7"
-            ;;
         *)
-            echo "linux/amd64" # 默认回退
+            printf '不支持的 CPU 架构: %s（仅支持 amd64 和 arm64）\n' "$arch" >&2
+            return 1
             ;;
     esac
 }
@@ -77,8 +75,6 @@ get_docker_platform() {
     get_host_platform
 }
 
-# 默认多平台构建：amd64 + arm64
-DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
 PLATFORMS="" # 初始为空，稍后根据命令和系统动态设置
 USE_BUILDX="${USE_BUILDX:-true}"
 # 镜像源配置（两个变量控制所有拉取）：
@@ -139,7 +135,7 @@ show_usage() {
   local              本地 Docker Compose 一键部署（自动按 Docker CPU 架构选择平台）
   up                 使用现有镜像快速启动/更新本地栈（不重新构建）
   build              构建核心部署镜像（backend, frontend, orchestrator-rs, skillspector）
-  push               构建并推送多架构镜像到仓库
+  push               构建并推送目标架构镜像到仓库
   pull               拉取镜像，并把拉取到的镜像名同步到 deploy/.env
   down               停止并移除本地 Compose 服务（保留数据卷）
   logs               跟随查看服务日志（可跟服务名，如 logs api worker）
@@ -150,10 +146,8 @@ show_usage() {
   -h, --help             显示帮助信息
   -r, --registry REGISTRY 镜像仓库地址（默认: 空，本地镜像）
   -t, --tag TAG          镜像标签（默认: latest）
-  --platform PLATFORMS   目标平台架构，多个用逗号分隔（默认: linux/amd64,linux/arm64）
-  --arch ARCH            简化的架构选项，可多次使用
-                         支持: amd64, arm64, armv7
-  --api-url URL          （已废弃）前端 API 地址现在通过容器环境变量运行时注入
+  --platform PLATFORM    目标平台（支持: linux/amd64, linux/arm64）
+  --arch ARCH            目标架构（支持: amd64, arm64）
   --backend-only         只处理后端镜像
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
@@ -178,7 +172,7 @@ show_usage() {
   CODEX_IMAGE            Codex 运行镜像名称（默认: joysafeter-codex）
   NATIVE_IMAGE           Native 运行镜像名称（默认: joysafeter-native）
   IMAGE_TAG              镜像标签（默认: latest）
-  BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
+  BUILD_PLATFORMS        目标平台架构（默认: Docker daemon 当前架构）
   PIP_INDEX_URL          pip 镜像源（默认: https://pypi.tuna.tsinghua.edu.cn/simple）
   UV_INDEX_URL           uv 镜像源（默认: https://pypi.tuna.tsinghua.edu.cn/simple）
   RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
@@ -206,10 +200,10 @@ show_usage() {
   # 构建核心部署镜像
   $0 build
 
-  # 只构建后端多架构镜像
+  # 只构建后端镜像
   $0 build --backend-only
 
-  # 只构建前端多架构镜像
+  # 只构建前端镜像
   $0 build --frontend-only
 
   # 构建核心部署镜像 + agent runtime 镜像
@@ -218,11 +212,8 @@ show_usage() {
   # 构建远程 amd64 服务器需要的全部镜像
   $0 build --all --arch amd64
 
-  # 构建并推送到仓库
-  $0 push
-
-  # 构建指定架构并推送
-  $0 push --arch amd64 --arch arm64
+  # 构建并推送到仓库（一次一个目标架构）
+  $0 push --registry registry.example.com/your-org --tag v0.3.2 --arch amd64
 
   # 构建时指定镜像源
   $0 build --mirror aliyun
@@ -273,15 +264,12 @@ check_docker_running() {
 }
 
 compose() {
-    if docker compose version >/dev/null 2>&1; then
-        docker compose "$@"
-    elif command -v docker-compose >/dev/null 2>&1; then
-        docker-compose "$@"
-    else
-        log_error "docker compose / docker-compose 均不可用"
+    if ! docker compose version >/dev/null 2>&1; then
+        log_error "Docker Compose v2（docker compose）不可用"
         suggest_compose_install
         exit 1
     fi
+    docker compose "$@"
 }
 
 suggest_compose_install() {
@@ -291,21 +279,7 @@ suggest_compose_install() {
     case "$host_os" in
         Darwin)
             log_error "macOS 安装方法:"
-            if command -v brew >/dev/null 2>&1; then
-                log_error "  brew install docker-compose"
-                local brew_prefix
-                brew_prefix="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
-                log_error "  安装后需在 ~/.docker/config.json 中添加:"
-                log_error "    \"cliPluginsExtraDirs\": [\"${brew_prefix}/lib/docker/cli-plugins\"]"
-            else
-                log_error "  方式 1: 安装 Docker Desktop for Mac（自带 compose 插件）"
-                log_error "  方式 2: 手动安装插件:"
-                log_error "    mkdir -p ~/.docker/cli-plugins"
-                local arch_suffix
-                arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/arm64/aarch64/')"
-                log_error "    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-darwin-${arch_suffix} -o ~/.docker/cli-plugins/docker-compose"
-                log_error "    chmod +x ~/.docker/cli-plugins/docker-compose"
-            fi
+            log_error "  安装 Docker Desktop for Mac（自带 Docker Compose v2 插件）"
             ;;
         Linux)
             log_error "Linux 安装方法:"
@@ -318,12 +292,12 @@ suggest_compose_install() {
             elif command -v pacman >/dev/null 2>&1; then
                 log_error "  sudo pacman -S docker-compose"
             else
-                log_error "  通过包管理器安装 docker-compose-plugin，或手动安装:"
+                log_error "  通过包管理器安装 Docker Compose v2 插件，或手动安装:"
             fi
             log_error "  或手动安装插件:"
             log_error "    mkdir -p ~/.docker/cli-plugins"
             local arch_suffix
-            arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/aarch64/aarch64/; s/armv7l/armv7/')"
+            arch_suffix="$(uname -m | sed 's/x86_64/x86_64/; s/arm64/aarch64/')"
             log_error "    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${arch_suffix} -o ~/.docker/cli-plugins/docker-compose"
             log_error "    chmod +x ~/.docker/cli-plugins/docker-compose"
             ;;
@@ -372,7 +346,7 @@ suggest_buildx_install() {
             log_error "  或手动安装插件:"
             log_error "    mkdir -p ~/.docker/cli-plugins"
             local arch_suffix
-            arch_suffix="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/; s/armv7l/arm-v7/')"
+            arch_suffix="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
             log_error "    curl -SL https://github.com/docker/buildx/releases/latest/download/buildx-v\$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep tag_name | cut -d'\"' -f4 | tr -d v).linux-${arch_suffix} -o ~/.docker/cli-plugins/docker-buildx"
             log_error "    chmod +x ~/.docker/cli-plugins/docker-buildx"
             ;;
@@ -520,7 +494,7 @@ ensure_postgres_password() {
     log_success "已自动生成 ${key_var}"
 }
 
-# 确保 vault 加密密钥在 deploy/.env 与 backend/.env 中【存在且为同一把】。
+# 确保加密密钥在 deploy/.env 与 backend/.env 中【存在且为同一把】。
 # compose 的 env_file 顺序是 [backend/.env, deploy/.env]，后者覆盖前者，故
 # deploy/.env 为权威真源。解析出唯一有效 key 后同步写入两个文件：
 #   - deploy/.env 已有合法真实 key -> 以它为准；
@@ -529,8 +503,8 @@ ensure_postgres_password() {
 ensure_vault_encryption_key() {
     local deploy_env="$1"
     local backend_env="$2"
-    local placeholder="CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
     local key_var="JOYSAFETER_VAULT_ENCRYPTION_KEY"
+    local placeholder="CHANGE_ME_GENERATE_WITH_openssl_rand_base64_32"
 
     local deploy_key backend_key
     deploy_key="$(read_env_value "$deploy_env" "$key_var")"
@@ -550,7 +524,7 @@ ensure_vault_encryption_key() {
     elif [ "$backend_real" = true ]; then
         if vault_key_is_valid "$backend_key"; then
             effective="$backend_key"
-            log_info "复用 backend/.env 中已有的 ${key_var} 作为 vault 密钥真源"
+            log_info "复用 backend/.env 中已有的 ${key_var} 作为加密密钥真源"
         else
             log_error "backend/.env 的 ${key_var} 已设置但不是合法 32 字节密钥"
             return 1
@@ -564,7 +538,7 @@ ensure_vault_encryption_key() {
         fi
         effective="$(openssl rand -base64 32)"
         log_success "已自动生成 ${key_var}（vault 凭证加密密钥）"
-        log_warning "该密钥一经启用请勿更改，否则已加密的托管密钥密文将无法解密"
+        log_warning "该密钥一经启用请勿更改，否则对应密文将无法解密"
     fi
 
     if [ "$deploy_key" != "$effective" ]; then
@@ -768,6 +742,22 @@ sync_local_core_image_env() {
     fi
 }
 
+sync_local_runtime_image_env() {
+    local deploy_env="$1"
+    local normalized_registry
+    normalized_registry="$(normalize_registry "$REGISTRY")"
+
+    local runtime_image
+    if [ -n "$normalized_registry" ]; then
+        runtime_image="${normalized_registry}/${CLAUDECODE_IMAGE}:${TAG}"
+    else
+        runtime_image="${CLAUDECODE_IMAGE}:${TAG}"
+    fi
+
+    set_env_value "$deploy_env" "JOYSAFETER_SANDBOX_IMAGE" "$runtime_image"
+    set_env_value "$deploy_env" "JOYSAFETER_IMAGE_CLAUDE" "$runtime_image"
+}
+
 build_local_compose_images() {
     local deploy_env="$SCRIPT_DIR/.env"
 
@@ -787,13 +777,14 @@ build_local_compose_images() {
         BUILD_FRONTEND=true
         BUILD_ORCHESTRATOR=true
         BUILD_SKILLSPECTOR=true
-        BUILD_CLAUDECODE=false
+        BUILD_CLAUDECODE=true
         BUILD_CODEX=false
         BUILD_NATIVE=false
         build_all_images
     )
 
     sync_local_core_image_env "$deploy_env"
+    sync_local_runtime_image_env "$deploy_env"
 }
 
 wait_for_local_redis() {
@@ -830,9 +821,16 @@ run_local_migrations() {
 
 require_single_platform() {
     if echo "$PLATFORMS" | grep -q ","; then
-        log_error "本地 Compose 部署一次只能使用单一平台；请使用 --arch amd64 或 --arch arm64"
+        log_error "一次命令只能使用单一目标平台；请使用 --arch amd64 或 --arch arm64"
         exit 1
     fi
+    case "$PLATFORMS" in
+        linux/amd64|linux/arm64) ;;
+        *)
+            log_error "不支持的目标平台: $PLATFORMS（仅支持 linux/amd64 和 linux/arm64）"
+            exit 1
+            ;;
+    esac
 }
 
 configure_local_compose_env() {
@@ -878,11 +876,14 @@ configure_local_compose_env() {
 
 prepare_local_compose() {
     local require_skillspector_source="${1:-true}"
+    local require_runtime_image="${2:-true}"
 
     require_single_platform
     configure_local_compose_env "$require_skillspector_source"
     check_local_ports "$SCRIPT_DIR/.env"
-    require_sandbox_runtime_image "$SCRIPT_DIR/.env"
+    if [ "$require_runtime_image" = true ]; then
+        require_sandbox_runtime_image "$SCRIPT_DIR/.env"
+    fi
     validate_local_compose_config
 }
 
@@ -896,19 +897,20 @@ start_local_compose() {
 }
 
 run_local_compose() {
-    prepare_local_compose
+    prepare_local_compose true false
 
     log_info "Docker daemon 平台: $PLATFORMS"
     log_info "基础镜像源: $BASE_IMAGE_REGISTRY"
     log_info "第三方镜像代理: $DOCKER_MIRROR"
 
     build_local_compose_images
+    require_sandbox_runtime_image "$SCRIPT_DIR/.env"
     run_local_migrations
     start_local_compose
 }
 
 run_local_up() {
-    prepare_local_compose false
+    prepare_local_compose false true
 
     log_info "复用 deploy/.env 中配置的现有镜像，不执行构建"
     run_local_migrations
@@ -916,7 +918,15 @@ run_local_up() {
 }
 
 run_local_doctor() {
-    prepare_local_compose
+    prepare_local_compose false false
+
+    local sandbox_image="${JOYSAFETER_SANDBOX_IMAGE:-$(read_env_value "$SCRIPT_DIR/.env" "JOYSAFETER_SANDBOX_IMAGE")}"
+    sandbox_image="${sandbox_image:-joysafeter-claudecode:latest}"
+    if docker image inspect "$sandbox_image" >/dev/null 2>&1; then
+        log_success "Sandbox runtime image: $sandbox_image"
+    else
+        log_warning "Sandbox runtime image 尚未构建: $sandbox_image；首次执行 local 时会自动构建"
+    fi
 
     log_success "本地部署环境预检完成"
     echo ""
@@ -1030,19 +1040,17 @@ init_buildx() {
 
 # 转换简化架构名称为完整平台名称
 convert_arch_to_platform() {
-    local arch=$1
-    case "$arch" in
+    local target_arch="${1:-}"
+    case "$target_arch" in
         amd64)
             echo "linux/amd64"
             ;;
         arm64)
             echo "linux/arm64"
             ;;
-        armv7)
-            echo "linux/arm/v7"
-            ;;
         *)
-            echo "$arch"
+            log_error "不支持的架构: ${target_arch}（仅支持 amd64 和 arm64）"
+            return 1
             ;;
     esac
 }
@@ -1079,13 +1087,13 @@ build_image() {
 
     # 前端镜像：NEXT_PUBLIC_* 通过 next-runtime-env 在容器启动时注入，无需 build-arg
     if [ "$service" = "前端" ]; then
-        # 使用标准多架构 Node 镜像
+        # 使用标准 Node 镜像
         local node_version="20-alpine"
         build_args+=("--build-arg" "NODE_VERSION=${node_version}")
         log_info "前端使用 Node 版本: ${node_version}"
     fi
 
-    # 后端镜像使用标准多架构基础镜像
+    # 后端镜像使用标准基础镜像
     if [ "$service" = "后端" ]; then
         local python_version="3.12-slim-bookworm"
         build_args+=("--build-arg" "PYTHON_VERSION=${python_version}")
@@ -1097,8 +1105,10 @@ build_image() {
     if [ "$service" = "Rust Orchestrator" ]; then
         build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
         build_args+=("--build-arg" "RUNTIME_IMAGE=${RUNTIME_IMAGE}")
+        build_args+=("--build-arg" "RUST_TARGET=$(rust_target_for_platform "$PLATFORMS")")
         log_info "Rust builder 镜像: ${RUST_IMAGE}"
         log_info "Rust runtime 镜像: ${RUNTIME_IMAGE}"
+        log_info "Rust target: $(rust_target_for_platform "$PLATFORMS")"
     fi
 
     # 推送前再次检查 BuildKit 容器 DNS 连通性
@@ -1147,9 +1157,9 @@ build_image() {
 
     if [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ]; then
         if [ "$NO_CACHE" = true ]; then
-            log_info "使用 Docker Buildx 构建多架构镜像并推送（无缓存）..."
+            log_info "使用 Docker Buildx 构建并推送目标架构镜像（无缓存）..."
         else
-            log_info "使用 Docker Buildx 构建多架构镜像并推送（使用缓存）..."
+            log_info "使用 Docker Buildx 构建并推送目标架构镜像（使用缓存）..."
         fi
         local buildx_args=("${build_args[@]}")
         if [ "$NO_CACHE" = true ]; then
@@ -1165,35 +1175,22 @@ build_image() {
             "$context"
     elif [ "$USE_BUILDX" = true ]; then
         if [ "$NO_CACHE" = true ]; then
-            log_info "使用 Docker Buildx 构建多架构镜像（本地，无缓存）..."
+            log_info "使用 Docker Buildx 构建目标架构镜像（本地，无缓存）..."
         else
-            log_info "使用 Docker Buildx 构建多架构镜像（本地，使用缓存）..."
+            log_info "使用 Docker Buildx 构建目标架构镜像（本地，使用缓存）..."
         fi
         local buildx_args=("${build_args[@]}")
         if [ "$NO_CACHE" = true ]; then
             buildx_args+=("--no-cache")
         fi
-        if echo "$PLATFORMS" | grep -q ","; then
-            log_warning "多架构构建需要 --push 选项才能保存所有架构，当前只构建第一个架构"
-            FIRST_PLATFORM=$(echo "$PLATFORMS" | cut -d',' -f1)
-            docker buildx build \
-                --platform "$FIRST_PLATFORM" \
-                --file "$dockerfile" \
-                --tag "$image_name" \
-                "${buildx_args[@]}" \
-                "${extra_build_args[@]}" \
-                --load \
-                "$context"
-        else
-            docker buildx build \
-                --platform "$PLATFORMS" \
-                --file "$dockerfile" \
-                --tag "$image_name" \
-                "${buildx_args[@]}" \
-                "${extra_build_args[@]}" \
-                --load \
-                "$context"
-        fi
+        docker buildx build \
+            --platform "$PLATFORMS" \
+            --file "$dockerfile" \
+            --tag "$image_name" \
+            "${buildx_args[@]}" \
+            "${extra_build_args[@]}" \
+            --load \
+            "$context"
     else
         if [ "$NO_CACHE" = true ]; then
             log_info "使用传统方式构建单架构镜像（无缓存）..."
@@ -1506,7 +1503,7 @@ build_all_images() {
 
     # 如果使用 Buildx 且需要推送，必须指定仓库
     if [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ] && [ -z "$REGISTRY" ]; then
-        log_error "使用 Buildx 构建多架构镜像并推送时，必须指定镜像仓库（--registry）"
+        log_error "使用 Buildx 推送镜像时，必须指定镜像仓库（--registry）"
         exit 1
     fi
 
@@ -1591,9 +1588,6 @@ build_all_images() {
         log_success "镜像已推送到仓库"
     else
         log_info "镜像未推送，使用 push 命令推送到仓库"
-        if [ "$USE_BUILDX" = true ] && echo "$PLATFORMS" | grep -q ","; then
-            log_warning "注意：多架构构建需要 push 命令才能保存所有架构的镜像"
-        fi
     fi
 
     return 0
@@ -1760,17 +1754,7 @@ main() {
                 shift 2
                 ;;
             --arch)
-                local platform=$(convert_arch_to_platform "$2")
-                if [ -z "$ARCH_LIST_STR" ]; then
-                    ARCH_LIST_STR="$platform"
-                else
-                    ARCH_LIST_STR="$ARCH_LIST_STR,$platform"
-                fi
-                shift 2
-                ;;
-            --api-url)
-                # 已废弃：NEXT_PUBLIC_* 通过 next-runtime-env 运行时注入，不再需要 build-arg
-                log_info "警告: --api-url 已废弃，NEXT_PUBLIC_API_URL 现在通过容器环境变量运行时注入"
+                ARCH_LIST_STR=$(convert_arch_to_platform "$2")
                 shift 2
                 ;;
             --mirror)
@@ -1888,17 +1872,13 @@ main() {
         esac
     done
 
-    # 如果没有指定平台且没有设置环境变量，根据命令动态决定
+    # 默认使用 Docker daemon 当前架构。完整镜像集一次只构建一个目标架构，
+    # 多架构发布由 CI 针对各架构分别构建后合并 manifest。
     if [ -z "$PLATFORMS" ] && [ -z "$BUILD_PLATFORMS" ] && [ -z "$ARCH_LIST_STR" ]; then
-        if [ "$COMMAND" = "push" ]; then
-            PLATFORMS="$DEFAULT_PLATFORMS"
-            log_info "未指定架构，推送模式默认使用多架构: $PLATFORMS"
-        else
-            PLATFORMS=$(get_docker_platform)
-            log_info "自动检测 Docker 架构: $PLATFORMS"
-        fi
+        PLATFORMS=$(get_docker_platform)
+        log_info "自动检测 Docker 架构: $PLATFORMS"
     elif [ -z "$PLATFORMS" ]; then
-        PLATFORMS="${BUILD_PLATFORMS:-$DEFAULT_PLATFORMS}"
+        PLATFORMS="$BUILD_PLATFORMS"
     fi
 
     # 如果没有指定命令，显示帮助
@@ -1935,6 +1915,8 @@ main() {
         PLATFORMS="$ARCH_LIST_STR"
         log_info "使用指定的架构: $PLATFORMS"
     fi
+
+    require_single_platform
 
     # 执行命令
     case "$COMMAND" in

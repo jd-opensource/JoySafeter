@@ -9,14 +9,14 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Header, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
-from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-from app.joysafeter_api.services import SessionService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
+from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
+from app.joysafeter_domain.services.joysafeter_session_service import SessionService
+from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
     InvalidRequestError,
@@ -66,7 +66,7 @@ def _derive_auto_idempotency_key(req: CreateTaskRequest, auth_ctx: JoySafeterAut
             str(req.agent_id or ""),
             str(req.agent_name or ""),
             req.prompt or "",
-            req.system_prompt or "",
+            req.system or "",
             str(req.chat_session_id or ""),
             str(req.environment_ref or ""),
             str(_auto_idempotency_window_bucket()),
@@ -484,7 +484,7 @@ async def create_task(
     task, _created = await submission.create_and_dispatch(
         agent_id=agent.id,
         prompt=req.prompt,
-        system_prompt=req.system_prompt,
+        system_prompt=req.system,
         chat_session_id=chat_session_id,
         session_svc=session_svc,
         timeout_sec=req.timeout_sec,

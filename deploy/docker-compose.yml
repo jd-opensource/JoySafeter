@@ -239,13 +239,8 @@ services:
   worker:
     image: ${BACKEND_FULL_IMAGE:-joysafeter-backend:latest}
     build: *backend-build
-    # No container_name: the worker hosts the cron scheduler, which is
-    # multi-instance-safe (FOR UPDATE SKIP LOCKED claim + stale-lock reclaim +
-    # hostname-derived worker_id) and the event-stream consumer (Redis consumer
-    # group + per-instance consumer name). Omitting container_name lets it scale:
-    #   docker compose ... up -d --scale worker=3
-    # See deploy/HA.md. WORKERS stays 1 (one scheduler loop per container);
-    # scale by adding container replicas, not uvicorn workers.
+    # No container_name: keep the service compatible with future replica scaling.
+    # WORKERS stays 1 so each container owns one scheduler loop.
     restart: unless-stopped
     env_file: *backend-env-files
     environment:

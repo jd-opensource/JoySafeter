@@ -254,10 +254,6 @@ impl std::fmt::Debug for EgressCredentialRoute {
     }
 }
 
-/// Backward-compatible alias while call sites migrate to the unified egress
-/// policy vocabulary.
-pub type CredentialRoute = EgressCredentialRoute;
-
 /// A per-upstream STRICT_DNS cluster spec, delivered via CDS. One per unique
 /// real upstream host so credential routes can `host_rewrite` + forward with the
 /// correct TLS SNI. The sandbox never sees this — it only knows the placeholder.
@@ -501,8 +497,8 @@ pub fn egress_policy_summary(sandbox_id: &Uuid, policy: &SandboxEgressPolicy) ->
     })
 }
 
-/// Legacy orchestrator-facing description of the real secrets for one sandbox,
-/// built from decrypted DB rows. Converted to [`SandboxEgressPolicy`] before it
+/// Orchestrator-facing description of the real secrets for one sandbox,
+/// built from decrypted DB rows and converted to [`SandboxEgressPolicy`] before it
 /// reaches Envoy rendering. This type holds plaintext secrets and must never be
 /// persisted or logged.
 ///
@@ -553,7 +549,7 @@ impl SandboxCredentials {
     /// point at the shared dynamic_forward_proxy cluster (TLS or plain) based on
     /// the route's `upstream_tls`. No per-sandbox clusters are created; the DFP
     /// cluster resolves DNS on-demand from the `host_rewrite_literal` target.
-    pub fn to_routes(&self, _sandbox_id: &Uuid) -> Vec<CredentialRoute> {
+    pub fn to_routes(&self, _sandbox_id: &Uuid) -> Vec<EgressCredentialRoute> {
         self.routes
             .iter()
             .map(|r| {
@@ -637,7 +633,7 @@ impl UpstreamTarget {
     }
 }
 
-fn route_prefix_rewrite(r: &CredentialRoute) -> String {
+fn route_prefix_rewrite(r: &EgressCredentialRoute) -> String {
     if r.match_host == LLM_EGRESS_HOST {
         normalize_rewrite_base_prefix(&r.upstream_prefix)
     } else {
@@ -947,7 +943,7 @@ fn render_listener_json(spec: &ListenerSpec) -> Value {
 fn build_http_listener_json(
     sandbox_id: &Uuid,
     allowed_hosts: &[String],
-    credentials: &[CredentialRoute],
+    credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> Value {
     let virtual_hosts = build_virtual_hosts_json(allowed_hosts, credentials, proxy_auth_token);
@@ -1035,7 +1031,7 @@ fn build_http_listener_json(
 /// on that host still egress plainly.
 fn build_virtual_hosts_json(
     allowed_hosts: &[String],
-    credentials: &[CredentialRoute],
+    credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> Vec<Value> {
     let mut vhosts = Vec::new();
@@ -1069,8 +1065,8 @@ fn build_virtual_hosts_json(
                     headers_to_remove.push("proxy-authorization".to_string());
                 }
                 // For transparent routes (host is already real), no host_rewrite
-                // or prefix_rewrite needed. For placeholder routes (legacy),
-                // rewrite to the real upstream.
+                // or prefix_rewrite is needed. Placeholder routes rewrite to
+                // the real upstream.
                 let is_transparent = r.exposure == EgressExposure::Transparent;
                 let prefix_rewrite = route_prefix_rewrite(r);
                 let route_json = if is_transparent {
@@ -1227,7 +1223,7 @@ fn route_match_with_proxy_auth(mut match_json: Value, proxy_auth_token: Option<&
     match_json
 }
 
-fn domains_for_credential_host(match_host: &str, routes: &[CredentialRoute]) -> Vec<String> {
+fn domains_for_credential_host(match_host: &str, routes: &[EgressCredentialRoute]) -> Vec<String> {
     let mut domains = vec![
         match_host.to_string(),
         format!("{match_host}:80"),
@@ -1340,16 +1336,16 @@ fn validate_header_name(name: &str) -> anyhow::Result<()> {
 /// (host-sorted) list with routes ordered longest-`match_prefix`-first so more
 /// specific prefixes are matched before `/`.
 fn group_credentials_by_host(
-    credentials: &[CredentialRoute],
-) -> Vec<(String, Vec<CredentialRoute>)> {
-    let mut by_host: HashMap<String, Vec<CredentialRoute>> = HashMap::new();
+    credentials: &[EgressCredentialRoute],
+) -> Vec<(String, Vec<EgressCredentialRoute>)> {
+    let mut by_host: HashMap<String, Vec<EgressCredentialRoute>> = HashMap::new();
     for r in credentials {
         by_host
             .entry(r.match_host.clone())
             .or_default()
             .push(r.clone());
     }
-    let mut grouped: Vec<(String, Vec<CredentialRoute>)> = by_host.into_iter().collect();
+    let mut grouped: Vec<(String, Vec<EgressCredentialRoute>)> = by_host.into_iter().collect();
     grouped.sort_by(|a, b| a.0.cmp(&b.0));
     for (_, routes) in &mut grouped {
         routes.sort_by(|a, b| b.match_prefix.len().cmp(&a.match_prefix.len()));
@@ -2361,7 +2357,7 @@ fn pack_any<M: Message>(type_url: &str, msg: &M) -> Any {
 fn build_http_listener_proto(
     sandbox_id: &Uuid,
     allowed_hosts: &[String],
-    credentials: &[CredentialRoute],
+    credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
     use envoy_types::pb::envoy::config::accesslog::v3::{access_log, AccessLog};
@@ -2483,7 +2479,7 @@ fn build_http_listener_proto(
 
 fn build_virtual_hosts_proto(
     allowed_hosts: &[String],
-    credentials: &[CredentialRoute],
+    credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> Vec<envoy_types::pb::envoy::config::route::v3::VirtualHost> {
     use envoy_types::pb::envoy::config::core::v3::{
@@ -2896,7 +2892,7 @@ mod tests {
     fn spec_with_creds(
         kind: ListenerKind,
         hosts: &[&str],
-        creds: Vec<CredentialRoute>,
+        creds: Vec<EgressCredentialRoute>,
     ) -> ListenerSpec {
         ListenerSpec {
             sandbox_id: Uuid::nil(),
@@ -2907,8 +2903,8 @@ mod tests {
         }
     }
 
-    fn llm_route() -> CredentialRoute {
-        CredentialRoute {
+    fn llm_route() -> EgressCredentialRoute {
+        EgressCredentialRoute {
             id: "llm".to_string(),
             kind: EgressKind::Llm,
             exposure: EgressExposure::Placeholder,
@@ -2925,8 +2921,8 @@ mod tests {
         }
     }
 
-    fn mcp_route(name: &str) -> CredentialRoute {
-        CredentialRoute {
+    fn mcp_route(name: &str) -> EgressCredentialRoute {
+        EgressCredentialRoute {
             id: format!("mcp:{name}"),
             kind: EgressKind::Mcp,
             exposure: EgressExposure::Placeholder,
@@ -3485,7 +3481,7 @@ mod tests {
 
     #[test]
     fn credential_header_values_with_percent_are_escaped_in_json() {
-        let cred = CredentialRoute {
+        let cred = EgressCredentialRoute {
             id: "test".to_string(),
             kind: EgressKind::External,
             exposure: EgressExposure::Transparent,

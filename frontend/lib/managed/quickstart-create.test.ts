@@ -8,7 +8,7 @@ describe('buildQuickstartAgentCreateBody', () => {
       {
         name: 'Research Agent',
         description: 'Finds and summarizes sources',
-        system_prompt: 'You research carefully.',
+        system: 'You research carefully.',
         model: { id: 'claude-sonnet-4', speed: 'standard' },
         tools: [{ type: 'agent_toolset_20260401' }],
         mcp_servers: [{ type: 'url', name: 'docs', url: 'https://docs.example.com/mcp' }],
@@ -28,7 +28,7 @@ describe('buildQuickstartAgentCreateBody', () => {
       name: 'Research Agent-abcd',
       engine_kind: 'claude',
       description: 'Finds and summarizes sources',
-      system_prompt: 'You research carefully.',
+      system: 'You research carefully.',
       model: { id: 'claude-sonnet-4', speed: 'standard' },
       secret_ref: 'anthropic-prod',
       tools: [{ type: 'agent_toolset_20260401' }],
@@ -49,7 +49,7 @@ describe('buildQuickstartAgentCreateBody', () => {
     ).toEqual({
       name: 'Minimal',
       engine_kind: 'codex',
-      system_prompt: 'Do the task.',
+      system: 'Do the task.',
       secret_ref: 'openai-prod',
       tools: [],
     })

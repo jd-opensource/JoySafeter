@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.services import FileService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_file import FileDeleteResponse, FileResponse
+from app.joysafeter_domain.services.joysafeter_file_service import FileService
 from app.joysafeter_shared.common.app_errors import AppError, InternalServiceError, InvalidRequestError, NotFoundError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import (

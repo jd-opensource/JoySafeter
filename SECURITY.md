@@ -40,8 +40,8 @@ When deploying JoySafeter, please ensure:
 ### Environment Configuration
 
 - **Never commit secrets**: Use environment variables for all sensitive configuration
-- **Strong secrets**: Generate cryptographically secure keys for `SECRET_KEY` and `CREDENTIAL_ENCRYPTION_KEY`
-- **Stable encryption key**: Once `CREDENTIAL_ENCRYPTION_KEY` (or its alias `ENCRYPTION_KEY`) is set in production, **never change it**, otherwise existing encrypted model credentials in the database will become unreadable.
+- **Strong secrets**: Generate cryptographically secure keys for `SECRET_KEY` and `JOYSAFETER_VAULT_ENCRYPTION_KEY`
+- **Stable encryption key**: Once `JOYSAFETER_VAULT_ENCRYPTION_KEY` is set, **never change it**, otherwise existing managed-secret ciphertext becomes unreadable.
 - **HTTPS only**: Always use HTTPS in production
 - **Cookie security**: Enable `COOKIE_SECURE=true` in production
 

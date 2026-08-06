@@ -31,11 +31,11 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
 
     async def list_by_user(
         self,
-        user_id: Optional[str] = None,
+        org_id: str,
+        user_id: str,
         include_public: bool = True,
         tags: Optional[List[str]] = None,
         project_id: Optional[str] = None,
-        org_id: Optional[str] = None,
         caller_org_role: Optional[JoySafeterRole] = None,
         limit: int = 20,
         after_id: Optional[uuid.UUID] = None,
@@ -65,70 +65,51 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
         Public skills are the one carve-out: they cross every boundary.
 
         ``org_id`` is the caller's currently-active organization, taken
-        from ``JoySafeterAuthContext.org_id`` at the API boundary. When
-        ``None`` the listing falls back to the old "any org the user
-        belongs to" rule — kept as a safety net for legacy callers that
-        haven't been updated to pass the active org through yet.
+        from ``JoySafeterAuthContext.org_id`` at the API boundary.
         """
         query = select(JoySafeterSkill).options(selectinload(JoySafeterSkill.files))
 
         conditions = []
 
-        if user_id:
-            # (b) ``organization`` tier — every project in the caller's
-            # ACTIVE org they belong to. The ``Member`` join is required:
-            # a user with the active org in their session header but who
-            # isn't actually a member of that org gets nothing (defense
-            # against forged X-Org-Id headers).
-            org_project_filter = [Project.org_id == org_id] if org_id else []
-            org_project_subquery = (
-                select(Project.id)
-                .join(Member, Member.organization_id == Project.org_id)
-                .where(
-                    Member.user_id == user_id,
-                    *org_project_filter,
-                )
-                .scalar_subquery()
+        # (b) ``organization`` tier — every project in the caller's
+        # ACTIVE org they belong to. The ``Member`` join is required:
+        # a user with the active org in their session header but who
+        # isn't actually a member of that org gets nothing (defense
+        # against forged X-Org-Id headers).
+        org_project_subquery = (
+            select(Project.id)
+            .join(Member, Member.organization_id == Project.org_id)
+            .where(
+                Member.user_id == user_id,
+                Project.org_id == org_id,
             )
-            # (a) Project-membership tier — every project the caller has a
-            # ProjectMember row in (any role). This is the single axis that
-            # replaces the old owner/collaborator OR-clauses: membership of
-            # the skill's project is what grants a listing. When the caller
-            # has an active org, constrain to projects in THAT org so a
-            # multi-org user doesn't see other-org memberships leak through.
-            user_project_subquery_base = select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)
-            if org_id is not None:
-                user_project_subquery_base = user_project_subquery_base.join(
-                    Project, Project.id == ProjectMember.project_id
-                ).where(Project.org_id == org_id)
-            user_project_subquery = user_project_subquery_base.scalar_subquery()
+            .scalar_subquery()
+        )
+        # (a) Project-membership tier — every project the caller has a
+        # ProjectMember row in (any role). This is the single axis that
+        # replaces the old owner/collaborator OR-clauses: membership of
+        # the skill's project is what grants a listing. Constrain to projects
+        # in the active org so multi-org memberships cannot leak through.
+        user_project_subquery = (
+            select(ProjectMember.project_id)
+            .join(Project, Project.id == ProjectMember.project_id)
+            .where(ProjectMember.user_id == user_id, Project.org_id == org_id)
+            .scalar_subquery()
+        )
 
-            visibility_clauses = [
-                # (a) member of the skill's project (any role), in the
-                # active org. Covers ``private`` and ``project`` tiers for
-                # project members exactly like the capability gate does.
-                JoySafeterSkill.project_id.in_(user_project_subquery),
-                # (b) organization tier — same-org members only.
-                and_(
-                    JoySafeterSkill.visibility == JoySafeterSkillVisibility.ORGANIZATION.value,
-                    JoySafeterSkill.project_id.in_(org_project_subquery),
-                ),
-            ]
-            if include_public:
-                # (c) public crosses every org boundary — no org gate.
-                visibility_clauses.append(JoySafeterSkill.visibility == JoySafeterSkillVisibility.PUBLIC.value)
-            # (d) org super-user (owner/admin) — ADMIN on every skill in the
-            # ACTIVE org per ``effective_project_capability``, regardless of
-            # project membership. Without this, an org owner who isn't a
-            # ProjectMember of a project can GET/edit its project-tier skills
-            # but never sees them listed (list != get). Gated on an active org
-            # so it never crosses tenants; ``org_id is None`` (legacy) skips it.
-            if org_id is not None and caller_org_role is not None and caller_org_role.is_org_superuser():
-                all_active_org_projects = select(Project.id).where(Project.org_id == org_id).scalar_subquery()
-                visibility_clauses.append(JoySafeterSkill.project_id.in_(all_active_org_projects))
-            conditions.append(or_(*visibility_clauses))
-        else:
-            conditions.append(JoySafeterSkill.id.is_(None))
+        visibility_clauses = [
+            JoySafeterSkill.project_id.in_(user_project_subquery),
+            and_(
+                JoySafeterSkill.visibility == JoySafeterSkillVisibility.ORGANIZATION.value,
+                JoySafeterSkill.project_id.in_(org_project_subquery),
+            ),
+        ]
+        if include_public:
+            visibility_clauses.append(JoySafeterSkill.visibility == JoySafeterSkillVisibility.PUBLIC.value)
+        if caller_org_role is not None and caller_org_role.is_org_superuser():
+            all_active_org_projects = select(Project.id).where(Project.org_id == org_id).scalar_subquery()
+            visibility_clauses.append(JoySafeterSkill.project_id.in_(all_active_org_projects))
+        conditions.append(or_(*visibility_clauses))
 
         if project_id is not None:
             # ``project_id`` is the user's CURRENT active project. It

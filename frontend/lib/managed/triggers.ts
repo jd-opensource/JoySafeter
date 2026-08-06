@@ -23,7 +23,6 @@ export interface AgentTrigger {
   type: TriggerType
   agent_id: string
   prompt_template: string
-  system_prompt: string | null
   environment_ref: string | null
   enabled: boolean
   session_mode: TriggerSessionMode

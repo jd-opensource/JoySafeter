@@ -1,10 +1,4 @@
-"""
-Pydantic schemas for the JoySafeter Session API.
-
-(Renamed conceptually from "Thread" — the legacy thread/chat request and
-response schemas were removed in the v1 cleanup; only the JoySafeter Session
-schemas below remain.)
-"""
+"""Pydantic schemas for the JoySafeter Session API."""
 
 from __future__ import annotations
 
@@ -79,7 +73,7 @@ class SessionAgent(BaseModel):
             system=agent.system_prompt,
             tools=agent.tools or [],
             skills=agent.skills or [],
-            mcp_servers=agent.mcp_configs or [],
+            mcp_servers=agent.mcp_servers or [],
             multiagent=agent.multiagent,
         )
 

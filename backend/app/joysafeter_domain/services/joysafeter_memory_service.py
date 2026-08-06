@@ -290,7 +290,7 @@ class MemoryService:
         memory_id: uuid.UUID,
         content: str,
         session_id: Optional[uuid.UUID] = None,
-        if_sha256: Optional[str] = None,
+        expected_sha256: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterMemory]:
         store = await self._get_mutable_store(store_id, project_id=project_id)
@@ -299,8 +299,8 @@ class MemoryService:
         mem = await self.get_memory(store_id, memory_id, project_id=project_id)
         if not mem:
             return None
-        if if_sha256 is not None and mem.content_sha256 != if_sha256:
-            raise PreconditionFailed(f"SHA256 mismatch: expected {if_sha256}, got {mem.content_sha256}")
+        if expected_sha256 is not None and mem.content_sha256 != expected_sha256:
+            raise PreconditionFailed(f"SHA256 mismatch: expected {expected_sha256}, got {mem.content_sha256}")
         sha = hashlib.sha256(content.encode()).hexdigest()
         mem.content = content
         mem.content_sha256 = sha

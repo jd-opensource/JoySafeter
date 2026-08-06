@@ -687,7 +687,7 @@ async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_
                 "agents": [],
                 "commands": [],
                 "tools": [],
-                "mcp_configs": [],
+                "mcp_servers": [],
                 "environment_ref": pinned_ref,
             },
         )

@@ -12,12 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_skill_file_id, parse_skill_id, parse_skill_security_scan_id
-from app.joysafeter_api.services import (
-    SkillLifecycleService,
-    SkillPromotionService,
-    SkillService,
-    SkillVersionService,
-)
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillUsageLog
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
@@ -34,6 +28,12 @@ from app.joysafeter_domain.schemas.joysafeter_skill import (
     SkillVersionResponse,
     UpdateSkillFileRequest,
     UpdateSkillRequest,
+)
+from app.joysafeter_domain.services.joysafeter_skill_service import (
+    SkillLifecycleService,
+    SkillPromotionService,
+    SkillService,
+    SkillVersionService,
 )
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
@@ -431,7 +431,6 @@ async def list_skills(
     skills, has_more = await svc.list_skills(
         current_user_id=auth_ctx.user_id,
         project_id=auth_ctx.project_id,
-        org_id=auth_ctx.org_id,
         limit=limit,
         after_id=after_id,
     )

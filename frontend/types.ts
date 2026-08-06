@@ -57,9 +57,6 @@ export interface SkillFile {
   size: number
   created_at: string
   updated_at: string
-  // Legacy fields for backward compatibility
-  name?: string
-  language?: string
 }
 
 export interface SkillSecurityScanSummary {
@@ -96,9 +93,6 @@ export interface SkillFrontmatter {
   metadata?: Record<string, string> // dict[str, str]
   'allowed-tools'?: string // Space-delimited string (per spec)
   allowed_tools?: string[] // Also support array format
-  // Legacy fields (for backward compatibility)
-  version?: string
-  author?: string
   [key: string]: unknown // Allow additional custom fields
 }
 

@@ -16,17 +16,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 compose() {
-  if docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
-  else
-    docker-compose "$@"
-  fi
-}
-
-init_env() {
-  [ -f "$DEPLOY/.env" ] || cp "$DEPLOY/.env.example" "$DEPLOY/.env"
-  [ -f "$ROOT/backend/.env" ] || cp "$ROOT/backend/env.example" "$ROOT/backend/.env"
-  [ -f "$ROOT/frontend/.env" ] || cp "$ROOT/frontend/env.example" "$ROOT/frontend/.env"
+  docker compose "$@"
 }
 
 read_env() {
@@ -149,14 +139,14 @@ start_runner_control_proxy() {
 start_infra() {
   log "启动 PostgreSQL / Redis"
   cd "$DEPLOY"
-  compose -f docker-compose.yml up -d db redis
+  compose -f docker-compose.yml --profile local-redis up -d postgres redis
   start_envoy
   start_runner_control_proxy
 
   log "等待 PostgreSQL 就绪"
   local ready=false
   for _ in $(seq 1 60); do
-    if compose -f docker-compose.yml exec -T db \
+    if compose -f docker-compose.yml exec -T postgres \
         pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-joysafeter}" >/dev/null 2>&1; then
       ready=true
       break
@@ -164,14 +154,11 @@ start_infra() {
     sleep 1
   done
   if [ "$ready" != true ]; then
-    echo "PostgreSQL 在 60s 内未就绪；请检查 docker compose logs db" >&2
+    echo "PostgreSQL 在 60s 内未就绪；请检查 docker compose logs postgres" >&2
     exit 1
   fi
 
-  # 用宿主机源码跑迁移，而不是容器 db-init 镜像。api/worker/orchestrator 都从宿主机
-  # 源码启动，迁移也应如此：容器 db-init 可能是陈旧的 joysafeter-backend:latest，
-  # 会把库迁到旧 head，而宿主机源码期待更新的表，造成崩溃。宿主机 alembic 让 schema
-  # 与代码始终一致，也不必为跑一次迁移去构建整个 backend 镜像。
+  # 宿主机开发使用当前源码执行迁移，保证 schema 与本地代码一致。
   log "运行数据库迁移（宿主机源码 alembic upgrade head）"
   ( cd "$ROOT/backend" && uv run alembic upgrade head )
 }
@@ -223,7 +210,7 @@ start_frontend() {
 }
 
 main() {
-  init_env
+  "$DEPLOY/deploy.sh" doctor
   report_dev_toggles
   start_infra
   start_backend

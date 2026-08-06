@@ -9,7 +9,6 @@ export type ManagedRole = 'owner' | 'admin' | 'member' | string
 export function normalizeManagedRole(role?: string | null): ManagedRole {
   const normalized = (role || '').toLowerCase()
   if (normalized === 'owner' || normalized === 'admin') return normalized
-  // Legacy org roles (developer/viewer) and everything else fold into member.
   return 'member'
 }
 

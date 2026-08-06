@@ -155,7 +155,7 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
 
         runs_resp = await client.get(f"/api/v1/triggers/{trigger_id}/runs")
         assert runs_resp.status_code == 200
-        runs = runs_resp.json()
+        runs = runs_resp.json()["data"]
         assert len(runs) == 1
         assert runs[0]["id"] == fired["task_id"]
         assert runs[0]["trigger_id"] == trigger_id
@@ -193,7 +193,7 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
 
         deleted_runs_resp = await client.get(f"/api/v1/triggers/{trigger_id}/runs")
         assert deleted_runs_resp.status_code == 200
-        deleted_runs = deleted_runs_resp.json()
+        deleted_runs = deleted_runs_resp.json()["data"]
         assert len(deleted_runs) == 1
         assert deleted_runs[0]["id"] == fired["task_id"]
         assert deleted_runs[0]["trigger_id"] == trigger_id
@@ -267,7 +267,7 @@ async def test_trigger_http_manual_type_create_list_run_and_history(db_session, 
 
         runs_resp = await client.get(f"/api/v1/triggers/{trigger_id}/runs")
         assert runs_resp.status_code == 200
-        runs = runs_resp.json()
+        runs = runs_resp.json()["data"]
         assert len(runs) == 1
         assert runs[0]["id"] == fired["task_id"]
         assert runs[0]["trigger_id"] == trigger_id
@@ -449,7 +449,7 @@ async def test_trigger_http_cron_create_toggle_run_and_webhook_only_errors(db_se
 
         runs_resp = await client.get(f"/api/v1/triggers/{trigger_id}/runs")
         assert runs_resp.status_code == 200
-        runs = runs_resp.json()
+        runs = runs_resp.json()["data"]
         assert len(runs) == 1
         assert runs[0]["id"] == fired["task_id"]
         assert runs[0]["trigger_id"] == trigger_id
@@ -516,6 +516,7 @@ async def test_trigger_http_management_endpoints_are_project_scoped(db_session, 
                 "agent_id": str(agent_b.id),
                 "prompt_template": "must not bind",
                 "secret_ref": "hook-secret",
+                "auth_methods": ["hmac"],
             },
         )
         assert create_resp.status_code == 404

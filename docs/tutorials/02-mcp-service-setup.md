@@ -6,22 +6,22 @@
 
 ## 机制先行：MCP 是 Agent 配置的一部分
 
-- **MCP 服务器定义** 存在 Agent 行的 `mcp_configs`（JSONB 数组），在 **Agent 编辑器**里编辑
-  （前端表现为 `mcp_toolset` 工具项，带 `permission_policy`）。每条包含 `name`、连接方式
-  （命令 / URL）、`server_type`、`headers` 等。
+- **MCP 服务器定义** 通过 Agent API 的 `mcp_servers` 配置，在 **Agent 编辑器**里编辑
+  （前端表现为 `mcp_toolset` 工具项，带 `permission_policy`）。当前每条只接受
+  `type: "url"`、`name` 和 `url`。
 - **MCP 凭据** 存在 **Vaults**（`joysafeter_vaults` / `joysafeter_vault_credentials`，
   API `/api/v1/vaults`，UI **托管智能体 → 凭证库** `/managed/vaults`）：加密的 token / OAuth 配置，
   按 MCP server URL 匹配。
 
 **运行时如何生效**：任务调度时，orchestrator：
-1. 从 Agent 的 `mcp_configs` 取 MCP 服务器列表；
+1. 从 Agent 的 `mcp_servers` 取 MCP 服务器列表；
 2. 调 `VaultService.resolve_mcp_credentials(...)` 按 URL 匹配 Vault 凭据，注入 `Authorization: Bearer`
    头（OAuth 临期会自动刷新）；
 3. 把结果作为 `McpConfig` 消息经 gRPC `SetupSandbox` / `StartTask` 下发给沙箱内的 runner；
 4. runner 把 MCP 配置写入沙箱内的 `.claude/settings.json`（Claude 引擎），CLI harness 据此连接 MCP
    服务器并调用工具。
 
-> “工具能不能用”取决于：**该 Agent 的 `mcp_configs` 里有没有这条
+> “工具能不能用”取决于：**该 Agent 的 `mcp_servers` 里有没有这条
 > server + Vault 里有没有对应凭据 + 沙箱能否网络到达该 MCP 端点（Envoy 出口白名单）**。
 
 ---
@@ -33,7 +33,7 @@
    - `name`：`recon-mcp`
    - 类型：HTTP / streamable（URL 型）
    - `url`：`http://recon-mcp.internal:9000/mcp`
-3. 保存 Agent。（这条会写进该 Agent 的 `mcp_configs` JSONB。）
+3. 保存 Agent。
 
 > URL 必须能从**沙箱容器**访问到，且其域名要在 Envoy 出口白名单内（沙箱默认全拒出口）。
 
@@ -52,19 +52,19 @@
 
 ## 三类工具能力的边界
 
-v2 里 Agent 的“工具”来自三处（都在 Agent 编辑器配置，运行时经 gRPC 下发给沙箱 runner）：
+Agent 的“工具”来自三处（都在 Agent 编辑器配置，运行时经 gRPC 下发给沙箱 runner）：
 
 | 来源 | 配置位置 | 载荷（gRPC） |
 |------|---------|-------------|
 | 内置工具 + 工具策略 | Agent 编辑器：内置工具勾选 + 每工具 `permission_policy`（`always_ask` / `always_allow`） | `allowed_tools` / `disallowed_tools` / `ask_tools` |
-| MCP 服务器 | Agent `mcp_configs` + Vault 凭据 | `McpConfig`（name/command/args/url/headers…） |
+| MCP 服务器 | Agent `mcp_servers` + Vault 凭据 | `McpConfig`（name/url/headers） |
 | 自定义工具 | Agent 编辑器：自定义工具（名称 + 描述 + JSON Schema） | `CustomTool` |
 
 ---
 
 ## 安全边界（必读）
 
-MCP 工具是**可执行的外部能力**（尤其安全扫描 / 利用类）。v2 提供的控制点：
+MCP 工具是**可执行的外部能力**（尤其安全扫描 / 利用类）。平台提供的控制点：
 
 - **工具授权策略**：把高危工具设为 `always_ask`（`ask_tools`），触发时会作为 `is_control_request`
   的 tool_use 事件回到前端，需人工确认后 orchestrator 才用 `SendInput` 放行。

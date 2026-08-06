@@ -54,7 +54,7 @@ export function VersionDiffView({ base, target, baseVersion, targetVersion }: Pr
 
       <ObjectFieldSection title={t('managed.agents.model')} diff={d.model} />
 
-      <TextFieldSection title={t('managed.agents.systemPrompt')} diff={d.system_prompt} />
+      <TextFieldSection title={t('managed.agents.systemPrompt')} diff={d.system} />
 
       <ArrayFieldSection
         title={t('managed.agents.tools')}

@@ -109,6 +109,16 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="Invalid role for this operation",
     ),
+    "AUTH_JWT_CONTEXT_INCOMPLETE": CatalogEntry(
+        code="AUTH_JWT_CONTEXT_INCOMPLETE",
+        error_class=InternalServiceError,
+        default_message="Authentication context is incomplete",
+    ),
+    "AUTH_JWT_CONTEXT_RESOLVE_FAILED": CatalogEntry(
+        code="AUTH_JWT_CONTEXT_RESOLVE_FAILED",
+        error_class=InternalServiceError,
+        default_message="Failed to resolve authentication context",
+    ),
     "AUTH_REQUIRED": CatalogEntry(
         code="AUTH_REQUIRED", error_class=AuthenticationError, default_message="Authentication required"
     ),
@@ -1103,7 +1113,7 @@ CATALOG: dict[str, CatalogEntry] = {
     "TRIGGER_AUTH_METHODS_REQUIRED": CatalogEntry(
         code="TRIGGER_AUTH_METHODS_REQUIRED",
         error_class=RequestValidationAppError,
-        default_message="Webhook auth_methods must not be empty",
+        default_message="Webhook auth_methods is required and must not be empty",
     ),
     "TRIGGER_CONCURRENCY_POLICY_INVALID": CatalogEntry(
         code="TRIGGER_CONCURRENCY_POLICY_INVALID",

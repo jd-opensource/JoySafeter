@@ -164,7 +164,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
   // ── Skills state ──
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
-  /** skill_id → chosen version keyword ("latest", "draft") or semver string. */
+  /** skill_id → chosen published version keyword or semver string. */
   const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
 
   // Only *published* skills can be newly referenced. We still show any skill
@@ -238,7 +238,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     setName(agent.name)
     setDescription(agent.description || '')
     setEngineKind(agent.engine_kind || 'claude')
-    setSystemPrompt(agent.system || agent.system_prompt || '')
+    setSystemPrompt(agent.system || '')
     setSystemPromptMode((agent.metadata?.system_prompt_mode as 'append' | 'replace') || 'append')
 
     // MCP servers — merge url (from mcp_servers) with policy (from the
@@ -330,10 +330,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
       toastOperationError(t, new Error(urlError), 'common.error')
       return
     }
-    setMcpServers((prev) => [
-      ...prev,
-      { name: trimmedName, url: trimmedUrl, policy: 'always_ask' },
-    ])
+    setMcpServers((prev) => [...prev, { name: trimmedName, url: trimmedUrl, policy: 'always_ask' }])
     markDirty()
     setMcpName('')
     setMcpUrl('')

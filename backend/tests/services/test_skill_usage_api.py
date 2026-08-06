@@ -79,7 +79,7 @@ async def test_skill_usage_api_filters_security_response_surface(monkeypatch):
     db = _Db([_usage_row(skill_id, scan_id)])
 
     class _Svc:
-        def __init__(self, db, active_org_id=None, caller_org_role=None):
+        def __init__(self, db, active_org_id, caller_org_role=None):
             self.db = db
 
         async def get_skill(self, requested_skill_id, current_user_id=None):

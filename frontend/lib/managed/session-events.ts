@@ -15,7 +15,7 @@ export function normalizeSessionEventId(id: string) {
 }
 
 export function getEventType(event: SessionEvent) {
-  return event.type || event.event_type || ''
+  return event.type
 }
 
 export function compareSessionEvents(a: SessionEvent, b: SessionEvent) {

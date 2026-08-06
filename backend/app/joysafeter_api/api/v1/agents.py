@@ -7,9 +7,6 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.id_helpers import parse_agent_id
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
-from app.joysafeter_api.services import SecretService, SessionService, _split_packed_items
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     AgentVersionResponse,
@@ -25,6 +22,11 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 )
 from app.joysafeter_domain.schemas.joysafeter_session import SessionResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
+from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
+from app.joysafeter_domain.services.joysafeter_agent_service import _split_agent_assets
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
+from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
+from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
     InvalidRequestError,
@@ -69,11 +71,11 @@ def _agent_not_found_error(agent_id: uuid.UUID) -> AppError:
     )
 
 
-def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
-    if not mcp_configs:
+def _validate_mcp_servers(mcp_servers: list[dict] | None) -> None:
+    if not mcp_servers:
         return
     seen_names: set[str] = set()
-    for cfg in mcp_configs:
+    for cfg in mcp_servers:
         if not isinstance(cfg, dict):
             continue
         url = cfg.get("url", "")
@@ -100,13 +102,13 @@ def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
             seen_names.add(name)
 
 
-def _validate_tool_mcp_references(tools: list | None, mcp_configs: list[dict] | None) -> None:
-    """Ensure each tool's mcp_server_name references a declared mcp_server in mcp_configs."""
+def _validate_tool_mcp_references(tools: list | None, mcp_servers: list[dict] | None) -> None:
+    """Ensure each tool's mcp_server_name references a declared MCP server."""
     if not tools:
         return
     declared_names: set[str] = set()
-    if mcp_configs:
-        for cfg in mcp_configs:
+    if mcp_servers:
+        for cfg in mcp_servers:
             name = cfg.get("name", "") if isinstance(cfg, dict) else ""
             if name:
                 declared_names.add(name)
@@ -239,7 +241,7 @@ async def _resolve_agent_model(
 
 
 def _agent_to_response(agent, *, model: Optional[dict[str, Any]] = None) -> AgentResponse:
-    skills, agents, commands = _split_packed_items(agent.skills or [])
+    skills, agents, commands = _split_agent_assets(agent.skills or [])
     return AgentResponse(
         id=agent.id,
         name=agent.name,
@@ -249,7 +251,7 @@ def _agent_to_response(agent, *, model: Optional[dict[str, Any]] = None) -> Agen
         description=agent.description,
         metadata=agent.metadata_,
         env=agent.env,
-        mcp_servers=agent.mcp_configs,
+        mcp_servers=agent.mcp_servers,
         skills=cast(Any, skills),
         agents=cast(Any, agents),
         commands=cast(Any, commands),
@@ -271,7 +273,7 @@ async def create_agent(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> AgentResponse:
     mcp_dicts = [s.model_dump() for s in req.mcp_servers] if req.mcp_servers else None
-    _validate_mcp_configs(mcp_dicts)
+    _validate_mcp_servers(mcp_dicts)
     _validate_tool_mcp_references(req.tools, mcp_dicts)
     await _validate_secret_ref_for_engine(
         db,
@@ -376,12 +378,12 @@ async def update_agent(
             user_action="refresh",
         )
 
-    # Resolve the effective mcp_configs for cross-validation
+    # Resolve the effective MCP servers for cross-validation.
     if req.mcp_servers is not None:
         mcp_dicts = [s.model_dump() for s in req.mcp_servers]
-        _validate_mcp_configs(mcp_dicts)
+        _validate_mcp_servers(mcp_dicts)
     else:
-        mcp_dicts = current_agent.mcp_configs or []
+        mcp_dicts = current_agent.mcp_servers or []
 
     # Validate tool -> mcp_server references
     effective_tools = req.tools if req.tools is not None else (current_agent.tools or [])
@@ -599,7 +601,7 @@ async def _destroy_sandboxes_for_agent(
     reason: str,
     project_id: Optional[str] = None,
 ) -> None:
-    from app.joysafeter_api.services import SandboxService
+    from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 
     sandbox_svc = SandboxService(db)
     sandboxes = await sandbox_svc.list_active_for_agent(agent_id, project_id=project_id)

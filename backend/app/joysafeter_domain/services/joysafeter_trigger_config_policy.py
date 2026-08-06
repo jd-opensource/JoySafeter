@@ -296,11 +296,15 @@ class TriggerConfigPolicy:
                 user_action="fix_input",
             )
         if not auth_methods:
-            raw_auth_methods = config.get("auth_methods")
-            code = "TRIGGER_AUTH_METHODS_REQUIRED" if raw_auth_methods == [] else "TRIGGER_AUTH_METHODS_INVALID"
+            raw_auth_methods = config.get("auth_methods") if isinstance(config, dict) else None
+            code = (
+                "TRIGGER_AUTH_METHODS_REQUIRED"
+                if raw_auth_methods is None or raw_auth_methods == []
+                else "TRIGGER_AUTH_METHODS_INVALID"
+            )
             message = (
-                "auth_methods must not be empty"
-                if raw_auth_methods == []
+                "auth_methods is required and must not be empty"
+                if code == "TRIGGER_AUTH_METHODS_REQUIRED"
                 else "auth_methods contains unsupported values"
             )
             raise RequestValidationAppError(

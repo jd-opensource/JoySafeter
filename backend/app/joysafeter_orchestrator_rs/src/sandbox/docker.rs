@@ -493,7 +493,7 @@ impl SandboxProvider for DockerProvider {
                 // wider.
                 warn!(
                     sandbox_id = %config.sandbox_id,
-                    "Using legacy full socket-volume mount; subpath mount is disabled or unsupported"
+                    "Using full socket-volume mount because subpath mount is disabled or unsupported"
                 );
                 mounts.push(Mount {
                     target: Some("/sockets".to_string()),

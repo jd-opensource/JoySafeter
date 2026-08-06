@@ -15,6 +15,8 @@ interface AuthMeResponse {
     slug: string
     is_default: boolean
     archived_at?: string | null
+    capability: string
+    project_role?: string | null
   }
   organizations: Array<{ id: string; name: string; slug: string; role: string }>
   projects: Array<{

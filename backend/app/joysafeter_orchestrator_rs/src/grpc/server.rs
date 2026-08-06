@@ -2593,7 +2593,7 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_configs, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands, permission_mode,
                     metadata, version
                 )
                 VALUES (

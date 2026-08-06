@@ -403,12 +403,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const wasRunningRef = useRef(false)
 
   // Update session status from live SSE events only. Initial SSE replay can contain
-  // legacy/out-of-order status events, while the session query is DB-authoritative.
+  // out-of-order status events, while the session query is DB-authoritative.
   useEffect(() => {
     if (!sseConnected || streamEvents.length === 0) return
     const sessionUpdatedAt = session?.updated_at ? new Date(session.updated_at).getTime() : 0
     const statusEvents = streamEvents.filter((e) => {
-      const t = e.type || e.event_type || ''
+      const t = e.type
       if (!t.startsWith('session.status_')) return false
       const eventCreatedAt = e.created_at ? new Date(e.created_at).getTime() : 0
       return !sessionUpdatedAt || !eventCreatedAt || eventCreatedAt >= sessionUpdatedAt
@@ -599,7 +599,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const pendingApprovals = useMemo(() => {
     const confirmed = new Set<string>()
     for (const evt of allEvents) {
-      const t = evt.type || evt.event_type || ''
+      const t = evt.type
       if (t === 'user.tool_confirmation') {
         const cid =
           (evt as { call_id?: string; tool_use_id?: string }).call_id ||
@@ -609,7 +609,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     }
     const pending: Array<{ callId: string; tool: string; input: unknown; evt: SessionEvent }> = []
     for (const evt of allEvents) {
-      const t = evt.type || evt.event_type || ''
+      const t = evt.type
       if (t !== 'agent.tool_use') continue
       const e = evt as SessionEvent & { is_control_request?: boolean; _call_id?: string }
       if (!e.is_control_request) continue
@@ -641,7 +641,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const availableTypes = useMemo(() => {
     const types = new Set<string>()
     for (const e of allEvents) {
-      const t = e.type || e.event_type || ''
+      const t = e.type
       if (t) types.add(t)
     }
     return Array.from(types).sort()
@@ -651,7 +651,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     let events = allEvents
 
     if (tab === 'transcript') {
-      events = events.filter((e) => TRANSCRIPT_TYPES.has(e.type || e.event_type || ''))
+      events = events.filter((e) => TRANSCRIPT_TYPES.has(e.type))
       // Hide stdio-protocol noise that the approval banner already covers:
       // - claude's --permission-prompt-tool emits an extra agent.tool_use
       //   with is_control_request:true alongside the real LLM tool_use
@@ -660,20 +660,20 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       // - user.tool_confirmation is just the protocol ack of the approval
       //   button; the banner already represents the UX.
       events = events.filter((e) => {
-        const t = e.type || e.event_type || ''
+        const t = e.type
         if (t === 'user.tool_confirmation') return false
         if (t !== 'agent.tool_use') return true
         return !(e as { is_control_request?: boolean }).is_control_request
       })
     } else {
-      events = events.filter((e) => debugFilter.has(e.type || e.event_type || ''))
+      events = events.filter((e) => debugFilter.has(e.type))
     }
 
     if (searchText) {
       const lower = searchText.toLowerCase()
       events = events.filter((e) => {
         const full = JSON.stringify(e).toLowerCase()
-        return full.includes(lower) || (e.type || e.event_type || '').includes(lower)
+        return full.includes(lower) || e.type.includes(lower)
       })
     }
 
@@ -687,9 +687,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         return ''
       }
       for (const evt of events) {
-        const t = evt.type || evt.event_type || ''
+        const t = evt.type
         const prev = step1[step1.length - 1]
-        const prevType = prev ? prev.type || prev.event_type || '' : ''
+        const prevType = prev?.type || ''
         if (t === 'agent.thinking' && prevType === t) {
           const combined = extractDbgText(prev) + extractDbgText(evt)
           step1[step1.length - 1] = { ...prev, content: [{ type: 'text', text: combined }] }
@@ -702,7 +702,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       const resultsByCallId = new Map<string, SessionEvent>()
       const seenResultCallIds = new Set<string>()
       for (const evt of step1) {
-        const t = evt.type || evt.event_type || ''
+        const t = evt.type
         const callId = evt._call_id || evt.call_id || evt.tool_use_id || ''
         if (
           (t === 'agent.tool_result' || t === 'agent.mcp_tool_result') &&
@@ -718,7 +718,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       const debugMerged: typeof events = []
       const seenUseCallIds = new Set<string>()
       for (const evt of step1) {
-        const t = evt.type || evt.event_type || ''
+        const t = evt.type
 
         // Skip tool_results -- they'll be inserted after matching tool_use
         if (t === 'agent.tool_result' || t === 'agent.mcp_tool_result') continue
@@ -775,9 +775,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     }
     let toolUseStartTime = 0
     for (const evt of events) {
-      const t = evt.type || evt.event_type || ''
+      const t = evt.type
       const prev = merged[merged.length - 1]
-      const prevType = prev ? prev.type || prev.event_type || '' : ''
+      const prevType = prev?.type || ''
 
       // Merge consecutive agent.message or agent.thinking
       if ((t === 'agent.message' || t === 'agent.thinking') && prevType === t) {
@@ -795,7 +795,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         if (resultCallId) {
           for (let j = merged.length - 1; j >= 0; j--) {
             const candidate = merged[j]
-            const candidateType = candidate.type || candidate.event_type || ''
+            const candidateType = candidate.type
             if (!TOOL_USE_TYPES_SET.has(candidateType)) continue
             const useCallId = candidate._call_id || candidate.call_id || ''
             if (useCallId === resultCallId) {
@@ -899,14 +899,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       if (ts > lastEventMs) lastEventMs = ts
     }
     const statusEvts = allEvents.filter((e) => {
-      const t2 = e.type || e.event_type || ''
+      const t2 = e.type
       return t2 === 'session.status_running' || t2 === 'session.status_idle'
     })
     if (statusEvts.length >= 2) {
       let total = 0
       let runningAt: number | null = null
       for (const evt of statusEvts) {
-        const t2 = evt.type || evt.event_type || ''
+        const t2 = evt.type
         const ts = evt.created_at ? new Date(evt.created_at).getTime() : null
         if (!ts) continue
         if (t2 === 'session.status_running') {
@@ -1112,7 +1112,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             <>
               <Badge variant="outline">{networkPolicyStatus.networking_status}</Badge>
               <span className="text-muted-foreground">
-                {t('managed.sessions.networkPolicy.version', { version: networkPolicyStatus.networking_policy_version || 0 })}
+                {t('managed.sessions.networkPolicy.version', {
+                  version: networkPolicyStatus.networking_policy_version || 0,
+                })}
               </span>
               {networkPolicyStatus.networking_policy_hash ? (
                 <code className="rounded bg-background px-1.5 py-0.5 text-[11px]">
@@ -1121,17 +1123,23 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
               ) : null}
               {networkPolicyStatus.networking_ready_at ? (
                 <span className="text-muted-foreground">
-                  {t('managed.sessions.networkPolicy.readyAt')} <RelativeTime date={networkPolicyStatus.networking_ready_at} />
+                  {t('managed.sessions.networkPolicy.readyAt')}{' '}
+                  <RelativeTime date={networkPolicyStatus.networking_ready_at} />
                 </span>
               ) : null}
               {networkPolicyStatus.networking_last_error ? (
-                <span className="min-w-0 flex-1 truncate text-destructive" title={networkPolicyStatus.networking_last_error}>
+                <span
+                  className="min-w-0 flex-1 truncate text-destructive"
+                  title={networkPolicyStatus.networking_last_error}
+                >
                   {networkPolicyStatus.networking_last_error}
                 </span>
               ) : null}
             </>
           ) : (
-            <span className="text-muted-foreground">{t('managed.sessions.networkPolicy.empty')}</span>
+            <span className="text-muted-foreground">
+              {t('managed.sessions.networkPolicy.empty')}
+            </span>
           )}
         </div>
       </div>
@@ -1578,7 +1586,7 @@ function AgentDrawer({
               </section>
 
               {/* System prompt */}
-              {(displayAgent.system || displayAgent.system_prompt) && (
+              {displayAgent.system && (
                 <section>
                   <button
                     type="button"
@@ -1592,7 +1600,7 @@ function AgentDrawer({
                   </button>
                   {promptExpanded && (
                     <pre className="max-h-[300px] overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
-                      {displayAgent.system || displayAgent.system_prompt}
+                      {displayAgent.system}
                     </pre>
                   )}
                 </section>
@@ -2051,7 +2059,10 @@ function EnvDrawer({
               <div className="space-y-1.5">
                 {Object.entries(env.config.env_vars).map(([key, value]) => (
                   <div key={key} className="flex items-start text-sm">
-                    <code className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground" title={key}>
+                    <code
+                      className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground"
+                      title={key}
+                    >
                       {key}
                     </code>
                     <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
@@ -2074,16 +2085,18 @@ function EnvDrawer({
             </h3>
             {env.config?.egress_services && env.config.egress_services.length > 0 ? (
               <div className="space-y-2">
-                {env.config.egress_services.map((svc: { name?: string; base_url?: string }, i: number) => (
-                  <div key={i} className="rounded border border-border/60 px-3 py-2">
-                    {svc.name && (
-                      <div className="text-sm font-medium text-foreground">{svc.name}</div>
-                    )}
-                    {svc.base_url && (
-                      <code className="text-xs text-muted-foreground">{svc.base_url}</code>
-                    )}
-                  </div>
-                ))}
+                {env.config.egress_services.map(
+                  (svc: { name?: string; base_url?: string }, i: number) => (
+                    <div key={i} className="border-border/60 rounded border px-3 py-2">
+                      {svc.name && (
+                        <div className="text-sm font-medium text-foreground">{svc.name}</div>
+                      )}
+                      {svc.base_url && (
+                        <code className="text-xs text-muted-foreground">{svc.base_url}</code>
+                      )}
+                    </div>
+                  ),
+                )}
               </div>
             ) : (
               <p className="text-sm italic text-muted-foreground">
@@ -2099,12 +2112,18 @@ function EnvDrawer({
             </h3>
             {env.config?.storage_volumes && env.config.storage_volumes.length > 0 ? (
               <div className="space-y-2">
-                {env.config.storage_volumes.map((vol: { name?: string; mount_path?: string; volume_id?: string }, i: number) => (
-                  <div key={i} className="flex items-center text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">{vol.name || vol.volume_id || `vol-${i}`}</span>
-                    <code className="font-mono text-xs text-foreground">{vol.mount_path || '-'}</code>
-                  </div>
-                ))}
+                {env.config.storage_volumes.map(
+                  (vol: { name?: string; mount_path?: string; volume_id?: string }, i: number) => (
+                    <div key={i} className="flex items-center text-sm">
+                      <span className="w-28 shrink-0 text-muted-foreground">
+                        {vol.name || vol.volume_id || `vol-${i}`}
+                      </span>
+                      <code className="font-mono text-xs text-foreground">
+                        {vol.mount_path || '-'}
+                      </code>
+                    </div>
+                  ),
+                )}
               </div>
             ) : (
               <p className="text-sm italic text-muted-foreground">

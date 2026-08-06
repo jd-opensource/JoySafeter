@@ -94,10 +94,11 @@ def test_update_rejects_empty_webhook_auth_methods():
     )
 
 
-def test_update_allows_legacy_webhook_config_missing_auth_methods():
-    JoySafeterTriggerService(None)._validate_update_candidate(  # type: ignore[arg-type]
+def test_update_rejects_webhook_config_missing_auth_methods():
+    _assert_invalid(
         _trigger(type="webhook", secret_ref="hook-secret", secret_key="WEBHOOK_SECRET", config={}),
         {"description": "updated"},
+        "TRIGGER_AUTH_METHODS_REQUIRED",
     )
 
 
@@ -215,6 +216,20 @@ async def test_create_rejects_empty_webhook_auth_methods_at_domain_boundary():
             prompt_template="run",
             secret_ref="hook-secret",
             auth_methods=[],
+        )
+
+    assert exc_info.value.code == "TRIGGER_AUTH_METHODS_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_missing_webhook_auth_methods_at_domain_boundary():
+    with pytest.raises(RequestValidationAppError) as exc_info:
+        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+            name="unsafe-webhook",
+            type="webhook",
+            agent_id=uuid.uuid4(),
+            prompt_template="run",
+            secret_ref="hook-secret",
         )
 
     assert exc_info.value.code == "TRIGGER_AUTH_METHODS_REQUIRED"

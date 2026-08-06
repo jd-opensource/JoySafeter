@@ -27,7 +27,7 @@ pytestmark = pytest.mark.no_db
 
 def _make_service(monkeypatch, *, lifecycle_status="draft"):
     svc = SkillService.__new__(SkillService)
-    svc._active_org_id = None
+    svc._active_org_id = "org-test"
 
     skill = SimpleNamespace(
         id=uuid.uuid4(),
@@ -146,7 +146,7 @@ def _make_delete_service(monkeypatch, *, deleted_content):
     ``deleted_content`` is the content of the file being removed.
     """
     svc = SkillService.__new__(SkillService)
-    svc._active_org_id = None
+    svc._active_org_id = "org-test"
 
     file_id = uuid.uuid4()
     skill_id = uuid.uuid4()

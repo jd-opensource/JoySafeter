@@ -1,16 +1,4 @@
-"""Worker service startup and shutdown loops.
-
-Active worker background tasks:
-  - joysafeter-event-stream-worker — Redis Stream consumer that persists
-    session events emitted by orchestrator-rs.
-
-The legacy "task-dispatcher" / "execution-reaper" / "container-reaper" loops
-and the in-process ``execution_event_bus`` subscribers were removed along
-with the old DispatchService / ExecutionOrchestrator / AgentRun / Execution
-dispatch chain and the old CLI container pool. All sandbox dispatch now
-flows through the orchestrator gRPC ↔ sandbox-runner path; the worker only
-persists the resulting events.
-"""
+"""Worker event persistence and scheduler loops."""
 
 from __future__ import annotations
 

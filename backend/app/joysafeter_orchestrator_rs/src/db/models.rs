@@ -120,7 +120,7 @@ pub struct JoySafeterAgent {
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub env: Option<serde_json::Value>,
-    pub mcp_configs: Option<serde_json::Value>,
+    pub mcp_servers: Option<serde_json::Value>,
     pub skills: Option<serde_json::Value>,
     pub agents: Option<serde_json::Value>,
     pub commands: Option<serde_json::Value>,

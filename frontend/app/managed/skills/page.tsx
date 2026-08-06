@@ -112,6 +112,7 @@ import type {
   SkillSecurityScanRecord,
   SessionSkillUsage,
   PromotableTier,
+  SkillVisibility,
 } from '@/types/managed'
 
 function formatBytes(bytes: number): string {
@@ -748,7 +749,7 @@ interface SkillFormState {
   content: string
   license: string
   tags: string
-  visibility?: string
+  visibility: SkillVisibility
   source_type: string
   source_url: string
 }
@@ -1100,7 +1101,7 @@ function SkillEditor({
                   {t('managed.skills.visibility.label')}
                 </label>
                 <div className="flex h-8 items-center gap-2">
-                  <SkillVisibilityBadge visibility={form.visibility || 'project'} />
+                  <SkillVisibilityBadge visibility={form.visibility} />
                   <span className="text-xs text-muted-foreground">
                     {t('managed.skills.visibility.managedByPromotion')}
                   </span>
@@ -2083,7 +2084,7 @@ export function SkillManagerPageContent({
       content: skill.content || '',
       license: skill.license || '',
       tags: tagsStr,
-      visibility: skill.visibility || 'project',
+      visibility: skill.visibility,
       source_type: skill.source_type || '',
       source_url: skill.source_url || '',
     }

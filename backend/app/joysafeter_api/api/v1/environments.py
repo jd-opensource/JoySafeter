@@ -10,13 +10,13 @@ from app.joysafeter_api.api.v1.id_helpers import parse_env_id
 from app.joysafeter_api.api.v1.network_policy_refresh import (
     refresh_live_limited_sandbox_network_policies,
 )
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     EnvironmentResponse,
     UpdateEnvironmentRequest,
 )
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
@@ -183,7 +183,7 @@ async def _validate_secret_refs(
     if not secret_refs:
         return
 
-    from app.joysafeter_api.services import SecretService
+    from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 
     secret_svc = SecretService(db)
     for secret_ref in secret_refs:

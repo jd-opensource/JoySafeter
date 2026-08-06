@@ -17,15 +17,14 @@ use crate::kernel::harness_input_builder::VaultCipher;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
     normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
-    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST, LLM_EGRESS_HOST,
-    MCP_EGRESS_HOST,
+    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST,
 };
 use crate::sandbox::mounts::{resolve_mount_resources, SandboxMount, SandboxMountFingerprint};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
-use super::llm_providers::{
-    llm_provider_registry, CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY,
-};
+use super::llm_providers::llm_provider_registry;
+#[cfg(test)]
+use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY};
 
 /// Hard client-side bound on a provider networking setup/refresh call (Envoy
 /// socket prep + xDS push + ACK/socket-readiness wait). The individual steps are
@@ -803,8 +802,8 @@ impl SandboxResolver {
         // Egress credential injection only applies to limited-networking sandboxes
         // (those routed through Envoy). For those, pull the LLM key out of the
         // container env and repoint the base URL at the egress boundary so the
-        // real key never enters the sandbox. Non-limited sandboxes keep the
-        // legacy behaviour (key stays in env) since they have no proxy.
+        // real key never enters the sandbox. Unrestricted sandboxes keep the
+        // key in their environment because they do not route through Envoy.
         let mut credentials = SandboxCredentials::default();
         if network.as_deref() == Some("none") {
             let mut routes = Vec::new();
@@ -1328,7 +1327,7 @@ impl SandboxResolver {
         };
         // Remote MCP servers (url present) declared by the agent.
         let mcp_servers: Vec<(String, String)> = agent
-            .mcp_configs
+            .mcp_servers
             .as_ref()
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -2503,11 +2502,11 @@ fn merge_mcp_hosts(
         .unwrap_or_default();
 
     // Add MCP server hosts to allowlist.
-    if let Some(mcp_configs) = agent
-        .and_then(|a| a.mcp_configs.as_ref())
+    if let Some(mcp_servers) = agent
+        .and_then(|a| a.mcp_servers.as_ref())
         .and_then(|value| value.as_array())
     {
-        for config in mcp_configs {
+        for config in mcp_servers {
             let Some(url) = config.get("url").and_then(|value| value.as_str()) else {
                 continue;
             };
@@ -4005,7 +4004,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -4100,7 +4099,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -4236,7 +4235,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -4367,7 +4366,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -4497,7 +4496,7 @@ mod egress_tests {
             "engine_kind": "claude",
             "model": {"id": "snapshot-model"},
             "env": {"AGENT_ENV": "snapshot-agent"},
-            "mcp_configs": [],
+            "mcp_servers": [],
             "tools": [],
             "skills": [],
             "agents": [],
@@ -4541,7 +4540,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     version, environment_ref
                 )
@@ -4715,7 +4714,7 @@ mod egress_tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_configs, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands, permission_mode,
                     metadata, version
                 )
                 VALUES (
