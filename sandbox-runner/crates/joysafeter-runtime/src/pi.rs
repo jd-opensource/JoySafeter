@@ -5,9 +5,10 @@ use joysafeter_types::harness::{
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tracing::info;
 
@@ -49,14 +50,80 @@ impl PiAdapter {
 
 #[async_trait]
 impl HarnessAdapter for PiAdapter {
-    async fn start(
-        &self,
-        _input: HarnessInput,
-        _cwd: &Path,
-    ) -> Result<RunningHarness, HarnessError> {
-        Err(HarnessError::StartFailed(
-            "pi start not yet implemented".into(),
-        ))
+    async fn start(&self, input: HarnessInput, cwd: &Path) -> Result<RunningHarness, HarnessError> {
+        use std::time::Instant;
+        self.ensure_session(&input, cwd).await?;
+
+        let start = Instant::now();
+        let (event_tx, event_rx) = mpsc::channel(256);
+        let (result_tx, result_rx) = oneshot::channel();
+
+        let guard = self.session.lock().await;
+        let session = guard
+            .as_ref()
+            .ok_or_else(|| HarnessError::StartFailed("session disappeared after ensure".into()))?;
+
+        let (td_tx, td_rx) = oneshot::channel::<bool>();
+        let usage = Arc::new(std::sync::Mutex::new(
+            joysafeter_types::token_usage::TokenUsage::default(),
+        ));
+        let output = Arc::new(std::sync::Mutex::new(String::new()));
+        {
+            let mut ct = session.current_turn.lock().await;
+            *ct = Some(TurnState {
+                event_tx,
+                turn_done_tx: Some(td_tx),
+                usage: usage.clone(),
+                output: output.clone(),
+                call_id_to_tool: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            });
+        }
+
+        let stdin = session.stdin.clone();
+        let prompt = input.prompt.clone();
+        tokio::spawn(async move {
+            let line = build_prompt_line(&prompt, &next_req_id());
+            let mut g = stdin.lock().await;
+            if let Some(ref mut stdin) = *g {
+                let _ = stdin.write_all(line.as_bytes()).await;
+                let _ = stdin.flush().await;
+            }
+        });
+
+        let current_turn = session.current_turn.clone();
+        let session_id = input.session_id.clone();
+        let shared_stdin_for_harness = session.stdin.clone();
+        drop(guard);
+
+        tokio::spawn(async move {
+            let aborted = td_rx.await.unwrap_or(true);
+            let final_output = output.lock().unwrap().clone();
+            let final_usage = usage.lock().unwrap().clone();
+            {
+                let mut ct = current_turn.lock().await;
+                *ct = None;
+            }
+            let status = if aborted {
+                joysafeter_types::harness::HarnessResultStatus::Aborted
+            } else {
+                joysafeter_types::harness::HarnessResultStatus::Completed
+            };
+            let _ = result_tx.send(joysafeter_types::harness::HarnessResult {
+                status,
+                output: final_output,
+                error: None,
+                session_id,
+                usage: final_usage,
+                duration: start.elapsed(),
+            });
+        });
+
+        Ok(RunningHarness {
+            events: event_rx,
+            result: result_rx,
+            child: None,
+            input: Some(Box::new(shared_stdin_for_harness)),
+        })
     }
     async fn cancel(&self, _harness: &mut RunningHarness) -> Result<(), HarnessError> {
         Ok(())
@@ -267,6 +334,19 @@ fn accumulate_usage_and_output(
     }
 }
 
+pub(crate) fn build_prompt_line(message: &str, id: &str) -> String {
+    let v = serde_json::json!({ "type": "prompt", "message": message, "id": id });
+    format!("{}\n", v)
+}
+
+fn next_req_id() -> String {
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    format!("req_{n}")
+}
+
 impl PiAdapter {
     async fn ensure_session(&self, input: &HarnessInput, cwd: &Path) -> Result<(), HarnessError> {
         let mut guard = self.session.lock().await;
@@ -458,6 +538,16 @@ mod tests {
         let mut cmap = HashMap::new();
         let done = super::dispatch_pi_line(r#"{"type":"agent_settled"}"#, &tx, &mut cmap).await;
         assert!(done);
+    }
+
+    #[test]
+    fn build_prompt_line_is_valid_jsonl() {
+        let line = super::build_prompt_line("hello world", "req_1");
+        let v: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(v["type"], "prompt");
+        assert_eq!(v["message"], "hello world");
+        assert_eq!(v["id"], "req_1");
+        assert!(line.ends_with('\n'));
     }
 
     #[tokio::test]
