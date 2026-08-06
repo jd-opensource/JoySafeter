@@ -179,7 +179,7 @@ def test_trigger_responses_serialize_managed_id_prefixes() -> None:
         last_success_at=None,
         last_error=None,
         consecutive_failures=0,
-        last_task_id=None,
+        last_task_id=task_id,
         last_session_id=None,
         last_payload={},
         created_at=now,
@@ -200,6 +200,7 @@ def test_trigger_responses_serialize_managed_id_prefixes() -> None:
 
     assert trigger.model_dump(mode="json")["id"] == f"trig_{trigger_id}"
     assert trigger.model_dump(mode="json")["agent_id"] == str(agent_id)
+    assert trigger.model_dump(mode="json")["last_task_id"] == f"task_{task_id}"
     assert run.model_dump(mode="json")["id"] == f"task_{task_id}"
     assert run.model_dump(mode="json")["trigger_id"] == f"trig_{trigger_id}"
     assert run.model_dump(mode="json")["chat_session_id"] == f"sess_{session_id}"

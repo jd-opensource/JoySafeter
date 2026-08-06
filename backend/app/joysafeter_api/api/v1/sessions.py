@@ -59,7 +59,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.utils.id_utils import same_id
+from app.joysafeter_shared.utils.id_utils import format_task_id, same_id
 
 logger = logging.getLogger(__name__)
 
@@ -687,7 +687,10 @@ async def delete_session(
         raise ResourceConflictError(
             code="SESSION_ACTIVE_TASK",
             message="Session has an active task; stop it before deleting session",
-            data={"session_id": str(session_id), "active_task_ids": [str(task.id) for task in active_tasks]},
+            data={
+                "session_id": str(session_id),
+                "active_task_ids": [format_task_id(task.id) for task in active_tasks],
+            },
             retryable=True,
             user_action=("retry" if True else "fix_input"),
         )
@@ -879,7 +882,7 @@ async def stop_session(
             message="Failed to cancel all active tasks",
             data={
                 "session_id": str(session_id),
-                "active_task_ids": [str(task.id) for task in remaining_active],
+                "active_task_ids": [format_task_id(task.id) for task in remaining_active],
             },
             source="runtime",
             retryable=True,
@@ -925,7 +928,7 @@ async def stop_session(
                     message="Failed to cancel all active tasks",
                     data={
                         "session_id": str(session_id),
-                        "active_task_ids": [str(task.id) for task in remaining_active],
+                        "active_task_ids": [format_task_id(task.id) for task in remaining_active],
                     },
                     source="runtime",
                     retryable=True,
@@ -1320,7 +1323,7 @@ async def _idempotent_user_message_replay_response(
                 message="Idempotency-Key was already used for a different session",
                 data={
                     "session_id": str(session_id),
-                    "task_id": str(existing_task.id),
+                    "task_id": format_task_id(existing_task.id),
                     "conflict_field": "chat_session_id",
                     "requested_value": str(session_id),
                     "existing_value": str(existing_task.chat_session_id),
@@ -1333,7 +1336,7 @@ async def _idempotent_user_message_replay_response(
                 message="Idempotency-Key was already used for a different message",
                 data={
                     "session_id": str(session_id),
-                    "task_id": str(existing_task.id),
+                    "task_id": format_task_id(existing_task.id),
                     "conflict_field": "message",
                     "requested_value": str(expected_prompt),
                     "existing_value": str(existing_task.prompt),
@@ -1344,7 +1347,7 @@ async def _idempotent_user_message_replay_response(
             raise ServiceUnavailableError(
                 code="TASK_ENQUEUE_FAILED",
                 message="Failed to enqueue task",
-                data={"session_id": str(session_id), "task_id": str(existing_task.id)},
+                data={"session_id": str(session_id), "task_id": format_task_id(existing_task.id)},
                 source="runtime",
                 retryable=True,
                 user_action="retry",
@@ -1414,7 +1417,11 @@ async def _mark_session_running_for_active_task(
     if not running_accepted:
         return False
 
-    running_event = await svc.send_event(session_id, "session.status_running", {"task_id": str(task_id)})
+    running_event = await svc.send_event(
+        session_id,
+        "session.status_running",
+        {"task_id": format_task_id(task_id)},
+    )
     if broadcaster:
         running_broadcast = {
             "id": f"evt_{running_event.id}",
@@ -1578,7 +1585,7 @@ async def send_event(
                     message="Session has an active task; wait for completion before sending a new message",
                     data={
                         "session_id": str(session_id),
-                        "active_task_ids": [str(task.id) for task in active_tasks],
+                        "active_task_ids": [format_task_id(task.id) for task in active_tasks],
                     },
                     retryable=True,
                     user_action="retry",

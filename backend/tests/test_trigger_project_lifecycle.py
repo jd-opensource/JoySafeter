@@ -1389,8 +1389,8 @@ async def test_trigger_run_history_uses_cursor_pagination(db_session):
 
     assert first_page.has_more is True
     assert [str(run.id) for run in first_page.data] == [str(task_ids[2]), str(task_ids[1])]
-    assert first_page.first_id == str(task_ids[2])
-    assert first_page.last_id == str(task_ids[1])
+    assert first_page.first_id == f"task_{task_ids[2]}"
+    assert first_page.last_id == f"task_{task_ids[1]}"
 
     second_page = await list_trigger_runs(
         trigger_id,
@@ -1402,8 +1402,8 @@ async def test_trigger_run_history_uses_cursor_pagination(db_session):
 
     assert second_page.has_more is False
     assert [str(run.id) for run in second_page.data] == [str(task_ids[0])]
-    assert second_page.first_id == str(task_ids[0])
-    assert second_page.last_id == str(task_ids[0])
+    assert second_page.first_id == f"task_{task_ids[0]}"
+    assert second_page.last_id == f"task_{task_ids[0]}"
 
 
 @pytest.mark.asyncio
@@ -2253,9 +2253,9 @@ async def test_scheduled_task_cancel_does_not_mark_cancelled_when_runtime_relay_
         "code": "TASK_CANCEL_REDIS_RELAY_FAILED",
         "message": "Failed to cancel task in sandbox runtime.",
         "data": {
-            "task_id": str(task_id),
-            "session_id": str(session_id),
-            "sandbox_id": str(sandbox_id),
+            "task_id": f"task_{task_id}",
+            "session_id": f"sess_{session_id}",
+            "sandbox_id": f"sbx_{sandbox_id}",
         },
         "source": "runtime",
         "retryable": True,
@@ -2499,7 +2499,7 @@ async def test_scheduled_pending_task_cancel_fails_closed_if_sandbox_is_assigned
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_STATE_SYNC_FAILED",
         "message": "Task cancel could not be finalized because task ownership changed.",
-        "data": {"task_id": str(task_id), "session_id": str(session_id)},
+        "data": {"task_id": f"task_{task_id}", "session_id": f"sess_{session_id}"},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",

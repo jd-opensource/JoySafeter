@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from app.joysafeter_domain.schemas.joysafeter_task import (
     MAX_PROMPT_CHARS,
     JoySafeterCreateTaskRequest,
+    JoySafeterCreateTaskResponse,
     JoySafeterTaskResponse,
 )
 
@@ -63,3 +64,32 @@ def test_task_response_serializes_internal_system_prompt_as_system():
     payload = response.model_dump()
     assert payload["system"] == "be precise"
     assert "system_prompt" not in payload
+
+
+def test_task_responses_use_canonical_prefixed_ids():
+    task_id = "00000000-0000-0000-0000-000000000001"
+    agent_id = "00000000-0000-0000-0000-000000000002"
+    session_id = "00000000-0000-0000-0000-000000000003"
+    sandbox_id = "00000000-0000-0000-0000-000000000004"
+
+    created = JoySafeterCreateTaskResponse(id=task_id, status="pending").model_dump(mode="json")
+    task = JoySafeterTaskResponse.model_validate(
+        {
+            "id": task_id,
+            "agent_id": agent_id,
+            "chat_session_id": session_id,
+            "status": "pending",
+            "prompt": "scan",
+            "sandbox_id": sandbox_id,
+            "timeout_sec": 60,
+            "retry_count": 0,
+            "max_retries": 0,
+            "created_at": "2026-08-06T00:00:00Z",
+        }
+    ).model_dump(mode="json")
+
+    assert created["id"] == f"task_{task_id}"
+    assert task["id"] == f"task_{task_id}"
+    assert task["agent_id"] == f"agent_{agent_id}"
+    assert task["chat_session_id"] == f"sess_{session_id}"
+    assert task["sandbox_id"] == f"sbx_{sandbox_id}"

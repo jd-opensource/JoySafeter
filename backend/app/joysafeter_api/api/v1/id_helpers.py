@@ -6,8 +6,9 @@ strip the prefix so that FastAPI can validate the underlying UUID.
 """
 
 import uuid
+from typing import Optional
 
-from fastapi import Path
+from fastapi import Path, Query
 
 from app.joysafeter_shared.common.app_errors import AppError, InvalidRequestError
 
@@ -39,6 +40,14 @@ def parse_agent_id(agent_id: str = Path(...)) -> uuid.UUID:
 
 def parse_session_id(session_id: str = Path(...)) -> uuid.UUID:
     return _strip_prefix(session_id, "sess_", "session_id")
+
+
+def parse_task_id(task_id: str = Path(...)) -> uuid.UUID:
+    return _strip_prefix(task_id, "task_", "task_id")
+
+
+def parse_task_after_id(after_id: Optional[str] = Query(None)) -> Optional[uuid.UUID]:
+    return _strip_prefix(after_id, "task_", "after_id") if after_id is not None else None
 
 
 def parse_env_id(env_id: str = Path(...)) -> uuid.UUID:

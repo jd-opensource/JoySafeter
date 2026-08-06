@@ -7,7 +7,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.joysafeter_shared.utils.id_utils import format_task_id
 
 
 class SandboxStatus(str, Enum):
@@ -65,3 +67,7 @@ class SandboxResponse(BaseModel):
     workspace_path: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("last_task_id")
+    def serialize_last_task_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
+        return format_task_id(value) if value is not None else None

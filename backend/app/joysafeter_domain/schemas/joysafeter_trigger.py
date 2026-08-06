@@ -8,6 +8,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
+from app.joysafeter_shared.utils.id_utils import format_task_id
+
 
 def _strip_required(value: str) -> str:
     return value.strip()
@@ -184,11 +186,15 @@ class TriggerResponse(BaseModel):
     def _serialize_id(self, value: uuid.UUID) -> str:
         return f"trig_{value}"
 
-    @field_serializer("agent_id", "pinned_session_id", "reusable_session_id", "last_task_id", "last_session_id")
+    @field_serializer("agent_id", "pinned_session_id", "reusable_session_id", "last_session_id")
     def _serialize_uuid(self, value: Optional[uuid.UUID]) -> Optional[str]:
         if value is None:
             return None
         return str(value)
+
+    @field_serializer("last_task_id")
+    def _serialize_last_task_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
+        return format_task_id(value) if value is not None else None
 
 
 class TriggerVariable(BaseModel):

@@ -10,6 +10,13 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+from app.joysafeter_shared.utils.id_utils import (
+    format_agent_id,
+    format_sandbox_id,
+    format_session_id,
+    format_task_id,
+)
+
 # Coarse per-field safety bound for free-text prompt content. Sits far below the
 # request body-size cap (64 MiB) so a single field cannot bloat a DB row or the
 # Redis SSE fan-out, yet generous enough (~250k tokens) never to hit a
@@ -34,6 +41,10 @@ class JoySafeterCreateTaskResponse(BaseModel):
     id: uuid.UUID
     status: str
 
+    @field_serializer("id")
+    def serialize_id(self, value: uuid.UUID) -> str:
+        return format_task_id(value)
+
 
 class JoySafeterTaskResponse(BaseModel):
     id: uuid.UUID
@@ -57,5 +68,17 @@ class JoySafeterTaskResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"task_{v}"
+    def serialize_id(self, value: uuid.UUID) -> str:
+        return format_task_id(value)
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: uuid.UUID) -> str:
+        return format_agent_id(value)
+
+    @field_serializer("chat_session_id")
+    def serialize_session_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
+        return format_session_id(value) if value is not None else None
+
+    @field_serializer("sandbox_id")
+    def serialize_sandbox_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
+        return format_sandbox_id(value) if value is not None else None

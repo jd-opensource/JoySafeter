@@ -307,7 +307,7 @@ async def test_get_task_missing_task_returns_structured_error(db_session):
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "TASK_NOT_FOUND",
         "message": "Task not found",
-        "data": {"task_id": str(task_id)},
+        "data": {"task_id": f"task_{task_id}"},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",

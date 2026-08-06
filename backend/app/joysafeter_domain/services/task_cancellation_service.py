@@ -31,6 +31,7 @@ from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTas
 from app.joysafeter_shared.common.app_errors import ConflictError, ServiceUnavailableError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_command_via_redis
+from app.joysafeter_shared.utils.id_utils import format_sandbox_id, format_session_id, format_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -60,16 +61,19 @@ class TaskCancellationService:
             failure_code="TASK_CANCEL_REDIS_RELAY_FAILED",
             failure_message="Task cancel Redis relay failed",
             data={
-                "task_id": str(task_id),
-                "session_id": str(session_id or ""),
+                "task_id": format_task_id(task_id),
+                "session_id": format_session_id(session_id) if session_id is not None else "",
             },
         )
 
     @staticmethod
     def _state_sync_data(*, task_id: Any, session_id: Any, sandbox_id: Any = None) -> dict[str, str]:
-        data = {"task_id": str(task_id), "session_id": str(session_id or "")}
+        data = {
+            "task_id": format_task_id(task_id),
+            "session_id": format_session_id(session_id) if session_id is not None else "",
+        }
         if sandbox_id is not None:
-            data["sandbox_id"] = str(sandbox_id)
+            data["sandbox_id"] = format_sandbox_id(sandbox_id)
         return data
 
     def _state_sync_failed(self, *, task_id: Any, session_id: Any, sandbox_id: Any = None) -> ServiceUnavailableError:
@@ -156,9 +160,9 @@ class TaskCancellationService:
                     code="TASK_CANCEL_REDIS_RELAY_FAILED",
                     message="Failed to cancel task in sandbox runtime.",
                     data={
-                        "task_id": str(task_id),
-                        "session_id": str(session_id or ""),
-                        "sandbox_id": str(sandbox_id),
+                        "task_id": format_task_id(task_id),
+                        "session_id": format_session_id(session_id) if session_id is not None else "",
+                        "sandbox_id": format_sandbox_id(sandbox_id),
                     },
                     source="runtime",
                     retryable=True,
@@ -225,13 +229,13 @@ class TaskCancellationService:
                 message="Failed to mark session idle after cancelling task",
                 operation="cancel_task_mark_session_idle",
                 error=exc,
-                data={"session_id": str(session_id), "task_id": str(task_id)},
+                data={"session_id": format_session_id(session_id), "task_id": format_task_id(task_id)},
             )
             await self.db.rollback()
             raise ServiceUnavailableError(
                 code="TASK_CANCEL_SESSION_SYNC_FAILED",
                 message="Task was cancelled, but failed to mark the linked session idle.",
-                data={"task_id": str(task_id), "session_id": str(session_id)},
+                data={"task_id": format_task_id(task_id), "session_id": format_session_id(session_id)},
                 source="api",
                 retryable=True,
                 user_action="refresh",
@@ -242,7 +246,7 @@ class TaskCancellationService:
                 await session_svc.send_event(
                     session_id,
                     "session.status_idle",
-                    {"task_id": str(task_id), "stop_reason": stop_reason},
+                    {"task_id": format_task_id(task_id), "stop_reason": stop_reason},
                 )
             except Exception:
                 logger.debug("Failed to persist cancel idle event for session %s", session_id, exc_info=True)

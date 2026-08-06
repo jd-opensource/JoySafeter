@@ -4,7 +4,9 @@ Pydantic response schemas for the analytics API.
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+
+from app.joysafeter_shared.utils.id_utils import format_agent_id, format_session_id, format_task_id
 
 # --- KPI Summary ---
 
@@ -91,6 +93,18 @@ class CallRecord(BaseModel):
     completed_at: Optional[str] = None
     retry_count: int = 0
     queue_wait_ms: int = 0
+
+    @field_serializer("id", "trace_id")
+    def serialize_task_id(self, value: str) -> str:
+        return format_task_id(value)
+
+    @field_serializer("session_id")
+    def serialize_session_id(self, value: Optional[str]) -> Optional[str]:
+        return format_session_id(value) if value is not None else None
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: Optional[str]) -> Optional[str]:
+        return format_agent_id(value) if value is not None else None
 
 
 class CallsListResponse(BaseModel):

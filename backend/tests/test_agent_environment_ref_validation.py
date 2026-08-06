@@ -132,7 +132,7 @@ async def test_update_agent_rejects_environment_ref_change_with_active_task(db_s
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "AGENT_ACTIVE_TASKS",
         "message": "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
-        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task.id)]},
+        "data": {"agent_id": str(agent_id), "active_task_ids": [f"task_{task.id}"]},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -173,7 +173,7 @@ async def test_update_agent_rejects_secret_ref_change_with_active_task(db_sessio
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "AGENT_ACTIVE_TASKS",
         "message": "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
-        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task.id)]},
+        "data": {"agent_id": str(agent_id), "active_task_ids": [f"task_{task.id}"]},
         "source": "api",
         "retryable": True,
         "user_action": "retry",

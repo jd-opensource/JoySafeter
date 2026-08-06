@@ -70,14 +70,9 @@ Model configuration lives in the agent's `model` JSONB field plus a `secret_ref`
 ## ID formats
 
 Most managed-resource responses serialize IDs with a type prefix, such as `agent_<uuid>`,
-`sess_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, and `secret_<uuid>`. The
+`sess_<uuid>`, `task_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, and `secret_<uuid>`. The
 corresponding resource routes strip these prefixes where `id_helpers.py` is used, so either the
 prefixed ID or the bare UUID works for those paths.
-
-Task routes are the notable exception: `GET /tasks/{task_id}`, `POST /tasks/{task_id}/cancel`,
-and `WS /tasks/{task_id}/stream` currently take a bare UUID path parameter. `POST /tasks`
-returns the bare UUID as `data.id`; if another task response serializes `id` as `task_<uuid>`,
-strip `task_` before calling a task path.
 
 ---
 
@@ -100,13 +95,13 @@ curl -X POST https://your-domain/api/v1/sessions \
   -d '{"agent_name": "apk-analyzer", "title": "APK analysis"}'
 ```
 
-The response envelope's `data.id` is the session ID, usually serialized as `sess_<uuid>`.
+The response envelope's `data.id` is the session ID serialized as `sess_<uuid>`.
 
 ### 2. Send the first user message
 
 `POST /api/v1/sessions/{session_id}/events` appends a `user.message`, creates a Task for that
 turn, transitions the session to running, and enqueues the task. The API also emits a
-`session.status_running` event whose payload contains the created task's bare UUID.
+`session.status_running` event whose payload contains the created `task_<uuid>` ID.
 
 ```bash
 curl -X POST https://your-domain/api/v1/sessions/{session_id}/events \
@@ -150,7 +145,7 @@ curl -X POST https://your-domain/api/v1/tasks \
   -d '{"agent_name": "apk-analyzer", "prompt": "Analyze this APK: https://example.com/app.apk"}'
 ```
 
-The response envelope's `data` carries only `id` (bare task UUID) and `status`. To stream via
+The response envelope's `data` carries only `id` (`task_<uuid>`) and `status`. To stream via
 SSE after task-first creation, call `GET /api/v1/tasks/{task_id}` and use its
 `chat_session_id` field with `/sessions/{session_id}/events/stream`.
 

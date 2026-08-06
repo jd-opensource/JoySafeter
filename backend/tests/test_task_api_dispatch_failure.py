@@ -187,8 +187,8 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
-        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(task.id)}),
-        ("session.status_running", {"task_id": str(task.id)})
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": f"task_{task.id}"}),
+        ("session.status_running", {"task_id": f"task_{task.id}"}),
     ]
 
 
@@ -372,7 +372,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": str(task.id), "session_id": str(task.chat_session_id)},
+        "data": {"task_id": f"task_{task.id}", "session_id": f"sess_{task.chat_session_id}"},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -389,7 +389,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         "type": "error",
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": str(task.id), "session_id": str(task.chat_session_id)},
+        "data": {"task_id": f"task_{task.id}", "session_id": f"sess_{task.chat_session_id}"},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -408,12 +408,12 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
-        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(task.id)}),
-        ("session.status_running", {"task_id": str(task.id)}),
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": f"task_{task.id}"}),
+        ("session.status_running", {"task_id": f"task_{task.id}"}),
         (
             "session.status_idle",
             {
-                "task_id": str(task.id),
+                "task_id": f"task_{task.id}",
                 "stop_reason": expected_stop_reason,
             },
         ),
@@ -455,7 +455,7 @@ async def test_create_task_rejects_session_with_active_task_even_if_session_look
         "message": "Session has an active task; wait for completion before creating a new task",
         "data": {
             "session_id": str(session.id),
-            "active_task_ids": [str(existing_task.id)],
+            "active_task_ids": [f"task_{existing_task.id}"],
         },
         "source": "api",
         "retryable": True,
@@ -506,8 +506,8 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
-        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(response.id)}),
-        ("session.status_running", {"task_id": str(response.id)})
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": f"task_{response.id}"}),
+        ("session.status_running", {"task_id": f"task_{response.id}"}),
     ]
 
 
@@ -630,7 +630,7 @@ async def test_create_task_idempotent_retry_after_enqueue_failure_stays_503(db_s
     assert await handled_app_error_payload(second_exc.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": str(tasks[0].id), "session_id": str(tasks[0].chat_session_id)},
+        "data": {"task_id": f"task_{tasks[0].id}", "session_id": f"sess_{tasks[0].chat_session_id}"},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -714,7 +714,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_prompt(db
         "code": "TASK_IDEMPOTENCY_KEY_MISMATCH",
         "message": "Idempotency-Key was already used for a different prompt",
         "data": {
-            "task_id": str(first_response.id),
+            "task_id": f"task_{first_response.id}",
             "conflict_field": "prompt",
             "requested_value": "scan target b",
             "existing_value": "scan target a",
@@ -759,7 +759,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_session(d
         "code": "TASK_IDEMPOTENCY_KEY_MISMATCH",
         "message": "Idempotency-Key was already used for a different session",
         "data": {
-            "task_id": str(first_response.id),
+            "task_id": f"task_{first_response.id}",
             "conflict_field": "chat_session_id",
             "requested_value": str(session_b.id),
             "existing_value": str(session_a.id),
@@ -843,7 +843,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
         "code": "TASK_IDEMPOTENCY_KEY_MISMATCH",
         "message": "Idempotency-Key was already used for a different environment",
         "data": {
-            "task_id": str(first_response.id),
+            "task_id": f"task_{first_response.id}",
             "conflict_field": "environment_ref",
             "requested_value": f"env_{env_b.id}",
             "existing_value": f"env_{env_a.id}",
@@ -918,7 +918,7 @@ async def test_cancel_task_rejects_terminal_task_with_structured_error(db_sessio
         "code": "TASK_ALREADY_TERMINAL",
         "message": "Task already in terminal state: completed",
         "data": {
-            "task_id": str(task.id),
+            "task_id": f"task_{task.id}",
             "task_status": "completed",
         },
         "source": "api",
@@ -968,7 +968,7 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
 
     response = await cancel_task(task_id, db_session, _auth_ctx())
 
-    assert response == {"id": str(task_id), "status": "cancelled"}
+    assert response == {"id": f"task_{task_id}", "status": "cancelled"}
     command_publishes = [
         (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
     ]
@@ -1046,7 +1046,7 @@ async def test_cancel_task_rejects_ack_if_task_moved_to_another_sandbox(db_sessi
         "code": "TASK_CANCEL_STATE_SYNC_FAILED",
         "message": "Task cancel could not be finalized because task ownership changed.",
         "data": {
-            "task_id": str(task_id),
+            "task_id": f"task_{task_id}",
             "session_id": str(session_id),
             "sandbox_id": str(old_sandbox_id),
         },
@@ -1116,7 +1116,7 @@ async def test_cancel_task_does_not_mark_cancelled_when_runtime_cancel_relay_fai
         "code": "TASK_CANCEL_REDIS_RELAY_FAILED",
         "message": "Failed to cancel task in sandbox runtime.",
         "data": {
-            "task_id": str(task_id),
+            "task_id": f"task_{task_id}",
             "session_id": str(session_id),
             "sandbox_id": str(sandbox_id),
         },
@@ -1165,7 +1165,7 @@ async def test_cancel_running_task_without_runtime_owner_fails_closed(db_session
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_STATE_SYNC_FAILED",
         "message": "Task cancel could not be finalized because task has no runtime owner.",
-        "data": {"task_id": str(task_id), "session_id": str(session_id)},
+        "data": {"task_id": f"task_{task_id}", "session_id": f"sess_{session_id}"},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",
@@ -1240,7 +1240,7 @@ async def test_cancel_task_reports_session_idle_write_failure(db_session, monkey
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_SESSION_SYNC_FAILED",
         "message": "Task was cancelled, but failed to mark the linked session idle.",
-        "data": {"task_id": str(task_id), "session_id": str(session_id)},
+        "data": {"task_id": f"task_{task_id}", "session_id": f"sess_{session_id}"},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",

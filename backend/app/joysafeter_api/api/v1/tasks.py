@@ -9,6 +9,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Header, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.id_helpers import parse_task_after_id, parse_task_id
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
@@ -33,7 +34,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.utils.id_utils import same_id
+from app.joysafeter_shared.utils.id_utils import format_session_id, format_task_id, same_id
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ def _task_idempotency_conflict_error(
     existing_value: object | None = None,
 ) -> AppError:
     data = {
-        "task_id": str(existing.id),
+        "task_id": format_task_id(existing.id),
         "conflict_field": field,
     }
     if requested_value is not None:
@@ -101,7 +102,7 @@ def _task_idempotency_conflict_error(
 
 def _task_cancel_conflict_error(task_id: uuid.UUID, exc: ValueError) -> AppError:
     message = str(exc)
-    data: dict[str, object] = {"task_id": str(task_id)}
+    data: dict[str, object] = {"task_id": format_task_id(task_id)}
     prefix = "Task already in terminal state: "
     if message.startswith(prefix):
         data["task_status"] = message.removeprefix(prefix)
@@ -120,9 +121,9 @@ def _task_cancel_conflict_error(task_id: uuid.UUID, exc: ValueError) -> AppError
 
 
 def _task_enqueue_failed_error(*, task_id: uuid.UUID, session_id: uuid.UUID | None = None) -> AppError:
-    data: dict[str, object] = {"task_id": str(task_id)}
+    data: dict[str, object] = {"task_id": format_task_id(task_id)}
     if session_id is not None:
-        data["session_id"] = str(session_id)
+        data["session_id"] = format_session_id(session_id)
     return ServiceUnavailableError(
         code="TASK_ENQUEUE_FAILED",
         message="Failed to enqueue task",
@@ -134,9 +135,9 @@ def _task_enqueue_failed_error(*, task_id: uuid.UUID, session_id: uuid.UUID | No
 
 
 def _task_enqueue_failed_stop_reason(*, task_id: uuid.UUID, session_id: uuid.UUID | None = None) -> dict[str, object]:
-    data: dict[str, object] = {"task_id": str(task_id)}
+    data: dict[str, object] = {"task_id": format_task_id(task_id)}
     if session_id is not None:
-        data["session_id"] = str(session_id)
+        data["session_id"] = format_session_id(session_id)
     return async_error_payload(
         code="TASK_ENQUEUE_FAILED",
         message="Failed to enqueue task",
@@ -158,7 +159,7 @@ def _task_stream_error_payload(
     data: dict[str, object] | None = None,
     detail: str | None = None,
 ) -> dict[str, object]:
-    payload_data: dict[str, object] = {"task_id": str(task_id)}
+    payload_data: dict[str, object] = {"task_id": format_task_id(task_id)}
     if data:
         payload_data.update(data)
     return async_error_payload(
@@ -470,7 +471,7 @@ async def create_task(
                 message="Session has an active task; wait for completion before creating a new task",
                 data={
                     "session_id": str(chat_session_id),
-                    "active_task_ids": [str(active_task.id) for active_task in active_tasks],
+                    "active_task_ids": [format_task_id(active_task.id) for active_task in active_tasks],
                 },
                 retryable=True,
                 user_action="retry",
@@ -502,7 +503,7 @@ async def create_task(
 @router.get("")
 async def list_tasks(
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[uuid.UUID] = Depends(parse_task_after_id),
     agent_id: Optional[uuid.UUID] = Query(None),
     session_id: Optional[uuid.UUID] = Query(None),
     status: Optional[str] = Query(None),
@@ -522,14 +523,14 @@ async def list_tasks(
     return PaginatedResponse(
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=format_task_id(data[0].id) if data else None,
+        last_id=format_task_id(data[-1].id) if data else None,
     )
 
 
 @router.get("/{task_id}")
 async def get_task(
-    task_id: uuid.UUID,
+    task_id: uuid.UUID = Depends(parse_task_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> TaskResponse:
@@ -539,7 +540,7 @@ async def get_task(
         raise NotFoundError(
             code="TASK_NOT_FOUND",
             message="Task not found",
-            data={"task_id": str(task_id)},
+            data={"task_id": format_task_id(task_id)},
             user_action="refresh",
         )
     return TaskResponse.model_validate(task)
@@ -547,7 +548,7 @@ async def get_task(
 
 @router.post("/{task_id}/cancel")
 async def cancel_task(
-    task_id: uuid.UUID,
+    task_id: uuid.UUID = Depends(parse_task_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
@@ -559,7 +560,7 @@ async def cancel_task(
         raise NotFoundError(
             code="TASK_NOT_FOUND",
             message="Task not found",
-            data={"task_id": str(task_id)},
+            data={"task_id": format_task_id(task_id)},
             user_action="refresh",
         )
 
@@ -570,7 +571,7 @@ async def cancel_task(
     except ValueError as e:
         raise _task_cancel_conflict_error(task_id, e) from e
 
-    return {"id": str(task_id), "status": "cancelled"}
+    return {"id": format_task_id(task_id), "status": "cancelled"}
 
 
 async def _authorize_task_stream(
@@ -616,7 +617,7 @@ async def _authorize_task_stream(
 
 
 @router.websocket("/{task_id}/stream")
-async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
+async def task_stream(websocket: WebSocket, task_id: uuid.UUID = Depends(parse_task_id)):
     """WebSocket endpoint for real-time task output streaming."""
     from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
     from app.joysafeter_shared.security import decode_token
@@ -741,7 +742,7 @@ async def _stream_via_redis(websocket: WebSocket, task_id: uuid.UUID, redis_clie
                     message="Cross-instance task stream failed",
                     boundary="task_api",
                     operation="stream_task_events",
-                    data={"task_id": str(task_id)},
+                    data={"task_id": format_task_id(task_id)},
                     detail=exc.__class__.__name__,
                 )
             },

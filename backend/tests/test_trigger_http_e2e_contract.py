@@ -174,7 +174,7 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
         assert active_delete_resp.json()["code"] == "TRIGGER_HAS_ACTIVE_RUNS"
         assert active_delete_resp.json()["data"] == {
             "trigger_id": trigger_id.removeprefix("trig_"),
-            "active_task_ids": [str(active_task.id)],
+            "active_task_ids": [f"task_{active_task.id}"],
         }
 
         active_task.status = JoySafeterTaskStatus.COMPLETED.value

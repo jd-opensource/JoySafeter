@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy import String, and_, cast, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_platform_admin,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.utils.id_utils import format_task_id
 
 router = APIRouter(tags=["joysafeter-network-policies"])
 
@@ -40,6 +41,10 @@ class NetworkPolicyStatusResponse(BaseModel):
     latest_policy_nack_reason: Optional[str] = None
     latest_policy_updated_at: Optional[datetime] = None
     rendered_summary: dict[str, Any] = Field(default_factory=dict)
+
+    @field_serializer("task_id")
+    def serialize_task_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
+        return format_task_id(value) if value is not None else None
 
 
 class NetworkPolicyListResponse(BaseModel):
@@ -73,24 +78,21 @@ def _row_to_response(row: Any) -> NetworkPolicyStatusResponse:
 
 
 def _latest_policy_subquery():
-    return (
-        select(
-            JoySafeterSandboxNetworkPolicy.sandbox_id.label("sandbox_id"),
-            JoySafeterSandboxNetworkPolicy.task_id.label("task_id"),
-            JoySafeterSandboxNetworkPolicy.status.label("latest_policy_status"),
-            JoySafeterSandboxNetworkPolicy.last_error.label("latest_policy_error"),
-            JoySafeterSandboxNetworkPolicy.last_nack_reason.label("latest_policy_nack_reason"),
-            JoySafeterSandboxNetworkPolicy.rendered_summary_json.label("rendered_summary"),
-            JoySafeterSandboxNetworkPolicy.updated_at.label("latest_policy_updated_at"),
-            func.row_number()
-            .over(
-                partition_by=JoySafeterSandboxNetworkPolicy.sandbox_id,
-                order_by=JoySafeterSandboxNetworkPolicy.policy_version.desc(),
-            )
-            .label("rn"),
+    return select(
+        JoySafeterSandboxNetworkPolicy.sandbox_id.label("sandbox_id"),
+        JoySafeterSandboxNetworkPolicy.task_id.label("task_id"),
+        JoySafeterSandboxNetworkPolicy.status.label("latest_policy_status"),
+        JoySafeterSandboxNetworkPolicy.last_error.label("latest_policy_error"),
+        JoySafeterSandboxNetworkPolicy.last_nack_reason.label("latest_policy_nack_reason"),
+        JoySafeterSandboxNetworkPolicy.rendered_summary_json.label("rendered_summary"),
+        JoySafeterSandboxNetworkPolicy.updated_at.label("latest_policy_updated_at"),
+        func.row_number()
+        .over(
+            partition_by=JoySafeterSandboxNetworkPolicy.sandbox_id,
+            order_by=JoySafeterSandboxNetworkPolicy.policy_version.desc(),
         )
-        .subquery()
-    )
+        .label("rn"),
+    ).subquery()
 
 
 def _base_status_query(project_id: Optional[str] = None):

@@ -24,7 +24,7 @@ from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import Trigg
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
-from app.joysafeter_shared.utils.id_utils import same_id
+from app.joysafeter_shared.utils.id_utils import format_task_id, same_id
 
 _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYSAFETER_TERMINAL_STATUSES]
 
@@ -149,7 +149,7 @@ class JoySafeterTriggerService:
             message="Trigger has active runs. Cancel or wait for them before deleting the trigger.",
             data={
                 "trigger_id": str(trigger_id),
-                "active_task_ids": [str(task.id) for task in active_tasks],
+                "active_task_ids": [format_task_id(task.id) for task in active_tasks],
             },
             user_action="wait_or_cancel",
         )

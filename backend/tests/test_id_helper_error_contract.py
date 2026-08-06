@@ -12,10 +12,15 @@ from app.joysafeter_api.api.v1.id_helpers import (
     parse_memory_store_id,
     parse_memory_version_id,
     parse_session_id,
+    parse_task_after_id,
+    parse_task_id,
     parse_trigger_id,
     parse_vault_id,
 )
+from app.joysafeter_api.api.v1.network_policies import NetworkPolicyStatusResponse
+from app.joysafeter_domain.schemas.analytics import CallRecord
 from app.joysafeter_domain.schemas.joysafeter_file import FileResponse
+from app.joysafeter_domain.schemas.joysafeter_sandbox import SandboxResponse
 from app.joysafeter_shared.common.app_errors import AppError
 
 pytestmark = pytest.mark.no_db
@@ -44,6 +49,64 @@ def test_parse_session_id_accepts_prefixed_uuid():
     session_id = uuid.uuid4()
 
     assert parse_session_id(f"sess_{session_id}") == session_id
+
+
+def test_parse_task_id_accepts_prefixed_uuid():
+    task_id = uuid.uuid4()
+
+    assert parse_task_id(f"task_{task_id}") == task_id
+
+
+def test_parse_task_after_id_accepts_public_cursor_and_bare_uuid():
+    task_id = uuid.uuid4()
+
+    assert parse_task_after_id(f"task_{task_id}") == task_id
+    assert parse_task_after_id(str(task_id)) == task_id
+    assert parse_task_after_id(None) is None
+
+
+def test_analytics_call_record_serializes_canonical_resource_ids():
+    task_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+
+    payload = CallRecord(
+        id=str(task_id),
+        trace_id=str(task_id),
+        session_id=str(session_id),
+        agent_id=str(agent_id),
+        status="completed",
+    ).model_dump()
+
+    assert payload["id"] == f"task_{task_id}"
+    assert payload["trace_id"] == f"task_{task_id}"
+    assert payload["session_id"] == f"sess_{session_id}"
+    assert payload["agent_id"] == f"agent_{agent_id}"
+
+
+def test_task_references_in_operational_responses_use_canonical_prefix():
+    task_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    sandbox_payload = SandboxResponse(
+        id=uuid.uuid4(),
+        provider="kubernetes",
+        status="idle",
+        image="sandbox:latest",
+        last_task_id=task_id,
+        last_used_at=now,
+        created_at=now,
+    ).model_dump(mode="json")
+    policy_payload = NetworkPolicyStatusResponse(
+        sandbox_id=uuid.uuid4(),
+        task_id=task_id,
+        sandbox_status="idle",
+        networking_status="ready",
+        sandbox_updated_at=now,
+    ).model_dump(mode="json")
+
+    assert sandbox_payload["last_task_id"] == f"task_{task_id}"
+    assert policy_payload["task_id"] == f"task_{task_id}"
 
 
 def test_file_response_uses_canonical_session_prefix():

@@ -7,7 +7,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Body, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.id_helpers import parse_trigger_id
+from app.joysafeter_api.api.v1.id_helpers import parse_task_after_id, parse_trigger_id
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_trigger import (
     TriggerCreateRequest,
@@ -25,6 +25,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.rate_limit import get_client_ip, rate_limit
+from app.joysafeter_shared.utils.id_utils import format_task_id
 
 router = APIRouter(tags=["joysafeter-triggers"])
 
@@ -215,7 +216,7 @@ async def run_trigger_now(
 async def list_trigger_runs(
     trigger_id: uuid.UUID = Depends(parse_trigger_id),
     limit: int = Query(50, ge=1, le=500),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[uuid.UUID] = Depends(parse_task_after_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[TriggerRunResponse]:
@@ -237,8 +238,8 @@ async def list_trigger_runs(
     return PaginatedResponse(
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=format_task_id(data[0].id) if data else None,
+        last_id=format_task_id(data[-1].id) if data else None,
     )
 
 

@@ -32,6 +32,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.utils.id_utils import format_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
         return ResourceConflictError(
             code="ENVIRONMENT_ACTIVE_TASK",
             message=message,
-            data={"environment_id": str(env_id), "task_id": task_id, "source": source},
+            data={"environment_id": str(env_id), "task_id": format_task_id(task_id), "source": source},
             retryable=True,
             user_action="retry",
         )

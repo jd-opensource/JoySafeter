@@ -34,15 +34,15 @@ from app.joysafeter_shared.common.app_errors import (
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.orchestrator_bridge.enqueue import enqueue_joysafeter_task
-from app.joysafeter_shared.utils.id_utils import same_id
+from app.joysafeter_shared.utils.id_utils import format_session_id, format_task_id, same_id
 
 logger = logging.getLogger(__name__)
 
 
 def _enqueue_failed_error(*, task_id: uuid.UUID, session_id: Optional[uuid.UUID]) -> AppError:
-    data: dict[str, object] = {"task_id": str(task_id)}
+    data: dict[str, object] = {"task_id": format_task_id(task_id)}
     if session_id is not None:
-        data["session_id"] = str(session_id)
+        data["session_id"] = format_session_id(session_id)
     return ServiceUnavailableError(
         code="TASK_ENQUEUE_FAILED",
         message="Failed to enqueue task",
@@ -54,9 +54,9 @@ def _enqueue_failed_error(*, task_id: uuid.UUID, session_id: Optional[uuid.UUID]
 
 
 def _enqueue_failed_stop_reason(*, task_id: uuid.UUID, session_id: Optional[uuid.UUID]) -> dict[str, object]:
-    data: dict[str, object] = {"task_id": str(task_id)}
+    data: dict[str, object] = {"task_id": format_task_id(task_id)}
     if session_id is not None:
-        data["session_id"] = str(session_id)
+        data["session_id"] = format_session_id(session_id)
     return async_error_payload(
         code="TASK_ENQUEUE_FAILED",
         message="Failed to enqueue task",
@@ -209,12 +209,12 @@ class TaskSubmissionService:
                 await session_svc.send_event(
                     chat_session_id,
                     "user.message",
-                    {"content": [{"type": "text", "text": task.prompt}], "task_id": str(task.id)},
+                    {"content": [{"type": "text", "text": task.prompt}], "task_id": format_task_id(task.id)},
                 )
             await session_svc.send_event(
                 chat_session_id,
                 "session.status_running",
-                {"task_id": str(task.id)},
+                {"task_id": format_task_id(task.id)},
             )
             await enqueue_joysafeter_task(task.id)
         except Exception as exc:
@@ -235,7 +235,7 @@ class TaskSubmissionService:
                     await session_svc.send_event(
                         chat_session_id,
                         "session.status_idle",
-                        {"task_id": str(task.id), "stop_reason": stop_reason},
+                        {"task_id": format_task_id(task.id), "stop_reason": stop_reason},
                     )
             except Exception:
                 logger.debug(
@@ -269,17 +269,22 @@ class TaskSubmissionService:
                     message="Failed to delete orphan idempotency session",
                     operation="delete_orphan_idempotency_session",
                     error=exc,
-                    data={"session_id": str(auto_created_session_id), "task_id": str(task.id)},
+                    data={
+                        "session_id": format_session_id(auto_created_session_id),
+                        "task_id": format_task_id(task.id),
+                    },
                 )
         elif auto_created_session_id is None and not same_id(task.chat_session_id, chat_session_id):
             raise ResourceConflictError(
                 code="TASK_IDEMPOTENCY_KEY_MISMATCH",
                 message="Idempotency-Key was already used for a different session",
                 data={
-                    "task_id": str(task.id),
+                    "task_id": format_task_id(task.id),
                     "conflict_field": "chat_session_id",
-                    "requested_value": str(chat_session_id),
-                    "existing_value": str(task.chat_session_id),
+                    "requested_value": format_session_id(chat_session_id),
+                    "existing_value": (
+                        format_session_id(task.chat_session_id) if task.chat_session_id is not None else None
+                    ),
                 },
                 user_action="fix_input",
             )

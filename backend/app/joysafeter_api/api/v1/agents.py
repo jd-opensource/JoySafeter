@@ -44,6 +44,7 @@ from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import (
     relay_sandbox_destroy_via_redis,
 )
+from app.joysafeter_shared.utils.id_utils import format_sandbox_id, format_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -415,7 +416,10 @@ async def update_agent(
             raise ResourceConflictError(
                 code="AGENT_ACTIVE_TASKS",
                 message="Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
-                data={"agent_id": str(agent_id), "active_task_ids": [str(task.id) for task in active_tasks]},
+                data={
+                    "agent_id": str(agent_id),
+                    "active_task_ids": [format_task_id(task.id) for task in active_tasks],
+                },
                 retryable=True,
                 user_action="retry",
             )
@@ -471,7 +475,7 @@ async def delete_agent(
                 message="Agent has active tasks (pending/running). Use ?force=true to force delete.",
                 data={
                     "agent_id": str(agent_id),
-                    "active_task_ids": [str(task.id) for task in active_tasks],
+                    "active_task_ids": [format_task_id(task.id) for task in active_tasks],
                 },
                 retryable=True,
                 user_action="retry",
@@ -540,7 +544,11 @@ async def _cancel_active_tasks_for_agent(
                 raise ServiceUnavailableError(
                     code="AGENT_REDIS_CANCEL_RELAY_FAILED",
                     message="Failed to cancel agent task in sandbox runtime.",
-                    data={"agent_id": str(agent_id), "task_id": str(task.id), "sandbox_id": str(sandbox_id)},
+                    data={
+                        "agent_id": str(agent_id),
+                        "task_id": format_task_id(task.id),
+                        "sandbox_id": format_sandbox_id(sandbox_id),
+                    },
                     source="runtime",
                     retryable=True,
                     user_action="retry",
@@ -559,7 +567,10 @@ async def _cancel_active_tasks_for_agent(
         raise ServiceUnavailableError(
             code="AGENT_FORCE_CANCEL_ACTIVE_TASKS_FAILED",
             message="Failed to cancel all active tasks for agent",
-            data={"agent_id": str(agent_id), "active_task_ids": [str(task.id) for task in remaining_active]},
+            data={
+                "agent_id": str(agent_id),
+                "active_task_ids": [format_task_id(task.id) for task in remaining_active],
+            },
             source="runtime",
             retryable=True,
             user_action="retry",

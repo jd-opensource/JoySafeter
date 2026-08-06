@@ -32,6 +32,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
+from app.joysafeter_shared.utils.id_utils import format_task_id
 
 router = APIRouter(tags=["joysafeter-secrets"])
 
@@ -65,7 +66,7 @@ def _secret_active_task_error(
         data={
             "secret_id": str(secret_id),
             "secret_name": secret_name,
-            "task_id": str(task_id),
+            "task_id": format_task_id(task_id),
             "source": source,
             "operation": operation,
         },
