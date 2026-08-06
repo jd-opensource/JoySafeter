@@ -54,3 +54,27 @@ def test_pydantic_validate_and_serialize():
     m = M(id=f"task_{u}")
     assert m.id == TaskId(u)
     assert m.model_dump(mode="json")["id"] == f"task_{u}"
+
+
+def test_task_response_serializes_agent_id_prefix():
+    import datetime
+
+    from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse
+    from app.joysafeter_shared.ids import AgentId
+
+    # Task's own PK migration is a later task, so ``id`` is still a bare uuid here;
+    # ``agent_id`` is the Agent-owned field this task migrates to ``AgentId``.
+    aid, tid = uuid.uuid4(), uuid.uuid4()
+    resp = JoySafeterTaskResponse.model_validate(
+        {
+            "id": tid,
+            "agent_id": AgentId(aid),
+            "status": "completed",
+            "prompt": "x",
+            "timeout_sec": 1,
+            "retry_count": 0,
+            "max_retries": 0,
+            "created_at": datetime.datetime.now(datetime.UTC),
+        }
+    )
+    assert resp.model_dump(mode="json")["agent_id"] == f"agent_{aid}"

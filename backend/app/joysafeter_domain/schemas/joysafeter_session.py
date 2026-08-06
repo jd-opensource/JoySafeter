@@ -17,6 +17,7 @@ from pydantic import (
 )
 
 from app.joysafeter_domain.schemas.joysafeter_environment import MountResource
+from app.joysafeter_shared.ids import AgentId
 
 # ---------------------------------------------------------------------------
 # JoySafeter Session Schemas
@@ -45,7 +46,7 @@ class SessionStats(BaseModel):
 
 class SessionAgent(BaseModel):
     type: str = "agent"
-    id: uuid.UUID
+    id: AgentId
     version: int
     name: str
     engine_kind: Optional[str] = None
@@ -56,10 +57,6 @@ class SessionAgent(BaseModel):
     skills: list[Dict[str, Any]] = Field(default_factory=list)
     mcp_servers: list[Dict[str, Any]] = Field(default_factory=list)
     multiagent: Optional[Dict[str, Any]] = None
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"agent_{v}"
 
     @classmethod
     def from_agent(cls, agent) -> "SessionAgent":
@@ -149,7 +146,7 @@ class AgentRef(BaseModel):
     """Agent reference supporting pinned versions: {type, id, version}."""
 
     type: str = "agent"
-    id: uuid.UUID
+    id: AgentId
     version: Optional[int] = None
 
 
@@ -222,13 +219,12 @@ MAX_STORAGE_MOUNT_RESOURCES = 16
 
 def _parse_agent_id(raw: str) -> uuid.UUID:
     """Strip optional 'agent_' prefix and parse UUID."""
-    s = raw.removeprefix("agent_")
-    return uuid.UUID(s)
+    return AgentId(raw).uuid
 
 
 class CreateSessionRequest(BaseModel):
     agent: Optional[Union[AgentRef, str]] = None
-    agent_id: Optional[uuid.UUID] = None
+    agent_id: Optional[AgentId] = None
     agent_name: Optional[str] = None
     title: Optional[str] = None
     metadata: dict[str, str] = Field(default_factory=dict)

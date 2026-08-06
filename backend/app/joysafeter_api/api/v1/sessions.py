@@ -18,6 +18,7 @@ from app.joysafeter_api.api.v1.id_helpers import parse_session_id as _parse_sess
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_domain.models.joysafeter_storage_mount import JoySafeterSessionStorageMount
+from app.joysafeter_shared.ids import AgentId
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
@@ -302,7 +303,7 @@ async def create_session(
             pinned_version = req.agent.version
         else:
             try:
-                agent_uuid = uuid.UUID(req.agent.removeprefix("agent_"))
+                agent_uuid = AgentId(req.agent).uuid
             except ValueError:
                 raise InvalidRequestError(
                     code="SESSION_AGENT_ID_INVALID",

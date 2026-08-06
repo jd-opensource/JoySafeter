@@ -19,6 +19,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.joysafeter_shared.ids import AgentId, EntityIdType
+
 from .base import JoySafeterBaseModel
 
 # ---------------------------------------------------------------------------
@@ -95,8 +97,8 @@ class JoySafeterTask(JoySafeterBaseModel):
     # FK-constrained so a task's audit record survives user/org deletion.
     user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     org_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    agent_id: Mapped[AgentId] = mapped_column(
+        EntityIdType(AgentId),
         ForeignKey("joysafeter_agents.id"),
         nullable=False,
     )

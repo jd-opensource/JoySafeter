@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import AgentId, EntityIdType
 
 from .base import JoySafeterBaseModel, TimestampMixin
 
@@ -35,6 +36,8 @@ class JoySafeterAgent(JoySafeterBaseModel):
         Index("idx_ca_created_at", "created_at"),
         Index("idx_ca_project", "project_id"),
     )
+
+    id: Mapped[AgentId] = mapped_column(EntityIdType(AgentId), primary_key=True, default=AgentId.new)
 
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255),
@@ -70,8 +73,8 @@ class JoySafeterAgentVersion(Base, TimestampMixin):
     __table_args__ = (UniqueConstraint("agent_id", "version"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    agent_id: Mapped[AgentId] = mapped_column(
+        EntityIdType(AgentId),
         ForeignKey("joysafeter_agents.id"),
         nullable=False,
     )

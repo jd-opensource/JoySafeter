@@ -140,7 +140,7 @@ class AgentTriggerExecutor:
                     data={"session_id": str(config.pinned_session_id)},
                     user_action="fix_input",
                 )
-            if not same_id(session.agent_id, config.agent.id):
+            if session.agent_id != config.agent.id:
                 raise RequestValidationAppError(
                     code="TRIGGER_PINNED_SESSION_AGENT_MISMATCH",
                     message="Pinned session belongs to a different agent",
@@ -156,7 +156,7 @@ class AgentTriggerExecutor:
             if config.reusable_session_id is not None:
                 session = await session_svc.get_session(config.reusable_session_id, project_id=config.project_id)
                 if session is not None and (
-                    session.archived_at is not None or not same_id(session.agent_id, config.agent.id)
+                    session.archived_at is not None or session.agent_id != config.agent.id
                 ):
                     session = None
             if session is not None and session.status == SessionStatus.IDLE.value:

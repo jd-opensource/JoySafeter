@@ -8,6 +8,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
+from app.joysafeter_shared.ids import AgentId
 from app.joysafeter_shared.utils.id_utils import format_task_id
 
 
@@ -27,7 +28,7 @@ class TriggerCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=255)
     type: str = "webhook"
-    agent_id: uuid.UUID
+    agent_id: AgentId
     prompt_template: str = Field(min_length=1)
     environment_ref: Optional[str] = None
     description: Optional[str] = None
@@ -148,7 +149,7 @@ class TriggerResponse(BaseModel):
     name: str
     description: Optional[str]
     type: Literal["cron", "webhook", "manual"]
-    agent_id: uuid.UUID
+    agent_id: AgentId
     prompt_template: str
     environment_ref: Optional[str]
     enabled: bool
@@ -186,11 +187,18 @@ class TriggerResponse(BaseModel):
     def _serialize_id(self, value: uuid.UUID) -> str:
         return f"trig_{value}"
 
-    @field_serializer("agent_id", "pinned_session_id", "reusable_session_id", "last_session_id")
+    @field_serializer("pinned_session_id", "reusable_session_id", "last_session_id")
     def _serialize_uuid(self, value: Optional[uuid.UUID]) -> Optional[str]:
         if value is None:
             return None
         return str(value)
+
+    @field_serializer("agent_id")
+    def _serialize_agent_id(self, value: AgentId) -> str:
+        # The field is typed ``AgentId`` so it hydrates from the migrated Trigger FK,
+        # but this response's frozen contract emits the bare uuid (not the prefixed
+        # form). Trigger's own public-id contract is out of this migration's scope.
+        return str(value.uuid)
 
     @field_serializer("last_task_id")
     def _serialize_last_task_id(self, value: Optional[uuid.UUID]) -> Optional[str]:

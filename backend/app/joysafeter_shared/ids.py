@@ -54,6 +54,14 @@ class EntityId:
     def __eq__(self, other: object) -> bool:
         return type(self) is type(other) and self._uuid == other._uuid  # type: ignore[attr-defined]
 
+    def __lt__(self, other: object) -> bool:
+        # SQLAlchemy's unit of work sorts pending objects by primary key, so a
+        # PK-typed EntityId must be orderable. Order by the underlying uuid within
+        # the same entity type; cross-type ordering is undefined (never mixed).
+        if type(self) is not type(other):
+            return NotImplemented
+        return self._uuid < other._uuid  # type: ignore[attr-defined]
+
     def __hash__(self) -> int:
         return hash((type(self), self._uuid))
 

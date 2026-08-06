@@ -6,7 +6,8 @@ from typing import Optional
 
 from pydantic import BaseModel, field_serializer
 
-from app.joysafeter_shared.utils.id_utils import format_agent_id, format_session_id, format_task_id
+from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.utils.id_utils import format_session_id, format_task_id
 
 # --- KPI Summary ---
 
@@ -76,7 +77,7 @@ class CallRecord(BaseModel):
     id: str
     trace_id: str
     session_id: Optional[str] = None
-    agent_id: Optional[str] = None
+    agent_id: Optional[AgentId] = None
     agent_name: Optional[str] = None
     engine_kind: Optional[str] = None
     model: Optional[str] = None
@@ -103,8 +104,11 @@ class CallRecord(BaseModel):
         return format_session_id(value) if value is not None else None
 
     @field_serializer("agent_id")
-    def serialize_agent_id(self, value: Optional[str]) -> Optional[str]:
-        return format_agent_id(value) if value is not None else None
+    def serialize_agent_id(self, value: Optional[AgentId]) -> Optional[str]:
+        # ``model_dump()`` (Python mode) is part of this schema's contract, but the
+        # typed-id core serializer only fires in JSON mode; mirror the sibling id
+        # fields so the canonical prefix is emitted in both modes.
+        return str(value) if value is not None else None
 
 
 class CallsListResponse(BaseModel):

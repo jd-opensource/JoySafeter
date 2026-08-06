@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import AgentId, EntityIdType
 
 from .base import JoySafeterBaseModel
 
@@ -45,8 +46,8 @@ class JoySafeterSession(JoySafeterBaseModel):
         nullable=True,
         index=True,
     )
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    agent_id: Mapped[AgentId] = mapped_column(
+        EntityIdType(AgentId),
         ForeignKey("joysafeter_agents.id"),
         nullable=False,
     )

@@ -9,6 +9,8 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.joysafeter_shared.ids import AgentId, EntityIdType
+
 from .base import JoySafeterBaseModel
 
 
@@ -55,7 +57,7 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     type: Mapped[str] = mapped_column(String(16), nullable=False, default="webhook")
-    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("joysafeter_agents.id"), nullable=False)
+    agent_id: Mapped[AgentId] = mapped_column(EntityIdType(AgentId), ForeignKey("joysafeter_agents.id"), nullable=False)
     prompt_template: Mapped[str] = mapped_column(Text, nullable=False)
     environment_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))

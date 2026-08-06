@@ -182,7 +182,7 @@ async def _relay_task_cancel_to_orchestrator(task, db: AsyncSession, *, reason: 
 
 
 def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
-    if req.agent_id is not None and not same_id(existing.agent_id, req.agent_id):
+    if req.agent_id is not None and existing.agent_id != req.agent_id:
         raise _task_idempotency_conflict_error(
             existing=existing,
             field="agent_id",
@@ -405,7 +405,7 @@ async def create_task(
                 data={"session_id": str(chat_session_id)},
                 user_action="refresh",
             )
-        if not same_id(existing_session.agent_id, agent.id):
+        if existing_session.agent_id != agent.id:
             raise InvalidRequestError(
                 code="TASK_SESSION_AGENT_MISMATCH",
                 message="Session does not belong to the selected agent",

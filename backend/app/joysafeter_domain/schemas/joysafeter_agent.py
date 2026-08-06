@@ -18,6 +18,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.joysafeter_shared.ids import AgentId
+
 
 class JoySafeterEngineKind(str, Enum):
     CLAUDE = "claude"
@@ -190,7 +192,7 @@ class JoySafeterUpdateAgentRequest(BaseModel):
 
 
 class JoySafeterAgentResponse(BaseModel):
-    id: uuid.UUID
+    id: AgentId
     type: str = "agent"
     name: str
     engine_kind: str
@@ -214,14 +216,10 @@ class JoySafeterAgentResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"agent_{v}"
-
 
 class AgentVersionResponse(BaseModel):
     id: uuid.UUID
-    agent_id: uuid.UUID
+    agent_id: AgentId
     version: int
     snapshot: Dict[str, Any]
     created_at: datetime
