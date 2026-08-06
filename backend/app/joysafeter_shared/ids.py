@@ -64,7 +64,10 @@ class EntityId:
         def validate(value: Any) -> "EntityId":
             if isinstance(value, cls):
                 return value
-            return cls(value)
+            try:
+                return cls(value)
+            except (ValueError, TypeError):
+                raise ValueError(f"__entity_id__:{cls.__name__}")  # marker for the handler
 
         return core_schema.no_info_plain_validator_function(
             validate,

@@ -181,11 +181,21 @@ def _format_validation_errors(errors: Iterable[Mapping[str, Any]]) -> list[dict[
 
 
 async def request_validation_exception_handler(request: Request, exc: Exception) -> Response:
-    errors: list[dict[str, Any]] = []
+    raw_errors: list[Mapping[str, Any]] = []
     if isinstance(exc, (RequestValidationError, PydanticValidationError)):
-        errors = _format_validation_errors(exc.errors())
+        raw_errors = list(exc.errors())
 
-    error = RequestValidationAppError(data={"errors": errors})
+    # A failed typed-EntityId field (body or path) yields the project's frozen
+    # {FIELD}_INVALID 400 contract, rendered via the same AppError path as the
+    # rest of the app. Non-id validation errors fall through to the 422 default.
+    from app.joysafeter_api.id_validation_error import app_error_for_id_validation
+
+    for err in raw_errors:
+        id_error = app_error_for_id_validation(dict(err))
+        if id_error is not None:
+            return await app_error_handler(request, id_error)
+
+    error = RequestValidationAppError(data={"errors": _format_validation_errors(raw_errors)})
     return await app_error_handler(request, error)
 
 
