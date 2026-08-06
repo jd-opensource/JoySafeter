@@ -38,6 +38,7 @@ from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now
 from app.joysafeter_worker.scheduler.loop import SchedulerLoop
+from app.joysafeter_shared.ids import as_uuid
 
 
 def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
@@ -434,7 +435,7 @@ async def test_scheduler_recovers_created_task_when_state_write_was_missed(db_se
         assert replay.status == "deduped"
         assert replay.task_id == first_outcome.task_id
         assert replay.session_id == first_outcome.session_id
-        assert redis.rpushed == [("joysafeter:global_queue", str(first_outcome.task_id))]
+        assert redis.rpushed == [("joysafeter:global_queue", str(first_outcome.task_id.uuid))]
 
         advanced = await JoySafeterTriggerService(db_session).advance_after_fire(
             trigger_id,
@@ -1389,8 +1390,8 @@ async def test_trigger_run_history_uses_cursor_pagination(db_session):
 
     assert first_page.has_more is True
     assert [str(run.id) for run in first_page.data] == [str(task_ids[2]), str(task_ids[1])]
-    assert first_page.first_id == f"task_{task_ids[2]}"
-    assert first_page.last_id == f"task_{task_ids[1]}"
+    assert first_page.first_id == str(task_ids[2])
+    assert first_page.last_id == str(task_ids[1])
 
     second_page = await list_trigger_runs(
         trigger_id,
@@ -1402,8 +1403,8 @@ async def test_trigger_run_history_uses_cursor_pagination(db_session):
 
     assert second_page.has_more is False
     assert [str(run.id) for run in second_page.data] == [str(task_ids[0])]
-    assert second_page.first_id == f"task_{task_ids[0]}"
-    assert second_page.last_id == f"task_{task_ids[0]}"
+    assert second_page.first_id == str(task_ids[0])
+    assert second_page.last_id == str(task_ids[0])
 
 
 @pytest.mark.asyncio
@@ -2253,7 +2254,7 @@ async def test_scheduled_task_cancel_does_not_mark_cancelled_when_runtime_relay_
         "code": "TASK_CANCEL_REDIS_RELAY_FAILED",
         "message": "Failed to cancel task in sandbox runtime.",
         "data": {
-            "task_id": f"task_{task_id}",
+            "task_id": str(task_id),
             "session_id": str(session_id),
             "sandbox_id": f"sbx_{sandbox_id}",
         },
@@ -2409,7 +2410,7 @@ async def test_scheduler_replace_cancels_pending_prior_task_and_fires_replacemen
         assert outcome.status == "fired"
         assert outcome.task_id is not None
         assert outcome.task_id != old_task_id
-        assert redis.rpushed == [("joysafeter:global_queue", str(outcome.task_id))]
+        assert redis.rpushed == [("joysafeter:global_queue", str(outcome.task_id.uuid))]
         assert not [channel for channel, _ in redis.published if channel.startswith("joysafeter:cmd:")]
 
         db_session.expire_all()
@@ -2486,7 +2487,7 @@ async def test_scheduled_pending_task_cancel_fails_closed_if_sandbox_is_assigned
             "SET status = 'scheduling', sandbox_id = :sandbox_id, updated_at = NOW() "
             "WHERE id = :task_id"
         ),
-        {"task_id": task_id, "sandbox_id": sandbox_id},
+        {"task_id": as_uuid(task_id), "sandbox_id": sandbox_id},
     )
     await db_session.commit()
 
@@ -2499,7 +2500,7 @@ async def test_scheduled_pending_task_cancel_fails_closed_if_sandbox_is_assigned
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_STATE_SYNC_FAILED",
         "message": "Task cancel could not be finalized because task ownership changed.",
-        "data": {"task_id": f"task_{task_id}", "session_id": str(session_id)},
+        "data": {"task_id": str(task_id), "session_id": str(session_id)},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",

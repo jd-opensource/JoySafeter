@@ -17,6 +17,7 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+from app.joysafeter_shared.ids import TaskId
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 
@@ -168,14 +169,14 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
             )
         ).scalar_one()
         original_task_trigger_id = active_task.trigger_id
-        assert redis.rpushed == [("joysafeter:global_queue", str(active_task.id))]
+        assert redis.rpushed == [("joysafeter:global_queue", str(active_task.id.uuid))]
 
         active_delete_resp = await client.delete(f"/api/v1/triggers/{trigger_id}")
         assert active_delete_resp.status_code == 409
         assert active_delete_resp.json()["code"] == "TRIGGER_HAS_ACTIVE_RUNS"
         assert active_delete_resp.json()["data"] == {
             "trigger_id": trigger_id.removeprefix("trig_"),
-            "active_task_ids": [f"task_{active_task.id}"],
+            "active_task_ids": [str(active_task.id)],
         }
 
         active_task.status = JoySafeterTaskStatus.COMPLETED.value
@@ -333,7 +334,7 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
             "auth_fingerprint": auth_fingerprint,
             "ignore_enabled": ignore_enabled,
         }
-        return "fired", SimpleNamespace(id=task_id), session_id, False, None
+        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
 
     monkeypatch.setattr(
         "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.fire_webhook",

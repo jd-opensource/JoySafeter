@@ -374,7 +374,7 @@ async def test_archive_environment_rejects_active_task_agent_reference_without_s
             f"Environment is required by active task '{task.id}' via agent environment_ref. "
             "Stop or wait for the task before archiving."
         ),
-        "data": {"environment_id": str(env_id), "task_id": f"task_{task.id}", "source": "agent environment_ref"},
+        "data": {"environment_id": str(env_id), "task_id": str(task.id), "source": "agent environment_ref"},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -417,7 +417,7 @@ async def test_delete_environment_rejects_active_task_agent_reference_without_se
             f"Environment is required by active task '{task.id}' via agent environment_ref. "
             "Stop or wait for the task before deleting."
         ),
-        "data": {"environment_id": str(env_id), "task_id": f"task_{task.id}", "source": "agent environment_ref"},
+        "data": {"environment_id": str(env_id), "task_id": str(task.id), "source": "agent environment_ref"},
         "source": "api",
         "retryable": True,
         "user_action": "retry",

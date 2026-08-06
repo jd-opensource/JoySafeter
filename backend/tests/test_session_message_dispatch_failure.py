@@ -272,7 +272,7 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"session_id": str(session_id), "task_id": f"task_{task.id}"},
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -288,7 +288,7 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
         "type": "error",
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"session_id": str(session_id), "task_id": f"task_{task.id}"},
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -440,7 +440,7 @@ async def test_user_message_rejects_idle_session_with_active_task(db_session, mo
         "user_action": "retry",
         "data": {
             "session_id": str(session_id),
-            "active_task_ids": [f"task_{task.id}"],
+            "active_task_ids": [str(task.id)],
         },
     }
     user_message_count = (
@@ -512,7 +512,7 @@ async def test_user_message_idempotent_retry_after_enqueue_failure_stays_503(
     assert await handled_app_error_payload(second_exc.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"session_id": str(session_id), "task_id": f"task_{task.id}"},
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -647,7 +647,7 @@ async def test_user_message_rejects_idempotency_key_reuse_for_different_message(
         "message": "Idempotency-Key was already used for a different message",
         "data": {
             "session_id": str(session_id),
-            "task_id": redis.rpushed[0][1],
+            "task_id": f"task_{redis.rpushed[0][1]}",
             "conflict_field": "message",
             "requested_value": "second",
             "existing_value": "first",
@@ -710,7 +710,7 @@ async def test_tool_confirmation_fallback_enqueues_via_redis_without_local_sched
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
     assert task.status == JoySafeterTaskStatus.PENDING.value
     assert "User approved tool call event" in task.prompt
-    assert redis.rpushed == [("joysafeter:global_queue", str(task.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(task.id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -1146,7 +1146,7 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     assert task_row.status == JoySafeterTaskStatus.CANCELLED.value
     assert session_row.status == "idle"
     assert session_row.stop_reason == {"type": "cancelled"}
-    assert idle_event.payload == {"task_id": f"task_{task_id}", "stop_reason": {"type": "cancelled"}}
+    assert idle_event.payload == {"task_id": str(task_id), "stop_reason": {"type": "cancelled"}}
     command_publishes = [
         (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
     ]
@@ -1231,7 +1231,7 @@ async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_se
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "SESSION_ACTIVE_TASK",
         "message": "Session has an active task; stop it before deleting session",
-        "data": {"session_id": str(session_id), "active_task_ids": [f"task_{task_id}"]},
+        "data": {"session_id": str(session_id), "active_task_ids": [str(task_id)]},
         "source": "api",
         "retryable": True,
         "user_action": "retry",

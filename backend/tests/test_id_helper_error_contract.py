@@ -23,7 +23,7 @@ from app.joysafeter_domain.schemas.joysafeter_file import FileResponse
 from app.joysafeter_domain.schemas.joysafeter_sandbox import SandboxResponse
 from app.joysafeter_domain.schemas.joysafeter_session import SessionAgent, SessionResponse
 from app.joysafeter_shared.common.app_errors import AppError
-from app.joysafeter_shared.ids import AgentId, SessionId
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
 pytestmark = pytest.mark.no_db
 
@@ -56,7 +56,7 @@ def test_parse_session_id_accepts_prefixed_uuid():
 def test_parse_task_id_accepts_prefixed_uuid():
     task_id = uuid.uuid4()
 
-    assert parse_task_id(f"task_{task_id}") == task_id
+    assert parse_task_id(f"task_{task_id}") == TaskId(task_id)
 
 
 def test_parse_task_after_id_accepts_public_cursor_and_bare_uuid():

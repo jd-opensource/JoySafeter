@@ -405,7 +405,7 @@ async def test_delete_agent_rejects_active_task_with_structured_task_ids(db_sess
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "AGENT_ACTIVE_TASKS",
         "message": "Agent has active tasks (pending/running). Use ?force=true to force delete.",
-        "data": {"agent_id": str(agent_id), "active_task_ids": [f"task_{task_id}"]},
+        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task_id)]},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -545,7 +545,7 @@ async def test_force_delete_agent_does_not_hard_delete_when_cancel_fails(db_sess
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "AGENT_FORCE_CANCEL_ACTIVE_TASKS_FAILED",
         "message": "Failed to cancel all active tasks for agent",
-        "data": {"agent_id": str(agent_id), "active_task_ids": [f"task_{task_id}"]},
+        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task_id)]},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -596,7 +596,7 @@ async def test_force_delete_agent_keeps_agent_when_cancel_relay_fails(db_session
         "message": "Failed to cancel agent task in sandbox runtime.",
         "data": {
             "agent_id": str(agent_id),
-            "task_id": f"task_{task_id}",
+            "task_id": str(task_id),
             "sandbox_id": f"sbx_{sandbox_id}",
         },
         "source": "runtime",

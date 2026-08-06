@@ -6,8 +6,7 @@ from typing import Optional
 
 from pydantic import BaseModel, field_serializer
 
-from app.joysafeter_shared.ids import AgentId, SessionId
-from app.joysafeter_shared.utils.id_utils import format_task_id
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
 # --- KPI Summary ---
 
@@ -74,8 +73,8 @@ class EngineShareItem(BaseModel):
 
 
 class CallRecord(BaseModel):
-    id: str
-    trace_id: str
+    id: TaskId
+    trace_id: TaskId
     session_id: Optional[SessionId] = None
     agent_id: Optional[AgentId] = None
     agent_name: Optional[str] = None
@@ -96,8 +95,11 @@ class CallRecord(BaseModel):
     queue_wait_ms: int = 0
 
     @field_serializer("id", "trace_id")
-    def serialize_task_id(self, value: str) -> str:
-        return format_task_id(value)
+    def serialize_task_id(self, value: TaskId) -> str:
+        # ``model_dump()`` (Python mode) is part of this schema's contract, but the
+        # typed-id core serializer only fires in JSON mode; mirror the sibling id
+        # fields so the canonical prefix is emitted in both modes.
+        return str(value)
 
     @field_serializer("session_id")
     def serialize_session_id(self, value: Optional[SessionId]) -> Optional[str]:

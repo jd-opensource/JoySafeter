@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import Path, Query
 
 from app.joysafeter_shared.common.app_errors import AppError, InvalidRequestError
-from app.joysafeter_shared.ids import AgentId, SessionId
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
 
 def _invalid_id_error(*, raw: str, field: str, prefix: str) -> AppError:
@@ -49,12 +49,16 @@ def parse_session_id(session_id: str = Path(...)) -> SessionId:
     return SessionId(_strip_prefix(session_id, "sess_", "session_id"))
 
 
-def parse_task_id(task_id: str = Path(...)) -> uuid.UUID:
-    return _strip_prefix(task_id, "task_", "task_id")
+def parse_task_id(task_id: str = Path(...)) -> TaskId:
+    # Success returns the typed id; bad input keeps the frozen structured
+    # TASK_ID_INVALID contract (a ValueError from a Depends is not a
+    # RequestValidationError, so the global handler would not catch it here).
+    return TaskId(_strip_prefix(task_id, "task_", "task_id"))
 
 
 def parse_task_after_id(after_id: Optional[str] = Query(None)) -> Optional[uuid.UUID]:
-    return _strip_prefix(after_id, "task_", "after_id") if after_id is not None else None
+    # Cursor tolerates the public ``task_<uuid>`` form, a bare uuid, and None.
+    return None if after_id is None else TaskId(after_id).uuid
 
 
 def parse_env_id(env_id: str = Path(...)) -> uuid.UUID:

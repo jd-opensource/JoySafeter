@@ -192,7 +192,7 @@ async def test_force_delete_secret_rejects_active_task_agent_secret_ref(db_sessi
         "data": {
             "secret_id": str(secret.id),
             "secret_name": secret.name,
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "source": "agent secret_ref",
             "operation": "deleting",
         },
@@ -242,7 +242,7 @@ async def test_force_delete_secret_rejects_active_task_session_environment_ref(d
         "data": {
             "secret_id": str(secret.id),
             "secret_name": secret.name,
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "source": "session environment_ref",
             "operation": "deleting",
         },
@@ -289,7 +289,7 @@ async def test_force_delete_secret_rejects_active_task_agent_environment_ref(db_
         "data": {
             "secret_id": str(secret.id),
             "secret_name": secret.name,
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "source": "agent environment_ref",
             "operation": "deleting",
         },
@@ -329,7 +329,7 @@ async def test_update_secret_rejects_active_task_agent_secret_ref(db_session):
         "data": {
             "secret_id": str(secret.id),
             "secret_name": secret.name,
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "source": "agent secret_ref",
             "operation": "updating",
         },

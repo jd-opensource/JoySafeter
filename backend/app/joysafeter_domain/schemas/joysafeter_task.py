@@ -10,10 +10,9 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from app.joysafeter_shared.ids import AgentId, SessionId
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 from app.joysafeter_shared.utils.id_utils import (
     format_sandbox_id,
-    format_task_id,
 )
 
 # Coarse per-field safety bound for free-text prompt content. Sits far below the
@@ -37,16 +36,12 @@ class JoySafeterCreateTaskRequest(BaseModel):
 
 
 class JoySafeterCreateTaskResponse(BaseModel):
-    id: uuid.UUID
+    id: TaskId
     status: str
-
-    @field_serializer("id")
-    def serialize_id(self, value: uuid.UUID) -> str:
-        return format_task_id(value)
 
 
 class JoySafeterTaskResponse(BaseModel):
-    id: uuid.UUID
+    id: TaskId
     agent_id: AgentId
     chat_session_id: Optional[SessionId] = None
     status: str
@@ -65,10 +60,6 @@ class JoySafeterTaskResponse(BaseModel):
     duration_ms: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, value: uuid.UUID) -> str:
-        return format_task_id(value)
 
     @field_serializer("sandbox_id")
     def serialize_sandbox_id(self, value: Optional[uuid.UUID]) -> Optional[str]:

@@ -8,8 +8,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-from app.joysafeter_shared.ids import AgentId, SessionId
-from app.joysafeter_shared.utils.id_utils import format_task_id
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
 
 def _strip_required(value: str) -> str:
@@ -177,7 +176,7 @@ class TriggerResponse(BaseModel):
     consecutive_failures: int
     auto_disabled_at: Optional[datetime] = None
     disabled_reason: Optional[str] = None
-    last_task_id: Optional[uuid.UUID]
+    last_task_id: Optional[TaskId]
     last_session_id: Optional[SessionId]
     last_payload: dict[str, Any]
     created_at: datetime
@@ -186,10 +185,6 @@ class TriggerResponse(BaseModel):
     @field_serializer("id")
     def _serialize_id(self, value: uuid.UUID) -> str:
         return f"trig_{value}"
-
-    @field_serializer("last_task_id")
-    def _serialize_last_task_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return format_task_id(value) if value is not None else None
 
 
 class TriggerVariable(BaseModel):
@@ -216,7 +211,7 @@ class TriggerRunResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: TaskId
     trigger_id: Optional[uuid.UUID]
     status: str
     retry_count: int
@@ -226,10 +221,6 @@ class TriggerRunResponse(BaseModel):
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
-
-    @field_serializer("id")
-    def _serialize_id(self, value: uuid.UUID) -> str:
-        return f"task_{value}"
 
     @field_serializer("trigger_id")
     def _serialize_trigger_id(self, value: Optional[uuid.UUID]) -> Optional[str]:

@@ -20,6 +20,7 @@ from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRe
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -94,7 +95,7 @@ class _TaskSandboxChangingAckRedis(_FakeCommandRedis):
                     "SET chat_session_id = :session_id, status = 'running', updated_at = NOW() "
                     "WHERE id = :new_sandbox_id"
                 ),
-                {"new_sandbox_id": self.new_sandbox_id, "session_id": self.session_id},
+                {"new_sandbox_id": self.new_sandbox_id, "session_id": as_uuid(self.session_id)},
             )
             await self.db_session.execute(
                 text(
@@ -102,7 +103,7 @@ class _TaskSandboxChangingAckRedis(_FakeCommandRedis):
                     "SET sandbox_id = :sandbox_id, owner_epoch = COALESCE(owner_epoch, 0) + 1, updated_at = NOW() "
                     "WHERE id = :task_id"
                 ),
-                {"sandbox_id": self.new_sandbox_id, "task_id": self.task_id},
+                {"sandbox_id": self.new_sandbox_id, "task_id": as_uuid(self.task_id)},
             )
             await self.db_session.commit()
             self.changed = True
@@ -167,7 +168,7 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
 
     assert response.id is not None
     assert response.status == JoySafeterTaskStatus.PENDING.value
-    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id.uuid))]
 
     task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == response.id))).scalar_one()
     session = (
@@ -187,8 +188,8 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
-        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": f"task_{task.id}"}),
-        ("session.status_running", {"task_id": f"task_{task.id}"}),
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(task.id)}),
+        ("session.status_running", {"task_id": str(task.id)}),
     ]
 
 
@@ -372,7 +373,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": f"task_{task.id}", "session_id": str(task.chat_session_id)},
+        "data": {"task_id": str(task.id), "session_id": str(task.chat_session_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -389,7 +390,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         "type": "error",
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": f"task_{task.id}", "session_id": str(task.chat_session_id)},
+        "data": {"task_id": str(task.id), "session_id": str(task.chat_session_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -408,12 +409,12 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
-        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": f"task_{task.id}"}),
-        ("session.status_running", {"task_id": f"task_{task.id}"}),
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(task.id)}),
+        ("session.status_running", {"task_id": str(task.id)}),
         (
             "session.status_idle",
             {
-                "task_id": f"task_{task.id}",
+                "task_id": str(task.id),
                 "stop_reason": expected_stop_reason,
             },
         ),
@@ -455,7 +456,7 @@ async def test_create_task_rejects_session_with_active_task_even_if_session_look
         "message": "Session has an active task; wait for completion before creating a new task",
         "data": {
             "session_id": str(session.id),
-            "active_task_ids": [f"task_{existing_task.id}"],
+            "active_task_ids": [str(existing_task.id)],
         },
         "source": "api",
         "retryable": True,
@@ -492,7 +493,7 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
     assert session.status == "running"
     task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == response.id))).scalar_one()
     assert task.chat_session_id == session.id
-    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id.uuid))]
 
     events = (
         (
@@ -506,8 +507,8 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
-        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": f"task_{response.id}"}),
-        ("session.status_running", {"task_id": f"task_{response.id}"}),
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(response.id)}),
+        ("session.status_running", {"task_id": str(response.id)}),
     ]
 
 
@@ -599,7 +600,7 @@ async def test_create_task_uses_existing_session_environment_before_agent_defaul
 
     task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == response.id))).scalar_one()
     assert task.chat_session_id == session.id
-    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -630,7 +631,7 @@ async def test_create_task_idempotent_retry_after_enqueue_failure_stays_503(db_s
     assert await handled_app_error_payload(second_exc.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"task_id": f"task_{tasks[0].id}", "session_id": str(tasks[0].chat_session_id)},
+        "data": {"task_id": str(tasks[0].id), "session_id": str(tasks[0].chat_session_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -714,7 +715,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_prompt(db
         "code": "TASK_IDEMPOTENCY_KEY_MISMATCH",
         "message": "Idempotency-Key was already used for a different prompt",
         "data": {
-            "task_id": f"task_{first_response.id}",
+            "task_id": str(first_response.id),
             "conflict_field": "prompt",
             "requested_value": "scan target b",
             "existing_value": "scan target a",
@@ -759,7 +760,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_session(d
         "code": "TASK_IDEMPOTENCY_KEY_MISMATCH",
         "message": "Idempotency-Key was already used for a different session",
         "data": {
-            "task_id": f"task_{first_response.id}",
+            "task_id": str(first_response.id),
             "conflict_field": "chat_session_id",
             "requested_value": str(session_b.id),
             "existing_value": str(session_a.id),
@@ -798,7 +799,7 @@ async def test_create_task_idempotent_replay_accepts_same_session_uuid_value_acr
 
     assert second.id == first.id
     assert second.status == first.status
-    assert redis.rpushed == [("joysafeter:global_queue", str(first.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(first.id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -843,7 +844,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
         "code": "TASK_IDEMPOTENCY_KEY_MISMATCH",
         "message": "Idempotency-Key was already used for a different environment",
         "data": {
-            "task_id": f"task_{first_response.id}",
+            "task_id": str(first_response.id),
             "conflict_field": "environment_ref",
             "requested_value": f"env_{env_b.id}",
             "existing_value": f"env_{env_a.id}",
@@ -892,7 +893,7 @@ async def test_create_task_idempotent_retry_allows_original_environment_archived
 
     assert retry_response.id == first_response.id
     assert retry_response.status == JoySafeterTaskStatus.COMPLETED.value
-    assert redis.rpushed == [("joysafeter:global_queue", str(first_response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(first_response.id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -918,7 +919,7 @@ async def test_cancel_task_rejects_terminal_task_with_structured_error(db_sessio
         "code": "TASK_ALREADY_TERMINAL",
         "message": "Task already in terminal state: completed",
         "data": {
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "task_status": "completed",
         },
         "source": "api",
@@ -968,7 +969,7 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
 
     response = await cancel_task(task_id, db_session, _auth_ctx())
 
-    assert response == {"id": f"task_{task_id}", "status": "cancelled"}
+    assert response == {"id": str(task_id), "status": "cancelled"}
     command_publishes = [
         (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
     ]
@@ -1046,9 +1047,9 @@ async def test_cancel_task_rejects_ack_if_task_moved_to_another_sandbox(db_sessi
         "code": "TASK_CANCEL_STATE_SYNC_FAILED",
         "message": "Task cancel could not be finalized because task ownership changed.",
         "data": {
-            "task_id": f"task_{task_id}",
+            "task_id": str(task_id),
             "session_id": str(session_id),
-            "sandbox_id": str(old_sandbox_id),
+            "sandbox_id": f"sbx_{old_sandbox_id}",
         },
         "source": "api",
         "retryable": True,
@@ -1116,9 +1117,9 @@ async def test_cancel_task_does_not_mark_cancelled_when_runtime_cancel_relay_fai
         "code": "TASK_CANCEL_REDIS_RELAY_FAILED",
         "message": "Failed to cancel task in sandbox runtime.",
         "data": {
-            "task_id": f"task_{task_id}",
+            "task_id": str(task_id),
             "session_id": str(session_id),
-            "sandbox_id": str(sandbox_id),
+            "sandbox_id": f"sbx_{sandbox_id}",
         },
         "source": "runtime",
         "retryable": True,
@@ -1165,7 +1166,7 @@ async def test_cancel_running_task_without_runtime_owner_fails_closed(db_session
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_STATE_SYNC_FAILED",
         "message": "Task cancel could not be finalized because task has no runtime owner.",
-        "data": {"task_id": f"task_{task_id}", "session_id": str(session_id)},
+        "data": {"task_id": str(task_id), "session_id": str(session_id)},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",
@@ -1240,7 +1241,7 @@ async def test_cancel_task_reports_session_idle_write_failure(db_session, monkey
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_CANCEL_SESSION_SYNC_FAILED",
         "message": "Task was cancelled, but failed to mark the linked session idle.",
-        "data": {"task_id": f"task_{task_id}", "session_id": str(session_id)},
+        "data": {"task_id": str(task_id), "session_id": str(session_id)},
         "source": "api",
         "retryable": True,
         "user_action": "refresh",
@@ -1376,4 +1377,4 @@ async def test_per_user_admission_skips_service_principal(db_session, monkeypatc
     response = await create_task(req, db_session, _service_auth_ctx())
 
     assert response.status == JoySafeterTaskStatus.PENDING.value
-    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id.uuid))]

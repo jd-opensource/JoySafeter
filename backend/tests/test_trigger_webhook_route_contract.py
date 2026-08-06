@@ -13,6 +13,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+from app.joysafeter_shared.ids import TaskId
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.rate_limit import _rate_limiter
@@ -99,7 +100,7 @@ async def test_webhook_route_maps_hmac_headers_payload_and_delivery_id(db_sessio
             "auth_fingerprint": auth_fingerprint,
             "ignore_enabled": ignore_enabled,
         }
-        return "fired", SimpleNamespace(id=task_id), session_id, False, None
+        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
@@ -184,7 +185,7 @@ async def test_webhook_route_resolves_project_secret_and_verifies_real_hmac(db_s
             "delivery_id": delivery_id,
             "auth_fingerprint": auth_fingerprint,
         }
-        return "fired", SimpleNamespace(id=task_id), session_id, False, None
+        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
 
@@ -237,7 +238,7 @@ async def test_webhook_route_accepts_bearer_token_and_wraps_non_json_body(db_ses
             "auth_fingerprint": auth_fingerprint,
             "ignore_enabled": ignore_enabled,
         }
-        return "deduped", SimpleNamespace(id=task_id), session_id, True, None
+        return "deduped", SimpleNamespace(id=TaskId(task_id)), session_id, True, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
@@ -355,7 +356,7 @@ async def test_webhook_route_rate_limits_by_trigger_and_client_ip(db_session, mo
     async def fake_fire(self, trigger_arg, *, raw_body, payload, delivery_id, auth_fingerprint, ignore_enabled=False):
         nonlocal fire_count
         fire_count += 1
-        return "fired", SimpleNamespace(id=task_id), session_id, False, None
+        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
@@ -410,7 +411,7 @@ async def test_webhook_route_rate_limit_cannot_be_bypassed_by_spoofing_forwarded
     async def fake_fire(self, trigger_arg, *, raw_body, payload, delivery_id, auth_fingerprint, ignore_enabled=False):
         nonlocal fire_count
         fire_count += 1
-        return "fired", SimpleNamespace(id=task_id), session_id, False, None
+        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)

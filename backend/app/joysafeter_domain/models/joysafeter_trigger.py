@@ -9,7 +9,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId, TaskId
 
 from .base import JoySafeterBaseModel
 
@@ -107,8 +107,8 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    last_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_tasks.id", ondelete="SET NULL"), nullable=True
+    last_task_id: Mapped[Optional[TaskId]] = mapped_column(
+        EntityIdType(TaskId), ForeignKey("joysafeter_tasks.id", ondelete="SET NULL"), nullable=True
     )
     last_session_id: Mapped[Optional[SessionId]] = mapped_column(
         EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True

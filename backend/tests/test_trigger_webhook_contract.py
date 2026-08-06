@@ -188,7 +188,7 @@ async def test_fire_webhook_stamps_trigger_id_for_run_history(db_session, monkey
     assert session_id is not None
     assert deduped is False
     assert reason is None
-    assert redis.rpushed == [("joysafeter:global_queue", str(task.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(task.id.uuid))]
     task_id = task.id
 
     db_session.expire_all()

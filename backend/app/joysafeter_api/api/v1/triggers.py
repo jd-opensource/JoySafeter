@@ -206,7 +206,7 @@ async def run_trigger_now(
     )
     return TriggerFireResponse(
         status=status,
-        task_id=f"task_{task.id}" if task is not None else None,
+        task_id=str(task.id) if task is not None else None,
         session_id=str(SessionId(session_id)) if session_id is not None else None,
         deduped=deduped,
         reason=reason,
@@ -310,7 +310,7 @@ async def fire_webhook_trigger(
     )
     return TriggerFireResponse(
         status=status,
-        task_id=(f"task_{task.id}" if task else None),
+        task_id=(str(task.id) if task else None),
         session_id=(str(SessionId(session_id)) if session_id else None),
         reason=reason,
         deduped=deduped,
@@ -357,7 +357,7 @@ async def test_fire_webhook_trigger(
     )
     return TriggerFireResponse(
         status=status,
-        task_id=(f"task_{task.id}" if task else None),
+        task_id=(str(task.id) if task else None),
         session_id=(str(SessionId(session_id)) if session_id else None),
         reason=reason,
         deduped=deduped,

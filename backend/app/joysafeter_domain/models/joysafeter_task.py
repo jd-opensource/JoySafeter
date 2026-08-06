@@ -19,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId, TaskId
 
 from .base import JoySafeterBaseModel
 
@@ -85,6 +85,8 @@ class JoySafeterTask(JoySafeterBaseModel):
         # concurrency-policy "is a prior fire still active?" check.
         Index("idx_ct_trigger", "trigger_id"),
     )
+
+    id: Mapped[TaskId] = mapped_column(EntityIdType(TaskId), primary_key=True, default=TaskId.new)
 
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255),
