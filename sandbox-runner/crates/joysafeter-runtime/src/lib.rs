@@ -2,6 +2,7 @@ pub mod claude;
 pub mod codex;
 pub mod mock;
 pub mod native;
+pub mod pi;
 
 use joysafeter_types::harness::HarnessAdapter;
 use std::collections::HashMap;
