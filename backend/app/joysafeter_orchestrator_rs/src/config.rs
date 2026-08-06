@@ -62,6 +62,7 @@ pub struct JoySafeterConfig {
     pub image_claude: String,
     pub image_codex: String,
     pub image_native: String,
+    pub image_pi: String,
 
     // Event batching
     pub event_batch_enabled: bool,
@@ -224,6 +225,7 @@ impl JoySafeterConfig {
             image_claude: env_str("JOYSAFETER_IMAGE_CLAUDE", ""),
             image_codex: env_str("JOYSAFETER_IMAGE_CODEX", ""),
             image_native: env_str("JOYSAFETER_IMAGE_NATIVE", ""),
+            image_pi: env_str("JOYSAFETER_IMAGE_PI", ""),
 
             event_batch_enabled: env_bool("JOYSAFETER_EVENT_BATCH_ENABLED", true),
             event_batch_max_size: env_usize("JOYSAFETER_EVENT_BATCH_MAX_SIZE", 200),
@@ -383,6 +385,8 @@ impl JoySafeterConfig {
             // or native tasks land on a claudecode container that reports
             // "No adapter for provider: native".
             "native" if !self.image_native.is_empty() => self.image_native.clone(),
+            // pi 同 native:需要自己的镜像,不得回退到其他引擎镜像。
+            "pi" if !self.image_pi.is_empty() => self.image_pi.clone(),
             _ => self.sandbox_image.clone(),
         }
     }
@@ -572,6 +576,14 @@ fn build_redis_url() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::parse_env_list;
+    use super::JoySafeterConfig;
+
+    #[test]
+    fn image_for_provider_pi_uses_image_pi() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.image_pi = "joysafeter-pi:latest".to_string();
+        assert_eq!(cfg.image_for_provider("pi"), "joysafeter-pi:latest");
+    }
 
     #[test]
     fn parses_json_array_lists() {
