@@ -31,7 +31,6 @@ struct TurnState {
     turn_done_tx: Option<tokio::sync::oneshot::Sender<bool>>,
     usage: Arc<std::sync::Mutex<joysafeter_types::token_usage::TokenUsage>>,
     output: Arc<std::sync::Mutex<String>>,
-    call_id_to_tool: Arc<std::sync::Mutex<HashMap<String, String>>>,
 }
 
 impl Default for PiAdapter {
@@ -75,7 +74,6 @@ impl HarnessAdapter for PiAdapter {
                 turn_done_tx: Some(td_tx),
                 usage: usage.clone(),
                 output: output.clone(),
-                call_id_to_tool: Arc::new(std::sync::Mutex::new(HashMap::new())),
             });
         }
 
@@ -125,7 +123,46 @@ impl HarnessAdapter for PiAdapter {
             input: Some(Box::new(shared_stdin_for_harness)),
         })
     }
+    async fn send_input(
+        &self,
+        harness: &mut RunningHarness,
+        content: String,
+    ) -> Result<(), HarnessError> {
+        let Some(any) = harness.input.as_ref() else {
+            return Err(HarnessError::UnsupportedInput);
+        };
+        let Some(shared_stdin) = any.downcast_ref::<SharedStdin>() else {
+            return Err(HarnessError::UnsupportedInput);
+        };
+        let mut g = shared_stdin.lock().await;
+        let Some(stdin) = g.as_mut() else {
+            return Err(HarnessError::StartFailed("stdin closed".into()));
+        };
+        stdin
+            .write_all(build_steer_line(&content, &next_req_id()).as_bytes())
+            .await?;
+        stdin.flush().await?;
+        Ok(())
+    }
     async fn cancel(&self, _harness: &mut RunningHarness) -> Result<(), HarnessError> {
+        let guard = self.session.lock().await;
+        if let Some(ref session) = *guard {
+            {
+                let mut g = session.stdin.lock().await;
+                if let Some(ref mut stdin) = *g {
+                    let _ = stdin
+                        .write_all(build_abort_line(&next_req_id()).as_bytes())
+                        .await;
+                    let _ = stdin.flush().await;
+                }
+            }
+            let mut ct = session.current_turn.lock().await;
+            if let Some(ref mut t) = *ct {
+                if let Some(tx) = t.turn_done_tx.take() {
+                    let _ = tx.send(true);
+                }
+            }
+        }
         Ok(())
     }
     fn provider(&self) -> &str {
@@ -339,6 +376,14 @@ pub(crate) fn build_prompt_line(message: &str, id: &str) -> String {
     format!("{}\n", v)
 }
 
+pub(crate) fn build_steer_line(message: &str, id: &str) -> String {
+    format!("{}\n", serde_json::json!({ "type": "steer", "message": message, "id": id }))
+}
+
+pub(crate) fn build_abort_line(id: &str) -> String {
+    format!("{}\n", serde_json::json!({ "type": "abort", "id": id }))
+}
+
 fn next_req_id() -> String {
     let n = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -548,6 +593,22 @@ mod tests {
         assert_eq!(v["message"], "hello world");
         assert_eq!(v["id"], "req_1");
         assert!(line.ends_with('\n'));
+    }
+
+    #[test]
+    fn build_steer_line_is_valid() {
+        let line = super::build_steer_line("wait, stop", "req_2");
+        let v: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(v["type"], "steer");
+        assert_eq!(v["message"], "wait, stop");
+    }
+
+    #[test]
+    fn build_abort_line_is_valid() {
+        let line = super::build_abort_line("req_3");
+        let v: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(v["type"], "abort");
+        assert_eq!(v["id"], "req_3");
     }
 
     #[tokio::test]
