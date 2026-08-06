@@ -199,7 +199,7 @@ def test_trigger_responses_serialize_managed_id_prefixes() -> None:
     )
 
     assert trigger.model_dump(mode="json")["id"] == f"trig_{trigger_id}"
-    assert trigger.model_dump(mode="json")["agent_id"] == str(agent_id)
+    assert trigger.model_dump(mode="json")["agent_id"] == f"agent_{agent_id}"
     assert trigger.model_dump(mode="json")["last_task_id"] == f"task_{task_id}"
     assert run.model_dump(mode="json")["id"] == f"task_{task_id}"
     assert run.model_dump(mode="json")["trigger_id"] == f"trig_{trigger_id}"

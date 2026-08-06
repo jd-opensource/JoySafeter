@@ -193,13 +193,6 @@ class TriggerResponse(BaseModel):
             return None
         return str(value)
 
-    @field_serializer("agent_id")
-    def _serialize_agent_id(self, value: AgentId) -> str:
-        # The field is typed ``AgentId`` so it hydrates from the migrated Trigger FK,
-        # but this response's frozen contract emits the bare uuid (not the prefixed
-        # form). Trigger's own public-id contract is out of this migration's scope.
-        return str(value.uuid)
-
     @field_serializer("last_task_id")
     def _serialize_last_task_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
         return format_task_id(value) if value is not None else None
