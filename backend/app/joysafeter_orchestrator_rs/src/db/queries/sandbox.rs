@@ -161,81 +161,6 @@ pub async fn create_sandbox(
     .await
 }
 
-/// Transition sandbox status with state machine validation.
-/// Only allows transitions defined in Python's SANDBOX_TRANSITIONS:
-///   creating → provisioning, pooled, idle, stopped, error, destroyed
-///   provisioning → idle, stopping, stopped, error, destroyed
-///   pooled → provisioning, stopped, destroyed
-///   idle → idle, running, stopping, stopped, error, destroyed
-///   running → idle, stopped, error, destroyed
-///   stopping → idle, stopped, error, destroyed
-///   stopped → provisioning, destroyed
-///   error → destroyed
-/// Rejects transitions from 'destroyed' (terminal).
-///
-/// M4: DEPRECATED — Critical paths should call `transition_sandbox_cas()` with
-/// an explicit expected state. This compatibility wrapper still performs a
-/// status-machine check and fences the UPDATE on the status it just observed,
-/// so stale callers cannot overwrite a concurrent terminal/error transition.
-pub async fn transition_sandbox(
-    pool: &PgPool,
-    sandbox_id: Uuid,
-    new_status: &str,
-) -> Result<bool, sqlx::Error> {
-    // M4: trace non-CAS usage so we can find and migrate remaining callers
-    tracing::debug!(
-        sandbox_id = %sandbox_id,
-        to = %new_status,
-        "transition_sandbox (non-CAS) called — prefer transition_sandbox_cas for critical paths"
-    );
-
-    let current_status: Option<String> =
-        sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
-            .bind(sandbox_id)
-            .fetch_optional(pool)
-            .await?;
-
-    let Some(from_status) = current_status else {
-        return Ok(false);
-    };
-    if !is_valid_sandbox_transition(&from_status, new_status) {
-        tracing::warn!(
-            sandbox_id = %sandbox_id,
-            from = %from_status,
-            to = %new_status,
-            "Rejected invalid sandbox state transition"
-        );
-        return Ok(false);
-    }
-
-    // idle_since is the idle-sweep's authoritative anchor: stamp NOW() when we
-    // *enter* idle (current status != 'idle'), clear it when we leave idle,
-    // leave it untouched otherwise. Same logic mirrored in transition_sandbox_cas
-    // and the Python state machine — keep the three in lockstep.
-    let result = sqlx::query(
-        r#"
-        UPDATE joysafeter_sandboxes
-        SET status = $2,
-            last_used_at = NOW(),
-            updated_at = NOW(),
-            idle_since = CASE
-                WHEN $2 = 'idle' AND status <> 'idle' THEN NOW()
-                WHEN $2 <> 'idle' AND status = 'idle' THEN NULL
-                ELSE idle_since
-            END
-        WHERE id = $1
-          AND status = $3
-        "#,
-    )
-    .bind(sandbox_id)
-    .bind(new_status)
-    .bind(from_status)
-    .execute(pool)
-    .await?;
-
-    Ok(result.rows_affected() > 0)
-}
-
 pub async fn mark_sandbox_error(
     pool: &PgPool,
     sandbox_id: Uuid,
@@ -310,6 +235,30 @@ fn is_valid_sandbox_transition(from: &str, to: &str) -> bool {
             | ("stopped", "destroyed")
             | ("error", "destroyed")
     )
+}
+
+#[cfg(test)]
+mod transition_validation_tests {
+    use super::is_valid_sandbox_transition;
+
+    #[test]
+    fn accepts_idempotent_and_documented_transitions() {
+        assert!(is_valid_sandbox_transition("idle", "idle"));
+        assert!(is_valid_sandbox_transition("creating", "provisioning"));
+        assert!(is_valid_sandbox_transition("provisioning", "idle"));
+        assert!(is_valid_sandbox_transition("idle", "running"));
+        assert!(is_valid_sandbox_transition("running", "idle"));
+        assert!(is_valid_sandbox_transition("stopped", "destroyed"));
+        assert!(is_valid_sandbox_transition("error", "destroyed"));
+    }
+
+    #[test]
+    fn rejects_resurrection_and_unknown_transitions() {
+        assert!(!is_valid_sandbox_transition("error", "idle"));
+        assert!(!is_valid_sandbox_transition("destroyed", "idle"));
+        assert!(!is_valid_sandbox_transition("pooled", "idle"));
+        assert!(!is_valid_sandbox_transition("unknown", "running"));
+    }
 }
 
 /// Mark a sandbox task as complete and return the sandbox to idle.
@@ -1266,6 +1215,16 @@ pub async fn transition_sandbox_cas(
     expected_status: &str,
     new_status: &str,
 ) -> Result<bool, sqlx::Error> {
+    if !is_valid_sandbox_transition(expected_status, new_status) {
+        tracing::warn!(
+            sandbox_id = %sandbox_id,
+            from = %expected_status,
+            to = %new_status,
+            "Rejected invalid sandbox CAS transition"
+        );
+        return Ok(false);
+    }
+
     // Same idle_since bookkeeping as update_sandbox_status. Because this is
     // a CAS we know the current status equals expected_status when the row
     // matches, so we use it directly instead of CASE on the row's status.

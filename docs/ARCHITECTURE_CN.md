@@ -187,6 +187,10 @@ sequenceDiagram
    和*广播相*（→ Redis Pub/Sub，由 SSE 层临时消费）。浏览器快速拿到事件；Worker 保证事件带单调 `seq`
    落库 Postgres，因此重连的客户端可从 `?after_seq` 回放。
 
+3. **Sandbox 状态写入统一使用 CAS。** Rust runtime 通过
+   `transition_sandbox_cas(expected_status, new_status)` 校验 sandbox FSM，并在同一条带期望状态的更新中落库。
+   系统不再提供先读状态再写入的兼容 API，陈旧观察者无法自行推断 expected state 后覆盖并发结果。
+
 ---
 
 ## 3. 传输映射——谁与谁通信、如何通信

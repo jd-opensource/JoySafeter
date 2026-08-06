@@ -775,10 +775,10 @@ mod tests {
         )
         .await
         .expect("create scheduler failure sandbox");
-        queries::transition_sandbox(pool, sandbox_id, "idle")
+        queries::transition_sandbox_cas(pool, sandbox_id, "creating", "idle")
             .await
             .expect("transition sandbox idle");
-        queries::transition_sandbox(pool, sandbox_id, "running")
+        queries::transition_sandbox_cas(pool, sandbox_id, "idle", "running")
             .await
             .expect("transition sandbox running");
         sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")

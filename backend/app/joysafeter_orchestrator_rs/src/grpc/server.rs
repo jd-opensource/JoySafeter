@@ -2069,10 +2069,10 @@ mod tests {
         )
         .await
         .expect("insert linked sandbox");
-        let _ = queries::transition_sandbox(pool, sandbox_id, "idle")
+        let _ = queries::transition_sandbox_cas(pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle");
-        let _ = queries::transition_sandbox(pool, sandbox_id, "running")
+        let _ = queries::transition_sandbox_cas(pool, sandbox_id, "idle", "running")
             .await
             .expect("sandbox running");
         sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -2421,10 +2421,10 @@ mod tests {
             )
             .await
             .expect("insert linked sandbox");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "idle")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "running")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
             sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -2744,10 +2744,10 @@ mod tests {
             )
             .await
             .expect("insert linked sandbox");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "idle")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "running")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
             sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -3348,10 +3348,10 @@ mod tests {
             )
             .await
             .expect("insert linked sandbox");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "idle")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "running")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
             sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -3715,10 +3715,10 @@ mod tests {
             )
             .await
             .expect("insert linked sandbox");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "idle")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "running")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
             sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")

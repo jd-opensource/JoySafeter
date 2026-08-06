@@ -218,6 +218,11 @@ Core ownership rules:
    relay, sandbox state sync, session archival, trigger pause, and the final
    project archive timestamp. Routes should not recreate that chain inline.
 
+6. **Sandbox status writes are compare-and-swap.** Rust runtime state changes use
+   `transition_sandbox_cas(expected_status, new_status)`, which validates the documented
+   sandbox FSM before issuing the fenced update. There is no read-then-write compatibility
+   transition API, so stale observers cannot select their own expected state.
+
 6. **Organization membership has one owner.** Organization creation/deletion and
    member role lifecycle go through `OrganizationService` and
    `OrganizationMemberService`. Those services own owner membership bootstrap,

@@ -472,10 +472,10 @@ async fn complete_sandbox_task_returns_running_sandbox_to_idle() {
         )
         .await
         .expect("create running completion sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle");
-        transition_sandbox(&pool, sandbox_id, "running")
+        transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
             .await
             .expect("sandbox running");
         sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -603,7 +603,7 @@ async fn transition_sandbox_rejects_invalid_error_to_idle_resurrection() {
             .await
             .expect("mark sandbox error");
 
-        let transitioned = transition_sandbox(&pool, sandbox_id, "idle")
+        let transitioned = transition_sandbox_cas(&pool, sandbox_id, "error", "idle")
             .await
             .expect("attempt invalid transition");
         assert!(!transitioned);
@@ -656,7 +656,7 @@ async fn mark_sandbox_error_does_not_clear_active_task_binding() {
         )
         .await
         .expect("create active sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle");
         sqlx::query("UPDATE joysafeter_tasks SET sandbox_id = $2 WHERE id = $1")
@@ -1638,7 +1638,7 @@ async fn start_sandbox_task_binds_healthy_sandbox_to_task() {
         )
         .await
         .expect("create dispatch sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle");
 
@@ -1751,7 +1751,7 @@ async fn mark_sandbox_stopped_if_active_stops_running_sandbox() {
         )
         .await
         .expect("create running stop sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle before start");
         assert!(start_sandbox_task(&pool, sandbox_id, task_id)
@@ -1905,7 +1905,7 @@ async fn mark_pool_sandbox_ready_accepts_runner_ready_idle_race() {
         )
         .await
         .expect("create warm pool sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("simulate fast runner ready before pool finalization");
 

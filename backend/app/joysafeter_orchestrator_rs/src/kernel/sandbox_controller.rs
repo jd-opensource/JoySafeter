@@ -1816,7 +1816,7 @@ mod tests {
             )
             .await
             .expect("create stopped sweep race sandbox");
-            queries::transition_sandbox(&pool, sandbox_id, "stopped")
+            queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "stopped")
                 .await
                 .expect("mark sandbox stopped before sweep race");
             sqlx::query(
@@ -2050,7 +2050,7 @@ mod tests {
             )
             .await
             .expect("create missing runtime sandbox");
-            queries::transition_sandbox(&pool, sandbox_id, "idle")
+            queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle before missing runtime cleanup");
 
@@ -2229,7 +2229,7 @@ mod tests {
         )
         .await
         .expect("create missing runtime running sandbox");
-        queries::transition_sandbox(pool, sandbox_id, "idle")
+        queries::transition_sandbox_cas(pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle before missing runtime running cleanup");
 
@@ -2944,7 +2944,7 @@ mod tests {
             )
             .await
             .expect("create provisioning race sandbox");
-            queries::transition_sandbox(&pool, sandbox_id, "provisioning")
+            queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "provisioning")
                 .await
                 .expect("mark provisioning race sandbox provisioning");
             sqlx::query(
@@ -3084,7 +3084,7 @@ mod tests {
             )
             .await
             .expect("create stop error sandbox");
-            queries::transition_sandbox(&pool, sandbox_id, "idle")
+            queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
 
@@ -3191,10 +3191,10 @@ mod tests {
             )
             .await
             .expect("create sandbox");
-            queries::transition_sandbox(&pool, sandbox_id, "idle")
+            queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            queries::transition_sandbox(&pool, sandbox_id, "running")
+            queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
 
