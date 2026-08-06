@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+from app.joysafeter_shared.ids import SessionId
 from app.joysafeter_shared.utils.id_utils import format_task_id
 
 
@@ -58,7 +59,7 @@ class SandboxResponse(BaseModel):
     provider: str
     status: str
     config: dict[str, Any] = Field(default_factory=dict)
-    chat_session_id: Optional[uuid.UUID] = None
+    chat_session_id: Optional[SessionId] = None
     image: str
     last_task_id: Optional[uuid.UUID] = None
     last_used_at: datetime

@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
+from app.joysafeter_shared.ids import SessionId
+
 MEMORY_MAX_CONTENT_BYTES = 102400  # 100 KB
 MEMORY_MAX_PATH_BYTES = 1024
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -160,7 +162,7 @@ class MemoryVersionResponse(BaseModel):
 class SessionMemoryStoreResponse(BaseModel):
     id: uuid.UUID
     type: str = "session_memory_store"
-    session_id: uuid.UUID
+    session_id: SessionId
     store_id: uuid.UUID
     access: str = "read_write"
     instructions: Optional[str] = None

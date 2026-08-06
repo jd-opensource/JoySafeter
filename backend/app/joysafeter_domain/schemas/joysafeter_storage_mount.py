@@ -12,6 +12,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     normalize_safe_relative_path,
 )
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import SessionId
 
 SUPPORTED_STORAGE_BACKENDS = {"generic", "cubefs", "cephfs", "nfs", "juicefs", "lustre", "pvc", "host_path"}
 SUPPORTED_STORAGE_ACCESS = {"read_only", "read_write"}
@@ -365,7 +366,7 @@ class StorageMountAuditResponse(BaseModel):
     id: uuid.UUID
     volume_id: Optional[uuid.UUID] = None
     project_id: Optional[str] = None
-    session_id: Optional[uuid.UUID] = None
+    session_id: Optional[SessionId] = None
     environment_id: Optional[uuid.UUID] = None
     user_id: Optional[str] = None
     action: str
