@@ -29,6 +29,12 @@ from sqlalchemy.pool import NullPool
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 ALEMBIC = Path(sys.executable).with_name("alembic")
 
+# ``Settings`` requires SECRET_KEY at import time (no default), and the module-level
+# ``settings = Settings()`` runs during collection. Provide a deterministic test
+# value so ``uv run pytest`` works without external secrets, matching how the other
+# required env vars below are injected. A real value in the environment still wins.
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-local-and-ci-runs-only")
+
 # testcontainers talks to Docker via docker-py, which defaults to the socket at
 # /var/run/docker.sock. On colima / Docker Desktop the real socket lives
 # elsewhere, so derive it from the active docker context when DOCKER_HOST is
