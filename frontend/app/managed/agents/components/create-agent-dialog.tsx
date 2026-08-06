@@ -449,6 +449,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   <SelectItem value="claude">{t('managed.agents.engineClaude')}</SelectItem>
                   <SelectItem value="codex">{t('managed.agents.engineCodex')}</SelectItem>
                   <SelectItem value="native">{t('managed.agents.engineNative')}</SelectItem>
+                  <SelectItem value="pi">{t('managed.agents.enginePi')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

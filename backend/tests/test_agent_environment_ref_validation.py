@@ -327,6 +327,36 @@ async def test_create_native_agent_accepts_openai_secret_and_resolves_model(db_s
 
 
 @pytest.mark.asyncio
+async def test_create_agent_accepts_pi_engine_kind(db_session):
+    secret = JoySafeterSecret(
+        name=f"pi-secret-{uuid.uuid4()}",
+        provider="anthropic",
+        protocol="anthropic_messages",
+        data=encrypted_secret_data({"ANTHROPIC_API_KEY": "value", "ANTHROPIC_MODEL": "pi-model"}),
+    )
+    db_session.add(secret)
+    await db_session.commit()
+    await db_session.refresh(secret)
+
+    req = JoySafeterCreateAgentRequest(
+        name=f"pi-agent-{uuid.uuid4()}",
+        engine_kind="pi",
+        secret_ref=secret.name,
+    )
+
+    response = await create_agent(req, db_session, _auth_ctx())
+
+    assert response.engine_kind == "pi"
+    assert response.secret_ref == secret.name
+    assert response.model is not None
+    assert response.model.id == "pi-model"
+
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))).scalar_one()
+    assert row.engine_kind == "pi"
+    assert row.secret_ref == secret.name
+
+
+@pytest.mark.asyncio
 async def test_create_agent_rejects_duplicate_mcp_server_name_with_structured_error(db_session):
     req = JoySafeterCreateAgentRequest(
         name=f"duplicate-mcp-agent-{uuid.uuid4()}",

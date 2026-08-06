@@ -19,7 +19,7 @@ import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from './use-current-project-read-only'
 
 export type StepId = 1 | 2 | 3 | 4 | 5 | 6
-export type QuickstartEngine = 'claude' | 'codex' | 'native'
+export type QuickstartEngine = 'claude' | 'codex' | 'native' | 'pi'
 
 export interface ChatMessage {
   id: string
@@ -53,6 +53,7 @@ const ENGINE_CONFIG: Record<QuickstartEngine, { engineKind: string }> = {
   claude: { engineKind: 'claude' },
   codex: { engineKind: 'codex' },
   native: { engineKind: 'native' },
+  pi: { engineKind: 'pi' },
 }
 
 function apiStepForUiStep(step: StepId): number {
