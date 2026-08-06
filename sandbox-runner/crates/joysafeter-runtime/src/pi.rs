@@ -5,7 +5,11 @@ use joysafeter_types::harness::{
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tracing::info;
 
 type SharedStdin = Arc<Mutex<Option<tokio::process::ChildStdin>>>;
 
@@ -153,6 +157,180 @@ pub fn map_pi_event(
     PiMapped { events, turn_done }
 }
 
+/// 解析并分发单行 pi stdout。返回 true 表示该行是 agent_settled(turn 完成)。
+/// 响应行(type=="response")跳过。
+pub(crate) async fn dispatch_pi_line(
+    line: &str,
+    event_tx: &mpsc::Sender<HarnessEvent>,
+    call_id_to_tool: &mut HashMap<String, String>,
+) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let value: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    if value.get("type").and_then(|t| t.as_str()) == Some("response") {
+        return false;
+    }
+    let mapped = map_pi_event(&value, call_id_to_tool);
+    for ev in mapped.events {
+        let _ = event_tx.send(ev).await;
+    }
+    mapped.turn_done
+}
+
+async fn persistent_pi_reader(
+    stdout: tokio::process::ChildStdout,
+    current_turn: Arc<Mutex<Option<TurnState>>>,
+) {
+    let reader = BufReader::new(stdout);
+    let mut lines = reader.lines();
+    let mut call_id_to_tool: HashMap<String, String> = HashMap::new();
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        let refs = {
+            let guard = current_turn.lock().await;
+            guard
+                .as_ref()
+                .map(|t| (t.event_tx.clone(), t.usage.clone(), t.output.clone()))
+        };
+        let Some((event_tx, usage, output)) = refs else {
+            continue;
+        };
+
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) {
+            accumulate_usage_and_output(&v, &usage, &output);
+        }
+
+        let turn_done = dispatch_pi_line(&line, &event_tx, &mut call_id_to_tool).await;
+        if turn_done {
+            let mut guard = current_turn.lock().await;
+            if let Some(ref mut t) = *guard {
+                if let Some(tx) = t.turn_done_tx.take() {
+                    let _ = tx.send(false);
+                }
+            }
+        }
+    }
+
+    info!("pi stdout reader exiting (process closed stdout)");
+    let mut guard = current_turn.lock().await;
+    if let Some(ref mut t) = *guard {
+        if let Some(tx) = t.turn_done_tx.take() {
+            let _ = tx.send(true);
+        }
+    }
+}
+
+/// 旁路:把 message_end.usage 累加进 TokenUsage(含 by_model),把 text_delta 追加进 output。
+fn accumulate_usage_and_output(
+    v: &serde_json::Value,
+    usage: &Arc<std::sync::Mutex<joysafeter_types::token_usage::TokenUsage>>,
+    output: &Arc<std::sync::Mutex<String>>,
+) {
+    use joysafeter_types::token_usage::ModelUsage;
+    match v.get("type").and_then(|t| t.as_str()) {
+        Some("message_update") => {
+            if let Some(ame) = v.get("assistantMessageEvent") {
+                if ame.get("type").and_then(|t| t.as_str()) == Some("text_delta") {
+                    if let Some(d) = ame.get("delta").and_then(|d| d.as_str()) {
+                        output.lock().unwrap().push_str(d);
+                    }
+                }
+            }
+        }
+        Some("message_end") => {
+            if let Some(u) = v.get("message").and_then(|m| m.get("usage")) {
+                let g = |k: &str| u.get(k).and_then(|x| x.as_u64()).unwrap_or(0);
+                let model = v
+                    .get("message")
+                    .and_then(|m| m.get("model"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let mut acc = usage.lock().unwrap();
+                acc.input_tokens += g("input");
+                acc.output_tokens += g("output");
+                acc.cache_read_tokens += g("cacheRead");
+                acc.cache_write_tokens += g("cacheWrite");
+                let e = acc.by_model.entry(model).or_insert_with(ModelUsage::default);
+                e.input_tokens += g("input");
+                e.output_tokens += g("output");
+                e.cache_read_tokens += g("cacheRead");
+                e.cache_write_tokens += g("cacheWrite");
+            }
+        }
+        _ => {}
+    }
+}
+
+impl PiAdapter {
+    async fn ensure_session(&self, input: &HarnessInput, cwd: &Path) -> Result<(), HarnessError> {
+        let mut guard = self.session.lock().await;
+
+        let alive = if let Some(ref mut s) = *guard {
+            matches!(s.child.try_wait(), Ok(None))
+        } else {
+            false
+        };
+        if alive {
+            return Ok(());
+        }
+        if let Some(ref mut old) = guard.take() {
+            let _ = old.child.start_kill();
+            let _ = old.child.wait().await;
+        }
+
+        let mut args = vec!["--mode".to_string(), "rpc".to_string()];
+        if let Some(model) = &input.model {
+            args.extend(["--model".to_string(), model.clone()]);
+        }
+
+        let mut cmd = Command::new("pi");
+        cmd.args(&args)
+            .current_dir(cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        for (k, v) in &input.env {
+            cmd.env(k, v);
+        }
+        for (k, v) in &input.secrets {
+            cmd.env(k, v);
+        }
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| HarnessError::StartFailed(e.to_string()))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| HarnessError::StartFailed("failed to open stdin".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| HarnessError::StartFailed("failed to open stdout".into()))?;
+
+        let current_turn: Arc<Mutex<Option<TurnState>>> = Arc::new(Mutex::new(None));
+        let reader_current_turn = current_turn.clone();
+        let reader_handle = tokio::spawn(async move {
+            persistent_pi_reader(stdout, reader_current_turn).await;
+        });
+
+        info!("Started persistent pi process");
+        *guard = Some(PersistentPi {
+            stdin: Arc::new(Mutex::new(Some(stdin))),
+            reader_handle,
+            current_turn,
+            child,
+        });
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +438,39 @@ mod tests {
     async fn adapter_reports_pi_provider() {
         let adapter = super::PiAdapter::new();
         assert_eq!(adapter.provider(), "pi");
+    }
+
+    #[tokio::test]
+    async fn dispatch_line_forwards_events_to_channel() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<HarnessEvent>(16);
+        let mut cmap = HashMap::new();
+        let line = r#"{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hi"}}"#;
+        super::dispatch_pi_line(line, &tx, &mut cmap).await;
+        match rx.recv().await {
+            Some(HarnessEvent::Text { content }) => assert_eq!(content, "hi"),
+            other => panic!("expected Text, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_line_reports_turn_done_on_settled() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<HarnessEvent>(16);
+        let mut cmap = HashMap::new();
+        let done = super::dispatch_pi_line(r#"{"type":"agent_settled"}"#, &tx, &mut cmap).await;
+        assert!(done);
+    }
+
+    #[tokio::test]
+    async fn dispatch_line_ignores_response_lines() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<HarnessEvent>(16);
+        let mut cmap = HashMap::new();
+        let done = super::dispatch_pi_line(
+            r#"{"type":"response","command":"prompt","success":true,"id":"req_1"}"#,
+            &tx,
+            &mut cmap,
+        )
+        .await;
+        assert!(!done);
+        assert!(rx.try_recv().is_err());
     }
 }
