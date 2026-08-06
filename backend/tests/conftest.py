@@ -34,6 +34,11 @@ ALEMBIC = Path(sys.executable).with_name("alembic")
 # value so ``uv run pytest`` works without external secrets, matching how the other
 # required env vars below are injected. A real value in the environment still wins.
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-local-and-ci-runs-only")
+# CredentialCipher (vault/secret tests) requires a 32-byte AES key as 64 hex chars.
+os.environ.setdefault(
+    "JOYSAFETER_VAULT_ENCRYPTION_KEY",
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+)
 
 # testcontainers talks to Docker via docker-py, which defaults to the socket at
 # /var/run/docker.sock. On colima / Docker Desktop the real socket lives
