@@ -12,12 +12,14 @@
 
 | 维度 | 决策 |
 |---|---|
-| 范围 | 全功能对齐 claude/codex(多轮 / steering / MCP / skills / token 计费) |
+| 范围 | 全功能对齐 claude/codex(多轮 / steering / skills / token 计费)。**MCP 例外见下** |
 | 权限模型 | **全放行,靠容器兜底**。pi 无内置权限系统,以默认全权限运行,隔离交给 JoySafeter 沙箱(Docker + cap-drop + no-new-privs + Envoy)。`HarnessInput.allowed_tools/ask_tools` 本方案不落地为逐工具 ask 流(与 codex 的 `danger-full-access` 姿态一致) |
 | LLM 供应商 | **pi 内置全部支持,pass-through**。provider/model 由 `HarnessInput.model` 透传成 pi 的 `--model <provider>/<pattern>` |
 | 出网/凭证 | **复用现有 Envoy 重注入机制**,不新造。每个供应商在 `llm_provider_registry()` 一行 `LlmProviderSpec` + Envoy 放行域名 |
 | 驱动面 | **`pi --mode rpc`(JSONL 行协议)**,常驻子进程 |
 | 实现模板 | 骨架抄 `native.rs`(最薄),事件解析参考 `claude.rs`;不抄 `codex.rs`(其复杂度是 codex 特有的 JSON-RPC/审批/多 agent) |
+
+> **MCP 差异(2026-08-06 修正,刻意不对齐):** pi 0.83.0 **本身刻意不支持 MCP**(README:496 "No MCP";docs/usage.md:301 "intentionally does not include built-in MCP"),无任何 MCP 配置文件/CLI flag/settings 字段。因此 codex 那种"把 `[mcp_servers.*]` 合并进配置文件"的做法在 pi 上不存在。pi 的工具扩展等价物是 **Skills**(CLI 工具 + README),已通过 `.pi/` 布局接入。故 `HarnessInput.mcp_configs` 对 pi 引擎**有意不落地**(pi.rs `ensure_session` 有注释说明,防误判为 bug)。若将来确需 pi 消费 MCP server,只能另写一个 MCP-bridge pi 扩展(独立工程),不在本方案范围。
 
 ## 背景:JoySafeter 引擎抽象(已验证)
 

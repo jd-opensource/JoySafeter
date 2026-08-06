@@ -179,6 +179,23 @@ pub struct PiMapped {
     pub turn_done: bool,
 }
 
+/// Extract a tool result's textual output. pi's rpc `tool_execution_end.result`
+/// is `{ "content": [ { "type": "text", "text": "..." }, ... ] }`; concatenate the
+/// text blocks. Fall back to a plain string, or the raw JSON for other shapes.
+fn extract_tool_output(result: Option<&serde_json::Value>) -> String {
+    match result {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(v) => match v.get("content").and_then(|c| c.as_array()) {
+            Some(blocks) => blocks
+                .iter()
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect::<String>(),
+            None => v.to_string(),
+        },
+        None => String::new(),
+    }
+}
+
 pub fn map_pi_event(
     event: &serde_json::Value,
     call_id_to_tool: &mut HashMap<String, String>,
@@ -223,12 +240,7 @@ pub fn map_pi_event(
                 .map(|s| s.to_string())
                 .or_else(|| call_id_to_tool.get(&call_id).cloned())
                 .unwrap_or_default();
-            let result = event.get("result");
-            let output = match result {
-                Some(serde_json::Value::String(s)) => s.clone(),
-                Some(v) => v.to_string(),
-                None => String::new(),
-            };
+            let output = extract_tool_output(event.get("result"));
             if event.get("isError").and_then(|b| b.as_bool()).unwrap_or(false) {
                 events.push(HarnessEvent::Error { message: output.clone() });
             }
@@ -236,8 +248,12 @@ pub fn map_pi_event(
         }
         "message_end" => {
             if let Some(message) = event.get("message") {
-                let model = message.get("model").and_then(|m| m.as_str()).unwrap_or("unknown").to_string();
-                if let Some(usage) = message.get("usage") {
+                // Only assistant messages carry real token usage. `message_end`
+                // also fires for role=user and role=toolResult with `usage: null`;
+                // skip those so we don't emit spurious zero-usage events.
+                if let Some(usage) = message.get("usage").filter(|u| u.is_object()) {
+                    let model =
+                        message.get("model").and_then(|m| m.as_str()).unwrap_or("unknown").to_string();
                     let g = |k: &str| usage.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
                     events.push(HarnessEvent::ModelRequestEnd {
                         model,
@@ -349,7 +365,11 @@ fn accumulate_usage_and_output(
             }
         }
         Some("message_end") => {
-            if let Some(u) = v.get("message").and_then(|m| m.get("usage")) {
+            if let Some(u) = v
+                .get("message")
+                .and_then(|m| m.get("usage"))
+                .filter(|u| u.is_object())
+            {
                 let g = |k: &str| u.get(k).and_then(|x| x.as_u64()).unwrap_or(0);
                 let model = v
                     .get("message")
@@ -409,6 +429,14 @@ impl PiAdapter {
             let _ = old.child.wait().await;
         }
 
+        // NOTE: `input.mcp_configs` is intentionally NOT wired for pi. Unlike
+        // codex (which merges `[mcp_servers.*]` into ~/.codex/config.toml), pi
+        // 0.83.0 has NO MCP support by design — its README states "No MCP" and it
+        // exposes no MCP config file, CLI flag, or settings key. pi's tool-
+        // extension mechanism is Skills (CLI tools + READMEs), which JoySafeter
+        // already provisions via the `.pi/` skill layout (see runner skill_base_dir).
+        // Reaching MCP servers from pi would require a separate MCP-bridge
+        // extension; that is out of scope for this adapter.
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
         if let Some(model) = &input.model {
             args.extend(["--model".to_string(), model.clone()]);
@@ -547,6 +575,29 @@ mod tests {
     }
 
     #[test]
+    fn message_end_with_null_or_absent_usage_emits_no_model_request_end() {
+        // pi fires message_end for role=user and role=toolResult; those carry no
+        // real usage (absent, or null in some variants) and must NOT produce a
+        // ModelRequestEnd. Guards the `.filter(|u| u.is_object())` check.
+        let null_usage = map(serde_json::json!({
+            "type": "message_end",
+            "message": { "role": "toolResult", "usage": serde_json::Value::Null }
+        }));
+        assert!(
+            !null_usage.events.iter().any(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. })),
+            "null usage must not emit ModelRequestEnd"
+        );
+        let absent_usage = map(serde_json::json!({
+            "type": "message_end",
+            "message": { "role": "user" }
+        }));
+        assert!(
+            !absent_usage.events.iter().any(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. })),
+            "absent usage must not emit ModelRequestEnd"
+        );
+    }
+
+    #[test]
     fn agent_settled_sets_turn_done() {
         let m = map(serde_json::json!({ "type": "agent_settled" }));
         assert!(m.turn_done);
@@ -623,5 +674,81 @@ mod tests {
         .await;
         assert!(!done);
         assert!(rx.try_recv().is_err());
+    }
+
+    /// Replays a REAL `pi --mode rpc` stream captured from the joysafeter-pi
+    /// image (GPT-4.1 over an OpenAI-compatible gateway): one turn that streams a
+    /// tool call, runs bash `ls`, then streams a text answer. This is the
+    /// regression guard against pi rpc protocol drift and the reason the event
+    /// mapping is grounded in observed output rather than assumed field names.
+    #[tokio::test]
+    async fn replays_real_pi_rpc_stream_fixture() {
+        let fixture = include_str!("../tests/fixtures/pi_rpc_stream.jsonl");
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<HarnessEvent>(1024);
+        let mut cmap: HashMap<String, String> = HashMap::new();
+        let mut turn_done = false;
+        for line in fixture.lines() {
+            if super::dispatch_pi_line(line, &tx, &mut cmap).await {
+                turn_done = true;
+            }
+        }
+        drop(tx);
+
+        let mut events = Vec::new();
+        while let Some(ev) = rx.recv().await {
+            events.push(ev);
+        }
+
+        assert!(turn_done, "expected agent_settled to complete the turn");
+
+        // Streamed assistant text (from message_update/text_delta).
+        let text: String = events
+            .iter()
+            .filter_map(|e| match e {
+                HarnessEvent::Text { content } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(!text.is_empty(), "expected streamed assistant text");
+
+        // Exactly one tool execution (bash), from tool_execution_start.
+        let tool_uses = events
+            .iter()
+            .filter(|e| matches!(e, HarnessEvent::ToolUse { .. }))
+            .count();
+        assert_eq!(tool_uses, 1, "expected exactly one ToolUse");
+
+        // ToolResult must carry the CLEAN text extracted from
+        // result.content[].text — not the raw JSON envelope.
+        let (tool, output) = events
+            .iter()
+            .find_map(|e| match e {
+                HarnessEvent::ToolResult { tool, output, .. } => {
+                    Some((tool.clone(), output.clone()))
+                }
+                _ => None,
+            })
+            .expect("expected a ToolResult");
+        assert_eq!(tool, "bash");
+        assert!(
+            output.contains("readme.txt") && output.contains("notes.md"),
+            "tool output should be the ls listing, got: {output:?}"
+        );
+        assert!(
+            !output.contains("\"content\""),
+            "tool output should be extracted text, not the raw JSON envelope"
+        );
+
+        // The two assistant message_end events carry usage; the user and
+        // toolResult message_end events have usage:null and must NOT produce a
+        // ModelRequestEnd. This guards the null-usage filter.
+        let model_request_ends = events
+            .iter()
+            .filter(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. }))
+            .count();
+        assert_eq!(
+            model_request_ends, 2,
+            "expected exactly 2 ModelRequestEnd (assistant messages only)"
+        );
     }
 }
