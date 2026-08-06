@@ -33,6 +33,7 @@ impl AdapterRegistry {
                 "native".to_string(),
                 Arc::new(mock::MockAdapter::new("native")),
             );
+            adapters.insert("pi".to_string(), Arc::new(mock::MockAdapter::new("pi")));
         } else {
             let claude = claude::ClaudeAdapter::new();
             if claude.is_available().await {
@@ -47,6 +48,11 @@ impl AdapterRegistry {
             let codex = codex::CodexAdapter::new();
             if codex.is_available().await {
                 adapters.insert("codex".to_string(), Arc::new(codex));
+            }
+
+            let pi_adapter = pi::PiAdapter::new();
+            if pi_adapter.is_available().await {
+                adapters.insert("pi".to_string(), Arc::new(pi_adapter));
             }
         }
 

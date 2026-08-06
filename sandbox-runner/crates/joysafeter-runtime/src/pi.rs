@@ -1,5 +1,69 @@
-use joysafeter_types::harness::HarnessEvent;
+use async_trait::async_trait;
+use joysafeter_types::harness::{
+    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, RunningHarness,
+};
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+type SharedStdin = Arc<Mutex<Option<tokio::process::ChildStdin>>>;
+
+pub struct PiAdapter {
+    session: Arc<Mutex<Option<PersistentPi>>>,
+}
+
+struct PersistentPi {
+    stdin: SharedStdin,
+    #[allow(dead_code)]
+    reader_handle: tokio::task::JoinHandle<()>,
+    current_turn: Arc<Mutex<Option<TurnState>>>,
+    child: tokio::process::Child,
+}
+
+struct TurnState {
+    event_tx: tokio::sync::mpsc::Sender<HarnessEvent>,
+    turn_done_tx: Option<tokio::sync::oneshot::Sender<bool>>,
+    usage: Arc<std::sync::Mutex<joysafeter_types::token_usage::TokenUsage>>,
+    output: Arc<std::sync::Mutex<String>>,
+    call_id_to_tool: Arc<std::sync::Mutex<HashMap<String, String>>>,
+}
+
+impl Default for PiAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PiAdapter {
+    pub fn new() -> Self {
+        Self {
+            session: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+#[async_trait]
+impl HarnessAdapter for PiAdapter {
+    async fn start(
+        &self,
+        _input: HarnessInput,
+        _cwd: &Path,
+    ) -> Result<RunningHarness, HarnessError> {
+        Err(HarnessError::StartFailed(
+            "pi start not yet implemented".into(),
+        ))
+    }
+    async fn cancel(&self, _harness: &mut RunningHarness) -> Result<(), HarnessError> {
+        Ok(())
+    }
+    fn provider(&self) -> &str {
+        "pi"
+    }
+    async fn is_available(&self) -> bool {
+        which::which("pi").is_ok()
+    }
+}
 
 pub struct PiMapped {
     pub events: Vec<HarnessEvent>,
@@ -190,5 +254,11 @@ mod tests {
         let m = map(serde_json::json!({ "type": "queue_update", "foo": 1 }));
         assert!(m.events.is_empty());
         assert!(!m.turn_done);
+    }
+
+    #[tokio::test]
+    async fn adapter_reports_pi_provider() {
+        let adapter = super::PiAdapter::new();
+        assert_eq!(adapter.provider(), "pi");
     }
 }
