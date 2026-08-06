@@ -35,12 +35,13 @@
 
 ### 1.3 生命周期与运行时闸门
 - 技能有生命周期 FSM：`draft → pending_review → {approved, rejected}`，`approved → archived`。
-- 运行时闸门 `is_skill_usable()`：**只有** `approved` + `security_status` 在白名单 + 内容哈希与上次扫描
-  一致（未漂移）的技能，才会被纳入会话技能包；否则被静默丢弃。
+- API 保存/关联阶段使用 `is_skill_usable()` 校验技能状态；任务启动时 Rust orchestrator 再执行
+  `ensure_skill_runtime_ready`，只接受 `approved` 且安全状态为 `passed` / `warning`、扫描哈希非空的技能。
+  任一检查失败都会拒绝本次输入构建，不会静默换用旧版本。
 
-### 1.4 打包投递（`SkillPacker` → gRPC → 沙箱 runner）
-- 会话启动时，`SkillPacker` 把该 Agent 引用的技能解析、通过闸门、打包成 `tar.gz`（proto `SkillArchive`），
-  记录用量日志。
+### 1.4 打包投递（Rust orchestrator → gRPC → 沙箱 runner）
+- 任务启动时，Rust `HarnessInputBuilder` 解析 Agent 引用的明确版本或最高已发布版本，从
+  `joysafeter_skill_version_files` 读取文件并现场打包为 `tar.gz`（proto `SkillArchive`），同时记录用量日志。
 - orchestrator 经 gRPC `SetupSandbox` / `StartTask` 把 `SkillArchive` 下发给沙箱内的 Rust runner。
 - runner 的 `unpack_skills` 把每个归档解压到沙箱工作目录下的技能目录（按引擎/`target` 决定具体子路径）。
 - **至此，数据库里的技能记录变成了沙箱内一份份真实文件。** 沙箱是隔离的，脚本再高危也困在沙箱内。

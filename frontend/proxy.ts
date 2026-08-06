@@ -110,19 +110,16 @@ function addSecurityHeaders(
   // 1. X-Content-Type-Options: Prevent MIME type sniffing
   response.headers.set('X-Content-Type-Options', 'nosniff')
 
-  // 2. X-XSS-Protection: Enable browser XSS filter (though obsolete, still has compatibility value)
-  response.headers.set('X-XSS-Protection', '1; mode=block')
-
-  // 3. Referrer-Policy: Control referrer information
+  // 2. Referrer-Policy: Control referrer information
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
 
-  // 4. Permissions-Policy: Control browser features
+  // 3. Permissions-Policy: Control browser features
   response.headers.set(
     'Permissions-Policy',
     'geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()',
   )
 
-  // 5. Strict-Transport-Security (HSTS): Force HTTPS (only in production and when using HTTPS)
+  // 4. Strict-Transport-Security (HSTS): Force HTTPS (only in production and when using HTTPS)
   if (isProduction && isHttps) {
     response.headers.set(
       'Strict-Transport-Security',
@@ -130,7 +127,7 @@ function addSecurityHeaders(
     )
   }
 
-  // 6. If nonce is provided, add to response headers (for CSP)
+  // 5. If nonce is provided, add to response headers (for CSP)
   if (nonce) {
     response.headers.set('x-nonce', nonce)
   }

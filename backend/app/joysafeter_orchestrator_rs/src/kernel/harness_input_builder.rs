@@ -1795,7 +1795,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn harness_input_resolves_vlt_prefixed_vault_ids_for_mcp_egress() {
+    async fn harness_input_resolves_vault_prefixed_ids_for_mcp_egress() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -1868,7 +1868,7 @@ mod tests {
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(json!([format!("vlt_{vault_id}")]))
+            .bind(json!([format!("vault_{vault_id}")]))
             .execute(&pool)
             .await
             .expect("insert session");
@@ -1936,7 +1936,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn harness_input_vlt_prefixed_vault_ids_credential_decrypt_failure_fails_build() {
+    async fn harness_input_vault_prefixed_ids_credential_decrypt_failure_fails_build() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -2009,7 +2009,7 @@ mod tests {
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(json!([format!("vlt_{vault_id}")]))
+            .bind(json!([format!("vault_{vault_id}")]))
             .execute(&pool)
             .await
             .expect("insert session");
@@ -2358,11 +2358,20 @@ fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
 }
 
 fn parse_vault_ref(raw: &str) -> Option<Uuid> {
-    raw.strip_prefix("vault_")
-        .or_else(|| raw.strip_prefix("vlt_"))
-        .unwrap_or(raw)
-        .parse()
-        .ok()
+    raw.strip_prefix("vault_").unwrap_or(raw).parse().ok()
+}
+
+#[cfg(test)]
+mod vault_ref_tests {
+    use super::parse_vault_ref;
+    use uuid::Uuid;
+
+    #[test]
+    fn removed_vault_prefix_is_rejected() {
+        let id = Uuid::now_v7();
+        assert_eq!(parse_vault_ref(&format!("vault_{id}")), Some(id));
+        assert_eq!(parse_vault_ref(&format!("vlt_{id}")), None);
+    }
 }
 
 fn ensure_skill_runtime_ready(skill: &SkillForArchive) -> anyhow::Result<()> {

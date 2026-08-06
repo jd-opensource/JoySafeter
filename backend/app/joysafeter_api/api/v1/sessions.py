@@ -414,7 +414,7 @@ async def create_session(
 
         vault_svc = VaultService(db)
         for vid_raw in req.vault_ids:
-            vid_str = vid_raw.removeprefix("vlt_").removeprefix("vault_")
+            vid_str = vid_raw.removeprefix("vault_")
             try:
                 vid_uuid = uuid.UUID(vid_str)
             except ValueError:

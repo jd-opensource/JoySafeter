@@ -2408,11 +2408,7 @@ fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
 }
 
 fn parse_vault_ref(raw: &str) -> Option<Uuid> {
-    raw.strip_prefix("vault_")
-        .or_else(|| raw.strip_prefix("vlt_"))
-        .unwrap_or(raw)
-        .parse()
-        .ok()
+    raw.strip_prefix("vault_").unwrap_or(raw).parse().ok()
 }
 
 fn non_empty(value: Option<&str>) -> Option<String> {
@@ -3962,7 +3958,7 @@ mod egress_tests {
     }
 
     #[tokio::test]
-    async fn sandbox_resolver_builds_mcp_egress_from_vlt_prefixed_vault_ids() {
+    async fn sandbox_resolver_builds_mcp_egress_from_vault_prefixed_ids() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -4034,7 +4030,7 @@ mod egress_tests {
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(serde_json::json!([format!("vlt_{vault_id}")]))
+            .bind(serde_json::json!([format!("vault_{vault_id}")]))
             .execute(&pool)
             .await
             .expect("insert session");

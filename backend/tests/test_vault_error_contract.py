@@ -225,12 +225,12 @@ async def test_delete_vault_rejects_active_session_reference_without_deleting_ro
 
 
 @pytest.mark.asyncio
-async def test_archive_vault_rejects_vlt_prefixed_active_session_reference(db_session):
-    vault = JoySafeterVault(name=f"active-session-vlt-vault-{uuid.uuid4()}", description="")
+async def test_archive_vault_rejects_bare_uuid_active_session_reference(db_session):
+    vault = JoySafeterVault(name=f"active-session-bare-vault-{uuid.uuid4()}", description="")
     db_session.add(vault)
     await db_session.commit()
     await db_session.refresh(vault)
-    await _session_referencing_vault(db_session, vault.id, f"vlt_{vault.id}")
+    await _session_referencing_vault(db_session, vault.id, str(vault.id))
 
     with pytest.raises(AppError) as exc_info:
         await archive_vault(_request("POST"), db_session, vault.id, _auth_ctx())

@@ -56,13 +56,7 @@ def _file_not_found_error(file_id: str) -> AppError:
 def _parse_session_scope(scope_id: str | None) -> uuid.UUID | None:
     if not scope_id:
         return None
-    # Accept both "sesn_" (official Managed Agents prefix) and "sess_"
-    # (the prefix this API emits in SessionResponse). Either round-trips.
-    s = scope_id
-    for prefix in ("sesn_", "sess_"):
-        if s.startswith(prefix):
-            s = s[len(prefix) :]
-            break
+    s = scope_id.removeprefix("sess_")
     try:
         return uuid.UUID(s)
     except ValueError:
@@ -157,7 +151,7 @@ async def list_files(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=20, ge=1, le=100),
     after_id: Optional[str] = Query(default=None),
-    scope_id: Optional[str] = Query(default=None, description="Filter by session id (sess_xxx or sesn_xxx)"),
+    scope_id: Optional[str] = Query(default=None, description="Filter by session id (sess_xxx or bare UUID)"),
 ) -> CursorPaginatedResponse[FileResponse]:
     svc = _get_service()
     cursor = _parse_file_id(after_id) if after_id else None

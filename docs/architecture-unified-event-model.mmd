@@ -76,7 +76,7 @@ graph TB
         subgraph TOOL_SYS["Tools（Agent JSONB 配置 → gRPC 下发）"]
             direction LR
             BUILTIN_TOOLS["Builtin Tools\n引擎内置 + 工具策略\nallowed/disallowed/ask"]
-            MCP_TOOLS["MCP Servers\nmcp_configs + Vault 凭据\n.claude/settings.json 注入"]
+            MCP_TOOLS["MCP Servers\nmcp_servers + Vault 凭据\n.claude/settings.json 注入"]
             CUSTOM_TOOLS["Custom Tools\n用户自定义\ninput_schema_json"]
         end
 
@@ -85,7 +85,7 @@ graph TB
             SKILL_PARSE["解析 & 校验\nSKILL.md + Agent-Skills 规范\n(joysafeter_shared/skill)"]
             SKILL_PERM["权限闸门\n四级可见性 + org 隔离"]
             SKILL_SCAN["skillspector 安全扫描\n草稿保存 fail-open · 运行时闸门"]
-            SKILL_PACK["SkillPacker → tar.gz\nis_skill_usable 闸门 → 注入沙箱"]
+            SKILL_PACK["Rust HarnessInputBuilder → tar.gz\nruntime-ready 闸门 → 注入沙箱"]
             SKILL_PARSE --> SKILL_PERM --> SKILL_SCAN --> SKILL_PACK
         end
     end

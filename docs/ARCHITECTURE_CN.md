@@ -451,8 +451,9 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
    （private/project/organization/public）+ 严格 active-org 隔离。
 3. **安全扫描**（`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector** 服务）——
    扫描器失败会记录 failed/scanning 状态，拦截 `DO_NOT_INSTALL` 建议，规范 sha256 用于漂移检测。
-4. **打包与投递**——`SkillPacker` 在会话开始时把引用解析为 `tar.gz` `SkillArchive`，应用 `is_skill_usable`
-   闸门、记录用量；orchestrator 把归档注入沙箱，runner 解包。
+4. **打包与投递**——Rust orchestrator 的 `HarnessInputBuilder` 在任务启动时解析已发布版本，执行
+   `ensure_skill_runtime_ready` 闸门，从版本文件现场生成 `tar.gz` `SkillArchive` 并记录用量；归档随后
+   注入沙箱，由 runner 解包。无可用版本或闸门失败会终止输入构建，不会静默降级。
 
 ### 9.3 可观测性——全链路追踪
 

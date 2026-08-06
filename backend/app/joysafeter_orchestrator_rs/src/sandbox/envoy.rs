@@ -595,16 +595,9 @@ impl EnvoyManager {
 
     /// Remove a sandbox from Envoy config.
     async fn remove_sandbox_unlocked(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        // Drop the current HTTP egress listener plus the historical gRPC listener
-        // name so rolling upgrades clean up any Envoy-proxied runner control
-        // resources left by older versions. No per-sandbox clusters to remove —
-        // all routes point to the shared dynamic_forward_proxy clusters.
-        self.lds
-            .remove(vec![
-                format!("{sandbox_id}_grpc"),
-                format!("{sandbox_id}_http"),
-            ])
-            .await?;
+        // No per-sandbox clusters to remove: all routes point to the shared
+        // dynamic_forward_proxy clusters.
+        self.lds.remove(vec![format!("{sandbox_id}_http")]).await?;
 
         // Release retained per-sandbox ACK/NACK bookkeeping (grpc xDS backend)
         // so apply_status cannot grow unboundedly over the orchestrator's life.

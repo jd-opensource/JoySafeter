@@ -210,7 +210,7 @@ class VaultService:
         vault_id: uuid.UUID,
         project_id: Optional[str] = None,
     ) -> bool:
-        vault_refs = [f"vault_{vault_id}", f"vlt_{vault_id}", str(vault_id)]
+        vault_refs = [f"vault_{vault_id}", str(vault_id)]
         conditions = [
             or_(*(JoySafeterSession.vault_ids.contains([vault_ref]) for vault_ref in vault_refs)),
             JoySafeterSession.archived_at.is_(None),

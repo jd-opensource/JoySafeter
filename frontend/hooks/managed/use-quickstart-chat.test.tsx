@@ -258,7 +258,7 @@ describe('useQuickstartChat resource creation', () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       Response.json({
         success: true,
-        data: { id: 'vlt_123' },
+        data: { id: 'vault_123' },
       }),
     ) as typeof fetch
 
@@ -270,7 +270,7 @@ describe('useQuickstartChat resource creation', () => {
     })
 
     expect(created).toBe(true)
-    expect(result.current.resourceIds[5]).toBe('vlt_123')
+    expect(result.current.resourceIds[5]).toBe('vault_123')
     expect(result.current.completedSteps.has(5)).toBe(true)
   })
 
@@ -462,7 +462,7 @@ describe('useQuickstartChat resource creation', () => {
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'vlt_stale' },
+          data: { id: 'vault_stale' },
         }),
       )
       .mockResolvedValueOnce(
@@ -488,7 +488,7 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.resourceIds).toMatchObject({
       3: 'agent_123',
       4: 'env_stale',
-      5: 'vlt_stale',
+      5: 'vault_stale',
     })
 
     await act(async () => {
@@ -515,7 +515,7 @@ describe('useQuickstartChat resource creation', () => {
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'vlt_a' },
+          data: { id: 'vault_a' },
         }),
       )
     globalThis.fetch = fetchMock as typeof fetch
@@ -535,7 +535,7 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.resourceIds).toMatchObject({
       3: 'agent_a',
       4: 'env_a',
-      5: 'vlt_a',
+      5: 'vault_a',
     })
 
     const createSessionFromProjectA = result.current.createSession
@@ -882,7 +882,7 @@ describe('useQuickstartChat resource creation', () => {
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'vlt_a' },
+          data: { id: 'vault_a' },
         }),
       )
       .mockResolvedValueOnce(
@@ -908,7 +908,7 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.resourceIds).toMatchObject({
       3: 'agent_a',
       4: 'env_a',
-      5: 'vlt_a',
+      5: 'vault_a',
     })
 
     await act(async () => {

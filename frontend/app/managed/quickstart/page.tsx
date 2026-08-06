@@ -2057,7 +2057,7 @@ export default function QuickstartPage() {
                       {resourceIds[5] && (
                         <div>
                           <span className="text-muted-foreground">vault_ids:</span>{' '}
-                          {`["${shortIdWithPrefix(resourceIds[5], 'vlt_')}"]`}
+                          {`["${shortIdWithPrefix(resourceIds[5], 'vault_')}"]`}
                         </div>
                       )}
                     </div>

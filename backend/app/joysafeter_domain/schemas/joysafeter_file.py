@@ -30,7 +30,7 @@ class FileResponse(BaseModel):
             size_bytes=obj.size_bytes,
             sha256=obj.sha256,
             downloadable=obj.downloadable,
-            session_id=f"sesn_{obj.session_id}" if obj.session_id else None,
+            session_id=f"sess_{obj.session_id}" if obj.session_id else None,
             created_at=obj.created_at,
         )
 

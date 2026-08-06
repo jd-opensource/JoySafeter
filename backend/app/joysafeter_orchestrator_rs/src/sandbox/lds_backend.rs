@@ -7,8 +7,8 @@
 //! `JOYSAFETER_ENVOY_XDS_MODE`:
 //!
 //! * [`FilesystemLds`] — renders listeners to canonical Envoy JSON and writes
-//!   `/envoy-config/lds.json` into the Envoy container (the historical path;
-//!   Envoy watches the file via `path_config_source`). O(N) per update.
+//!   `/envoy-config/lds.json` into the Envoy container, which watches the file
+//!   via `path_config_source`. O(N) per update.
 //!
 //! * [`GrpcLds`] — a Delta ADS gRPC server. Renders listeners to typed protobuf,
 //!   keeps them in memory, and pushes only the changed resources to Envoy over a
@@ -721,7 +721,6 @@ pub trait LdsBackend: Send + Sync {
 // ===========================================================================
 
 /// LDS backend that writes `/envoy-config/lds.json` into the Envoy container.
-/// This is the historical behaviour, relocated behind the trait unchanged.
 pub struct FilesystemLds {
     config_dir: String,
     /// name → rendered listener JSON. Rewritten in full on every change.
@@ -2204,8 +2203,13 @@ fn sandbox_ids_from_xds_resources(resource_names: &[String]) -> Vec<Uuid> {
 }
 
 fn sandbox_id_from_xds_resource(name: &str) -> Option<Uuid> {
-    let raw = name.strip_prefix("up_").unwrap_or(name);
-    let candidate = raw.get(..36)?;
+    let candidate = if let Some(listener_id) = name.strip_suffix("_http") {
+        listener_id
+    } else if let Some(cluster_name) = name.strip_prefix("up_") {
+        cluster_name.split_once('_')?.0
+    } else {
+        return None;
+    };
     Uuid::parse_str(candidate).ok()
 }
 
@@ -2940,7 +2944,7 @@ mod tests {
     }
 
     #[test]
-    fn resource_names_match_historical_scheme() {
+    fn listener_resource_names_use_http_suffix() {
         assert_eq!(
             spec(ListenerKind::Http, &[]).resource_name(),
             "00000000-0000-0000-0000-000000000000_http"
@@ -2955,13 +2959,10 @@ mod tests {
             Some(id)
         );
         assert_eq!(
-            sandbox_id_from_xds_resource(&format!("{id}_grpc")),
-            Some(id)
-        );
-        assert_eq!(
             sandbox_id_from_xds_resource(&format!("up_{id}_external_api")),
             Some(id)
         );
+        assert_eq!(sandbox_id_from_xds_resource(&format!("{id}_grpc")), None);
         assert_eq!(sandbox_id_from_xds_resource("dynamic_forward_proxy"), None);
     }
 

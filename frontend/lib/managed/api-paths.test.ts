@@ -12,6 +12,11 @@ describe('managed API path helpers', () => {
     )
   })
 
+  it('does not normalize removed id prefixes', () => {
+    expect(apiResourceId('vlt_abc')).toBe('vlt_abc')
+    expect(apiResourceId('mst_abc')).toBe('mst_abc')
+  })
+
   it('builds collection and child paths with encoded segments and query params', () => {
     expect(apiCollectionPath('/sessions/', { limit: 50, include_archived: false })).toBe(
       '/sessions?limit=50&include_archived=false',

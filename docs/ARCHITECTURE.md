@@ -513,9 +513,10 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
 3. **Security scan** (`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector**
    service) — records failed/scanning states on scanner failure, blocks `DO_NOT_INSTALL`
    recommendations, and computes canonical sha256 for drift detection.
-4. **Pack & deliver** — `SkillPacker` resolves refs → `tar.gz` `SkillArchive` at session start,
-   applies the `is_skill_usable` gate, logs usage; the orchestrator injects the archive into the
-   sandbox, where the runner unpacks it.
+4. **Pack & deliver** — the Rust orchestrator's `HarnessInputBuilder` resolves a published version
+   when the task starts, applies `ensure_skill_runtime_ready`, builds the `tar.gz` `SkillArchive`
+   from version files, and records usage. The runner unpacks the injected archive in the sandbox;
+   missing versions or failed gates stop input construction instead of silently degrading.
 
 ### 9.3 Observability — full-chain tracing
 

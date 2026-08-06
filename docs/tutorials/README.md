@@ -10,7 +10,7 @@
 |---|------|---------|------|
 | 01 | [模型配置：用 Secrets 管理供应商密钥](./01-model-provider-setup.md) | 资源 → 密钥（`/managed/secrets`）配置 Anthropic / OpenAI 兼容端点；密钥经容器 env 注入沙箱 | ⭐ 入门 |
 | 02 | [为 Agent 接入 MCP 工具](./02-mcp-service-setup.md) | 在 Agent 编辑器配置 URL 型 `mcp_servers`；凭据放托管智能体 → 凭证库（`/managed/vaults`）；运行时经 gRPC 下发 | ⭐⭐ 进阶 |
-| 03 | [Skills 的导入、安全扫描、投递与消费](./03-skills-usage.md) | SKILL.md → skillspector 扫描 → SkillPacker 打包 → 沙箱解压消费的闭环 | ⭐⭐ 进阶 |
+| 03 | [Skills 的导入、安全扫描、投递与消费](./03-skills-usage.md) | SKILL.md → skillspector 扫描 → Rust orchestrator 打包 → 沙箱解压消费的闭环 | ⭐⭐ 进阶 |
 | 04 | [构建并运行一个 Agent](./04-agent-build-and-run.md) | 引擎/模型/技能/工具/MCP 组装 → 开 Session → SSE 实时观察 → 干预/停止 | ⭐⭐ 进阶 |
 
 ---

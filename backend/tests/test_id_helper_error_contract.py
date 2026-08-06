@@ -1,8 +1,11 @@
 import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
 
+from app.joysafeter_api.api.v1.files import _parse_session_scope
 from app.joysafeter_api.api.v1.id_helpers import (
     parse_agent_id,
     parse_memory_id,
@@ -12,6 +15,7 @@ from app.joysafeter_api.api.v1.id_helpers import (
     parse_trigger_id,
     parse_vault_id,
 )
+from app.joysafeter_domain.schemas.joysafeter_file import FileResponse
 from app.joysafeter_shared.common.app_errors import AppError
 
 pytestmark = pytest.mark.no_db
@@ -40,6 +44,30 @@ def test_parse_session_id_accepts_prefixed_uuid():
     session_id = uuid.uuid4()
 
     assert parse_session_id(f"sess_{session_id}") == session_id
+
+
+def test_file_response_uses_canonical_session_prefix():
+    session_id = uuid.uuid4()
+    response = FileResponse.from_model(
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            filename="report.txt",
+            purpose="assistants",
+            content_type="text/plain",
+            size_bytes=6,
+            sha256="abc123",
+            downloadable=True,
+            session_id=session_id,
+            created_at=datetime.now(UTC),
+        )
+    )
+
+    assert response.session_id == f"sess_{session_id}"
+
+
+def test_file_scope_rejects_removed_session_prefix():
+    with pytest.raises(AppError):
+        _parse_session_scope(f"sesn_{uuid.uuid4()}")
 
 
 def test_parse_trigger_id_accepts_prefixed_uuid():
