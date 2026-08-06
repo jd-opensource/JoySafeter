@@ -4,6 +4,7 @@ use joysafeter_types::harness::{
 };
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -261,8 +262,8 @@ pub fn map_pi_event(
     PiMapped { events, turn_done }
 }
 
-/// 解析并分发单行 pi stdout。返回 true 表示该行是 agent_settled(turn 完成)。
-/// 响应行(type=="response")跳过。
+/// Parse and dispatch a single pi stdout line. Returns true if the line is
+/// agent_settled (turn complete). Response lines (type=="response") are skipped.
 pub(crate) async fn dispatch_pi_line(
     line: &str,
     event_tx: &mpsc::Sender<HarnessEvent>,
@@ -329,7 +330,8 @@ async fn persistent_pi_reader(
     }
 }
 
-/// 旁路:把 message_end.usage 累加进 TokenUsage(含 by_model),把 text_delta 追加进 output。
+/// Side channel: accumulate message_end.usage into TokenUsage (incl. by_model),
+/// and append text_delta into output.
 fn accumulate_usage_and_output(
     v: &serde_json::Value,
     usage: &Arc<std::sync::Mutex<joysafeter_types::token_usage::TokenUsage>>,
@@ -385,10 +387,8 @@ pub(crate) fn build_abort_line(id: &str) -> String {
 }
 
 fn next_req_id() -> String {
-    let n = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
+    static REQ_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = REQ_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("req_{n}")
 }
 
