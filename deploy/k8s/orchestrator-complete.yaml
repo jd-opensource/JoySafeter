@@ -189,6 +189,8 @@ spec:
           value: "aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest"
         - name: JOYSAFETER_IMAGE_CODEX
           value: "aisec-repo.jd.com/joysafeter/joysafeter-codex:latest"
+        - name: JOYSAFETER_IMAGE_PI
+          value: "aisec-repo.jd.com/joysafeter/joysafeter-pi:latest"
         - name: JOYSAFETER_IMAGE_NATIVE
           value: "aisec-repo.jd.com/joysafeter/joysafeter-native:latest"
 

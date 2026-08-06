@@ -29,6 +29,7 @@ ORCHESTRATOR_RS_IMAGE="${ORCHESTRATOR_RS_IMAGE:-joysafeter-orchestrator-rs}"
 SKILLSPECTOR_IMAGE="${SKILLSPECTOR_IMAGE:-joysafeter-skillspector}"
 CLAUDECODE_IMAGE="${CLAUDECODE_IMAGE:-joysafeter-claudecode}"
 CODEX_IMAGE="${CODEX_IMAGE:-joysafeter-codex}"
+PI_IMAGE="${PI_IMAGE:-joysafeter-pi}"
 NATIVE_IMAGE="${NATIVE_IMAGE:-joysafeter-native}"
 TAG="${IMAGE_TAG:-latest}"
 # 构建溯源：烘进 backend 镜像的 GIT_COMMIT_SHA（docker inspect / printenv 可读，供可审计发布）。
@@ -152,11 +153,12 @@ show_usage() {
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
   --skillspector-only    只处理 SkillSpector 镜像
-  --runtime-only         只处理正式 agent 运行镜像（claudecode, codex）
+  --runtime-only         只处理正式 agent 运行镜像（claudecode, codex, pi）
   --claudecode-only      只处理 Claude Code 运行镜像
   --codex-only           只处理 Codex 运行镜像
+  --pi-only              只处理 Pi 运行镜像
   --native-only          只处理可选 Native 运行镜像（需要本地私有 tgz）
-  --all                  构建所有正式镜像（核心镜像 + claudecode/codex）
+  --all                  构建所有正式镜像（核心镜像 + claudecode/codex/pi）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
   --mirror MIRROR        使用国内镜像源加速（aliyun, tencent, huawei, daocloud）
                          同时设置 BASE_IMAGE_REGISTRY 和 DOCKER_MIRROR
@@ -170,6 +172,7 @@ show_usage() {
   SKILLSPECTOR_IMAGE     SkillSpector 镜像名称（默认: joysafeter-skillspector）
   CLAUDECODE_IMAGE       Claude Code 运行镜像名称（默认: joysafeter-claudecode）
   CODEX_IMAGE            Codex 运行镜像名称（默认: joysafeter-codex）
+  PI_IMAGE               Pi 运行镜像名称（默认: joysafeter-pi）
   NATIVE_IMAGE           Native 运行镜像名称（默认: joysafeter-native）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: Docker daemon 当前架构）
@@ -771,6 +774,7 @@ build_local_compose_images() {
         RUNTIME_ONLY=false
         CLAUDECODE_ONLY=false
         CODEX_ONLY=false
+        PI_ONLY=false
         NATIVE_ONLY=false
         BUILD_ALL=false
         BUILD_BACKEND=true
@@ -779,6 +783,7 @@ build_local_compose_images() {
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=true
         BUILD_CODEX=false
+        BUILD_PI=false
         BUILD_NATIVE=false
         build_all_images
     )
@@ -1257,6 +1262,7 @@ runtime_dockerfile_for() {
     case "$engine:$platform" in
         claudecode:*) echo "$SCRIPT_DIR/docker/claudecode.Dockerfile" ;;
         codex:*) echo "$SCRIPT_DIR/docker/codex.Dockerfile" ;;
+        pi:*) echo "$SCRIPT_DIR/docker/pi.Dockerfile" ;;
         native:linux/amd64) echo "$SCRIPT_DIR/docker/native-amd64.Dockerfile" ;;
         native:linux/arm64) echo "$SCRIPT_DIR/docker/native-arm64.Dockerfile" ;;
         *)
@@ -1386,6 +1392,7 @@ build_all_images() {
     local BUILD_SKILLSPECTOR=${BUILD_SKILLSPECTOR:-true}
     local BUILD_CLAUDECODE=${BUILD_CLAUDECODE:-false}
     local BUILD_CODEX=${BUILD_CODEX:-false}
+    local BUILD_PI=${BUILD_PI:-false}
     local BUILD_NATIVE=${BUILD_NATIVE:-false}
     # 检查是否只构建特定服务
     if [ "$BACKEND_ONLY" = true ]; then
@@ -1394,6 +1401,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
+        BUILD_PI=false
         BUILD_NATIVE=false
     elif [ "$FRONTEND_ONLY" = true ]; then
         BUILD_BACKEND=false
@@ -1401,6 +1409,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
+        BUILD_PI=false
         BUILD_NATIVE=false
     elif [ "$ORCHESTRATOR_ONLY" = true ]; then
         BUILD_BACKEND=false
@@ -1409,6 +1418,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
+        BUILD_PI=false
         BUILD_NATIVE=false
     elif [ "$SKILLSPECTOR_ONLY" = true ]; then
         BUILD_BACKEND=false
@@ -1417,6 +1427,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
+        BUILD_PI=false
         BUILD_NATIVE=false
     elif [ "$RUNTIME_ONLY" = true ]; then
         BUILD_BACKEND=false
@@ -1425,6 +1436,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
+        BUILD_PI=true
         BUILD_NATIVE=false
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         BUILD_BACKEND=false
@@ -1433,6 +1445,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=true
         BUILD_CODEX=false
+        BUILD_PI=false
         BUILD_NATIVE=false
     elif [ "$CODEX_ONLY" = true ]; then
         BUILD_BACKEND=false
@@ -1441,6 +1454,16 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=true
+        BUILD_PI=false
+        BUILD_NATIVE=false
+    elif [ "$PI_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+        BUILD_PI=true
         BUILD_NATIVE=false
     elif [ "$NATIVE_ONLY" = true ]; then
         BUILD_BACKEND=false
@@ -1449,6 +1472,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=false
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
+        BUILD_PI=false
         BUILD_NATIVE=true
     elif [ "$INIT_ONLY" = true ]; then
         BUILD_BACKEND=false
@@ -1462,6 +1486,7 @@ build_all_images() {
         BUILD_SKILLSPECTOR=true
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
+        BUILD_PI=true
         BUILD_NATIVE=false
     fi
 
@@ -1476,6 +1501,7 @@ build_all_images() {
         SKILLSPECTOR_FULL_IMAGE="${NORMALIZED_REGISTRY}/${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
+        PI_FULL_IMAGE="${NORMALIZED_REGISTRY}/${PI_IMAGE}:${TAG}"
         NATIVE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${NATIVE_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
@@ -1484,6 +1510,7 @@ build_all_images() {
         SKILLSPECTOR_FULL_IMAGE="${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
+        PI_FULL_IMAGE="${PI_IMAGE}:${TAG}"
         NATIVE_FULL_IMAGE="${NATIVE_IMAGE}:${TAG}"
     fi
 
@@ -1564,6 +1591,11 @@ build_all_images() {
         echo ""
     fi
 
+    if [ "$BUILD_PI" = true ]; then
+        build_runtime_image "Pi 运行镜像" "pi" "$PI_FULL_IMAGE"
+        echo ""
+    fi
+
     if [ "$BUILD_NATIVE" = true ]; then
         build_runtime_image "Native 运行镜像" "native" "$NATIVE_FULL_IMAGE"
         echo ""
@@ -1579,6 +1611,7 @@ build_all_images() {
     [ "$BUILD_SKILLSPECTOR" = true ] && echo "   SkillSpector: $SKILLSPECTOR_FULL_IMAGE"
     [ "$BUILD_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$BUILD_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
+    [ "$BUILD_PI" = true ] && echo "   Pi 运行镜像: $PI_FULL_IMAGE"
     [ "$BUILD_NATIVE" = true ] && echo "   Native 运行镜像: $NATIVE_FULL_IMAGE"
     echo ""
     echo "🏗️  构建平台: $PLATFORMS"
@@ -1602,6 +1635,7 @@ pull_images() {
     local PULL_SKILLSPECTOR=true
     local PULL_CLAUDECODE=false
     local PULL_CODEX=false
+    local PULL_PI=false
     local PULL_NATIVE=false
 
     if [ "$BACKEND_ONLY" = true ]; then
@@ -1627,6 +1661,7 @@ pull_images() {
         PULL_SKILLSPECTOR=false
         PULL_CLAUDECODE=true
         PULL_CODEX=true
+        PULL_PI=true
         PULL_NATIVE=false
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         PULL_BACKEND=false
@@ -1640,6 +1675,12 @@ pull_images() {
         PULL_ORCHESTRATOR=false
         PULL_SKILLSPECTOR=false
         PULL_CODEX=true
+    elif [ "$PI_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_SKILLSPECTOR=false
+        PULL_PI=true
     elif [ "$NATIVE_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
@@ -1649,6 +1690,7 @@ pull_images() {
     elif [ "$BUILD_ALL" = true ]; then
         PULL_CLAUDECODE=true
         PULL_CODEX=true
+        PULL_PI=true
         PULL_NATIVE=false
     fi
 
@@ -1659,6 +1701,7 @@ pull_images() {
         SKILLSPECTOR_FULL_IMAGE="${NORMALIZED_REGISTRY}/${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
+        PI_FULL_IMAGE="${NORMALIZED_REGISTRY}/${PI_IMAGE}:${TAG}"
         NATIVE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${NATIVE_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
@@ -1667,6 +1710,7 @@ pull_images() {
         SKILLSPECTOR_FULL_IMAGE="${SKILLSPECTOR_IMAGE}:${TAG}"
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
+        PI_FULL_IMAGE="${PI_IMAGE}:${TAG}"
         NATIVE_FULL_IMAGE="${NATIVE_IMAGE}:${TAG}"
     fi
 
@@ -1688,6 +1732,7 @@ pull_images() {
     [ "$PULL_SKILLSPECTOR" = true ] && pull_one_image "SkillSpector" "$SKILLSPECTOR_FULL_IMAGE"
     [ "$PULL_CLAUDECODE" = true ] && pull_one_image "Claude Code 运行" "$CLAUDECODE_FULL_IMAGE"
     [ "$PULL_CODEX" = true ] && pull_one_image "Codex 运行" "$CODEX_FULL_IMAGE"
+    [ "$PULL_PI" = true ] && pull_one_image "Pi 运行" "$PI_FULL_IMAGE"
     [ "$PULL_NATIVE" = true ] && pull_one_image "Native 运行" "$NATIVE_FULL_IMAGE"
 
     local deploy_env="$SCRIPT_DIR/.env"
@@ -1701,6 +1746,7 @@ pull_images() {
         set_env_value "$deploy_env" "JOYSAFETER_IMAGE_CLAUDE" "$CLAUDECODE_FULL_IMAGE"
     fi
     [ "$PULL_CODEX" = true ] && set_env_value "$deploy_env" "JOYSAFETER_IMAGE_CODEX" "$CODEX_FULL_IMAGE"
+    [ "$PULL_PI" = true ] && set_env_value "$deploy_env" "JOYSAFETER_IMAGE_PI" "$PI_FULL_IMAGE"
     [ "$PULL_NATIVE" = true ] && set_env_value "$deploy_env" "JOYSAFETER_IMAGE_NATIVE" "$NATIVE_FULL_IMAGE"
 
     log_success "所有镜像拉取完成！"
@@ -1713,6 +1759,7 @@ pull_images() {
     [ "$PULL_SKILLSPECTOR" = true ] && echo "   SkillSpector: $SKILLSPECTOR_FULL_IMAGE"
     [ "$PULL_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$PULL_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
+    [ "$PULL_PI" = true ] && echo "   Pi 运行镜像: $PI_FULL_IMAGE"
     [ "$PULL_NATIVE" = true ] && echo "   Native 运行镜像: $NATIVE_FULL_IMAGE"
 
     return 0
@@ -1729,6 +1776,7 @@ main() {
     local RUNTIME_ONLY=false
     local CLAUDECODE_ONLY=false
     local CODEX_ONLY=false
+    local PI_ONLY=false
     local NATIVE_ONLY=false
     local BUILD_ALL=false
     local ARCH_LIST_STR=""
@@ -1835,6 +1883,10 @@ main() {
                 ;;
             --codex-only)
                 CODEX_ONLY=true
+                shift
+                ;;
+            --pi-only)
+                PI_ONLY=true
                 shift
                 ;;
             --native-only)
