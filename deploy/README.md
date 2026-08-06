@@ -20,6 +20,7 @@ cd deploy
 
 1. 创建缺失的 `deploy/.env`、`backend/.env` 和 `frontend/.env`。
 2. 生成并同步 `SECRET_KEY`、`JOYSAFETER_VAULT_ENCRYPTION_KEY` 和数据库密码；已有有效密钥不会被替换。
+   Vault 密钥缺失或格式无效时后端会拒绝启动，系统不会降级为明文凭据存储。
 3. 自动识别 Docker daemon 的 `amd64` 或 `arm64` 架构。
 4. 准备 SkillSpector 源码。
 5. 构建 backend、frontend、orchestrator-rs、SkillSpector 和默认 Claude Code runtime。

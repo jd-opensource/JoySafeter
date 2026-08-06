@@ -26,14 +26,17 @@ def _svc() -> SecretService:
 
 
 def test_secret_masking_hides_non_conventionally_named_secret():
+    svc = _svc()
     secret = SimpleNamespace(
-        data={
-            "OPENAI_API_KEY": "sk-super-secret-value",
-            "CONNECTION_STRING": "postgres://user:pa55w0rd@host/db",
-            "DSN": "user=admin password=hunter2",
-        }
+        data=svc.encrypt_data_for_storage(
+            {
+                "OPENAI_API_KEY": "sk-super-secret-value",
+                "CONNECTION_STRING": "postgres://user:pa55w0rd@host/db",
+                "DSN": "user=admin password=hunter2",
+            }
+        )
     )
-    masked = _svc().get_masked_secret_data(secret)  # type: ignore[arg-type]
+    masked = svc.get_masked_secret_data(secret)  # type: ignore[arg-type]
 
     assert masked["OPENAI_API_KEY"].startswith(MASKED_SECRET_PREFIX)
     # The headline leak: an unconventionally-named secret must NOT be cleartext.
@@ -44,14 +47,17 @@ def test_secret_masking_hides_non_conventionally_named_secret():
 
 
 def test_secret_masking_reveals_display_safe_config_keys():
+    svc = _svc()
     secret = SimpleNamespace(
-        data={
-            "OPENAI_BASE_URL": "https://api.example.com/v1",
-            "OPENAI_MODEL": "gpt-5.3",
-            "PROVIDER": "openai",
-        }
+        data=svc.encrypt_data_for_storage(
+            {
+                "OPENAI_BASE_URL": "https://api.example.com/v1",
+                "OPENAI_MODEL": "gpt-5.3",
+                "PROVIDER": "openai",
+            }
+        )
     )
-    masked = _svc().get_masked_secret_data(secret)  # type: ignore[arg-type]
+    masked = svc.get_masked_secret_data(secret)  # type: ignore[arg-type]
 
     assert masked["OPENAI_BASE_URL"] == "https://api.example.com/v1"
     assert masked["OPENAI_MODEL"] == "gpt-5.3"

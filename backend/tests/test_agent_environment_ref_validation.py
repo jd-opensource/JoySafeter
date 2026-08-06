@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
@@ -150,7 +151,7 @@ async def test_update_agent_rejects_secret_ref_change_with_active_task(db_sessio
         name=f"active-secret-{uuid.uuid4()}",
         provider="anthropic",
         protocol="anthropic_messages",
-        data={"ANTHROPIC_API_KEY": "value"},
+        data=encrypted_secret_data({"ANTHROPIC_API_KEY": "value"}),
     )
     agent = JoySafeterAgent(name=f"active-secret-agent-{uuid.uuid4()}", version=1)
     db_session.add_all([secret, agent])
@@ -270,7 +271,7 @@ async def test_create_agent_rejects_secret_engine_mismatch_with_structured_error
         name=f"openai-secret-{uuid.uuid4()}",
         provider="codex",
         protocol="openai_responses",
-        data={"OPENAI_API_KEY": "value"},
+        data=encrypted_secret_data({"OPENAI_API_KEY": "value"}),
     )
     db_session.add(secret)
     await db_session.commit()
@@ -301,7 +302,7 @@ async def test_create_native_agent_accepts_openai_secret_and_resolves_model(db_s
         name=f"native-openai-secret-{uuid.uuid4()}",
         provider="native",
         protocol="openai_responses",
-        data={"OPENAI_API_KEY": "value", "OPENAI_MODEL": "gpt-5-native"},
+        data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_MODEL": "gpt-5-native"}),
     )
     db_session.add(secret)
     await db_session.commit()

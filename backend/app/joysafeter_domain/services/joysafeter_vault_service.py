@@ -9,22 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
-from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
 logger = logging.getLogger(__name__)
 
-_cipher: Optional[VaultCipher] = None
+_cipher: Optional[CredentialCipher] = None
 _OAUTH_SECRET_FIELDS = {"client_secret", "refresh_token"}
 
 
-def _get_cipher() -> VaultCipher:
+def _get_cipher() -> CredentialCipher:
     global _cipher
     if _cipher is None:
         from app.joysafeter_shared.config.settings import joysafeter_config
 
-        _cipher = VaultCipher(joysafeter_config.vault_encryption_key)
+        _cipher = CredentialCipher(joysafeter_config.vault_encryption_key)
     return _cipher
 
 
@@ -41,10 +41,7 @@ class VaultService:
         return self._cipher.encrypt(value)
 
     def _decrypt_token_value(self, value: str) -> str:
-        try:
-            return self._cipher.decrypt_or_passthrough(value)
-        except Exception:
-            return value
+        return self._cipher.decrypt_stored(value)
 
     def _encrypt_oauth_config_for_storage(
         self,
@@ -65,8 +62,7 @@ class VaultService:
             if _is_redacted_secret(raw_value) and current_stored.get(key):
                 encrypted[key] = current_stored[key]
                 continue
-            value = str(raw_value)
-            encrypted[key] = value if value.startswith("enc:") else self._cipher.encrypt(value)
+            encrypted[key] = self._cipher.encrypt(str(raw_value))
         return encrypted
 
     def _decrypt_oauth_config(self, oauth_config: Optional[dict]) -> dict:

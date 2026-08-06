@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy.exc import IntegrityError
 
@@ -77,7 +78,7 @@ async def test_authoring_chat_missing_openai_key_returns_structured_error(db_ses
         name=f"authoring-missing-key-{uuid.uuid4()}",
         provider="codex",
         protocol="openai_responses",
-        data={"OPENAI_MODEL": "gpt-5.5"},
+        data=encrypted_secret_data({"OPENAI_MODEL": "gpt-5.5"}),
     )
     db_session.add(secret)
     await db_session.commit()
@@ -102,7 +103,7 @@ async def test_authoring_chat_invalid_openai_base_url_returns_structured_error(d
         name=f"authoring-invalid-url-{uuid.uuid4()}",
         provider="codex",
         protocol="openai_responses",
-        data={"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "http://169.254.169.254/latest"},
+        data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "http://169.254.169.254/latest"}),
     )
     db_session.add(secret)
     await db_session.commit()
@@ -132,7 +133,7 @@ async def test_authoring_chat_rejects_unallowlisted_openai_base_url(db_session, 
         name=f"authoring-unallowlisted-url-{uuid.uuid4()}",
         provider="codex",
         protocol="openai_responses",
-        data={"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"},
+        data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"}),
     )
     db_session.add(secret)
     await db_session.commit()

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from credential_test_helpers import encrypted_secret_data
 from fastapi import FastAPI
 
 from app.joysafeter_api.api.v1 import triggers as trigger_api
@@ -166,7 +167,7 @@ async def test_webhook_route_resolves_project_secret_and_verifies_real_hmac(db_s
             project_id=trigger.project_id,
             provider="custom",
             protocol="custom",
-            data={"WEBHOOK_SECRET": secret_value},
+            data=encrypted_secret_data({"WEBHOOK_SECRET": secret_value}),
         )
     )
     await db_session.commit()

@@ -12,21 +12,21 @@ from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, UpdateSecretRequest
-from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
 MASKED_SECRET_PREFIX = "********"
 
-_cipher: Optional[VaultCipher] = None
+_cipher: Optional[CredentialCipher] = None
 
 
-def _get_cipher() -> VaultCipher:
+def _get_cipher() -> CredentialCipher:
     global _cipher
     if _cipher is None:
         from app.joysafeter_shared.config.settings import joysafeter_config
 
-        _cipher = VaultCipher(joysafeter_config.vault_encryption_key)
+        _cipher = CredentialCipher(joysafeter_config.vault_encryption_key)
     return _cipher
 
 
@@ -82,12 +82,7 @@ class SecretService:
         self.db = db
         self._cipher = _get_cipher()
 
-    def _require_encryption_key(self, data: dict | None) -> None:
-        if data and not self._cipher.is_enabled:
-            raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY is required to encrypt managed secrets")
-
     def encrypt_data_for_storage(self, data: dict[str, str] | None) -> dict[str, str]:
-        self._require_encryption_key(data)
         encrypted: dict[str, str] = {}
         for key, value in (data or {}).items():
             encrypted[str(key)] = self._cipher.encrypt(str(value))
@@ -96,10 +91,7 @@ class SecretService:
     def decrypt_data(self, data: dict | None) -> dict[str, str]:
         decrypted: dict[str, str] = {}
         for key, value in (data or {}).items():
-            value_str = str(value)
-            if value_str.startswith("enc:") and not self._cipher.is_enabled:
-                raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY is required to decrypt managed secrets")
-            decrypted[str(key)] = self._cipher.decrypt_or_passthrough(value_str)
+            decrypted[str(key)] = self._cipher.decrypt_stored(str(value))
         return decrypted
 
     def get_secret_data(self, secret: JoySafeterSecret | None) -> dict[str, str]:
@@ -146,7 +138,6 @@ class SecretService:
         requested_data: dict[str, str] | None,
     ) -> dict[str, str]:
         """Encrypt update payload while preserving unchanged masked sensitive values."""
-        self._require_encryption_key(requested_data)
         existing_plain = self.decrypt_data(current_data or {})
         existing_stored = {str(k): str(v) for k, v in (current_data or {}).items()}
         next_data: dict[str, str] = {}
@@ -158,10 +149,7 @@ class SecretService:
                 and key_str in existing_plain
                 and value_str == _mask_secret_value(existing_plain[key_str])
             ):
-                stored_value = existing_stored[key_str]
-                next_data[key_str] = (
-                    stored_value if stored_value.startswith("enc:") else self._cipher.encrypt(existing_plain[key_str])
-                )
+                next_data[key_str] = existing_stored[key_str]
             else:
                 next_data[key_str] = self._cipher.encrypt(value_str)
         return next_data

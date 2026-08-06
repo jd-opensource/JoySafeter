@@ -534,8 +534,9 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
 
 - **Auth:** JWT (HS256) with org/project/role claims + real-time DB re-verification; HttpOnly
   cookies; CSRF token on mutating requests; passwords SHA-256 pre-hashed client-side.
-- **Credential encryption:** AES-256-GCM for provider secrets and vault tokens
-  (`credential_encryption_key`), Rust-`agentd`-compatible cipher.
+- **Credential encryption:** AES-256-GCM for provider secrets, repository tokens, and vault/OAuth credentials
+  (`JOYSAFETER_VAULT_ENCRYPTION_KEY`). Startup fails when the key is missing or invalid; stored credential
+  values must use the `enc:` envelope, and plaintext/corrupt records are rejected rather than passed through.
 - **SSRF guard:** blocks cloud-metadata IPs, resolves DNS to defeat rebinding; private RFC-1918
   allowed by default (internal LLM/MCP endpoints), opt-in hardening flags.
 - **Sandbox isolation:** dropped capabilities, non-root, no-new-privileges, PID limits, and

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from credential_test_helpers import encrypted_secret_data
 from fastapi import FastAPI
 from sqlalchemy import select
 
@@ -77,7 +78,7 @@ async def _seed_project_agent_and_secret(db_session):
         project_id=project.id,
         provider="custom",
         protocol="custom",
-        data={"WEBHOOK_SECRET": "route-secret"},
+        data=encrypted_secret_data({"WEBHOOK_SECRET": "route-secret"}),
     )
     db_session.add_all([agent, secret])
     await db_session.commit()

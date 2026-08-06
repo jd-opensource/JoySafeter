@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from credential_test_helpers import decrypted_credential_value, encrypted_credential_value
 from error_contract_helpers import handled_app_error_payload
 from fastapi import Request
 from sqlalchemy import func, select
@@ -25,10 +26,10 @@ from app.joysafeter_domain.schemas.joysafeter_vault import (
     UpdateCredentialRequest,
     UpdateVaultRequest,
 )
-from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
 from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -93,7 +94,7 @@ async def _credential(db_session, *, vault_id: uuid.UUID, name: str | None = Non
         name=name or f"cred-{uuid.uuid4()}",
         credential_type="static_bearer",
         mcp_server_url=f"https://mcp-{uuid.uuid4()}.example.com",
-        token_value="token",
+        token_value=encrypted_credential_value("token"),
     )
     db_session.add(cred)
     await db_session.commit()
@@ -297,7 +298,7 @@ async def test_update_archived_credential_rejects_without_mutating_secret(db_ses
         name="Prod MCP",
         credential_type="static_bearer",
         mcp_server_url="https://mcp.example.com",
-        token_value="old-token",
+        token_value=encrypted_credential_value("old-token"),
         archived_at=utc_now(),
     )
     db_session.add(cred)
@@ -328,7 +329,7 @@ async def test_update_archived_credential_rejects_without_mutating_secret(db_ses
         await db_session.execute(select(JoySafeterVaultCredential).where(JoySafeterVaultCredential.id == cred_id))
     ).scalar_one()
     assert row.name == "Prod MCP"
-    assert row.token_value == "old-token"
+    assert decrypted_credential_value(row.token_value) == "old-token"
 
 
 @pytest.mark.asyncio
@@ -342,7 +343,7 @@ async def test_delete_credential_rejects_archived_vault_without_soft_deleting_ro
         name="Prod MCP",
         credential_type="static_bearer",
         mcp_server_url="https://mcp-delete.example.com",
-        token_value="token",
+        token_value=encrypted_credential_value("token"),
     )
     db_session.add(cred)
     await db_session.commit()
@@ -388,7 +389,7 @@ async def test_resolve_mcp_credentials_ignores_archived_vaults_and_credentials(d
             name="Active MCP",
             credential_type="static_bearer",
             mcp_server_url="https://active-mcp.example.com",
-            token_value="active-token",
+            token_value=encrypted_credential_value("active-token"),
         )
     )
     await db_session.commit()
@@ -398,7 +399,7 @@ async def test_resolve_mcp_credentials_ignores_archived_vaults_and_credentials(d
             name="Archived Credential MCP",
             credential_type="static_bearer",
             mcp_server_url="https://archived-credential.example.com",
-            token_value="archived-credential-token",
+            token_value=encrypted_credential_value("archived-credential-token"),
             archived_at=utc_now(),
         )
     )
@@ -409,7 +410,7 @@ async def test_resolve_mcp_credentials_ignores_archived_vaults_and_credentials(d
             name="Archived Vault MCP",
             credential_type="static_bearer",
             mcp_server_url="https://archived-vault.example.com",
-            token_value="archived-vault-token",
+            token_value=encrypted_credential_value("archived-vault-token"),
         )
     )
     await db_session.commit()
@@ -436,7 +437,7 @@ async def test_resolve_mcp_credentials_ignores_archived_vaults_and_credentials(d
 
 @pytest.mark.asyncio
 async def test_vault_credentials_keep_encrypted_storage_during_read_archive_and_resolution(db_session, monkeypatch):
-    cipher = VaultCipher(VaultCipher.generate_key())
+    cipher = CredentialCipher(CredentialCipher.generate_key())
     monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_vault_service._cipher", cipher)
 
     vault = JoySafeterVault(name=f"encrypted-vault-{uuid.uuid4()}", description="")
@@ -556,7 +557,7 @@ async def test_credential_writes_reject_wrong_parent_vault_at_service_boundary(d
     assert deleted is False
     row = await _assert_credential_intact(db_session, cred.id)
     assert row.name == "Project B MCP"
-    assert row.token_value == "token"
+    assert decrypted_credential_value(row.token_value) == "token"
     assert row.archived_at is None
 
 
@@ -598,7 +599,7 @@ async def test_credential_children_reject_cross_project_parent_at_service_bounda
 
     row = await _assert_credential_intact(db_session, cred_id)
     assert row.name == "Project B MCP"
-    assert row.token_value == "token"
+    assert decrypted_credential_value(row.token_value) == "token"
     assert row.archived_at is None
     total = (
         await db_session.execute(
@@ -648,7 +649,7 @@ async def test_resolve_mcp_credentials_filters_vaults_by_project_when_provided(d
             name="Project B MCP",
             credential_type="static_bearer",
             mcp_server_url="https://project-b-mcp.example.com",
-            token_value="project-b-token",
+            token_value=encrypted_credential_value("project-b-token"),
         )
     )
     await db_session.commit()

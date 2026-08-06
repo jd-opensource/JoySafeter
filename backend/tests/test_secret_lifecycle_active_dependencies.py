@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
@@ -45,13 +46,11 @@ def _project_auth_ctx(project_id: str) -> JoySafeterAuthContext:
 
 
 class _DisabledCipher:
-    is_enabled = False
-
     def encrypt(self, value: str) -> str:
-        return value
+        raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY is required for credential encryption")
 
-    def decrypt_or_passthrough(self, value: str) -> str:
-        return value
+    def decrypt_stored(self, value: str) -> str:
+        raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY is required for credential encryption")
 
 
 async def _secret(db_session, *, name: str | None = None) -> JoySafeterSecret:
@@ -59,7 +58,7 @@ async def _secret(db_session, *, name: str | None = None) -> JoySafeterSecret:
         name=name or f"secret-{uuid.uuid4()}",
         provider="custom",
         protocol="custom",
-        data={"TOKEN": "value"},
+        data=encrypted_secret_data({"TOKEN": "value"}),
     )
     db_session.add(secret)
     await db_session.commit()
@@ -93,7 +92,7 @@ async def _project_secret(db_session, *, project_id: str, name: str | None = Non
         name=name or f"secret-{uuid.uuid4()}",
         provider="custom",
         protocol="custom",
-        data={"TOKEN": "value"},
+        data=encrypted_secret_data({"TOKEN": "value"}),
         project_id=project_id,
     )
     db_session.add(secret)
@@ -340,7 +339,7 @@ async def test_update_secret_rejects_active_task_agent_secret_ref(db_session):
     }
 
     row = await _assert_secret_intact(db_session, secret.id)
-    assert row.data == {"TOKEN": "value"}
+    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
 
 
 @pytest.mark.asyncio
@@ -386,7 +385,7 @@ async def test_update_secret_reports_missing_vault_configuration_without_mutatin
     }
 
     row = await _assert_secret_intact(db_session, secret.id)
-    assert row.data == {"TOKEN": "value"}
+    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
 
 
 @pytest.mark.asyncio
@@ -401,7 +400,7 @@ async def test_update_secret_rejects_cross_project_at_service_boundary(db_sessio
 
     assert updated is None
     row = await _assert_secret_intact(db_session, secret.id)
-    assert row.data == {"TOKEN": "value"}
+    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
 
 
 @pytest.mark.asyncio
@@ -414,7 +413,7 @@ async def test_delete_secret_rejects_cross_project_at_service_boundary(db_sessio
     assert deleted is False
     assert hard_deleted is False
     row = await _assert_secret_intact(db_session, secret.id)
-    assert row.data == {"TOKEN": "value"}
+    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
 
 
 @pytest.mark.asyncio

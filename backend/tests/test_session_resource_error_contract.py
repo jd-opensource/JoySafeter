@@ -31,9 +31,9 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
 )
 from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
-from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -480,7 +480,7 @@ async def test_create_session_file_and_repo_share_workspace_namespace_without_cr
 
 @pytest.mark.asyncio
 async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_session, monkeypatch):
-    cipher = VaultCipher(VaultCipher.generate_key())
+    cipher = CredentialCipher(CredentialCipher.generate_key())
     monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_secret_service._cipher", cipher)
 
     agent = await _create_agent(db_session)
@@ -532,7 +532,7 @@ async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_s
 
 @pytest.mark.asyncio
 async def test_session_resource_service_keeps_parent_project_boundary_for_repo_children(db_session, monkeypatch):
-    cipher = VaultCipher(VaultCipher.generate_key())
+    cipher = CredentialCipher(CredentialCipher.generate_key())
     monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_secret_service._cipher", cipher)
     project, session = await _create_project_session(db_session, "SessionResourceSvcProject")
     other_project, _ = await _create_project_session(db_session, "SessionResourceSvcOtherProject")

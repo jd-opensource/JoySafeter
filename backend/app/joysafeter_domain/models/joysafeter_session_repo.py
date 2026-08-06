@@ -29,7 +29,7 @@ class JoySafeterSessionRepo(Base):
     branch: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     mount_path: Mapped[str] = mapped_column(Text, nullable=False)
     mount_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    # Clone-only credential, encrypted at rest via VaultCipher. Never echoed.
+    # Clone-only credential, encrypted at rest via CredentialCipher. Never echoed.
     encrypted_token: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False

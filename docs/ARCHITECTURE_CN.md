@@ -470,8 +470,9 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 
 - **鉴权：** JWT（HS256）带 org/project/role 声明 + 实时 DB 复核；HttpOnly Cookie；变更请求带 CSRF token；
   密码在客户端先做 SHA-256 预哈希。
-- **凭据加密：** provider secret 与 vault token 用 AES-256-GCM（`credential_encryption_key`），与 Rust
-  `agentd` 兼容的 cipher。
+- **凭据加密：** provider secret、仓库 token 与 vault/OAuth 凭据统一使用 AES-256-GCM
+  （`JOYSAFETER_VAULT_ENCRYPTION_KEY`）。密钥缺失或无效时服务拒绝启动；数据库中的凭据必须使用 `enc:`
+  封装，明文或损坏记录会明确失败，不再静默透传；密文格式与 Rust `agentd` 兼容。
 - **SSRF 守卫：** 拦截云元数据 IP、解析 DNS 以挫败 rebinding；默认允许私有 RFC-1918（内部 LLM/MCP 端点），
   可选加固开关。
 - **沙箱隔离：** 丢弃能力、非 root、no-new-privileges、PID 限制、Envoy 全拒出口。

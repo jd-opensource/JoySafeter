@@ -2,6 +2,7 @@ import uuid
 
 import httpx
 import pytest
+from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
 
 from app.joysafeter_api.api.v1.quickstart import (
@@ -91,7 +92,7 @@ async def test_quickstart_chat_missing_provider_key_returns_structured_error(db_
         name=f"quickstart-missing-key-{uuid.uuid4()}",
         provider="codex",
         protocol="openai_responses",
-        data={"OPENAI_MODEL": "gpt-5.3-codex"},
+        data=encrypted_secret_data({"OPENAI_MODEL": "gpt-5.3-codex"}),
     )
     db_session.add(secret)
     await db_session.commit()
@@ -116,7 +117,7 @@ async def test_quickstart_chat_invalid_base_url_returns_structured_error(db_sess
         name=f"quickstart-invalid-url-{uuid.uuid4()}",
         provider="codex",
         protocol="openai_responses",
-        data={"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "http://169.254.169.254/latest"},
+        data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "http://169.254.169.254/latest"}),
     )
     db_session.add(secret)
     await db_session.commit()
@@ -146,7 +147,7 @@ async def test_quickstart_chat_rejects_unallowlisted_openai_base_url(db_session,
         name=f"quickstart-unallowlisted-url-{uuid.uuid4()}",
         provider="codex",
         protocol="openai_responses",
-        data={"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"},
+        data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"}),
     )
     db_session.add(secret)
     await db_session.commit()
