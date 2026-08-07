@@ -30,6 +30,21 @@ pub(crate) fn pi_model_arg(model: &str) -> String {
     }
 }
 
+/// Appends `chunk` to `buf`, retaining only the last `max` bytes (on a char
+/// boundary). Keeps the stderr tail bounded so a chatty pi can't grow memory.
+pub(crate) fn push_bounded(buf: &mut String, chunk: &str, max: usize) {
+    buf.push_str(chunk);
+    if buf.len() > max {
+        let cut = buf.len() - max;
+        // Advance to a char boundary at or after `cut`.
+        let mut idx = cut;
+        while idx < buf.len() && !buf.is_char_boundary(idx) {
+            idx += 1;
+        }
+        *buf = buf.split_off(idx);
+    }
+}
+
 pub struct PiAdapter {
     session: Arc<Mutex<Option<PersistentPi>>>,
 }
@@ -40,6 +55,8 @@ struct PersistentPi {
     reader_handle: tokio::task::JoinHandle<()>,
     current_turn: Arc<Mutex<Option<TurnState>>>,
     child: tokio::process::Child,
+    #[allow(dead_code)]
+    stderr_tail: Arc<std::sync::Mutex<String>>,
 }
 
 struct TurnState {
@@ -481,6 +498,25 @@ impl PiAdapter {
             .stdout
             .take()
             .ok_or_else(|| HarnessError::StartFailed("failed to open stdout".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| HarnessError::StartFailed("failed to open stderr".into()))?;
+        let stderr_tail: Arc<std::sync::Mutex<String>> =
+            Arc::new(std::sync::Mutex::new(String::new()));
+        {
+            let tail = stderr_tail.clone();
+            tokio::spawn(async move {
+                const MAX_STDERR_TAIL: usize = 16 * 1024;
+                let mut reader = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    if let Ok(mut g) = tail.lock() {
+                        push_bounded(&mut g, &format!("{line}\n"), MAX_STDERR_TAIL);
+                    }
+                    info!(target: "pi_stderr", "{line}");
+                }
+            });
+        }
 
         let current_turn: Arc<Mutex<Option<TurnState>>> = Arc::new(Mutex::new(None));
         let reader_current_turn = current_turn.clone();
@@ -494,6 +530,7 @@ impl PiAdapter {
             reader_handle,
             current_turn,
             child,
+            stderr_tail,
         });
         Ok(())
     }
@@ -507,6 +544,16 @@ mod tests {
     fn map(v: serde_json::Value) -> PiMapped {
         let mut m = HashMap::new();
         map_pi_event(&v, &mut m)
+    }
+
+    #[test]
+    fn push_bounded_keeps_last_bytes() {
+        let mut buf = String::new();
+        super::push_bounded(&mut buf, "hello ", 8);
+        super::push_bounded(&mut buf, "world!!", 8);
+        // Only the last <=8 bytes are retained.
+        assert!(buf.len() <= 8, "buf too long: {:?}", buf);
+        assert!(buf.ends_with("d!!"), "should keep newest tail: {:?}", buf);
     }
 
     #[test]
