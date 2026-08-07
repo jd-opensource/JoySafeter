@@ -782,10 +782,10 @@ impl SandboxResolver {
             .as_ref()
             .and_then(|a| a.engine_kind.clone())
             .unwrap_or_else(|| "claude".to_string());
-        let image = environment
-            .as_ref()
-            .and_then(|env| env.image_tag.clone())
-            .unwrap_or_else(|| self.config.image_for_provider(&engine_kind));
+        let image = match environment.as_ref().and_then(|env| env.image_tag.clone()) {
+            Some(tag) => tag,
+            None => self.config.image_for_provider(&engine_kind)?,
+        };
         let mut env =
             Self::resolve_agent_env_from(&self.pool, agent.as_ref(), environment.as_ref()).await?;
         let configured_networking = environment

@@ -904,16 +904,13 @@ impl SandboxProvider for DockerProvider {
             if let Some(ref xds) = self.xds_service {
                 xds.attach_db_pool(pool.clone()).await;
             }
-            if let Err(e) = manager.init().await {
-                warn!("EnvoyManager initialization failed: {e}");
-                return Ok(()); // non-fatal: sandboxes without Envoy still work
-            }
-            if let Err(e) = manager
+            // Fail-closed: Envoy fronts every limited-networking sandbox's egress
+            // allowlist. If it cannot initialize or recover the live sandboxes'
+            // listeners, abort startup instead of serving them without enforcement.
+            manager.init().await?;
+            manager
                 .recover_from_db(pool, &self.config.llm_egress_allowed_hosts)
-                .await
-            {
-                warn!("EnvoyManager LDS recovery from DB failed: {e}");
-            }
+                .await?;
             manager
                 .clone()
                 .spawn_health_monitor(pool.clone(), self.config.llm_egress_allowed_hosts.clone());

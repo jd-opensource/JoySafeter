@@ -375,19 +375,33 @@ impl JoySafeterConfig {
     }
 
     /// Select the Docker image for a given engine_kind (provider).
-    /// Falls back to `sandbox_image` if no per-engine image is configured.
-    pub fn image_for_provider(&self, engine_kind: &str) -> String {
+    ///
+    /// Every non-claude engine ships its OWN image whose runner registers only
+    /// that engine's adapter. Silently falling back to the default sandbox image
+    /// (claudecode) lands the task on a container that then fails at execution
+    /// time with "No adapter for provider: <engine>" — a confusing runtime error
+    /// for what is really a missing-config problem. So a known non-claude engine
+    /// with an unconfigured image is a hard error here, surfaced at sandbox
+    /// resolution with an actionable message. Only `claude` (and unknown kinds)
+    /// fall back to `sandbox_image`, which is itself the claudecode image.
+    pub fn image_for_provider(&self, engine_kind: &str) -> anyhow::Result<String> {
+        let resolve = |image: &str, env_var: &str| -> anyhow::Result<String> {
+            if image.is_empty() {
+                anyhow::bail!(
+                    "engine '{engine_kind}' has no image configured; set {env_var} \
+                     (the {engine_kind} runner only registers its own adapter, so \
+                     falling back to the default claudecode image would fail at \
+                     task execution with \"No adapter for provider: {engine_kind}\")"
+                );
+            }
+            Ok(image.to_string())
+        };
         match engine_kind {
-            "claude" if !self.image_claude.is_empty() => self.image_claude.clone(),
-            "codex" if !self.image_codex.is_empty() => self.image_codex.clone(),
-            // native needs its OWN image (the claudecode image's runner does not
-            // register the native adapter). Do NOT fall back to image_claude here,
-            // or native tasks land on a claudecode container that reports
-            // "No adapter for provider: native".
-            "native" if !self.image_native.is_empty() => self.image_native.clone(),
-            // pi 同 native:需要自己的镜像,不得回退到其他引擎镜像。
-            "pi" if !self.image_pi.is_empty() => self.image_pi.clone(),
-            _ => self.sandbox_image.clone(),
+            "codex" => resolve(&self.image_codex, "JOYSAFETER_IMAGE_CODEX"),
+            "native" => resolve(&self.image_native, "JOYSAFETER_IMAGE_NATIVE"),
+            "pi" => resolve(&self.image_pi, "JOYSAFETER_IMAGE_PI"),
+            "claude" if !self.image_claude.is_empty() => Ok(self.image_claude.clone()),
+            _ => Ok(self.sandbox_image.clone()),
         }
     }
 }
@@ -519,19 +533,64 @@ fn hostname() -> String {
 /// Falls back to `DATABASE_URL` if set directly.
 /// Automatically URL-encodes user/password to handle special chars (@, #, !, etc.).
 fn build_database_url() -> String {
-    if let Ok(url) = env::var("DATABASE_URL") {
-        return url;
+    let database_url = env::var("DATABASE_URL").ok();
+    let host = env::var("POSTGRES_HOST").ok();
+    let port = env::var("POSTGRES_PORT").ok();
+    let user = env::var("POSTGRES_USER").ok();
+    let password = env::var("POSTGRES_PASSWORD").ok();
+    let db = env::var("POSTGRES_DB").ok();
+
+    build_database_url_from_values(
+        database_url.as_deref(),
+        host.as_deref(),
+        port.as_deref(),
+        user.as_deref(),
+        password.as_deref(),
+        db.as_deref(),
+    )
+}
+
+fn build_database_url_from_values(
+    database_url: Option<&str>,
+    postgres_host: Option<&str>,
+    postgres_port: Option<&str>,
+    postgres_user: Option<&str>,
+    postgres_password: Option<&str>,
+    postgres_db: Option<&str>,
+) -> String {
+    let split_values = [
+        postgres_host,
+        postgres_port,
+        postgres_user,
+        postgres_password,
+        postgres_db,
+    ];
+    let has_explicit_split_value = split_values
+        .iter()
+        .flatten()
+        .any(|value| !value.trim().is_empty());
+
+    if !has_explicit_split_value {
+        if let Some(url) = database_url.map(str::trim).filter(|url| !url.is_empty()) {
+            return url.to_string();
+        }
     }
 
-    let host = env_str("POSTGRES_HOST", "localhost");
-    let user = env_str("POSTGRES_USER", "postgres");
-    let password = env_str("POSTGRES_PASSWORD", "postgres");
-    let db = env_str("POSTGRES_DB", "joysafeter");
-    let port = env_str("POSTGRES_PORT", "5432");
+    fn value_or_default<'a>(value: Option<&'a str>, default: &'a str) -> &'a str {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(default)
+    }
+    let host = value_or_default(postgres_host, "localhost");
+    let port = value_or_default(postgres_port, "5432");
+    let user = value_or_default(postgres_user, "postgres");
+    let password = value_or_default(postgres_password, "postgres");
+    let db = value_or_default(postgres_db, "joysafeter");
 
     // URL-encode user/password so special chars don't break the URL structure
-    let safe_user = url_encode(&user);
-    let safe_password = url_encode(&password);
+    let safe_user = url_encode(user);
+    let safe_password = url_encode(password);
 
     format!("postgres://{safe_user}:{safe_password}@{host}:{port}/{db}")
 }
@@ -575,14 +634,120 @@ fn build_redis_url() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::build_database_url_from_values;
     use super::parse_env_list;
     use super::JoySafeterConfig;
+
+    #[test]
+    fn database_url_prefers_split_password_over_conflicting_url() {
+        assert_eq!(
+            build_database_url_from_values(
+                Some("postgresql://postgres:stale@postgres:5432/joysafeter"),
+                None,
+                None,
+                None,
+                Some("current"),
+                None,
+            ),
+            "postgres://postgres:current@localhost:5432/joysafeter"
+        );
+    }
+
+    #[test]
+    fn database_url_prefers_any_explicit_split_value() {
+        assert_eq!(
+            build_database_url_from_values(
+                Some("postgresql://postgres:stale@postgres:5432/joysafeter"),
+                Some("postgres"),
+                None,
+                None,
+                None,
+                None,
+            ),
+            "postgres://postgres:postgres@postgres:5432/joysafeter"
+        );
+    }
+
+    #[test]
+    fn database_url_falls_back_to_non_empty_explicit_url() {
+        assert_eq!(
+            build_database_url_from_values(
+                Some(" postgresql://external:secret@db.example.com:5432/app "),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            "postgresql://external:secret@db.example.com:5432/app"
+        );
+    }
+
+    #[test]
+    fn database_url_treats_empty_explicit_url_as_unset() {
+        assert_eq!(
+            build_database_url_from_values(Some("  "), None, None, None, None, None),
+            "postgres://postgres:postgres@localhost:5432/joysafeter"
+        );
+    }
+
+    #[test]
+    fn database_url_percent_encodes_split_credentials() {
+        assert_eq!(
+            build_database_url_from_values(
+                None,
+                Some("postgres"),
+                Some("5433"),
+                Some("user@example.com"),
+                Some("p@ss word"),
+                Some("app"),
+            ),
+            "postgres://user%40example.com:p%40ss%20word@postgres:5433/app"
+        );
+    }
 
     #[test]
     fn image_for_provider_pi_uses_image_pi() {
         let mut cfg = JoySafeterConfig::from_env();
         cfg.image_pi = "joysafeter-pi:latest".to_string();
-        assert_eq!(cfg.image_for_provider("pi"), "joysafeter-pi:latest");
+        assert_eq!(
+            cfg.image_for_provider("pi").unwrap(),
+            "joysafeter-pi:latest"
+        );
+    }
+
+    #[test]
+    fn image_for_provider_errors_when_engine_image_unset() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.sandbox_image = "joysafeter-claudecode:latest".to_string();
+        // A known non-claude engine with no configured image must fail loudly
+        // instead of silently returning the default claudecode image.
+        for engine in ["pi", "codex", "native"] {
+            cfg.image_pi = String::new();
+            cfg.image_codex = String::new();
+            cfg.image_native = String::new();
+            let err = cfg
+                .image_for_provider(engine)
+                .expect_err("unset engine image should be an error");
+            let msg = err.to_string();
+            assert!(
+                msg.contains(engine),
+                "message should name the engine: {msg}"
+            );
+            assert_ne!(msg, "joysafeter-claudecode:latest");
+        }
+    }
+
+    #[test]
+    fn image_for_provider_claude_falls_back_to_sandbox_image() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.image_claude = String::new();
+        cfg.sandbox_image = "joysafeter-claudecode:latest".to_string();
+        // claude legitimately falls back: the default sandbox image IS claudecode.
+        assert_eq!(
+            cfg.image_for_provider("claude").unwrap(),
+            "joysafeter-claudecode:latest"
+        );
     }
 
     #[test]

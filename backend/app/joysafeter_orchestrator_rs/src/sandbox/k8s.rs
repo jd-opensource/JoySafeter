@@ -9,7 +9,7 @@ use kube::Client;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio::io::AsyncReadExt;
-use tracing::{info, warn};
+use tracing::info;
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
@@ -410,16 +410,13 @@ impl SandboxProvider for K8sProvider {
             }
             // In K8s mode, Envoy DaemonSet manages its own bootstrap (embedded).
             // We only reset in-memory xDS state and recover listeners from DB.
-            if let Err(e) = manager.init_xds_only().await {
-                warn!("EnvoyManager xDS init failed: {e}");
-                return Ok(());
-            }
-            if let Err(e) = manager
+            // Fail-closed: if xDS cannot reset or the live sandboxes' listeners
+            // cannot be recovered, abort startup instead of serving them without
+            // egress enforcement.
+            manager.init_xds_only().await?;
+            manager
                 .recover_from_db(pool, &self.config.llm_egress_allowed_hosts)
-                .await
-            {
-                warn!("EnvoyManager LDS recovery from DB failed: {e}");
-            }
+                .await?;
             // No health monitor spawn — K8s livenessProbe on DaemonSet handles it.
             info!(
                 xds_mode = %self.config.envoy_xds_mode,

@@ -215,9 +215,9 @@ async fn main() -> anyhow::Result<()> {
     spawn_health_server(9091, ready_flag.clone());
 
     // Provider startup: Envoy init, DB recovery, ImageBuilder, etc.
-    if let Err(e) = sandbox_provider.on_startup(&db_pool).await {
-        warn!("Provider on_startup failed: {e}");
-    }
+    // Fail-closed: if egress control cannot initialize or recover, abort startup
+    // rather than becoming ready and serving sandboxes without enforcement.
+    sandbox_provider.on_startup(&db_pool).await?;
 
     // Initialize sandbox bridge registry
     let bridge_registry = kernel::sandbox_bridge::BridgeRegistry::new();

@@ -379,8 +379,10 @@ impl EnvoyManager {
 
             // Recreate the socket dir; the Envoy container may have restarted and
             // lost /sockets contents. Envoy recreates the pipes once it accepts
-            // the pushed listeners.
-            let _ = self.prepare_socket_dir(sb.id).await;
+            // the pushed listeners. Fail-closed: if we cannot prepare a live
+            // sandbox's socket dir we abort recovery rather than leave it running
+            // without egress enforcement.
+            self.prepare_socket_dir(sb.id).await?;
 
             // Re-derive the sandbox's egress credentials from the DB and render
             // both its listener routes and its per-upstream clusters.

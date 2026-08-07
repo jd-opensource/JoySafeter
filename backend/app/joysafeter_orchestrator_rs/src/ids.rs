@@ -14,21 +14,8 @@ pub enum EntityIdParseError {
 
 macro_rules! entity_id {
     ($name:ident, $prefix:literal) => {
-        #[derive(
-            Debug,
-            Clone,
-            Copy,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Hash,
-            Serialize,
-            Deserialize,
-            sqlx::Type,
-        )]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, sqlx::Type)]
         #[repr(transparent)]
-        #[serde(transparent)]
         #[sqlx(transparent)]
         pub struct $name(Uuid);
 
@@ -39,6 +26,7 @@ macro_rules! entity_id {
                 Self(value)
             }
 
+            #[allow(dead_code)]
             pub const fn as_uuid(self) -> Uuid {
                 self.0
             }
@@ -55,15 +43,22 @@ macro_rules! entity_id {
             }
         }
 
-        impl From<Uuid> for $name {
-            fn from(value: Uuid) -> Self {
-                Self::from_uuid(value)
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_str(&self.to_public())
             }
         }
 
-        impl From<$name> for Uuid {
-            fn from(value: $name) -> Self {
-                value.as_uuid()
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = String::deserialize(deserializer)?;
+                Self::from_public(&value).map_err(serde::de::Error::custom)
             }
         }
 
@@ -221,12 +216,23 @@ mod tests {
     }
 
     #[test]
-    fn storage_boundary_uses_bare_uuid() {
-        let uuid = Uuid::now_v7();
-        let agent_id = AgentId::from_uuid(uuid);
+    fn serde_uses_the_public_prefixed_representation() {
+        let id = AgentId::from_uuid(Uuid::now_v7());
 
-        assert_eq!(agent_id.as_uuid(), uuid);
-        assert_eq!(Uuid::from(agent_id), uuid);
-        assert_eq!(serde_json::to_value(agent_id).unwrap(), uuid.to_string());
+        assert_eq!(serde_json::to_value(id).unwrap(), id.to_public());
+        assert_eq!(
+            serde_json::from_value::<AgentId>(serde_json::json!(id.to_public())).unwrap(),
+            id
+        );
+        assert!(
+            serde_json::from_value::<AgentId>(serde_json::json!(id.as_uuid().to_string())).is_err()
+        );
+    }
+
+    #[test]
+    fn physical_boundary_requires_as_uuid() {
+        let uuid = Uuid::now_v7();
+
+        assert_eq!(AgentId::from_uuid(uuid).as_uuid(), uuid);
     }
 }

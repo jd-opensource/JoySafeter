@@ -282,7 +282,7 @@ async fn schedule_single_task(
 
     // --- Resolve engine_kind → image ---
     let engine_kind = agent.engine_kind.as_deref().unwrap_or("claude");
-    let resolved_image = config.image_for_provider(engine_kind);
+    let resolved_image = config.image_for_provider(engine_kind)?;
 
     // --- Resolve sandbox through the full provider-backed resolver ---
     // The resolver builds the effective Python-compatible context itself:
