@@ -5,7 +5,7 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select, text
 
-from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent
+from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent, delete_agent_preview
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -417,6 +417,27 @@ async def test_delete_agent_rejects_active_task_with_structured_task_ids(db_sess
     task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     assert agent_row is not None
     assert task_row.chat_session_id == session_id
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_preview_returns_exact_counts(db_session):
+    agent, session, task = await _agent_session_and_task(db_session)
+    agent_id = agent.id
+
+    result = await delete_agent_preview(agent_id, db_session, _auth_ctx())
+
+    # One session, one active (pending) task, and no versions were created above.
+    assert result == {"sessions": 1, "tasks": 1, "versions": 0}
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_preview_missing_agent_raises_404(db_session):
+    missing_id = as_uuid(uuid.uuid4())
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_agent_preview(missing_id, db_session, _auth_ctx())  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "AGENT_NOT_FOUND"
 
 
 @pytest.mark.asyncio

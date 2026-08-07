@@ -28,9 +28,7 @@ class EntityId:
     def _coerce(cls, value: Any) -> uuid.UUID:
         if isinstance(value, EntityId):
             if type(value) is not cls:
-                raise TypeError(
-                    f"cannot build {cls.__name__} from {type(value).__name__}"
-                )
+                raise TypeError(f"cannot build {cls.__name__} from {type(value).__name__}")
             return value.uuid
         if isinstance(value, uuid.UUID):
             return value
@@ -79,9 +77,7 @@ class EntityId:
         return hash((type(self), self._uuid))
 
     @classmethod
-    def __get_pydantic_core_schema__(
-        cls, source: Any, handler: GetCoreSchemaHandler
-    ) -> core_schema.CoreSchema:
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
         def validate(value: Any) -> "EntityId":
             if isinstance(value, cls):
                 return value
@@ -196,6 +192,16 @@ class StorageGrantId(EntityId):
 
 class StorageMountAuditId(EntityId):
     prefix = "staudit_"
+
+
+REGISTERED_ENTITY_ID_PREFIXES: tuple[str, ...] = tuple(id_type.prefix for id_type in EntityId.__subclasses__())
+
+
+def registered_entity_id_prefix(value: str) -> str | None:
+    return next(
+        (prefix for prefix in REGISTERED_ENTITY_ID_PREFIXES if value.startswith(prefix)),
+        None,
+    )
 
 
 def as_uuid(value: "uuid.UUID | EntityId") -> uuid.UUID:

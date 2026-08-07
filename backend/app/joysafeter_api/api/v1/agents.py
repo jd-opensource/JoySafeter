@@ -452,6 +452,25 @@ async def update_agent(
     return _agent_to_response(agent, model=model)
 
 
+@router.get("/{agent_id}/delete_preview")
+async def delete_agent_preview(
+    agent_id: AgentId,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> dict[str, int]:
+    """Counts of data that will be removed when the agent is deleted.
+
+    Powers the frontend delete-confirmation dialog. Returns exact counts of
+    sessions, active tasks, and versions tied to the agent.
+    """
+    svc = AgentService(db)
+    counts = await svc.count_delete_preview(agent_id, project_id=auth_ctx.project_id)
+    if counts is None:
+        raise _agent_not_found_error(agent_id)
+    sessions, tasks, versions = counts
+    return {"sessions": sessions, "tasks": tasks, "versions": versions}
+
+
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
     agent_id: AgentId,

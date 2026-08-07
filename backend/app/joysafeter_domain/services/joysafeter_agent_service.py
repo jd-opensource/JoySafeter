@@ -583,6 +583,36 @@ class JoySafeterAgentService:
             return None
         return ver.snapshot
 
+    async def count_delete_preview(
+        self, agent_id: AgentId, project_id: Optional[str] = None
+    ) -> Optional[tuple[int, int, int]]:
+        """Return (sessions, active_tasks, versions) counts for a delete preview.
+
+        Returns None when the agent does not exist (or is out of the given
+        project scope), so the caller can surface a 404. Counts are exact
+        aggregates (``func.count()``) and are NOT affected by list pagination
+        limits:
+          - sessions: all sessions for the agent, including archived ones
+          - active_tasks: pending/scheduling/running tasks only
+          - versions: all historical versions
+        """
+        if not await self.get_agent(agent_id, project_id=project_id):
+            return None
+
+        sessions_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterSession).where(JoySafeterSession.agent_id == agent_id)
+        )
+        sessions = cast(int, sessions_result.scalar() or 0)
+
+        active_tasks = await self._count_active_tasks_for_agent(agent_id, project_id=project_id)
+
+        versions_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterAgentVersion).where(JoySafeterAgentVersion.agent_id == agent_id)
+        )
+        versions = cast(int, versions_result.scalar() or 0)
+
+        return sessions, active_tasks, versions
+
     async def list_active_tasks_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> list:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return []

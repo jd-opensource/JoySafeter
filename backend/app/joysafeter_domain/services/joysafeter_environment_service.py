@@ -1,3 +1,4 @@
+import uuid
 from typing import Optional
 
 from sqlalchemy import and_, delete, or_, select
@@ -14,7 +15,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     UpdateEnvironmentRequest,
 )
-from app.joysafeter_shared.ids import EnvironmentId, TaskId
+from app.joysafeter_shared.ids import EnvironmentId, TaskId, registered_entity_id_prefix
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -74,12 +75,21 @@ class EnvironmentService:
         normalized = ref.strip()
         if not normalized:
             return None
-        if normalized.startswith("env_"):
+        prefix = registered_entity_id_prefix(normalized)
+        if prefix is not None:
+            if prefix != EnvironmentId.prefix:
+                return None
             try:
                 env_id = EnvironmentId.from_public(normalized)
                 return await self.get_environment(env_id, project_id=project_id)
             except (TypeError, ValueError):
                 return None
+        try:
+            uuid.UUID(normalized)
+        except ValueError:
+            pass
+        else:
+            return None
         # Fall back to name lookup
         conditions = [
             JoySafeterEnvironment.name == normalized,

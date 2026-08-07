@@ -21,7 +21,6 @@ from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as Pagina
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
     MAX_STORAGE_MOUNT_RESOURCES,
-    AgentRef,
     CreateSessionRequest,
     SendEventRequest,
     SessionAgent,
@@ -67,6 +66,7 @@ from app.joysafeter_shared.ids import (
     SessionId,
     SessionResourceId,
     TaskId,
+    registered_entity_id_prefix,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,15 @@ def _canonical_environment_ref(raw: str | None) -> str:
     ref = (raw or "").strip()
     if not ref:
         return ""
-    if ref.startswith(EnvironmentId.prefix):
+    prefix = registered_entity_id_prefix(ref)
+    if prefix is not None:
+        if prefix != EnvironmentId.prefix:
+            raise InvalidRequestError(
+                code="ENVIRONMENT_ID_INVALID",
+                message="Invalid environment_id",
+                data={"environment_id": ref},
+                user_action="fix_input",
+            )
         try:
             return str(EnvironmentId.from_public(ref))
         except (TypeError, ValueError) as exc:

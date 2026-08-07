@@ -14,11 +14,17 @@ def test_bind_unwraps_typed_id():
     assert t.process_bind_param(AgentId(u), None) == u
 
 
-def test_bind_accepts_bare_uuid_and_str():
+def test_bind_accepts_bare_uuid():
     t = EntityIdType(AgentId)
     u = uuid.uuid4()
     assert t.process_bind_param(u, None) == u
-    assert t.process_bind_param(f"agent_{u}", None) == u
+
+
+def test_bind_rejects_public_string():
+    t = EntityIdType(AgentId)
+
+    with pytest.raises(TypeError, match="cannot bind str as AgentId"):
+        t.process_bind_param(str(AgentId.new()), None)
 
 
 def test_bind_rejects_wrong_entity_id_type():

@@ -172,6 +172,11 @@ CATALOG: dict[str, CatalogEntry] = {
     "ENVIRONMENT_CONFLICT": CatalogEntry(
         code="ENVIRONMENT_CONFLICT", error_class=ResourceConflictError, default_message="Environment conflict"
     ),
+    "ENVIRONMENT_ID_INVALID": CatalogEntry(
+        code="ENVIRONMENT_ID_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid environment_id",
+    ),
     "ENVIRONMENT_TRIGGER_REFERENCE": CatalogEntry(
         code="ENVIRONMENT_TRIGGER_REFERENCE",
         error_class=ResourceConflictError,

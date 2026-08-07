@@ -1,4 +1,5 @@
 import posixpath
+import uuid
 from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -11,7 +12,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.joysafeter_shared.ids import EnvironmentId
+from app.joysafeter_shared.ids import EnvironmentId, registered_entity_id_prefix
 
 SUPPORTED_EGRESS_INJECT_TYPES = {"bearer", "api_key", "raw_header", "cookie"}
 SUPPORTED_EGRESS_EXPOSURES = {"placeholder"}
@@ -35,6 +36,17 @@ FORBIDDEN_MOUNT_PATHS = {
 
 def _trim_string(value: Optional[str]) -> Optional[str]:
     return value.strip() if value is not None else value
+
+
+def _validate_environment_name(value: str) -> str:
+    name = value.strip()
+    if registered_entity_id_prefix(name) is not None:
+        raise ValueError("environment name must not begin with a registered entity ID prefix")
+    try:
+        uuid.UUID(name)
+    except ValueError:
+        return name
+    raise ValueError("environment name must not be UUID-shaped")
 
 
 def _is_safe_token(value: str, *, allow_dash: bool = True) -> bool:
@@ -314,12 +326,22 @@ class CreateEnvironmentRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     config: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _validate_environment_name(value)
+
 
 class UpdateEnvironmentRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
     config: Optional[EnvironmentConfig] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else _validate_environment_name(value)
 
 
 class EnvironmentResponse(BaseModel):

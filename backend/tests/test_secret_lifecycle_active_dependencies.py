@@ -118,7 +118,7 @@ async def test_list_secrets_returns_canonical_secret_cursor(db_session):
 
     assert page["has_more"] is True
     assert page["last_id"] is not None
-    assert SecretId.from_public(page["last_id"]) == SecretId(page["last_id"])
+    assert str(SecretId.from_public(page["last_id"])) == page["last_id"]
 
 
 @pytest.mark.asyncio
