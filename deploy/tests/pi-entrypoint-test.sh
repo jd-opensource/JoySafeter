@@ -14,6 +14,11 @@ assert_valid_json() { printf '%s' "$1" | python3 -c 'import json,sys; json.load(
 # Source the entrypoint's pure function without running the exec tail.
 PI_ENTRYPOINT_TEST_SOURCE=1 source "$DEPLOY_DIR/docker/pi-entrypoint.sh"
 
+# Neutralize any ambient model/base-url/key env so each case runs hermetically
+# (a dev machine may export ANTHROPIC_MODEL / OPENAI_MODEL, etc.).
+unset OPENAI_MODEL ANTHROPIC_MODEL OPENAI_BASE_URL ANTHROPIC_BASE_URL \
+      OPENAI_API_KEY ANTHROPIC_API_KEY JOYSAFETER_MODEL_PROTOCOL
+
 # --- openai_responses ---
 out="$(JOYSAFETER_MODEL_PROTOCOL=openai_responses \
       OPENAI_MODEL=GPT-4.1 \
