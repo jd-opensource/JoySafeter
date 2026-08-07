@@ -94,6 +94,11 @@ impl K8sProvider {
                     health_check_interval_sec: 0, // K8s livenessProbe handles this
                     health_failure_threshold: 0,
                     skip_socket_dir_prep: true, // K8s: initContainer creates socket dir
+                    // K8s DaemonSet: Envoy's node.id is set via downward API in the
+                    // DaemonSet manifest (env NODE_NAME from spec.nodeName). The
+                    // bootstrap is not written by the orchestrator in K8s mode
+                    // (init_xds_only), so this field is informational here.
+                    node_id: "k8s-envoy".to_string(),
                 },
                 lds,
             )))
@@ -421,6 +426,29 @@ impl SandboxProvider for K8sProvider {
             {
                 warn!("EnvoyManager LDS recovery from DB failed: {e}");
             }
+
+            // Rebuild sandbox→node mappings from PodWatcher cache so that
+            // node-aware xDS filtering works immediately after restart (before
+            // any new setup_networking call). Without this, recovered listeners
+            // would be sent to all Envoys (permissive default).
+            if let Some(ref xds) = self.xds_service {
+                let active_pods = self.pod_watcher.list_active().await;
+                let mut mapped = 0usize;
+                for pod_info in &active_pods {
+                    if let Some(node) = self.pod_watcher.node_name(&pod_info.name).await {
+                        if let Some(id_str) = pod_info.labels.get("joysafeter.sandbox_id") {
+                            if let Ok(sandbox_id) = id_str.parse::<uuid::Uuid>() {
+                                xds.set_sandbox_node(sandbox_id, node);
+                                mapped += 1;
+                            }
+                        }
+                    }
+                }
+                if mapped > 0 {
+                    info!(mapped, "Rebuilt sandbox→node mappings from PodWatcher cache");
+                }
+            }
+
             // No health monitor spawn — K8s livenessProbe on DaemonSet handles it.
             info!(
                 xds_mode = %self.config.envoy_xds_mode,
@@ -438,6 +466,14 @@ impl SandboxProvider for K8sProvider {
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
+            // Register sandbox→node mapping for node-aware xDS filtering.
+            // The PodWatcher cache has the pod's nodeName once it's scheduled.
+            let pod_name = Self::pod_name(sandbox_id);
+            if let Some(ref xds) = self.xds_service {
+                if let Some(node) = self.pod_watcher.node_name(&pod_name).await {
+                    xds.set_sandbox_node(sandbox_id, node);
+                }
+            }
             // In K8s mode, prepare_socket_dir is handled by the pod's
             // initContainer (it creates the dir on the local node). We skip
             // the orchestrator-side mkdir (it would only work on the local node).
@@ -463,6 +499,10 @@ impl SandboxProvider for K8sProvider {
     async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
             manager.teardown_for_sandbox(sandbox_id).await?;
+        }
+        // Remove sandbox→node mapping
+        if let Some(ref xds) = self.xds_service {
+            xds.remove_sandbox_node(sandbox_id);
         }
         Ok(())
     }

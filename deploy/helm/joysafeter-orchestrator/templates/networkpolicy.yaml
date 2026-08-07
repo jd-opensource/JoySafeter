@@ -1,0 +1,78 @@
+{{- if .Values.networkPolicy.enabled }}
+# Sandbox Pod 网络隔离: 只允许连 Orchestrator(gRPC) + DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: joysafeter-sandbox-isolation
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-sandbox
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress: []
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: joysafeter-orchestrator
+    ports:
+    - port: {{ .Values.orchestrator.grpc.port }}
+      protocol: TCP
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+
+---
+# Envoy 出口: 允许连 Orchestrator(ADS) + DNS + 外网 80/443
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: joysafeter-envoy-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: joysafeter-envoy
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: joysafeter-orchestrator
+    ports:
+    - port: {{ .Values.orchestrator.grpc.port }}
+      protocol: TCP
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - port: 443
+      protocol: TCP
+    - port: 80
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,106 @@
+# =============================================================================
+# JoySafeter Orchestrator Helm Values
+# =============================================================================
+
+# ── 全局 ──
+namespace: joysafeter
+
+# ── 镜像 ──
+image:
+  orchestrator: aisec-repo.jd.com/joysafeter/joysafeter-orchestrator-rs:latest
+  envoy: aisec-repo.jd.com/joysafeter/joysafeter-envoy:v1.37.1
+  sandbox:
+    claude: aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest
+    codex: aisec-repo.jd.com/joysafeter/joysafeter-codex:latest
+    native: aisec-repo.jd.com/joysafeter/joysafeter-native:latest
+  pullPolicy: Always
+
+# ── HA 模式 ──
+# standalone: 单机 (Docker Compose)
+# leader:     主备 (K8s 2副本, Lease 选主)
+# multi:      多副本无状态 (K8s N副本, Redis 协调)
+haMode: multi
+
+# ── Orchestrator Deployment ──
+orchestrator:
+  replicas: 3
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "4"
+      memory: "4Gi"
+
+  # gRPC
+  grpc:
+    port: 9090
+    maxConnections: 5000
+    maxExecutions: 2000
+
+  # 调度
+  scheduling:
+    maxConcurrentTasks: 500
+    maxSchedulingTasks: 300
+    batchSize: 10
+
+  # Sandbox 生命周期
+  sandbox:
+    idleTimeout: 300
+    stoppedTTL: 3600
+    hardTimeout: 21600
+    bridgeDisconnectGrace: 90
+    failureThreshold: 3
+
+  # 预热池
+  pool:
+    enabled: true
+    minSize: 5
+    maxAge: 1800
+
+  # 事件流
+  eventStream:
+    enabled: true
+    key: "joysafeter:orchestrator:events"
+    group: "joysafeter-orchestrator-event-workers"
+    maxLen: 100000
+
+  # Leader 模式配置 (仅 haMode=leader 时生效)
+  leader:
+    leaseName: joysafeter-orchestrator-leader
+    leaseDurationSec: 10
+    renewIntervalSec: 3
+
+  # 心跳
+  heartbeat:
+    interval: 15
+    ttl: 30
+
+# ── Envoy DaemonSet ──
+envoy:
+  enabled: true
+  xdsMode: grpc
+  socketHostDir: /data/joysafeter/envoy-sockets
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "2"
+      memory: "512Mi"
+
+# ── Egress 白名单 ──
+egress:
+  allowedHosts:
+    - ai-api.jdcloud.com
+    - api.anthropic.com
+    - api.openai.com
+    - generativelanguage.googleapis.com
+
+# ── 外部依赖 (通过 Secret 注入) ──
+# Secret 名称, 必须包含: DATABASE_URL, REDIS_URL, JOYSAFETER_VAULT_ENCRYPTION_KEY
+externalSecret: joysafeter-secrets
+
+# ── NetworkPolicy ──
+networkPolicy:
+  enabled: true

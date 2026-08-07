@@ -5,7 +5,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
-use crate::kernel::sandbox_bridge::BridgeRegistry;
+use crate::kernel::ha::BridgeStore;
 
 /// In-memory tracking of which sessions subscribe to which memory stores.
 ///
@@ -82,7 +82,7 @@ impl MemoryStoreSubscribers {
         content: &[u8],
         operation: &str,
         sender_sandbox_id: Uuid,
-        bridge_registry: &BridgeRegistry,
+        bridge_store: &dyn BridgeStore,
     ) {
         // M3 fix: Collect peers under the lock, then drop it before awaiting
         // gRPC sends. Holding a Mutex across await points can cause deadlocks
@@ -103,7 +103,7 @@ impl MemoryStoreSubscribers {
         };
 
         for (peer_sandbox_id, mount_name) in peers {
-            if let Some(bridge) = bridge_registry.get_by_db_id(peer_sandbox_id) {
+            if let Some(bridge) = bridge_store.get_by_db_id(peer_sandbox_id) {
                 let msg = OrchestratorMessage {
                     payload: Some(orchestrator_message::Payload::MemoryUpdate(
                         proto::MemoryFileUpdate {

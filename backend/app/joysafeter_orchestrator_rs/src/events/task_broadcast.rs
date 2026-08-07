@@ -4,7 +4,7 @@ use tokio::sync::broadcast;
 use tracing::warn;
 
 use super::envelope::EventEnvelope;
-use crate::kernel::sandbox_bridge::BridgeRegistry;
+use crate::kernel::ha::BridgeStore;
 
 /// TaskBroadcastSubscriber — BROADCAST phase.
 ///
@@ -12,12 +12,12 @@ use crate::kernel::sandbox_bridge::BridgeRegistry;
 /// and publishes to Redis for cross-instance delivery.
 /// Mirrors the Python `TaskBroadcastSubscriber`.
 pub struct TaskBroadcastSubscriber {
-    bridge_registry: BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
 }
 
 impl TaskBroadcastSubscriber {
-    pub fn new(bridge_registry: BridgeRegistry) -> Self {
-        Self { bridge_registry }
+    pub fn new(bridge_store: Arc<dyn BridgeStore>) -> Self {
+        Self { bridge_store }
     }
 
     /// Spawn as a background task listening on the event bus.
@@ -52,7 +52,7 @@ impl TaskBroadcastSubscriber {
         };
 
         // Broadcast to per-task WebSocket subscribers via bridge
-        if let Some(bridge) = self.bridge_registry.get_by_db_id(sandbox_id) {
+        if let Some(bridge) = self.bridge_store.get_by_db_id(sandbox_id) {
             let payload = envelope
                 .task_broadcast_payload
                 .as_ref()

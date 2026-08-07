@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: joysafeter-orchestrator
+  namespace: {{ .Values.namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: joysafeter-orchestrator
+  namespace: {{ .Values.namespace }}
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/exec", "pods/log", "pods/attach"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "create", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "create", "delete"]
+{{- if eq .Values.haMode "leader" }}
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "create", "update"]
+{{- end }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: joysafeter-orchestrator
+  namespace: {{ .Values.namespace }}
+subjects:
+- kind: ServiceAccount
+  name: joysafeter-orchestrator
+  namespace: {{ .Values.namespace }}
+roleRef:
+  kind: Role
+  name: joysafeter-orchestrator
+  apiGroup: rbac.authorization.k8s.io

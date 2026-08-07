@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
+use crate::kernel::ha::{XdsAction, XdsStateStore};
 use crate::kernel::harness_input_builder::VaultCipher;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
@@ -81,6 +82,8 @@ pub struct SandboxResolver {
     /// process restart because xDS state is in-memory; the first reuse after
     /// restart refreshes Envoy and repopulates this cache.
     network_policy_ready: dashmap::DashMap<Uuid, String>,
+    /// Optional notify to trigger immediate pool replenishment after a claim.
+    pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl SandboxResolver {
@@ -91,6 +94,20 @@ impl SandboxResolver {
             config,
             session_locks: dashmap::DashMap::new(),
             network_policy_ready: dashmap::DashMap::new(),
+            pool_replenish_notify: None,
+        }
+    }
+
+    /// Set the pool replenish notify (called from scheduler setup).
+    pub fn with_pool_replenish_notify(mut self, notify: Arc<tokio::sync::Notify>) -> Self {
+        self.pool_replenish_notify = Some(notify);
+        self
+    }
+
+    /// Signal that a pool sandbox was claimed — triggers immediate replenishment.
+    fn signal_pool_claimed(&self) {
+        if let Some(ref notify) = self.pool_replenish_notify {
+            notify.notify_one();
         }
     }
 
@@ -298,11 +315,12 @@ impl SandboxResolver {
         }
 
         // Stage 2: Claim from warm pool
+        // Pool sandboxes are created with deny-all networking. For limited-networking
+        // sessions, refresh_networking is called after claim to inject credentials.
         let requires_persistent_workspace =
             context.session_id.is_some() && self.config.sandbox_workspace_root.is_some();
         if self.config.sandbox_pool_enabled
             && context.expected.env.is_empty()
-            && !context.is_limited_networking()
             && !requires_persistent_workspace
         {
             let image = context.expected.image.as_str();
@@ -384,6 +402,27 @@ impl SandboxResolver {
                                     );
                                 }
                             }
+                            // Setup networking for limited-networking pool claims.
+                            // Pool sandboxes are created with deny-all; now inject
+                            // the session's credentials and push the Envoy policy.
+                            if context.is_limited_networking() {
+                                if let Err(err) = self
+                                    .setup_pool_sandbox_networking(
+                                        sandbox.id,
+                                        ext_id,
+                                        &context,
+                                    )
+                                    .await
+                                {
+                                    warn!(
+                                        sandbox_id = %sandbox.id,
+                                        "Failed to setup networking for pooled sandbox: {err}"
+                                    );
+                                    // Non-fatal: the reconcile loop will pick it up.
+                                    // Sandbox still usable (runner connected), just no egress yet.
+                                }
+                            }
+                            self.signal_pool_claimed();
                             return Ok((sandbox.id, ext_id.clone()));
                         }
                         Ok(SandboxStatus::Stopped) => {
@@ -421,6 +460,7 @@ impl SandboxResolver {
                                     return Err(err);
                                 }
                                 info!(sandbox_id = %sandbox.id, "Started pooled sandbox");
+                                self.signal_pool_claimed();
                                 return Ok((sandbox.id, ext_id.clone()));
                             }
                             // Broken pooled sandbox — destroy it
@@ -968,6 +1008,65 @@ impl SandboxResolver {
                 sandbox.id
             )
         })?;
+        Ok(())
+    }
+
+    /// Setup networking for a pool-claimed sandbox that needs limited networking.
+    ///
+    /// Pool sandboxes are created with deny-all networking. This method pushes
+    /// the session's egress policy (credentials + allowlist) after claim.
+    async fn setup_pool_sandbox_networking(
+        &self,
+        sandbox_id: Uuid,
+        external_id: &str,
+        context: &ResolveContext,
+    ) -> anyhow::Result<()> {
+        let _ = queries::prepare_sandbox_network_policy_push(
+            &self.pool,
+            sandbox_id,
+            &context.expected.egress_policy_hash,
+        )
+        .await?;
+
+        let setup_result = tokio::time::timeout(
+            SETUP_NETWORKING_TIMEOUT,
+            self.provider.setup_networking(
+                sandbox_id,
+                external_id,
+                context.networking.as_ref(),
+                context
+                    .credentials
+                    .clone()
+                    .with_proxy_auth_token(None), // token injected after runner re-auths
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(anyhow::anyhow!(
+                "setup_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+            ))
+        });
+
+        if let Err(e) = setup_result {
+            self.network_policy_ready.remove(&sandbox_id);
+            let _ = self
+                .persist_network_policy_failure(sandbox_id, None, context, &e)
+                .await;
+            return Err(e.context(format!(
+                "failed to setup Envoy policy for pool-claimed sandbox {sandbox_id}"
+            )));
+        }
+
+        self.network_policy_ready
+            .insert(sandbox_id, context.expected.egress_policy_hash.clone());
+        if self.config.envoy_xds_mode != "grpc" {
+            let _ = queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_id).await;
+        }
+        info!(
+            sandbox_id = %sandbox_id,
+            policy_hash = %context.expected.egress_policy_hash,
+            "Setup networking for pool-claimed sandbox"
+        );
         Ok(())
     }
 
@@ -2126,6 +2225,7 @@ pub(crate) async fn reconcile_sandbox_networking(
     provider: &dyn SandboxProvider,
     sandbox: &JoySafeterSandbox,
     llm_egress_allowed_hosts: &[String],
+    xds_store: Option<&dyn XdsStateStore>,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
     let sandbox_id = sandbox.id;
     let Some(external_id) = sandbox
@@ -2181,6 +2281,16 @@ pub(crate) async fn reconcile_sandbox_networking(
         return Err(e);
     }
     queries::mark_sandbox_network_policy_acked(pool, sandbox_id).await?;
+
+    // Notify other instances so their Envoy DaemonSets pick up the change
+    if let Some(store) = xds_store {
+        if let Err(e) = store.notify_change(sandbox_id, XdsAction::Upsert).await {
+            tracing::warn!(
+                sandbox_id = %sandbox_id,
+                "Failed to broadcast xDS change notification: {e}"
+            );
+        }
+    }
 
     Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
 }
@@ -2503,6 +2613,9 @@ fn merge_mcp_hosts(
         .unwrap_or_default();
 
     // Add MCP server hosts to allowlist.
+    // NOTE: MCP servers with vault credentials will also have credential-injection
+    // routes (transparent mode, match_host = real host). Those hosts are removed
+    // below to avoid the allowlist/credential overlap validation error.
     if let Some(mcp_configs) = agent
         .and_then(|a| a.mcp_configs.as_ref())
         .and_then(|value| value.as_array())
@@ -2533,6 +2646,27 @@ fn merge_mcp_hosts(
             .filter_map(|url| extract_host(url))
             .collect();
         allowed_hosts.retain(|h| !external_hosts.iter().any(|eh| eh == h));
+    }
+
+    // Remove MCP server hosts that have vault credentials (credential-injection
+    // routes use transparent exposure with the real host as match_host). Keeping
+    // them in allowlist would trigger the overlap validation error.
+    if let Some(mcp_configs) = agent
+        .and_then(|a| a.mcp_configs.as_ref())
+        .and_then(|value| value.as_array())
+    {
+        // MCP servers with credentials: those whose URL matches a vault credential
+        // row. We don't have vault data here, so we conservatively remove ALL
+        // MCP hosts that use transparent credential injection — i.e., any MCP
+        // server whose host would also appear as a credential route match_host.
+        // The credential route already provides egress access, so removing from
+        // allowlist does not reduce connectivity.
+        let mcp_hosts_with_creds: Vec<String> = mcp_configs
+            .iter()
+            .filter_map(|config| config.get("url").and_then(|v| v.as_str()))
+            .filter_map(|url| extract_host(url))
+            .collect();
+        allowed_hosts.retain(|h| !mcp_hosts_with_creds.iter().any(|mh| mh == h));
     }
 
     let Some(object) = networking.as_object_mut() else {

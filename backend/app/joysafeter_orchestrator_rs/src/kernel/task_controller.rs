@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::PgPool;
@@ -7,8 +8,8 @@ use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
-use crate::kernel::sandbox_bridge::BridgeRegistry;
 
 /// Task lifecycle watchdog with full Python parity.
 ///
@@ -23,7 +24,7 @@ pub struct TaskController {
     pool: PgPool,
     queue: TaskQueue,
     config: JoySafeterConfig,
-    bridge_registry: BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
 }
 
 impl TaskController {
@@ -31,13 +32,13 @@ impl TaskController {
         pool: PgPool,
         queue: TaskQueue,
         config: JoySafeterConfig,
-        bridge_registry: BridgeRegistry,
+        bridge_store: Arc<dyn BridgeStore>,
     ) -> Self {
         Self {
             pool,
             queue,
             config,
-            bridge_registry,
+            bridge_store,
         }
     }
 
@@ -270,7 +271,7 @@ impl TaskController {
 
     async fn active_task_ids(&self) -> Vec<Uuid> {
         let mut active_task_ids = Vec::new();
-        for bridge in self.bridge_registry.all_bridges() {
+        for bridge in self.bridge_store.all_bridges() {
             if let Some(task_id) = *bridge.current_task_id.lock().await {
                 active_task_ids.push(task_id);
             }
@@ -280,7 +281,7 @@ impl TaskController {
 
     async fn active_task_leases(&self) -> Vec<(Uuid, i64)> {
         let mut active_task_leases = Vec::new();
-        for bridge in self.bridge_registry.all_bridges() {
+        for bridge in self.bridge_store.all_bridges() {
             let task_id = *bridge.current_task_id.lock().await;
             let owner_epoch = *bridge.current_task_owner_epoch.lock().await;
             if let (Some(task_id), Some(owner_epoch)) = (task_id, owner_epoch) {
@@ -869,11 +870,13 @@ impl TaskController {
 #[cfg(test)]
 mod tests {
     use std::env;
+    use std::sync::Arc;
 
     use serde_json::Value;
     use sqlx::postgres::PgPoolOptions;
 
     use super::*;
+    use crate::kernel::sandbox_bridge::BridgeRegistry;
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
@@ -909,7 +912,7 @@ mod tests {
             pool,
             TaskQueue::new(redis_client),
             config,
-            BridgeRegistry::new(),
+            Arc::new(BridgeRegistry::new()),
         )
     }
 

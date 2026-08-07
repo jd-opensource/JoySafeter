@@ -32,7 +32,8 @@ use crate::grpc::proto::{
 use crate::kernel::harness_input_builder::HarnessInputBuilder;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::queue::TaskQueue;
-use crate::kernel::sandbox_bridge::{BridgeRegistry, SandboxBridge};
+use crate::kernel::ha::BridgeStore;
+use crate::kernel::sandbox_bridge::SandboxBridge;
 use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::SandboxProvider;
 
@@ -44,7 +45,7 @@ const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
 /// The AgentBridge gRPC service implementation.
 /// Full parity with Python `AgentBridgeServicer` (2753 lines).
 pub struct AgentBridgeService {
-    bridge_registry: BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
     event_bus: EventBus,
     queue: TaskQueue,
     pool: PgPool,
@@ -59,7 +60,7 @@ pub struct AgentBridgeService {
 
 impl AgentBridgeService {
     pub fn new(
-        bridge_registry: BridgeRegistry,
+        bridge_store: Arc<dyn BridgeStore>,
         event_bus: EventBus,
         queue: TaskQueue,
         pool: PgPool,
@@ -72,7 +73,7 @@ impl AgentBridgeService {
         let max_connections = config.grpc_max_connections;
         let max_executions = config.grpc_max_executions;
         Self {
-            bridge_registry,
+            bridge_store,
             event_bus,
             queue,
             pool,
@@ -107,7 +108,7 @@ impl AgentBridge for AgentBridgeService {
         let (tx, rx) = mpsc::channel::<OrchestratorMessage>(256);
         let outbound = ReceiverStream::new(rx);
 
-        let bridge_registry = self.bridge_registry.clone();
+        let bridge_store = self.bridge_store.clone();
         let event_bus = self.event_bus.clone();
         let queue = self.queue.clone();
         let pool = self.pool.clone();
@@ -234,7 +235,7 @@ impl AgentBridge for AgentBridgeService {
                 let mut caps = bridge.runner_capabilities.lock().await;
                 *caps = ready.capabilities.clone();
             }
-            bridge_registry.register(sandbox_external_id.clone(), bridge.clone());
+            bridge_store.register(sandbox_external_id.clone(), bridge.clone());
 
             // #3: Register sandbox owner in Redis (Python L184)
             if let Some(ref coord) = redis_coordinator {
@@ -278,7 +279,7 @@ impl AgentBridge for AgentBridgeService {
             let config = config.clone();
             let sandbox_provider = sandbox_provider.clone();
             let runtime_config = runtime_config.clone();
-            let registry = bridge_registry.clone();
+            let registry = bridge_store.clone();
             let bridge_clone = bridge.clone();
             let exec_sem = execution_semaphore.clone();
             let redis_coord = redis_coordinator.clone();
@@ -317,7 +318,7 @@ impl AgentBridge for AgentBridgeService {
                     &exec_sem,
                     redis_coord.as_deref(),
                     memory_subscribers.clone(),
-                    &registry,
+                    registry.clone(),
                     &runtime_config,
                 )
                 .await;
@@ -341,7 +342,7 @@ impl AgentBridge for AgentBridgeService {
                 &exec_sem,
                 redis_coord.as_deref(),
                 memory_subscribers.clone(),
-                &registry,
+                registry.clone(),
                 &runtime_config,
             )
             .await;
@@ -370,7 +371,7 @@ impl AgentBridge for AgentBridgeService {
                 sandbox_db_id,
                 linked_session_id,
                 failure_ejected,
-                &registry_for_grace,
+                registry_for_grace.clone(),
                 Some(&queue),
                 redis_coord.as_deref(),
                 &config,
@@ -409,7 +410,7 @@ async fn multi_task_loop(
     exec_sem: &Arc<Semaphore>,
     redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
-    bridge_registry: &BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
     runtime_config: &RuntimeConfig,
 ) -> bool {
     let hb_sec = runtime_config.heartbeat_timeout_sec();
@@ -829,7 +830,7 @@ async fn multi_task_loop(
             sandbox_db_id,
             heartbeat_timeout,
             memory_subscribers.clone(),
-            bridge_registry,
+            bridge_store.clone(),
             &task_cancel,
             Some(queue),
         )
@@ -943,7 +944,7 @@ async fn run_single_task(
     sandbox_db_id: Uuid,
     heartbeat_timeout: Duration,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
-    bridge_registry: &BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
     task_cancel: &tokio_util::sync::CancellationToken,
     queue: Option<&TaskQueue>,
 ) -> TaskResult {
@@ -1164,7 +1165,7 @@ async fn run_single_task(
                             &mut buffered_events,
                             &mut task_completed, &mut task_error,
                             &custom_names, &mcp_names,
-                            memory_subscribers.clone(), bridge_registry,
+                            memory_subscribers.clone(), bridge_store.clone(),
                             config.grpc_max_memories_per_store,
                         ).await;
                         if outcome.task_done { task_done = true; }
@@ -1309,7 +1310,7 @@ async fn handle_task_message(
     custom_names: &std::collections::HashSet<String>,
     mcp_names: &std::collections::HashSet<String>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
-    bridge_registry: &BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
     max_memories_per_store: i64,
 ) -> TaskMessageOutcome {
     let payload = match &msg.payload {
@@ -1701,7 +1702,7 @@ async fn handle_task_message(
             // Memory sync with path traversal protection + DB write
             let pool_clone = pool.clone();
             let memory_subscribers = memory_subscribers.clone();
-            let bridge_registry = bridge_registry.clone();
+            let bridge_store = bridge_store.clone();
             let session_id_clone = session_id;
             let mount_name = sync_msg.store_mount_name.clone();
             let rel_path = sync_msg.relative_path.clone();
@@ -1727,7 +1728,7 @@ async fn handle_task_message(
                         content.as_bytes(),
                         &operation,
                         sandbox_db_id,
-                        &bridge_registry,
+                        &*bridge_store,
                     )
                     .await;
             });
@@ -1897,6 +1898,7 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
 
     use super::*;
+    use crate::kernel::sandbox_bridge::BridgeRegistry;
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
@@ -3229,7 +3231,7 @@ mod tests {
                 &custom_names,
                 &mcp_names,
                 Arc::new(MemoryStoreSubscribers::new()),
-                &BridgeRegistry::new(),
+                Arc::new(BridgeRegistry::new()) as Arc<dyn BridgeStore>,
                 2000,
             )
             .await;
@@ -5113,7 +5115,7 @@ async fn handle_reconnect_with_event_loop(
     exec_sem: &Arc<Semaphore>,
     redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
-    bridge_registry: &BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
     runtime_config: &RuntimeConfig,
 ) {
     // Verify task exists and belongs to this sandbox
@@ -5211,7 +5213,7 @@ async fn handle_reconnect_with_event_loop(
         sandbox_db_id,
         heartbeat_timeout,
         memory_subscribers.clone(),
-        bridge_registry,
+        bridge_store,
         &task_cancel,
         None,
     )
@@ -5882,21 +5884,21 @@ async fn probe_and_grace_period_cleanup(
     sandbox_db_id: Uuid,
     session_id: Option<Uuid>,
     failure_ejected: bool,
-    bridge_registry: &BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
     queue: Option<&TaskQueue>,
     redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
     config: &JoySafeterConfig,
 ) {
     // First probe after 3s
     tokio::time::sleep(Duration::from_secs(3)).await;
-    if bridge_registry.get_by_db_id(sandbox_db_id).is_some() {
+    if bridge_store.get_by_db_id(sandbox_db_id).is_some() {
         info!(sandbox_id = %sandbox_db_id, "Reconnection detected (3s)");
         return;
     }
 
     // Second probe after 2 more seconds
     tokio::time::sleep(Duration::from_secs(2)).await;
-    if bridge_registry.get_by_db_id(sandbox_db_id).is_some() {
+    if bridge_store.get_by_db_id(sandbox_db_id).is_some() {
         info!(sandbox_id = %sandbox_db_id, "Reconnection detected (5s)");
         return;
     }
@@ -5904,7 +5906,7 @@ async fn probe_and_grace_period_cleanup(
     // Early reconnection checks at 5s intervals (cumulative: 10, 15)
     for i in 0..2 {
         tokio::time::sleep(Duration::from_secs(5)).await;
-        if bridge_registry.get_by_db_id(sandbox_db_id).is_some() {
+        if bridge_store.get_by_db_id(sandbox_db_id).is_some() {
             info!(sandbox_id = %sandbox_db_id, check = i + 2, "Reconnection detected during grace period");
             return;
         }
@@ -5915,7 +5917,7 @@ async fn probe_and_grace_period_cleanup(
     tokio::time::sleep(Duration::from_secs(105)).await;
 
     // Final check
-    if bridge_registry.get_by_db_id(sandbox_db_id).is_some() {
+    if bridge_store.get_by_db_id(sandbox_db_id).is_some() {
         info!(sandbox_id = %sandbox_db_id, "Reconnection detected at end of grace period");
         return;
     }
@@ -6935,7 +6937,7 @@ fn derive_permission_mode(agent: &Option<crate::db::models::JoySafeterAgent>) ->
 
 pub async fn start_grpc_server(
     addr: SocketAddr,
-    bridge_registry: BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
     event_bus: EventBus,
     queue: TaskQueue,
     pool: PgPool,
@@ -6947,7 +6949,7 @@ pub async fn start_grpc_server(
     xds_service: Option<Arc<crate::sandbox::lds_backend::DeltaXdsServer>>,
 ) -> anyhow::Result<JoinHandle<()>> {
     let service = Arc::new(AgentBridgeService::new(
-        bridge_registry,
+        bridge_store,
         event_bus,
         queue,
         pool,

@@ -43,7 +43,10 @@ async fn clone_one(work_dir: &Path, repo: &RepoConfig) -> Result<(), String> {
     let askpass = AskpassHelper::create(&repo.authorization_token).await?;
 
     let mut cmd = tokio::process::Command::new("git");
-    cmd.arg("clone").arg("--depth").arg("1");
+    cmd.arg("clone")
+        .arg("--depth")
+        .arg("1")
+        .arg("--single-branch");
     if !repo.branch.trim().is_empty() {
         cmd.arg("--branch").arg(&repo.branch);
     }

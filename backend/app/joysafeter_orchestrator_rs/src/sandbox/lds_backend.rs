@@ -1485,6 +1485,10 @@ pub struct DeltaXdsServer {
     db_pool: Arc<Mutex<Option<PgPool>>>,
     apply_status: Arc<Mutex<HashMap<Uuid, XdsApplyStatus>>>,
     status_notify: watch::Sender<u64>,
+    /// Node-aware filtering: maps sandbox_id → node_name. Used by stream tasks
+    /// to only send resources for sandboxes running on their node. Empty in
+    /// standalone/Docker mode (→ permissive: all resources pass filter).
+    sandbox_nodes: Arc<dashmap::DashMap<Uuid, String>>,
 }
 
 impl DeltaXdsServer {
@@ -1497,11 +1501,25 @@ impl DeltaXdsServer {
             db_pool: Arc::new(Mutex::new(None)),
             apply_status: Arc::new(Mutex::new(HashMap::new())),
             status_notify,
+            sandbox_nodes: Arc::new(dashmap::DashMap::new()),
         })
     }
 
     pub async fn attach_db_pool(&self, pool: PgPool) {
         *self.db_pool.lock().await = Some(pool);
+    }
+
+    /// Register which K8s node a sandbox is running on. Stream tasks use this
+    /// to filter resources — only sending listeners for sandboxes on their node.
+    /// In standalone/Docker mode this is not called; the filter defaults to
+    /// "include all" when a sandbox has no node entry.
+    pub fn set_sandbox_node(&self, sandbox_id: Uuid, node_name: String) {
+        self.sandbox_nodes.insert(sandbox_id, node_name);
+    }
+
+    /// Remove sandbox→node mapping (called on sandbox destroy).
+    pub fn remove_sandbox_node(&self, sandbox_id: Uuid) {
+        self.sandbox_nodes.remove(&sandbox_id);
     }
 
     pub async fn wait_for_sandbox_ack(
@@ -1828,6 +1846,32 @@ impl CdsBackend for GrpcCds {
 // Delta ADS service implementation
 // ---------------------------------------------------------------------------
 
+/// Check if a resource name belongs to a sandbox on the given node.
+/// Returns true if the resource should be sent to this stream.
+///
+/// Resource names follow the pattern `{sandbox_uuid}_{suffix}` (e.g.,
+/// `{uuid}_http` for listeners, `{uuid}_{host}_{port}` for clusters).
+/// Non-sandbox resources (e.g., shared DFP clusters) always pass.
+/// If a sandbox has no node entry (standalone mode), it also passes (permissive).
+fn resource_matches_node(
+    resource_name: &str,
+    stream_node: &str,
+    sandbox_nodes: &dashmap::DashMap<Uuid, String>,
+) -> bool {
+    // Sandbox UUIDs are 36 chars (8-4-4-4-12 with hyphens)
+    if resource_name.len() < 36 {
+        return true; // Too short to contain a UUID → non-sandbox resource
+    }
+    let uuid_part = &resource_name[..36];
+    let Ok(sandbox_id) = uuid_part.parse::<Uuid>() else {
+        return true; // Not a UUID prefix → non-sandbox resource (always include)
+    };
+    match sandbox_nodes.get(&sandbox_id) {
+        Some(entry) => entry.value() == stream_node,
+        None => true, // Not registered → permissive (standalone or race)
+    }
+}
+
 type DeltaStream = Pin<Box<dyn Stream<Item = Result<DeltaDiscoveryResponse, Status>> + Send>>;
 type SotwStream = Pin<Box<dyn Stream<Item = Result<DiscoveryResponse, Status>> + Send>>;
 
@@ -1861,6 +1905,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
         let mut notify_rx = self.notify.subscribe();
         let state_handle = self.state_snapshot_handle();
         let xds_status_handle = self.status_handle();
+        let sandbox_nodes = self.sandbox_nodes.clone();
 
         // Resource types this aggregated stream serves. Order matters: Clusters
         // (CDS) must be pushed before Listeners (LDS) so a listener's routes
@@ -1868,6 +1913,10 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
         const TYPES: [&str; 2] = [CLUSTER_TYPE_URL, LISTENER_TYPE_URL];
 
         let task = async move {
+            // Node-aware filtering: capture node_id from the first request.
+            // Until the first request arrives, stream_node is empty (accept all).
+            let mut stream_node = String::new();
+
             // Track response nonce -> resource names so ACK/NACK can be mapped
             // back to sandbox policy rows. Bounded + consumed on ACK/NACK so a
             // long-lived stream never leaks nonce state.
@@ -1888,6 +1937,15 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                     msg = inbound.message() => {
                         match msg {
                             Ok(Some(req)) => {
+                                // Capture node_id from the first request (Envoy sends it on initial subscription)
+                                if stream_node.is_empty() {
+                                    if let Some(ref node) = req.node {
+                                        if !node.id.is_empty() {
+                                            stream_node = node.id.clone();
+                                            debug!(node_id = %stream_node, "xDS stream identified node");
+                                        }
+                                    }
+                                }
                                 if !req.response_nonce.is_empty() {
                                     let (acked_type_url, acked_version, resources) = nonce_resources
                                         .take(&req.response_nonce)
@@ -1902,6 +1960,14 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                                 if TYPES.contains(&req.type_url.as_str()) && subscribed.insert(req.type_url.clone()) {
                                     let version = *notify_rx.borrow();
                                     let snap = state_handle.snapshot_type(&req.type_url).await;
+                                    // Node-aware filter: only include resources for this node
+                                    let snap = if stream_node.is_empty() {
+                                        snap
+                                    } else {
+                                        snap.into_iter()
+                                            .filter(|(name, _)| resource_matches_node(name, &stream_node, &sandbox_nodes))
+                                            .collect()
+                                    };
                                     let (resp, current) = delta_response_from_snapshot(
                                         req.type_url.clone(),
                                         version,
@@ -1942,6 +2008,14 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                                     continue;
                                 }
                                 let snap = state_handle.snapshot_type(type_url).await;
+                                // Node-aware filter
+                                let snap = if stream_node.is_empty() {
+                                    snap
+                                } else {
+                                    snap.into_iter()
+                                        .filter(|(name, _)| resource_matches_node(name, &stream_node, &sandbox_nodes))
+                                        .collect()
+                                };
                                 let (resp, current) = delta_response_from_snapshot(
                                     type_url.to_string(),
                                     version,
@@ -1967,14 +2041,30 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                             if !subscribed.contains(change.type_url.as_str()) {
                                 continue;
                             }
-                            let (resp, removed) =
+                            let (mut resp, removed) =
                                 delta_response_from_change(change, &mut nonce_resources);
+                            // Node-aware filter: skip resources not on this node
+                            if !stream_node.is_empty() {
+                                resp.resources.retain(|r| {
+                                    resource_matches_node(&r.name, &stream_node, &sandbox_nodes)
+                                });
+                                // Only keep removed_resources that match this node too
+                                // (so we don't tell Envoy to remove something it never had)
+                            }
                             let prev = sent.entry(resp.type_url.clone()).or_default();
                             for resource in &resp.resources {
                                 prev.insert(resource.name.clone());
                             }
                             for name in &removed {
-                                prev.remove(name);
+                                if stream_node.is_empty()
+                                    || resource_matches_node(name, &stream_node, &sandbox_nodes)
+                                {
+                                    prev.remove(name);
+                                }
+                            }
+                            // Skip sending empty responses (all resources filtered out)
+                            if resp.resources.is_empty() && resp.removed_resources.is_empty() {
+                                continue;
                             }
                             if tx.send(Ok(resp)).await.is_err() {
                                 closed = true;

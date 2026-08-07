@@ -32,6 +32,7 @@ struct CachedPod {
     phase: String,
     image: String,
     labels: HashMap<String, String>,
+    node_name: Option<String>,
 }
 
 impl CachedPod {
@@ -55,11 +56,13 @@ impl CachedPod {
             .unwrap_or_default()
             .into_iter()
             .collect::<HashMap<String, String>>();
+        let node_name = pod.spec.as_ref().and_then(|s| s.node_name.clone());
         Some(Self {
             name,
             phase,
             image,
             labels,
+            node_name,
         })
     }
 
@@ -114,6 +117,12 @@ impl PodWatcher {
             Some(pod) => pod.to_status(),
             None => SandboxStatus::NotFound,
         }
+    }
+
+    /// Get the K8s node name where a pod is scheduled (from cache).
+    pub async fn node_name(&self, pod_name: &str) -> Option<String> {
+        let cache = self.cache.read().await;
+        cache.get(pod_name).and_then(|pod| pod.node_name.clone())
     }
 
     /// List all active sandbox pods (from cache, zero API calls).

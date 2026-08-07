@@ -56,6 +56,10 @@ pub struct EnvoyConfig {
     /// externally — e.g. by a K8s initContainer on the sandbox pod). This
     /// avoids the orchestrator trying to mkdir on a remote node's filesystem.
     pub skip_socket_dir_prep: bool,
+    /// Envoy node.id for the bootstrap config. In K8s DaemonSet mode this is
+    /// the node name (from downward API), enabling node-aware xDS filtering.
+    /// In Docker standalone mode, defaults to "joysafeter-envoy".
+    pub node_id: String,
 }
 
 impl EnvoyConfig {
@@ -771,7 +775,7 @@ impl EnvoyManager {
         let bootstrap = json!({
             "node": {
                 "cluster": "joysafeter-proxy",
-                "id": "joysafeter-envoy"
+                "id": self.config.node_id
             },
             "dynamic_resources": dynamic_resources,
             "static_resources": {

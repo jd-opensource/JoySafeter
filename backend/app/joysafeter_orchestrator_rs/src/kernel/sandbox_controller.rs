@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
 use crate::kernel::queue::TaskQueue;
-use crate::kernel::sandbox_bridge::BridgeRegistry;
+use crate::kernel::ha::BridgeStore;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::SandboxProvider;
@@ -28,18 +28,20 @@ const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;
 pub struct SandboxController {
     pool: PgPool,
     queue: TaskQueue,
-    bridge_registry: BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
     provider: Arc<dyn SandboxProvider>,
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
+    /// Wakes the pool manager immediately when a sandbox is claimed from the pool.
+    pub pool_replenish_notify: Arc<tokio::sync::Notify>,
 }
 
 impl SandboxController {
     pub fn new(
         pool: PgPool,
         queue: TaskQueue,
-        bridge_registry: BridgeRegistry,
+        bridge_store: Arc<dyn BridgeStore>,
         provider: Arc<dyn SandboxProvider>,
         redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
         config: JoySafeterConfig,
@@ -48,12 +50,20 @@ impl SandboxController {
         Self {
             pool,
             queue,
-            bridge_registry,
+            bridge_store,
             provider,
             redis_coordinator,
             config,
             runtime_config,
+            pool_replenish_notify: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    /// Notify the pool manager that a sandbox was just claimed from the pool.
+    /// This wakes the pool replenishment loop immediately rather than waiting
+    /// for the next periodic tick.
+    pub fn notify_pool_claimed(&self) {
+        self.pool_replenish_notify.notify_one();
     }
 
     /// Spawn all controller loops.
@@ -174,6 +184,7 @@ impl SandboxController {
                 self.provider.as_ref(),
                 sandbox,
                 &self.config.llm_egress_allowed_hosts,
+                None, // xds_store: reconcile loop runs locally, no cross-instance notify needed
             )
             .await
             {
@@ -199,15 +210,22 @@ impl SandboxController {
         Ok(())
     }
 
-    /// Cleanup loop: runs every 60s. Pool management + stale cleanup.
-    /// S5: Also runs orphan cleanup every 5 iterations (~5 minutes).
+    /// Cleanup loop: runs every 10s OR immediately when pool claim notifies.
+    /// Pool management + stale cleanup.
+    /// S5: Also runs orphan cleanup every 30 iterations (~5 minutes).
     async fn cleanup_loop(&self) {
-        let interval = Duration::from_secs(60);
-        info!("SandboxController cleanup loop started (interval=60s)");
+        let interval = Duration::from_secs(10);
+        info!("SandboxController cleanup loop started (interval=10s, notify-driven pool)");
         let mut iteration: u64 = 0;
 
         loop {
-            tokio::time::sleep(interval).await;
+            // Wait for either the timer tick or an immediate pool replenish signal
+            tokio::select! {
+                _ = tokio::time::sleep(interval) => {}
+                _ = self.pool_replenish_notify.notified() => {
+                    debug!("Pool replenish triggered by claim notification");
+                }
+            }
             iteration += 1;
 
             if self.config.sandbox_pool_enabled {
@@ -216,8 +234,8 @@ impl SandboxController {
                 }
             }
 
-            // S5: Run orphan cleanup every 5 iterations (~5 minutes)
-            if iteration % 5 == 0 {
+            // S5: Run orphan cleanup every 30 iterations (~5 minutes)
+            if iteration % 30 == 0 {
                 match self.cleanup_orphaned().await {
                     Ok(count) => {
                         if count > 0 {
@@ -235,7 +253,7 @@ impl SandboxController {
     /// Phase 0: Health check all registered bridges.
     /// If a bridge has no active HITL and the container is dead, clean it up.
     async fn health_check_bridges(&self) -> anyhow::Result<()> {
-        for bridge in self.bridge_registry.all_bridges() {
+        for bridge in self.bridge_store.all_bridges() {
             let sandbox_id = bridge.sandbox_db_id;
 
             // Check sandbox DB status first — skip if already terminal
@@ -314,7 +332,7 @@ impl SandboxController {
                             };
 
                         // 3. Remove bridge
-                        self.bridge_registry.remove(ext_id);
+                        self.bridge_store.remove(ext_id);
 
                         // 4. Destroy container
                         if let Err(e) = self.provider.destroy(ext_id).await {
@@ -467,7 +485,7 @@ impl SandboxController {
         let mut cleanup_claimed_stopping = graceful;
 
         if graceful {
-            if let Some(bridge) = self.bridge_registry.get_by_db_id(sandbox_id) {
+            if let Some(bridge) = self.bridge_store.get_by_db_id(sandbox_id) {
                 if let Some(activity) = bridge.runner_runtime_activity().await {
                     let max_age_secs =
                         (self.runtime_config.heartbeat_timeout_sec() * 2).max(30) as i64;
@@ -570,7 +588,7 @@ impl SandboxController {
         // non-graceful path on the chance the runner is alive enough to
         // hear it — best effort.
         if let Some(ref ext_id) = external_id {
-            if let Some(bridge) = self.bridge_registry.get(ext_id) {
+            if let Some(bridge) = self.bridge_store.get(ext_id) {
                 let msg = crate::grpc::proto::OrchestratorMessage {
                     payload: Some(crate::grpc::proto::orchestrator_message::Payload::Shutdown(
                         crate::grpc::proto::Shutdown {
@@ -585,7 +603,7 @@ impl SandboxController {
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 }
             }
-            self.bridge_registry.remove(ext_id);
+            self.bridge_store.remove(ext_id);
         }
 
         // Stop the container
@@ -683,7 +701,7 @@ impl SandboxController {
             // Remove bridge (Python L311)
             let mut stop_succeeded = false;
             if let Some(ref ext_id) = external_id {
-                self.bridge_registry.remove(ext_id);
+                self.bridge_store.remove(ext_id);
                 match self.provider.stop(ext_id).await {
                     Ok(_) => stop_succeeded = true,
                     Err(e) => {
@@ -778,7 +796,7 @@ impl SandboxController {
         for (sandbox_id, external_id) in provisioning {
             // Bridge fast-path: if bridge already registered, transition to idle (Python L464-473)
             if let Some(ref ext_id) = external_id {
-                if self.bridge_registry.get(ext_id).is_some() {
+                if self.bridge_store.get(ext_id).is_some() {
                     let cas_ok = queries::transition_sandbox_cas(
                         &self.pool,
                         sandbox_id,
@@ -1052,10 +1070,9 @@ impl SandboxController {
     }
 
     async fn manage_pool_inner(&self) -> anyhow::Result<()> {
-        if self.provider.capabilities().has_egress_management {
-            debug!("Skipping warm pool provisioning while default sandbox networking is limited");
-            return Ok(());
-        }
+        // Pool sandboxes are created with deny-all networking. When claimed,
+        // refresh_networking injects the session's credentials dynamically.
+        // This is safe because pool sandboxes have no egress until claimed.
 
         // Support multiple pool images (Python L586-606)
         let pool_images = if self.config.sandbox_pool_images.is_empty() {
@@ -1074,26 +1091,66 @@ impl SandboxController {
 
             let current = pool_count.0 as usize;
             let min_size = self.runtime_config.pool_min_size() as usize;
+            // Low watermark: start replenishing when pool drops below 40% of min_size
+            // (or min 1). This ensures we start creating before the pool is fully empty.
+            let low_watermark = (min_size * 2 / 5).max(1);
+            // Buffer: create up to min_size + buffer to absorb burst claims
+            let buffer = (min_size / 2).max(1);
+            let target_size = min_size + buffer;
 
-            if current < min_size {
-                let to_create = min_size - current;
-                info!(current, min_size, to_create, image = %image, "Pool below minimum, provisioning");
-
-                let resolver = SandboxResolver::new(
-                    self.pool.clone(),
-                    self.provider.clone(),
-                    self.config.clone(),
+            if current < low_watermark || current < min_size {
+                let to_create = target_size.saturating_sub(current);
+                if to_create == 0 {
+                    continue;
+                }
+                info!(
+                    current,
+                    min_size,
+                    low_watermark,
+                    target_size,
+                    to_create,
+                    image = %image,
+                    "Pool below threshold, provisioning (parallel)"
                 );
+
+                // Parallel creation: spawn up to `to_create` sandboxes concurrently
+                // with a concurrency cap to avoid overwhelming the provider.
+                let concurrency = to_create.min(5);
+                let sem = Arc::new(Semaphore::new(concurrency));
+                let mut join_set = tokio::task::JoinSet::new();
+
                 for _ in 0..to_create {
-                    match resolver.provision_pool_sandbox(image).await {
-                        Ok(sandbox_id) => {
-                            info!(sandbox_id = %sandbox_id, image = %image, "Created pooled sandbox")
+                    let pool_db = self.pool.clone();
+                    let provider = self.provider.clone();
+                    let config = self.config.clone();
+                    let image = image.clone();
+                    let permit = sem.clone();
+
+                    join_set.spawn(async move {
+                        let _permit = permit.acquire().await;
+                        let resolver = SandboxResolver::new(pool_db, provider, config);
+                        resolver.provision_pool_sandbox(&image).await
+                    });
+                }
+
+                let mut created = 0usize;
+                while let Some(result) = join_set.join_next().await {
+                    match result {
+                        Ok(Ok(sandbox_id)) => {
+                            created += 1;
+                            info!(sandbox_id = %sandbox_id, image = %image, "Created pooled sandbox");
+                        }
+                        Ok(Err(e)) => {
+                            error!(image = %image, "Failed to provision pool sandbox: {e}");
+                            // Don't break — other parallel creates may succeed
                         }
                         Err(e) => {
-                            error!(image = %image, "Failed to provision pool sandbox: {e}");
-                            break;
+                            error!(image = %image, "Pool provision task panicked: {e}");
                         }
                     }
+                }
+                if created > 0 {
+                    info!(created, image = %image, "Pool replenishment batch complete");
                 }
             }
         } // close for image in &pool_images
@@ -1373,6 +1430,7 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
 
     use super::*;
+    use crate::kernel::sandbox_bridge::BridgeRegistry;
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
@@ -1837,7 +1895,7 @@ mod tests {
             let redis_client =
                 redis::Client::open("redis://127.0.0.1:1/").expect("build unreachable redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let config = JoySafeterConfig::from_env();
             let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
             let controller = SandboxController::new(
@@ -1939,7 +1997,7 @@ mod tests {
             let redis_client =
                 redis::Client::open("redis://127.0.0.1:6379").expect("build redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let config = JoySafeterConfig::from_env();
             let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
             let controller = SandboxController::new(
@@ -2082,7 +2140,7 @@ mod tests {
             let redis_client = redis::Client::open("redis://127.0.0.1:1/")
                 .expect("build unreachable redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let config = JoySafeterConfig::from_env();
             let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
             let controller = SandboxController::new(
@@ -2275,7 +2333,7 @@ mod tests {
         let redis_client =
             redis::Client::open("redis://127.0.0.1:1/").expect("build unreachable redis client");
         let queue = TaskQueue::new(redis_client);
-        let bridge_registry = BridgeRegistry::new();
+        let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
         let config = JoySafeterConfig::from_env();
         let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
         SandboxController::new(
@@ -2462,7 +2520,7 @@ mod tests {
             let redis_client = redis::Client::open("redis://127.0.0.1:1/")
                 .expect("build unreachable redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let (runner_tx, _runner_rx) = tokio::sync::mpsc::channel(1);
             let bridge = Arc::new(crate::kernel::sandbox_bridge::SandboxBridge::new(
                 sandbox_id, runner_tx,
@@ -2567,7 +2625,7 @@ mod tests {
             let redis_client = redis::Client::open("redis://127.0.0.1:1/")
                 .expect("build unreachable redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let (runner_tx, _runner_rx) = tokio::sync::mpsc::channel(1);
             let bridge = Arc::new(crate::kernel::sandbox_bridge::SandboxBridge::new(
                 sandbox_id, runner_tx,
@@ -2649,7 +2707,7 @@ mod tests {
             let redis_client = redis::Client::open("redis://127.0.0.1:1/")
                 .expect("build unreachable redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let config = JoySafeterConfig::from_env();
             let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
             let controller = SandboxController::new(
@@ -2748,7 +2806,7 @@ mod tests {
             let redis_client = redis::Client::open("redis://127.0.0.1:1/")
                 .expect("build unreachable redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let config = JoySafeterConfig::from_env();
             let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
             let controller = SandboxController::new(
@@ -2831,7 +2889,7 @@ mod tests {
             let redis_client = redis::Client::open("redis://127.0.0.1:1/")
                 .expect("build unreachable redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let config = JoySafeterConfig::from_env();
             let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
             let controller = SandboxController::new(
@@ -2986,7 +3044,7 @@ mod tests {
             let redis_client = redis::Client::open("redis://127.0.0.1:1/")
                 .expect("build unreachable redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let config = JoySafeterConfig::from_env();
             let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
             let controller = SandboxController::new(
@@ -3091,7 +3149,7 @@ mod tests {
             let redis_client =
                 redis::Client::open("redis://127.0.0.1:6379").expect("build redis client");
             let queue = TaskQueue::new(redis_client);
-            let bridge_registry = BridgeRegistry::new();
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
             let mut config = JoySafeterConfig::from_env();
             config.instance_id = format!("stop-error-instance-{sandbox_id}");
             let runtime_config = Arc::new(RuntimeConfig::from_config(&config));

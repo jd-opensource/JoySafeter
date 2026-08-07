@@ -1,0 +1,178 @@
+{{- if .Values.envoy.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: joysafeter-envoy
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: joysafeter-envoy
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: joysafeter-envoy
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 10
+
+      containers:
+      - name: envoy
+        image: {{ .Values.image.envoy }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["sh", "-c"]
+        args:
+        - |
+          set -eu
+          mkdir -p /sockets
+
+          cat > /tmp/bootstrap.json << BOOTSTRAP
+          {
+            "node": {
+              "cluster": "joysafeter-proxy",
+              "id": "${NODE_NAME}"
+            },
+            "dynamic_resources": {
+              "lds_config": { "ads": {} },
+              "cds_config": { "ads": {} },
+              "ads_config": {
+                "api_type": "DELTA_GRPC",
+                "transport_api_version": "V3",
+                "grpc_services": [{
+                  "envoy_grpc": { "cluster_name": "xds_cluster" }
+                }]
+              }
+            },
+            "static_resources": {
+              "clusters": [
+                {
+                  "name": "dynamic_forward_proxy",
+                  "connect_timeout": "10s",
+                  "lb_policy": "CLUSTER_PROVIDED",
+                  "cluster_type": {
+                    "name": "envoy.clusters.dynamic_forward_proxy",
+                    "typed_config": {
+                      "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
+                      "dns_cache_config": {
+                        "name": "dynamic_forward_proxy_cache",
+                        "dns_lookup_family": "V4_ONLY"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "dynamic_forward_proxy_tls",
+                  "connect_timeout": "10s",
+                  "lb_policy": "CLUSTER_PROVIDED",
+                  "cluster_type": {
+                    "name": "envoy.clusters.dynamic_forward_proxy",
+                    "typed_config": {
+                      "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
+                      "dns_cache_config": {
+                        "name": "dynamic_forward_proxy_cache",
+                        "dns_lookup_family": "V4_ONLY"
+                      }
+                    }
+                  },
+                  "transport_socket": {
+                    "name": "envoy.transport_sockets.tls",
+                    "typed_config": {
+                      "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
+                      "common_tls_context": {
+                        "validation_context": {
+                          "trusted_ca": { "filename": "/etc/ssl/certs/ca-certificates.crt" }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "xds_cluster",
+                  "connect_timeout": "5s",
+                  "type": "STRICT_DNS",
+                  "lb_policy": "ROUND_ROBIN",
+                  "typed_extension_protocol_options": {
+                    "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
+                      "@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+                      "explicit_http_config": {
+                        "http2_protocol_options": {}
+                      }
+                    }
+                  },
+                  "load_assignment": {
+                    "cluster_name": "xds_cluster",
+                    "endpoints": [{
+                      "lb_endpoints": [{
+                        "endpoint": {
+                          "address": {
+                            "socket_address": {
+                              "address": "joysafeter-orchestrator",
+                              "port_value": {{ .Values.orchestrator.grpc.port }}
+                            }
+                          }
+                        }
+                      }]
+                    }]
+                  }
+                }
+              ]
+            },
+            "admin": {
+              "address": {
+                "socket_address": {
+                  "address": "127.0.0.1",
+                  "port_value": 9901
+                }
+              }
+            }
+          }
+          BOOTSTRAP
+
+          exec envoy -c /tmp/bootstrap.json --log-level info
+
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+
+        securityContext:
+          runAsUser: 101
+          runAsGroup: 101
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+
+        resources:
+          {{- toYaml .Values.envoy.resources | nindent 10 }}
+
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 9901
+          periodSeconds: 5
+          failureThreshold: 3
+          initialDelaySeconds: 5
+
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 9901
+          periodSeconds: 3
+          failureThreshold: 2
+          initialDelaySeconds: 3
+
+        volumeMounts:
+        - name: envoy-sockets
+          mountPath: /sockets
+
+      volumes:
+      - name: envoy-sockets
+        hostPath:
+          path: {{ .Values.envoy.socketHostDir }}
+          type: DirectoryOrCreate
+{{- end }}

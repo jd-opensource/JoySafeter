@@ -15,7 +15,7 @@ use crate::db::{
     queries,
 };
 use crate::kernel::queue::TaskQueue;
-use crate::kernel::sandbox_bridge::BridgeRegistry;
+use crate::kernel::ha::BridgeStore;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::sandbox::provider::SandboxProvider;
 
@@ -52,11 +52,17 @@ struct SchedulerEnvironmentSnapshot {
 pub fn spawn_scheduler(
     pool: PgPool,
     queue: TaskQueue,
-    bridge_registry: BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
+    task_dispatcher: Arc<dyn crate::kernel::ha::TaskDispatcher>,
     provider: Arc<dyn SandboxProvider>,
     config: JoySafeterConfig,
+    pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
 ) -> JoinHandle<()> {
-    let resolver = Arc::new(SandboxResolver::new(pool.clone(), provider, config.clone()));
+    let mut resolver = SandboxResolver::new(pool.clone(), provider, config.clone());
+    if let Some(notify) = pool_replenish_notify {
+        resolver = resolver.with_pool_replenish_notify(notify);
+    }
+    let resolver = Arc::new(resolver);
     let scheduling_semaphore = Arc::new(Semaphore::new(config.max_scheduling_tasks));
 
     tokio::spawn(async move {
@@ -146,7 +152,8 @@ pub fn spawn_scheduler(
             for task in tasks {
                 let pool = pool.clone();
                 let queue = queue.clone();
-                let bridge_registry = bridge_registry.clone();
+                let bridge_store = bridge_store.clone();
+                let task_dispatcher = task_dispatcher.clone();
                 let config = config.clone();
                 let resolver = resolver.clone();
                 let sched_sem = scheduling_semaphore.clone();
@@ -170,7 +177,8 @@ pub fn spawn_scheduler(
                         schedule_single_task(
                             &resolver_pool,
                             &queue,
-                            &bridge_registry,
+                            &*bridge_store,
+                            &*task_dispatcher,
                             &config,
                             &resolver,
                             task_id,
@@ -203,7 +211,8 @@ pub fn spawn_scheduler(
 async fn schedule_single_task(
     pool: &PgPool,
     queue: &TaskQueue,
-    bridge_registry: &BridgeRegistry,
+    bridge_store: &dyn BridgeStore,
+    task_dispatcher: &dyn crate::kernel::ha::TaskDispatcher,
     config: &JoySafeterConfig,
     resolver: &SandboxResolver,
     task_id: Uuid,
@@ -312,8 +321,21 @@ async fn schedule_single_task(
     queue.push(sandbox_db_id, task_id).await?;
 
     // --- Notify bridge if connected ---
-    if let Some(bridge) = bridge_registry.get_by_db_id(sandbox_db_id) {
+    if let Some(bridge) = bridge_store.get_by_db_id(sandbox_db_id) {
+        // Bridge is local — notify directly (zero latency)
         bridge.task_available.notify_one();
+    } else {
+        // Bridge on another instance — send wakeup via TaskDispatcher (Redis inbox)
+        if let Err(e) = task_dispatcher
+            .dispatch_command(sandbox_db_id, crate::kernel::ha::DispatchCommand::TaskWakeup)
+            .await
+        {
+            // Non-fatal: the idle_wait polling in multi_task_loop will pick it up
+            debug!(
+                sandbox_id = %sandbox_db_id,
+                "Cross-instance task wakeup failed (idle poll will recover): {e}"
+            );
+        }
     }
 
     info!(
@@ -632,6 +654,7 @@ async fn load_environment_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kernel::sandbox_bridge::BridgeRegistry;
     use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
     use sqlx::postgres::PgPoolOptions;
     use std::env;
@@ -826,12 +849,14 @@ mod tests {
 
     async fn scheduler_noop_runtime(
         pool: &PgPool,
-    ) -> (TaskQueue, BridgeRegistry, JoySafeterConfig, SandboxResolver) {
+    ) -> (TaskQueue, Arc<dyn BridgeStore>, Arc<dyn crate::kernel::ha::TaskDispatcher>, JoySafeterConfig, SandboxResolver) {
         let queue = test_queue();
-        let bridge_registry = BridgeRegistry::new();
+        let bridge_store: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
+        let task_dispatcher: Arc<dyn crate::kernel::ha::TaskDispatcher> =
+            Arc::new(crate::kernel::ha::LocalTaskDispatcher::new(bridge_store.clone()));
         let config = JoySafeterConfig::from_env();
         let resolver = SandboxResolver::new(pool.clone(), Arc::new(NeverProvider), config.clone());
-        (queue, bridge_registry, config, resolver)
+        (queue, bridge_store, task_dispatcher, config, resolver)
     }
 
     fn test_queue() -> TaskQueue {
@@ -876,11 +901,12 @@ mod tests {
         .expect("insert stale running task without session");
 
         let result = async {
-            let (queue, bridge_registry, config, resolver) = scheduler_noop_runtime(&pool).await;
+            let (queue, bridge_store, task_dispatcher, config, resolver) = scheduler_noop_runtime(&pool).await;
             schedule_single_task(
                 &pool,
                 &queue,
-                &bridge_registry,
+                &*bridge_store,
+                &*task_dispatcher,
                 &config,
                 &resolver,
                 task_id,
@@ -1158,13 +1184,14 @@ mod tests {
         let task_id =
             create_scheduler_task(&pool, Some(agent_id), session_id, "scheduling", 0, 2, None)
                 .await;
-        let (queue, bridge_registry, config, resolver) = scheduler_noop_runtime(&pool).await;
+        let (queue, bridge_store, task_dispatcher, config, resolver) = scheduler_noop_runtime(&pool).await;
 
         let result = async {
             schedule_single_task(
                 &pool,
                 &queue,
-                &bridge_registry,
+                &*bridge_store,
+                &*task_dispatcher,
                 &config,
                 &resolver,
                 task_id,
@@ -1219,13 +1246,14 @@ mod tests {
         let task_id =
             create_scheduler_task(&pool, Some(agent_id), session_id, "scheduling", 0, 2, None)
                 .await;
-        let (queue, bridge_registry, config, resolver) = scheduler_noop_runtime(&pool).await;
+        let (queue, bridge_store, task_dispatcher, config, resolver) = scheduler_noop_runtime(&pool).await;
 
         let result = async {
             schedule_single_task(
                 &pool,
                 &queue,
-                &bridge_registry,
+                &*bridge_store,
+                &*task_dispatcher,
                 &config,
                 &resolver,
                 task_id,

@@ -650,35 +650,71 @@ async fn write_files(
 async fn download_file_refs(
     file_refs: &[proto::FileRef],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    for fr in file_refs {
-        let path = std::path::Path::new(&fr.path);
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
-        }
-        info!(url = %fr.url, path = %fr.path, "Downloading file from presigned URL");
-        let resp = reqwest::get(&fr.url)
-            .await
-            .map_err(|e| format!("download file ref {}: {e}", fr.path))?;
-        if !resp.status().is_success() {
-            return Err(format!(
-                "download file ref {} returned HTTP {}",
-                fr.path,
-                resp.status()
-            )
-            .into());
-        }
-        let bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| format!("read file ref body {}: {e}", fr.path))?;
-        tokio::fs::write(path, &bytes)
-            .await
-            .map_err(|e| format!("write {}: {e}", path.display()))?;
-        auto_extract_file_archive(path, &fr.path, &fr.filename).await?;
-        info!(path = %fr.path, filename = %fr.filename, size = bytes.len(), "Downloaded file");
+    if file_refs.is_empty() {
+        return Ok(());
     }
+
+    // Download up to 8 files concurrently for reduced wall-clock time.
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(8));
+    let mut join_set = tokio::task::JoinSet::new();
+
+    for fr in file_refs {
+        let url = fr.url.clone();
+        let path = fr.path.clone();
+        let filename = fr.filename.clone();
+        let sem = semaphore.clone();
+
+        join_set.spawn(async move {
+            let _permit = sem
+                .acquire()
+                .await
+                .map_err(|e| format!("semaphore: {e}"))?;
+            download_single_file_ref(&url, &path, &filename).await
+        });
+    }
+
+    while let Some(result) = join_set.join_next().await {
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(e) => return Err(format!("download task panicked: {e}").into()),
+        }
+    }
+    Ok(())
+}
+
+async fn download_single_file_ref(
+    url: &str,
+    file_path: &str,
+    filename: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let path = std::path::Path::new(file_path);
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    info!(url = %url, path = %file_path, "Downloading file from presigned URL");
+    let resp = reqwest::get(url)
+        .await
+        .map_err(|e| format!("download file ref {}: {e}", file_path))?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "download file ref {} returned HTTP {}",
+            file_path,
+            resp.status()
+        )
+        .into());
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("read file ref body {}: {e}", file_path))?;
+    tokio::fs::write(path, &bytes)
+        .await
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    auto_extract_file_archive(path, file_path, filename).await?;
+    info!(path = %file_path, filename = %filename, size = bytes.len(), "Downloaded file");
     Ok(())
 }
 

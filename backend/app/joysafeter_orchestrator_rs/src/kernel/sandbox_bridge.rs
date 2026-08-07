@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
 use uuid::Uuid;
 
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage, SandboxFileResponse};
+use crate::kernel::ha::BridgeStore;
 
 #[derive(Clone, Debug)]
 pub struct RunnerRuntimeActivity {
@@ -329,6 +331,41 @@ impl BridgeRegistry {
             };
             let _ = bridge.send_to_runner(msg).await;
         }
+    }
+}
+
+#[async_trait]
+impl BridgeStore for BridgeRegistry {
+    fn register(&self, external_id: String, bridge: Arc<SandboxBridge>) {
+        BridgeRegistry::register(self, external_id, bridge);
+    }
+
+    fn get(&self, external_id: &str) -> Option<Arc<SandboxBridge>> {
+        BridgeRegistry::get(self, external_id)
+    }
+
+    fn get_by_db_id(&self, db_id: Uuid) -> Option<Arc<SandboxBridge>> {
+        BridgeRegistry::get_by_db_id(self, db_id)
+    }
+
+    fn remove(&self, external_id: &str) -> Option<Arc<SandboxBridge>> {
+        BridgeRegistry::remove(self, external_id)
+    }
+
+    fn all_bridges(&self) -> Vec<Arc<SandboxBridge>> {
+        BridgeRegistry::all_bridges(self)
+    }
+
+    async fn shutdown_all(&self) {
+        BridgeRegistry::shutdown_all(self).await;
+    }
+
+    async fn get_owner_instance(&self, _sandbox_id: Uuid) -> Option<String> {
+        Some("self".to_string())
+    }
+
+    async fn heartbeat(&self) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 

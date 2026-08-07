@@ -164,6 +164,9 @@ pub struct JoySafeterConfig {
     pub leader_renew_interval_sec: u64,
     pub leader_identity: String,
 
+    // HA mode
+    pub ha_mode: String,
+
     // Database
     pub database_url: String,
 
@@ -332,6 +335,8 @@ impl JoySafeterConfig {
                 .or_else(|_| env::var("HOSTNAME"))
                 .unwrap_or_else(|_| format!("orch-{}", uuid::Uuid::now_v7())),
 
+            ha_mode: env_str("JOYSAFETER_HA_MODE", "standalone"),
+
             database_url: build_database_url(),
             redis_url: build_redis_url(),
         }
@@ -367,6 +372,18 @@ impl JoySafeterConfig {
             anyhow::bail!(
                 "JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH must be an absolute Unix socket file path, got {:?}",
                 self.runner_control_socket_container_path
+            );
+        }
+        // HA mode validation
+        if self.ha_mode == "multi" && self.leader_election_enabled {
+            anyhow::bail!(
+                "JOYSAFETER_HA_MODE=multi and JOYSAFETER_LEADER_ELECTION_ENABLED=true are mutually exclusive. \
+                 Multi mode is leaderless; disable leader election or use ha_mode=leader."
+            );
+        }
+        if self.ha_mode == "multi" && self.redis_url.is_none() {
+            anyhow::bail!(
+                "JOYSAFETER_HA_MODE=multi requires Redis. Set REDIS_URL or REDIS_HOST."
             );
         }
         Ok(())

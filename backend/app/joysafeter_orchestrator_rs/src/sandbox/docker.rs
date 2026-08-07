@@ -165,6 +165,7 @@ impl DockerProvider {
                     health_check_interval_sec: config.envoy_health_check_interval_sec,
                     health_failure_threshold: config.envoy_health_failure_threshold,
                     skip_socket_dir_prep: false,
+                    node_id: "joysafeter-envoy".to_string(),
                 },
                 lds,
             )))

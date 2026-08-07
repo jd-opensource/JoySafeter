@@ -218,8 +218,15 @@ async fn main() -> anyhow::Result<()> {
         warn!("Provider on_startup failed: {e}");
     }
 
-    // Initialize sandbox bridge registry
-    let bridge_registry = kernel::sandbox_bridge::BridgeRegistry::new();
+    // Initialize HA components (bridge store, task dispatcher, xDS store)
+    let ha = kernel::ha::build_ha_components(
+        &config,
+        redis_client.as_ref(),
+        Some(db_pool.clone()),
+        Some(sandbox_provider.clone()),
+    );
+    let bridge_store = ha.bridge_store.clone();
+    info!(ha_mode = %ha.mode.as_str(), "HA components initialized");
 
     // Initialize task queue (Redis-backed scheduler wakeups)
     let queue = kernel::queue::TaskQueue::new(
@@ -237,7 +244,7 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         queue.clone(),
         config.clone(),
-        bridge_registry.clone(),
+        bridge_store.clone(),
     );
     task_controller.recover_on_startup().await?;
     info!("Startup recovery complete");
@@ -247,7 +254,7 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(kernel::sandbox_controller::SandboxController::new(
             db_pool.clone(),
             queue.clone(),
-            bridge_registry.clone(),
+            bridge_store.clone(),
             sandbox_provider.clone(),
             redis_coordinator.clone(),
             config.clone(),
@@ -262,7 +269,7 @@ async fn main() -> anyhow::Result<()> {
     // Start gRPC server
     let grpc_handle = grpc::server::start_grpc_server(
         config.grpc_addr(),
-        bridge_registry.clone(),
+        bridge_store.clone(),
         event_bus.clone(),
         queue.clone(),
         db_pool.clone(),
@@ -276,16 +283,6 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     info!(addr = %config.grpc_addr(), "gRPC server started");
 
-    // Start task scheduler
-    let scheduler_handle = kernel::scheduler::spawn_scheduler(
-        db_pool.clone(),
-        queue.clone(),
-        bridge_registry.clone(),
-        sandbox_provider.clone(),
-        config.clone(),
-    );
-    info!("Task scheduler started");
-
     // Start task controller (periodic checks)
     let task_ctrl_handle = task_controller.spawn();
     info!("Task controller started");
@@ -294,7 +291,7 @@ async fn main() -> anyhow::Result<()> {
     let sandbox_controller = Arc::new(kernel::sandbox_controller::SandboxController::new(
         db_pool.clone(),
         queue.clone(),
-        bridge_registry.clone(),
+        bridge_store.clone(),
         sandbox_provider.clone(),
         redis_coordinator.clone(),
         config.clone(),
@@ -305,6 +302,18 @@ async fn main() -> anyhow::Result<()> {
         "Sandbox controller started ({} loops)",
         sandbox_ctrl_handles.len()
     );
+
+    // Start task scheduler (after sandbox controller so pool_replenish_notify is available)
+    let scheduler_handle = kernel::scheduler::spawn_scheduler(
+        db_pool.clone(),
+        queue.clone(),
+        bridge_store.clone(),
+        ha.task_dispatcher.clone(),
+        sandbox_provider.clone(),
+        config.clone(),
+        Some(sandbox_controller.pool_replenish_notify.clone()),
+    );
+    info!("Task scheduler started");
 
     // Start event bus subscribers
     let mut subscriber_handles = Vec::new();
@@ -328,7 +337,7 @@ async fn main() -> anyhow::Result<()> {
 
     // TaskBroadcastSubscriber (BROADCAST phase)
     let task_broadcast_sub =
-        events::task_broadcast::TaskBroadcastSubscriber::new(bridge_registry.clone());
+        events::task_broadcast::TaskBroadcastSubscriber::new(bridge_store.clone());
     subscriber_handles.push(task_broadcast_sub.spawn(event_bus.subscribe()));
     info!("TaskBroadcastSubscriber started");
 
@@ -345,7 +354,8 @@ async fn main() -> anyhow::Result<()> {
             client.clone(),
             &config.instance_id,
             db_pool.clone(),
-            bridge_registry.clone(),
+            bridge_store.clone(),
+            ha.task_dispatcher.clone(),
             sandbox_provider.clone(),
             None, // envoy_manager
             config.llm_egress_allowed_hosts.clone(),
@@ -422,7 +432,7 @@ async fn main() -> anyhow::Result<()> {
     // Runners that are mid-task will continue autonomously (agent runs locally);
     // they reconnect to the new leader and report results there.
     const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-    let active_bridges = bridge_registry.all_bridges().len();
+    let active_bridges = bridge_store.all_bridges().len();
     if active_bridges > 0 {
         info!(
             active_bridges,
@@ -432,7 +442,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Send shutdown to remaining connected runners
-    bridge_registry.shutdown_all().await;
+    bridge_store.shutdown_all().await;
 
     // Stop remaining background tasks
     grpc_handle.abort();
@@ -445,6 +455,10 @@ async fn main() -> anyhow::Result<()> {
         h.abort();
     }
     if let Some(h) = cmd_listener_handle {
+        h.abort();
+    }
+    // Stop HA background loops (inbox consumer, heartbeat, xDS notify)
+    for h in ha.background_handles {
         h.abort();
     }
 

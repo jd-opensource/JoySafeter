@@ -8,9 +8,9 @@ use uuid::Uuid;
 
 use crate::db::queries;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
+use crate::kernel::ha::{BridgeStore, DispatchCommand, TaskDispatcher};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::redis_coordinator::RedisCoordinator;
-use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::image_builder::{EnvironmentPackages, ImageBuilder};
 use crate::sandbox::provider::SandboxProvider;
@@ -30,7 +30,8 @@ pub struct CommandListener {
     client: redis::Client,
     instance_id: String,
     pool: PgPool,
-    bridge_registry: BridgeRegistry,
+    bridge_store: Arc<dyn BridgeStore>,
+    task_dispatcher: Arc<dyn TaskDispatcher>,
     provider: Arc<dyn SandboxProvider>,
     envoy_manager: Option<Arc<EnvoyManager>>,
     llm_egress_allowed_hosts: Vec<String>,
@@ -44,7 +45,8 @@ impl CommandListener {
         client: redis::Client,
         instance_id: &str,
         pool: PgPool,
-        bridge_registry: BridgeRegistry,
+        bridge_store: Arc<dyn BridgeStore>,
+        task_dispatcher: Arc<dyn TaskDispatcher>,
         provider: Arc<dyn SandboxProvider>,
         envoy_manager: Option<Arc<EnvoyManager>>,
         llm_egress_allowed_hosts: Vec<String>,
@@ -56,7 +58,8 @@ impl CommandListener {
             client,
             instance_id: instance_id.to_string(),
             pool,
-            bridge_registry,
+            bridge_store,
+            task_dispatcher,
             provider,
             envoy_manager,
             llm_egress_allowed_hosts,
@@ -159,7 +162,7 @@ impl CommandListener {
         }
 
         if cmd_type == "sandbox_file" {
-            let bridge = match self.bridge_registry.get_by_db_id(sandbox_id) {
+            let bridge = match self.bridge_store.get_by_db_id(sandbox_id) {
                 Some(b) => b,
                 None => {
                     self.publish_ack_payload(
@@ -199,11 +202,36 @@ impl CommandListener {
             return result.map(|_| ());
         }
 
-        let bridge = match self.bridge_registry.get_by_db_id(sandbox_id) {
+        let bridge = match self.bridge_store.get_by_db_id(sandbox_id) {
             Some(b) => b,
             None => {
-                debug!("No local bridge for sandbox {sandbox_id}, ignoring command");
-                self.publish_ack(&cmd, false).await;
+                // Bridge not local — try cross-instance dispatch via TaskDispatcher
+                let dispatch_cmd = match cmd_type {
+                    "cancel" => DispatchCommand::Cancel {
+                        reason: cmd["reason"].as_str().unwrap_or("cancelled by remote").to_string(),
+                    },
+                    "input" => DispatchCommand::SendInput {
+                        content: cmd["content"].as_str().unwrap_or("").to_string(),
+                    },
+                    "shutdown" => DispatchCommand::Shutdown {
+                        reason: cmd["reason"].as_str().unwrap_or("remote shutdown").to_string(),
+                    },
+                    _ => {
+                        debug!("No local bridge for sandbox {sandbox_id}, ignoring unknown command {cmd_type}");
+                        self.publish_ack(&cmd, false).await;
+                        return Ok(());
+                    }
+                };
+                match self.task_dispatcher.dispatch_command(sandbox_id, dispatch_cmd).await {
+                    Ok(()) => {
+                        self.publish_ack(&cmd, true).await;
+                        info!(sandbox_id = %sandbox_id, cmd_type = cmd_type, "Dispatched command via TaskDispatcher (cross-instance)");
+                    }
+                    Err(e) => {
+                        debug!(sandbox_id = %sandbox_id, "TaskDispatcher failed: {e}");
+                        self.publish_ack(&cmd, false).await;
+                    }
+                }
                 return Ok(());
             }
         };
@@ -278,6 +306,7 @@ impl CommandListener {
             self.provider.as_ref(),
             &sandbox,
             &self.llm_egress_allowed_hosts,
+            None, // xds_store: command-triggered refresh, caller can broadcast separately
         )
         .await?
         {
@@ -343,7 +372,7 @@ impl CommandListener {
             None => (command_external_id.clone(), None),
         };
 
-        if let Some(bridge) = self.bridge_registry.get_by_db_id(sandbox_id) {
+        if let Some(bridge) = self.bridge_store.get_by_db_id(sandbox_id) {
             let msg = OrchestratorMessage {
                 payload: Some(orchestrator_message::Payload::Shutdown(proto::Shutdown {
                     reason: reason.to_string(),
@@ -353,7 +382,7 @@ impl CommandListener {
         }
 
         if let Some(ref ext_id) = external_id {
-            self.bridge_registry.remove(ext_id);
+            self.bridge_store.remove(ext_id);
             if let Err(e) = self.provider.destroy(ext_id).await {
                 let err = format!("{e}");
                 if !(err.contains("No such container") || err.contains("404")) {
@@ -545,7 +574,7 @@ impl CommandListener {
                 content.as_bytes(),
                 operation,
                 no_sender,
-                &self.bridge_registry,
+                &*self.bridge_store,
             )
             .await;
 
@@ -640,6 +669,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::*;
+    use crate::kernel::ha::BridgeStore;
     use crate::kernel::memory_sync::MemoryStoreSubscribers;
     use crate::kernel::sandbox_bridge::BridgeRegistry;
     use crate::sandbox::provider::{SandboxCreateConfig, SandboxStatus};
@@ -716,11 +746,15 @@ mod tests {
     }
 
     fn command_listener(pool: PgPool, provider: Arc<dyn SandboxProvider>) -> CommandListener {
+        let bridge_store: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
+        let task_dispatcher: Arc<dyn crate::kernel::ha::TaskDispatcher> =
+            Arc::new(crate::kernel::ha::LocalTaskDispatcher::new(bridge_store.clone()));
         CommandListener::new(
             redis::Client::open("redis://127.0.0.1:1/").expect("redis url"),
             "test-instance",
             pool,
-            BridgeRegistry::new(),
+            bridge_store,
+            task_dispatcher,
             provider,
             None,
             vec![],
