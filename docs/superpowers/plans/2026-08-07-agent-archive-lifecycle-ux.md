@@ -91,12 +91,13 @@ async def _paused_cron_trigger(db_session, *, project: Project, agent: JoySafete
 async def test_resume_after_agent_restore_rearms_enabled_cron_trigger(db_session):
     project, agent = await _project_and_agent(db_session, name="ResumeRearm")
     trigger = await _paused_cron_trigger(db_session, project=project, agent=agent)
+    trigger_id = trigger.id  # capture PK before expire_all() to avoid a sync reload
 
     await JoySafeterTriggerService(db_session).resume_after_agent_restore(agent.id)
     await db_session.commit()
 
     db_session.expire_all()
-    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger.id))).scalar_one()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert row.next_run_at is not None
     assert row.next_run_at > utc_now() - timedelta(minutes=1)
 
@@ -107,12 +108,13 @@ async def test_resume_after_agent_restore_keeps_disabled_trigger_paused(db_sessi
     trigger = await _paused_cron_trigger(db_session, project=project, agent=agent)
     trigger.enabled = False
     await db_session.commit()
+    trigger_id = trigger.id
 
     await JoySafeterTriggerService(db_session).resume_after_agent_restore(agent.id)
     await db_session.commit()
 
     db_session.expire_all()
-    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger.id))).scalar_one()
+    row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert row.next_run_at is None
 ```
 
