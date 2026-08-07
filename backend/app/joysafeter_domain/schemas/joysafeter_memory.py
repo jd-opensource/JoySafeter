@@ -1,12 +1,11 @@
 import re
-import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.joysafeter_shared.ids import MemoryId, MemoryStoreId, MemoryVersionId, SessionId
+from app.joysafeter_shared.ids import MemoryId, MemoryStoreId, MemoryVersionId
 
 MEMORY_MAX_CONTENT_BYTES = 102400  # 100 KB
 MEMORY_MAX_PATH_BYTES = 1024
@@ -128,18 +127,3 @@ class MemoryVersionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class SessionMemoryStoreResponse(BaseModel):
-    id: uuid.UUID
-    type: str = "session_memory_store"
-    session_id: SessionId
-    store_id: MemoryStoreId
-    access: str = "read_write"
-    instructions: Optional[str] = None
-    mount_name: str
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sesrsc_{v}"
