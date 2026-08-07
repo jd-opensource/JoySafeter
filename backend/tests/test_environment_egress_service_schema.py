@@ -1,7 +1,11 @@
 import pytest
 from pydantic import ValidationError
 
-from app.joysafeter_domain.schemas.joysafeter_environment import EnvironmentConfig
+from app.joysafeter_domain.schemas.joysafeter_environment import (
+    EnvironmentConfig,
+    EnvironmentSecretReference,
+    extract_environment_secret_references,
+)
 
 pytestmark = pytest.mark.no_db
 
@@ -98,3 +102,39 @@ def test_environment_egress_service_rejects_duplicate_names():
                 },
             ]
         )
+
+
+def test_extract_environment_secret_references_unifies_direct_and_egress_refs():
+    config = EnvironmentConfig(
+        secret_refs=["shared", " direct-only ", "shared"],
+        egress_services=[
+            {
+                "name": "crm",
+                "base_url": "https://crm.example.com",
+                "credential_ref": "egress-only",
+            },
+            {
+                "name": "shared-service",
+                "base_url": "https://shared.example.com",
+                "credential_ref": "shared",
+            },
+        ],
+    )
+
+    assert extract_environment_secret_references(config) == [
+        EnvironmentSecretReference("shared", "secret_refs"),
+        EnvironmentSecretReference("direct-only", "secret_refs"),
+        EnvironmentSecretReference("egress-only", "egress_services"),
+    ]
+
+
+def test_extract_environment_secret_references_tolerates_legacy_malformed_config():
+    assert extract_environment_secret_references(
+        {
+            "secret_refs": ["", None, " direct "],
+            "egress_services": [None, "invalid", {"credential_ref": " egress "}, {}],
+        }
+    ) == [
+        EnvironmentSecretReference("direct", "secret_refs"),
+        EnvironmentSecretReference("egress", "egress_services"),
+    ]

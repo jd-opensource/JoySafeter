@@ -2,6 +2,7 @@ import json
 import uuid
 
 import pytest
+from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
@@ -16,6 +17,7 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
@@ -58,6 +60,20 @@ async def _ensure_project(db_session, project_id: str) -> None:
         )
     )
     await db_session.commit()
+
+
+async def _project_secret(db_session, *, kind: str) -> JoySafeterSecret:
+    secret = JoySafeterSecret(
+        name=f"{kind}-secret-{uuid.uuid4()}",
+        kind=kind,
+        provider="openai" if kind == "llm" else None,
+        protocol="openai_chat_completions" if kind == "llm" else None,
+        data=encrypted_secret_data({"TOKEN": "value", "MODEL": "gpt-5"}),
+    )
+    db_session.add(secret)
+    await db_session.commit()
+    await db_session.refresh(secret)
+    return secret
 
 
 class _FakeRuntimeRedis:
@@ -203,7 +219,7 @@ async def test_create_environment_rejects_missing_secret_ref_with_structured_err
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "ENVIRONMENT_SECRET_NOT_FOUND",
         "message": f"Secret not found: {missing_ref}",
-        "data": {"secret_ref": missing_ref},
+        "data": {"secret_ref": missing_ref, "source": "secret_refs"},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -213,6 +229,66 @@ async def test_create_environment_rejects_missing_secret_ref_with_structured_err
         await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.name == req.name))
     ).scalar_one_or_none()
     assert row is None
+
+
+@pytest.mark.asyncio
+async def test_create_environment_rejects_missing_egress_credential(db_session):
+    missing_ref = f"missing-egress-{uuid.uuid4()}"
+    req = CreateEnvironmentRequest(
+        name=f"egress-env-{uuid.uuid4()}",
+        config=EnvironmentConfig(
+            egress_services=[
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com",
+                    "credential_ref": missing_ref,
+                }
+            ]
+        ),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await create_environment(req, db_session, _auth_ctx())
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "ENVIRONMENT_SECRET_NOT_FOUND",
+        "message": f"Secret not found: {missing_ref}",
+        "data": {"secret_ref": missing_ref, "source": "egress_services"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["secret_refs", "egress_services"])
+async def test_create_environment_rejects_llm_secret_for_service_credentials(db_session, source):
+    llm_secret = await _project_secret(db_session, kind="llm")
+    config = (
+        EnvironmentConfig(secret_refs=[llm_secret.name])
+        if source == "secret_refs"
+        else EnvironmentConfig(
+            egress_services=[
+                {
+                    "name": "model-api",
+                    "base_url": "https://model.example.com",
+                    "credential_ref": llm_secret.name,
+                }
+            ]
+        )
+    )
+    req = CreateEnvironmentRequest(name=f"invalid-kind-{uuid.uuid4()}", config=config)
+
+    with pytest.raises(AppError) as exc_info:
+        await create_environment(req, db_session, _auth_ctx())
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=400)
+    assert payload["code"] == "ENVIRONMENT_SECRET_KIND_INVALID"
+    assert payload["data"] == {
+        "secret_ref": llm_secret.name,
+        "source": source,
+        "kind": "llm",
+    }
 
 
 @pytest.mark.asyncio

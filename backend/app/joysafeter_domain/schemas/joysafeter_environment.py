@@ -1,7 +1,7 @@
 import posixpath
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, NamedTuple, Optional
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -318,6 +318,45 @@ class EnvironmentConfig(BaseModel):
                     raise ValueError(f"mount_path overlaps with another mount: {resource.mount_path}")
             mount_paths.append(resource.mount_path)
         return self
+
+
+EnvironmentSecretReferenceSource = Literal["secret_refs", "egress_services"]
+
+
+class EnvironmentSecretReference(NamedTuple):
+    name: str
+    source: EnvironmentSecretReferenceSource
+
+
+def extract_environment_secret_references(
+    config: EnvironmentConfig | dict[str, Any] | None,
+) -> list[EnvironmentSecretReference]:
+    raw = config.model_dump() if isinstance(config, EnvironmentConfig) else config
+    if not isinstance(raw, dict):
+        return []
+
+    references: list[EnvironmentSecretReference] = []
+    seen: set[str] = set()
+
+    def append(value: object, source: EnvironmentSecretReferenceSource) -> None:
+        name = str(value).strip() if value is not None else ""
+        if not name or name in seen:
+            return
+        seen.add(name)
+        references.append(EnvironmentSecretReference(name, source))
+
+    direct_refs = raw.get("secret_refs")
+    if isinstance(direct_refs, list):
+        for value in direct_refs:
+            append(value, "secret_refs")
+
+    services = raw.get("egress_services")
+    if isinstance(services, list):
+        for service in services:
+            if isinstance(service, dict):
+                append(service.get("credential_ref"), "egress_services")
+
+    return references
 
 
 class CreateEnvironmentRequest(BaseModel):
