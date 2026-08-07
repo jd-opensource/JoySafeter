@@ -1,0 +1,38 @@
+import { parseAgentId, parseSessionId, parseVaultId } from '@/types/entity-id'
+import type { Session, SessionAgent } from '@/types/managed'
+import { parseSessionRepoResourceResponse } from './file-response-parsers'
+
+type RawSessionAgent = Omit<SessionAgent, 'id' | 'agent_id'> & {
+  id: string
+  agent_id?: string
+}
+
+type RawSession = Omit<Session, 'id' | 'agent' | 'vault_ids' | 'repo_resources'> & {
+  id: string
+  agent?: RawSessionAgent
+  vault_ids?: string[]
+  repo_resources?: unknown[]
+}
+
+function parseSessionAgent(response: RawSessionAgent): SessionAgent {
+  return {
+    ...response,
+    id: parseAgentId(response.id),
+    agent_id: response.agent_id === undefined ? undefined : parseAgentId(response.agent_id),
+  }
+}
+
+export function parseSessionResponse(response: unknown): Session {
+  const raw = response as RawSession
+  return {
+    ...raw,
+    id: parseSessionId(raw.id),
+    agent: raw.agent === undefined ? undefined : parseSessionAgent(raw.agent),
+    vault_ids: raw.vault_ids?.map(parseVaultId),
+    repo_resources: raw.repo_resources?.map(parseSessionRepoResourceResponse),
+  }
+}
+
+export function parseSessionListResponse(response: unknown): Session[] {
+  return (response as RawSession[]).map(parseSessionResponse)
+}

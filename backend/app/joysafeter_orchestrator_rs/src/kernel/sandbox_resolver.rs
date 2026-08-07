@@ -13,6 +13,10 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
+use crate::ids::{
+    AgentId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId, SessionResourceId, TaskId,
+    VaultId,
+};
 use crate::kernel::harness_input_builder::VaultCipher;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
@@ -74,12 +78,12 @@ pub struct SandboxResolver {
     provider: Arc<dyn SandboxProvider>,
     config: JoySafeterConfig,
     /// Per-session locks to prevent concurrent resolution
-    session_locks: dashmap::DashMap<Uuid, Arc<tokio::sync::Mutex<()>>>,
+    session_locks: dashmap::DashMap<SessionId, Arc<tokio::sync::Mutex<()>>>,
     /// In-process confirmation that this orchestrator has successfully pushed
     /// the sandbox's current Envoy policy. DB state alone is not enough after a
     /// process restart because xDS state is in-memory; the first reuse after
     /// restart refreshes Envoy and repopulates this cache.
-    network_policy_ready: dashmap::DashMap<Uuid, String>,
+    network_policy_ready: dashmap::DashMap<SandboxId, String>,
 }
 
 impl SandboxResolver {
@@ -109,11 +113,11 @@ impl SandboxResolver {
     /// double-attachment.
     pub async fn resolve(
         &self,
-        task_id: Uuid,
-        session_id: Option<Uuid>,
-        agent_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: Option<SessionId>,
+        agent_id: Option<AgentId>,
         project_id: Option<&str>,
-    ) -> anyhow::Result<(Uuid, String)> {
+    ) -> anyhow::Result<(SandboxId, String)> {
         // Per-session in-process lock to prevent concurrent resolution
         let _lock = if let Some(sid) = session_id {
             let lock = self
@@ -145,11 +149,11 @@ impl SandboxResolver {
 
     async fn resolve_inner(
         &self,
-        task_id: Uuid,
-        session_id: Option<Uuid>,
-        agent_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: Option<SessionId>,
+        agent_id: Option<AgentId>,
         project_id: Option<&str>,
-    ) -> anyhow::Result<(Uuid, String)> {
+    ) -> anyhow::Result<(SandboxId, String)> {
         let context = self
             .build_resolve_context(session_id, agent_id, project_id)
             .await?;
@@ -457,10 +461,10 @@ impl SandboxResolver {
     /// Create a brand-new sandbox container with full env vars and runner token.
     async fn create_new_sandbox(
         &self,
-        task_id: Uuid,
+        task_id: TaskId,
         context: &ResolveContext,
-    ) -> anyhow::Result<(Uuid, String)> {
-        let sandbox_db_id = Uuid::now_v7();
+    ) -> anyhow::Result<(SandboxId, String)> {
+        let sandbox_db_id = SandboxId::from_uuid(Uuid::now_v7());
         let expected = context.expected.clone();
         let image = expected.image.clone();
         let runner_token = generate_runner_token();
@@ -469,7 +473,7 @@ impl SandboxResolver {
         let mut env = expected.env.clone();
         env.insert(
             "JOYSAFETER_SANDBOX_ID".to_string(),
-            sandbox_db_id.to_string(),
+            sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
         // Disable Claude Code telemetry — the sandbox has no route to
@@ -485,7 +489,7 @@ impl SandboxResolver {
         labels.insert("joysafeter.managed".to_string(), "true".to_string());
         labels.insert(
             "joysafeter.sandbox_id".to_string(),
-            sandbox_db_id.to_string(),
+            sandbox_db_id.as_uuid().to_string(),
         );
         labels.insert(
             "joysafeter.owner_instance_id".to_string(),
@@ -735,8 +739,8 @@ impl SandboxResolver {
 
     async fn build_resolve_context(
         &self,
-        session_id: Option<Uuid>,
-        agent_id: Option<Uuid>,
+        session_id: Option<SessionId>,
+        agent_id: Option<AgentId>,
         project_id: Option<&str>,
     ) -> anyhow::Result<ResolveContext> {
         let live_agent = match agent_id {
@@ -861,7 +865,7 @@ impl SandboxResolver {
         env_ref: &str,
         project_id: Option<&str>,
     ) -> anyhow::Result<Option<EnvironmentRow>> {
-        if let Some(env_id) = parse_prefixed_uuid(env_ref, "env_") {
+        if let Ok(env_id) = EnvironmentId::from_public(env_ref) {
             return sqlx::query_as::<_, EnvironmentRow>(
                 r#"
                 SELECT config, image_tag FROM joysafeter_environments
@@ -972,8 +976,8 @@ impl SandboxResolver {
 
     async fn persist_network_policy_failure(
         &self,
-        sandbox_id: Uuid,
-        task_id: Option<Uuid>,
+        sandbox_id: SandboxId,
+        task_id: Option<TaskId>,
         context: &ResolveContext,
         error: &anyhow::Error,
     ) -> anyhow::Result<()> {
@@ -1316,7 +1320,7 @@ impl SandboxResolver {
     /// Envoy injects the real `Authorization` here.
     async fn build_mcp_egress(
         pool: &PgPool,
-        session_id: Option<Uuid>,
+        session_id: Option<SessionId>,
         agent: Option<&JoySafeterAgent>,
     ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
         let Some(agent) = agent else {
@@ -1361,7 +1365,7 @@ impl SandboxResolver {
         let Some(vault_ids) = session.vault_ids.as_ref() else {
             return Ok(vec![]);
         };
-        let ids: Vec<Uuid> = vault_ids
+        let ids: Vec<VaultId> = vault_ids
             .as_array()
             .map(|arr| {
                 arr.iter()
@@ -1445,7 +1449,7 @@ impl SandboxResolver {
     /// forwards over the upstream scheme. The real token never enters the sandbox.
     async fn build_git_egress(
         pool: &PgPool,
-        session_id: Option<Uuid>,
+        session_id: Option<SessionId>,
     ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
         let Some(session_id) = session_id else {
             return Ok(vec![]);
@@ -1724,7 +1728,7 @@ impl SandboxResolver {
         Ok(())
     }
 
-    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         self.provider.teardown_networking(sandbox_id).await
     }
 
@@ -1777,7 +1781,7 @@ impl SandboxResolver {
 
     async fn restart_stopped_sandbox(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: &str,
     ) -> anyhow::Result<bool> {
         let claimed =
@@ -1818,7 +1822,7 @@ impl SandboxResolver {
 
     async fn active_sandbox_status(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: &str,
     ) -> anyhow::Result<Option<String>> {
         let Some(sandbox) = queries::get_sandbox(&self.pool, sandbox_id).await? else {
@@ -1835,8 +1839,8 @@ impl SandboxResolver {
 
     async fn mark_pool_claimed(
         &self,
-        sandbox_id: Uuid,
-        session_id: Option<Uuid>,
+        sandbox_id: SandboxId,
+        session_id: Option<SessionId>,
         expected: &ExpectedFingerprint,
         stage: &str,
         progress: i64,
@@ -1867,14 +1871,14 @@ impl SandboxResolver {
     }
 
     /// Provision a warm-pool sandbox (called from SandboxController).
-    pub async fn provision_pool_sandbox(&self, image: &str) -> anyhow::Result<Uuid> {
-        let sandbox_db_id = Uuid::now_v7();
+    pub async fn provision_pool_sandbox(&self, image: &str) -> anyhow::Result<SandboxId> {
+        let sandbox_db_id = SandboxId::from_uuid(Uuid::now_v7());
         let runner_token = generate_runner_token();
 
         let mut env = HashMap::new();
         env.insert(
             "JOYSAFETER_SANDBOX_ID".to_string(),
-            sandbox_db_id.to_string(),
+            sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
 
@@ -1890,7 +1894,7 @@ impl SandboxResolver {
                 ("joysafeter.managed".to_string(), "true".to_string()),
                 (
                     "joysafeter.sandbox_id".to_string(),
-                    sandbox_db_id.to_string(),
+                    sandbox_db_id.as_uuid().to_string(),
                 ),
                 (
                     "joysafeter.owner_instance_id".to_string(),
@@ -2206,7 +2210,7 @@ async fn load_environment_row(
     env_ref: &str,
     project_id: Option<&str>,
 ) -> anyhow::Result<Option<EnvironmentRow>> {
-    if let Some(env_id) = parse_prefixed_uuid(env_ref, "env_") {
+    if let Ok(env_id) = EnvironmentId::from_public(env_ref) {
         return Ok(sqlx::query_as::<_, EnvironmentRow>(
             r#"
             SELECT config, image_tag FROM joysafeter_environments
@@ -2234,7 +2238,7 @@ struct ExpectedFingerprint {
 
 #[derive(Debug, Clone)]
 struct ResolveContext {
-    session_id: Option<Uuid>,
+    session_id: Option<SessionId>,
     project_id: Option<String>,
     networking: Option<serde_json::Value>,
     network: Option<String>,
@@ -2403,12 +2407,10 @@ fn generate_runner_token() -> String {
     hex::encode(random_bytes)
 }
 
-fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
-    raw.strip_prefix(prefix).unwrap_or(raw).parse().ok()
-}
-
-fn parse_vault_ref(raw: &str) -> Option<Uuid> {
-    raw.strip_prefix("vault_").unwrap_or(raw).parse().ok()
+fn parse_vault_ref(raw: &str) -> Option<VaultId> {
+    // session.vault_ids is persisted canonically prefixed (Python list[VaultId] ->
+    // str(vault_id)); only the prefixed form is accepted.
+    VaultId::from_public(raw).ok()
 }
 
 fn non_empty(value: Option<&str>) -> Option<String> {
@@ -2950,14 +2952,14 @@ mod egress_tests {
     #[derive(Default)]
     struct RecordingProvider {
         created: Mutex<Vec<SandboxCreateConfig>>,
-        networking: Mutex<Vec<(Uuid, Option<serde_json::Value>)>>,
-        start_status_probe: Mutex<Option<(PgPool, Uuid)>>,
+        networking: Mutex<Vec<(SandboxId, Option<serde_json::Value>)>>,
+        start_status_probe: Mutex<Option<(PgPool, SandboxId)>>,
         start_observed_statuses: Mutex<Vec<String>>,
-        start_marks_error: Mutex<Option<(PgPool, Uuid)>>,
-        status_marks_idle: Mutex<Option<(PgPool, Uuid)>>,
-        status_marks_error: Mutex<Option<(PgPool, Uuid)>>,
+        start_marks_error: Mutex<Option<(PgPool, SandboxId)>>,
+        status_marks_idle: Mutex<Option<(PgPool, SandboxId)>>,
+        status_marks_error: Mutex<Option<(PgPool, SandboxId)>>,
         status_result: Mutex<Option<SandboxStatus>>,
-        destroy_status_probe: Mutex<Option<(PgPool, Uuid)>>,
+        destroy_status_probe: Mutex<Option<(PgPool, SandboxId)>>,
         destroy_observed_statuses: Mutex<Vec<String>>,
         destroyed: Mutex<Vec<String>>,
     }
@@ -3030,7 +3032,7 @@ mod egress_tests {
 
         async fn setup_networking(
             &self,
-            sandbox_id: Uuid,
+            sandbox_id: SandboxId,
             _sandbox_external_id: &str,
             networking: Option<&serde_json::Value>,
             _credentials: SandboxCredentials,
@@ -3354,7 +3356,7 @@ mod egress_tests {
             assert_eq!(created[0].workspace_path.as_deref(), None);
             assert_eq!(
                 created[0].env.get("JOYSAFETER_SANDBOX_ID"),
-                Some(&sandbox_id.to_string())
+                Some(&sandbox_id.as_uuid().to_string())
             );
         }
         .await;
@@ -3461,8 +3463,8 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
         let unique = Uuid::now_v7().simple().to_string();
         let image = format!("resolver-new-error-{unique}:latest");
         let trigger_name = format!("trg_new_sandbox_error_{unique}");
@@ -3528,7 +3530,12 @@ mod egress_tests {
         let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
         let result = resolver
-            .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+            .resolve(
+                TaskId::from_uuid(Uuid::now_v7()),
+                Some(session_id),
+                Some(agent_id),
+                None,
+            )
             .await;
         let destroyed = provider.destroyed.lock().await.clone();
         let sandbox: Option<(Uuid, String, serde_json::Value)> = sqlx::query_as(
@@ -3585,10 +3592,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-pool-claim-idle-{unique}:latest");
         let external_id = format!("resolver-pool-claim-idle-{sandbox_id}");
 
@@ -3661,13 +3668,18 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let resolved = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("pool claim should survive runner-ready idle race");
             assert_eq!(resolved, (sandbox_id, external_id.clone()));
             assert!(provider.destroyed.lock().await.is_empty());
 
-            let sandbox: (String, Option<Uuid>, serde_json::Value) = sqlx::query_as(
+            let sandbox: (String, Option<SessionId>, serde_json::Value) = sqlx::query_as(
                 "SELECT status, chat_session_id, config FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -3708,10 +3720,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-pool-stopped-start-{unique}:latest");
         let external_id = format!("resolver-pool-stopped-start-{sandbox_id}");
 
@@ -3785,7 +3797,12 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let resolved = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("stopped pool claim should restart after DB claim");
             assert_eq!(resolved, (sandbox_id, external_id.clone()));
@@ -3796,7 +3813,7 @@ mod egress_tests {
             );
             assert!(provider.destroyed.lock().await.is_empty());
 
-            let sandbox: (String, Option<Uuid>, serde_json::Value) = sqlx::query_as(
+            let sandbox: (String, Option<SessionId>, serde_json::Value) = sqlx::query_as(
                 "SELECT status, chat_session_id, config FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -3837,10 +3854,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-pool-claim-error-{unique}:latest");
         let external_id = format!("resolver-pool-claim-error-{sandbox_id}");
 
@@ -3913,7 +3930,12 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let err = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect_err("concurrent pool claim error must abort resolve");
             let message = err.to_string();
@@ -3963,11 +3985,11 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let vault_id = Uuid::now_v7();
-        let credential_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let vault_id = VaultId::from_uuid(Uuid::now_v7());
+        let credential_id = CredentialId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let mcp_url = "https://mcp.vault-alias.example/api";
 
         async {
@@ -4030,7 +4052,7 @@ mod egress_tests {
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(serde_json::json!([format!("vault_{vault_id}")]))
+            .bind(serde_json::json!([vault_id.to_string()]))
             .execute(&pool)
             .await
             .expect("insert session");
@@ -4084,10 +4106,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-race-image-{unique}:latest");
         let external_id = format!("resolver-race-{sandbox_id}");
 
@@ -4174,7 +4196,12 @@ mod egress_tests {
 
             let resolver = SandboxResolver::new(pool.clone(), provider, config);
             let err = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect_err("concurrent error must abort stopped sandbox restart");
             let message = err.to_string();
@@ -4220,10 +4247,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-restart-ordering-{unique}:latest");
         let external_id = format!("resolver-restart-ordering-{sandbox_id}");
 
@@ -4310,7 +4337,12 @@ mod egress_tests {
 
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
             let resolved = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("restart stopped sandbox");
             assert_eq!(resolved, (sandbox_id, external_id.clone()));
@@ -4350,11 +4382,11 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let stale_sandbox_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let stale_sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-stale-creating-{unique}:latest");
         let external_id = format!("resolver-stale-creating-{stale_sandbox_id}");
 
@@ -4436,7 +4468,12 @@ mod egress_tests {
 
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
             let (resolved_sandbox_id, _resolved_external_id) = resolver
-                .resolve(task_id, Some(session_id), Some(agent_id), None)
+                .resolve(
+                    task_id,
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("resolve replacement after stale creating cleanup");
             assert_ne!(resolved_sandbox_id, stale_sandbox_id);
@@ -4477,11 +4514,11 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let environment_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
-        let environment_ref = format!("env_{environment_id}");
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let environment_ref = environment_id.to_string();
         let agent_name = format!("resolver-snapshot-agent-{unique}");
         let environment_name = format!("resolver-snapshot-env-{unique}");
         let snapshot = serde_json::json!({
@@ -4582,7 +4619,12 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let (sandbox_id, _external_id) = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("resolve sandbox from snapshot");
 
@@ -4665,11 +4707,11 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let file_id = Uuid::now_v7();
-        let session_file_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let file_id = FileId::from_uuid(Uuid::now_v7());
+        let session_file_id = SessionResourceId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let org_id = format!("org-{unique}");
         let project_id = format!("proj-{unique}");
         let missing_storage_key = format!("missing-resolver-session-file-{unique}.txt");
@@ -4782,7 +4824,12 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let err = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect_err("missing declared session file content must fail sandbox resolve");
             let message = err.to_string();

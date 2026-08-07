@@ -4,16 +4,12 @@ Pydantic schemas for the JoySafeter Task API.
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
-from app.joysafeter_shared.utils.id_utils import (
-    format_sandbox_id,
-)
+from app.joysafeter_shared.ids import AgentId, SandboxId, SessionId, TaskId
 
 # Coarse per-field safety bound for free-text prompt content. Sits far below the
 # request body-size cap (64 MiB) so a single field cannot bloat a DB row or the
@@ -47,7 +43,7 @@ class JoySafeterTaskResponse(BaseModel):
     status: str
     prompt: str
     system: Optional[str] = Field(default=None, validation_alias="system_prompt")
-    sandbox_id: Optional[uuid.UUID] = None
+    sandbox_id: Optional[SandboxId] = None
     output: str = ""
     error: Optional[str] = None
     usage: Optional[dict] = None
@@ -60,7 +56,3 @@ class JoySafeterTaskResponse(BaseModel):
     duration_ms: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("sandbox_id")
-    def serialize_sandbox_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return format_sandbox_id(value) if value is not None else None

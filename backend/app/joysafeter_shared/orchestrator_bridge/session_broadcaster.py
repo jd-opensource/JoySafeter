@@ -1,11 +1,10 @@
 import asyncio
 import json
 import logging
-import uuid
 from typing import Any
 
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
-from app.joysafeter_shared.ids import as_uuid
+from app.joysafeter_shared.ids import SessionId
 
 logger = logging.getLogger(__name__)
 
@@ -24,22 +23,21 @@ class SessionBroadcaster:
     """
 
     def __init__(self, redis_client=None, instance_id: str = ""):
-        self._channels: dict[uuid.UUID, list[asyncio.Queue]] = {}
+        self._channels: dict[SessionId, list[asyncio.Queue]] = {}
         self._redis = redis_client
         self._instance_id = instance_id
         # One shared Redis subscriber task per session (NOT per queue), so N local
         # viewers of a session share a single Redis pubsub subscription instead of
         # opening N redundant ones (connection amplification).
-        self._redis_tasks: dict[uuid.UUID, asyncio.Task] = {}
+        self._redis_tasks: dict[SessionId, asyncio.Task] = {}
 
-    def subscribe(self, session_id: uuid.UUID) -> asyncio.Queue:
+    def subscribe(self, session_id: SessionId) -> asyncio.Queue:
         """Subscribe to events for a session. Returns an asyncio.Queue.
 
         Matches Rust's subscribe() which returns broadcast::Receiver<SessionEvent>.
         The first subscriber for a session starts ONE shared Redis subscriber that
         fans remote events out to every local queue; later subscribers reuse it.
         """
-        session_id = as_uuid(session_id)
         if session_id not in self._channels:
             self._channels[session_id] = []
         q: asyncio.Queue = asyncio.Queue(maxsize=256)
@@ -55,7 +53,7 @@ class SessionBroadcaster:
 
         return q
 
-    async def send(self, session_id: uuid.UUID, event: dict[str, Any]) -> None:
+    async def send(self, session_id: SessionId, event: dict[str, Any]) -> None:
         """Send an event to all local subscribers and publish to Redis.
 
         Matches Rust's send() method. Rust signature:
@@ -63,7 +61,6 @@ class SessionBroadcaster:
         Note: async in Python for ergonomic awaiting by callers; Rust version is
         sync but spawns a tokio task for Redis publish.
         """
-        session_id = as_uuid(session_id)
         if session_id in self._channels:
             local_event = {**event, "_sse_source": event.get("_sse_source") or "local_broadcast"}
             for q in self._channels[session_id]:
@@ -94,28 +91,26 @@ class SessionBroadcaster:
 
         # Publish to Redis for cross-instance delivery
         if self._redis:
-            channel = f"joysafeter:session_events:{session_id}"
+            channel = f"joysafeter:session_events:{session_id.uuid}"
             wrapper = json.dumps({"source_instance": self._instance_id, "event": event})
             asyncio.create_task(self._publish_to_redis(channel, wrapper))
 
-    def remove(self, session_id: uuid.UUID) -> None:
+    def remove(self, session_id: SessionId) -> None:
         """Remove all subscribers for a session.
 
         Matches Rust's remove() method which drops the channel entry.
         """
-        session_id = as_uuid(session_id)
         self._channels.pop(session_id, None)
         task = self._redis_tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
 
-    def unsubscribe(self, session_id: uuid.UUID, q: asyncio.Queue) -> None:
+    def unsubscribe(self, session_id: SessionId, q: asyncio.Queue) -> None:
         """Remove a single subscriber queue. (Extra Python convenience method.)
 
         The shared Redis subscriber is torn down only when the LAST queue for the
         session is removed, so remaining viewers keep receiving remote events.
         """
-        session_id = as_uuid(session_id)
         remaining = self._channels.get(session_id)
         if remaining is not None:
             self._channels[session_id] = [x for x in remaining if x is not q]
@@ -145,14 +140,14 @@ class SessionBroadcaster:
                 exc_info=True,
             )
 
-    async def _redis_subscriber(self, session_id: uuid.UUID) -> None:
+    async def _redis_subscriber(self, session_id: SessionId) -> None:
         backoff = 1
         max_backoff = 30
         while True:
             pubsub = None
             try:
                 pubsub = self._redis.pubsub()
-                channel = f"joysafeter:session_events:{session_id}"
+                channel = f"joysafeter:session_events:{session_id.uuid}"
                 await pubsub.subscribe(channel)
                 backoff = 1
                 async for message in pubsub.listen():

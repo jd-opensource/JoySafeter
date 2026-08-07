@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
+from app.joysafeter_shared.ids import EntityIdType, EnvironmentId
 
 
 class JoySafeterEnvironment(JoySafeterBaseModel):
@@ -26,6 +27,10 @@ class JoySafeterEnvironment(JoySafeterBaseModel):
             postgresql_where=text("project_id IS NULL AND deleted_at IS NULL"),
             sqlite_where=text("project_id IS NULL AND deleted_at IS NULL"),
         ),
+    )
+
+    id: Mapped[EnvironmentId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(EnvironmentId), primary_key=True, default=EnvironmentId.new
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(

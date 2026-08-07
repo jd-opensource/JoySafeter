@@ -1,5 +1,4 @@
 import posixpath
-import uuid
 from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -8,10 +7,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    field_serializer,
     field_validator,
     model_validator,
 )
+
+from app.joysafeter_shared.ids import EnvironmentId
 
 SUPPORTED_EGRESS_INJECT_TYPES = {"bearer", "api_key", "raw_header", "cookie"}
 SUPPORTED_EGRESS_EXPOSURES = {"placeholder"}
@@ -323,7 +323,7 @@ class UpdateEnvironmentRequest(BaseModel):
 
 
 class EnvironmentResponse(BaseModel):
-    id: uuid.UUID
+    id: EnvironmentId
     type: str = "environment"
     name: str
     description: str = ""
@@ -337,7 +337,3 @@ class EnvironmentResponse(BaseModel):
     image_version: int = 0
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"env_{v}"

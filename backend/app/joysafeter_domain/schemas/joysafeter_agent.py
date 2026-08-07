@@ -13,12 +13,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    field_serializer,
     field_validator,
     model_validator,
 )
 
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, SkillId
 
 
 class JoySafeterEngineKind(str, Enum):
@@ -106,12 +105,12 @@ class PackedItem(BaseModel):
 
 class SkillRef(BaseModel):
     type: Literal["custom"] = "custom"
-    skill_id: str
+    skill_id: SkillId
     version: str = "latest"
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("skill_id", "version")
+    @field_validator("version")
     @classmethod
     def trim_required_value(cls, value: str) -> str:
         normalized = value.strip()

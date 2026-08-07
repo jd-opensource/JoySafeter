@@ -1,15 +1,15 @@
 import logging
-import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
+from app.joysafeter_shared.ids import CredentialId, VaultId
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -121,7 +121,7 @@ class VaultService:
         await self.db.refresh(vault)
         return vault
 
-    async def get_vault(self, vault_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterVault]:
+    async def get_vault(self, vault_id: VaultId, project_id: Optional[str] = None) -> Optional[JoySafeterVault]:
         conditions = [JoySafeterVault.id == vault_id, JoySafeterVault.deleted_at.is_(None)]
         if project_id is not None:
             conditions.append(JoySafeterVault.project_id == project_id)
@@ -131,7 +131,7 @@ class VaultService:
     async def list_vaults(
         self,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[VaultId] = None,
         project_id: Optional[str] = None,
         include_archived: bool = False,
     ) -> tuple[list[JoySafeterVault], bool]:
@@ -148,7 +148,7 @@ class VaultService:
 
     async def update_vault(
         self,
-        vault_id: uuid.UUID,
+        vault_id: VaultId,
         name: Optional[str] = None,
         description: Optional[str] = None,
         metadata: Optional[dict] = None,
@@ -168,7 +168,7 @@ class VaultService:
         await self.db.refresh(vault)
         return vault
 
-    async def delete_vault(self, vault_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def delete_vault(self, vault_id: VaultId, project_id: Optional[str] = None) -> bool:
         vault = await self.get_vault(vault_id, project_id=project_id)
         if not vault:
             return False
@@ -179,7 +179,7 @@ class VaultService:
         await self.db.commit()
         return True
 
-    async def archive_vault(self, vault_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def archive_vault(self, vault_id: VaultId, project_id: Optional[str] = None) -> bool:
         vault = await self.get_vault(vault_id, project_id=project_id)
         if not vault:
             return False
@@ -203,12 +203,17 @@ class VaultService:
 
     async def vault_is_referenced_by_sessions(
         self,
-        vault_id: uuid.UUID,
+        vault_id: VaultId,
         project_id: Optional[str] = None,
     ) -> bool:
-        vault_refs = [f"vault_{vault_id}", str(vault_id)]
+        # ``session.vault_ids`` holds the canonical prefixed ref: the request schema
+        # (``list[VaultId]``) rejects bare uuids at the boundary and create_session
+        # persists ``str(vault_id)``. A single-format match is therefore correct.
+        # The old ``[f"vault_{id}", str(id)]`` dual-match only existed because the
+        # pre-typed API stored un-normalized client input verbatim (it accepted
+        # either format via ``removeprefix``); typing removed that ambiguity.
         conditions = [
-            or_(*(JoySafeterSession.vault_ids.contains([vault_ref]) for vault_ref in vault_refs)),
+            JoySafeterSession.vault_ids.contains([str(vault_id)]),
             JoySafeterSession.archived_at.is_(None),
             JoySafeterSession.status != "terminated",
         ]
@@ -221,7 +226,7 @@ class VaultService:
 
     async def create_credential(
         self,
-        vault_id: uuid.UUID,
+        vault_id: VaultId,
         name: str,
         credential_type: str,
         mcp_server_url: str,
@@ -248,8 +253,8 @@ class VaultService:
 
     async def get_credential(
         self,
-        cred_id: uuid.UUID,
-        vault_id: Optional[uuid.UUID] = None,
+        cred_id: CredentialId,
+        vault_id: Optional[VaultId] = None,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterVaultCredential]:
         if project_id is not None and vault_id is not None:
@@ -276,9 +281,9 @@ class VaultService:
 
     async def list_credentials(
         self,
-        vault_id: uuid.UUID,
+        vault_id: VaultId,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[CredentialId] = None,
         include_archived: bool = True,
         project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterVaultCredential], bool]:
@@ -297,11 +302,11 @@ class VaultService:
 
     async def update_credential(
         self,
-        cred_id: uuid.UUID,
+        cred_id: CredentialId,
         name: Optional[str] = None,
         token_value: Optional[str] = None,
         oauth_config: Optional[dict] = None,
-        vault_id: Optional[uuid.UUID] = None,
+        vault_id: Optional[VaultId] = None,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterVaultCredential]:
         cred = await self.get_credential(cred_id, vault_id=vault_id, project_id=project_id)
@@ -324,8 +329,8 @@ class VaultService:
 
     async def delete_credential(
         self,
-        cred_id: uuid.UUID,
-        vault_id: Optional[uuid.UUID] = None,
+        cred_id: CredentialId,
+        vault_id: Optional[VaultId] = None,
         project_id: Optional[str] = None,
     ) -> bool:
         cred = await self.get_credential(cred_id, vault_id=vault_id, project_id=project_id)
@@ -340,8 +345,8 @@ class VaultService:
 
     async def archive_credential(
         self,
-        cred_id: uuid.UUID,
-        vault_id: Optional[uuid.UUID] = None,
+        cred_id: CredentialId,
+        vault_id: Optional[VaultId] = None,
         project_id: Optional[str] = None,
     ) -> bool:
         cred = await self.get_credential(cred_id, vault_id=vault_id, project_id=project_id)
@@ -357,7 +362,7 @@ class VaultService:
         return True
 
     async def update_credential_token(
-        self, cred_id: uuid.UUID, new_token: str, new_expires_at: Optional[datetime] = None
+        self, cred_id: CredentialId, new_token: str, new_expires_at: Optional[datetime] = None
     ) -> None:
         encrypted_token = self._encrypt_token_value(new_token)
         values: dict = {"token_value": encrypted_token}
@@ -385,7 +390,7 @@ class VaultService:
 
     async def resolve_mcp_credentials(
         self,
-        vault_ids: list[str],
+        vault_ids: list[VaultId],
         mcp_servers: list[dict],
         project_id: Optional[str] = None,
     ) -> list[dict]:
@@ -394,16 +399,16 @@ class VaultService:
             return mcp_servers
 
         creds_by_url: dict[str, tuple[JoySafeterVaultCredential, str, dict]] = {}
-        for vid_str in vault_ids:
-            vid_str_clean = vid_str.replace("vault_", "")
-            try:
-                vid = uuid.UUID(vid_str_clean)
-            except ValueError:
-                continue
-            vault = await self.get_vault(vid, project_id=project_id)
+        for vault_id in vault_ids:
+            vault = await self.get_vault(vault_id, project_id=project_id)
             if not vault or vault.archived_at is not None:
                 continue
-            creds, _ = await self.list_credentials(vid, limit=500, include_archived=False, project_id=project_id)
+            creds, _ = await self.list_credentials(
+                vault_id,
+                limit=500,
+                include_archived=False,
+                project_id=project_id,
+            )
             for c in creds:
                 if c.mcp_server_url:
                     token_value = self._decrypt_token_value(c.token_value)

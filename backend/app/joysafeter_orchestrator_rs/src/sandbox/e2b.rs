@@ -58,7 +58,7 @@ impl SandboxProvider for E2bProvider {
             "timeout": 3600,
             "metadata": {
                 "joysafeter": "true",
-                "sandbox_id": config.sandbox_id.to_string(),
+                "sandbox_id": config.sandbox_id.as_uuid().to_string(),
             },
         });
 

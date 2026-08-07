@@ -25,7 +25,6 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { useTranslation } from '@/lib/i18n'
 import { describeCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
 import {
   fireResultToastMessage,
   formatRunOnce,
@@ -42,10 +41,11 @@ import {
   type TriggerRun,
 } from '@/lib/managed/triggers'
 import { toastSuccess } from '@/lib/utils/toast'
+import { parseTriggerId } from '@/types/entity-id'
 
 export default function TriggerDetailPage({ params }: { params: Promise<{ triggerId: string }> }) {
   const { triggerId: rawId } = React.use(params)
-  const triggerId = stripIdPrefix(rawId || '')
+  const triggerId = parseTriggerId(rawId)
   const { t } = useTranslation()
   const locale = (t('_locale') === 'zh' ? 'zh' : 'en') as 'en' | 'zh'
   const router = useRouter()

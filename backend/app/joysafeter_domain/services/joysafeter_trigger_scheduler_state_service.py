@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
@@ -12,6 +11,7 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_payload_sanitizer import sanitize_trigger_last_payload
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
+from app.joysafeter_shared.ids import SessionId, TaskId, TriggerId
 from app.joysafeter_shared.utils.cron import compute_next_run
 
 
@@ -20,8 +20,8 @@ class TriggerSchedulerStateService:
         self,
         db: AsyncSession,
         *,
-        get_trigger: Optional[Callable[[uuid.UUID], Awaitable[Optional[JoySafeterTrigger]]]] = None,
-        get_trigger_for_update: Optional[Callable[[uuid.UUID], Awaitable[Optional[JoySafeterTrigger]]]] = None,
+        get_trigger: Optional[Callable[[TriggerId], Awaitable[Optional[JoySafeterTrigger]]]] = None,
+        get_trigger_for_update: Optional[Callable[[TriggerId], Awaitable[Optional[JoySafeterTrigger]]]] = None,
         sync_config: Optional[Callable[[JoySafeterTrigger], None]] = None,
         next_run_or_pause: Optional[Callable[[JoySafeterTrigger], Awaitable[Optional[datetime]]]] = None,
         runtime_block_reason: Optional[Callable[[JoySafeterTrigger], Awaitable[Optional[str]]]] = None,
@@ -37,7 +37,7 @@ class TriggerSchedulerStateService:
     def _sync_config(trigger: JoySafeterTrigger) -> None:
         TriggerConfigPolicy.sync_config(trigger)
 
-    async def get(self, trigger_id: uuid.UUID) -> Optional[JoySafeterTrigger]:
+    async def get(self, trigger_id: TriggerId) -> Optional[JoySafeterTrigger]:
         if self._get_trigger is not None:
             return await self._get_trigger(trigger_id)
         result = await self.db.execute(
@@ -48,7 +48,7 @@ class TriggerSchedulerStateService:
         )
         return result.scalar_one_or_none()
 
-    async def get_for_update(self, trigger_id: uuid.UUID) -> Optional[JoySafeterTrigger]:
+    async def get_for_update(self, trigger_id: TriggerId) -> Optional[JoySafeterTrigger]:
         if self._get_trigger_for_update is not None:
             return await self._get_trigger_for_update(trigger_id)
         if self._get_trigger is not None:
@@ -107,7 +107,7 @@ class TriggerSchedulerStateService:
         await self.db.commit()
         return triggers
 
-    async def release_claim(self, trigger_id: uuid.UUID, *, expected_locked_by: Optional[str] = None) -> None:
+    async def release_claim(self, trigger_id: TriggerId, *, expected_locked_by: Optional[str] = None) -> None:
         conditions = [JoySafeterTrigger.id == trigger_id, JoySafeterTrigger.deleted_at.is_(None)]
         if expected_locked_by is not None:
             conditions.append(JoySafeterTrigger.locked_by == expected_locked_by)
@@ -132,13 +132,13 @@ class TriggerSchedulerStateService:
 
     async def advance_after_fire(
         self,
-        trigger_id: uuid.UUID,
+        trigger_id: TriggerId,
         fired_slot: datetime,
         *,
         success: bool = True,
         record_attempt: bool = True,
-        task_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        task_id: Optional[TaskId] = None,
+        session_id: Optional[SessionId] = None,
         error: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
         expected_locked_by: Optional[str] = None,
@@ -169,7 +169,7 @@ class TriggerSchedulerStateService:
 
     async def record_fire_failure(
         self,
-        trigger_id: uuid.UUID,
+        trigger_id: TriggerId,
         fired_slot: datetime,
         *,
         error: str,
@@ -254,8 +254,8 @@ class TriggerSchedulerStateService:
         trigger: JoySafeterTrigger,
         *,
         success: Optional[bool],
-        task_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        task_id: Optional[TaskId] = None,
+        session_id: Optional[SessionId] = None,
         error: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> None:
@@ -286,8 +286,8 @@ class TriggerSchedulerStateService:
         trigger: JoySafeterTrigger,
         *,
         success: Optional[bool],
-        task_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        task_id: Optional[TaskId] = None,
+        session_id: Optional[SessionId] = None,
         error: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> None:

@@ -1,3 +1,5 @@
+import type { AgentId } from '@/types/entity-id'
+
 export const ENGINE_KINDS = ['claude_code', 'codex', 'native'] as const
 
 export type EngineKind = (typeof ENGINE_KINDS)[number]
@@ -11,7 +13,7 @@ export function hasBuilderSupport(kind?: string): boolean {
 }
 
 export interface Agent {
-  id: string
+  id: AgentId
   project_id?: string
   name: string
   slug: string
@@ -46,7 +48,7 @@ export interface UpdateAgentRequest {
 
 export interface AgentVersion {
   id: string
-  agent_id: string
+  agent_id: AgentId
   version_number: number
   status: 'draft' | 'frozen'
   source_kind: string

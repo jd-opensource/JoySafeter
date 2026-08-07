@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import posixpath
 import re
-import uuid
 from dataclasses import dataclass
 from typing import Optional
 
@@ -24,6 +23,7 @@ from app.joysafeter_domain.services.joysafeter_file_service import FileService
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
+from app.joysafeter_shared.ids import FileId, SessionId, SessionResourceId
 from app.joysafeter_shared.storage import get_storage
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
@@ -31,7 +31,7 @@ _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
 @dataclass(frozen=True)
 class PreparedSessionFileResource:
-    file_id: uuid.UUID
+    file_id: FileId
     mount_path: str
 
 
@@ -68,19 +68,15 @@ def _slugify_mount_name(name: str) -> str:
     return _NON_ALNUM_RE.sub("-", name.lower()).strip("-")
 
 
-def _format_file_id(file_id: uuid.UUID) -> str:
-    return f"file_{file_id}"
-
-
 def _raise_file_mount_path_conflict(
     *,
     mount_path: str,
-    file_id: uuid.UUID,
-    session_id: uuid.UUID | None,
+    file_id: FileId,
+    session_id: SessionId | None,
 ) -> None:
     data: dict[str, object] = {
         "mount_path": mount_path,
-        "file_id": _format_file_id(file_id),
+        "file_id": str(file_id),
     }
     if session_id is not None:
         data = {"session_id": str(session_id), **data}
@@ -101,7 +97,7 @@ def _repo_name_from_url(url: str) -> str | None:
     return name or None
 
 
-def _default_repo_mount_path(url: str, *, session_id: uuid.UUID | None) -> str:
+def _default_repo_mount_path(url: str, *, session_id: SessionId | None) -> str:
     repo_name = _repo_name_from_url(url)
     if not repo_name:
         data: dict[str, object] = {"url": url}
@@ -120,7 +116,7 @@ def _repo_effective_mount_path(
     *,
     url: str,
     mount_path: str,
-    session_id: uuid.UUID | None,
+    session_id: SessionId | None,
 ) -> str:
     if mount_path:
         return _validate_mount_path(mount_path)
@@ -131,7 +127,7 @@ def _raise_repo_mount_path_conflict(
     *,
     mount_path: str,
     url: str,
-    session_id: uuid.UUID | None,
+    session_id: SessionId | None,
 ) -> None:
     data: dict[str, object] = {
         "mount_path": mount_path,
@@ -151,7 +147,7 @@ def _raise_resource_mount_path_conflict(
     *,
     mount_path: str,
     resource_type: str,
-    session_id: uuid.UUID | None,
+    session_id: SessionId | None,
 ) -> None:
     data: dict[str, object] = {
         "mount_path": mount_path,
@@ -178,7 +174,7 @@ class SessionResourceService:
 
     async def get_project_session_or_raise(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         project_id: Optional[str],
     ) -> JoySafeterSession:
         session = await self._session_svc.get_session(session_id, project_id=project_id)
@@ -192,7 +188,7 @@ class SessionResourceService:
         return session
 
     @staticmethod
-    def ensure_mutable(session: JoySafeterSession, session_id: uuid.UUID) -> None:
+    def ensure_mutable(session: JoySafeterSession, session_id: SessionId) -> None:
         if session.archived_at:
             raise ResourceConflictError(
                 code="SESSION_ARCHIVED",
@@ -226,7 +222,7 @@ class SessionResourceService:
 
     async def ensure_visible_parent_mutable(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         project_id: Optional[str],
     ) -> None:
         session = await self._session_svc.get_session(session_id, project_id=project_id)
@@ -239,7 +235,7 @@ class SessionResourceService:
         resources: list[SessionFileResourceRequest],
         *,
         project_id: Optional[str],
-        session_id: uuid.UUID | None = None,
+        session_id: SessionId | None = None,
         existing_mount_paths: set[str] | None = None,
         existing_reserved_mount_paths: set[str] | None = None,
     ) -> list[PreparedSessionFileResource]:
@@ -255,10 +251,9 @@ class SessionResourceService:
         seen_mount_paths = set(existing_mount_paths or set())
         reserved_mount_paths = set(existing_reserved_mount_paths or set())
         for resource in resources:
-            fid = self._parse_file_id(resource.file_id, session_id=session_id)
-            record = await self._file_svc.get_metadata(self.db, fid, project_id)
+            record = await self._file_svc.get_metadata(self.db, resource.file_id, project_id)
             if not record:
-                data: dict[str, object] = {"file_id": resource.file_id}
+                data: dict[str, object] = {"file_id": str(resource.file_id)}
                 if session_id is not None:
                     data["session_id"] = str(session_id)
                 raise NotFoundError(
@@ -284,7 +279,7 @@ class SessionResourceService:
         self,
         resources: list[SessionRepoResourceRequest],
         *,
-        session_id: uuid.UUID | None = None,
+        session_id: SessionId | None = None,
         existing_count: int = 0,
         existing_effective_mount_paths: set[str] | None = None,
         existing_reserved_mount_paths: set[str] | None = None,
@@ -352,7 +347,7 @@ class SessionResourceService:
 
     async def attach_prepared_resources(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         *,
         files: list[PreparedSessionFileResource],
         repos: list[PreparedSessionRepoResource],
@@ -380,7 +375,7 @@ class SessionResourceService:
         if files or repos:
             await self.db.commit()
 
-    def _session_project_exists_condition(self, session_id: uuid.UUID, project_id: Optional[str]):
+    def _session_project_exists_condition(self, session_id: SessionId, project_id: Optional[str]):
         if project_id is None:
             return None
         return (
@@ -394,7 +389,7 @@ class SessionResourceService:
 
     async def list_file_records(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         project_id: Optional[str] = None,
     ) -> list[JoySafeterSessionFile]:
         conditions = [JoySafeterSessionFile.session_id == session_id]
@@ -408,7 +403,7 @@ class SessionResourceService:
 
     async def list_repo_records(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         project_id: Optional[str] = None,
     ) -> list[JoySafeterSessionRepo]:
         conditions = [JoySafeterSessionRepo.session_id == session_id]
@@ -420,7 +415,7 @@ class SessionResourceService:
         )
         return list(result.scalars().all())
 
-    async def list_resource_payloads(self, session_id: uuid.UUID, project_id: Optional[str] = None) -> list[dict]:
+    async def list_resource_payloads(self, session_id: SessionId, project_id: Optional[str] = None) -> list[dict]:
         files = [
             SessionFileResourceResponse.model_validate(row).model_dump(mode="json")
             for row in await self.list_file_records(session_id, project_id=project_id)
@@ -433,7 +428,7 @@ class SessionResourceService:
 
     async def add_file_resource(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         req: SessionFileResourceRequest,
         *,
         project_id: Optional[str],
@@ -465,7 +460,7 @@ class SessionResourceService:
 
     async def add_repo_resource(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         req: SessionRepoResourceRequest,
         *,
         project_id: Optional[str] = None,
@@ -501,18 +496,17 @@ class SessionResourceService:
 
     async def delete_resource(
         self,
-        session_id: uuid.UUID,
-        resource_id: str,
+        session_id: SessionId,
+        resource_id: SessionResourceId,
         project_id: Optional[str] = None,
     ) -> dict:
         await self.ensure_visible_parent_mutable(session_id, project_id)
-        rid = self._parse_resource_id(resource_id, session_id=session_id)
-        row = await self._get_file_or_repo(session_id, rid, project_id=project_id)
+        row = await self._get_file_or_repo(session_id, resource_id, project_id=project_id)
         if row is None:
             raise NotFoundError(
                 code="SESSION_RESOURCE_NOT_FOUND",
                 message="Resource not found",
-                data={"session_id": str(session_id), "resource_id": resource_id},
+                data={"session_id": str(session_id), "resource_id": str(resource_id)},
                 user_action="refresh",
             )
         await self.db.delete(row)
@@ -521,16 +515,15 @@ class SessionResourceService:
 
     async def rotate_repo_token(
         self,
-        session_id: uuid.UUID,
-        resource_id: str,
+        session_id: SessionId,
+        resource_id: SessionResourceId,
         authorization_token: str,
         *,
         project_id: Optional[str] = None,
     ) -> SessionRepoResourceResponse:
         await self.ensure_visible_parent_mutable(session_id, project_id)
-        rid = self._parse_resource_id(resource_id, session_id=session_id)
         conditions = [
-            JoySafeterSessionRepo.id == rid,
+            JoySafeterSessionRepo.id == resource_id,
             JoySafeterSessionRepo.session_id == session_id,
         ]
         project_condition = self._session_project_exists_condition(session_id, project_id)
@@ -542,7 +535,7 @@ class SessionResourceService:
             raise NotFoundError(
                 code="SESSION_REPO_RESOURCE_NOT_FOUND",
                 message="Repo resource not found",
-                data={"session_id": str(session_id), "resource_id": resource_id},
+                data={"session_id": str(session_id), "resource_id": str(resource_id)},
                 user_action="refresh",
             )
         row.encrypted_token = (
@@ -556,8 +549,8 @@ class SessionResourceService:
 
     async def _get_file_or_repo(
         self,
-        session_id: uuid.UUID,
-        resource_id: uuid.UUID,
+        session_id: SessionId,
+        resource_id: SessionResourceId,
         project_id: Optional[str] = None,
     ) -> JoySafeterSessionFile | JoySafeterSessionRepo | None:
         project_condition = self._session_project_exists_condition(session_id, project_id)
@@ -578,32 +571,3 @@ class SessionResourceService:
             return file_row
         repo_result = await self.db.execute(select(JoySafeterSessionRepo).where(*repo_conditions))
         return repo_result.scalar_one_or_none()
-
-    @staticmethod
-    def _parse_file_id(raw: str, *, session_id: uuid.UUID | None = None) -> uuid.UUID:
-        s = raw.removeprefix("file_")
-        try:
-            return uuid.UUID(s)
-        except ValueError:
-            data: dict[str, object] = {"file_id": raw}
-            if session_id is not None:
-                data["session_id"] = str(session_id)
-            raise InvalidRequestError(
-                code="SESSION_FILE_ID_INVALID",
-                message=f"Invalid file_id: {raw}",
-                data=data,
-                user_action="fix_input",
-            )
-
-    @staticmethod
-    def _parse_resource_id(raw: str, *, session_id: uuid.UUID) -> uuid.UUID:
-        s = raw.removeprefix("sesrsc_")
-        try:
-            return uuid.UUID(s)
-        except ValueError:
-            raise InvalidRequestError(
-                code="SESSION_RESOURCE_ID_INVALID",
-                message="Invalid resource_id",
-                data={"session_id": str(session_id), "resource_id": raw},
-                user_action="fix_input",
-            )

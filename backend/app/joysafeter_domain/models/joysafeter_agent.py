@@ -37,7 +37,9 @@ class JoySafeterAgent(JoySafeterBaseModel):
         Index("idx_ca_project", "project_id"),
     )
 
-    id: Mapped[AgentId] = mapped_column(EntityIdType(AgentId), primary_key=True, default=AgentId.new)
+    id: Mapped[AgentId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(AgentId), primary_key=True, default=AgentId.new
+    )
 
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255),

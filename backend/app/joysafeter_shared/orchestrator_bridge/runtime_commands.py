@@ -9,6 +9,7 @@ from typing import Any
 
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.ids import SandboxId, as_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ async def publish_command_and_wait_for_ack(
 
 
 async def relay_sandbox_command_via_redis(
-    sandbox_id,
+    sandbox_id: SandboxId,
     *,
     command_type: str,
     boundary: str,
@@ -127,7 +128,7 @@ async def relay_sandbox_command_via_redis(
     if redis_client is None:
         return False
 
-    sandbox_id_str = str(sandbox_id)
+    sandbox_id_str = str(as_uuid(sandbox_id))
     try:
         owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
     except Exception:
@@ -171,7 +172,7 @@ async def relay_sandbox_command_via_redis(
 
 
 async def relay_sandbox_command_payload_via_redis(
-    sandbox_id,
+    sandbox_id: SandboxId,
     *,
     command_type: str,
     boundary: str,
@@ -186,7 +187,7 @@ async def relay_sandbox_command_payload_via_redis(
     if redis_client is None:
         return None
 
-    sandbox_id_str = str(sandbox_id)
+    sandbox_id_str = str(as_uuid(sandbox_id))
     try:
         owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
     except Exception:
@@ -228,7 +229,7 @@ async def relay_sandbox_command_payload_via_redis(
 
 
 async def publish_to_sandbox_owner_via_redis(
-    sandbox_id,
+    sandbox_id: SandboxId,
     *,
     command: dict[str, Any],
     boundary: str,
@@ -243,7 +244,7 @@ async def publish_to_sandbox_owner_via_redis(
     if redis_client is None:
         return False
 
-    sandbox_id_str = str(sandbox_id)
+    sandbox_id_str = str(as_uuid(sandbox_id))
     try:
         owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
     except Exception:
@@ -286,7 +287,7 @@ async def publish_to_sandbox_owner_via_redis(
 
 
 async def publish_to_sandbox_owners_via_redis(
-    sandbox_ids,
+    sandbox_ids: list[SandboxId],
     *,
     command: dict[str, Any],
     boundary: str,
@@ -303,7 +304,7 @@ async def publish_to_sandbox_owners_via_redis(
     for sandbox_id in sandbox_ids:
         if not sandbox_id:
             continue
-        sandbox_id_str = str(sandbox_id)
+        sandbox_id_str = str(as_uuid(sandbox_id))
         try:
             owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
         except Exception:
@@ -347,7 +348,7 @@ async def publish_to_sandbox_owners_via_redis(
 
 
 async def relay_sandbox_destroy_via_redis(
-    sandbox_id,
+    sandbox_id: SandboxId,
     *,
     boundary: str,
     operation: str,
@@ -361,7 +362,7 @@ async def relay_sandbox_destroy_via_redis(
     if redis_client is None:
         return False
 
-    sandbox_id_str = str(sandbox_id)
+    sandbox_id_str = str(as_uuid(sandbox_id))
     owner = None
     try:
         owner = await redis_client.get(f"joysafeter:sandbox_owner:{sandbox_id_str}")
@@ -441,7 +442,9 @@ async def relay_environment_image_build_via_redis(
     except Exception:
         return None
 
-    env_id_str = str(env_id)
+    # Redis command id fields are bare uuids (see sandbox_id/store_id above); the
+    # Rust command_listener parses this into a bare ``Uuid`` for build_environment_image.
+    env_id_str = str(as_uuid(env_id))
     for instance_id in instance_ids:
         command_id = uuid.uuid4().hex
         ack_key = f"joysafeter:cmd_ack:{command_id}"

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tracing::{debug, info};
-use uuid::Uuid;
 
 use crate::db::queries;
+use crate::ids::{FileId, SessionId, TaskId};
 use crate::kernel::sandbox_bridge::SandboxBridge;
 
 const ARTIFACT_DIR: &str = "/workspace/artifacts";
@@ -14,9 +14,9 @@ const MAX_ARTIFACT_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
 pub async fn archive_task_artifacts(
     pool: &PgPool,
     bridge: &Arc<SandboxBridge>,
-    task_id: Uuid,
-    session_id: Option<Uuid>,
-) -> anyhow::Result<Option<Uuid>> {
+    task_id: TaskId,
+    session_id: Option<SessionId>,
+) -> anyhow::Result<Option<FileId>> {
     let Some(task) = queries::get_task(pool, task_id).await? else {
         return Ok(None);
     };
@@ -50,11 +50,12 @@ pub async fn archive_task_artifacts(
         anyhow::bail!("artifact archive exceeds maximum size");
     }
 
-    let file_id = Uuid::now_v7();
+    let file_id = FileId::from_uuid(uuid::Uuid::now_v7());
+    let raw_file_id = file_id.as_uuid();
     let filename = format!("artifacts-{task_id}.zip");
     let storage_key = format!(
-        "files/{project_id}/artifacts/{}/{file_id}_{filename}",
-        &file_id.to_string()[..2]
+        "files/{project_id}/artifacts/{}/{raw_file_id}_{filename}",
+        &raw_file_id.to_string()[..2]
     );
     crate::sandbox::storage::write_file(&storage_key, &data, "application/zip").await?;
 

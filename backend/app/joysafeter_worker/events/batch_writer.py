@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
+from app.joysafeter_shared.ids import EventId, SessionId
 from app.joysafeter_shared.utils.locks import session_advisory_lock_key
 
 if TYPE_CHECKING:
@@ -43,11 +44,11 @@ class EventBatchConfig:
 
 @dataclass
 class BufferedEvent:
-    session_id: Any  # uuid.UUID
+    session_id: SessionId
     event_type: str
     payload: dict[str, Any]
     seq: int
-    id: Any = None  # optional pre-assigned uuid.UUID
+    id: EventId | None = None
 
 
 def _dedup_payload_key(event: BufferedEvent) -> object:
@@ -526,7 +527,9 @@ class EventBatchSender:
             raise _PartialBatchError(failed_events)
         return all_inserted
 
-    async def _insert_session_group(self, session_id, events: list[BufferedEvent]) -> list[BufferedEvent]:
+    async def _insert_session_group(
+        self, session_id: SessionId, events: list[BufferedEvent]
+    ) -> list[BufferedEvent]:
         """Insert events for a single session within its own transaction."""
         from sqlalchemy import func, select, text
         from sqlalchemy.dialects.postgresql import insert as pg_insert

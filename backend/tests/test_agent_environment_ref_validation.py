@@ -62,15 +62,15 @@ async def test_create_agent_rejects_archived_environment_ref(db_session):
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
-    req = JoySafeterCreateAgentRequest(name=f"archived-env-agent-{uuid.uuid4()}", environment_ref=f"env_{env.id}")
+    req = JoySafeterCreateAgentRequest(name=f"archived-env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
 
     with pytest.raises(AppError) as exc_info:
         await create_agent(req, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ARCHIVED",
-        "message": f"Environment is archived: env_{env.id}",
-        "data": {"environment_ref": f"env_{env.id}", "environment_id": str(env.id)},
+        "message": f"Environment is archived: {env.id}",
+        "data": {"environment_ref": str(env.id), "environment_id": str(env.id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -125,7 +125,7 @@ async def test_update_agent_rejects_environment_ref_change_with_active_task(db_s
     )
     db_session.add(task)
     await db_session.commit()
-    req = JoySafeterUpdateAgentRequest(version=1, environment_ref=f"env_{env.id}")
+    req = JoySafeterUpdateAgentRequest(version=1, environment_ref=str(env.id))
 
     with pytest.raises(AppError) as exc_info:
         await update_agent(req, agent_id, db_session, _auth_ctx())

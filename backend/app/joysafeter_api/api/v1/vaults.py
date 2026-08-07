@@ -1,11 +1,9 @@
-import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
-from app.joysafeter_api.api.v1.id_helpers import parse_cred_id, parse_vault_id
 from app.joysafeter_api.api.v1.network_policy_refresh import (
     refresh_live_limited_sandbox_network_policies,
 )
@@ -25,11 +23,12 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import CredentialId, VaultId
 
 router = APIRouter(tags=["joysafeter-vaults"])
 
 
-def _vault_not_found_error(vault_id: uuid.UUID) -> AppError:
+def _vault_not_found_error(vault_id: VaultId) -> AppError:
     return NotFoundError(
         code="VAULT_NOT_FOUND",
         message="Vault not found",
@@ -38,7 +37,7 @@ def _vault_not_found_error(vault_id: uuid.UUID) -> AppError:
     )
 
 
-def _vault_credential_not_found_error(vault_id: uuid.UUID, cred_id: uuid.UUID) -> AppError:
+def _vault_credential_not_found_error(vault_id: VaultId, cred_id: CredentialId) -> AppError:
     return NotFoundError(
         code="VAULT_CREDENTIAL_NOT_FOUND",
         message="Credential not found",
@@ -47,7 +46,7 @@ def _vault_credential_not_found_error(vault_id: uuid.UUID, cred_id: uuid.UUID) -
     )
 
 
-def _vault_archived_error(vault_id: uuid.UUID) -> AppError:
+def _vault_archived_error(vault_id: VaultId) -> AppError:
     return ResourceConflictError(
         code="VAULT_ARCHIVED",
         message="Vault is archived",
@@ -57,7 +56,7 @@ def _vault_archived_error(vault_id: uuid.UUID) -> AppError:
     )
 
 
-def _vault_conflict_error(vault_id: uuid.UUID, exc: ValueError) -> AppError:
+def _vault_conflict_error(vault_id: VaultId, exc: ValueError) -> AppError:
     message = str(exc)
     if message.startswith("Vault is referenced by one or more active sessions"):
         return ResourceConflictError(
@@ -74,7 +73,7 @@ def _vault_conflict_error(vault_id: uuid.UUID, exc: ValueError) -> AppError:
     )
 
 
-def _vault_credential_archived_error(vault_id: uuid.UUID, cred_id: uuid.UUID) -> AppError:
+def _vault_credential_archived_error(vault_id: VaultId, cred_id: CredentialId) -> AppError:
     return ResourceConflictError(
         code="VAULT_CREDENTIAL_ARCHIVED",
         message="Credential is archived",
@@ -84,7 +83,7 @@ def _vault_credential_archived_error(vault_id: uuid.UUID, cred_id: uuid.UUID) ->
     )
 
 
-async def _get_vault_or_404(svc: VaultService, vault_id: uuid.UUID, project_id: str):
+async def _get_vault_or_404(svc: VaultService, vault_id: VaultId, project_id: str):
     vault = await svc.get_vault(vault_id, project_id=project_id)
     if not vault:
         raise _vault_not_found_error(vault_id)
@@ -96,13 +95,13 @@ def _ensure_vault_mutable(vault) -> None:
         raise _vault_archived_error(vault.id)
 
 
-async def _get_mutable_vault_or_404(svc: VaultService, vault_id: uuid.UUID, project_id: str):
+async def _get_mutable_vault_or_404(svc: VaultService, vault_id: VaultId, project_id: str):
     vault = await _get_vault_or_404(svc, vault_id, project_id)
     _ensure_vault_mutable(vault)
     return vault
 
 
-def _ensure_credential_mutable(vault_id: uuid.UUID, cred) -> None:
+def _ensure_credential_mutable(vault_id: VaultId, cred) -> None:
     if cred.archived_at is not None:
         raise _vault_credential_archived_error(vault_id, cred.id)
 
@@ -143,7 +142,7 @@ async def create_vault(
 @router.get("")
 async def list_vaults(
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[VaultId] = Query(None),
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
@@ -163,8 +162,8 @@ async def list_vaults(
 
 @router.get("/{vault_id}")
 async def get_vault(
+    vault_id: VaultId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> VaultResponse:
     svc = VaultService(db)
@@ -176,8 +175,8 @@ async def get_vault(
 async def update_vault(
     req: UpdateVaultRequest,
     request: Request,
+    vault_id: VaultId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> VaultResponse:
     svc = VaultService(db)
@@ -205,8 +204,8 @@ async def update_vault(
 @router.delete("/{vault_id}")
 async def delete_vault(
     request: Request,
+    vault_id: VaultId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = VaultService(db)
@@ -231,8 +230,8 @@ async def delete_vault(
 @router.post("/{vault_id}/archive")
 async def archive_vault(
     request: Request,
+    vault_id: VaultId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = VaultService(db)
@@ -261,8 +260,8 @@ async def archive_vault(
 async def create_credential(
     req: CreateCredentialRequest,
     request: Request,
+    vault_id: VaultId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> VaultCredentialResponse:
     svc = VaultService(db)
@@ -299,11 +298,11 @@ async def create_credential(
 
 @router.get("/{vault_id}/credentials")
 async def list_credentials(
+    vault_id: VaultId,
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[CredentialId] = Query(None),
     include_archived: bool = Query(True),
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = VaultService(db)
@@ -326,9 +325,9 @@ async def list_credentials(
 
 @router.get("/{vault_id}/credentials/{cred_id}")
 async def get_credential(
+    vault_id: VaultId,
+    cred_id: CredentialId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
-    cred_id: uuid.UUID = Depends(parse_cred_id),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> VaultCredentialResponse:
     svc = VaultService(db)
@@ -343,9 +342,9 @@ async def get_credential(
 async def update_credential(
     req: UpdateCredentialRequest,
     request: Request,
+    vault_id: VaultId,
+    cred_id: CredentialId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
-    cred_id: uuid.UUID = Depends(parse_cred_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> VaultCredentialResponse:
     svc = VaultService(db)
@@ -386,9 +385,9 @@ async def update_credential(
 @router.post("/{vault_id}/credentials/{cred_id}/archive")
 async def archive_credential(
     request: Request,
+    vault_id: VaultId,
+    cred_id: CredentialId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
-    cred_id: uuid.UUID = Depends(parse_cred_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = VaultService(db)
@@ -422,9 +421,9 @@ async def archive_credential(
 @router.delete("/{vault_id}/credentials/{cred_id}")
 async def delete_credential(
     request: Request,
+    vault_id: VaultId,
+    cred_id: CredentialId,
     db: AsyncSession = Depends(get_db),
-    vault_id: uuid.UUID = Depends(parse_vault_id),
-    cred_id: uuid.UUID = Depends(parse_cred_id),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
     svc = VaultService(db)

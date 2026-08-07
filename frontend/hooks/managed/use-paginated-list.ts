@@ -26,6 +26,7 @@ interface UsePaginatedListOptions<T extends { id?: string }> {
   pageSizeOptions?: number[]
   enabled?: boolean
   includeArchived?: boolean
+  parseItem?: (item: unknown) => T
   refetchInterval?: (page: PageResult<T> | undefined) => number | false
 }
 
@@ -101,6 +102,7 @@ async function apiPage<T extends { id?: string }>(
   cursor?: string,
   limit = 10,
   includeArchived = false,
+  parseItem?: (item: unknown) => T,
 ): Promise<PageResult<T>> {
   const url = apiCollectionPath(path, {
     limit,
@@ -109,13 +111,13 @@ async function apiPage<T extends { id?: string }>(
   })
 
   const res = await managedGet<
-    T[] | { data: T[]; has_more: boolean; first_id?: string; last_id?: string }
+    unknown[] | { data: unknown[]; has_more: boolean; first_id?: string; last_id?: string }
   >(url, managedRequestOptions(scope))
 
   if (Array.isArray(res)) {
-    return { data: res, has_more: false }
+    return { data: parseItem ? res.map(parseItem) : (res as T[]), has_more: false }
   }
-  const items = res.data
+  const items = parseItem ? res.data.map(parseItem) : (res.data as T[])
   const firstId = res.first_id
     ? apiResourceId(res.first_id)
     : items.length > 0
@@ -136,6 +138,7 @@ export function usePaginatedList<T extends { id?: string }>({
   pageSizeOptions = [10, 25, 50],
   enabled = true,
   includeArchived = false,
+  parseItem,
   refetchInterval,
 }: UsePaginatedListOptions<T>): UsePaginatedListResult<T> {
   const queryClient = useQueryClient()
@@ -164,7 +167,8 @@ export function usePaginatedList<T extends { id?: string }>({
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: fullKey,
-    queryFn: () => apiPage<T>(path, managedScope, cursor, effectivePageSize, includeArchived),
+    queryFn: () =>
+      apiPage<T>(path, managedScope, cursor, effectivePageSize, includeArchived, parseItem),
     enabled: queryEnabled,
     placeholderData: (previousData, previousQuery) => {
       const previousKey = previousQuery?.queryKey
@@ -202,7 +206,14 @@ export function usePaginatedList<T extends { id?: string }>({
       queryClient.prefetchQuery({
         queryKey: nextKey,
         queryFn: () =>
-          apiPage<T>(path, managedScope, page.last_id, effectivePageSize, includeArchived),
+          apiPage<T>(
+            path,
+            managedScope,
+            page.last_id,
+            effectivePageSize,
+            includeArchived,
+            parseItem,
+          ),
         staleTime: 30_000,
       })
     }
@@ -214,6 +225,7 @@ export function usePaginatedList<T extends { id?: string }>({
     path,
     effectivePageSize,
     includeArchived,
+    parseItem,
     queryEnabled,
     queryClient,
   ])

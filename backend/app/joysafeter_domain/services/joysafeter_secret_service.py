@@ -1,4 +1,3 @@
-import uuid
 from typing import Optional
 
 from sqlalchemy import and_, delete, or_, outerjoin, select, update
@@ -13,6 +12,7 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, UpdateSecretRequest
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
+from app.joysafeter_shared.ids import SecretId, TaskId
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -197,7 +197,7 @@ class SecretService:
         await self.db.refresh(secret)
         return secret
 
-    async def get_secret(self, secret_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:
+    async def get_secret(self, secret_id: SecretId, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:
         conditions: list[ColumnElement[bool]] = [
             JoySafeterSecret.id == secret_id,
             JoySafeterSecret.deleted_at.is_(None),
@@ -242,7 +242,7 @@ class SecretService:
         await self.db.flush()
 
     async def set_default_secret(
-        self, secret_id: uuid.UUID, project_id: Optional[str] = None
+        self, secret_id: SecretId, project_id: Optional[str] = None
     ) -> Optional[JoySafeterSecret]:
         secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
@@ -257,7 +257,7 @@ class SecretService:
     async def list_secrets(
         self,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[SecretId] = None,
         project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterSecret], bool]:
         q = select(JoySafeterSecret).where(JoySafeterSecret.deleted_at.is_(None))
@@ -297,7 +297,7 @@ class SecretService:
 
     async def update_secret(
         self,
-        secret_id: uuid.UUID,
+        secret_id: SecretId,
         req: UpdateSecretRequest,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterSecret]:
@@ -314,7 +314,7 @@ class SecretService:
         await self.db.refresh(secret)
         return secret
 
-    async def delete_secret(self, secret_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def delete_secret(self, secret_id: SecretId, project_id: Optional[str] = None) -> bool:
         secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
             return False
@@ -324,7 +324,7 @@ class SecretService:
         await self.db.commit()
         return True
 
-    async def hard_delete_secret(self, secret_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def hard_delete_secret(self, secret_id: SecretId, project_id: Optional[str] = None) -> bool:
         """Physical DELETE FROM joysafeter_secrets WHERE id = :id."""
         conditions: list[ColumnElement[bool]] = [JoySafeterSecret.id == secret_id]
         if project_id is not None:
@@ -382,14 +382,14 @@ class SecretService:
         for env_id, env_name, config in result.all():
             if any(_secret_ref_matches(ref, name) for ref in _environment_secret_refs(config)):
                 refs.add(str(env_name))
-                refs.add(f"env_{env_id}")
+                refs.add(str(env_id))
         return refs
 
     async def active_task_secret_dependency(
         self,
         name: str,
         project_id: Optional[str] = None,
-    ) -> Optional[tuple[uuid.UUID, str]]:
+    ) -> Optional[tuple[TaskId, str]]:
         """Return an active task depending on this secret, if one exists."""
         terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
         env_refs = await self._environment_refs_for_secret(name, project_id=project_id)

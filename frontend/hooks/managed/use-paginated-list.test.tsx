@@ -9,6 +9,7 @@ vi.mock('@/lib/api-client', () => ({
 
 import { managedGet } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { SESSION_ID } from '@/test-utils/entity-ids'
 
 import { usePaginatedList } from './use-paginated-list'
 
@@ -63,7 +64,7 @@ function HarnessWithNext() {
 function HarnessWithQueryPath() {
   const { data, goNext, hasNext } = usePaginatedList<Item>({
     queryKey: 'files',
-    path: '/files?scope_id=sess_123',
+    path: `/files?scope_id=${SESSION_ID}`,
   })
 
   return (
@@ -74,6 +75,19 @@ function HarnessWithQueryPath() {
       </button>
     </div>
   )
+}
+
+function HarnessWithParser() {
+  const { data } = usePaginatedList<Item>({
+    queryKey: 'parsed-items',
+    path: '/parsed-items',
+    parseItem: (item) => {
+      const raw = item as Item
+      return { ...raw, name: raw.name.toUpperCase() }
+    },
+  })
+
+  return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
 }
 
 function renderWithQueryClient(ui: ReactNode) {
@@ -130,6 +144,18 @@ describe('usePaginatedList managed context isolation', () => {
         skipManagedContext: true,
       })
     })
+  })
+
+  it('parses list items before exposing or caching them', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    managedGetMock.mockResolvedValue({
+      data: [{ id: 'item-a', name: 'raw item' }],
+      has_more: false,
+    })
+
+    const { getByTestId } = renderWithQueryClient(<HarnessWithParser />)
+
+    await waitFor(() => expect(getByTestId('items').textContent).toBe('RAW ITEM'))
   })
 
   it('does not reuse a previous project page after managed project changes', async () => {
@@ -280,17 +306,19 @@ describe('usePaginatedList managed context isolation', () => {
     const requestedPaths: string[] = []
     managedGetMock.mockImplementation(async (path: string) => {
       requestedPaths.push(path)
-      if (path.includes('after_id=abc')) {
+      if (path.includes('after_id=file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f015')) {
         return {
-          data: [{ id: 'file_def', name: 'Second file' }],
+          data: [
+            { id: 'file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f016', name: 'Second file' },
+          ],
           has_more: false,
-          last_id: 'file_def',
+          last_id: 'file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f016',
         }
       }
       return {
-        data: [{ id: 'file_abc', name: 'First file' }],
+        data: [{ id: 'file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f015', name: 'First file' }],
         has_more: true,
-        last_id: 'file_abc',
+        last_id: 'file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f015',
       }
     })
 
@@ -300,7 +328,7 @@ describe('usePaginatedList managed context isolation', () => {
       await wait(20)
     })
 
-    expect(requestedPaths[0]).toBe('/files?scope_id=sess_123&limit=10')
+    expect(requestedPaths[0]).toBe(`/files?scope_id=${SESSION_ID}&limit=10`)
 
     await act(async () => {
       getByTestId('next').click()
@@ -308,7 +336,11 @@ describe('usePaginatedList managed context isolation', () => {
     })
 
     expect(
-      requestedPaths.some((path) => path === '/files?scope_id=sess_123&limit=10&after_id=abc'),
+      requestedPaths.some(
+        (path) =>
+          path ===
+          `/files?scope_id=${SESSION_ID}&limit=10&after_id=file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f015`,
+      ),
     ).toBe(true)
     expect(getByTestId('items').textContent).toBe('Second file')
   })

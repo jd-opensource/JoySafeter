@@ -8,6 +8,7 @@ import { Plus } from 'lucide-react'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseMemoryStoreResponse } from '@/lib/managed/memory-response-parsers'
 import {
   managedRequestOptions,
   managedScopeKey,
@@ -68,6 +69,7 @@ export default function MemoryStoreListPage() {
     queryKey: 'memory-stores',
     path: '/memory_stores',
     includeArchived: showArchived,
+    parseItem: parseMemoryStoreResponse,
   })
 
   const stores = data.filter(

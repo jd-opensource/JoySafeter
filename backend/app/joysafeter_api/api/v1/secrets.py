@@ -1,5 +1,4 @@
 import json
-import uuid
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -8,7 +7,6 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
-from app.joysafeter_api.api.v1.id_helpers import parse_secret_id
 from app.joysafeter_domain.schemas.joysafeter_secret import (
     CreateSecretRequest,
     SecretListItem,
@@ -31,8 +29,8 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import SecretId, TaskId
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
-from app.joysafeter_shared.utils.id_utils import format_task_id
 
 router = APIRouter(tags=["joysafeter-secrets"])
 
@@ -43,7 +41,7 @@ ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 
-def _secret_not_found_error(secret_id: uuid.UUID) -> AppError:
+def _secret_not_found_error(secret_id: SecretId) -> AppError:
     return NotFoundError(
         code="SECRET_NOT_FOUND",
         message="Secret not found",
@@ -54,9 +52,9 @@ def _secret_not_found_error(secret_id: uuid.UUID) -> AppError:
 
 def _secret_active_task_error(
     *,
-    secret_id: uuid.UUID,
+    secret_id: SecretId,
     secret_name: str,
-    task_id: uuid.UUID | str,
+    task_id: TaskId,
     source: str,
     operation: str,
 ) -> AppError:
@@ -66,7 +64,7 @@ def _secret_active_task_error(
         data={
             "secret_id": str(secret_id),
             "secret_name": secret_name,
-            "task_id": format_task_id(task_id),
+            "task_id": str(task_id),
             "source": source,
             "operation": operation,
         },
@@ -77,7 +75,7 @@ def _secret_active_task_error(
 
 def _secret_reference_error(
     *,
-    secret_id: uuid.UUID,
+    secret_id: SecretId,
     secret_name: str,
     code: str,
     message: str,
@@ -325,7 +323,7 @@ async def create_secret(
         },
     )
     return SecretResponse(
-        id=f"secret_{secret.id}",
+        id=secret.id,
         name=secret.name,
         provider=secret.provider,
         protocol=secret.protocol,
@@ -347,7 +345,7 @@ async def test_secret(
 @router.get("")
 async def list_secrets(
     limit: int = Query(10, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[SecretId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
@@ -355,7 +353,7 @@ async def list_secrets(
     secrets, has_more = await svc.list_secrets(limit, after_id, project_id=auth_ctx.project_id)
     items = [
         SecretListItem(
-            id=f"secret_{s.id}",
+            id=s.id,
             name=s.name,
             provider=s.provider,
             protocol=s.protocol,
@@ -376,7 +374,7 @@ async def list_secrets(
 
 @router.get("/{secret_id}")
 async def get_secret(
-    secret_id: uuid.UUID = Depends(parse_secret_id),
+    secret_id: SecretId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SecretResponse:
@@ -385,7 +383,7 @@ async def get_secret(
     if not secret:
         raise _secret_not_found_error(secret_id)
     return SecretResponse(
-        id=f"secret_{secret.id}",
+        id=secret.id,
         name=secret.name,
         provider=secret.provider,
         protocol=secret.protocol,
@@ -400,7 +398,7 @@ async def get_secret(
 async def update_secret(
     req: UpdateSecretRequest,
     request: Request,
-    secret_id: uuid.UUID = Depends(parse_secret_id),
+    secret_id: SecretId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SecretResponse:
@@ -439,7 +437,7 @@ async def update_secret(
         },
     )
     return SecretResponse(
-        id=f"secret_{secret.id}",
+        id=secret.id,
         name=secret.name,
         provider=secret.provider,
         protocol=secret.protocol,
@@ -453,7 +451,7 @@ async def update_secret(
 @router.post("/{secret_id}/default")
 async def set_default_secret(
     request: Request,
-    secret_id: uuid.UUID = Depends(parse_secret_id),
+    secret_id: SecretId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SecretResponse:
@@ -471,7 +469,7 @@ async def set_default_secret(
         details={"name": secret.name, "provider": secret.provider, "protocol": secret.protocol},
     )
     return SecretResponse(
-        id=f"secret_{secret.id}",
+        id=secret.id,
         name=secret.name,
         provider=secret.provider,
         protocol=secret.protocol,
@@ -485,7 +483,7 @@ async def set_default_secret(
 @router.delete("/{secret_id}", status_code=204)
 async def delete_secret(
     request: Request,
-    secret_id: uuid.UUID = Depends(parse_secret_id),
+    secret_id: SecretId,
     force: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),

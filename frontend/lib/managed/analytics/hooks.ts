@@ -4,7 +4,18 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
+
 import { managedGet } from '@/lib/api-client'
+import { parseAgentId, type AgentId, type TaskId } from '@/types/entity-id'
+
+import {
+  parseAgentMetricsResponse,
+  parseAgentRankingResponse,
+  parseAgentTrendResponse,
+  parseCallsListResponse,
+  parseHealthCheckResponse,
+} from './response-parsers'
+
 import type {
   AnalyticsFilters,
   AnalyticsSummary,
@@ -108,14 +119,15 @@ export function useCallsList(
   }
   return useQuery<CallsListResponse>({
     queryKey: ['analytics', 'calls', params],
-    queryFn: () => managedGet(`/analytics/calls${toQueryString(params)}`),
+    queryFn: async () =>
+      parseCallsListResponse(await managedGet(`/analytics/calls${toQueryString(params)}`)),
     staleTime: 30_000,
   })
 }
 
 // --- Observation Tree ---
 
-export function useObservationTree(traceId: string | null) {
+export function useObservationTree(traceId: TaskId | null) {
   return useQuery<ObservationNode[]>({
     queryKey: ['analytics', 'observations', traceId],
     queryFn: () => managedGet(`/analytics/observations/${traceId}`),
@@ -130,12 +142,15 @@ export function useAgentComparison(filters: AnalyticsFilters) {
   const params = buildFilterParams(filters)
   return useQuery<AgentMetrics[]>({
     queryKey: ['analytics', 'agent-comparison', params],
-    queryFn: () => managedGet(`/analytics/agent-comparison${toQueryString(params)}`),
+    queryFn: async () =>
+      parseAgentMetricsResponse(
+        await managedGet(`/analytics/agent-comparison${toQueryString(params)}`),
+      ),
     staleTime: 60_000,
   })
 }
 
-export function useAgentTrend(filters: AnalyticsFilters, agentIds: string[], metric: string) {
+export function useAgentTrend(filters: AnalyticsFilters, agentIds: AgentId[], metric: string) {
   const params = {
     ...buildFilterParams(filters),
     agent_ids: agentIds.join(','),
@@ -143,7 +158,8 @@ export function useAgentTrend(filters: AnalyticsFilters, agentIds: string[], met
   }
   return useQuery<AgentTrendPoint[]>({
     queryKey: ['analytics', 'agent-trend', params],
-    queryFn: () => managedGet(`/analytics/agent-trend${toQueryString(params)}`),
+    queryFn: async () =>
+      parseAgentTrendResponse(await managedGet(`/analytics/agent-trend${toQueryString(params)}`)),
     enabled: agentIds.length > 0,
     staleTime: 60_000,
   })
@@ -152,11 +168,15 @@ export function useAgentTrend(filters: AnalyticsFilters, agentIds: string[], met
 // --- Agents for filter dropdowns ---
 
 export function useAgentsForFilters() {
-  return useQuery<{ id: string; name: string; engine_kind: string }[]>({
+  return useQuery<{ id: AgentId; name: string; engine_kind: string }[]>({
     queryKey: ['analytics', 'agents-for-filters'],
     queryFn: async () => {
-      const result: any = await managedGet('/agents?limit=100')
-      return Array.isArray(result) ? result : (result.data ?? [])
+      const result = await managedGet<
+        | { id: string; name: string; engine_kind: string }[]
+        | { data: { id: string; name: string; engine_kind: string }[] }
+      >('/agents?limit=100')
+      const agents = Array.isArray(result) ? result : result.data
+      return agents.map((agent) => ({ ...agent, id: parseAgentId(agent.id) }))
     },
     staleTime: 120_000,
   })
@@ -183,7 +203,8 @@ export function useHealthCheck(filters: AnalyticsFilters, alertConfig?: AlertCon
 
   return useQuery<HealthCheckResponse>({
     queryKey: ['analytics', 'health-check', params],
-    queryFn: () => managedGet(`/analytics/health-check${toQueryString(params)}`),
+    queryFn: async () =>
+      parseHealthCheckResponse(await managedGet(`/analytics/health-check${toQueryString(params)}`)),
     staleTime: 30_000,
     refetchInterval: 30_000,
   })
@@ -217,7 +238,10 @@ export function useAgentRanking(filters: AnalyticsFilters) {
   const params = buildFilterParams(filters)
   return useQuery<AgentRankingItem[]>({
     queryKey: ['analytics', 'agent-ranking', params],
-    queryFn: () => managedGet(`/analytics/agent-ranking${toQueryString(params)}`),
+    queryFn: async () =>
+      parseAgentRankingResponse(
+        await managedGet(`/analytics/agent-ranking${toQueryString(params)}`),
+      ),
     staleTime: 60_000,
   })
 }

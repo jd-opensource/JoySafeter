@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import enum
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId, TaskId
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId, TaskId, TriggerId
 
 from .base import JoySafeterBaseModel
 
@@ -52,6 +51,10 @@ class JoySafeterTrigger(JoySafeterBaseModel):
             postgresql_where=text("enabled IS TRUE AND type = 'cron' AND deleted_at IS NULL"),
             sqlite_where=text("enabled IS TRUE AND type = 'cron' AND deleted_at IS NULL"),
         ),
+    )
+
+    id: Mapped[TriggerId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(TriggerId), primary_key=True, default=TriggerId.new
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)

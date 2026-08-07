@@ -7,7 +7,6 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Body, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.id_helpers import parse_task_after_id, parse_trigger_id
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_trigger import (
     TriggerCreateRequest,
@@ -24,16 +23,15 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import SessionId
+from app.joysafeter_shared.ids import TaskId, TriggerId
 from app.joysafeter_shared.rate_limit import get_client_ip, rate_limit
-from app.joysafeter_shared.utils.id_utils import format_task_id
 
 router = APIRouter(tags=["joysafeter-triggers"])
 
 
-def _webhook_url(request: Request, trigger_id: uuid.UUID) -> str:
+def _webhook_url(request: Request, trigger_id: TriggerId) -> str:
     base = str(request.base_url).rstrip("/")
-    return f"{base}/api/v1/triggers/trig_{trigger_id}/webhook"
+    return f"{base}/api/v1/triggers/{trigger_id}/webhook"
 
 
 def _response(trigger, request: Request) -> TriggerResponse:
@@ -139,7 +137,7 @@ async def list_triggers(
     return [_response(trigger, request) for trigger in triggers]
 
 
-async def _get_or_404(db: AsyncSession, trigger_id: uuid.UUID, project_id: Optional[str]):
+async def _get_or_404(db: AsyncSession, trigger_id: TriggerId, project_id: Optional[str]):
     trigger = await JoySafeterTriggerService(db).get(trigger_id, project_id=project_id)
     if trigger is None:
         raise NotFoundError(
@@ -154,7 +152,7 @@ async def _get_or_404(db: AsyncSession, trigger_id: uuid.UUID, project_id: Optio
 @router.get("/{trigger_id}", response_model=TriggerResponse)
 async def get_trigger(
     request: Request,
-    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    trigger_id: TriggerId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> TriggerResponse:
@@ -164,7 +162,7 @@ async def get_trigger(
 @router.patch("/{trigger_id}", response_model=TriggerResponse)
 async def update_trigger(
     request: Request,
-    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    trigger_id: TriggerId,
     body: TriggerUpdateRequest = Body(...),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -184,7 +182,7 @@ async def update_trigger(
 
 @router.delete("/{trigger_id}", status_code=204)
 async def delete_trigger(
-    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    trigger_id: TriggerId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
@@ -194,7 +192,7 @@ async def delete_trigger(
 
 @router.post("/{trigger_id}/run", status_code=202, response_model=TriggerFireResponse)
 async def run_trigger_now(
-    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    trigger_id: TriggerId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key"),
@@ -206,8 +204,8 @@ async def run_trigger_now(
     )
     return TriggerFireResponse(
         status=status,
-        task_id=str(task.id) if task is not None else None,
-        session_id=str(SessionId(session_id)) if session_id is not None else None,
+        task_id=task.id if task is not None else None,
+        session_id=session_id,
         deduped=deduped,
         reason=reason,
     )
@@ -215,9 +213,9 @@ async def run_trigger_now(
 
 @router.get("/{trigger_id}/runs", response_model=PaginatedResponse[TriggerRunResponse])
 async def list_trigger_runs(
-    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    trigger_id: TriggerId,
     limit: int = Query(50, ge=1, le=500),
-    after_id: Optional[uuid.UUID] = Depends(parse_task_after_id),
+    after_id: Optional[TaskId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[TriggerRunResponse]:
@@ -239,8 +237,8 @@ async def list_trigger_runs(
     return PaginatedResponse(
         data=data,
         has_more=has_more,
-        first_id=format_task_id(data[0].id) if data else None,
-        last_id=format_task_id(data[-1].id) if data else None,
+        first_id=str(data[0].id) if data else None,
+        last_id=str(data[-1].id) if data else None,
     )
 
 
@@ -248,7 +246,7 @@ async def list_trigger_runs(
 @rate_limit(max_requests=60, window_seconds=60, key_func=_webhook_rate_limit_key)
 async def fire_webhook_trigger(
     request: Request,
-    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    trigger_id: TriggerId,
     x_joysafeter_signature: Optional[str] = Header(None),
     x_hub_signature_256: Optional[str] = Header(None),
     x_joysafeter_token: Optional[str] = Header(None),
@@ -310,8 +308,8 @@ async def fire_webhook_trigger(
     )
     return TriggerFireResponse(
         status=status,
-        task_id=(str(task.id) if task else None),
-        session_id=(str(SessionId(session_id)) if session_id else None),
+        task_id=task.id if task else None,
+        session_id=session_id,
         reason=reason,
         deduped=deduped,
     )
@@ -320,7 +318,7 @@ async def fire_webhook_trigger(
 @router.post("/{trigger_id}/test", status_code=202, response_model=TriggerFireResponse)
 async def test_fire_webhook_trigger(
     request: Request,
-    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    trigger_id: TriggerId,
     body: dict[str, Any] = Body(default_factory=dict),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -357,8 +355,8 @@ async def test_fire_webhook_trigger(
     )
     return TriggerFireResponse(
         status=status,
-        task_id=(str(task.id) if task else None),
-        session_id=(str(SessionId(session_id)) if session_id else None),
+        task_id=task.id if task else None,
+        session_id=session_id,
         reason=reason,
         deduped=deduped,
     )
@@ -367,7 +365,7 @@ async def test_fire_webhook_trigger(
 @router.get("/{trigger_id}/webhook-sample")
 async def webhook_sample(
     request: Request,
-    trigger_id: uuid.UUID = Depends(parse_trigger_id),
+    trigger_id: TriggerId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict[str, Any]:

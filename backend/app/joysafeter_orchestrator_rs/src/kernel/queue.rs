@@ -5,6 +5,8 @@ use redis::AsyncCommands;
 use tracing::error;
 use uuid::Uuid;
 
+use crate::ids::{SandboxId, TaskId};
+
 const GLOBAL_QUEUE_KEY: &str = "joysafeter:global_queue";
 
 /// Extra time allowed on top of `BLPOP`'s server-side timeout before the
@@ -34,8 +36,9 @@ impl TaskQueue {
         Self { redis_client }
     }
 
-    fn parse_task_id(raw: &str) -> anyhow::Result<Uuid> {
+    fn parse_task_id(raw: &str) -> anyhow::Result<TaskId> {
         raw.parse::<Uuid>()
+            .map(TaskId::from_uuid)
             .map_err(|e| anyhow!("invalid task id in Redis global queue: {raw}: {e}"))
     }
 
@@ -55,22 +58,23 @@ impl TaskQueue {
     }
 
     /// Push a sandbox wakeup signal after a task has been attached in DB.
-    pub async fn push(&self, sandbox_id: Uuid, task_id: Uuid) -> anyhow::Result<()> {
-        let key = format!("joysafeter:sandbox_wakeup:{sandbox_id}");
-        let channel = format!("joysafeter:sandbox_wakeup_channel:{sandbox_id}");
+    pub async fn push(&self, sandbox_id: SandboxId, task_id: TaskId) -> anyhow::Result<()> {
+        let sandbox_uuid = sandbox_id.as_uuid();
+        let key = format!("joysafeter:sandbox_wakeup:{sandbox_uuid}");
+        let channel = format!("joysafeter:sandbox_wakeup_channel:{sandbox_uuid}");
 
         for attempt in 0..3u32 {
             match self.get_connection().await {
                 Ok(mut conn) => {
                     let r1 = redis::cmd("SET")
                         .arg(&key)
-                        .arg(task_id.to_string())
+                        .arg(task_id.as_uuid().to_string())
                         .arg("EX")
                         .arg(60)
                         .query_async::<()>(&mut conn)
                         .await;
                     let r2 = conn
-                        .publish::<_, _, ()>(&channel, task_id.to_string())
+                        .publish::<_, _, ()>(&channel, task_id.as_uuid().to_string())
                         .await;
                     if r1.is_ok() && r2.is_ok() {
                         return Ok(());
@@ -102,12 +106,12 @@ impl TaskQueue {
     }
 
     /// Push to the global scheduler queue.
-    pub async fn push_to_global(&self, task_id: Uuid) -> anyhow::Result<()> {
+    pub async fn push_to_global(&self, task_id: TaskId) -> anyhow::Result<()> {
         for attempt in 0..3u32 {
             match self.get_connection().await {
                 Ok(mut conn) => {
                     match conn
-                        .rpush::<_, _, ()>(GLOBAL_QUEUE_KEY, task_id.to_string())
+                        .rpush::<_, _, ()>(GLOBAL_QUEUE_KEY, task_id.as_uuid().to_string())
                         .await
                     {
                         Ok(_) => return Ok(()),
@@ -153,7 +157,7 @@ impl TaskQueue {
     /// healthy connection the server responds first (data or its own timeout). On a
     /// dead connection the client-side deadline fires, we surface an error, and the
     /// caller drops this connection and retries with a fresh one on the next loop.
-    pub async fn pop_from_global(&self, timeout: Duration) -> anyhow::Result<Option<Uuid>> {
+    pub async fn pop_from_global(&self, timeout: Duration) -> anyhow::Result<Option<TaskId>> {
         let mut conn = self.get_connection().await?;
         let blpop = async {
             redis::cmd("BLPOP")
@@ -181,7 +185,7 @@ impl TaskQueue {
     }
 
     /// Drain one immediately available task candidate without blocking.
-    pub async fn try_pop_from_global(&self) -> anyhow::Result<Option<Uuid>> {
+    pub async fn try_pop_from_global(&self) -> anyhow::Result<Option<TaskId>> {
         let mut conn = self.get_connection().await?;
         let lpop = async {
             redis::cmd("LPOP")
@@ -206,14 +210,14 @@ impl TaskQueue {
     }
 
     /// Remove Redis wakeup state for a sandbox.
-    pub async fn drain(&self, sandbox_id: Uuid) -> Vec<Uuid> {
+    pub async fn drain(&self, sandbox_id: SandboxId) -> Vec<TaskId> {
         self.drain_sandbox_redis(sandbox_id).await;
         vec![]
     }
 
-    pub async fn drain_sandbox_redis(&self, sandbox_id: Uuid) {
+    pub async fn drain_sandbox_redis(&self, sandbox_id: SandboxId) {
         if let Ok(mut conn) = self.get_connection().await {
-            let key = format!("joysafeter:sandbox_wakeup:{sandbox_id}");
+            let key = format!("joysafeter:sandbox_wakeup:{}", sandbox_id.as_uuid());
             let _ = conn.del::<_, ()>(&key).await;
         }
     }

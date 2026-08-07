@@ -8,7 +8,6 @@ KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL (e.g. CONNECTION_STRING, DSN) in cleartext,
 and vault tokens leaked their first 6 characters (or the whole short token).
 """
 
-import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -16,6 +15,7 @@ import pytest
 
 from app.joysafeter_domain.schemas.joysafeter_vault import VaultCredentialResponse
 from app.joysafeter_domain.services.joysafeter_secret_service import MASKED_SECRET_PREFIX, SecretService
+from app.joysafeter_shared.ids import CredentialId, VaultId
 
 pytestmark = pytest.mark.no_db
 
@@ -66,8 +66,8 @@ def test_secret_masking_reveals_display_safe_config_keys():
 
 def _vault_response(token_value: str) -> dict:
     model = VaultCredentialResponse(
-        id=uuid.uuid4(),
-        vault_id=uuid.uuid4(),
+        id=CredentialId.new(),
+        vault_id=VaultId.new(),
         name="cred",
         credential_type="token",
         mcp_server_url="https://mcp.example.com",
@@ -92,8 +92,8 @@ def test_vault_short_token_is_not_leaked_whole():
 
 def test_vault_oauth_secrets_fully_redacted():
     model = VaultCredentialResponse(
-        id=uuid.uuid4(),
-        vault_id=uuid.uuid4(),
+        id=CredentialId.new(),
+        vault_id=VaultId.new(),
         name="cred",
         credential_type="oauth",
         mcp_server_url="https://mcp.example.com",

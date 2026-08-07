@@ -61,9 +61,6 @@ async def _idle_session(db_session) -> JoySafeterSession:
 async def test_delete_session_cancels_redis_subscriber_tasks(db_session, monkeypatch):
     session = await _idle_session(db_session)
     session_id = session.id
-    # The broadcaster keys its internal maps by the physical UUID (the
-    # cross-language Redis channel contract), so assert against that form.
-    raw_session_id = session.id.uuid
 
     broadcaster = SessionBroadcaster(redis_client=_FakeRedis(), instance_id="test-instance")
     monkeypatch.setattr(
@@ -74,7 +71,7 @@ async def test_delete_session_cancels_redis_subscriber_tasks(db_session, monkeyp
     # A live SSE consumer subscribes, spawning a tracked Redis subscriber task.
     broadcaster.subscribe(session_id)
     await asyncio.sleep(0)  # let the subscriber task start
-    task = broadcaster._redis_tasks[raw_session_id]
+    task = broadcaster._redis_tasks[session_id]
     assert not task.done()
 
     result = await delete_session(session_id, db_session, _auth_ctx())
@@ -83,9 +80,9 @@ async def test_delete_session_cancels_redis_subscriber_tasks(db_session, monkeyp
     await asyncio.sleep(0)  # let cancellation propagate
 
     # The subscriber task and its bookkeeping must be cleaned up, not leaked.
-    assert raw_session_id not in broadcaster._redis_tasks
+    assert session_id not in broadcaster._redis_tasks
     assert task.cancelled() or task.done()
-    assert raw_session_id not in broadcaster._channels
+    assert session_id not in broadcaster._channels
 
 
 class _FakeRequest:

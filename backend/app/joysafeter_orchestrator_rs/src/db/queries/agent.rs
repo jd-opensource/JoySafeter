@@ -1,7 +1,7 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::db::models::JoySafeterAgent;
+use crate::ids::AgentId;
 
 // ---------------------------------------------------------------------------
 // Agent queries
@@ -10,7 +10,7 @@ use crate::db::models::JoySafeterAgent;
 /// Get an agent by ID.
 pub async fn get_agent(
     pool: &PgPool,
-    agent_id: Uuid,
+    agent_id: AgentId,
 ) -> Result<Option<JoySafeterAgent>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterAgent>(
         r#"

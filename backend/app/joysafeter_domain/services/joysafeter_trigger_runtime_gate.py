@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -13,6 +12,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError, ResourceConflictError
+from app.joysafeter_shared.ids import AgentId, TriggerId
 
 
 class TriggerRuntimeGate:
@@ -22,7 +22,7 @@ class TriggerRuntimeGate:
     async def resolve_runnable_target(
         self,
         *,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         project_id: Optional[str],
         environment_ref: Optional[str] = None,
     ) -> tuple[JoySafeterAgent, Optional[str]]:
@@ -132,8 +132,10 @@ class TriggerRuntimeGate:
                     JoySafeterEnvironment.project_id == JoySafeterTrigger.project_id,
                 ),
                 or_(
+                    # environment_ref is canonically a name or the prefixed
+                    # ``env_<uuid>`` (see EnvironmentService.get_environment_by_ref);
+                    # a bare-uuid ref is never storable, so no bare branch here.
                     JoySafeterEnvironment.name == environment_ref,
-                    environment_id == environment_ref,
                     prefixed_environment_id == environment_ref,
                 ),
             )
@@ -146,7 +148,7 @@ class TriggerRuntimeGate:
         return or_(JoySafeterTrigger.locked_at.is_(None), JoySafeterTrigger.locked_at < stale_before)
 
     @staticmethod
-    def lock_stmt(trigger_id: uuid.UUID, project_id: Optional[str] = None):
+    def lock_stmt(trigger_id: TriggerId, project_id: Optional[str] = None):
         """`SELECT ... FOR UPDATE` for a live (non-soft-deleted) trigger row."""
         conditions = [JoySafeterTrigger.id == trigger_id, JoySafeterTrigger.deleted_at.is_(None)]
         if project_id is not None:
@@ -154,7 +156,7 @@ class TriggerRuntimeGate:
         return select(JoySafeterTrigger).where(*conditions).with_for_update()
 
     @staticmethod
-    def trigger_not_found_error(trigger_id: uuid.UUID) -> NotFoundError:
+    def trigger_not_found_error(trigger_id: TriggerId) -> NotFoundError:
         return NotFoundError(
             code="TRIGGER_NOT_FOUND",
             message="Trigger not found",

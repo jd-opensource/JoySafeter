@@ -22,6 +22,7 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafe
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import TaskId, as_uuid
 
 
 class _FakeCommandRedis:
@@ -128,7 +129,7 @@ async def test_session_stop_cancels_task_and_idles_session_when_relay_confirmed(
     assert result["cancelled_tasks"] == 1
     # A real cancel command was relayed to the sandbox owner.
     cancels = [p for _, p in redis.published if p.get("type") == "cancel"]
-    assert len(cancels) == 1 and cancels[0]["sandbox_id"] == str(sandbox.id)
+    assert len(cancels) == 1 and cancels[0]["sandbox_id"] == str(as_uuid(sandbox.id))
 
     db_session.expire_all()
     task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
@@ -153,7 +154,7 @@ async def test_session_stop_does_not_idle_if_active_task_appears_after_recheck(d
 
     real_get_session = SessionService.get_session
     calls = {"count": 0}
-    raced_task_id: uuid.UUID | None = None
+    raced_task_id: TaskId | None = None
 
     async def spawn_task_before_final_idle(self, sid, project_id=None):
         nonlocal raced_task_id

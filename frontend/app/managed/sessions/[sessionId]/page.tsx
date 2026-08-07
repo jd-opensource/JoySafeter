@@ -60,6 +60,22 @@ import {
   sortSessionEvents,
 } from '@/lib/managed/session-events'
 import { useSessionStream } from '@/lib/managed/sse'
+import { parseSessionId, tryParseEnvironmentId, type SessionId } from '@/types/entity-id'
+import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
+import {
+  parseVaultCredentialListResponse,
+  parseVaultResponse,
+} from '@/lib/managed/vault-response-parsers'
+import { parseSkillUsageListResponse } from '@/lib/managed/skill-response-parsers'
+import { parseSessionEventListResponse } from '@/lib/managed/event-response-parsers'
+import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
+import {
+  parseFileListResponse,
+  parseSessionFileResourceResponse,
+  parseSessionRepoResourceResponse,
+  parseSessionResourceListResponse,
+} from '@/lib/managed/file-response-parsers'
 import type {
   Agent,
   Environment,
@@ -176,7 +192,8 @@ const ENGINE_KIND_LABELS: Record<string, string> = {
 }
 
 export default function SessionDetailPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const { sessionId: id } = React.use(params)
+  const { sessionId: rawSessionId } = React.use(params)
+  const id = parseSessionId(rawSessionId)
   const { t } = useTranslation()
   const router = useRouter()
   const [tab, setTab] = useState<'transcript' | 'debug'>('transcript')
@@ -203,7 +220,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   // new events auto-scroll into view; when the user scrolls up to read history,
   // we stop yanking them back down.
   const stickToBottomRef = useRef(true)
-  const { events: streamEvents, connected: sseConnected } = useSessionStream(id || '', !!id)
+  const { events: streamEvents, connected: sseConnected } = useSessionStream(id, true)
 
   const openSessionFiles = useCallback(() => {
     setActiveDrawer('files')
@@ -217,7 +234,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   } = useQuery({
     queryKey: ['session', sessionScope],
     queryFn: () =>
-      managedGet<Session>(apiResourcePath('sessions', id), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('sessions', id),
+        managedRequestOptions(managedScope),
+      ).then(parseSessionResponse),
     enabled: !!id && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
     refetchInterval: (query) => {
@@ -232,18 +252,21 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const { data: agentDetail } = useQuery({
     queryKey: ['agent', sessionScope, agentId],
     queryFn: () =>
-      managedGet<Agent>(apiResourcePath('agents', agentId!), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('agents', agentId!),
+        managedRequestOptions(managedScope),
+      ).then(parseAgentResponse),
     enabled: !!agentId && activeDrawer === 'agent' && hasManagedRequestScope(managedScope),
   })
 
-  const envId = session?.environment_id
+  const envId = tryParseEnvironmentId(session?.environment_id)
   const { data: envDetail } = useQuery({
     queryKey: ['environment', sessionScope, envId],
     queryFn: () =>
       managedGet<Environment>(
         apiResourcePath('environments', envId!),
         managedRequestOptions(managedScope),
-      ),
+      ).then(parseEnvironmentResponse),
     enabled: !!envId && hasManagedRequestScope(managedScope),
   })
 
@@ -251,36 +274,45 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const { data: vaultDetail } = useQuery({
     queryKey: ['vault', sessionScope, vaultId],
     queryFn: () =>
-      managedGet<Vault>(apiResourcePath('vaults', vaultId!), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('vaults', vaultId!),
+        managedRequestOptions(managedScope),
+      ).then(parseVaultResponse),
     enabled: !!vaultId && hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultCredentials } = useQuery({
     queryKey: ['vault-credentials', sessionScope, vaultId],
     queryFn: () =>
-      managedGet<{ data: VaultCredential[] }>(
+      managedGet<{ data: unknown[] }>(
         apiResourceSubpath('vaults', vaultId!, ['credentials'], { limit: 100 }),
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({
+        ...response,
+        data: parseVaultCredentialListResponse(response.data),
+      })),
     enabled: !!vaultId && activeDrawer === 'vault' && hasManagedRequestScope(managedScope),
   })
 
   const { data: sessionResources } = useQuery({
     queryKey: ['session-resources', sessionScope],
     queryFn: () =>
-      managedGet<{ data: SessionResource[] }>(
+      managedGet<{ data: unknown[] }>(
         apiResourcePath('sessions', id, 'resources'),
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({
+        ...response,
+        data: parseSessionResourceListResponse(response.data),
+      })),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
   const { data: sessionSkillUsage } = useQuery({
     queryKey: ['session-skill-usage', sessionScope],
     queryFn: () =>
-      managedGet<{ data: SessionSkillUsage[] }>(
+      managedGet<unknown>(
         apiResourcePath('sessions', id, 'skill-usage'),
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({ data: parseSkillUsageListResponse(response) })),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
 
@@ -357,7 +389,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       if (!currentSessionScopeIsActive(actionScope)) return
       setIsLoadingMore(true)
       try {
-        const res = await managedGet<{ data: SessionEvent[]; has_more: boolean }>(
+        const res = await managedGet<unknown[] | { data: unknown[]; has_more: boolean }>(
           apiResourceSubpath('sessions', id, ['events'], {
             limit: 100,
             after_seq: afterSeq,
@@ -365,7 +397,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           managedRequestOptions(requestScope),
         )
         if (!currentSessionScopeIsActive(actionScope)) return
-        const newEvents = Array.isArray(res) ? res : res.data
+        const newEvents = parseSessionEventListResponse(Array.isArray(res) ? res : res.data)
         const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
         setLoadedEvents((prev) =>
           sortSessionEvents(afterSeq != null ? [...prev, ...newEvents] : newEvents),
@@ -2256,7 +2288,7 @@ function SandboxFilesPanel({
   sessionId,
   requestScope,
 }: {
-  sessionId: string
+  sessionId: SessionId
   requestScope: ManagedRequestScope
 }) {
   const { t } = useTranslation()
@@ -2388,7 +2420,7 @@ function SandboxDirectoryTree({
   onPreview,
   onDownload,
 }: {
-  sessionId: string
+  sessionId: SessionId
   requestScope: ManagedRequestScope
   path: string
   name: string
@@ -2508,7 +2540,7 @@ function FilesDrawer({
   onClose,
   onChanged,
 }: {
-  sessionId: string
+  sessionId: SessionId
   operationScope: string
   requestScope: ManagedRequestScope
   files: SessionFileResource[]
@@ -2559,7 +2591,9 @@ function FilesDrawer({
   const filesForAddQuery = useQuery({
     queryKey: ['files-for-add', operationScope],
     queryFn: () =>
-      managedGet<{ data: FileRecord[] }>('/files?limit=100', managedRequestOptions(requestScope)),
+      managedGet<{ data: unknown[] }>('/files?limit=100', managedRequestOptions(requestScope)).then(
+        (response) => ({ ...response, data: parseFileListResponse(response.data) }),
+      ),
     enabled: pickerOpen && hasManagedRequestScope(requestScope),
     retry: false,
   })
@@ -2577,7 +2611,7 @@ function FilesDrawer({
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPost(
+      return managedPost<unknown>(
         apiResourcePath('sessions', sessionId, 'resources'),
         {
           type: 'file',
@@ -2585,7 +2619,7 @@ function FilesDrawer({
           mount_path: `/workspace/${file.filename}`,
         },
         managedRequestOptions(requestScopeRef.current),
-      )
+      ).then(parseSessionFileResourceResponse)
     },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return
@@ -2808,7 +2842,7 @@ function ReposDrawer({
   onClose,
   onChanged,
 }: {
-  sessionId: string
+  sessionId: SessionId
   operationScope: string
   requestScope: ManagedRequestScope
   repos: SessionRepoResource[]
@@ -2865,20 +2899,20 @@ function ReposDrawer({
       draftVersion,
     }: {
       resourceId: string
-      sessionId: string
+      sessionId: SessionId
       token: string
       draftVersion: number
       runId: number
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPatch(
+      return managedPatch<unknown>(
         apiResourcePath('sessions', sessionId, 'resources', resourceId),
         {
           authorization_token: token,
         },
         managedRequestOptions(requestScope),
-      )
+      ).then(parseSessionRepoResourceResponse)
     },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return

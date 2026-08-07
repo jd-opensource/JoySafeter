@@ -17,9 +17,9 @@ use std::sync::Arc;
 
 use sqlx::PgPool;
 use tracing::warn;
-use uuid::Uuid;
 
 use crate::db::queries;
+use crate::ids::SandboxId;
 use crate::sandbox::provider::SandboxProvider;
 
 /// Finalize a sandbox destroy after the caller has already CAS-claimed the row
@@ -42,7 +42,7 @@ use crate::sandbox::provider::SandboxProvider;
 pub(crate) async fn finalize_claimed_sandbox_destroy(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     external_id: Option<&str>,
     restore_status: &str,
     reason: &str,
@@ -92,7 +92,7 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
 pub(crate) async fn destroy_observed_sandbox(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     observed_status: &str,
     external_id: Option<&str>,
     reason: &str,

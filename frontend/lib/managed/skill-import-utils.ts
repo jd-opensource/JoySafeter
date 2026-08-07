@@ -12,7 +12,7 @@
  * still actually needs.
  */
 
-import type { SkillFile, SkillFrontmatter, ParsedSkillMd } from '@/types'
+import type { ImportedSkillFile, SkillFrontmatter, ParsedSkillMd } from '@/types'
 import { COMMON_EXTENSIONS, WARNED_EXTENSIONS } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -495,13 +495,12 @@ export async function processLocalDirectoryFiles(fileList: FileList | File[]): P
 }
 
 /**
- * Convert imported files to SkillFile format.
+ * Convert imported files to the pre-persistence import format.
  */
 export async function convertFilesToSkillFiles(
   files: File[],
-): Promise<{ skillFiles: SkillFile[]; rejectedFiles: RejectedFile[] }> {
-  const now = new Date().toISOString()
-  const skillFiles: SkillFile[] = []
+): Promise<{ skillFiles: ImportedSkillFile[]; rejectedFiles: RejectedFile[] }> {
+  const skillFiles: ImportedSkillFile[] = []
   const rejectedFiles: RejectedFile[] = []
   const commonRoot = getCommonSkillImportRoot(files)
 
@@ -524,17 +523,11 @@ export async function convertFilesToSkillFiles(
       const fileType = getFileTypeFromExtension(ext)
 
       skillFiles.push({
-        id: '',
-        skill_id: '',
         path: relativePath,
         file_name: filename,
         file_type: fileType,
         content,
-        storage_type: 'database',
-        storage_key: null,
         size: content.length,
-        created_at: now,
-        updated_at: now,
       })
     } catch (e) {
       rejectedFiles.push({ path: relativePath, reason: 'read_error' })

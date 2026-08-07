@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
 
 
 def _strip_required(value: str) -> str:
@@ -144,7 +143,7 @@ class TriggerUpdateRequest(BaseModel):
 class TriggerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: TriggerId
     name: str
     description: Optional[str]
     type: Literal["cron", "webhook", "manual"]
@@ -182,11 +181,6 @@ class TriggerResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_serializer("id")
-    def _serialize_id(self, value: uuid.UUID) -> str:
-        return f"trig_{value}"
-
-
 class TriggerVariable(BaseModel):
     path: str
     token: str
@@ -200,8 +194,8 @@ class TriggerVariableCatalogResponse(BaseModel):
 
 class TriggerFireResponse(BaseModel):
     status: str
-    task_id: Optional[str] = None
-    session_id: Optional[str] = None
+    task_id: Optional[TaskId] = None
+    session_id: Optional[SessionId] = None
     deduped: bool = False
     reason: Optional[str] = None
 
@@ -212,7 +206,7 @@ class TriggerRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: TaskId
-    trigger_id: Optional[uuid.UUID]
+    trigger_id: Optional[TriggerId]
     status: str
     retry_count: int
     max_retries: int
@@ -221,7 +215,3 @@ class TriggerRunResponse(BaseModel):
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
-
-    @field_serializer("trigger_id")
-    def _serialize_trigger_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return f"trig_{value}" if value is not None else None

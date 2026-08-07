@@ -7,6 +7,10 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Check, CheckCircle2, Loader2, Plus, Star, Trash2, Wifi, XCircle } from 'lucide-react'
 import { managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import {
+  parseSecretDetailResponse,
+  parseSecretResponse,
+} from '@/lib/managed/secret-response-parsers'
 import { parseApiError, toastOperationError } from '@/lib/managed/errors'
 import {
   managedRequestOptions,
@@ -133,7 +137,11 @@ export default function SecretListPage() {
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<Secret>({ queryKey: 'secrets', path: '/secrets' })
+  } = usePaginatedList<Secret>({
+    queryKey: 'secrets',
+    path: '/secrets',
+    parseItem: parseSecretResponse,
+  })
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
   const [showCreate, setShowCreate] = useState(false)
@@ -326,7 +334,7 @@ export default function SecretListPage() {
     const isDefault = secrets.length === 0
     setCreating(true)
     try {
-      await managedPost(
+      await managedPost<unknown>(
         '/secrets',
         {
           name,
@@ -336,7 +344,7 @@ export default function SecretListPage() {
           is_default: isDefault,
         },
         managedRequestOptions(action.requestScope),
-      )
+      ).then(parseSecretDetailResponse)
       if (!isCurrentScopedRun(createRunRef, action)) return
       resetCreateDraft()
       setShowCreate(false)
@@ -421,11 +429,11 @@ export default function SecretListPage() {
 
     const action = nextScopedRun(defaultRunRef)
     try {
-      await managedPost(
+      await managedPost<unknown>(
         apiResourcePath('secrets', target.id, 'default'),
         {},
         managedRequestOptions(action.requestScope),
-      )
+      ).then(parseSecretDetailResponse)
       if (!isCurrentScopedRun(defaultRunRef, action)) return
       queryClient.invalidateQueries({ queryKey: ['secrets', action.scope] })
     } catch (e) {

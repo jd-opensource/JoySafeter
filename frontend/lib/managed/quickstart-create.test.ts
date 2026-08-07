@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { buildQuickstartAgentCreateBody } from './quickstart-create'
 
+const SKILL_ID = 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111'
+
 describe('buildQuickstartAgentCreateBody', () => {
   it('preserves generated agent config fields accepted by the backend schema', () => {
     const body = buildQuickstartAgentCreateBody(
@@ -12,7 +14,7 @@ describe('buildQuickstartAgentCreateBody', () => {
         model: { id: 'claude-sonnet-4', speed: 'standard' },
         tools: [{ type: 'agent_toolset_20260401' }],
         mcp_servers: [{ type: 'url', name: 'docs', url: 'https://docs.example.com/mcp' }],
-        skills: [{ type: 'custom', skill_id: 'skill_123', version: 'latest' }],
+        skills: [{ type: 'custom', skill_id: SKILL_ID, version: 'latest' }],
         env: { FEATURE_FLAG: '1' },
         multiagent: { enabled: true },
         metadata: { topic: 'security' },
@@ -33,7 +35,7 @@ describe('buildQuickstartAgentCreateBody', () => {
       secret_ref: 'anthropic-prod',
       tools: [{ type: 'agent_toolset_20260401' }],
       mcp_servers: [{ type: 'url', name: 'docs', url: 'https://docs.example.com/mcp' }],
-      skills: [{ type: 'custom', skill_id: 'skill_123', version: 'latest' }],
+      skills: [{ type: 'custom', skill_id: SKILL_ID, version: 'latest' }],
       env: { FEATURE_FLAG: '1' },
       multiagent: { enabled: true },
       metadata: { topic: 'security' },

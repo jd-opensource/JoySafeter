@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseVaultCredentialResponse } from '@/lib/managed/vault-response-parsers'
 import {
   managedRequestOptions,
   managedScopeKey,
@@ -15,7 +16,7 @@ import {
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import type { VaultCredential } from '@/types/managed'
+import type { VaultId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -29,7 +30,7 @@ import {
 interface CreateCredentialDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  vaultId: string
+  vaultId: VaultId
   queryKey: unknown[]
   canSubmit?: () => boolean
 }
@@ -37,7 +38,7 @@ interface CreateCredentialDialogProps {
 type CredType = 'mcp_oauth' | 'static_bearer'
 
 interface CreateCredentialVariables {
-  vaultId: string
+  vaultId: VaultId
   queryKey: unknown[]
   payload: {
     name?: string
@@ -82,11 +83,11 @@ export function CreateCredentialDialog({
       if (!currentOperationScopeIsActive(scope) || !currentProjectAllowsWrite()) {
         throw new Error('Stale vault credential create ignored')
       }
-      return managedPost<VaultCredential>(
+      return managedPost<unknown>(
         apiResourcePath('vaults', vaultId, 'credentials'),
         payload,
         managedRequestOptions(requestScope),
-      )
+      ).then(parseVaultCredentialResponse)
     },
     onSuccess: (_data, { queryKey, runId, scope }) => {
       if (

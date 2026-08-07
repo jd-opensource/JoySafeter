@@ -60,6 +60,7 @@ from app.joysafeter_shared.common.app_errors import AppError, RateLimitExceededE
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import AsyncSessionLocal
+from app.joysafeter_shared.ids import SessionId, TaskId
 
 logger = logging.getLogger(__name__)
 
@@ -134,8 +135,8 @@ class _FireOutcome:
     """Result of processing one due cron trigger (no exception path)."""
 
     status: str  # "fired" | "deduped" | "skipped"
-    task_id: Optional[uuid.UUID] = None
-    session_id: Optional[uuid.UUID] = None
+    task_id: Optional[TaskId] = None
+    session_id: Optional[SessionId] = None
     payload: Optional[dict] = None
 
 

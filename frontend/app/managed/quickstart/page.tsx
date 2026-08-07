@@ -46,7 +46,7 @@ import {
   type ManagedRequestScope,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { shortIdWithPrefix, stripIdPrefix } from '@/lib/managed/id'
+import { shortIdWithPrefix } from '@/lib/managed/id'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSessionStream } from '@/lib/managed/sse'
@@ -62,6 +62,16 @@ import type {
 import { EventList, EventDetail, EventFilter } from '@/components/managed/session'
 import yaml from 'js-yaml'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  parseSessionId,
+  tryParseEnvironmentId,
+  tryParseVaultId,
+  type SessionId,
+  type VaultId,
+} from '@/types/entity-id'
+import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
+import { parseVaultListResponse } from '@/lib/managed/vault-response-parsers'
+import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
@@ -725,7 +735,7 @@ export default function QuickstartPage() {
   const [inputValue, setInputValue] = useState('')
   const [templateSearch, setTemplateSearch] = useState('')
   const [selectedEnvId, setSelectedEnvId] = useState<string>('')
-  const [localSessionId, setLocalSessionId] = useState('')
+  const [localSessionId, setLocalSessionId] = useState<SessionId | null>(null)
   const [isTestRunning, setIsTestRunning] = useState(false)
   const [isStoppingSession, setIsStoppingSession] = useState(false)
   const [previewTab, setPreviewTab] = useState<'transcript' | 'debug'>('debug')
@@ -755,7 +765,7 @@ export default function QuickstartPage() {
   const [vaultUsesAI, setVaultUsesAI] = useState(false)
   const [vaultAnswers, setVaultAnswers] = useState<{ choiceLabel?: string }>({})
   const [vaultName, setVaultName] = useState('')
-  const [pendingVaultId, setPendingVaultId] = useState<string | null>(null)
+  const [pendingVaultId, setPendingVaultId] = useState<VaultId | null>(null)
 
   useEffect(() => {
     if (managedScopeRef.current === managedScope.key) return
@@ -763,7 +773,7 @@ export default function QuickstartPage() {
     managedRequestScopeRef.current = managedScope
     pageActionRunRef.current += 1
     setSelectedEnvId('')
-    setLocalSessionId('')
+    setLocalSessionId(null)
     setIsTestRunning(false)
     setIsStoppingSession(false)
     sessionMsgDraftVersionRef.current += 1
@@ -817,14 +827,17 @@ export default function QuickstartPage() {
         '/environments',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseEnvironmentListResponse(res.data || [])
     },
     enabled: hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultsRes } = useQuery({
     queryKey: ['vaults-active', managedScope.key],
-    queryFn: () => managedGet<{ data: Vault[] }>('/vaults', managedRequestOptions(managedScope)),
+    queryFn: () =>
+      managedGet<{ data: unknown[] }>('/vaults', managedRequestOptions(managedScope)).then(
+        (response) => ({ ...response, data: parseVaultListResponse(response.data) }),
+      ),
     enabled: hasManagedRequestScope(managedScope),
   })
   const vaults = vaultsRes?.data
@@ -896,7 +909,7 @@ export default function QuickstartPage() {
 
   const isLanding = messages.length === 0 && !isStreaming
   const rawSessionId = resourceIds[6] || localSessionId
-  const sessionId = rawSessionId ? stripIdPrefix(rawSessionId) : ''
+  const sessionId = rawSessionId ? parseSessionId(rawSessionId) : null
   const isSessionActive = !!sessionId
 
   const { events: sessionEvents } = useSessionStream(
@@ -907,10 +920,10 @@ export default function QuickstartPage() {
   const { data: activeSession } = useQuery({
     queryKey: ['session', managedScope.key, rawSessionId],
     queryFn: () =>
-      managedGet<Session>(
+      managedGet<unknown>(
         apiResourcePath('sessions', rawSessionId || sessionId),
         managedRequestOptions(managedScope),
-      ),
+      ).then(parseSessionResponse),
     enabled: isSessionActive && hasManagedRequestScope(managedScope),
     refetchInterval: (query) => {
       const status = query.state.data?.status
@@ -1035,7 +1048,7 @@ export default function QuickstartPage() {
       : null
     if (currentSession) {
       if (
-        stripIdPrefix(currentSession.id) !== sessionId ||
+        currentSession.id !== sessionId ||
         currentSession.status !== 'running' ||
         currentSession.archived_at
       ) {
@@ -1076,7 +1089,7 @@ export default function QuickstartPage() {
       : null
     if (currentSession) {
       if (
-        stripIdPrefix(currentSession.id) !== sessionId ||
+        currentSession.id !== sessionId ||
         currentSession.status !== 'idle' ||
         currentSession.archived_at
       ) {
@@ -1179,7 +1192,7 @@ export default function QuickstartPage() {
   }
 
   const resolveSessionEnvironmentId = () => {
-    const envId = resourceIds[4]
+    const envId = tryParseEnvironmentId(resourceIds[4])
     if (!envId) return null
     const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
       'environments-active',
@@ -1192,7 +1205,7 @@ export default function QuickstartPage() {
   }
 
   const resolveSessionVaultId = () => {
-    const vaultId = resourceIds[5]
+    const vaultId = tryParseVaultId(resourceIds[5])
     if (!vaultId) return null
     const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
       'vaults-active',
@@ -1287,7 +1300,7 @@ export default function QuickstartPage() {
 
   // Sync environment created in quickstart to the preview panel dropdown
   useEffect(() => {
-    const quickstartEnvId = resourceIds[4]
+    const quickstartEnvId = tryParseEnvironmentId(resourceIds[4])
     if (!quickstartEnvId) return
 
     setSelectedEnvId(quickstartEnvId)
@@ -1367,7 +1380,7 @@ export default function QuickstartPage() {
         managedRequestOptions(requestScope),
       )
       if (!isCurrentPageAction(runId, scope)) return
-      setLocalSessionId(res.id)
+      setLocalSessionId(parseSessionId(res.id))
       setRightTab('preview')
     } catch (e) {
       if (!isCurrentPageAction(runId, scope)) return

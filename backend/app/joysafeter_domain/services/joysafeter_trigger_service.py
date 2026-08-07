@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+import builtins
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
 
@@ -24,7 +24,7 @@ from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import Trigg
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
-from app.joysafeter_shared.utils.id_utils import format_task_id, same_id
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
 
 _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYSAFETER_TERMINAL_STATUSES]
 
@@ -51,7 +51,7 @@ class JoySafeterTriggerService:
         get_trigger_for_update = None
         if hasattr(self.db, "execute"):
 
-            async def get_trigger_for_update(trigger_id: uuid.UUID) -> Optional[JoySafeterTrigger]:
+            async def get_trigger_for_update(trigger_id: TriggerId) -> Optional[JoySafeterTrigger]:
                 return await self._get_for_update(trigger_id)
 
         return TriggerSchedulerStateService(
@@ -66,7 +66,7 @@ class JoySafeterTriggerService:
     async def resolve_runnable_target(
         self,
         *,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         project_id: Optional[str],
         environment_ref: Optional[str] = None,
     ) -> tuple[JoySafeterAgent, Optional[str]]:
@@ -141,7 +141,7 @@ class JoySafeterTriggerService:
 
     @staticmethod
     def _trigger_has_active_runs_conflict(
-        trigger_id: uuid.UUID,
+        trigger_id: TriggerId,
         active_tasks: Sequence[JoySafeterTask],
     ) -> ResourceConflictError:
         return ResourceConflictError(
@@ -149,7 +149,7 @@ class JoySafeterTriggerService:
             message="Trigger has active runs. Cancel or wait for them before deleting the trigger.",
             data={
                 "trigger_id": str(trigger_id),
-                "active_task_ids": [format_task_id(task.id) for task in active_tasks],
+                "active_task_ids": [str(task.id) for task in active_tasks],
             },
             user_action="wait_or_cancel",
         )
@@ -189,14 +189,14 @@ class JoySafeterTriggerService:
         self,
         *,
         name: str,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         prompt_template: str,
         type: str = "webhook",
         environment_ref: Optional[str] = None,
         description: Optional[str] = None,
         enabled: bool = True,
         session_mode: str = "fresh",
-        pinned_session_id: Optional[uuid.UUID] = None,
+        pinned_session_id: Optional[SessionId] = None,
         session_key: Optional[str] = None,
         filter: Optional[dict[str, Any]] = None,
         timeout_sec: int = 7200,
@@ -298,7 +298,7 @@ class JoySafeterTriggerService:
 
     async def get(
         self,
-        trigger_id: uuid.UUID,
+        trigger_id: TriggerId,
         project_id: Optional[str] = None,
         *,
         include_deleted: bool = False,
@@ -312,7 +312,7 @@ class JoySafeterTriggerService:
         return result.scalar_one_or_none()
 
     async def _get_for_update(
-        self, trigger_id: uuid.UUID, project_id: Optional[str] = None
+        self, trigger_id: TriggerId, project_id: Optional[str] = None
     ) -> Optional[JoySafeterTrigger]:
         result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         return result.scalar_one_or_none()
@@ -360,7 +360,7 @@ class JoySafeterTriggerService:
         return result.scalars().all()
 
     async def update(
-        self, trigger_id: uuid.UUID, project_id: Optional[str], **fields: Any
+        self, trigger_id: TriggerId, project_id: Optional[str], **fields: Any
     ) -> Optional[JoySafeterTrigger]:
         trigger = await self._get_for_update(trigger_id, project_id=project_id)
         if trigger is None:
@@ -368,7 +368,7 @@ class JoySafeterTriggerService:
         plan = TriggerConfigPolicy.plan_update(trigger, fields)
         if "name" in fields and fields["name"] != trigger.name:
             existing = await self.get_by_name(fields["name"], project_id)
-            if existing is not None and not same_id(existing.id, trigger_id):
+            if existing is not None and existing.id != trigger_id:
                 raise self._trigger_name_conflict(fields["name"])
         if plan.should_resolve_target:
             await self.resolve_runnable_target(
@@ -407,7 +407,7 @@ class JoySafeterTriggerService:
         await self._notify_scheduler(trigger)
         return trigger
 
-    async def delete(self, trigger_id: uuid.UUID, project_id: Optional[str]) -> bool:
+    async def delete(self, trigger_id: TriggerId, project_id: Optional[str]) -> bool:
         trigger = await self._get_for_update(trigger_id, project_id=project_id)
         if trigger is None:
             return False
@@ -461,7 +461,7 @@ class JoySafeterTriggerService:
             lock_grace_sec=lock_grace_sec,
         )
 
-    async def release_claim(self, trigger_id: uuid.UUID, *, expected_locked_by: Optional[str] = None) -> None:
+    async def release_claim(self, trigger_id: TriggerId, *, expected_locked_by: Optional[str] = None) -> None:
         await self._scheduler_state().release_claim(trigger_id, expected_locked_by=expected_locked_by)
 
     async def earliest_next_run(self, *, lock_grace_sec: int = 120) -> Optional[datetime]:
@@ -511,11 +511,11 @@ class JoySafeterTriggerService:
             trigger.slot_attempts = 0
             self._sync_config(trigger)
 
-    async def pause_for_agent_archive(self, agent_id: uuid.UUID) -> None:
+    async def pause_for_agent_archive(self, agent_id: AgentId) -> None:
         """Pause cron triggers targeting an archived agent without deleting audit state."""
         await self.pause_for_agent_triggers(agent_id)
 
-    async def pause_for_agent_triggers(self, agent_id: uuid.UUID) -> None:
+    async def pause_for_agent_triggers(self, agent_id: AgentId) -> None:
         """Clear cron due slots for an agent that cannot run triggers."""
         result = await self.db.execute(
             select(JoySafeterTrigger).where(
@@ -563,7 +563,7 @@ class JoySafeterTriggerService:
             trigger.next_run_at = await self._next_run_or_pause(trigger)
             self._sync_config(trigger)
 
-    async def get_active_tasks(self, trigger_id: uuid.UUID) -> Sequence[JoySafeterTask]:
+    async def get_active_tasks(self, trigger_id: TriggerId) -> Sequence[JoySafeterTask]:
         result = await self.db.execute(
             select(JoySafeterTask).where(
                 JoySafeterTask.trigger_id == trigger_id,
@@ -574,7 +574,7 @@ class JoySafeterTriggerService:
 
     async def list_runs(
         self,
-        trigger_id: uuid.UUID,
+        trigger_id: TriggerId,
         *,
         project_id: Optional[str],
         limit: int = 50,
@@ -594,12 +594,12 @@ class JoySafeterTriggerService:
 
     async def list_runs_page(
         self,
-        trigger_id: uuid.UUID,
+        trigger_id: TriggerId,
         *,
         project_id: Optional[str],
         limit: int = 50,
-        after_id: Optional[uuid.UUID] = None,
-    ) -> Optional[tuple[list[JoySafeterTask], bool]]:
+        after_id: Optional[TaskId] = None,
+    ) -> Optional[tuple[builtins.list[JoySafeterTask], bool]]:
         trigger = await self.get(trigger_id, project_id=project_id, include_deleted=True)
         if trigger is None:
             return None
@@ -613,13 +613,13 @@ class JoySafeterTriggerService:
 
     async def advance_after_fire(
         self,
-        trigger_id: uuid.UUID,
+        trigger_id: TriggerId,
         fired_slot: datetime,
         *,
         success: bool = True,
         record_attempt: bool = True,
-        task_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        task_id: Optional[TaskId] = None,
+        session_id: Optional[SessionId] = None,
         error: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
         expected_locked_by: Optional[str] = None,
@@ -652,7 +652,7 @@ class JoySafeterTriggerService:
 
     async def record_fire_failure(
         self,
-        trigger_id: uuid.UUID,
+        trigger_id: TriggerId,
         fired_slot: datetime,
         *,
         error: str,
@@ -694,8 +694,8 @@ class JoySafeterTriggerService:
         trigger: JoySafeterTrigger,
         *,
         success: Optional[bool],
-        task_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        task_id: Optional[TaskId] = None,
+        session_id: Optional[SessionId] = None,
         error: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> None:
@@ -714,8 +714,8 @@ class JoySafeterTriggerService:
         trigger: JoySafeterTrigger,
         *,
         success: Optional[bool],
-        task_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        task_id: Optional[TaskId] = None,
+        session_id: Optional[SessionId] = None,
         error: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> None:
@@ -766,7 +766,7 @@ class JoySafeterTriggerService:
         delivery_id: Optional[str],
         auth_fingerprint: str,
         ignore_enabled: bool = False,
-    ) -> tuple[str, Optional[JoySafeterTask], Optional[uuid.UUID], bool, Optional[str]]:
+    ) -> tuple[str, Optional[JoySafeterTask], Optional[SessionId], bool, Optional[str]]:
         return await self._fire_service().fire_webhook(
             trigger,
             raw_body=raw_body,
@@ -782,7 +782,7 @@ class JoySafeterTriggerService:
         *,
         idempotency_header: Optional[str] = None,
         now: Optional[datetime] = None,
-    ) -> tuple[str, Optional[JoySafeterTask], Optional[uuid.UUID], bool, Optional[str]]:
+    ) -> tuple[str, Optional[JoySafeterTask], Optional[SessionId], bool, Optional[str]]:
         """Fire a trigger on demand (the "Run now" action).
 
         Mirrors ``fire_webhook`` for the human-initiated path: a signed-in user

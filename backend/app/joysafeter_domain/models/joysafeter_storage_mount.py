@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
-from app.joysafeter_shared.ids import EntityIdType, SessionId
+from app.joysafeter_shared.ids import EntityIdType, EnvironmentId, SessionId
 
 
 class JoySafeterStorageVolume(JoySafeterBaseModel):
@@ -142,7 +142,7 @@ class JoySafeterStorageMountAudit(JoySafeterBaseModel):
     )
     project_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
-    environment_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    environment_id: Mapped[Optional[EnvironmentId]] = mapped_column(EntityIdType(EnvironmentId), nullable=True)
     user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     volume_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

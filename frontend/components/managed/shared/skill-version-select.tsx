@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { managedGet } from '@/lib/api-client'
 import { apiResourceSubpath } from '@/lib/managed/api-paths'
+import { parseSkillVersionListResponse } from '@/lib/managed/skill-response-parsers'
 import { useTranslation } from '@/lib/i18n'
 import {
   hasManagedRequestScope,
@@ -17,11 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { SkillVersionRecord } from '@/types/managed'
+import type { SkillId } from '@/types/entity-id'
 
 interface SkillVersionSelectProps {
-  /** Skill id (may include the "skill_" prefix). */
-  skillId: string
+  skillId: SkillId
   /** The currently selected version keyword or semver string. */
   value: string
   onChange: (next: string) => void
@@ -54,10 +54,10 @@ export function SkillVersionSelect({
   const { data } = useQuery({
     queryKey: ['skill-versions', managedScope.key, skillId],
     queryFn: () =>
-      managedGet<{ data: SkillVersionRecord[] }>(
+      managedGet<unknown>(
         apiResourceSubpath('skills', skillId, ['versions'], { limit: 50 }),
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({ data: parseSkillVersionListResponse(response) })),
     enabled: enabled && !!skillId && hasManagedRequestScope(managedScope),
     staleTime: 30_000,
   })

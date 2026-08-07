@@ -1,5 +1,25 @@
+import type {
+  AgentId,
+  CredentialId,
+  EnvironmentId,
+  EventId,
+  FileId,
+  MemoryStoreId,
+  SandboxId,
+  SessionId,
+  SessionResourceId,
+  SkillFileId,
+  SkillId,
+  SkillSecurityScanId,
+  SkillUsageId,
+  SkillVersionFileId,
+  SkillVersionId,
+  TaskId,
+  VaultId,
+} from '@/types/entity-id'
+
 export interface Agent {
-  id: string
+  id: AgentId
   name: string
   description?: string | null
   model: { id: string; speed?: string }
@@ -20,7 +40,7 @@ export interface Agent {
 
 export interface AgentSkillRef {
   type: 'custom'
-  skill_id: string
+  skill_id: SkillId
   version: string
 }
 
@@ -62,14 +82,14 @@ export interface McpServer {
 }
 
 export interface Session {
-  id: string
+  id: SessionId
   agent?: SessionAgent
   environment_id?: string
   status: SessionStatus
   stop_reason?: string
   title?: string
   metadata?: Record<string, unknown>
-  vault_ids?: string[]
+  vault_ids?: VaultId[]
   repo_resources?: SessionRepoResource[]
   usage?: SessionUsage
   stats?: SessionStats
@@ -79,8 +99,8 @@ export interface Session {
 }
 
 export interface SessionAgent {
-  id: string
-  agent_id?: string
+  id: AgentId
+  agent_id?: AgentId
   name: string
   engine_kind?: string | null
   model?: { id: string } | null
@@ -107,9 +127,9 @@ export interface SessionStats {
 }
 
 export interface NetworkPolicyStatus {
-  sandbox_id: string
-  session_id?: string | null
-  task_id?: string | null
+  sandbox_id: SandboxId
+  session_id?: SessionId | null
+  task_id?: TaskId | null
   project_id?: string | null
   session_title?: string | null
   agent_name?: string | null
@@ -135,7 +155,7 @@ export interface NetworkPolicyListResponse {
 }
 
 export interface SessionEvent {
-  id: string
+  id?: EventId
   type: string
   seq?: number
   created_at?: string
@@ -158,24 +178,24 @@ export interface SessionEvent {
   output_tokens?: number
   cache_read_tokens?: number
   cache_write_tokens?: number
-  task_id?: string
+  task_id?: TaskId
   processed_at?: string | null
   _collapsedCount?: number
 }
 
 export interface SessionSkillUsage {
-  id: string
-  skill_id?: string | null
+  id: SkillUsageId
+  skill_id?: SkillId | null
   skill_name?: string | null
   skill_source_type?: string | null
   skill_version?: string | null
-  skill_version_id?: string | null
+  skill_version_id?: SkillVersionId | null
   target?: string | null
-  security_scan_id?: string | null
+  security_scan_id?: SkillSecurityScanId | null
   target_hash?: string | null
   artifact_hash?: string | null
-  session_id?: string | null
-  agent_id?: string | null
+  session_id?: SessionId | null
+  agent_id?: AgentId | null
   project_id?: string | null
   user_id?: string | null
   created_at: string
@@ -284,8 +304,8 @@ export interface StorageMountAudit {
   id: string
   volume_id?: string | null
   project_id?: string | null
-  session_id?: string | null
-  environment_id?: string | null
+  session_id?: SessionId | null
+  environment_id?: EnvironmentId | null
   user_id?: string | null
   action: string
   volume_ref?: string | null
@@ -310,7 +330,7 @@ export interface EnvironmentConfig {
 }
 
 export interface Environment {
-  id: string
+  id: EnvironmentId
   name: string
   description?: string
   config?: EnvironmentConfig
@@ -321,7 +341,7 @@ export interface Environment {
 }
 
 export interface Vault {
-  id: string
+  id: VaultId
   name: string
   description?: string
   metadata?: Record<string, unknown>
@@ -331,8 +351,8 @@ export interface Vault {
 }
 
 export interface VaultCredential {
-  id: string
-  vault_id: string
+  id: CredentialId
+  vault_id: VaultId
   name: string
   credential_type: string
   mcp_server_url: string
@@ -349,7 +369,7 @@ export interface VaultCredential {
 }
 
 export interface MemoryStore {
-  id: string
+  id: MemoryStoreId
   name: string
   description?: string
   created_at: string
@@ -363,26 +383,29 @@ export interface PaginatedResponse<T> {
 }
 
 export interface FileRecord {
-  id: string
+  id: FileId
+  type?: 'file'
   filename: string
   purpose: string
   content_type: string
   size_bytes: number
+  sha256?: string
   downloadable: boolean
+  session_id?: SessionId | null
   created_at: string
 }
 
 export interface SessionFileResource {
-  id: string
+  id: SessionResourceId
   type: 'file'
-  file_id: string
+  file_id: FileId
   mount_path: string
   access: string
   created_at: string
 }
 
 export interface SessionRepoResource {
-  id: string
+  id: SessionResourceId
   type: 'github_repository'
   url: string
   branch: string
@@ -395,7 +418,7 @@ export type SessionResource = SessionFileResource | SessionRepoResource
 
 export interface AddFileResourceRequest {
   type: 'file'
-  file_id: string
+  file_id: FileId
   mount_path?: string
 }
 
@@ -418,13 +441,13 @@ export interface SkillSecurityScanSummary {
   medium_count: number
   low_count: number
   scanned_at: string | null
-  scan_id: string | null
+  scan_id: SkillSecurityScanId | null
   target_hash: string | null
 }
 
-export interface SkillSecurityScanRecord extends SkillSecurityScanSummary {
-  id: string
-  skill_id: string | null
+export interface SkillSecurityScanRecord {
+  id: SkillSecurityScanId
+  skill_id: SkillId | null
   project_id: string | null
   owner_id: string | null
   created_by_id: string
@@ -433,6 +456,15 @@ export interface SkillSecurityScanRecord extends SkillSecurityScanSummary {
   target_hash: string
   scanner: string
   scanner_version: string | null
+  status: string
+  score: number | null
+  severity: string | null
+  recommendation: string | null
+  issues_count: number
+  critical_count: number
+  high_count: number
+  medium_count: number
+  low_count: number
   report: Record<string, unknown> | null
   error_message: string | null
   created_at: string
@@ -471,26 +503,25 @@ export interface SkillImpactSummary {
 }
 
 export interface SkillRecord {
-  id: string
+  id: SkillId
   display_title?: string
-  source: string
-  latest_version?: string
+  latest_version?: string | null
   name: string
   description: string
   content: string
   tags: unknown[]
   allowed_tools: unknown[]
   metadata: Record<string, unknown>
-  license: string
-  compatibility: Record<string, unknown>
+  license: string | null
+  compatibility: string | null
   visibility: SkillVisibility
   lifecycle_status: SkillLifecycleStatus
   // Version currently served at each tier, set only through the promotion
   // approval flow. ``null`` when the skill is not exposed at that tier.
-  org_version_id?: string | null
-  public_version_id?: string | null
+  org_version_id?: SkillVersionId | null
+  public_version_id?: SkillVersionId | null
   source_type: string
-  source_url: string
+  source_url: string | null
   created_at: string
   updated_at: string
   security_scan?: SkillSecurityScanSummary
@@ -499,15 +530,18 @@ export interface SkillRecord {
 }
 
 export interface SkillVersionRecord {
-  id: string
-  skill_id: string
+  id: SkillVersionId
+  skill_id: SkillId
   version: string
-  name: string
-  description: string
-  directory: string
+  skill_name: string
+  skill_description: string
   content: string
-  frontmatter: Record<string, unknown>
-  release_notes?: string
+  tags: unknown[]
+  allowed_tools: unknown[]
+  compatibility: string | null
+  license: string | null
+  release_notes?: string | null
+  published_at?: string | null
   // Promotion state: ``lifecycle_status`` is the version's review state
   // (approved / pending_review / rejected); when pending,
   // ``review_target_visibility`` is the tier the submission targets.
@@ -517,8 +551,8 @@ export interface SkillVersionRecord {
 }
 
 export interface SkillFileRecord {
-  id: string
-  skill_id: string
+  id: SkillFileId
+  skill_id: SkillId
   path: string
   file_name: string
   file_type: string
@@ -526,6 +560,17 @@ export interface SkillFileRecord {
   size: number
   created_at: string
   updated_at: string
+}
+
+export interface SkillVersionFileRecord {
+  id: SkillVersionFileId
+  version_id: SkillVersionId
+  path: string
+  file_name: string
+  file_type: string
+  content: string
+  size: number
+  created_at: string
 }
 
 export interface MemberRecord {
@@ -538,7 +583,7 @@ export interface MemberRecord {
 }
 
 export interface Secret {
-  id: string
+  id: import('./entity-id').SecretId
   name: string
   provider?: string
   protocol?: string
@@ -547,6 +592,12 @@ export interface Secret {
   keys?: string[]
   created_at: string
   updated_at: string
+}
+
+export interface SecretDetail extends Omit<Secret, 'provider' | 'protocol'> {
+  provider: string
+  protocol: string
+  secret_data: Record<string, string>
 }
 
 export interface ApiKeyInfo {

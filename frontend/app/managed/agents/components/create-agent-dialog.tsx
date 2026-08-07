@@ -34,6 +34,7 @@ import {
 import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -41,6 +42,13 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import {
+  parseAgentId,
+  parseEnvironmentId,
+  type AgentId,
+  type EnvironmentId,
+  type SkillId,
+} from '@/types/entity-id'
 import type { SkillRuntimeEligibility } from '@/types/managed'
 import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
@@ -70,7 +78,7 @@ interface ManagedListResponse<T> {
 }
 
 interface SkillListItem {
-  id: string
+  id: SkillId
   name: string
   // Latest published version string, or null/undefined if never published.
   // Agents can only reference published skills, so the picker hides rows
@@ -88,14 +96,16 @@ function skillUnavailableReason(skill: SkillListItem): string | null {
 }
 
 interface EnvironmentListItem {
-  id: string
+  id: EnvironmentId
   name: string
 }
+
+type RawEnvironmentListItem = Omit<EnvironmentListItem, 'id'> & { id: string }
 
 interface CreateAgentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated: (agentId: string) => void
+  onCreated: (agentId: AgentId) => void
 }
 
 export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgentDialogProps) {
@@ -121,7 +131,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [secretSelectionCleared, setSecretSelectionCleared] = useState(false)
   const [environmentRef, setEnvironmentRef] = useState('')
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
-  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<SkillId>>(new Set())
   /** skill_id → chosen published version keyword or semver string. */
   const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -140,11 +150,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const { data: skills } = useQuery({
     queryKey: ['skills', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<SkillListItem>>(
+      const res = await managedGet<ManagedListResponse<unknown>>(
         '/skills',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return (res.data || []).map(parseSkillResponse)
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
@@ -152,11 +162,14 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const { data: environments } = useQuery({
     queryKey: ['environments', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<EnvironmentListItem>>(
+      const res = await managedGet<ManagedListResponse<RawEnvironmentListItem>>(
         '/environments',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return (res.data || []).map((environment) => ({
+        ...environment,
+        id: parseEnvironmentId(environment.id),
+      }))
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
@@ -176,7 +189,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   }, [environments, environmentRef])
 
   const effectiveSelectedSkillIds = useMemo(() => {
-    if (!skills) return new Set<string>()
+    if (!skills) return new Set<SkillId>()
     const skillIds = new Set(skills.map((skill) => skill.id))
     return new Set(Array.from(selectedSkillIds).filter((id) => skillIds.has(id)))
   }, [skills, selectedSkillIds])
@@ -184,7 +197,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const effectiveSkillVersions = useMemo(
     () =>
       Object.fromEntries(
-        Object.entries(skillVersions).filter(([id]) => effectiveSelectedSkillIds.has(id)),
+        Object.entries(skillVersions).filter(([id]) =>
+          Array.from(effectiveSelectedSkillIds).some((skillId) => skillId === id),
+        ),
       ),
     [effectiveSelectedSkillIds, skillVersions],
   )
@@ -343,7 +358,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         ? Array.from(selectedSkillIds).filter((id) => currentSkillIds.has(id))
         : Array.from(effectiveSelectedSkillIds)
       const currentSkillVersions = Object.fromEntries(
-        Object.entries(skillVersions).filter(([id]) => currentSelectedSkillIds.includes(id)),
+        Object.entries(skillVersions).filter(([id]) =>
+          currentSelectedSkillIds.some((skillId) => skillId === id),
+        ),
       )
 
       const res = await managedPost<{ id: string }>(
@@ -369,7 +386,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       if (!isCurrentCreateRun(runId, scopeAtStart)) return
       reset()
       onOpenChange(false)
-      onCreated(res.id)
+      onCreated(parseAgentId(res.id))
     } catch (e) {
       if (!isCurrentCreateRun(runId, scopeAtStart)) return
       toastOperationError(t, e, 'managed.agents.create.failed')

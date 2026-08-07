@@ -13,9 +13,9 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
-from app.joysafeter_shared.ids import TaskId
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
+from app.joysafeter_shared.ids import SessionId, TaskId
 from app.joysafeter_shared.rate_limit import _rate_limiter
 
 
@@ -79,8 +79,8 @@ async def test_webhook_route_maps_hmac_headers_payload_and_delivery_id(db_sessio
     )
     raw_body = b'{"kind":"wanted"}'
     captured: dict[str, object] = {}
-    task_id = uuid.uuid4()
-    session_id = uuid.uuid4()
+    task_id = TaskId.new()
+    session_id = SessionId.new()
 
     async def fake_verify(self, trigger_arg, raw_body_arg, signature, token):
         captured["verify"] = {
@@ -100,7 +100,7 @@ async def test_webhook_route_maps_hmac_headers_payload_and_delivery_id(db_sessio
             "auth_fingerprint": auth_fingerprint,
             "ignore_enabled": ignore_enabled,
         }
-        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
+        return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
@@ -108,7 +108,7 @@ async def test_webhook_route_maps_hmac_headers_payload_and_delivery_id(db_sessio
     app = _app(db_session)
     async with _client(app) as client:
         resp = await client.post(
-            f"/api/v1/triggers/trig_{trigger.id}/webhook",
+            f"/api/v1/triggers/{trigger.id}/webhook",
             content=raw_body,
             headers={
                 "Content-Type": "application/json",
@@ -125,8 +125,8 @@ async def test_webhook_route_maps_hmac_headers_payload_and_delivery_id(db_sessio
     assert resp.status_code == 202
     assert resp.json() == {
         "status": "fired",
-        "task_id": f"task_{task_id}",
-        "session_id": f"sess_{session_id}",
+        "task_id": str(task_id),
+        "session_id": str(session_id),
         "deduped": False,
         "reason": None,
     }
@@ -175,8 +175,8 @@ async def test_webhook_route_resolves_project_secret_and_verifies_real_hmac(db_s
 
     raw_body = b'{"kind":"real-hmac"}'
     signature = f"sha256={WebhookAuthService.sign(secret_value, raw_body)}"
-    task_id = uuid.uuid4()
-    session_id = uuid.uuid4()
+    task_id = TaskId.new()
+    session_id = SessionId.new()
     captured: dict[str, object] = {}
 
     async def fake_fire(self, trigger_arg, *, raw_body, payload, delivery_id, auth_fingerprint, ignore_enabled=False):
@@ -185,14 +185,14 @@ async def test_webhook_route_resolves_project_secret_and_verifies_real_hmac(db_s
             "delivery_id": delivery_id,
             "auth_fingerprint": auth_fingerprint,
         }
-        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
+        return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
 
     app = _app(db_session)
     async with _client(app) as client:
         resp = await client.post(
-            f"/api/v1/triggers/trig_{trigger.id}/webhook",
+            f"/api/v1/triggers/{trigger.id}/webhook",
             content=raw_body,
             headers={
                 "Content-Type": "application/json",
@@ -202,7 +202,7 @@ async def test_webhook_route_resolves_project_secret_and_verifies_real_hmac(db_s
         )
 
     assert resp.status_code == 202
-    assert resp.json()["task_id"] == f"task_{task_id}"
+    assert resp.json()["task_id"] == str(task_id)
     assert captured["fire"] == {
         "trigger_id": trigger.id,
         "delivery_id": "real-hmac-delivery",
@@ -219,8 +219,8 @@ async def test_webhook_route_accepts_bearer_token_and_wraps_non_json_body(db_ses
     )
     raw_body = b"plain text payload"
     captured: dict[str, object] = {}
-    task_id = uuid.uuid4()
-    session_id = uuid.uuid4()
+    task_id = TaskId.new()
+    session_id = SessionId.new()
 
     async def fake_verify(self, trigger_arg, raw_body_arg, signature, token):
         captured["verify"] = {
@@ -238,7 +238,7 @@ async def test_webhook_route_accepts_bearer_token_and_wraps_non_json_body(db_ses
             "auth_fingerprint": auth_fingerprint,
             "ignore_enabled": ignore_enabled,
         }
-        return "deduped", SimpleNamespace(id=TaskId(task_id)), session_id, True, None
+        return "deduped", SimpleNamespace(id=task_id), session_id, True, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
@@ -246,7 +246,7 @@ async def test_webhook_route_accepts_bearer_token_and_wraps_non_json_body(db_ses
     app = _app(db_session)
     async with _client(app) as client:
         resp = await client.post(
-            f"/api/v1/triggers/trig_{trigger.id}/webhook",
+            f"/api/v1/triggers/{trigger.id}/webhook",
             content=raw_body,
             headers={
                 "Authorization": "Bearer token-secret",
@@ -300,7 +300,7 @@ async def test_webhook_route_rejects_invalid_auth_before_fire(db_session, monkey
     app = _app(db_session)
     async with _client(app) as client:
         resp = await client.post(
-            f"/api/v1/triggers/trig_{trigger.id}/webhook",
+            f"/api/v1/triggers/{trigger.id}/webhook",
             json={"kind": "wanted"},
             headers={"X-JoySafeter-Signature": "sha256=bad"},
         )
@@ -326,7 +326,7 @@ async def test_webhook_route_hides_secret_resolution_errors_from_public_callers(
     app = _app(db_session)
     async with _client(app) as client:
         resp = await client.post(
-            f"/api/v1/triggers/trig_{trigger.id}/webhook",
+            f"/api/v1/triggers/{trigger.id}/webhook",
             json={"kind": "wanted"},
             headers={"X-JoySafeter-Signature": "sha256=" + "0" * 64},
         )
@@ -346,8 +346,8 @@ async def test_webhook_route_rate_limits_by_trigger_and_client_ip(db_session, mo
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         name="rate-limit-route-hook",
     )
-    task_id = uuid.uuid4()
-    session_id = uuid.uuid4()
+    task_id = TaskId.new()
+    session_id = SessionId.new()
     fire_count = 0
 
     async def fake_verify(self, trigger_arg, raw_body_arg, signature, token):
@@ -356,7 +356,7 @@ async def test_webhook_route_rate_limits_by_trigger_and_client_ip(db_session, mo
     async def fake_fire(self, trigger_arg, *, raw_body, payload, delivery_id, auth_fingerprint, ignore_enabled=False):
         nonlocal fire_count
         fire_count += 1
-        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
+        return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
@@ -366,7 +366,7 @@ async def test_webhook_route_rate_limits_by_trigger_and_client_ip(db_session, mo
         async with _client(app) as client:
             for index in range(60):
                 resp = await client.post(
-                    f"/api/v1/triggers/trig_{trigger.id}/webhook",
+                    f"/api/v1/triggers/{trigger.id}/webhook",
                     json={"attempt": index},
                     headers={
                         "X-Forwarded-For": "203.0.113.60",
@@ -377,7 +377,7 @@ async def test_webhook_route_rate_limits_by_trigger_and_client_ip(db_session, mo
                 assert resp.status_code == 202
 
             limited_resp = await client.post(
-                f"/api/v1/triggers/trig_{trigger.id}/webhook",
+                f"/api/v1/triggers/{trigger.id}/webhook",
                 json={"attempt": 60},
                 headers={
                     "X-Forwarded-For": "203.0.113.60",
@@ -401,8 +401,8 @@ async def test_webhook_route_rate_limit_cannot_be_bypassed_by_spoofing_forwarded
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         name="rate-limit-spoof-route-hook",
     )
-    task_id = uuid.uuid4()
-    session_id = uuid.uuid4()
+    task_id = TaskId.new()
+    session_id = SessionId.new()
     fire_count = 0
 
     async def fake_verify(self, trigger_arg, raw_body_arg, signature, token):
@@ -411,7 +411,7 @@ async def test_webhook_route_rate_limit_cannot_be_bypassed_by_spoofing_forwarded
     async def fake_fire(self, trigger_arg, *, raw_body, payload, delivery_id, auth_fingerprint, ignore_enabled=False):
         nonlocal fire_count
         fire_count += 1
-        return "fired", SimpleNamespace(id=TaskId(task_id)), session_id, False, None
+        return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
     monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
     monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
@@ -421,7 +421,7 @@ async def test_webhook_route_rate_limit_cannot_be_bypassed_by_spoofing_forwarded
         async with _client(app) as client:
             for index in range(60):
                 resp = await client.post(
-                    f"/api/v1/triggers/trig_{trigger.id}/webhook",
+                    f"/api/v1/triggers/{trigger.id}/webhook",
                     json={"attempt": index},
                     headers={
                         "X-Forwarded-For": f"203.0.113.{index}",
@@ -432,7 +432,7 @@ async def test_webhook_route_rate_limit_cannot_be_bypassed_by_spoofing_forwarded
                 assert resp.status_code == 202
 
             limited_resp = await client.post(
-                f"/api/v1/triggers/trig_{trigger.id}/webhook",
+                f"/api/v1/triggers/{trigger.id}/webhook",
                 json={"attempt": 60},
                 headers={
                     "X-Forwarded-For": "198.51.100.200",

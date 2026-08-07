@@ -45,33 +45,12 @@ export const WARNED_EXTENSIONS = new Set([
   '.sqlite3', // Databases
 ])
 
-export interface SkillFile {
-  id: string
-  skill_id: string
+export interface ImportedSkillFile {
   path: string
   file_name: string
   file_type: string
   content: string | null
-  storage_type: 'database' | 's3'
-  storage_key: string | null
   size: number
-  created_at: string
-  updated_at: string
-}
-
-export interface SkillSecurityScanSummary {
-  status: 'passed' | 'warning' | 'blocked' | 'failed' | 'not_scanned' | string
-  score: number | null
-  severity: string | null
-  recommendation: string | null
-  issues_count: number
-  critical_count: number
-  high_count: number
-  medium_count: number
-  low_count: number
-  scanned_at: string | null
-  scan_id: string | null
-  target_hash: string | null
 }
 
 // File tree node for hierarchical display
@@ -80,7 +59,7 @@ export interface FileTreeNode {
   path: string
   isDirectory: boolean
   children?: FileTreeNode[]
-  file?: SkillFile
+  file?: ImportedSkillFile
 }
 
 // YAML frontmatter structure for SKILL.md (per Agent Skills specification)

@@ -36,9 +36,9 @@ from app.joysafeter_domain.services.task_submission_service import TaskSubmissio
 from app.joysafeter_domain.triggers.providers.base import get_provider
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 from app.joysafeter_worker.scheduler.loop import SchedulerLoop
-from app.joysafeter_shared.ids import as_uuid
 
 
 def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
@@ -615,7 +615,7 @@ async def test_scheduler_claim_skips_trigger_environment_refs_that_are_not_live(
     deleted_trigger_id = deleted_trigger.id
     active_trigger.environment_ref = live_env.name
     archived_trigger.environment_ref = archived_env.name
-    deleted_trigger.environment_ref = f"env_{deleted_env.id}"
+    deleted_trigger.environment_ref = str(deleted_env.id)
     archived_env.archived_at = utc_now()
     deleted_env.deleted_at = utc_now()
     await db_session.commit()
@@ -653,7 +653,7 @@ async def test_scheduler_claim_skips_agent_environment_refs_that_are_not_live(db
     archived_env = await _create_environment(db_session, project=archived_project)
     deleted_env = await _create_environment(db_session, project=deleted_project)
     active_agent.environment_ref = live_env.name
-    archived_agent.environment_ref = f"env_{archived_env.id}"
+    archived_agent.environment_ref = str(archived_env.id)
     deleted_agent.environment_ref = str(deleted_env.id)
     archived_env.archived_at = utc_now()
     deleted_env.deleted_at = utc_now()
@@ -969,7 +969,7 @@ async def test_create_cron_trigger_in_paused_project_does_not_arm_next_run(db_se
     )
 
     assert response.next_run_at is None
-    created_id = uuid.UUID(str(response.id).removeprefix("trig_"))
+    created_id = response.id
     row = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == created_id))).scalar_one()
     assert row.next_run_at is None
     assert row.config["next_run_at"] is None
@@ -1225,8 +1225,7 @@ async def test_manual_trigger_run_bounds_oversized_idempotency_header(db_session
     assert response.task_id is not None
     assert response.session_id is not None
     assert response.deduped is False
-    task_uuid = uuid.UUID(response.task_id.removeprefix("task_"))
-    session_uuid = uuid.UUID(response.session_id.removeprefix("sess_"))
+    task_uuid = response.task_id.uuid
     stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
     assert stored_task.idempotency_key is not None
     assert oversized_header not in stored_task.idempotency_key
@@ -1242,7 +1241,7 @@ async def test_manual_trigger_run_bounds_oversized_idempotency_header(db_session
 
     assert replay.status == "deduped"
     assert replay.task_id == response.task_id
-    assert replay.session_id == f"sess_{session_uuid}"
+    assert replay.session_id == response.session_id
     assert replay.deduped is True
     assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
 
@@ -1257,7 +1256,7 @@ async def test_manual_trigger_run_stores_full_execution_snapshot(db_session, mon
 
     org, project, agent = await _create_project_with_agent(db_session, name="ManualTriggerSnapshot")
     env = await _create_environment(db_session, project=project)
-    environment_ref = f"env_{env.id}"
+    environment_ref = str(env.id)
     env.config = {"setup_commands": ["echo before"], "network": {"mode": "egress"}}
     env.image_tag = "joysafeter/runtime:before"
     env.image_version = 7
@@ -1273,8 +1272,10 @@ async def test_manual_trigger_run_stores_full_execution_snapshot(db_session, mon
 
     response = await run_trigger_now(trigger.id, db_session, _admin_ctx(project.id, org.id))
 
-    task_uuid = uuid.UUID(response.task_id.removeprefix("task_"))
-    session_uuid = uuid.UUID(response.session_id.removeprefix("sess_"))
+    assert response.task_id is not None
+    assert response.session_id is not None
+    task_uuid = response.task_id.uuid
+    session_uuid = response.session_id.uuid
     assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
     db_session.expire_all()
     session = (
@@ -1639,7 +1640,7 @@ async def test_trigger_service_rejects_cross_project_environment_without_creatin
     _, project, agent = await _create_project_with_agent(db_session, name="TriggerSvcEnvProjectA")
     _, other_project, _ = await _create_project_with_agent(db_session, name="TriggerSvcEnvProjectB")
     other_env = await _create_environment(db_session, project=other_project)
-    other_env_ref = f"env_{other_env.id}"
+    other_env_ref = str(other_env.id)
 
     with pytest.raises(AppError) as exc_info:
         await JoySafeterTriggerService(db_session).create(
@@ -1674,7 +1675,7 @@ async def test_trigger_service_rejects_cross_project_environment_without_creatin
 async def test_create_trigger_rejects_archived_effective_environment_without_creating_trigger(db_session):
     org, project, agent = await _create_project_with_agent(db_session, name="ArchivedTriggerEnv")
     env = await _create_environment(db_session, project=project, archived=True)
-    env_ref = f"env_{env.id}"
+    env_ref = str(env.id)
 
     with pytest.raises(AppError) as exc_info:
         await create_trigger(
@@ -1713,7 +1714,7 @@ async def test_manual_trigger_run_rejects_archived_environment_without_creating_
     org, project, agent = await _create_project_with_agent(db_session, name="TriggerArchivedEnv")
     env = await _create_environment(db_session, project=project)
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="trigger-archived-env")
-    trigger.environment_ref = f"env_{env.id}"
+    trigger.environment_ref = str(env.id)
     trigger_id = trigger.id
     env.archived_at = utc_now()
     await db_session.commit()
@@ -1723,8 +1724,8 @@ async def test_manual_trigger_run_rejects_archived_environment_without_creating_
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ARCHIVED",
-        "message": f"Environment is archived: env_{env.id}",
-        "data": {"environment_ref": f"env_{env.id}", "environment_id": str(env.id)},
+        "message": f"Environment is archived: {env.id}",
+        "data": {"environment_ref": str(env.id), "environment_id": str(env.id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -1809,7 +1810,7 @@ async def test_trigger_service_update_rejects_cross_project_environment_without_
     other_env = await _create_environment(db_session, project=other_project)
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="svc-update-cross-env")
     trigger_id = trigger.id
-    other_env_ref = f"env_{other_env.id}"
+    other_env_ref = str(other_env.id)
 
     with pytest.raises(AppError) as exc_info:
         await JoySafeterTriggerService(db_session).update(
@@ -1936,7 +1937,7 @@ async def test_enable_trigger_rejects_archived_environment_without_rearming_trig
     env = await _create_environment(db_session, project=project)
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="enable-archived-env")
     trigger_id = trigger.id
-    trigger.environment_ref = f"env_{env.id}"
+    trigger.environment_ref = str(env.id)
     trigger.enabled = False
     trigger.next_run_at = None
     env.archived_at = utc_now()
@@ -1953,8 +1954,8 @@ async def test_enable_trigger_rejects_archived_environment_without_rearming_trig
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ARCHIVED",
-        "message": f"Environment is archived: env_{env.id}",
-        "data": {"environment_ref": f"env_{env.id}", "environment_id": str(env.id)},
+        "message": f"Environment is archived: {env.id}",
+        "data": {"environment_ref": str(env.id), "environment_id": str(env.id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -1970,7 +1971,7 @@ async def test_scheduler_advance_does_not_rearm_trigger_after_environment_archiv
     _, project, agent = await _create_project_with_agent(db_session, name="EnvAdvanceRace")
     env = await _create_environment(db_session, project=project)
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="env-advance-race")
-    trigger.environment_ref = f"env_{env.id}"
+    trigger.environment_ref = str(env.id)
     await db_session.commit()
     trigger_id = trigger.id
 
@@ -2256,7 +2257,7 @@ async def test_scheduled_task_cancel_does_not_mark_cancelled_when_runtime_relay_
         "data": {
             "task_id": str(task_id),
             "session_id": str(session_id),
-            "sandbox_id": f"sbx_{sandbox_id}",
+            "sandbox_id": str(sandbox_id),
         },
         "source": "runtime",
         "retryable": True,
@@ -2487,7 +2488,7 @@ async def test_scheduled_pending_task_cancel_fails_closed_if_sandbox_is_assigned
             "SET status = 'scheduling', sandbox_id = :sandbox_id, updated_at = NOW() "
             "WHERE id = :task_id"
         ),
-        {"task_id": as_uuid(task_id), "sandbox_id": sandbox_id},
+        {"task_id": as_uuid(task_id), "sandbox_id": as_uuid(sandbox_id)},
     )
     await db_session.commit()
 

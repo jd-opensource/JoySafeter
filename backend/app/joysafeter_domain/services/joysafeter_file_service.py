@@ -4,12 +4,10 @@ import hashlib
 import mimetypes
 import os
 import re
-import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid_utils import uuid7
 
 from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
@@ -17,6 +15,7 @@ from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessi
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import FileId, SessionId, as_uuid
 from app.joysafeter_shared.storage.base import StorageBackend
 
 MAX_FILENAME_LENGTH = 255
@@ -94,10 +93,11 @@ def _validate_extension(filename: str) -> None:
         raise ValueError(f"File type {ext} is not supported")
 
 
-def _make_storage_key(project_id: str, file_id: uuid.UUID, filename: str) -> str:
-    shard = str(file_id)[:2]
+def _make_storage_key(project_id: str, file_id: FileId, filename: str) -> str:
+    raw_file_id = as_uuid(file_id)
+    shard = str(raw_file_id)[:2]
     safe = _sanitize_filename(filename)
-    return f"files/{project_id}/{shard}/{file_id}_{safe}"
+    return f"files/{project_id}/{shard}/{raw_file_id}_{safe}"
 
 
 class FileService:
@@ -134,7 +134,7 @@ class FileService:
             if content_type.lower() in _DANGEROUS_CONTENT_TYPES:
                 content_type = "application/octet-stream"
 
-        file_id = uuid.UUID(str(uuid7()))
+        file_id = FileId.new()
         sha = hashlib.sha256(data).hexdigest()
         storage_key = _make_storage_key(project_id, file_id, safe_name)
 
@@ -156,7 +156,7 @@ class FileService:
         await db.refresh(record)
         return record
 
-    async def get_metadata(self, db: AsyncSession, file_id: uuid.UUID, project_id: str | None) -> JoySafeterFile | None:
+    async def get_metadata(self, db: AsyncSession, file_id: FileId, project_id: str | None) -> JoySafeterFile | None:
         result = await db.execute(
             select(JoySafeterFile).where(
                 JoySafeterFile.id == file_id,
@@ -171,8 +171,8 @@ class FileService:
         db: AsyncSession,
         project_id: str,
         limit: int = 20,
-        after_id: uuid.UUID | None = None,
-        session_id: uuid.UUID | None = None,
+        after_id: FileId | None = None,
+        session_id: SessionId | None = None,
     ) -> tuple[list[JoySafeterFile], bool]:
         q = select(JoySafeterFile).where(
             JoySafeterFile.project_id == project_id,
@@ -197,7 +197,7 @@ class FileService:
             rows = rows[:limit]
         return rows, has_more
 
-    async def download(self, db: AsyncSession, file_id: uuid.UUID, project_id: str) -> tuple[bytes, JoySafeterFile]:
+    async def download(self, db: AsyncSession, file_id: FileId, project_id: str) -> tuple[bytes, JoySafeterFile]:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             raise FileNotFoundError("File not found")
@@ -206,7 +206,7 @@ class FileService:
         return data, record
 
     async def get_presign_url(
-        self, db: AsyncSession, file_id: uuid.UUID, project_id: str
+        self, db: AsyncSession, file_id: FileId, project_id: str
     ) -> tuple[str | None, JoySafeterFile]:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
@@ -215,7 +215,7 @@ class FileService:
         url = await self._storage.presign_url(record.storage_key)
         return url, record
 
-    async def delete(self, db: AsyncSession, file_id: uuid.UUID, project_id: str) -> bool:
+    async def delete(self, db: AsyncSession, file_id: FileId, project_id: str) -> bool:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             return False
@@ -238,7 +238,7 @@ class FileService:
                 code="FILE_IN_USE_BY_SESSION_RESOURCE",
                 message="File is attached to active session resources",
                 data={
-                    "file_id": f"file_{file_id}",
+                    "file_id": str(file_id),
                     "session_ids": blocking_session_ids,
                 },
                 user_action="remove_resource",

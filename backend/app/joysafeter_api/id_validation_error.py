@@ -11,15 +11,18 @@ from app.joysafeter_shared import ids as _ids
 from app.joysafeter_shared.common.app_errors import AppError, InvalidRequestError
 
 
-def _id_cls_from_error(err: dict) -> Optional[type]:
+def _id_cls_from_error(err: dict) -> Optional[type[_ids.EntityId]]:
     ctx = err.get("ctx") or {}
-    if isinstance(ctx.get("id_cls"), type):
-        return ctx["id_cls"]
+    id_cls = ctx.get("id_cls")
+    if isinstance(id_cls, type) and issubclass(id_cls, _ids.EntityId):
+        return id_cls
     msg = str(ctx.get("error") or err.get("msg") or "")
     marker = "__entity_id__:"
     if marker in msg:
         name = msg.split(marker, 1)[1].strip().split()[0]
-        return getattr(_ids, name, None)
+        candidate = getattr(_ids, name, None)
+        if isinstance(candidate, type) and issubclass(candidate, _ids.EntityId):
+            return candidate
     return None
 
 

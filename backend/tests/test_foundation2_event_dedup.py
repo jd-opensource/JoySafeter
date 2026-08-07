@@ -25,6 +25,7 @@ from app.joysafeter_domain.models.joysafeter_session import (
     JoySafeterSession,
     JoySafeterSessionEvent,
 )
+from app.joysafeter_shared.ids import EventId, SessionId
 from app.joysafeter_worker.events.batch_writer import (
     BufferedEvent,
     EventBatchConfig,
@@ -34,7 +35,7 @@ from app.joysafeter_worker.events.stream_consumer import EventStreamWorker
 
 
 @pytest_asyncio.fixture
-async def session_id(db_session) -> uuid.UUID:
+async def session_id(db_session) -> SessionId:
     agent = JoySafeterAgent(name=f"dedup-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
@@ -189,7 +190,7 @@ async def test_stream_consumer_acks_status_events_without_persisting_them(
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
-    message_id = uuid.uuid4()
+    message_id = EventId.from_uuid(uuid.uuid4())
     worker = EventStreamWorker(stream_key="joysafeter:test:events", group="test-group")
     redis = _AckOnlyRedis()
     batch = [
@@ -241,7 +242,7 @@ async def test_write_single_is_idempotent_on_event_id(postgres_url, db_session, 
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
-    eid = uuid.uuid4()
+    eid = EventId.from_uuid(uuid.uuid4())
     ev = BufferedEvent(session_id=session_id, event_type="agent.message", payload={"x": 1}, seq=0, id=eid)
     sender = EventBatchSender(EventBatchConfig())
     try:

@@ -147,7 +147,7 @@ class ObservationNodeResponse(BaseModel):
 
 
 class AgentMetricsResponse(BaseModel):
-    agent_id: str
+    agent_id: AgentId
     agent_name: str
     engine_kind: Optional[str] = None
     total_sessions: int = 0
@@ -158,6 +158,10 @@ class AgentMetricsResponse(BaseModel):
     avg_cost: float = 0.0
     total_tokens: int = 0
     avg_agent_steps: float = 0.0
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: AgentId) -> str:
+        return str(value)
 
 
 # --- Health Check ---
@@ -170,8 +174,29 @@ class AlertItem(BaseModel):
     type: str  # consecutive_failures, slow_agent, token_spike, high_retries, zombie_session
     severity: str  # error, warning, info
     agent_name: Optional[str] = None
-    agent_id: Optional[str] = None
+    agent_id: Optional[AgentId] = None
     params: dict[str, float] = {}
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: Optional[AgentId]) -> Optional[str]:
+        return str(value) if value is not None else None
+
+
+class AgentRankingItem(BaseModel):
+    agent_id: AgentId
+    agent_name: str
+    engine_kind: Optional[str] = None
+    total_tasks: int
+    success_rate: float
+    failed_count: int
+    avg_duration_ms: float
+    total_tokens: int
+    last_task_at: Optional[str] = None
+    activity_status: str
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: AgentId) -> str:
+        return str(value)
 
 
 class TokenSummary(BaseModel):

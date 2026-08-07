@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
 use uuid::Uuid;
 
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage, SandboxFileResponse};
+use crate::ids::{EventId, SandboxId, TaskId};
 
 #[derive(Clone, Debug)]
 pub struct RunnerRuntimeActivity {
@@ -23,11 +24,11 @@ pub struct RunnerRuntimeActivity {
 /// task subscribers, HITL control queue, requires_action state, capabilities.
 #[derive(Debug)]
 pub struct SandboxBridge {
-    pub sandbox_db_id: Uuid,
+    pub sandbox_db_id: SandboxId,
     /// Channel to send messages to the connected runner.
     pub runner_tx: mpsc::Sender<OrchestratorMessage>,
     /// Current task being executed (if any).
-    pub current_task_id: Mutex<Option<Uuid>>,
+    pub current_task_id: Mutex<Option<TaskId>>,
     /// Owner epoch captured when the current task was claimed/resumed.
     pub current_task_owner_epoch: Mutex<Option<i64>>,
     /// Notify when a new task is available for this sandbox.
@@ -55,20 +56,20 @@ pub struct SandboxBridge {
     /// Last error message.
     pub last_error: Mutex<Option<String>>,
     /// Maps control_request call_id → event_id for HITL tracking.
-    pub pending_control_request_ids: Mutex<HashMap<String, Uuid>>,
+    pub pending_control_request_ids: Mutex<HashMap<String, EventId>>,
     /// Last result status (for idle handler stop_reason computation).
     pub last_result_status: Mutex<Option<String>>,
     pub last_result_error: Mutex<Option<String>>,
     /// Last runner-side busy/idle heartbeat.
     runner_runtime_activity: Mutex<Option<RunnerRuntimeActivity>>,
     /// Per-task WebSocket subscriber queues.
-    task_subscribers: Mutex<HashMap<Uuid, Vec<mpsc::Sender<serde_json::Value>>>>,
+    task_subscribers: Mutex<HashMap<TaskId, Vec<mpsc::Sender<serde_json::Value>>>>,
     /// Pending live file requests awaiting runner responses.
     pending_sandbox_file_requests: Mutex<HashMap<String, oneshot::Sender<SandboxFileResponse>>>,
 }
 
 impl SandboxBridge {
-    pub fn new(sandbox_db_id: Uuid, runner_tx: mpsc::Sender<OrchestratorMessage>) -> Self {
+    pub fn new(sandbox_db_id: SandboxId, runner_tx: mpsc::Sender<OrchestratorMessage>) -> Self {
         let (confirmation_tx, confirmation_rx) = watch::channel(false);
         let (control_tx, control_rx) = mpsc::channel(64);
         Self {
@@ -231,14 +232,14 @@ impl SandboxBridge {
     }
 
     /// Remove all subscribers for a task.
-    pub async fn remove_task_subscribers(&self, task_id: Uuid) {
+    pub async fn remove_task_subscribers(&self, task_id: TaskId) {
         let mut subs = self.task_subscribers.lock().await;
         subs.remove(&task_id);
     }
 
     /// Broadcast an event to all subscribers for a task.
     /// Removes dead senders automatically.
-    pub async fn broadcast_to_task(&self, task_id: Uuid, event: serde_json::Value) {
+    pub async fn broadcast_to_task(&self, task_id: TaskId, event: serde_json::Value) {
         let mut subs = self.task_subscribers.lock().await;
         if let Some(senders) = subs.get_mut(&task_id) {
             senders.retain(|tx| tx.try_send(event.clone()).is_ok());
@@ -257,7 +258,7 @@ pub struct BridgeRegistry {
     /// Maps sandbox external ID → bridge.
     bridges: Arc<DashMap<String, Arc<SandboxBridge>>>,
     /// Maps sandbox DB UUID → external ID (for lookup by DB ID).
-    db_id_map: Arc<DashMap<Uuid, String>>,
+    db_id_map: Arc<DashMap<SandboxId, String>>,
 }
 
 impl BridgeRegistry {
@@ -295,7 +296,7 @@ impl BridgeRegistry {
     }
 
     /// Get a bridge by DB UUID.
-    pub fn get_by_db_id(&self, db_id: Uuid) -> Option<Arc<SandboxBridge>> {
+    pub fn get_by_db_id(&self, db_id: SandboxId) -> Option<Arc<SandboxBridge>> {
         self.db_id_map
             .get(&db_id)
             .and_then(|ext_id| self.bridges.get(ext_id.value()).map(|r| r.value().clone()))
@@ -336,12 +337,14 @@ impl BridgeRegistry {
 mod tests {
     use tokio::sync::mpsc;
 
+    use crate::ids::SandboxId;
+
     use super::SandboxBridge;
 
     #[tokio::test]
     async fn send_control_input_reports_closed_queue() {
         let (runner_tx, _runner_rx) = mpsc::channel(1);
-        let bridge = SandboxBridge::new(uuid::Uuid::nil(), runner_tx);
+        let bridge = SandboxBridge::new(SandboxId::from_uuid(uuid::Uuid::nil()), runner_tx);
         bridge.control_rx.lock().await.close();
 
         let result = bridge.send_control_input("input".to_string()).await;

@@ -1,7 +1,6 @@
 """Files API v2 routes — upload, list, get, download, delete."""
 
 import logging
-import uuid
 from typing import Optional
 from urllib.parse import quote
 
@@ -20,7 +19,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import SessionId
+from app.joysafeter_shared.ids import FileId, SessionId
 from app.joysafeter_shared.storage import get_storage
 
 logger = logging.getLogger(__name__)
@@ -32,33 +31,20 @@ def _get_service() -> FileService:
     return FileService(get_storage())
 
 
-def _parse_file_id(raw: str) -> uuid.UUID:
-    s = raw.removeprefix("file_")
-    try:
-        return uuid.UUID(s)
-    except ValueError:
-        raise InvalidRequestError(
-            code="FILE_ID_INVALID",
-            message="Invalid file_id",
-            data={"file_id": raw},
-            user_action="fix_input",
-        )
-
-
-def _file_not_found_error(file_id: str) -> AppError:
+def _file_not_found_error(file_id: FileId) -> AppError:
     return NotFoundError(
         code="FILE_NOT_FOUND",
         message="File not found",
-        data={"file_id": file_id},
+        data={"file_id": str(file_id)},
         user_action="refresh",
     )
 
 
-def _parse_session_scope(scope_id: str | None) -> uuid.UUID | None:
+def _parse_session_scope(scope_id: str | None) -> SessionId | None:
     if not scope_id:
         return None
     try:
-        return SessionId(scope_id).uuid
+        return SessionId(scope_id)
     except ValueError:
         raise InvalidRequestError(
             code="SESSION_ID_INVALID",
@@ -150,18 +136,17 @@ async def list_files(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=20, ge=1, le=100),
-    after_id: Optional[str] = Query(default=None),
+    after_id: Optional[FileId] = Query(default=None),
     scope_id: Optional[str] = Query(default=None, description="Filter by session id (sess_xxx or bare UUID)"),
 ) -> CursorPaginatedResponse[FileResponse]:
     svc = _get_service()
-    cursor = _parse_file_id(after_id) if after_id else None
     session_filter = _parse_session_scope(scope_id)
 
     files, has_more = await svc.list_files(
         db=db,
         project_id=auth_ctx.project_id,
         limit=limit,
-        after_id=cursor,
+        after_id=after_id,
         session_id=session_filter,
     )
 
@@ -169,20 +154,19 @@ async def list_files(
     return CursorPaginatedResponse(
         data=data,
         has_more=has_more,
-        first_id=data[0].id if data else None,
-        last_id=data[-1].id if data else None,
+        first_id=str(data[0].id) if data else None,
+        last_id=str(data[-1].id) if data else None,
     )
 
 
 @router.get("/{file_id}")
 async def get_file(
-    file_id: str,
+    file_id: FileId,
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     svc = _get_service()
-    uid = _parse_file_id(file_id)
-    record = await svc.get_metadata(db, uid, auth_ctx.project_id)
+    record = await svc.get_metadata(db, file_id, auth_ctx.project_id)
     if not record:
         raise _file_not_found_error(file_id)
     return FileResponse.from_model(record)
@@ -190,18 +174,16 @@ async def get_file(
 
 @router.get("/{file_id}/content")
 async def download_file(
-    file_id: str,
+    file_id: FileId,
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
     svc = _get_service()
-    uid = _parse_file_id(file_id)
-
     try:
-        presign_url, record = await svc.get_presign_url(db, uid, auth_ctx.project_id)
+        presign_url, record = await svc.get_presign_url(db, file_id, auth_ctx.project_id)
         if presign_url:
             return RedirectResponse(url=presign_url, status_code=302)
-        data, record = await svc.download(db, uid, auth_ctx.project_id)
+        data, record = await svc.download(db, file_id, auth_ctx.project_id)
     except FileNotFoundError:
         raise _file_not_found_error(file_id)
 
@@ -216,13 +198,12 @@ async def download_file(
 
 @router.delete("/{file_id}")
 async def delete_file(
-    file_id: str,
+    file_id: FileId,
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     db: AsyncSession = Depends(get_db),
 ) -> FileDeleteResponse:
     svc = _get_service()
-    uid = _parse_file_id(file_id)
-    deleted = await svc.delete(db, uid, auth_ctx.project_id)
+    deleted = await svc.delete(db, file_id, auth_ctx.project_id)
     if not deleted:
         raise _file_not_found_error(file_id)
     return FileDeleteResponse(id=file_id)

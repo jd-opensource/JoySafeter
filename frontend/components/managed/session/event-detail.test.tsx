@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SessionEvent } from '@/types/managed'
+import { EVENT_ID } from '@/test-utils/entity-ids'
 
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -37,7 +38,7 @@ globalThis.navigator.clipboard = {
 
 function event(): SessionEvent {
   return {
-    id: 'evt_1',
+    id: EVENT_ID,
     type: 'assistant.message',
     created_at: '2026-01-01T00:00:00Z',
     content: 'hello',

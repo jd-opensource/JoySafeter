@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
 import { managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
 import {
   managedRequestOptions,
   managedScopeKey,
@@ -14,7 +15,6 @@ import {
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import type { Vault } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -75,7 +75,11 @@ export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault create ignored')
       }
-      return managedPost<Vault>('/vaults', { name: vaultName }, managedRequestOptions(requestScope))
+      return managedPost<unknown>(
+        '/vaults',
+        { name: vaultName },
+        managedRequestOptions(requestScope),
+      ).then(parseVaultResponse)
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentCreateRun(runId, scope)) return

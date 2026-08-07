@@ -1,8 +1,7 @@
-import uuid
-
 import pytest
 
 from app.joysafeter_api.api.v1.tasks import _stream_via_redis, _task_stream_error_payload
+from app.joysafeter_shared.ids import TaskId
 
 pytestmark = pytest.mark.no_db
 
@@ -36,7 +35,7 @@ class _FailingRedis:
 
 
 def test_task_stream_error_payload_uses_async_error_contract():
-    task_id = uuid.uuid4()
+    task_id = TaskId.new()
 
     payload = _task_stream_error_payload(
         code="TASK_STREAM_TASK_NOT_SCHEDULED",
@@ -51,7 +50,7 @@ def test_task_stream_error_payload_uses_async_error_contract():
         "type": "error",
         "code": "TASK_STREAM_TASK_NOT_SCHEDULED",
         "message": "Task is not scheduled yet",
-        "data": {"task_id": f"task_{task_id}"},
+        "data": {"task_id": str(task_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -60,7 +59,7 @@ def test_task_stream_error_payload_uses_async_error_contract():
 
 @pytest.mark.asyncio
 async def test_redis_task_stream_failure_sends_structured_error_before_close():
-    task_id = uuid.uuid4()
+    task_id = TaskId.new()
     websocket = _FakeWebSocket()
 
     await _stream_via_redis(websocket, task_id, _FailingRedis())
@@ -70,7 +69,7 @@ async def test_redis_task_stream_failure_sends_structured_error_before_close():
             "type": "error",
             "code": "TASK_STREAM_REDIS_FAILED",
             "message": "Cross-instance task stream failed",
-            "data": {"task_id": f"task_{task_id}"},
+            "data": {"task_id": str(task_id)},
             "source": "runtime",
             "retryable": True,
             "user_action": "retry",

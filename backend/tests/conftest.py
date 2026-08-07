@@ -145,12 +145,19 @@ async def _clean_tables(request: FixtureRequest) -> AsyncIterator[None]:
     yield
     from app.joysafeter_shared.database import Base
 
-    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
-    if not tables:
+    metadata_table_names = {table.name for table in Base.metadata.sorted_tables}
+    if not metadata_table_names:
         return
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     try:
         async with engine.begin() as conn:
+            existing_result = await conn.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
+            )
+            existing_table_names = metadata_table_names.intersection(existing_result.scalars())
+            tables = ", ".join(f'"{name}"' for name in sorted(existing_table_names))
+            if not tables:
+                return
             await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     finally:
         await engine.dispose()

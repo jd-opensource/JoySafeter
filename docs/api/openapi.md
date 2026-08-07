@@ -69,10 +69,36 @@ Model configuration lives in the agent's `model` JSONB field plus a `secret_ref`
 
 ## ID formats
 
-Most managed-resource responses serialize IDs with a type prefix, such as `agent_<uuid>`,
-`sess_<uuid>`, `task_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, and `secret_<uuid>`. The
-corresponding resource routes strip these prefixes where `id_helpers.py` is used, so either the
-prefixed ID or the bare UUID works for those paths.
+Managed-resource responses serialize IDs with a type prefix, such as `agent_<uuid>`, `sess_<uuid>`,
+`task_<uuid>`, `trig_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, `secret_<uuid>`, `sbx_<uuid>`,
+`memstore_<uuid>`, `mem_<uuid>`, `memver_<uuid>`, `sklfile_<uuid>`, `sklscan_<uuid>`, `sklver_<uuid>`,
+`sklvfile_<uuid>`, `skluse_<uuid>`, `file_<uuid>`, `sesrsc_<uuid>`, and `evt_<uuid>`. Typed Agent, Session, Task, Trigger, Environment,
+Secret, Vault, Credential, Sandbox, Memory Store, Memory, Memory Version, Skill, Skill File,
+Skill Security Scan, Skill Version, Skill Version File, Skill Usage, File, Session Resource, and Event request fields, path parameters, and cursors require
+their canonical prefixed form. Bare UUIDs are reserved for database, Redis, protobuf, and explicit
+internal adapters. `environment_ref` is the documented exception because it may contain either an
+environment name or canonical `env_<uuid>`; a bare UUID is not accepted as an Environment ID. Some
+unmigrated entity contracts remain untyped, but clients must not infer bare-UUID compatibility for new integrations.
+Agent and Environment `secret_ref` values are secret names rather than Secret IDs; clients must not
+substitute `secret_<uuid>` into those name-based configuration fields.
+Session `vault_ids` values require canonical `vault_<uuid>` strings. Nested Vault credential routes
+require canonical `cred_<uuid>` values and reject bare or cross-entity UUIDs.
+Sandbox diagnostics and task/session sandbox references return canonical `sbx_<uuid>` values. Runtime
+commands, provider labels/names, Redis keys, and protobuf messages intentionally carry the bare sandbox
+UUID and are not public client contracts.
+Memory Store CRUD and memory/version routes likewise require canonical Memory IDs. Redis
+`memory_update.store_id` and runner `MemoryStoreMount.store_id` intentionally carry the bare store UUID
+and are converted back to `MemoryStoreId` inside the Rust command listener.
+Skill routes require the matching canonical ID family rather than a generic UUID: root skills use
+`skill_`, mutable files use `sklfile_`, scans use `sklscan_`, versions use `sklver_`, immutable version
+files use `sklvfile_`, and usage rows use `skluse_`. Cross-family values are rejected even when the UUID
+suffix is otherwise valid.
+File routes use `file_<uuid>`, while mutable file/repository attachments under a Session use
+`sesrsc_<uuid>`. Storage object keys and SQL UUID columns intentionally use the bare File UUID; clients
+must retain the canonical prefixes in paths, request bodies, caches, and UI state.
+Persisted Session event IDs use `evt_<uuid>` in REST history, SSE payloads, logs, caches, and UI state.
+SQL UUID columns and Redis stream fields intentionally use the bare Event UUID; those physical forms
+are not accepted by public API contracts.
 
 ---
 

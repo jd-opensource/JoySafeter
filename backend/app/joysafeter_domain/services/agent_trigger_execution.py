@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -22,6 +21,7 @@ from app.joysafeter_domain.services.joysafeter_session_service import SessionSer
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, RequestValidationAppError
+from app.joysafeter_shared.ids import SessionId, TriggerId
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 _SESSION_KEY_MAX_CHARS = 512
@@ -97,10 +97,10 @@ class AgentTriggerRunConfig:
     org_id: Optional[str]
     idempotency_key: str
     session_mode: str = "fresh"
-    pinned_session_id: Optional[uuid.UUID] = None
-    reusable_session_id: Optional[uuid.UUID] = None
+    pinned_session_id: Optional[SessionId] = None
+    reusable_session_id: Optional[SessionId] = None
     session_key: Optional[str] = None  # rendered key for keyed session mode
-    trigger_id: Optional[uuid.UUID] = None
+    trigger_id: Optional[TriggerId] = None
     metadata: Optional[dict[str, Any]] = None
 
 
@@ -115,7 +115,7 @@ class AgentTriggerExecutor:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _lock_trigger_for_submission(self, *, trigger_id: uuid.UUID, project_id: Optional[str]) -> None:
+    async def _lock_trigger_for_submission(self, *, trigger_id: TriggerId, project_id: Optional[str]) -> None:
         result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         if result.scalar_one_or_none() is None:
             raise TriggerRuntimeGate.trigger_not_found_error(trigger_id)

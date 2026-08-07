@@ -10,6 +10,7 @@ import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
+import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import type { Agent } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import {
@@ -80,6 +81,7 @@ export default function AgentListPage() {
     queryKey: 'agents',
     path: '/agents',
     includeArchived: showArchived,
+    parseItem: parseAgentResponse,
   })
 
   const getEngineKindLabel = (engineKind?: string | null) => {

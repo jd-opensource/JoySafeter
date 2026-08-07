@@ -3,7 +3,7 @@
 These don't touch a real database — they exercise alembic's
 ``--sql`` mode (offline) to confirm:
 
-  1. The migration directory contains one initial revision.
+  1. The migration directory contains one linear chain with a single head.
   2. ``base -> head`` creates the current schema directly.
   3. ``head -> base`` removes the current schema.
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import uuid
 from contextlib import redirect_stdout
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -43,13 +44,17 @@ def _config() -> Config:
 
 
 @pytest.mark.no_db
-def test_chain_is_single_initial_revision():
+def test_chain_is_linear_with_single_head():
     cfg = _config()
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["20260803_000001"]
+    assert len(script.get_heads()) == 1
     revisions = list(script.walk_revisions(base="base", head="heads"))
-    assert [revision.revision for revision in revisions] == ["20260803_000001"]
-    assert revisions[0].down_revision is None
+    assert revisions
+    assert revisions[-1].down_revision is None
+    assert all(
+        revision.down_revision == parent.revision
+        for revision, parent in pairwise(revisions)
+    )
 
 
 @pytest.mark.no_db
@@ -68,6 +73,9 @@ def test_upgrade_sql_creates_current_schema():
     assert "CREATE TABLE joysafeter_skills" in sql
     assert "CREATE TABLE joysafeter_skill_versions" in sql
     assert "CREATE TABLE joysafeter_skill_usage_log" in sql
+    usage_log_sql = sql.split("CREATE TABLE joysafeter_skill_usage_log", 1)[1].split(";", 1)[0]
+    assert "session_id UUID" in usage_log_sql
+    assert "agent_id UUID" in usage_log_sql
     assert "org_version_id UUID" in sql
     assert "public_version_id UUID" in sql
     assert "review_target_visibility VARCHAR(16)" in sql

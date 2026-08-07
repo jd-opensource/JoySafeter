@@ -1,15 +1,14 @@
 """Sandbox network policy control-plane state."""
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
-from app.joysafeter_shared.ids import EntityIdType, SessionId, TaskId
+from app.joysafeter_shared.ids import EntityIdType, SandboxId, SessionId, TaskId
 
 
 class JoySafeterSandboxNetworkPolicy(JoySafeterBaseModel):
@@ -24,8 +23,8 @@ class JoySafeterSandboxNetworkPolicy(JoySafeterBaseModel):
         Index("idx_jsnp_acked_at", "acked_at"),
     )
 
-    sandbox_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_sandboxes.id", ondelete="CASCADE"), nullable=False
+    sandbox_id: Mapped[SandboxId] = mapped_column(
+        EntityIdType(SandboxId), ForeignKey("joysafeter_sandboxes.id", ondelete="CASCADE"), nullable=False
     )
     session_id: Mapped[Optional[SessionId]] = mapped_column(
         EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True

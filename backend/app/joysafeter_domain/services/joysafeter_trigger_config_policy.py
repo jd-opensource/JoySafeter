@@ -8,6 +8,7 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger, T
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_domain.triggers import get_provider, supported_kinds
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
+from app.joysafeter_shared.ids import SessionId
 from app.joysafeter_shared.utils.cron import validate_cron, validate_timezone
 
 _SUPPORTED_TRIGGER_TYPES = frozenset(supported_kinds())
@@ -64,7 +65,7 @@ class TriggerConfigPolicy:
         *,
         type: str,
         session_mode: str,
-        pinned_session_id: Any,
+        pinned_session_id: SessionId | None,
         session_key: Optional[str],
         cron_expr: Optional[str],
         run_at: Optional[datetime],
@@ -177,7 +178,7 @@ class TriggerConfigPolicy:
     def _validate_session_fields(
         *,
         session_mode: str,
-        pinned_session_id: Any,
+        pinned_session_id: SessionId | None,
         session_key: Optional[str],
     ) -> None:
         if session_mode not in _SUPPORTED_SESSION_MODES:

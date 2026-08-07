@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::db::queries;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
+use crate::ids::{MemoryStoreId, SandboxId};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::redis_coordinator::RedisCoordinator;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
@@ -143,8 +144,8 @@ impl CommandListener {
             "Received cross-instance command"
         );
 
-        let sandbox_id: Uuid = match sandbox_id_str.parse() {
-            Ok(id) => id,
+        let sandbox_id = match sandbox_id_str.parse::<Uuid>() {
+            Ok(id) => SandboxId::from_uuid(id),
             Err(_) => {
                 warn!("Invalid sandbox_id in command: {sandbox_id_str}");
                 self.publish_ack(&cmd, false).await;
@@ -267,7 +268,7 @@ impl CommandListener {
     async fn handle_network_policy_refresh(
         &self,
         _cmd: &serde_json::Value,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
     ) -> anyhow::Result<serde_json::Value> {
         let sandbox = queries::get_sandbox(&self.pool, sandbox_id)
             .await?
@@ -300,7 +301,7 @@ impl CommandListener {
     async fn handle_destroy_sandbox(
         &self,
         cmd: &serde_json::Value,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
     ) -> anyhow::Result<()> {
         let reason = cmd["reason"].as_str().unwrap_or("remote destroy");
         let sandbox = queries::get_sandbox(&self.pool, sandbox_id).await?;
@@ -535,22 +536,23 @@ impl CommandListener {
             return Ok(());
         }
 
-        // Use a zero UUID as sender — no sandbox originated this update
-        // (it came from the API), so all peers receive the notification.
-        let no_sender = uuid::Uuid::nil();
+        let store_id = Uuid::parse_str(store_id)
+            .map(MemoryStoreId::from_uuid)
+            .map_err(|error| anyhow::anyhow!("invalid memory store id: {error}"))?;
+
+        // API-originated updates target every active subscriber of the store.
         self.memory_subscribers
-            .notify_peers(
+            .notify_store_peers(
                 store_id,
                 rel_path,
                 content.as_bytes(),
                 operation,
-                no_sender,
                 &self.bridge_registry,
             )
             .await;
 
         info!(
-            store_id = store_id,
+            store_id = %store_id,
             path = rel_path,
             operation = operation,
             "Relayed memory_update to peers"
@@ -668,7 +670,7 @@ mod tests {
     #[derive(Default)]
     struct CommandRecordingProvider {
         destroyed: Mutex<Vec<String>>,
-        destroy_status_probe: Mutex<Option<(PgPool, Uuid)>>,
+        destroy_status_probe: Mutex<Option<(PgPool, SandboxId)>>,
         destroy_observed_statuses: Mutex<Vec<String>>,
     }
 
@@ -736,7 +738,7 @@ mod tests {
             return;
         };
 
-        let sandbox_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let current_external_id = format!("command-current-{sandbox_id}");
         let stale_external_id = format!("command-stale-{sandbox_id}");
         queries::create_sandbox(
@@ -760,7 +762,7 @@ mod tests {
         let listener = command_listener(pool.clone(), provider.clone());
         let cmd = json!({
             "type": "destroy",
-            "sandbox_id": sandbox_id.to_string(),
+            "sandbox_id": sandbox_id.as_uuid().to_string(),
             "external_id": stale_external_id,
             "reason": "stale command test"
         });
@@ -797,7 +799,7 @@ mod tests {
             return;
         };
 
-        let sandbox_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let external_id = format!("command-owned-{sandbox_id}");
         queries::create_sandbox(
             &pool,
@@ -821,7 +823,7 @@ mod tests {
         let listener = command_listener(pool.clone(), provider.clone());
         let cmd = json!({
             "type": "destroy",
-            "sandbox_id": sandbox_id.to_string(),
+            "sandbox_id": sandbox_id.as_uuid().to_string(),
             "external_id": external_id.clone(),
             "reason": "owned command test"
         });

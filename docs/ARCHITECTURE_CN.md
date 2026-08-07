@@ -150,7 +150,7 @@ sequenceDiagram
     FE->>API: POST /sessions/{id}/events（user.message）
     API->>PG: 创建 JoySafeterTask（status=pending）
     API->>PG: session → running（+ 状态事件）
-    API->>Q: rpush joysafeter:global_queue <task_id>
+    API->>Q: rpush joysafeter:global_queue <裸 task UUID>
 
     Note over ORCH: 调度器认领 pending task（DB 为权威）
     ORCH->>PG: task pending → scheduling → running
@@ -410,6 +410,40 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 所有路径在 `/api/v1` 下。路由在 `joysafeter_api/api/v1/router.py` 装配。**没有**独立的
 `models` / `mcp` / `tools` / `copilot` / `graphs` 路由——这些概念存于 Agent（JSONB 字段）或
 `secrets` / `vaults`。
+
+### 8.1 类型化实体 ID
+
+公共 API 与日志统一使用 canonical 前缀 ID（`agent_<uuid>`、`sess_<uuid>`、`task_<uuid>`、
+`trig_<uuid>`、`env_<uuid>`、`secret_<uuid>`、`vault_<uuid>`、`cred_<uuid>`、`sbx_<uuid>`、
+`memstore_<uuid>`、`mem_<uuid>`、`memver_<uuid>`、`skill_<uuid>`、`sklfile_<uuid>`、
+`sklscan_<uuid>`、`sklver_<uuid>`、`sklvfile_<uuid>`、`skluse_<uuid>`、`file_<uuid>`、
+`sesrsc_<uuid>`、`evt_<uuid>`）。前缀是语义判别器：让跨实体误传在 UUID 进入领域逻辑前即可被
+识别并拒绝。应用/领域层使用对应的类型（`AgentId`、`SessionId`、`TaskId`、`TriggerId`、
+`EnvironmentId`、`SecretId`、`VaultId`、`CredentialId`、`SandboxId`、`MemoryStoreId`、`MemoryId`、
+`MemoryVersionId`、`SkillId`、`SkillFileId`、`SkillSecurityScanId`、`SkillVersionId`、
+`SkillVersionFileId`、`SkillUsageId`、`FileId`、`SessionResourceId`、`EventId`）；PostgreSQL、Redis、protobuf 与明确记录的跨语言适配器使用裸 UUID。因此，
+使用类型化 ID 并不意味着取消前缀，而是把前缀校验集中到边界，禁止 service、route、前端和
+测试自行拆装前缀。Rust ID newtype 不实现 `Deref<Uuid>`；物理适配器必须显式调用 `.as_uuid()`，
+避免内存中的实体身份静默降级为存储身份。`environment_ref` 是刻意保留的多态边界：它接受环境名称或 canonical
+`env_<uuid>`，但不把裸 UUID 解释为 Environment ID。
+Sandbox provider label、容器/Pod 名称、Envoy resource/socket 名称、runner 环境变量、Redis ownership
+key/payload 与 protobuf 字段属于物理边界，必须显式把 `SandboxId` 解包为裸 UUID；公共 API 响应、
+错误、日志和前端状态始终保留 `sbx_<uuid>`。
+Memory 同步遵循同一规则：API 路径、schema、日志与前端状态保留 canonical Memory ID；Redis
+`memory_update` payload 和 runner protobuf mount 显式携带裸 Memory Store UUID，Rust 在订阅查找前
+将其恢复为 `MemoryStoreId`。
+文件元数据、文件路由、Session 文件/仓库资源、日志与前端状态保留 `file_<uuid>` / `sesrsc_<uuid>`；
+PostgreSQL UUID 列与对象存储 key 必须显式解包 `FileId`，物理存储 key 绝不能包含公共 `file_` 前缀。
+已持久化的 Session 事件在 REST/SSE payload、日志、前端状态及应用/Rust 事件流中保留 `evt_<uuid>`；
+SQL UUID 列和 Redis Stream 字段携带裸 Event UUID，并在重新进入类型化应用代码时立即恢复为 `EventId`。
+Skill CRUD、生命周期、安全扫描、版本、版本文件快照、使用日志、路由与前端状态统一保留六类
+canonical Skill ID；仅 SQL join、Rust bundle 与存储适配器在物理边界显式解包为裸 UUID。AI
+authoring 的草稿文件在持久化前没有实体身份，禁止用空字符串或伪造的 `SkillFileId` 占位。
+Agent/Environment 中的 `secret_ref` 仍是按名称解析的配置引用，不是 Secret ID；Secret CRUD 路径、
+游标、响应、日志和 ORM 身份统一使用 canonical `SecretId`。
+Session 的 `vault_ids` 是持久化 JSONB 引用文档，刻意保存 canonical `vault_<uuid>` 字符串。Python
+以 `list[VaultId]` 校验；Rust harness 只在 SQL 查询适配器处解包成裸 UUID。历史裸 UUID 数据仅在该
+适配器保留读取兼容。
 
 | 分组 | 前缀 | 要点 |
 |---|---|---|

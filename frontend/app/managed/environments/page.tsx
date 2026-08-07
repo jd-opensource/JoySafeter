@@ -14,6 +14,8 @@ import type {
 } from '@/types/managed'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
+import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
@@ -151,11 +153,13 @@ export default function EnvironmentListPage() {
     queryKey: 'environments',
     path: '/environments',
     includeArchived: showArchived,
+    parseItem: parseEnvironmentResponse,
   })
   const { data: secrets } = usePaginatedList<Secret>({
     queryKey: 'secrets',
     path: '/secrets',
     limit: 50,
+    parseItem: parseSecretResponse,
   })
   const { data: storageCatalog } = useQuery({
     queryKey: ['storage-mount-catalog', managedScope],
@@ -335,7 +339,7 @@ export default function EnvironmentListPage() {
         .filter((resource) => resource.name && resource.volume_ref && resource.mount_path)
       if (mounts.length > 0) config.mount_resources = mounts
 
-      await managedPost(
+      await managedPost<Environment>(
         '/environments',
         {
           name: name.trim(),
@@ -343,7 +347,7 @@ export default function EnvironmentListPage() {
           config,
         },
         managedRequestOptions(requestScope),
-      )
+      ).then(parseEnvironmentResponse)
       if (!isCurrentCreateRun(runId, createScope)) return
       resetForm()
       setShowCreate(false)

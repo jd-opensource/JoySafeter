@@ -13,6 +13,7 @@ import type {
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { apiResourceId } from '@/lib/managed/api-paths'
+import { parseStorageMountAuditResponse } from '@/lib/managed/storage-mount-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -443,6 +444,7 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
     path: auditPath,
     limit: 25,
     pageSizeOptions: [25, 50, 100],
+    parseItem: parseStorageMountAuditResponse,
   })
   const projectsQuery = useQuery({
     queryKey: ['storage-volumes-projects', requestScope.key],

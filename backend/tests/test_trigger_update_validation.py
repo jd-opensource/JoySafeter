@@ -8,6 +8,7 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
+from app.joysafeter_shared.ids import AgentId
 
 pytestmark = pytest.mark.no_db
 
@@ -16,7 +17,7 @@ def _trigger(**overrides) -> JoySafeterTrigger:
     data = {
         "name": f"trigger-{uuid.uuid4()}",
         "type": "cron",
-        "agent_id": uuid.uuid4(),
+        "agent_id": AgentId.new(),
         "prompt_template": "run",
         "enabled": True,
         "session_mode": "fresh",
@@ -185,7 +186,7 @@ async def test_create_rejects_webhook_without_secret_ref_at_domain_boundary():
         await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
             name="unsafe-webhook",
             type="webhook",
-            agent_id=uuid.uuid4(),
+            agent_id=AgentId.new(),
             prompt_template="run",
             secret_ref=None,
         )
@@ -199,7 +200,7 @@ async def test_create_rejects_cron_without_schedule_at_domain_boundary():
         await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
             name="broken-cron",
             type="cron",
-            agent_id=uuid.uuid4(),
+            agent_id=AgentId.new(),
             prompt_template="run",
         )
 
@@ -212,7 +213,7 @@ async def test_create_rejects_empty_webhook_auth_methods_at_domain_boundary():
         await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
             name="unsafe-webhook",
             type="webhook",
-            agent_id=uuid.uuid4(),
+            agent_id=AgentId.new(),
             prompt_template="run",
             secret_ref="hook-secret",
             auth_methods=[],
@@ -227,7 +228,7 @@ async def test_create_rejects_missing_webhook_auth_methods_at_domain_boundary():
         await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
             name="unsafe-webhook",
             type="webhook",
-            agent_id=uuid.uuid4(),
+            agent_id=AgentId.new(),
             prompt_template="run",
             secret_ref="hook-secret",
         )
@@ -241,7 +242,7 @@ async def test_create_rejects_cron_expr_on_webhook_at_domain_boundary():
         await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
             name="dirty-webhook",
             type="webhook",
-            agent_id=uuid.uuid4(),
+            agent_id=AgentId.new(),
             prompt_template="run",
             secret_ref="hook-secret",
             cron_expr="*/5 * * * *",
@@ -256,7 +257,7 @@ async def test_create_manual_trigger_has_no_schedule_or_webhook_config_pollution
     trigger = await _NoDbCreateService(db).create(  # type: ignore[arg-type]
         name="manual-only",
         type="manual",
-        agent_id=uuid.uuid4(),
+        agent_id=AgentId.new(),
         prompt_template="run on demand",
         secret_ref="ignored-webhook-secret",
         secret_key="IGNORED_SECRET_KEY",

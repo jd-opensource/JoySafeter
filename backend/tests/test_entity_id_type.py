@@ -1,7 +1,9 @@
 # backend/tests/test_entity_id_type.py
 import uuid
+
 import pytest
-from app.joysafeter_shared.ids import AgentId, EntityIdType
+
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId
 
 pytestmark = pytest.mark.no_db
 
@@ -17,6 +19,13 @@ def test_bind_accepts_bare_uuid_and_str():
     u = uuid.uuid4()
     assert t.process_bind_param(u, None) == u
     assert t.process_bind_param(f"agent_{u}", None) == u
+
+
+def test_bind_rejects_wrong_entity_id_type():
+    t = EntityIdType(AgentId)
+
+    with pytest.raises(TypeError, match="cannot bind SessionId as AgentId"):
+        t.process_bind_param(SessionId.new(), None)
 
 
 def test_bind_none_passthrough():

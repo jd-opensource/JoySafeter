@@ -5,13 +5,13 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.joysafeter_shared.ids import SessionId
+from app.joysafeter_shared.ids import FileId, SessionId
 
 
 class FileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: FileId
     type: str = "file"
     filename: str
     purpose: str
@@ -19,24 +19,24 @@ class FileResponse(BaseModel):
     size_bytes: int
     sha256: str
     downloadable: bool
-    session_id: Optional[str] = None
+    session_id: Optional[SessionId] = None
     created_at: datetime
 
     @classmethod
     def from_model(cls, obj) -> "FileResponse":
         return cls(
-            id=f"file_{obj.id}",
+            id=obj.id,
             filename=obj.filename,
             purpose=obj.purpose,
             content_type=obj.content_type,
             size_bytes=obj.size_bytes,
             sha256=obj.sha256,
             downloadable=obj.downloadable,
-            session_id=str(SessionId(obj.session_id)) if obj.session_id else None,
+            session_id=SessionId(obj.session_id) if obj.session_id else None,
             created_at=obj.created_at,
         )
 
 
 class FileDeleteResponse(BaseModel):
-    id: str
+    id: FileId
     deleted: bool = True

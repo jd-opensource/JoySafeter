@@ -1,8 +1,7 @@
+use crate::db::models::JoySafeterSandbox;
+use crate::ids::{SandboxId, SessionId, TaskId};
 use serde_json::Value;
 use sqlx::PgPool;
-use uuid::Uuid;
-
-use crate::db::models::JoySafeterSandbox;
 
 // ---------------------------------------------------------------------------
 // Structs
@@ -16,9 +15,9 @@ pub struct CommandDestroySandboxClaim {
 
 #[derive(Debug, Clone)]
 pub struct UpsertNetworkPolicy<'a> {
-    pub sandbox_id: Uuid,
-    pub session_id: Option<Uuid>,
-    pub task_id: Option<Uuid>,
+    pub sandbox_id: SandboxId,
+    pub session_id: Option<SessionId>,
+    pub task_id: Option<TaskId>,
     pub policy_hash: &'a str,
     pub desired_policy_json: &'a Value,
     pub rendered_summary_json: &'a Value,
@@ -31,7 +30,7 @@ pub struct UpsertNetworkPolicy<'a> {
 /// Get a sandbox by ID.
 pub async fn get_sandbox(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
 ) -> Result<Option<JoySafeterSandbox>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterSandbox>("SELECT * FROM joysafeter_sandboxes WHERE id = $1")
         .bind(sandbox_id)
@@ -42,7 +41,7 @@ pub async fn get_sandbox(
 /// Find the current non-destroyed sandbox for a session (for reuse/recovery).
 pub async fn find_sandbox_for_session(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
 ) -> Result<Option<JoySafeterSandbox>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterSandbox>(
         r#"
@@ -132,11 +131,11 @@ pub async fn list_degraded_limited_sandboxes(
 /// Create a new sandbox record.
 pub async fn create_sandbox(
     pool: &PgPool,
-    id: Uuid,
+    id: SandboxId,
     external_id: &str,
     provider: &str,
     image: &str,
-    session_id: Option<Uuid>,
+    session_id: Option<SessionId>,
     project_id: Option<&str>,
     workspace_path: Option<&str>,
     config: Option<&serde_json::Value>,
@@ -163,7 +162,7 @@ pub async fn create_sandbox(
 
 pub async fn mark_sandbox_error(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     error_msg: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -266,7 +265,10 @@ mod transition_validation_tests {
 /// This helper is on critical execution/recovery paths. It must release the
 /// task association without resurrecting unhealthy sandboxes: `error`,
 /// `stopped`, `stopping`, and `destroyed` are not allowed to become `idle`.
-pub async fn complete_sandbox_task(pool: &PgPool, sandbox_id: Uuid) -> Result<bool, sqlx::Error> {
+pub async fn complete_sandbox_task(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> Result<bool, sqlx::Error> {
     let transitioned: Option<bool> = sqlx::query_scalar(
         r#"
         UPDATE joysafeter_sandboxes
@@ -305,8 +307,8 @@ pub async fn complete_sandbox_task(pool: &PgPool, sandbox_id: Uuid) -> Result<bo
 /// downstream cleanup can reliably release the exact task association.
 pub async fn start_sandbox_task(
     pool: &PgPool,
-    sandbox_id: Uuid,
-    task_id: Uuid,
+    sandbox_id: SandboxId,
+    task_id: TaskId,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
@@ -338,7 +340,7 @@ pub async fn start_sandbox_task(
 /// healthy stopped row.
 pub async fn mark_sandbox_stopped_if_active(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
@@ -362,7 +364,7 @@ pub async fn mark_sandbox_stopped_if_active(
 /// Mark a sandbox as stopped only while it is still the row claimed by cleanup.
 pub async fn mark_sandbox_stopped_if_status_and_external_id(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_status: &str,
     expected_external_id: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
@@ -397,7 +399,10 @@ pub async fn mark_sandbox_stopped_if_status_and_external_id(
 /// to `idle`; accepting `idle` here preserves that production race without
 /// exposing a general `idle -> pooled` transition. Error/stop/destroy states
 /// are preserved so a late pool finalizer cannot resurrect cleaned-up rows.
-pub async fn mark_pool_sandbox_ready(pool: &PgPool, sandbox_id: Uuid) -> Result<bool, sqlx::Error> {
+pub async fn mark_pool_sandbox_ready(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
         UPDATE joysafeter_sandboxes
@@ -422,7 +427,7 @@ pub async fn mark_pool_sandbox_ready(pool: &PgPool, sandbox_id: Uuid) -> Result<
 /// Keep sandbox status and config in sync during provisioning progress polling.
 pub async fn update_sandbox_status_and_config(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     status: &str,
     config: &serde_json::Value,
 ) -> Result<bool, sqlx::Error> {
@@ -447,7 +452,7 @@ pub async fn update_sandbox_status_and_config(
 /// Mark the sandbox networking control-plane status.
 pub async fn update_sandbox_networking_status(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     status: &str,
     policy_hash: Option<&str>,
     policy_version: Option<i64>,
@@ -484,7 +489,7 @@ pub async fn update_sandbox_networking_status(
 /// repeated healthy refreshes avoid database writes entirely.
 pub async fn prepare_sandbox_network_policy_push(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     policy_hash: &str,
 ) -> Result<Option<i64>, sqlx::Error> {
     let row = sqlx::query_as::<_, (i64,)>(
@@ -520,7 +525,7 @@ pub async fn prepare_sandbox_network_policy_push(
 /// Mark an accepted network-policy push without touching audit history.
 pub async fn mark_sandbox_network_policy_acked(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
@@ -547,7 +552,7 @@ pub async fn mark_sandbox_network_policy_acked(
 /// platform diagnostics page can explain why a sandbox cannot be scheduled.
 pub async fn record_network_policy_failure(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     reason: &str,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -711,7 +716,7 @@ pub async fn create_network_policy_revision(
 /// Mark a sandbox policy revision as pushed to Envoy.
 pub async fn mark_network_policy_pushed(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     policy_version: i64,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -732,7 +737,7 @@ pub async fn mark_network_policy_pushed(
 /// Mark the latest policy for a sandbox as ACKed by Envoy.
 pub async fn mark_latest_network_policy_acked(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
@@ -771,7 +776,7 @@ pub async fn mark_latest_network_policy_acked(
 /// Mark the latest policy for a sandbox as NACKed/failed.
 pub async fn mark_latest_network_policy_nacked(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     reason: &str,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -809,7 +814,7 @@ pub async fn mark_latest_network_policy_nacked(
 /// Merge non-secret sandbox config metadata while preserving lifecycle fields.
 pub async fn merge_sandbox_config(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     config: &serde_json::Value,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -830,7 +835,7 @@ pub async fn merge_sandbox_config(
 }
 
 /// Mark sandbox as destroyed.
-pub async fn destroy_sandbox(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx::Error> {
+pub async fn destroy_sandbox(pool: &PgPool, sandbox_id: SandboxId) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         UPDATE joysafeter_sandboxes
@@ -852,7 +857,7 @@ pub async fn destroy_sandbox(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx
 /// active task rows still reference the sandbox.
 pub async fn claim_sandbox_for_command_destroy(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_external_id: Option<&str>,
 ) -> Result<Option<CommandDestroySandboxClaim>, sqlx::Error> {
     sqlx::query_as::<_, CommandDestroySandboxClaim>(
@@ -892,7 +897,7 @@ pub async fn claim_sandbox_for_command_destroy(
 /// rescheduling the session forever.
 pub async fn destroy_sandbox_if_status_and_external_id(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_status: &str,
     expected_external_id: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
@@ -931,7 +936,7 @@ pub async fn destroy_sandbox_if_status_and_external_id(
 /// or that have any active task bound to the sandbox.
 pub async fn destroy_sandbox_after_passive_recovery(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     observed_status: &str,
     expected_external_id: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
@@ -971,7 +976,7 @@ pub async fn destroy_sandbox_after_passive_recovery(
 /// while the external runtime is being destroyed.
 pub async fn claim_sandbox_for_passive_destroy(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_status: &str,
     expected_external_id: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
@@ -1011,7 +1016,7 @@ pub async fn claim_sandbox_for_passive_destroy(
 /// from deleting the provider runtime.
 pub async fn claim_unattached_pool_sandbox_for_passive_destroy(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_external_id: Option<&str>,
 ) -> Result<Option<String>, sqlx::Error> {
     let previous_status = sqlx::query_scalar::<_, String>(
@@ -1058,7 +1063,7 @@ pub async fn claim_unattached_pool_sandbox_for_passive_destroy(
 /// Returns the status that should be restored if provider destruction fails.
 pub async fn claim_sandbox_for_passive_destroy_after_recovery(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     observed_status: &str,
     expected_external_id: Option<&str>,
 ) -> Result<Option<String>, sqlx::Error> {
@@ -1104,7 +1109,7 @@ pub async fn claim_sandbox_for_passive_destroy_after_recovery(
 /// lifecycle states owned by the stale reap observation.
 pub async fn claim_sandbox_for_passive_stop_after_recovery(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     observed_status: &str,
     expected_external_id: Option<&str>,
 ) -> Result<Option<String>, sqlx::Error> {
@@ -1149,7 +1154,7 @@ pub async fn claim_sandbox_for_passive_stop_after_recovery(
 /// Re-claim a stuck `stopping` sandbox before force-stopping its runtime.
 pub async fn claim_stopping_sandbox_for_force_stop(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_external_id: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -1179,7 +1184,7 @@ pub async fn claim_stopping_sandbox_for_force_stop(
 /// Restore a passive-destroy claim when provider destruction failed.
 pub async fn restore_sandbox_after_passive_destroy_failure(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     previous_status: &str,
     expected_external_id: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
@@ -1211,7 +1216,7 @@ pub async fn restore_sandbox_after_passive_destroy_failure(
 /// Only updates if current status matches `expected_status`.
 pub async fn transition_sandbox_cas(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_status: &str,
     new_status: &str,
 ) -> Result<bool, sqlx::Error> {
@@ -1254,7 +1259,7 @@ pub async fn transition_sandbox_cas(
 /// Claim a stopped sandbox row before restarting its external runtime.
 pub async fn claim_stopped_sandbox_for_restart(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_external_id: &str,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -1281,7 +1286,7 @@ pub async fn claim_stopped_sandbox_for_restart(
 /// Restore a restart claim when provider start fails before task dispatch.
 pub async fn restore_stopped_sandbox_after_restart_start_failure(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     expected_external_id: &str,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -1311,7 +1316,7 @@ pub async fn restore_stopped_sandbox_after_restart_start_failure(
 }
 
 /// Touch sandbox last_used_at timestamp.
-pub async fn touch_sandbox(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx::Error> {
+pub async fn touch_sandbox(pool: &PgPool, sandbox_id: SandboxId) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE joysafeter_sandboxes SET last_used_at = NOW(), updated_at = NOW() WHERE id = $1",
     )
@@ -1326,7 +1331,10 @@ pub async fn touch_sandbox(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx::
 /// can't leave a sandbox indefinitely "idle" without ever sending
 /// RunnerIdle. Idempotent: a second call while the marker is still set
 /// is a no-op (we want the earliest disconnect timestamp).
-pub async fn mark_bridge_disconnected(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx::Error> {
+pub async fn mark_bridge_disconnected(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         UPDATE joysafeter_sandboxes
@@ -1341,7 +1349,10 @@ pub async fn mark_bridge_disconnected(pool: &PgPool, sandbox_id: Uuid) -> Result
 }
 
 /// Clear the bridge-disconnect marker on a successful runner attach.
-pub async fn mark_bridge_connected(pool: &PgPool, sandbox_id: Uuid) -> Result<(), sqlx::Error> {
+pub async fn mark_bridge_connected(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         UPDATE joysafeter_sandboxes
@@ -1358,7 +1369,7 @@ pub async fn mark_bridge_connected(pool: &PgPool, sandbox_id: Uuid) -> Result<()
 /// Find a stopped sandbox for a session (for restart).
 pub async fn find_stopped_sandbox_for_session(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
 ) -> Result<Option<JoySafeterSandbox>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterSandbox>(
         r#"

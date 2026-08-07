@@ -16,6 +16,7 @@ from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessi
 from app.joysafeter_domain.services.joysafeter_file_service import FileService as DomainFileService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import FileId
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
@@ -108,21 +109,6 @@ async def test_upload_file_storage_failure_returns_structured_retryable_error(db
 
 
 @pytest.mark.asyncio
-async def test_get_file_invalid_id_returns_structured_validation_error(db_session):
-    with pytest.raises(AppError) as exc_info:
-        await get_file("not-a-file-id", _auth_ctx(), db_session)
-
-    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
-        "code": "FILE_ID_INVALID",
-        "message": "Invalid file_id",
-        "data": {"file_id": "not-a-file-id"},
-        "source": "api",
-        "retryable": False,
-        "user_action": "fix_input",
-    }
-
-
-@pytest.mark.asyncio
 async def test_list_files_invalid_session_scope_returns_structured_validation_error(db_session):
     with pytest.raises(AppError) as exc_info:
         await list_files_route(_auth_ctx(), db_session, 20, None, "sess_not-a-uuid")
@@ -188,7 +174,7 @@ async def test_get_file_missing_file_returns_structured_not_found_error(db_sessi
         async def get_metadata(self, *args, **kwargs):
             return None
 
-    missing_file_id = f"file_{uuid.uuid4()}"
+    missing_file_id = FileId.new()
     monkeypatch.setattr("app.joysafeter_api.api.v1.files._get_service", lambda: MissingFileService())
 
     with pytest.raises(AppError) as exc_info:
@@ -197,7 +183,7 @@ async def test_get_file_missing_file_returns_structured_not_found_error(db_sessi
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "FILE_NOT_FOUND",
         "message": "File not found",
-        "data": {"file_id": missing_file_id},
+        "data": {"file_id": str(missing_file_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -210,7 +196,7 @@ async def test_download_file_missing_presign_record_returns_structured_not_found
         async def get_presign_url(self, *args, **kwargs):
             raise FileNotFoundError("File not found")
 
-    missing_file_id = f"file_{uuid.uuid4()}"
+    missing_file_id = FileId.new()
     monkeypatch.setattr("app.joysafeter_api.api.v1.files._get_service", lambda: MissingFileService())
 
     with pytest.raises(AppError) as exc_info:
@@ -219,7 +205,7 @@ async def test_download_file_missing_presign_record_returns_structured_not_found
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "FILE_NOT_FOUND",
         "message": "File not found",
-        "data": {"file_id": missing_file_id},
+        "data": {"file_id": str(missing_file_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -232,7 +218,7 @@ async def test_delete_file_missing_file_returns_structured_not_found_error(db_se
         async def delete(self, *args, **kwargs):
             return False
 
-    missing_file_id = f"file_{uuid.uuid4()}"
+    missing_file_id = FileId.new()
     monkeypatch.setattr("app.joysafeter_api.api.v1.files._get_service", lambda: MissingFileService())
 
     with pytest.raises(AppError) as exc_info:
@@ -241,7 +227,7 @@ async def test_delete_file_missing_file_returns_structured_not_found_error(db_se
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "FILE_NOT_FOUND",
         "message": "File not found",
-        "data": {"file_id": missing_file_id},
+        "data": {"file_id": str(missing_file_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -289,13 +275,13 @@ async def test_delete_file_rejects_file_attached_to_active_session_resource(db_s
     )
 
     with pytest.raises(AppError) as exc_info:
-        await delete_file(f"file_{file.id}", auth_ctx, db_session)
+        await delete_file(file.id, auth_ctx, db_session)
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "FILE_IN_USE_BY_SESSION_RESOURCE",
         "message": "File is attached to active session resources",
         "data": {
-            "file_id": f"file_{file.id}",
+            "file_id": str(file.id),
             "session_ids": [str(session.id)],
         },
         "source": "api",

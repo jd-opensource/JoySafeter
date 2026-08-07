@@ -158,7 +158,7 @@ sequenceDiagram
     API->>API: TaskSubmissionService admission/idempotency boundary
     API->>PG: create JoySafeterTask (status=pending)
     API->>PG: session → running (+ status event)
-    API->>Q: rpush joysafeter:global_queue <task_id>
+    API->>Q: rpush joysafeter:global_queue <bare-task-uuid>
 
     Note over ORCH: scheduler claims pending task (DB is source of truth)
     ORCH->>PG: task pending → scheduling → running
@@ -470,6 +470,43 @@ hash matches the last scan (drift detection). A disapproved or drifted skill is 
 All paths are under `/api/v1`. Routers are wired in `joysafeter_api/api/v1/router.py`. There
 are **no** standalone `models` / `mcp` / `tools` / `copilot` / `graphs` routers — those
 concepts live inside the agent (JSONB fields) or in `secrets` / `vaults`.
+
+### 8.1 Typed entity identifiers
+
+Public APIs and logs use canonical prefixed IDs (`agent_<uuid>`, `sess_<uuid>`, `task_<uuid>`,
+`trig_<uuid>`, `env_<uuid>`, `secret_<uuid>`, `vault_<uuid>`, `cred_<uuid>`, `sbx_<uuid>`,
+`memstore_<uuid>`, `mem_<uuid>`, `memver_<uuid>`, `skill_<uuid>`, `sklfile_<uuid>`,
+`sklscan_<uuid>`, `sklver_<uuid>`, `sklvfile_<uuid>`, `skluse_<uuid>`, `file_<uuid>`,
+`sesrsc_<uuid>`, `evt_<uuid>`). The prefix is a semantic discriminator: it makes cross-entity mistakes
+visible and rejectable before a UUID reaches domain logic. Application/domain code uses the matching
+typed ID (`AgentId`, `SessionId`, `TaskId`, `TriggerId`, `EnvironmentId`, `SecretId`, `VaultId`, `CredentialId`, `SandboxId`, `MemoryStoreId`, `MemoryId`, `MemoryVersionId`, `SkillId`, `SkillFileId`, `SkillSecurityScanId`, `SkillVersionId`, `SkillVersionFileId`, `SkillUsageId`, `FileId`, `SessionResourceId`, `EventId`); PostgreSQL, Redis, protobuf,
+and explicitly documented cross-language adapters use the bare UUID. A typed ID therefore does not
+remove the prefix—it centralizes prefix validation and prevents services, routes, clients, and tests
+from rebuilding it. Rust ID newtypes do not implement `Deref<Uuid>`; physical adapters must call
+`.as_uuid()` explicitly so an in-memory identity cannot silently degrade into a storage identity.
+`environment_ref` is an intentional polymorphic boundary: it accepts an
+environment name or canonical `env_<uuid>`, but not a bare UUID as an Environment ID.
+Sandbox provider labels, container/pod names, Envoy resource/socket names, runner environment variables,
+Redis ownership keys/payloads, and protobuf fields are physical boundaries and explicitly unwrap
+`SandboxId` to its bare UUID; public API responses, errors, logs, and frontend state retain `sbx_<uuid>`.
+Memory synchronization follows the same rule: API paths, schemas, logs, and frontend state retain
+canonical Memory IDs, while Redis `memory_update` payloads and runner protobuf mounts explicitly carry
+the bare Memory Store UUID. Rust converts that UUID to `MemoryStoreId` before subscriber lookup.
+File metadata, file routes, Session file/repository resources, logs, and frontend state retain
+`file_<uuid>` / `sesrsc_<uuid>`. PostgreSQL UUID columns and object-storage keys explicitly unwrap
+`FileId`; the storage key must never contain the public `file_` prefix.
+Persisted Session events retain `evt_<uuid>` in REST/SSE payloads, logs, frontend state, and the
+application/Rust event flow. SQL UUID columns and Redis stream fields carry the bare Event UUID and
+must restore `EventId` immediately when entering typed application code.
+Skill CRUD, lifecycle, security scans, versions, version snapshots, usage logs, routes, and frontend
+state retain their six canonical Skill ID families. SQL joins and Rust bundle/storage adapters unwrap
+them to bare UUIDs only at the physical boundary. Draft authoring files are deliberately identity-free
+until persisted; they must not use empty or fabricated `SkillFileId` values.
+Agent/Environment `secret_ref` fields remain name-based configuration references, not Secret IDs;
+Secret CRUD paths, cursors, responses, logs, and ORM identity use canonical `SecretId`.
+Session `vault_ids` is a persisted JSONB reference document and intentionally stores canonical
+`vault_<uuid>` strings. Python validates it as `list[VaultId]`; the Rust harness unwraps each value to a
+bare UUID only at the SQL query adapter. Legacy bare UUID rows remain readable only at that adapter.
 
 | Group | Prefix | Highlights |
 |---|---|---|

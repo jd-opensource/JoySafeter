@@ -29,6 +29,7 @@ from app.joysafeter_domain.schemas.joysafeter_vault import (
 from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import CredentialId, VaultId
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -88,7 +89,7 @@ async def _project_vault(db_session, *, project_id: str, name: str | None = None
     return vault
 
 
-async def _credential(db_session, *, vault_id: uuid.UUID, name: str | None = None) -> JoySafeterVaultCredential:
+async def _credential(db_session, *, vault_id: VaultId, name: str | None = None) -> JoySafeterVaultCredential:
     cred = JoySafeterVaultCredential(
         vault_id=vault_id,
         name=name or f"cred-{uuid.uuid4()}",
@@ -102,7 +103,7 @@ async def _credential(db_session, *, vault_id: uuid.UUID, name: str | None = Non
     return cred
 
 
-async def _session_referencing_vault(db_session, vault_id: uuid.UUID, vault_ref: str) -> JoySafeterSession:
+async def _session_referencing_vault(db_session, vault_id: VaultId, vault_ref: str) -> JoySafeterSession:
     agent = JoySafeterAgent(name=f"vault-session-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
@@ -113,14 +114,14 @@ async def _session_referencing_vault(db_session, vault_id: uuid.UUID, vault_ref:
     return session
 
 
-async def _assert_vault_intact(db_session, vault_id: uuid.UUID) -> JoySafeterVault:
+async def _assert_vault_intact(db_session, vault_id: VaultId) -> JoySafeterVault:
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterVault).where(JoySafeterVault.id == vault_id))).scalar_one()
     assert row.deleted_at is None
     return row
 
 
-async def _assert_credential_intact(db_session, cred_id: uuid.UUID) -> JoySafeterVaultCredential:
+async def _assert_credential_intact(db_session, cred_id: CredentialId) -> JoySafeterVaultCredential:
     db_session.expire_all()
     row = (
         await db_session.execute(select(JoySafeterVaultCredential).where(JoySafeterVaultCredential.id == cred_id))
@@ -131,10 +132,10 @@ async def _assert_credential_intact(db_session, cred_id: uuid.UUID) -> JoySafete
 
 @pytest.mark.asyncio
 async def test_get_vault_missing_vault_returns_structured_error(db_session):
-    vault_id = uuid.uuid4()
+    vault_id = VaultId.new()
 
     with pytest.raises(AppError) as exc_info:
-        await get_vault(db_session, vault_id, _auth_ctx())
+        await get_vault(vault_id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "VAULT_NOT_FOUND",
@@ -152,10 +153,10 @@ async def test_get_credential_missing_credential_returns_structured_error(db_ses
     db_session.add(vault)
     await db_session.commit()
     await db_session.refresh(vault)
-    cred_id = uuid.uuid4()
+    cred_id = CredentialId.new()
 
     with pytest.raises(AppError) as exc_info:
-        await get_credential(db_session, vault.id, cred_id, _auth_ctx())
+        await get_credential(vault.id, cred_id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "VAULT_CREDENTIAL_NOT_FOUND",
@@ -183,8 +184,8 @@ async def test_update_archived_vault_rejects_without_mutating_metadata(db_sessio
         await update_vault(
             UpdateVaultRequest(description="changed", metadata={"tier": "dev"}),
             _request("POST"),
-            db_session,
             vault_id,
+            db_session,
             _auth_ctx(),
         )
 
@@ -209,10 +210,10 @@ async def test_delete_vault_rejects_active_session_reference_without_deleting_ro
     db_session.add(vault)
     await db_session.commit()
     await db_session.refresh(vault)
-    await _session_referencing_vault(db_session, vault.id, f"vault_{vault.id}")
+    await _session_referencing_vault(db_session, vault.id, str(vault.id))
 
     with pytest.raises(AppError) as exc_info:
-        await delete_vault(_request("DELETE"), db_session, vault.id, _auth_ctx())
+        await delete_vault(_request("DELETE"), vault.id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "VAULT_ACTIVE_SESSION_REFERENCE",
@@ -234,7 +235,7 @@ async def test_archive_vault_rejects_bare_uuid_active_session_reference(db_sessi
     await _session_referencing_vault(db_session, vault.id, str(vault.id))
 
     with pytest.raises(AppError) as exc_info:
-        await archive_vault(_request("POST"), db_session, vault.id, _auth_ctx())
+        await archive_vault(_request("POST"), vault.id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "VAULT_ACTIVE_SESSION_REFERENCE",
@@ -264,8 +265,8 @@ async def test_create_credential_rejects_archived_vault_without_creating_row(db_
                 token_value="secret-token",
             ),
             _request("POST"),
-            db_session,
             vault_id,
+            db_session,
             _auth_ctx(),
         )
 
@@ -309,9 +310,9 @@ async def test_update_archived_credential_rejects_without_mutating_secret(db_ses
         await update_credential(
             UpdateCredentialRequest(name="Changed MCP", token_value="new-token"),
             _request("POST"),
-            db_session,
             vault.id,
             cred_id,
+            db_session,
             _auth_ctx(),
         )
 
@@ -350,7 +351,7 @@ async def test_delete_credential_rejects_archived_vault_without_soft_deleting_ro
     cred_id = cred.id
 
     with pytest.raises(AppError) as exc_info:
-        await delete_credential(_request("DELETE"), db_session, vault.id, cred_id, _auth_ctx())
+        await delete_credential(_request("DELETE"), vault.id, cred_id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "VAULT_ARCHIVED",
@@ -416,7 +417,7 @@ async def test_resolve_mcp_credentials_ignores_archived_vaults_and_credentials(d
     await db_session.commit()
 
     resolved = await VaultService(db_session).resolve_mcp_credentials(
-        [f"vault_{active_vault.id}", f"vault_{archived_vault.id}"],
+        [active_vault.id, archived_vault.id],
         [
             {"name": "active", "url": "https://active-mcp.example.com", "headers": {}},
             {"name": "archived-credential", "url": "https://archived-credential.example.com", "headers": {}},
@@ -473,7 +474,7 @@ async def test_vault_credentials_keep_encrypted_storage_during_read_archive_and_
 
     await svc.get_credential(cred_id)
     resolved = await svc.resolve_mcp_credentials(
-        [f"vault_{vault_id}"],
+        [vault_id],
         [{"name": "encrypted", "url": "https://encrypted-mcp.example.com", "headers": {}}],
     )
     assert resolved == [
@@ -500,7 +501,7 @@ async def test_get_vault_route_rejects_cross_project_vault(db_session):
     vault = await _project_vault(db_session, project_id="project-b")
 
     with pytest.raises(AppError) as exc_info:
-        await get_vault(db_session, vault.id, _project_auth_ctx("project-a"))
+        await get_vault(vault.id, db_session, _project_auth_ctx("project-a"))
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "VAULT_NOT_FOUND",
@@ -655,17 +656,17 @@ async def test_resolve_mcp_credentials_filters_vaults_by_project_when_provided(d
     await db_session.commit()
 
     unresolved = await VaultService(db_session).resolve_mcp_credentials(
-        [f"vault_{vault_b.id}"],
+        [vault_b.id],
         [{"name": "project-b", "url": "https://project-b-mcp.example.com", "headers": {}}],
         project_id="project-a",
     )
     resolved = await VaultService(db_session).resolve_mcp_credentials(
-        [f"vault_{vault_b.id}"],
+        [vault_b.id],
         [{"name": "project-b", "url": "https://project-b-mcp.example.com", "headers": {}}],
         project_id="project-b",
     )
     empty_project = await VaultService(db_session).resolve_mcp_credentials(
-        [f"vault_{vault_a.id}"],
+        [vault_a.id],
         [{"name": "project-b", "url": "https://project-b-mcp.example.com", "headers": {}}],
         project_id="project-a",
     )

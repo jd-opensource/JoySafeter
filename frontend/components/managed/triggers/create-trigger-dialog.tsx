@@ -44,27 +44,50 @@ import {
   type TriggerType,
   type WebhookAuthMethod,
 } from '@/lib/managed/triggers'
+import {
+  parseAgentId,
+  parseEnvironmentId,
+  parseSessionId,
+  type AgentId,
+  type EnvironmentId,
+  type SessionId,
+} from '@/types/entity-id'
 
 interface AgentOption {
-  id: string
+  id: AgentId
   name: string
   engine_kind?: string | null
   model?: { id?: string } | null
   archived_at?: string | null
 }
 
+function parseAgentOption(value: unknown): AgentOption {
+  const raw = value as Omit<AgentOption, 'id'> & { id: string }
+  return { ...raw, id: parseAgentId(raw.id) }
+}
+
 interface EnvironmentOption {
-  id: string
+  id: EnvironmentId
   name: string
   config?: { type?: string; networking?: { type?: string } } | null
   archived_at?: string | null
 }
 
+function parseEnvironmentOption(value: unknown): EnvironmentOption {
+  const raw = value as Omit<EnvironmentOption, 'id'> & { id: string }
+  return { ...raw, id: parseEnvironmentId(raw.id) }
+}
+
 interface SessionOption {
-  id: string
+  id: SessionId
   title?: string | null
   status?: string | null
   archived_at?: string | null
+}
+
+function parseSessionOption(value: unknown): SessionOption {
+  const raw = value as Omit<SessionOption, 'id'> & { id: string }
+  return { ...raw, id: parseSessionId(raw.id) }
 }
 
 type TriggerKind = TriggerType
@@ -133,7 +156,7 @@ interface TriggerFormState {
   type: TriggerKind
   name: string
   description: string
-  agentId: string
+  agentId: AgentId | ''
   environmentRef: string
   prompt: string
   agentSearch: string
@@ -142,7 +165,7 @@ interface TriggerFormState {
   maxRetries: number
   enabled: boolean
   sessionMode: TriggerSessionMode
-  pinnedSessionId: string
+  pinnedSessionId: SessionId | ''
   sessionKey: string
   scheduleMode: 'repeats' | 'once'
   cron: string
@@ -221,7 +244,7 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
     type: trigger.type,
     name: trigger.name,
     description: trigger.description ?? '',
-    agentId: apiResourceId(trigger.agent_id),
+    agentId: trigger.agent_id,
     environmentRef: trigger.environment_ref ?? '',
     prompt: trigger.prompt_template,
     agentSearch: '',
@@ -230,7 +253,7 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
     maxRetries: trigger.max_retries,
     enabled: trigger.enabled,
     sessionMode: trigger.session_mode || 'fresh',
-    pinnedSessionId: trigger.pinned_session_id ? apiResourceId(trigger.pinned_session_id) : '',
+    pinnedSessionId: trigger.pinned_session_id ?? '',
     sessionKey: trigger.session_key ?? '',
     scheduleMode: trigger.run_at ? 'once' : 'repeats',
     cron: trigger.cron_expr || '0 9 * * *',
@@ -299,9 +322,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const agentsQuery = useQuery({
     queryKey: ['agents', scope.key, 'for-trigger'],
     queryFn: () =>
-      managedGet<AgentOption[] | { data: AgentOption[] }>(
+      managedGet<unknown[] | { data: unknown[] }>(
         '/agents?limit=100',
         managedRequestOptions(scope),
+      ).then((response) =>
+        Array.isArray(response)
+          ? response.map(parseAgentOption)
+          : { ...response, data: response.data.map(parseAgentOption) },
       ),
     enabled: open && hasManagedRequestScope(scope),
   })
@@ -324,9 +351,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const environmentsQuery = useQuery({
     queryKey: ['environments', scope.key, 'for-trigger'],
     queryFn: () =>
-      managedGet<EnvironmentOption[] | { data: EnvironmentOption[] }>(
+      managedGet<unknown[] | { data: unknown[] }>(
         '/environments?limit=100',
         managedRequestOptions(scope),
+      ).then((response) =>
+        Array.isArray(response)
+          ? response.map(parseEnvironmentOption)
+          : { ...response, data: response.data.map(parseEnvironmentOption) },
       ),
     enabled: open && hasManagedRequestScope(scope),
   })
@@ -344,9 +375,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const sessionsQuery = useQuery({
     queryKey: ['agent-sessions', scope.key, agentId, 'for-trigger'],
     queryFn: () =>
-      managedGet<{ data: SessionOption[] } | SessionOption[]>(
+      managedGet<{ data: unknown[] } | unknown[]>(
         `/agents/${agentId}/sessions?limit=100`,
         managedRequestOptions(scope),
+      ).then((response) =>
+        Array.isArray(response)
+          ? response.map(parseSessionOption)
+          : { ...response, data: response.data.map(parseSessionOption) },
       ),
     enabled: open && !!agentId && hasManagedRequestScope(scope),
   })
@@ -424,7 +459,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
       prompt_template: prompt.trim(),
       environment_ref: environmentRef || null,
       session_mode: sessionMode,
-      pinned_session_id: sessionMode === 'pinned' ? pinnedSessionId : null,
+      pinned_session_id: sessionMode === 'pinned' ? parseSessionId(pinnedSessionId) : null,
       session_key: sessionMode === 'keyed' ? sessionKey.trim() : null,
       timeout_sec: timeoutSec,
       max_retries: maxRetries,
@@ -467,7 +502,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
       } else {
         await createMut.mutateAsync({
           type,
-          agent_id: agentId,
+          agent_id: parseAgentId(agentId),
           ...sharedBody,
           ...typeBody,
         })
@@ -544,7 +579,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
               <Select
                 value={agentId}
                 onValueChange={(value) => {
-                  setAgentId(value)
+                  setAgentId(parseAgentId(value))
                   setPinnedSessionId('')
                 }}
                 disabled={isEdit}
@@ -938,7 +973,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                 <Label>{t('managed.triggers.pinnedSessionId')}</Label>
                 <Select
                   value={pinnedSessionId}
-                  onValueChange={setPinnedSessionId}
+                  onValueChange={(value) => setPinnedSessionId(parseSessionId(value))}
                   disabled={!agentId || sessionsQuery.isLoading}
                 >
                   <SelectTrigger>
@@ -946,7 +981,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                   </SelectTrigger>
                   <SelectContent>
                     {sessions.map((session) => (
-                      <SelectItem key={session.id} value={apiResourceId(session.id)}>
+                      <SelectItem key={session.id} value={session.id}>
                         {session.title?.trim() || session.id}
                       </SelectItem>
                     ))}

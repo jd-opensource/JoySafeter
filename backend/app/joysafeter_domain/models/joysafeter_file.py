@@ -6,11 +6,15 @@ from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel, SoftDeleteMixin
-from app.joysafeter_shared.ids import EntityIdType, SessionId
+from app.joysafeter_shared.ids import EntityIdType, FileId, SessionId
 
 
 class JoySafeterFile(JoySafeterBaseModel, SoftDeleteMixin):
     __tablename__ = "joysafeter_files"
+
+    id: Mapped[FileId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(FileId), primary_key=True, default=FileId.new
+    )
 
     project_id: Mapped[str] = mapped_column(
         String(255),

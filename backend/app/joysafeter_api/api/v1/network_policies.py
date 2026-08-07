@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime
 from typing import Any, Optional
 
@@ -17,14 +16,14 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_platform_admin,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import TaskId
+from app.joysafeter_shared.ids import SandboxId, SessionId, TaskId
 
 router = APIRouter(tags=["joysafeter-network-policies"])
 
 
 class NetworkPolicyStatusResponse(BaseModel):
-    sandbox_id: uuid.UUID
-    session_id: Optional[uuid.UUID] = None
+    sandbox_id: SandboxId
+    session_id: Optional[SessionId] = None
     task_id: Optional[TaskId] = None
     project_id: Optional[str] = None
     session_title: Optional[str] = None
@@ -170,7 +169,7 @@ async def list_network_policy_diagnostics(
 
 @router.get("/sessions/{session_id}")
 async def get_session_network_policy_status(
-    session_id: uuid.UUID,
+    session_id: SessionId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> Optional[NetworkPolicyStatusResponse]:

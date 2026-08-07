@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -12,6 +11,7 @@ from app.joysafeter_domain.models.joysafeter_task import (
     JoySafeterTaskStatus,
 )
 from app.joysafeter_shared.config.settings import joysafeter_config
+from app.joysafeter_shared.ids import SandboxId, TaskId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 TERMINAL_VALUES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
@@ -34,7 +34,7 @@ class JoySafeterTaskStateMachine:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def claim_for_scheduling(self, task_id: uuid.UUID) -> bool:
+    async def claim_for_scheduling(self, task_id: TaskId) -> bool:
         result = await self.db.execute(
             sa_update(JoySafeterTask)
             .where(
@@ -48,7 +48,7 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def claim_pending_batch(self, limit: int) -> list[uuid.UUID]:
+    async def claim_pending_batch(self, limit: int) -> list[TaskId]:
         if limit <= 0:
             return []
 
@@ -69,7 +69,7 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return list(result.scalars().all())
 
-    async def cancel(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
+    async def cancel(self, task_id: TaskId) -> Optional[JoySafeterTask]:
         now = utc_now()
         duration_ms = await self._duration_ms_for_task(task_id, now)
         result = await self.db.execute(
@@ -102,9 +102,9 @@ class JoySafeterTaskStateMachine:
 
     async def cancel_if_owner_matches(
         self,
-        task_id: uuid.UUID,
+        task_id: TaskId,
         *,
-        expected_sandbox_id: Optional[uuid.UUID],
+        expected_sandbox_id: Optional[SandboxId],
         expected_owner_epoch: Optional[int],
     ) -> Optional[JoySafeterTask]:
         now = utc_now()
@@ -141,7 +141,7 @@ class JoySafeterTaskStateMachine:
 
     async def transition_to(
         self,
-        task_id: uuid.UUID,
+        task_id: TaskId,
         new_status: JoySafeterTaskStatus,
         expected_epoch: Optional[int] = None,
     ) -> bool:
@@ -187,7 +187,7 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[tuple[uuid.UUID, int]]:
+    async def claim_next_sandbox_task_for_running(self, sandbox_id: SandboxId) -> Optional[tuple[TaskId, int]]:
         now = utc_now()
         next_task = (
             select(JoySafeterTask.id)
@@ -220,7 +220,7 @@ class JoySafeterTaskStateMachine:
 
     async def fail_with_error(
         self,
-        task_id: uuid.UUID,
+        task_id: TaskId,
         error: str,
         new_status: JoySafeterTaskStatus,
         expected_epoch: Optional[int] = None,
@@ -241,7 +241,7 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def retry(self, task_id: uuid.UUID, expected_epoch: Optional[int] = None) -> bool:
+    async def retry(self, task_id: TaskId, expected_epoch: Optional[int] = None) -> bool:
         conditions = [
             JoySafeterTask.id == task_id,
             JoySafeterTask.status.notin_(TERMINAL_VALUES),
@@ -265,7 +265,7 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def attach_sandbox_if_scheduling(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> bool:
+    async def attach_sandbox_if_scheduling(self, task_id: TaskId, sandbox_id: SandboxId) -> bool:
         result = await self.db.execute(
             sa_update(JoySafeterTask)
             .where(
@@ -301,7 +301,7 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount
 
-    async def find_lease_expired_running(self) -> list[uuid.UUID]:
+    async def find_lease_expired_running(self) -> list[TaskId]:
         """Running tasks whose lease has lapsed — their owner is presumed dead.
 
         These are reclaimed by the watchdog in seconds instead of waiting for
@@ -320,7 +320,7 @@ class JoySafeterTaskStateMachine:
         return list(result.scalars().all())
 
     @staticmethod
-    def _owned_and_active(task_id: uuid.UUID, expected_epoch: Optional[int]) -> Any:
+    def _owned_and_active(task_id: TaskId, expected_epoch: Optional[int]) -> Any:
         """WHERE clause for a mutating write on a live task.
 
         Always guards on "not already terminal" (the pre-fencing invariant).
@@ -338,7 +338,7 @@ class JoySafeterTaskStateMachine:
             conditions.append(JoySafeterTask.owner_epoch == expected_epoch)
         return and_(*conditions)
 
-    async def update_output(self, task_id: uuid.UUID, output: str, expected_epoch: Optional[int] = None) -> bool:
+    async def update_output(self, task_id: TaskId, output: str, expected_epoch: Optional[int] = None) -> bool:
         """Epoch-fenced write of the full task output."""
         result = await self.db.execute(
             sa_update(JoySafeterTask).where(self._owned_and_active(task_id, expected_epoch)).values(output=output)
@@ -346,7 +346,7 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def update_usage(self, task_id: uuid.UUID, usage: dict, expected_epoch: Optional[int] = None) -> bool:
+    async def update_usage(self, task_id: TaskId, usage: dict, expected_epoch: Optional[int] = None) -> bool:
         """Epoch-fenced write of the task usage record."""
         result = await self.db.execute(
             sa_update(JoySafeterTask).where(self._owned_and_active(task_id, expected_epoch)).values(usage=usage)
@@ -354,13 +354,13 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def _get_task(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
+    async def _get_task(self, task_id: TaskId) -> Optional[JoySafeterTask]:
         result = await self.db.execute(
             select(JoySafeterTask).where(JoySafeterTask.id == task_id).execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 
-    async def _duration_ms_for_task(self, task_id: uuid.UUID, completed_at: datetime) -> Optional[int]:
+    async def _duration_ms_for_task(self, task_id: TaskId, completed_at: datetime) -> Optional[int]:
         started_at = (
             await self.db.execute(select(JoySafeterTask.started_at).where(JoySafeterTask.id == task_id))
         ).scalar_one_or_none()

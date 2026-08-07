@@ -1,15 +1,14 @@
 """JoySafeter sandbox model."""
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
-from app.joysafeter_shared.ids import EntityIdType, SessionId
+from app.joysafeter_shared.ids import EntityIdType, SandboxId, SessionId, TaskId
 
 
 class JoySafeterSandbox(JoySafeterBaseModel):
@@ -42,6 +41,9 @@ class JoySafeterSandbox(JoySafeterBaseModel):
         Index("idx_csb_destroyed", "destroyed_at"),
     )
 
+    id: Mapped[SandboxId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SandboxId), primary_key=True, default=SandboxId.new
+    )
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         ForeignKey("joysafeter_organization_projects.id"),
@@ -54,7 +56,7 @@ class JoySafeterSandbox(JoySafeterBaseModel):
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     chat_session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
     image: Mapped[str] = mapped_column(Text, nullable=False)
-    last_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_task_id: Mapped[Optional[TaskId]] = mapped_column(EntityIdType(TaskId), nullable=True)
     last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Set when the runner reports RunnerIdle (sandbox is precisely "all done",
     # including any background sub-agents — cc holds back result until they

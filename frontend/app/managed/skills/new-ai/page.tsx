@@ -58,11 +58,16 @@ import {
   type SkillDraftFile,
 } from '@/hooks/managed/use-skill-authoring'
 import { useQuery } from '@tanstack/react-query'
-import { FileTreeNode, buildFileTree } from '@/components/managed/skills/skill-workspace'
+import {
+  FileTreeNode,
+  buildFileTree,
+  type SkillWorkspaceFile,
+} from '@/components/managed/skills/skill-workspace'
 import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
 import { downloadDraftZip } from '@/lib/managed/skill-draft-zip'
 import { severityLabelKey } from '@/lib/managed/skill-severity'
-import type { SkillFileRecord } from '@/types/managed'
+import type { Secret } from '@/types/managed'
+import { parseSecretListResponse } from '@/lib/managed/secret-response-parsers'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -73,8 +78,7 @@ import {
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
 
-type SecretRecord = { id: string; name: string; is_default?: boolean }
-type SecretsResponse = { data?: SecretRecord[] } | SecretRecord[]
+type SecretsResponse = { data?: unknown[] } | unknown[]
 
 // Sentinel ids used by the tab bar. Preview / Editor / Metadata are pinned
 // pseudo-files; everything else is keyed by its draft path.
@@ -88,23 +92,16 @@ const TAB_METADATA = '__metadata__'
 // ``{path, content}`` pairs. We synthesize the missing fields so the shared
 // tree builder Just Works — the id is the draft path itself so callbacks
 // round-trip cleanly.
-function adaptDraftFiles(files: SkillDraftFile[]): SkillFileRecord[] {
+function adaptDraftFiles(files: SkillDraftFile[]): SkillWorkspaceFile[] {
   return files.map((f, idx) => {
     const slashIdx = f.path.lastIndexOf('/')
     const dir = slashIdx >= 0 ? f.path.slice(0, slashIdx + 1) : ''
     const name = slashIdx >= 0 ? f.path.slice(slashIdx + 1) : f.path
     return {
       id: f.path || `__draft_${idx}__`,
-      skill_id: '',
       path: dir,
       file_name: name,
-      file_type: inferFileType(name),
-      content: f.content,
-      storage_type: 'database' as const,
-      storage_key: null,
       size: f.content?.length || 0,
-      created_at: '',
-      updated_at: '',
     }
   })
 }
@@ -170,9 +167,9 @@ export default function SkillAiAuthoringPage() {
     queryFn: () => managedGet<SecretsResponse>('/secrets', managedRequestOptions(managedScope)),
     enabled: hasManagedRequestScope(managedScope),
   })
-  const secrets = useMemo<SecretRecord[]>(() => {
+  const secrets = useMemo<Secret[]>(() => {
     if (!secretsRes) return []
-    return Array.isArray(secretsRes) ? secretsRes : secretsRes.data || []
+    return parseSecretListResponse(Array.isArray(secretsRes) ? secretsRes : secretsRes.data || [])
   }, [secretsRes])
 
   const effectiveSecretRef = useMemo(() => {
