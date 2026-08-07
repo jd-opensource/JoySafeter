@@ -720,6 +720,19 @@ async def archive_agent(
     }
 
 
+@router.post("/{agent_id}/unarchive", status_code=200)
+async def unarchive_agent(
+    agent_id: AgentId,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> dict:
+    svc = AgentService(db)
+    restored = await svc.restore_agent(agent_id, project_id=auth_ctx.project_id)
+    if not restored:
+        raise _agent_not_found_error(agent_id)
+    return {"status": "active"}
+
+
 @router.get("/{agent_id}/tasks")
 async def list_agent_tasks(
     agent_id: AgentId,
