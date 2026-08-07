@@ -184,7 +184,6 @@ Append to `backend/tests/test_agent_restore.py`:
 
 ```python
 from app.joysafeter_api.api.v1.agents import unarchive_agent
-from app.joysafeter_domain.schemas.joysafeter_agent import JoySafeterUpdateAgentRequest
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
@@ -225,24 +224,6 @@ async def test_unarchive_clears_archived_at_and_rearms_triggers(db_session):
 
 
 @pytest.mark.asyncio
-async def test_unarchive_makes_agent_editable_again(db_session):
-    project, agent = await _project_and_agent(db_session, name="RestoreEditable")
-    svc = JoySafeterAgentService(db_session)
-    await svc.archive_agent_with_sessions(agent.id, project_id=project.id)
-
-    await unarchive_agent(agent.id, db_session, _write_ctx(project.id, project.org_id))
-
-    # Update no longer rejected: service update succeeds after restore.
-    updated = await svc.update_agent(
-        agent.id,
-        JoySafeterUpdateAgentRequest(description="edited after restore"),
-        project_id=project.id,
-    )
-    assert updated is not None
-    assert updated.description == "edited after restore"
-
-
-@pytest.mark.asyncio
 async def test_unarchive_is_idempotent_on_active_agent(db_session):
     project, agent = await _project_and_agent(db_session, name="RestoreIdempotent")
 
@@ -263,10 +244,6 @@ async def test_unarchive_missing_agent_raises_404(db_session):
 
     assert exc_info.value.code == "AGENT_NOT_FOUND"
 ```
-
-Before running, confirm the exact update-request schema class name and `update_agent` signature — verify with:
-`cd backend && grep -n "class JoySafeterUpdateAgentRequest\|async def update_agent" app/joysafeter_domain/schemas/joysafeter_agent.py app/joysafeter_domain/services/joysafeter_agent_service.py`
-If the names differ, adjust the import and the `update_agent` call in `test_unarchive_makes_agent_editable_again` accordingly. (This is the only test coupling to the update API; the rest use archive/unarchive only.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
