@@ -45,6 +45,35 @@ pub(crate) fn push_bounded(buf: &mut String, chunk: &str, max: usize) {
     }
 }
 
+use joysafeter_types::harness::HarnessResultStatus;
+
+/// Decides the terminal status + error for a settled pi turn. A turn that
+/// settles with NO assistant text AND zero model usage is treated as a failure
+/// (the "发起会话无响应" case) rather than a silent Completed. Gated on both
+/// conditions to avoid flagging a legitimately terse turn.
+pub(crate) fn finalize_pi_turn(
+    aborted: bool,
+    output_is_empty: bool,
+    usage_is_zero: bool,
+    stderr_tail: &str,
+) -> (HarnessResultStatus, Option<String>) {
+    if aborted {
+        return (HarnessResultStatus::Aborted, None);
+    }
+    if output_is_empty && usage_is_zero {
+        let mut msg =
+            "pi produced no output and no model usage (likely a failed or empty model call)"
+                .to_string();
+        let tail = stderr_tail.trim();
+        if !tail.is_empty() {
+            msg.push_str("; stderr: ");
+            msg.push_str(tail);
+        }
+        return (HarnessResultStatus::Failed, Some(msg));
+    }
+    (HarnessResultStatus::Completed, None)
+}
+
 pub struct PiAdapter {
     session: Arc<Mutex<Option<PersistentPi>>>,
 }
@@ -55,7 +84,6 @@ struct PersistentPi {
     reader_handle: tokio::task::JoinHandle<()>,
     current_turn: Arc<Mutex<Option<TurnState>>>,
     child: tokio::process::Child,
-    #[allow(dead_code)]
     stderr_tail: Arc<std::sync::Mutex<String>>,
 }
 
@@ -124,6 +152,7 @@ impl HarnessAdapter for PiAdapter {
         let current_turn = session.current_turn.clone();
         let session_id = input.session_id.clone();
         let shared_stdin_for_harness = session.stdin.clone();
+        let stderr_tail_for_result = session.stderr_tail.clone();
         drop(guard);
 
         tokio::spawn(async move {
@@ -134,15 +163,20 @@ impl HarnessAdapter for PiAdapter {
                 let mut ct = current_turn.lock().await;
                 *ct = None;
             }
-            let status = if aborted {
-                joysafeter_types::harness::HarnessResultStatus::Aborted
-            } else {
-                joysafeter_types::harness::HarnessResultStatus::Completed
-            };
+            let usage_is_zero = final_usage.input_tokens == 0
+                && final_usage.output_tokens == 0
+                && final_usage.cache_read_tokens == 0
+                && final_usage.cache_write_tokens == 0;
+            let tail = stderr_tail_for_result
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let (status, error) =
+                finalize_pi_turn(aborted, final_output.trim().is_empty(), usage_is_zero, &tail);
             let _ = result_tx.send(joysafeter_types::harness::HarnessResult {
                 status,
                 output: final_output,
-                error: None,
+                error,
                 session_id,
                 usage: final_usage,
                 duration: start.elapsed(),
@@ -554,10 +588,39 @@ impl PiAdapter {
 mod tests {
     use super::*;
     use joysafeter_types::harness::HarnessEvent;
+    // `HarnessResultStatus` is brought in via `super::*` (imported at module scope).
 
     fn map(v: serde_json::Value) -> PiMapped {
         let mut m = HashMap::new();
         map_pi_event(&v, &mut m)
+    }
+
+    #[test]
+    fn finalize_flags_empty_zero_usage_turn_as_failed() {
+        let (status, err) = super::finalize_pi_turn(false, true, true, "boom: model not found");
+        assert_eq!(status, HarnessResultStatus::Failed);
+        let err = err.expect("error populated");
+        assert!(err.contains("no output"), "msg: {err}");
+        assert!(err.contains("boom: model not found"), "should include stderr tail: {err}");
+    }
+
+    #[test]
+    fn finalize_keeps_normal_turn_completed() {
+        let (status, err) = super::finalize_pi_turn(false, false, false, "");
+        assert_eq!(status, HarnessResultStatus::Completed);
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn finalize_partial_usage_is_not_failure() {
+        // Text present but zero usage, or usage present with empty text: not a failure.
+        assert_eq!(super::finalize_pi_turn(false, false, true, "").0, HarnessResultStatus::Completed);
+        assert_eq!(super::finalize_pi_turn(false, true, false, "").0, HarnessResultStatus::Completed);
+    }
+
+    #[test]
+    fn finalize_aborted_stays_aborted() {
+        assert_eq!(super::finalize_pi_turn(true, true, true, "x").0, HarnessResultStatus::Aborted);
     }
 
     #[test]
