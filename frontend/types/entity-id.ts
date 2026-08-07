@@ -67,7 +67,7 @@ export type AnyEntityId = {
 const ENTITY_ID_PATTERNS: Record<EntityKind, RegExp> = Object.fromEntries(
   Object.entries(ENTITY_ID_PREFIXES).map(([kind, prefix]) => [
     kind,
-    new RegExp(`^${prefix}${UUID_PATTERN}$`, 'i'),
+    new RegExp(`^${prefix}${UUID_PATTERN}$`),
   ]),
 ) as Record<EntityKind, RegExp>
 

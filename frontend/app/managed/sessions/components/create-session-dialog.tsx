@@ -52,7 +52,13 @@ import {
 } from '@/lib/managed/request-scope'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
-import { parseSessionId, type FileId, type MemoryStoreId, type SessionId, type VaultId } from '@/types/entity-id'
+import {
+  parseSessionId,
+  type FileId,
+  type MemoryStoreId,
+  type SessionId,
+  type VaultId,
+} from '@/types/entity-id'
 import { parseAgentListResponse } from '@/lib/managed/agent-response-parsers'
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import { parseVaultListResponse } from '@/lib/managed/vault-response-parsers'
@@ -403,11 +409,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const currentActiveEnvs = currentEnvironments.filter((environment) => !environment.archived_at)
     const currentActiveVaults = currentVaults.filter((vault) => !vault.archived_at)
     const currentActiveMemoryStores = currentMemoryStores.filter((store) => !store.archived_at)
-    const currentAgentId =
-      agentId && currentActiveAgents.some((agent) => agent.id === agentId) ? agentId : ''
+    const currentAgentId = currentActiveAgents.find((agent) => agent.id === agentId)?.id
     if (!currentAgentId) return null
-    const currentEnvId =
-      envId && currentActiveEnvs.some((environment) => environment.id === envId) ? envId : ''
+    const currentEnvId = currentActiveEnvs.find((environment) => environment.id === envId)?.id
     const currentVaultIds = new Set(currentActiveVaults.map((vault) => vault.id))
     const currentSelectedVaultIds = selectedVaultIds.filter((id) => currentVaultIds.has(id))
     const currentFileIds = new Set(currentFiles.map((file) => file.id))

@@ -452,9 +452,9 @@ export function useQuickstartChat(
       const lifecycleRunAtStart = lifecycleRunRef.current
       setIsCreating(true)
       try {
-        const body: Record<string, unknown> = { agent: apiResourceId(agentId) }
-        if (envId) body.environment_id = apiResourceId(envId)
-        if (vaultId) body.vault_ids = [apiResourceId(vaultId)]
+        const body: Record<string, unknown> = { agent: apiResourceId(parseAgentId(agentId)) }
+        if (envId) body.environment_id = apiResourceId(parseEnvironmentId(envId))
+        if (vaultId) body.vault_ids = [apiResourceId(parseVaultId(vaultId))]
 
         const result = await managedPost(
           'sessions',

@@ -18,8 +18,8 @@ function cleanSegment(segment: string | number): string {
   return encodeURIComponent(String(segment).replace(/^\/+|\/+$/g, ''))
 }
 
-export function apiResourceId(id: string | null | undefined): AnyEntityId {
-  return parseAnyEntityId(id ?? '')
+export function apiResourceId(id: AnyEntityId): AnyEntityId {
+  return parseAnyEntityId(id)
 }
 
 export function apiCollectionPath(resource: string, query?: Record<string, QueryValue>): string {
@@ -28,7 +28,7 @@ export function apiCollectionPath(resource: string, query?: Record<string, Query
 
 export function apiResourcePath(
   resource: string,
-  id: string | null | undefined,
+  id: AnyEntityId,
   ...segments: Array<string | number>
 ): string {
   const pathSegments = [
@@ -41,7 +41,7 @@ export function apiResourcePath(
 
 export function apiResourceSubpath(
   resource: string,
-  id: string | null | undefined,
+  id: AnyEntityId,
   segments: Array<string | number>,
   query?: Record<string, QueryValue>,
 ): string {

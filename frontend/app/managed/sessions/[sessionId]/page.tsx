@@ -39,7 +39,7 @@ import {
   managedPatch,
   managedPost,
 } from '@/lib/api-client'
-import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { shortEntityId } from '@/lib/managed/id'
 import { generateUUID } from '@/lib/utils/uuid'
@@ -320,7 +320,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     queryKey: ['session-network-policy', sessionScope],
     queryFn: () =>
       managedGet<NetworkPolicyStatus | null>(
-        apiResourceSubpath('network-policies', 'sessions', [apiResourceId(id)]),
+        `/network-policies/sessions/${encodeURIComponent(id)}`,
         managedRequestOptions(managedScope),
       ),
     enabled: !!id && hasManagedRequestScope(managedScope),
@@ -1479,17 +1479,16 @@ function AgentDrawer({
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [versionDropdownOpen, setVersionDropdownOpen] = useState(false)
 
-  const agentId = agent?.id || session.agent?.id
-  const rawAgentId = agentId ? apiResourceId(agentId) : null
+  const agentId = agent?.id || session.agent?.id || null
 
   const { data: versionsData } = useQuery({
-    queryKey: ['agent-versions', queryScope, rawAgentId],
+    queryKey: ['agent-versions', queryScope, agentId],
     queryFn: () =>
       managedGet<{ data: AgentVersionEntry[] }>(
-        apiResourcePath('agents', rawAgentId, 'versions'),
+        apiResourcePath('agents', agentId!, 'versions'),
         managedRequestOptions(requestScope),
       ),
-    enabled: !!rawAgentId && hasManagedRequestScope(requestScope),
+    enabled: !!agentId && hasManagedRequestScope(requestScope),
   })
 
   const rawVersions = versionsData?.data || []

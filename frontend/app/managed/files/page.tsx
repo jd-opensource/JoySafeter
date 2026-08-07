@@ -6,6 +6,7 @@ import { Upload, Trash2 } from 'lucide-react'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { FileRecord } from '@/types/managed'
+import { parseFileId } from '@/types/entity-id'
 import { managedUpload, managedDelete } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { parseFileResponse } from '@/lib/managed/file-response-parsers'
@@ -72,6 +73,7 @@ export default function FileListPage() {
     queryKey: 'files',
     path: '/files',
     parseItem: parseFileResponse,
+    parseCursor: parseFileId,
   })
 
   const files = data.filter(

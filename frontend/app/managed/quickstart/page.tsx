@@ -55,6 +55,7 @@ import type {
   Agent,
   Environment,
   PaginatedResponse,
+  QuickstartTaskSummary,
   Session,
   SessionEvent,
   Vault,
@@ -63,6 +64,8 @@ import { EventList, EventDetail, EventFilter } from '@/components/managed/sessio
 import yaml from 'js-yaml'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
+  parseAgentId,
+  parseEnvironmentId,
   parseSessionId,
   tryParseAgentId,
   tryParseEnvironmentId,
@@ -73,6 +76,11 @@ import {
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import { parseVaultListResponse } from '@/lib/managed/vault-response-parsers'
 import { quickstartQueryOptions } from '@/lib/managed/quickstart-query-options'
+import { parseQuickstartTaskPage } from '@/lib/managed/quickstart-task-response-parsers'
+import {
+  deriveQuickstartTrialStatus,
+  type QuickstartTrialStatus,
+} from '@/lib/managed/quickstart-trial-status'
 import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import {
   currentProjectAllowsWrite,
@@ -667,10 +675,14 @@ function TrialRunBanner({
   status,
   onGoBack,
   onContinue,
+  onRetry,
+  onViewSession,
 }: {
-  status: 'idle' | 'testing' | 'success' | 'error'
+  status: QuickstartTrialStatus
   onGoBack: () => void
   onContinue: () => void
+  onRetry: () => void
+  onViewSession: () => void
 }) {
   const { t } = useTranslation()
   if (status === 'idle') return null
@@ -682,6 +694,7 @@ function TrialRunBanner({
         status === 'testing' && 'bg-blue-50 dark:bg-blue-950/20',
         status === 'success' && 'bg-green-50 dark:bg-green-950/20',
         status === 'error' && 'bg-amber-50 dark:bg-amber-950/20',
+        status === 'runtime_unavailable' && 'bg-red-50 dark:bg-red-950/20',
       )}
     >
       {status === 'testing' && (
@@ -712,6 +725,22 @@ function TrialRunBanner({
             </Button>
             <Button variant="ghost" size="sm" className="text-xs" onClick={onContinue}>
               {t('managed.quickstart.trialRun.continue')}
+            </Button>
+          </div>
+        </>
+      )}
+      {status === 'runtime_unavailable' && (
+        <>
+          <AlertTriangle className="h-4 w-4 text-red-500" />
+          <span className="text-red-700 dark:text-red-400">
+            {t('managed.quickstart.trialRun.runtimeUnavailable')}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" size="sm" className="text-xs" onClick={onRetry}>
+              {t('managed.quickstart.trialRun.checkAgain')}
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs" onClick={onViewSession}>
+              {t('managed.quickstart.trialRun.viewSession')}
             </Button>
           </div>
         </>
@@ -927,12 +956,46 @@ export default function QuickstartPage() {
     sessionId,
     isSessionActive && hasManagedRequestScope(managedScope),
   )
+  const hasTrialUserMessage = useMemo(
+    () => sessionEvents.some((event) => event.type === 'user.message'),
+    [sessionEvents],
+  )
+
+  const { data: trialTasksResponse, refetch: refetchTrialTasks } = useQuery<
+    PaginatedResponse<QuickstartTaskSummary>
+  >({
+    queryKey: ['quickstart-trial-tasks', managedScope.key, sessionId] as const,
+    queryFn: () => {
+      if (!sessionId) {
+        return Promise.resolve({ data: [] })
+      }
+      return managedGet<unknown>(
+        `/tasks?session_id=${encodeURIComponent(apiResourceId(sessionId))}&limit=1`,
+        managedRequestOptions(managedScope),
+      ).then(parseQuickstartTaskPage)
+    },
+    enabled: isSessionActive && hasTrialUserMessage && hasManagedRequestScope(managedScope),
+    refetchOnMount: 'always',
+    refetchInterval: (query) => {
+      const status = query.state.data?.data?.[0]?.status
+      return status === 'pending' || status === 'scheduling' || status === 'running' ? 3000 : false
+    },
+  })
+  const trialTask = trialTasksResponse?.data?.[0] || null
+  const [trialStatusNowMs, setTrialStatusNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!trialTask || (trialTask.status !== 'pending' && trialTask.status !== 'scheduling')) return
+    setTrialStatusNowMs(Date.now())
+    const interval = window.setInterval(() => setTrialStatusNowMs(Date.now()), 1000)
+    return () => window.clearInterval(interval)
+  }, [trialTask])
 
   const { data: activeSession } = useQuery({
     queryKey: ['session', managedScope.key, rawSessionId],
     queryFn: () =>
       managedGet<unknown>(
-        apiResourcePath('sessions', rawSessionId || sessionId),
+        apiResourcePath('sessions', sessionId!),
         managedRequestOptions(managedScope),
       ).then(parseSessionResponse),
     enabled: isSessionActive && hasManagedRequestScope(managedScope),
@@ -1327,7 +1390,9 @@ export default function QuickstartPage() {
           {
             id: quickstartEnvId,
             name:
-              envAnswers.choiceLabel || generatedName || shortEntityId(quickstartEnvId, 'environment'),
+              envAnswers.choiceLabel ||
+              generatedName ||
+              shortEntityId(quickstartEnvId, 'environment'),
             created_at: '',
             updated_at: '',
             archived_at: null,
@@ -1348,16 +1413,13 @@ export default function QuickstartPage() {
 
   // Trial run status derived from session events
   const trialRunStatus = useMemo(() => {
-    if (!isSessionActive || sessionEvents.length === 0) return 'idle' as const
-    const hasUserMessage = sessionEvents.some((e) => e.type === 'user.message')
-    if (!hasUserMessage) return 'idle' as const
-    const hasAgentMessage = sessionEvents.some((e) => e.type === 'agent.message')
-    const isTerminated = sessionEvents.some((e) => e.type === 'session.status_terminated')
-    const isIdle = sessionEvents.some((e) => e.type === 'session.status_idle')
-    if (isTerminated) return 'error' as const
-    if (hasAgentMessage && isIdle) return 'success' as const
-    return 'testing' as const
-  }, [isSessionActive, sessionEvents])
+    return deriveQuickstartTrialStatus({
+      isSessionActive,
+      events: sessionEvents,
+      task: trialTask,
+      nowMs: trialStatusNowMs,
+    })
+  }, [isSessionActive, sessionEvents, trialStatusNowMs, trialTask])
 
   const handleTestRun = async () => {
     const agentId = resourceIds[3]
@@ -1366,7 +1428,7 @@ export default function QuickstartPage() {
     const { runId, scope } = nextPageAction()
     setIsTestRunning(true)
     try {
-      const body: Record<string, unknown> = { agent: apiResourceId(agentId) }
+      const body: Record<string, unknown> = { agent: apiResourceId(parseAgentId(agentId)) }
       const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
         'environments-active',
         requestScope.key,
@@ -1383,7 +1445,9 @@ export default function QuickstartPage() {
       const selectedEnvCanBeSubmitted =
         !!currentSelectedEnv || selectedEnvIsCurrentQuickstartResource
       if (selectedEnvId && selectedEnvCanBeSubmitted) {
-        body.environment_id = apiResourceId(currentSelectedEnv?.id || selectedEnvId)
+        body.environment_id = apiResourceId(
+          currentSelectedEnv?.id || parseEnvironmentId(selectedEnvId),
+        )
       }
       const res = await managedPost<{ id: string }>(
         '/sessions',
@@ -1705,13 +1769,7 @@ export default function QuickstartPage() {
                     ]}
                     onSelect={(num) =>
                       handleQuickstartEngineSelect(
-                        num === 2
-                          ? 'codex'
-                          : num === 3
-                            ? 'native'
-                            : num === 4
-                              ? 'pi'
-                              : 'claude',
+                        num === 2 ? 'codex' : num === 3 ? 'native' : num === 4 ? 'pi' : 'claude',
                       )
                     }
                   />
@@ -2335,6 +2393,8 @@ export default function QuickstartPage() {
                         status={trialRunStatus}
                         onGoBack={() => goToStep(1 as StepId)}
                         onContinue={advanceStep}
+                        onRetry={() => void refetchTrialTasks()}
+                        onViewSession={() => router.push(`/managed/sessions/${sessionId}`)}
                       />
                       <div className="flex items-center gap-3 border-b border-border px-4 py-2">
                         <button

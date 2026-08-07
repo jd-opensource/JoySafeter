@@ -1370,6 +1370,10 @@ const en = {
           testing: 'Testing agent...',
           success: 'Agent is working correctly!',
           error: 'Issues detected -- agent may need adjustments',
+          runtimeUnavailable:
+            'The runtime scheduler is not ready and the task is still waiting. Check the local orchestrator.',
+          checkAgain: 'Check again',
+          viewSession: 'View session',
           goBack: 'Go Back to Fix',
           continue: 'Continue',
           defaultPrompt:

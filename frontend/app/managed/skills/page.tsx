@@ -87,7 +87,12 @@ import {
 } from '@/hooks/managed/use-current-project-read-only'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import {
+  apiCollectionPath,
+  apiResourceId,
+  apiResourcePath,
+  apiResourceSubpath,
+} from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import {
@@ -116,7 +121,7 @@ import {
   parseSkillVersionResponse,
 } from '@/lib/managed/skill-response-parsers'
 import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
-import type { SkillFileId, SkillId } from '@/types/entity-id'
+import { parseSkillId, type SkillFileId, type SkillId } from '@/types/entity-id'
 import type {
   SkillRecord,
   SkillFileRecord,
@@ -1971,6 +1976,7 @@ export function SkillManagerPageContent({
     queryKey: 'skills',
     path: '/skills',
     parseItem: parseSkillResponse,
+    parseCursor: parseSkillId,
   })
 
   const {
@@ -2078,7 +2084,7 @@ export function SkillManagerPageContent({
     queryKey: ['skill-usage-search', managedScope.key, currentTargetHash],
     queryFn: async () => {
       const res = await managedGet<unknown>(
-        apiResourceSubpath('skills', 'usage', ['search'], {
+        apiCollectionPath('skills/usage/search', {
           limit: 5,
           target_hash: currentTargetHash,
         }),

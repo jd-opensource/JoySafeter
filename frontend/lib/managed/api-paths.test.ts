@@ -52,5 +52,8 @@ describe('managed API path helpers', () => {
         limit: 100,
       }),
     ).toBe(`/vaults/vault_${UUID}/credentials/cred_${UUID}?limit=100`)
+    expect(apiCollectionPath('skills/usage/search', { limit: 5, target_hash: 'sha256:abc' })).toBe(
+      '/skills/usage/search?limit=5&target_hash=sha256%3Aabc',
+    )
   })
 })

@@ -7,6 +7,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import type { Vault } from '@/types/managed'
+import { parseVaultId } from '@/types/entity-id'
 import { managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
@@ -117,6 +118,7 @@ export default function VaultListPage() {
     path: '/vaults',
     includeArchived: showArchived,
     parseItem: parseVaultResponse,
+    parseCursor: parseVaultId,
   })
 
   const archiveMutation = useMutation({

@@ -23,7 +23,7 @@ import type {
   Secret,
   StorageVolumeCatalogItem,
 } from '@/types/managed'
-import { parseEnvironmentId, type EnvironmentId } from '@/types/entity-id'
+import { parseEnvironmentId, parseSecretId, type EnvironmentId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -133,6 +133,7 @@ export default function EnvironmentDetailPage({ params }: { params: Promise<{ en
     path: '/secrets',
     limit: 50,
     parseItem: parseSecretResponse,
+    parseCursor: parseSecretId,
   })
   const { data: storageCatalog } = useQuery({
     queryKey: ['storage-mount-catalog', managedScope.key],

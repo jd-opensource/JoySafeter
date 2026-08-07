@@ -18,7 +18,21 @@ function rawEnvironment() {
 
 describe('environment response parsers', () => {
   it('brands canonical environment ids at the API boundary', () => {
-    expect(parseEnvironmentResponse(rawEnvironment()).id).toBe(`env_${UUID}`)
+    const environment = parseEnvironmentResponse({
+      ...rawEnvironment(),
+      config: {
+        storage_volumes: [
+          {
+            name: 'datasets',
+            volume_id: `vol_${UUID}`,
+            mount_path: '/mnt/datasets',
+          },
+        ],
+      },
+    })
+
+    expect(environment.id).toBe(`env_${UUID}`)
+    expect(environment.config?.storage_volumes?.[0].volume_id).toBe(`vol_${UUID}`)
     expect(parseEnvironmentListResponse([rawEnvironment()])[0].id).toBe(`env_${UUID}`)
   })
 
@@ -26,4 +40,18 @@ describe('environment response parsers', () => {
     expect(() => parseEnvironmentResponse({ ...rawEnvironment(), id: UUID })).toThrow()
     expect(() => parseEnvironmentResponse({ ...rawEnvironment(), id: `agent_${UUID}` })).toThrow()
   })
+
+  it.each([UUID, `staudit_${UUID}`])(
+    'rejects invalid persisted environment storage volume id %s',
+    (volumeId) => {
+      expect(() =>
+        parseEnvironmentResponse({
+          ...rawEnvironment(),
+          config: {
+            storage_volumes: [{ volume_id: volumeId }],
+          },
+        }),
+      ).toThrow(TypeError)
+    },
+  )
 })

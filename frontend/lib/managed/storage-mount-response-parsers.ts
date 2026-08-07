@@ -79,9 +79,7 @@ export function parseStorageVolumeResponse(response: unknown): StorageVolume {
     ...raw,
     id: parseStorageVolumeId(raw.id),
     grants: raw.grants?.map(parseStorageProjectGrantResponse),
-    organization_grants: raw.organization_grants?.map(
-      parseStorageOrganizationGrantResponse,
-    ),
+    organization_grants: raw.organization_grants?.map(parseStorageOrganizationGrantResponse),
   }
 }
 

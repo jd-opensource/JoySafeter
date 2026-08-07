@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { SessionEvent } from '@/types/managed'
+import { entityIdUuid } from '@/lib/managed/id'
 
 interface EventTimelineProps {
   events: SessionEvent[]
@@ -16,7 +17,7 @@ function parseEventTime(event: SessionEvent, fallback: string): number {
     if (!isNaN(d)) return d
   }
   // Extract timestamp from UUIDv7 id (first 12 hex chars = 48-bit ms timestamp)
-  const raw = (event.id || '').replace(/^evt_/, '').replace(/-/g, '')
+  const raw = event.id ? entityIdUuid(event.id, 'event').replace(/-/g, '') : ''
   if (raw.length >= 12) {
     const ts = parseInt(raw.slice(0, 12), 16)
     if (ts > 1_000_000_000_000 && ts < 2_000_000_000_000) return ts

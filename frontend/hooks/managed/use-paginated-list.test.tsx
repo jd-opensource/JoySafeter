@@ -10,6 +10,7 @@ vi.mock('@/lib/api-client', () => ({
 import { managedGet } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { SESSION_ID } from '@/test-utils/entity-ids'
+import { parseAgentId, parseStorageMountAuditId } from '@/types/entity-id'
 
 import { usePaginatedList } from './use-paginated-list'
 
@@ -88,6 +89,39 @@ function HarnessWithParser() {
   })
 
   return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
+}
+
+function HarnessWithAuditCursor() {
+  const { data, error, goNext, hasNext } = usePaginatedList<Item>({
+    queryKey: 'storage-audit',
+    path: '/storage-volumes/audit/logs',
+    parseCursor: parseStorageMountAuditId,
+  })
+
+  return (
+    <div>
+      <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
+      <div data-testid="error">{error instanceof Error ? error.message : ''}</div>
+      <button data-testid="next" disabled={!hasNext} onClick={goNext}>
+        next
+      </button>
+    </div>
+  )
+}
+
+function HarnessWithAgentCursor() {
+  const { data, error } = usePaginatedList<Item>({
+    queryKey: 'agent-cursor',
+    path: '/agents',
+    parseCursor: parseAgentId,
+  })
+
+  return (
+    <div>
+      <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
+      <div data-testid="error">{error instanceof Error ? error.message : ''}</div>
+    </div>
+  )
 }
 
 function renderWithQueryClient(ui: ReactNode) {
@@ -301,16 +335,14 @@ describe('usePaginatedList managed context isolation', () => {
     expect(getByTestId('page').textContent).toBe('1')
   })
 
-  it('normalizes prefixed page cursors and preserves existing path query params', async () => {
+  it('preserves generic page cursors and existing path query params', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
     const requestedPaths: string[] = []
     managedGetMock.mockImplementation(async (path: string) => {
       requestedPaths.push(path)
       if (path.includes('after_id=file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f015')) {
         return {
-          data: [
-            { id: 'file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f016', name: 'Second file' },
-          ],
+          data: [{ id: 'file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f016', name: 'Second file' }],
           has_more: false,
           last_id: 'file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f016',
         }
@@ -343,6 +375,134 @@ describe('usePaginatedList managed context isolation', () => {
       ),
     ).toBe(true)
     expect(getByTestId('items').textContent).toBe('Second file')
+  })
+
+  it('keeps non-entity cursors as opaque strings', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    const requestedPaths: string[] = []
+    managedGetMock.mockImplementation(async (path: string) => {
+      requestedPaths.push(path)
+      if (path.includes('after_id=row%3A10')) {
+        return {
+          data: [{ id: 'row:20', name: 'Second row' }],
+          has_more: false,
+          last_id: 'row:20',
+        }
+      }
+      return {
+        data: [{ id: 'row:10', name: 'First row' }],
+        has_more: true,
+        last_id: 'row:10',
+      }
+    })
+
+    const { getByTestId } = renderWithQueryClient(<HarnessWithNext />)
+
+    await waitFor(() => expect(getByTestId('items').textContent).toBe('First row'))
+    await act(async () => {
+      getByTestId('next').click()
+    })
+    await waitFor(() => expect(getByTestId('items').textContent).toBe('Second row'))
+
+    expect(requestedPaths.some((path) => path.includes('after_id=row%3A10'))).toBe(true)
+  })
+
+  it.each(['018f6f42-0a51-7cc4-98c8-4f6f0ca5f025', 'sess_018f6f42-0a51-7cc4-98c8-4f6f0ca5f025'])(
+    'rejects invalid Agent response cursor %s',
+    async (invalidCursor) => {
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+      managedGetMock.mockResolvedValue({
+        data: [
+          {
+            id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f026',
+            name: 'Agent',
+          },
+        ],
+        has_more: false,
+        last_id: invalidCursor,
+      })
+
+      const { getByTestId } = renderWithQueryClient(<HarnessWithAgentCursor />)
+
+      await waitFor(() => {
+        expect(getByTestId('error').textContent).toContain('Expected agent_<uuid>')
+      })
+    },
+  )
+
+  it.each(['018f6f42-0a51-7cc4-98c8-4f6f0ca5f027', 'sess_018f6f42-0a51-7cc4-98c8-4f6f0ca5f027'])(
+    'drops invalid persisted Agent cursor %s',
+    async (invalidCursor) => {
+      useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+      const scope = 'agent-cursor:/agents:org-a:project-a:false:10'
+      window.sessionStorage.setItem(
+        `joysafeter:managed:list-pagination:${scope}`,
+        JSON.stringify({ scope, cursor: invalidCursor, stack: [] }),
+      )
+      managedGetMock.mockResolvedValue({ data: [], has_more: false })
+
+      renderWithQueryClient(<HarnessWithAgentCursor />)
+
+      await waitFor(() => expect(managedGetMock).toHaveBeenCalled())
+      expect(managedGetMock.mock.calls[0]?.[0]).toBe('/agents?limit=10')
+    },
+  )
+
+  it('uses a type-specific parser for storage audit after_id cursors', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    const auditId = 'staudit_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
+    const nextAuditId = 'staudit_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021'
+    const requestedPaths: string[] = []
+    managedGetMock.mockImplementation(async (path: string) => {
+      requestedPaths.push(path)
+      if (path.includes(`after_id=${auditId}`)) {
+        return {
+          data: [{ id: nextAuditId, name: 'Second audit' }],
+          has_more: false,
+          first_id: nextAuditId,
+          last_id: nextAuditId,
+        }
+      }
+      return {
+        data: [{ id: auditId, name: 'First audit' }],
+        has_more: true,
+        first_id: auditId,
+        last_id: auditId,
+      }
+    })
+
+    const { getByTestId } = renderWithQueryClient(<HarnessWithAuditCursor />)
+
+    await waitFor(() => expect(getByTestId('items').textContent).toBe('First audit'))
+    await act(async () => {
+      getByTestId('next').click()
+    })
+
+    await waitFor(() => expect(getByTestId('items').textContent).toBe('Second audit'))
+    expect(requestedPaths.some((path) => path.includes(`after_id=${auditId}`))).toBe(true)
+  })
+
+  it.each([
+    ['first_id', '018f6f42-0a51-7cc4-98c8-4f6f0ca5f022'],
+    ['first_id', 'vol_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022'],
+    ['last_id', '018f6f42-0a51-7cc4-98c8-4f6f0ca5f023'],
+    ['last_id', 'vol_018f6f42-0a51-7cc4-98c8-4f6f0ca5f023'],
+  ])('rejects non-audit storage cursor in %s', async (field, invalidCursor) => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    const auditId = 'staudit_018f6f42-0a51-7cc4-98c8-4f6f0ca5f024'
+    managedGetMock.mockResolvedValue({
+      data: [{ id: auditId, name: 'Audit' }],
+      has_more: false,
+      first_id: auditId,
+      last_id: auditId,
+      [field]: invalidCursor,
+    })
+
+    const { getByTestId } = renderWithQueryClient(<HarnessWithAuditCursor />)
+
+    await waitFor(() => {
+      expect(getByTestId('error').textContent).toContain('Expected staudit_<uuid>')
+    })
   })
 
   it('uses the target page cursor when jumping backward by page number', async () => {

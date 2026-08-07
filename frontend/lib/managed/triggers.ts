@@ -10,7 +10,13 @@ import {
   managedRequestOptions,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import type { AgentId, SessionId, TaskId, TriggerId } from '@/types/entity-id'
+import {
+  parseTaskId,
+  type AgentId,
+  type SessionId,
+  type TaskId,
+  type TriggerId,
+} from '@/types/entity-id'
 
 import {
   parseAgentTriggerListResponse,
@@ -153,7 +159,7 @@ export function useAgentTrigger(triggerId: TriggerId | undefined) {
     queryKey: ['trigger', scope.key, triggerId],
     queryFn: () =>
       managedGet<AgentTrigger>(
-        apiResourcePath('triggers', triggerId),
+        apiResourcePath('triggers', triggerId!),
         managedRequestOptions(scope),
       ).then(parseAgentTriggerResponse),
     enabled: !!triggerId && hasManagedRequestScope(scope),
@@ -265,6 +271,7 @@ export function useTriggerRuns(triggerId: TriggerId | undefined, limit = 10) {
     pageSizeOptions: [10, 25, 50, 100],
     enabled: !!triggerId,
     parseItem: parseTriggerRunResponse,
+    parseCursor: parseTaskId,
     // Poll only while a run is still in flight so a just-fired run advances to
     // its terminal state without a manual refresh. Idle when all are terminal.
     refetchInterval: (page) => {
@@ -283,6 +290,7 @@ export function useRunTrigger(defaultId?: TriggerId) {
       id = defaultId,
       idempotencyKey,
     }: { id?: TriggerId; idempotencyKey?: string } = {}) => {
+      if (!id) throw new TypeError('Trigger ID is required')
       const options = managedRequestOptions(scope)
       const headers = idempotencyKey
         ? { ...options.headers, 'Idempotency-Key': idempotencyKey }
@@ -322,7 +330,7 @@ export function useWebhookSample(triggerId: TriggerId | undefined, enabled: bool
     queryKey: ['trigger-webhook-sample', scope.key, triggerId],
     queryFn: () =>
       managedGet<WebhookSample>(
-        apiResourcePath('triggers', triggerId, 'webhook-sample'),
+        apiResourcePath('triggers', triggerId!, 'webhook-sample'),
         managedRequestOptions(scope),
       ),
     enabled: enabled && !!triggerId && hasManagedRequestScope(scope),

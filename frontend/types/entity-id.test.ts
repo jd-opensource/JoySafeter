@@ -77,6 +77,13 @@ describe('typed entity ids', () => {
     expect(() => parseEventId(UUID)).toThrow(TypeError)
   })
 
+  it('requires lowercase canonical prefix and UUID hex', () => {
+    expect(() => parseAgentId(`AGENT_${UUID}`)).toThrow(TypeError)
+    expect(() => parseAgentId(`agent_${UUID.toUpperCase()}`)).toThrow(TypeError)
+    expect(() => parseAgentId(UUID)).toThrow(TypeError)
+    expect(() => parseAgentId(`task_${UUID}`)).toThrow(TypeError)
+  })
+
   it('rejects prefixed non-UUID fixtures', () => {
     expect(isEntityId('agent_123', 'agent')).toBe(false)
     expect(() => parseTaskId('task_test')).toThrow(TypeError)

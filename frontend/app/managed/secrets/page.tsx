@@ -19,6 +19,7 @@ import {
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { Secret } from '@/types/managed'
+import { parseSecretId } from '@/types/entity-id'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -141,6 +142,7 @@ export default function SecretListPage() {
     queryKey: 'secrets',
     path: '/secrets',
     parseItem: parseSecretResponse,
+    parseCursor: parseSecretId,
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')

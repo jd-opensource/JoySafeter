@@ -11,6 +11,7 @@ import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import { parseAgentId } from '@/types/entity-id'
 import type { Agent } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import {
@@ -82,6 +83,7 @@ export default function AgentListPage() {
     path: '/agents',
     includeArchived: showArchived,
     parseItem: parseAgentResponse,
+    parseCursor: parseAgentId,
   })
 
   const getEngineKindLabel = (engineKind?: string | null) => {

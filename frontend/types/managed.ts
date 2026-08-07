@@ -187,6 +187,15 @@ export interface SessionEvent {
   _collapsedCount?: number
 }
 
+export interface QuickstartTaskSummary {
+  id: TaskId
+  status: string
+  created_at: string
+  started_at?: string | null
+  completed_at?: string | null
+  error?: string | null
+}
+
 export interface SessionSkillUsage {
   id: SkillUsageId
   skill_id?: SkillId | null

@@ -14,6 +14,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import { parseSessionId } from '@/types/entity-id'
 import type { Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/managed/shared'
@@ -68,6 +69,7 @@ export default function SessionListPage() {
     path: '/sessions',
     includeArchived: showArchived,
     parseItem: parseSessionResponse,
+    parseCursor: parseSessionId,
   })
 
   const getEngineKindLabel = (engineKind?: string | null) => {

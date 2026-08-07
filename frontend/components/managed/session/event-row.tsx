@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react'
 import type { SessionEvent } from '@/types/managed'
 import { useTranslation } from '@/lib/i18n'
+import { entityIdUuid } from '@/lib/managed/id'
+import { parseEventId } from '@/types/entity-id'
 import { RoleBadge } from './role-badge'
 
 interface EventRowProps {
@@ -88,7 +90,12 @@ function parseEventTime(value: string): number {
   if (!value) return NaN
   const d = new Date(value).getTime()
   if (!isNaN(d)) return d
-  const hex = value.replace(/^evt_/, '').replace(/-/g, '')
+  let hex: string
+  try {
+    hex = entityIdUuid(parseEventId(value), 'event').replace(/-/g, '')
+  } catch {
+    return NaN
+  }
   if (hex.length >= 12) {
     const ts = parseInt(hex.slice(0, 12), 16)
     if (ts > 1_000_000_000_000 && ts < 2_000_000_000_000) return ts

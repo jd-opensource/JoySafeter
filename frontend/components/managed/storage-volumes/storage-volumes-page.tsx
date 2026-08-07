@@ -10,7 +10,7 @@ import type {
   StorageProjectGrant,
   StorageVolume,
 } from '@/types/managed'
-import type { StorageVolumeId } from '@/types/entity-id'
+import { parseStorageMountAuditId, type StorageVolumeId } from '@/types/entity-id'
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { apiResourceId } from '@/lib/managed/api-paths'
@@ -452,6 +452,7 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
     limit: 25,
     pageSizeOptions: [25, 50, 100],
     parseItem: parseStorageMountAuditResponse,
+    parseCursor: parseStorageMountAuditId,
   })
   const projectsQuery = useQuery({
     queryKey: ['storage-volumes-projects', requestScope.key],

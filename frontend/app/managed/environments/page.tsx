@@ -6,6 +6,7 @@ import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { parseEnvironmentId, parseSecretId } from '@/types/entity-id'
 import type {
   StorageVolumeCatalogItem,
   Environment,
@@ -154,12 +155,14 @@ export default function EnvironmentListPage() {
     path: '/environments',
     includeArchived: showArchived,
     parseItem: parseEnvironmentResponse,
+    parseCursor: parseEnvironmentId,
   })
   const { data: secrets } = usePaginatedList<Secret>({
     queryKey: 'secrets',
     path: '/secrets',
     limit: 50,
     parseItem: parseSecretResponse,
+    parseCursor: parseSecretId,
   })
   const { data: storageCatalog } = useQuery({
     queryKey: ['storage-mount-catalog', managedScope],
