@@ -4,6 +4,10 @@
 #
 # 所有 Dockerfile 统一位于 deploy/docker/ 目录
 
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -e
 
 # 颜色定义
@@ -409,6 +413,46 @@ read_env_value() {
             exit
         }
     ' "$file"
+}
+
+unset_env_value() {
+    local file="$1"
+    local key="$2"
+    local tmp="${file}.tmp"
+
+    awk -v key="$key" '$0 !~ "^" key "=" { print }' "$file" > "$tmp"
+    mv "$tmp" "$file"
+}
+
+validate_local_database_config() {
+    local deploy_env="$1"
+    local database_url url_rest authority host_port host
+
+    database_url="$(read_env_value "$deploy_env" "DATABASE_URL")"
+    database_url="${database_url#"${database_url%%[![:space:]]*}"}"
+    database_url="${database_url%"${database_url##*[![:space:]]}"}"
+    [ -z "$database_url" ] && return 0
+
+    case "$database_url" in
+        postgres://*|postgresql://*|postgresql+asyncpg://*) ;;
+        *)
+            log_error "本地 Compose 不支持 DATABASE_URL；请统一配置 POSTGRES_HOST、POSTGRES_PORT、POSTGRES_USER、POSTGRES_PASSWORD 和 POSTGRES_DB"
+            return 1
+            ;;
+    esac
+
+    url_rest="${database_url#*://}"
+    authority="${url_rest%%/*}"
+    host_port="${authority##*@}"
+    host="${host_port%%:*}"
+    if [ "$host" = "postgres" ]; then
+        unset_env_value "$deploy_env" "DATABASE_URL"
+        log_warning "检测到旧版内置 PostgreSQL DATABASE_URL，已移除；本地 Compose 统一使用 POSTGRES_* 配置"
+        return 0
+    fi
+
+    log_error "本地 Compose 不接受外部 DATABASE_URL；请统一改用 POSTGRES_HOST、POSTGRES_PORT、POSTGRES_USER、POSTGRES_PASSWORD 和 POSTGRES_DB"
+    return 1
 }
 
 # vault 密钥合法性校验：64 位 hex（Rust 兼容）或 base64 解码后为 32 字节。
@@ -854,6 +898,7 @@ configure_local_compose_env() {
     ensure_vault_encryption_key "$deploy_env" "$PROJECT_ROOT/backend/.env"
     ensure_auth_secret "$deploy_env" "$PROJECT_ROOT/backend/.env"
     ensure_postgres_password "$deploy_env" "$PROJECT_ROOT/backend/.env" "$deploy_env_created"
+    validate_local_database_config "$deploy_env"
 
     set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$BASE_IMAGE_REGISTRY"
     set_env_value "$deploy_env" "RUST_IMAGE" "$RUST_IMAGE"
@@ -893,12 +938,24 @@ prepare_local_compose() {
 }
 
 start_local_compose() {
-    (
+    local timeout_seconds="${LOCAL_COMPOSE_READY_TIMEOUT_SECONDS:-240}"
+
+    if ! (
         cd "$SCRIPT_DIR"
-        log_info "启动本地 Compose 服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
-    )
-    log_success "本地 Compose 服务已启动"
+        log_info "启动本地 Compose 服务并等待健康检查（最长 ${timeout_seconds}s）..."
+        compose_local_env --profile local-redis --profile rust-orchestrator \
+            up -d --no-build --wait --wait-timeout "$timeout_seconds"
+    ); then
+        log_error "本地 Compose 服务未通过健康检查"
+        (
+            cd "$SCRIPT_DIR"
+            compose_local_env --profile local-redis --profile rust-orchestrator ps -a || true
+            compose_local_env --profile local-redis --profile rust-orchestrator \
+                logs --no-color --tail=120 orchestrator-rs joysafeter-envoy api worker || true
+        )
+        return 1
+    fi
+    log_success "本地 Compose 服务已启动并通过健康检查"
 }
 
 run_local_compose() {
@@ -1341,10 +1398,13 @@ ensure_runtime_runner_binary() {
     # Reuse the existing binary only when it is up to date with the sandbox-runner
     # sources. Otherwise stale binaries silently ship (e.g. missing new engine
     # adapters), so rebuild when sources are newer or FORCE_RUNNER_REBUILD=1.
+    # proto is a real build input: joysafeter-runner/build.rs runs
+    # tonic_build::compile_protos on proto/joysafeter.proto, so a proto-only edit
+    # must also trigger a rebuild (mirrors ensure_orchestrator_binary).
     if [ -x "$output" ] && [ "${FORCE_RUNNER_REBUILD:-0}" != "1" ]; then
         local newer_src
-        newer_src=$(find "$PROJECT_ROOT/sandbox-runner" -type f \
-            \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
+        newer_src=$(find "$PROJECT_ROOT/sandbox-runner" "$PROJECT_ROOT/proto" -type f \
+            \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' -o -name '*.proto' \) \
             -newer "$output" -print -quit 2>/dev/null)
         if [ -z "$newer_src" ]; then
             log_success "runner 二进制已是最新: $output"
@@ -1474,11 +1534,6 @@ build_all_images() {
         BUILD_CODEX=false
         BUILD_PI=false
         BUILD_NATIVE=true
-    elif [ "$INIT_ONLY" = true ]; then
-        BUILD_BACKEND=false
-        BUILD_FRONTEND=false
-        BUILD_ORCHESTRATOR=false
-        BUILD_SKILLSPECTOR=false
     elif [ "$BUILD_ALL" = true ]; then
         BUILD_BACKEND=true
         BUILD_FRONTEND=true
@@ -1923,6 +1978,24 @@ main() {
                 ;;
         esac
     done
+
+    # 校验互斥的构建范围选项：--all 与各 --*-only 只能选其一，多个同时传会被
+    # build_all_images 的 if/elif 链静默取第一个，用户以为都构建了。提前报错。
+    local -a selected_scope=()
+    [ "$BACKEND_ONLY" = true ] && selected_scope+=("--backend-only")
+    [ "$FRONTEND_ONLY" = true ] && selected_scope+=("--frontend-only")
+    [ "$ORCHESTRATOR_ONLY" = true ] && selected_scope+=("--orchestrator-only")
+    [ "$SKILLSPECTOR_ONLY" = true ] && selected_scope+=("--skillspector-only")
+    [ "$RUNTIME_ONLY" = true ] && selected_scope+=("--runtime-only")
+    [ "$CLAUDECODE_ONLY" = true ] && selected_scope+=("--claudecode-only")
+    [ "$CODEX_ONLY" = true ] && selected_scope+=("--codex-only")
+    [ "$PI_ONLY" = true ] && selected_scope+=("--pi-only")
+    [ "$NATIVE_ONLY" = true ] && selected_scope+=("--native-only")
+    [ "$BUILD_ALL" = true ] && selected_scope+=("--all")
+    if [ "${#selected_scope[@]}" -gt 1 ]; then
+        log_error "构建范围选项互斥，只能指定一个：${selected_scope[*]}"
+        exit 1
+    fi
 
     # 默认使用 Docker daemon 当前架构。完整镜像集一次只构建一个目标架构，
     # 多架构发布由 CI 针对各架构分别构建后合并 manifest。

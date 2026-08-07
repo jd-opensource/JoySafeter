@@ -43,6 +43,19 @@ x-backend-env-files: &backend-env-files
 x-backend-common-env: &backend-common-env
   CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
   JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
+  # Must match the /sockets bind-mount host path (see x-backend-volumes and the
+  # envoy service). A compose default inside a volume-mount string does NOT set
+  # the container env, so the orchestrator must be told the host dir explicitly:
+  # without it envoy_socket_host_dir=None and the orchestrator falls back to
+  # named-volume socket mode, which is a different filesystem than Envoy's bind
+  # mount — the egress socket is then never shared and all sandbox LLM calls hang.
+  JOYSAFETER_ENVOY_SOCKET_HOST_DIR: ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}
+  DATABASE_URL: ""
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in deploy/.env}
+  POSTGRES_DB: ${POSTGRES_DB:-joysafeter}
 
 x-backend-volumes: &backend-volumes
   - backend-logs:/app/app/logs
@@ -92,6 +105,21 @@ services:
       - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:/envoy-config
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/9901
+          printf 'GET /ready HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3
+          response=''
+          while IFS= read -r -t 2 line <&3; do response="$${response}$${line}"; done
+          [[ "$${response}" == *"200 OK"* && "$${response}" == *"LIVE"* ]]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - joysafeter-network
 
