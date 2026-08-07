@@ -53,7 +53,8 @@ All paths are under `/api/v1`.
 | **Tasks** | `/tasks` | create + enqueue, list, get, cancel, **WS** `/tasks/{id}/stream` |
 | **Sessions** | `/sessions` | CRUD, archive, stop, `POST /events` (send message), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
 | **Environments** | `/environments` | Sandbox image/config CRUD |
-| **Secrets** | `/secrets` | Provider API keys (model credentials) + default selection, AES-256-GCM encrypted |
+| **LLM Catalog** | `/llm/catalog` | Engine capabilities, Protocol definitions, Provider bindings, Credential Profiles |
+| **Secrets** | `/secrets` | LLM model configurations and generic secrets, AES-256-GCM encrypted |
 | **Vaults** | `/vaults` | MCP-server credentials + OAuth config |
 | **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin `rescan-all` |
 | **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
@@ -64,8 +65,53 @@ All paths are under `/api/v1`.
 | **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
 | **Health** | `/health` | readiness (Postgres + Redis), liveness |
 
-Model configuration lives in the agent's `model` JSONB field plus a `secret_ref` into
-**Secrets**; MCP credentials live in **Vaults**.
+An Agent stores `engine_kind + secret_ref`. The referenced LLM Secret stores an explicit
+`kind=llm + provider + protocol + credentials` identity. MCP credentials live in **Vaults**.
+
+## LLM Catalog and model configurations
+
+`GET /api/v1/llm/catalog` is the canonical public compatibility contract:
+
+- Engines declare `supported_protocol_ids` and `preferred_protocol_ids`.
+- Providers declare Protocol bindings and Credential Profiles.
+- Credential Profiles declare accepted fields, required alternatives, `base_url_key`, and `model_key`.
+
+Create an LLM Secret with `POST /api/v1/secrets`:
+
+```json
+{
+  "kind": "llm",
+  "name": "openai-production",
+  "provider": "openai",
+  "protocol": "openai_responses",
+  "data": {
+    "OPENAI_API_KEY": "...",
+    "OPENAI_MODEL": "gpt-5"
+  },
+  "is_default": true
+}
+```
+
+Create a generic Secret with `kind=generic`, no `provider` or `protocol`, and arbitrary `data`.
+The LLM identity fields are immutable after creation; `PUT /secrets/{secret_id}` updates
+credential `data` only.
+
+Useful Secret list filters:
+
+| Query | Meaning |
+|---|---|
+| `kind=llm` | Return only model configurations |
+| `compatible_engine=codex` | Return only configurations whose Protocol is supported by Codex |
+| `name=openai-production` | Exact project-scoped name lookup |
+| `provider=openai&protocol=openai_responses` | Filter an explicit Provider/Protocol binding |
+
+List responses expose `provider`, `protocol`, `model`, `compatible_engine_ids`, `is_default`, and
+credential field names in `keys`; plaintext credential values are never returned. Defaults are
+scoped by Protocol.
+
+Agent creation requires an explicit `engine_kind`; the API does not infer or default an Engine.
+Agent create/update and `POST /api/v1/quickstart/chat` validate Engine/Protocol compatibility on
+the server. Quickstart chat requests use `engine_kind` (not `provider`) plus `secret_ref`.
 
 ## ID formats
 

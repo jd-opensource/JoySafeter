@@ -20,6 +20,7 @@ use crate::ids::{
     CredentialId, EnvironmentId, SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId,
     SkillVersionId, TaskId, VaultId,
 };
+use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
 use crate::kernel::run_spec::{
     agent_for_execution, environment_for_execution, SnapshotEnvironment,
 };
@@ -149,9 +150,9 @@ impl HarnessInputBuilder {
 
             self.resolve_environment_env(agent, snapshot_environment.as_ref(), &mut input)
                 .await?;
-            self.resolve_agent_secret(agent, &mut input).await?;
-            apply_provider_aliases(&mut input.secrets);
-            resolve_model_from_secrets(&mut input);
+            if let Some(binding) = self.resolve_agent_secret(agent, &mut input).await? {
+                resolve_model_from_binding(&mut input, &binding);
+            }
             input
                 .env
                 .extend(json_object_to_string_map(agent.env.as_ref()));
@@ -326,15 +327,21 @@ impl HarnessInputBuilder {
         &self,
         agent: &crate::db::models::JoySafeterAgent,
         input: &mut HarnessInput,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
         let secret_ref = match agent.secret_ref.as_deref().filter(|v| !v.trim().is_empty()) {
             Some(v) => v,
-            None => return Ok(()),
+            None => return Ok(None),
         };
 
-        self.resolve_secret_ref_into_input(secret_ref, agent.project_id.as_deref(), input, true)
-            .await?;
-        Ok(())
+        let engine_kind = input.provider.clone();
+        self.resolve_secret_ref_into_input(
+            secret_ref,
+            agent.project_id.as_deref(),
+            input,
+            true,
+            Some(&engine_kind),
+        )
+        .await
     }
 
     async fn resolve_environment_env(
@@ -377,6 +384,7 @@ impl HarnessInputBuilder {
                     agent.project_id.as_deref(),
                     input,
                     false,
+                    None,
                 )
                 .await?;
             }
@@ -391,10 +399,11 @@ impl HarnessInputBuilder {
         project_id: Option<&str>,
         input: &mut HarnessInput,
         override_existing: bool,
-    ) -> anyhow::Result<()> {
+        runtime_engine_kind: Option<&str>,
+    ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
         let secret = sqlx::query_as::<_, SecretRow>(
             r#"
-            SELECT data FROM joysafeter_secrets
+            SELECT kind, provider, protocol, data FROM joysafeter_secrets
             WHERE name = $1 AND deleted_at IS NULL
               AND ($2::text IS NULL OR project_id = $2)
             ORDER BY created_at DESC
@@ -406,18 +415,31 @@ impl HarnessInputBuilder {
         .fetch_optional(&self.pool)
         .await?;
 
-        if let Some(secret) = secret {
-            let cipher = VaultCipher::from_env();
-            for (key, value) in json_object_to_string_map(Some(&secret.data)) {
-                if override_existing || !input.secrets.contains_key(&key) {
-                    input
-                        .secrets
-                        .insert(key, cipher.decrypt_or_passthrough(&value)?);
-                }
+        let Some(secret) = secret else {
+            return Ok(None);
+        };
+
+        let binding = runtime_engine_kind
+            .map(|engine_kind| {
+                validate_runtime_secret(
+                    engine_kind,
+                    &secret.kind,
+                    secret.provider.as_deref(),
+                    secret.protocol.as_deref(),
+                )
+            })
+            .transpose()?;
+
+        let cipher = VaultCipher::from_env();
+        for (key, value) in json_object_to_string_map(Some(&secret.data)) {
+            if override_existing || !input.secrets.contains_key(&key) {
+                input
+                    .secrets
+                    .insert(key, cipher.decrypt_or_passthrough(&value)?);
             }
         }
 
-        Ok(())
+        Ok(binding)
     }
 
     async fn resolve_skill_archives(
@@ -1238,6 +1260,7 @@ fn extract_content_text(payload: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::env;
 
     use serde_json::json;
@@ -1246,13 +1269,14 @@ mod tests {
 
     use super::{
         ensure_skill_runtime_ready, extract_content_text, mcp_credential_url_keys, parse_semver,
-        session_container_work_dir, should_inject_conversation_history,
-        trim_history_lines_to_budget, HarnessInputBuilder, SkillForArchive,
+        resolve_model_from_binding, session_container_work_dir, should_inject_conversation_history,
+        trim_history_lines_to_budget, HarnessInput, HarnessInputBuilder, SkillForArchive,
     };
     use crate::ids::{
         AgentId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId, SessionResourceId,
         SkillSecurityScanId, TaskId, VaultId,
     };
+    use crate::kernel::llm_catalog::validate_runtime_secret;
     use uuid::Uuid;
 
     fn database_url() -> Option<String> {
@@ -1281,6 +1305,26 @@ mod tests {
         let keys = mcp_credential_url_keys("https://AI-Legal-Test.JD.com/legal-mcp/mcp/");
         assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp".to_string()));
         assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp/".to_string()));
+    }
+
+    #[test]
+    fn model_resolution_uses_catalog_profile_key_only() {
+        let binding =
+            validate_runtime_secret("native", "llm", Some("deepseek"), Some("chat_completions"))
+                .expect("DeepSeek Chat Completions must be valid for Native");
+        let mut input = HarnessInput {
+            provider: "native".to_string(),
+            secrets: HashMap::from([
+                ("OPENAI_MODEL".to_string(), "deepseek-reasoner".to_string()),
+                ("ANTHROPIC_MODEL".to_string(), "wrong-model".to_string()),
+                ("MODEL".to_string(), "legacy-fallback".to_string()),
+            ]),
+            ..Default::default()
+        };
+
+        resolve_model_from_binding(&mut input, &binding);
+
+        assert_eq!(input.model.as_deref(), Some("deepseek-reasoner"));
     }
 
     async fn cleanup(
@@ -1473,7 +1517,7 @@ mod tests {
                 "image_version": 1,
                 "config": {
                     "env_vars": {"ENV_LEVEL": "snapshot-env"},
-                    "secret_refs": [snapshot_secret],
+                    "secret_refs": [],
                     "packages": {"pip": ["snapshot-pkg"]}
                 }
             }
@@ -1491,30 +1535,40 @@ mod tests {
             .bind(&environment_name)
             .bind(json!({
                 "env_vars": {"ENV_LEVEL": "live-env", "LIVE_ONLY": "must-not-appear"},
-                "secret_refs": [live_secret],
+                "secret_refs": [],
                 "packages": {"pip": ["live-pkg"]}
             }))
             .execute(&pool)
             .await
             .expect("insert live environment");
 
-            for (name, key) in [
-                (&snapshot_secret, "snapshot-key"),
-                (&live_secret, "live-key"),
-            ] {
-                sqlx::query(
-                    r#"
-                    INSERT INTO joysafeter_secrets (id, name, data)
-                    VALUES ($1, $2, $3)
-                    "#,
-                )
-                .bind(Uuid::now_v7())
-                .bind(name)
-                .bind(json!({"OPENAI_API_KEY": key}))
-                .execute(&pool)
-                .await
-                .expect("insert test secret");
-            }
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_secrets
+                    (id, name, kind, provider, protocol, data)
+                VALUES ($1, $2, 'llm', 'anthropic', 'anthropic_messages', $3)
+                "#,
+            )
+            .bind(Uuid::now_v7())
+            .bind(&snapshot_secret)
+            .bind(json!({"ANTHROPIC_API_KEY": "snapshot-key"}))
+            .execute(&pool)
+            .await
+            .expect("insert snapshot test secret");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_secrets
+                    (id, name, kind, provider, protocol, data)
+                VALUES ($1, $2, 'llm', 'openai', 'openai_responses', $3)
+                "#,
+            )
+            .bind(Uuid::now_v7())
+            .bind(&live_secret)
+            .bind(json!({"OPENAI_API_KEY": "live-key"}))
+            .execute(&pool)
+            .await
+            .expect("insert live test secret");
 
             sqlx::query(
                 r#"
@@ -1596,7 +1650,7 @@ mod tests {
             assert!(!input.env.contains_key("LIVE_ONLY"));
             assert!(!input.env.contains_key("LIVE_AGENT_ONLY"));
             assert_eq!(
-                input.secrets.get("OPENAI_API_KEY").map(String::as_str),
+                input.secrets.get("ANTHROPIC_API_KEY").map(String::as_str),
                 Some("snapshot-key")
             );
             assert_eq!(
@@ -2100,29 +2154,14 @@ fn json_object_to_string_map(value: Option<&serde_json::Value>) -> HashMap<Strin
         .unwrap_or_default()
 }
 
-fn apply_provider_aliases(env: &mut HashMap<String, String>) {
-    if env.contains_key("ANTHROPIC_AUTH_TOKEN") && !env.contains_key("ANTHROPIC_API_KEY") {
-        if let Some(token) = env.get("ANTHROPIC_AUTH_TOKEN").cloned() {
-            env.insert("ANTHROPIC_API_KEY".to_string(), token);
-        }
-    }
-}
-
-fn resolve_model_from_secrets(input: &mut HarnessInput) {
+fn resolve_model_from_binding(input: &mut HarnessInput, binding: &RuntimeSecretBinding) {
     if input.model.is_some() || input.secrets.is_empty() {
         return;
     }
 
-    // Look up model secret keys from the engine registry. For unknown engines,
-    // fall back to claude's keys (matches original else-branch behavior).
-    let spec = super::engine_adapter::engine_spec(&input.provider)
-        .or_else(|| super::engine_adapter::engine_spec("claude"));
-
-    input.model = spec.and_then(|s| {
-        s.model_secret_keys
-            .iter()
-            .find_map(|k| input.secrets.get(*k).cloned())
-    });
+    if let Some(model_key) = binding.model_key.as_deref() {
+        input.model = input.secrets.get(model_key).cloned();
+    }
 }
 
 fn parse_mcp_servers(value: Option<&serde_json::Value>) -> Vec<proto::McpConfig> {
@@ -2568,6 +2607,9 @@ fn parse_vault_key(raw: &str) -> Option<[u8; 32]> {
 
 #[derive(Debug, FromRow)]
 struct SecretRow {
+    kind: String,
+    provider: Option<String>,
+    protocol: Option<String>,
     data: serde_json::Value,
 }
 

@@ -1,16 +1,23 @@
 from typing import Optional
 
-from sqlalchemy import and_, delete, or_, outerjoin, select, update
+from sqlalchemy import and_, delete, or_, outerjoin, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.compatibility import (
+    LlmCompatibilityError,
+    compatible_provider_protocol_pairs,
+    validate_credential_data,
+    validate_provider_protocol,
+)
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
-from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, UpdateSecretRequest
+from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, SecretKind, UpdateSecretRequest
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.ids import SecretId, TaskId
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
@@ -105,12 +112,6 @@ class SecretService:
             key: value if _is_display_safe_secret_key(key) else _mask_secret_value(value) for key, value in data.items()
         }
 
-    @staticmethod
-    def apply_provider_aliases(env: dict[str, str]) -> dict[str, str]:
-        if "ANTHROPIC_AUTH_TOKEN" in env and "ANTHROPIC_API_KEY" not in env:
-            env["ANTHROPIC_API_KEY"] = env["ANTHROPIC_AUTH_TOKEN"]
-        return env
-
     async def merge_secret_refs_into_env(
         self,
         env: dict[str, str],
@@ -130,16 +131,15 @@ class SecretService:
                 key_str = str(key)
                 if override or key_str not in merged:
                     merged[key_str] = str(value)
-        return self.apply_provider_aliases(merged)
+        return merged
 
-    def merge_update_data_for_storage(
+    def merge_update_plaintext(
         self,
         current_data: dict | None,
         requested_data: dict[str, str] | None,
     ) -> dict[str, str]:
-        """Encrypt update payload while preserving unchanged masked sensitive values."""
+        """Build update plaintext while preserving unchanged masked sensitive values."""
         existing_plain = self.decrypt_data(current_data or {})
-        existing_stored = {str(k): str(v) for k, v in (current_data or {}).items()}
         next_data: dict[str, str] = {}
         for key, value in (requested_data or {}).items():
             key_str = str(key)
@@ -149,12 +149,25 @@ class SecretService:
                 and key_str in existing_plain
                 and value_str == _mask_secret_value(existing_plain[key_str])
             ):
-                next_data[key_str] = existing_stored[key_str]
+                next_data[key_str] = existing_plain[key_str]
             else:
-                next_data[key_str] = self._cipher.encrypt(value_str)
+                next_data[key_str] = value_str
         return next_data
 
     async def create_secret(self, req: CreateSecretRequest, project_id: Optional[str] = None) -> JoySafeterSecret:
+        if req.kind is SecretKind.LLM:
+            provider = req.provider or ""
+            protocol = req.protocol or ""
+            if provider in {engine.id for engine in get_llm_catalog().engines}:
+                raise LlmCompatibilityError(
+                    code="LLM_SECRET_PROVIDER_RESERVED",
+                    message=f"Engine identifier '{provider}' cannot be used as an LLM provider",
+                    data={"provider": provider},
+                    user_action="fix_input",
+                )
+            validate_provider_protocol(provider, protocol)
+            validate_credential_data(provider, protocol, req.data)
+
         purge_conditions: list[ColumnElement[bool]] = [
             JoySafeterSecret.name == req.name,
             JoySafeterSecret.deleted_at.is_not(None),
@@ -166,6 +179,7 @@ class SecretService:
         await self.db.execute(delete(JoySafeterSecret).where(and_(*purge_conditions)))
         kwargs = dict(
             name=req.name,
+            kind=req.kind.value,
             provider=req.provider,
             protocol=req.protocol,
             data=self.encrypt_data_for_storage(req.data),
@@ -174,7 +188,7 @@ class SecretService:
         if project_id is not None:
             kwargs["project_id"] = project_id
         if req.is_default:
-            await self.clear_default_secret(project_id=project_id)
+            await self.clear_default_secret(project_id=project_id, protocol=req.protocol or "")
         secret = JoySafeterSecret(**kwargs)
         self.db.add(secret)
         try:
@@ -217,8 +231,15 @@ class SecretService:
         result = await self.db.execute(select(JoySafeterSecret).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
-    async def get_default_secret(self, project_id: Optional[str] = None) -> Optional[JoySafeterSecret]:
+    async def get_default_secret(
+        self,
+        *,
+        project_id: Optional[str] = None,
+        protocol: str,
+    ) -> Optional[JoySafeterSecret]:
         conditions: list[ColumnElement[bool]] = [
+            JoySafeterSecret.kind == SecretKind.LLM.value,
+            JoySafeterSecret.protocol == protocol,
             JoySafeterSecret.is_default.is_(True),
             JoySafeterSecret.deleted_at.is_(None),
         ]
@@ -229,8 +250,10 @@ class SecretService:
         )
         return result.scalar_one_or_none()
 
-    async def clear_default_secret(self, project_id: Optional[str] = None) -> None:
+    async def clear_default_secret(self, *, project_id: Optional[str] = None, protocol: str) -> None:
         conditions: list[ColumnElement[bool]] = [
+            JoySafeterSecret.kind == SecretKind.LLM.value,
+            JoySafeterSecret.protocol == protocol,
             JoySafeterSecret.is_default.is_(True),
             JoySafeterSecret.deleted_at.is_(None),
         ]
@@ -247,7 +270,14 @@ class SecretService:
         secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
             return None
-        await self.clear_default_secret(project_id=project_id)
+        if secret.kind != SecretKind.LLM.value or not secret.protocol:
+            raise LlmCompatibilityError(
+                code="LLM_SECRET_DEFAULT_REQUIRES_LLM",
+                message="Only LLM secrets can be selected as model defaults",
+                data={"secret_id": str(secret.id), "kind": secret.kind},
+                user_action="fix_input",
+            )
+        await self.clear_default_secret(project_id=project_id, protocol=secret.protocol)
         secret.is_default = True
         secret.updated_at = utc_now()
         await self.db.commit()
@@ -259,10 +289,30 @@ class SecretService:
         limit: int = 20,
         after_id: Optional[SecretId] = None,
         project_id: Optional[str] = None,
+        kind: SecretKind | str | None = None,
+        name: str | None = None,
+        provider: str | None = None,
+        protocol: str | None = None,
+        compatible_engine: str | None = None,
     ) -> tuple[list[JoySafeterSecret], bool]:
         q = select(JoySafeterSecret).where(JoySafeterSecret.deleted_at.is_(None))
         if project_id is not None:
             q = q.where(JoySafeterSecret.project_id == project_id)
+        if kind is not None:
+            kind_value = kind.value if isinstance(kind, SecretKind) else kind
+            q = q.where(JoySafeterSecret.kind == kind_value)
+        if name is not None:
+            q = q.where(JoySafeterSecret.name == name)
+        if provider is not None:
+            q = q.where(JoySafeterSecret.provider == provider)
+        if protocol is not None:
+            q = q.where(JoySafeterSecret.protocol == protocol)
+        if compatible_engine is not None:
+            pairs = compatible_provider_protocol_pairs(compatible_engine)
+            q = q.where(
+                JoySafeterSecret.kind == SecretKind.LLM.value,
+                tuple_(JoySafeterSecret.provider, JoySafeterSecret.protocol).in_(pairs),
+            )
         if after_id:
             cursor_is_default = (
                 select(JoySafeterSecret.is_default).where(JoySafeterSecret.id == after_id).scalar_subquery()
@@ -304,11 +354,10 @@ class SecretService:
         secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
             return None
-        if req.provider is not None:
-            secret.provider = req.provider
-        if req.protocol is not None:
-            secret.protocol = req.protocol
-        secret.data = self.merge_update_data_for_storage(secret.data, req.data)
+        next_plaintext = self.merge_update_plaintext(secret.data, req.data)
+        if secret.kind == SecretKind.LLM.value:
+            validate_credential_data(secret.provider or "", secret.protocol or "", next_plaintext)
+        secret.data = self.encrypt_data_for_storage(next_plaintext)
         secret.updated_at = utc_now()
         await self.db.commit()
         await self.db.refresh(secret)

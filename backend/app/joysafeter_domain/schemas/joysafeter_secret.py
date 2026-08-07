@@ -1,7 +1,9 @@
 from datetime import datetime
+from enum import StrEnum
 from typing import Optional
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.joysafeter_shared.ids import SecretId
 
@@ -28,10 +30,18 @@ def _trim_secret_values(data: dict[str, str]) -> dict[str, str]:
     }
 
 
+class SecretKind(StrEnum):
+    LLM = "llm"
+    GENERIC = "generic"
+
+
 class CreateSecretRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: SecretKind
     name: str
-    provider: str = "custom"
-    protocol: str = "custom"
+    provider: Optional[str] = None
+    protocol: Optional[str] = None
     data: dict[str, str] = Field(default_factory=dict)
     is_default: bool = False
 
@@ -40,10 +50,22 @@ class CreateSecretRequest(BaseModel):
     def _trim_url_values(cls, v: dict[str, str]) -> dict[str, str]:
         return _trim_secret_values(v)
 
+    @model_validator(mode="after")
+    def _validate_identity(self) -> "CreateSecretRequest":
+        if self.kind is SecretKind.LLM:
+            if not self.provider or not self.protocol:
+                raise ValueError("LLM secrets require provider and protocol")
+            return self
+        if self.provider is not None or self.protocol is not None:
+            raise ValueError("Generic secrets must not define provider or protocol")
+        if self.is_default:
+            raise ValueError("Generic secrets cannot be a default")
+        return self
+
 
 class UpdateSecretRequest(BaseModel):
-    provider: Optional[str] = None
-    protocol: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
     data: dict[str, str]
 
     @field_validator("data")
@@ -53,8 +75,11 @@ class UpdateSecretRequest(BaseModel):
 
 
 class TestSecretRequest(BaseModel):
-    provider: str = "custom"
-    protocol: str = "custom"
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[SecretKind.LLM]
+    provider: str
+    protocol: str
     data: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("data")
@@ -76,8 +101,11 @@ class SecretTestResponse(BaseModel):
 class SecretListItem(BaseModel):
     id: SecretId
     name: str
-    provider: str = "custom"
-    protocol: str = "custom"
+    kind: SecretKind
+    provider: Optional[str] = None
+    protocol: Optional[str] = None
+    model: Optional[str] = None
+    compatible_engine_ids: list[str] = Field(default_factory=list)
     is_default: bool = False
     keys: list[str] = Field(default_factory=list)
     created_at: datetime
@@ -89,8 +117,11 @@ class SecretListItem(BaseModel):
 class SecretResponse(BaseModel):
     id: SecretId
     name: str
-    provider: str = "custom"
-    protocol: str = "custom"
+    kind: SecretKind
+    provider: Optional[str] = None
+    protocol: Optional[str] = None
+    model: Optional[str] = None
+    compatible_engine_ids: list[str] = Field(default_factory=list)
     is_default: bool = False
     secret_data: dict[str, str] = Field(default_factory=dict)
     created_at: datetime

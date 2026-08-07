@@ -147,8 +147,12 @@ async def test_create_agent_allows_same_active_name_in_different_projects(db_ses
     name = f"scoped-agent-{uuid.uuid4()}"
     svc = JoySafeterAgentService(db_session)
 
-    agent_a = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
-    agent_b = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-b")
+    agent_a = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-a"
+    )
+    agent_b = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-b"
+    )
 
     assert agent_a.id != agent_b.id
     assert agent_a.project_id == "project-a"
@@ -160,12 +164,16 @@ async def test_create_agent_reuses_soft_deleted_name_without_purging_history(db_
     await _ensure_project(db_session, "project-a")
     name = f"reused-agent-{uuid.uuid4()}"
     svc = JoySafeterAgentService(db_session)
-    old_agent = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
+    old_agent = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-a"
+    )
     old_agent_id = old_agent.id
     old_agent.deleted_at = utc_now()
     await db_session.commit()
 
-    new_agent = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
+    new_agent = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-a"
+    )
 
     assert new_agent.id != old_agent_id
     db_session.expire_all()
@@ -198,11 +206,15 @@ async def test_agent_child_resources_reject_cross_project_at_service_boundary(db
     svc = JoySafeterAgentService(db_session)
 
     await svc.create_agent(
-        JoySafeterCreateAgentRequest(name=f"project-a-agent-{uuid.uuid4()}"),
+        JoySafeterCreateAgentRequest(
+            name=f"project-a-agent-{uuid.uuid4()}", engine_kind="claude"
+        ),
         project_id="project-a",
     )
     agent_b = await svc.create_agent(
-        JoySafeterCreateAgentRequest(name=f"project-b-agent-{uuid.uuid4()}"),
+        JoySafeterCreateAgentRequest(
+            name=f"project-b-agent-{uuid.uuid4()}", engine_kind="claude"
+        ),
         project_id="project-b",
     )
     agent_b_id = agent_b.id

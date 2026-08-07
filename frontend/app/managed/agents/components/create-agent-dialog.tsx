@@ -15,6 +15,8 @@ import {
   FieldHelp,
   SkillVersionSelect,
 } from '@/components/managed/shared'
+import { CompatibleSecretPicker } from '@/components/managed/llm/compatible-secret-picker'
+import { LlmSecretConfigurator } from '@/components/managed/llm/llm-secret-configurator'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -32,8 +34,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { managedGet, managedPost } from '@/lib/api-client'
+import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import { getEnabledEngines } from '@/lib/managed/llm-catalog'
+import { selectInitialSecret } from '@/lib/managed/llm-selection'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import {
   hasManagedRequestScope,
@@ -49,13 +54,16 @@ import {
   type EnvironmentId,
   type SkillId,
 } from '@/types/entity-id'
-import type { SkillRuntimeEligibility } from '@/types/managed'
+import type { Secret, SecretDetail, SkillRuntimeEligibility } from '@/types/managed'
 import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
+import {
+  compatibleSecretsQueryPrefix,
+  useCompatibleSecrets,
+} from '@/hooks/managed/use-compatible-secrets'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
-import { ModelSecretSelect } from './model-secret-select'
 import { SearchableAgentConfigSelect } from './searchable-agent-config-select'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
@@ -113,6 +121,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const router = useRouter()
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
+  const catalogQuery = useLlmCatalog()
   const createRunRef = useRef(0)
   const managedScopeRef = useRef(managedScope.key)
   const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
@@ -129,6 +138,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [mcpUrl, setMcpUrl] = useState('')
   const [secretRef, setSecretRef] = useState('')
   const [secretSelectionCleared, setSecretSelectionCleared] = useState(false)
+  const [secretCompatibilityNotice, setSecretCompatibilityNotice] = useState(false)
+  const [dialogView, setDialogView] = useState<'agent_form' | 'create_llm_secret'>('agent_form')
   const [environmentRef, setEnvironmentRef] = useState('')
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<SkillId>>(new Set())
@@ -139,13 +150,19 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const systemPromptRequired = systemPromptMode === 'replace'
   const systemPromptValid = !systemPromptRequired || systemPrompt.trim().length > 0
 
-  const { data: secretsRes } = useQuery({
-    queryKey: ['secrets', managedScope.key],
-    queryFn: () =>
-      managedGet<{ data: { name: string }[] }>('/secrets', managedRequestOptions(managedScope)),
-    enabled: open && hasManagedRequestScope(managedScope),
-  })
-  const secrets = secretsRes?.data
+  const compatibleSecretsQuery = useCompatibleSecrets({ engineId: engineKind, enabled: open })
+  const secrets = compatibleSecretsQuery.data
+  const enabledEngines = useMemo(
+    () => (catalogQuery.data ? getEnabledEngines(catalogQuery.data) : []),
+    [catalogQuery.data],
+  )
+
+  useEffect(() => {
+    if (!catalogQuery.data || enabledEngines.some((engine) => engine.id === engineKind)) return
+    setEngineKind(enabledEngines[0]?.id ?? '')
+    setSecretRef('')
+    setSecretSelectionCleared(false)
+  }, [catalogQuery.data, enabledEngines, engineKind])
 
   const { data: skills } = useQuery({
     queryKey: ['skills', managedScope.key],
@@ -173,13 +190,6 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
-
-  const effectiveSecretRef = useMemo(() => {
-    if (!secrets || secrets.length === 0) return ''
-    const secretNames = new Set(secrets.map((secret) => secret.name))
-    if (secretRef && secretNames.has(secretRef)) return secretRef
-    return secretSelectionCleared ? '' : secrets[0].name
-  }, [secrets, secretRef, secretSelectionCleared])
 
   const effectiveEnvironmentRef = useMemo(() => {
     if (!environmentRef || !environments) return ''
@@ -216,6 +226,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setMcpUrl('')
     setSecretRef('')
     setSecretSelectionCleared(false)
+    setSecretCompatibilityNotice(false)
+    setDialogView('agent_form')
     setEnvironmentRef('')
     setPermissionMode('bypassPermissions')
     setSelectedSkillIds(new Set())
@@ -240,6 +252,21 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     },
     [],
   )
+
+  useEffect(() => {
+    if (!compatibleSecretsQuery.isSuccess || !secrets) return
+    const secretNames = new Set(secrets.map((secret) => secret.name))
+    if (secretRef) {
+      if (secretNames.has(secretRef)) return
+      setSecretRef('')
+      setSecretSelectionCleared(true)
+      setSecretCompatibilityNotice(true)
+      return
+    }
+    if (secretSelectionCleared) return
+    const initialSecret = selectInitialSecret(secrets)
+    if (initialSecret) setSecretRef(initialSecret)
+  }, [compatibleSecretsQuery.isSuccess, secrets, secretRef, secretSelectionCleared])
 
   const toggleTool = (tool: string) => {
     setEnabledTools((prev) => {
@@ -330,8 +357,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       }
 
       const currentSecrets =
-        queryClient.getQueryData<{ data?: { name: string }[] }>(['secrets', scopeAtStart])?.data ??
-        secrets
+        queryClient
+          .getQueriesData<Secret[]>({
+            queryKey: compatibleSecretsQueryPrefix(scopeAtStart, engineKind),
+          })
+          .at(-1)?.[1] ?? secrets
       const currentEnvironments =
         queryClient.getQueryData<ManagedListResponse<EnvironmentListItem>>([
           'environments',
@@ -341,11 +371,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         queryClient.getQueryData<SkillListItem[]>(['skills', scopeAtStart]) ?? skills
 
       const currentSecretRef = (() => {
-        if (!currentSecrets) return effectiveSecretRef
+        if (!currentSecrets) return secretRef
         if (currentSecrets.length === 0) return ''
         const secretNames = new Set(currentSecrets.map((secret) => secret.name))
         if (secretRef && secretNames.has(secretRef)) return secretRef
-        return secretSelectionCleared ? '' : currentSecrets[0].name
+        return ''
       })()
       const currentEnvironmentRef =
         environmentRef &&
@@ -395,6 +425,49 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         setSubmitting(false)
       }
     }
+  }
+
+  if (dialogView === 'create_llm_secret') {
+    return (
+      <Dialog
+        open={open}
+        onOpenChange={(value) => {
+          if (!value) {
+            createRunRef.current += 1
+            reset()
+          }
+          onOpenChange(value)
+        }}
+      >
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('managed.llm.createConfiguration')}</DialogTitle>
+          </DialogHeader>
+          <LlmSecretConfigurator
+            initialEngineId={engineKind}
+            lockEngine
+            onCancel={() => setDialogView('agent_form')}
+            onCreated={(created: SecretDetail) => {
+              const listItem: Secret = {
+                ...created,
+                keys: Object.keys(created.secret_data),
+              }
+              queryClient.setQueriesData<Secret[]>(
+                { queryKey: compatibleSecretsQueryPrefix(managedScope.key, engineKind) },
+                (current) => [
+                  ...(current ?? []).filter((secret) => secret.id !== listItem.id),
+                  listItem,
+                ],
+              )
+              setSecretRef(created.name)
+              setSecretSelectionCleared(false)
+              setSecretCompatibilityNotice(false)
+              setDialogView('agent_form')
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+    )
   }
 
   return (
@@ -458,15 +531,22 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               >
                 {t('managed.agents.engineKind')}
               </FormFieldLabel>
-              <Select value={engineKind} onValueChange={setEngineKind}>
+              <Select
+                value={engineKind}
+                onValueChange={(value) => {
+                  setEngineKind(value)
+                  setSecretCompatibilityNotice(false)
+                }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="claude">{t('managed.agents.engineClaude')}</SelectItem>
-                  <SelectItem value="codex">{t('managed.agents.engineCodex')}</SelectItem>
-                  <SelectItem value="native">{t('managed.agents.engineNative')}</SelectItem>
-                  <SelectItem value="pi">{t('managed.agents.enginePi')}</SelectItem>
+                  {enabledEngines.map((engine) => (
+                    <SelectItem key={engine.id} value={engine.id}>
+                      {engine.display_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -479,37 +559,22 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               >
                 {t('managed.agents.edit.secretRef')}
               </FormFieldLabel>
-              {secrets && secrets.length > 0 ? (
-                <ModelSecretSelect
-                  value={effectiveSecretRef}
-                  secrets={secrets}
-                  placeholder={t('managed.agents.edit.selectSecret')}
-                  noneLabel={t('managed.agents.edit.noSelection')}
-                  searchPlaceholder={t('managed.agents.edit.searchSecret')}
-                  emptyText={t('managed.agents.edit.noSecretMatch')}
-                  createLabel={t('managed.agents.edit.createSecret')}
-                  clearSearchLabel={t('managed.agents.edit.clearSearch')}
-                  onChange={(value) => {
-                    setSecretRef(value)
-                    setSecretSelectionCleared(!value)
-                  }}
-                  onCreate={() => router.push('/managed/secrets?create=llm')}
-                />
-              ) : (
-                <div className="space-y-2 rounded-md border border-dashed border-border bg-muted/20 p-3">
-                  <p className="text-sm text-muted-foreground">
-                    {t('managed.agents.create.noSecrets')}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => router.push('/managed/secrets?create=llm')}
-                  >
-                    {t('managed.agents.edit.createSecret')}
-                  </Button>
-                </div>
-              )}
+              <CompatibleSecretPicker
+                engineId={engineKind}
+                value={secretRef}
+                allowNone
+                onChange={(value) => {
+                  setSecretRef(value)
+                  setSecretSelectionCleared(!value)
+                  setSecretCompatibilityNotice(false)
+                }}
+                onCreateRequested={() => setDialogView('create_llm_secret')}
+              />
+              {secretCompatibilityNotice ? (
+                <p className="mt-2 text-xs text-amber-700">
+                  {t('managed.llm.previousConfigurationIncompatible')}
+                </p>
+              ) : null}
             </div>
 
             {/* Default Environment */}
@@ -887,7 +952,13 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={submitting || !name.trim() || !systemPromptValid}
+            disabled={
+              submitting ||
+              !name.trim() ||
+              !systemPromptValid ||
+              !engineKind ||
+              !catalogQuery.isSuccess
+            }
           >
             {submitting ? t('managed.agents.create.creating') : t('managed.agents.create.submit')}
           </Button>

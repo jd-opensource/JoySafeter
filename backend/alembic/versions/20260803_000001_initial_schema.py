@@ -322,19 +322,23 @@ def upgrade() -> None:
     op.create_table('joysafeter_secrets',
     sa.Column('project_id', sa.String(length=255), nullable=True),
     sa.Column('name', sa.Text(), nullable=False),
-    sa.Column('provider', sa.String(length=64), server_default='custom', nullable=False),
-    sa.Column('protocol', sa.String(length=64), server_default='custom', nullable=False),
+    sa.Column('kind', sa.String(length=16), nullable=False),
+    sa.Column('provider', sa.String(length=64), nullable=True),
+    sa.Column('protocol', sa.String(length=64), nullable=True),
     sa.Column('data', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
     sa.Column('is_default', sa.Boolean(), server_default='false', nullable=False),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.CheckConstraint("(kind = 'llm' AND provider IS NOT NULL AND protocol IS NOT NULL) OR (kind = 'generic' AND provider IS NULL AND protocol IS NULL AND is_default = false)", name='ck_joysafeter_secrets_kind_identity'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_secrets'))
     )
     op.create_index(op.f('ix_joysafeter_secrets_project_id'), 'joysafeter_secrets', ['project_id'], unique=False)
     op.create_index('uq_joysafeter_secrets_global_name', 'joysafeter_secrets', ['name'], unique=True, postgresql_where=sa.text('project_id IS NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NULL AND deleted_at IS NULL'))
+    op.create_index('uq_joysafeter_secrets_global_protocol_default', 'joysafeter_secrets', ['protocol'], unique=True, postgresql_where=sa.text("project_id IS NULL AND kind = 'llm' AND is_default = true AND deleted_at IS NULL"), sqlite_where=sa.text("project_id IS NULL AND kind = 'llm' AND is_default = true AND deleted_at IS NULL"))
     op.create_index('uq_joysafeter_secrets_project_name', 'joysafeter_secrets', ['project_id', 'name'], unique=True, postgresql_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'))
+    op.create_index('uq_joysafeter_secrets_project_protocol_default', 'joysafeter_secrets', ['project_id', 'protocol'], unique=True, postgresql_where=sa.text("project_id IS NOT NULL AND kind = 'llm' AND is_default = true AND deleted_at IS NULL"), sqlite_where=sa.text("project_id IS NOT NULL AND kind = 'llm' AND is_default = true AND deleted_at IS NULL"))
     op.create_table('joysafeter_security_audit_logs',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('user_id', sa.String(length=255), nullable=True),

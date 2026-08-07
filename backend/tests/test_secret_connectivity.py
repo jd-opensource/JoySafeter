@@ -42,7 +42,8 @@ async def test_secret_connectivity_openai_responses_uses_responses_endpoint(monk
 
     result = await secrets._test_secret_connectivity(
         SecretConnectivityRequest(
-            provider="codex",
+            kind="llm",
+            provider="openai",
             protocol="openai_responses",
             data={
                 "OPENAI_API_KEY": "sk-test",
@@ -72,7 +73,8 @@ async def test_secret_connectivity_anthropic_preserves_prefix_and_uses_auth_toke
 
     result = await secrets._test_secret_connectivity(
         SecretConnectivityRequest(
-            provider="claude",
+            kind="llm",
+            provider="anthropic",
             protocol="anthropic_messages",
             data={
                 "ANTHROPIC_AUTH_TOKEN": "anthropic-token",
@@ -107,7 +109,8 @@ async def test_secret_connectivity_returns_upstream_error_detail(monkeypatch):
 
     result = await secrets._test_secret_connectivity(
         SecretConnectivityRequest(
-            provider="codex",
+            kind="llm",
+            provider="openai",
             protocol="openai_responses",
             data={
                 "OPENAI_API_KEY": "sk-test",
@@ -130,7 +133,8 @@ async def test_secret_connectivity_rejects_unallowlisted_llm_host(monkeypatch):
     with pytest.raises(InvalidRequestError) as exc_info:
         await secrets._test_secret_connectivity(
             SecretConnectivityRequest(
-                provider="codex",
+                kind="llm",
+                provider="openai",
                 protocol="openai_responses",
                 data={
                     "OPENAI_API_KEY": "sk-test",
@@ -140,3 +144,38 @@ async def test_secret_connectivity_rejects_unallowlisted_llm_host(monkeypatch):
         )
 
     assert exc_info.value.code == "SECRET_TEST_BASE_URL_NOT_ALLOWED"
+
+
+@pytest.mark.asyncio
+async def test_secret_connectivity_uses_provider_binding_default_base_url(monkeypatch):
+    monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "api.deepseek.com")
+    monkeypatch.setattr(secrets.httpx, "AsyncClient", FakeAsyncClient)
+    FakeAsyncClient.captured = {}
+    FakeAsyncClient.response = httpx.Response(200, json={"ok": True})
+
+    result = await secrets._test_secret_connectivity(
+        SecretConnectivityRequest(
+            kind="llm",
+            provider="deepseek",
+            protocol="chat_completions",
+            data={"OPENAI_API_KEY": "sk-test", "OPENAI_MODEL": "deepseek-chat"},
+        )
+    )
+
+    assert result.ok is True
+    assert FakeAsyncClient.captured["endpoint"] == "https://api.deepseek.com/chat/completions"
+
+
+@pytest.mark.asyncio
+async def test_secret_connectivity_rejects_invalid_provider_protocol_binding():
+    with pytest.raises(InvalidRequestError) as exc_info:
+        await secrets._test_secret_connectivity(
+            SecretConnectivityRequest(
+                kind="llm",
+                provider="deepseek",
+                protocol="openai_responses",
+                data={"OPENAI_API_KEY": "sk-test"},
+            )
+        )
+
+    assert exc_info.value.code == "LLM_PROVIDER_PROTOCOL_UNSUPPORTED"

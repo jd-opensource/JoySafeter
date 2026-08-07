@@ -28,6 +28,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.compatibility import (
+    LlmCompatibilityError,
+    validate_credential_data,
+    validate_provider_protocol,
+)
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_domain.services.joysafeter_skill_authoring import (
     stream_authoring_chat,
@@ -238,21 +244,60 @@ async def authoring_chat(
             data={"secret_ref": req.secret_ref},
             user_action="fix_input",
         )
-    data = svc.get_secret_data(secret)
-    api_key = data.get("OPENAI_API_KEY") or ""
-    if not api_key:
+    if secret.kind != "llm" or not secret.provider or secret.protocol != "openai_responses":
         raise InvalidRequestError(
-            code="SKILL_AUTHORING_SECRET_MISSING_KEY",
-            message="Secret missing OPENAI_API_KEY.",
-            data={"secret_ref": req.secret_ref, "required_key": "OPENAI_API_KEY"},
+            code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
+            message="Skill authoring requires an OpenAI Responses compatible model configuration.",
+            data={
+                "secret_ref": req.secret_ref,
+                "kind": secret.kind,
+                "provider": secret.provider,
+                "protocol": secret.protocol,
+                "required_protocol": "openai_responses",
+            },
             user_action="fix_input",
         )
-    base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+    try:
+        binding = validate_provider_protocol(secret.provider, secret.protocol)
+        data = svc.get_secret_data(secret)
+        validate_credential_data(secret.provider, secret.protocol, data)
+    except LlmCompatibilityError as exc:
+        if exc.code == "LLM_SECRET_CREDENTIALS_INCOMPLETE" and exc.data.get(
+            "required_fields"
+        ) == ["OPENAI_API_KEY"]:
+            raise InvalidRequestError(
+                code="SKILL_AUTHORING_SECRET_MISSING_KEY",
+                message="Secret missing OPENAI_API_KEY.",
+                data={"secret_ref": req.secret_ref, "required_key": "OPENAI_API_KEY"},
+                user_action="fix_input",
+            ) from exc
+        raise InvalidRequestError(
+            code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
+            message="Skill authoring model configuration is invalid.",
+            data={
+                "secret_ref": req.secret_ref,
+                "provider": secret.provider,
+                "protocol": secret.protocol,
+            },
+            user_action="fix_input",
+        ) from exc
+    profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+    api_key = data.get("OPENAI_API_KEY") or ""
+    base_url_key = profile.base_url_key or "BASE_URL"
+    base_url = data.get(base_url_key) or binding.default_base_url
+    if not base_url:
+        raise InvalidRequestError(
+            code="SKILL_AUTHORING_BASE_URL_REQUIRED",
+            message=f"{base_url_key} is required for skill authoring.",
+            data={"secret_ref": req.secret_ref, "key": base_url_key},
+            user_action="fix_input",
+        )
     try:
         base_url = validate_llm_base_url(base_url, key="OPENAI_BASE_URL")
     except LLMBaseUrlError as exc:
         raise _authoring_base_url_error(exc, secret_ref=req.secret_ref) from None
-    model = data.get("OPENAI_MODEL") or "gpt-5.5"
+    model = data.get(profile.model_key) if profile.model_key else None
+    model = model or "gpt-5.5"
 
     history = [m.model_dump() for m in req.messages]
     draft_dict = req.draft.model_dump() if req.draft else None

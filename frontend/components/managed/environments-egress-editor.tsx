@@ -16,7 +16,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTranslation } from '@/lib/i18n'
-import { isCustomSecretProvider } from '@/lib/managed/secret-keys'
 import type { EnvironmentEgressService, Secret } from '@/types/managed'
 
 // Sentinel value for the "create secret" option in the credential dropdown.
@@ -296,8 +295,7 @@ export function EgressServicesEditor({
     })
   }
 
-  // 只列第三方服务（custom）的密钥；大模型引擎密钥不适用于 egress 凭证注入。
-  const customSecrets = secrets.filter((secret) => isCustomSecretProvider(secret.provider))
+  const customSecrets = secrets.filter((secret) => secret.kind === 'generic')
 
   const changeService = (
     index: number,

@@ -1,430 +1,339 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useTranslation } from '@/lib/i18n'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Plus, Trash2, Eye, EyeOff, Save } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Eye, EyeOff, Plus, Save, Trash2 } from 'lucide-react'
+import React, { useEffect, useMemo, useState } from 'react'
+
+import { CompatibleEngineBadges } from '@/components/managed/shared/compatible-engine-badges'
+import { LlmCatalogPageState } from '@/components/managed/llm/llm-catalog-page-state'
+import {
+  FormFieldLabel,
+  MonoId,
+  PageHeader,
+  RelativeTime,
+  ResourceErrorState,
+} from '@/components/managed/shared'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { useCurrentProjectReadOnly } from '@/hooks/managed/use-current-project-read-only'
+import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { managedGet, managedPut } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
-import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
+import { findCredentialProfileForBinding } from '@/lib/managed/llm-catalog'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
-  managedScopeKey,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import { parseSecretId, type SecretId } from '@/types/entity-id'
+import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
+import { isSecretValueMaskedKey } from '@/lib/managed/secret-keys'
+import { secretDetailQueryKey } from '@/lib/managed/secret-query-keys'
+import { parseSecretId } from '@/types/entity-id'
+import type { LlmCredentialField } from '@/types/llm'
 import type { SecretDetail } from '@/types/managed'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  PageHeader,
-  MonoId,
-  RelativeTime,
-  ResourceErrorState,
-  SecretKeySelect,
-  SecretModelInput,
-} from '@/components/managed/shared'
-import {
-  getDefaultProtocol,
-  isCustomSecretProvider,
-  isModelKey,
-  isSecretValueMaskedKey,
-  normalizeSecretProvider,
-  SECRET_PROTOCOL_OPTIONS,
-  SECRET_PROVIDER_GROUPS,
-} from '@/lib/managed/secret-keys'
-import { useProjectStore } from '@/stores/managed/project-store'
-import {
-  currentProjectAllowsWrite,
-  useCurrentProjectReadOnly,
-} from '@/hooks/managed/use-current-project-read-only'
 
-interface KVPair {
+interface GenericPair {
   key: string
   value: string
 }
 
-interface SaveSecretVariables {
-  secretId: SecretId
-  payload: {
-    name: string
-    provider: string
-    protocol: string
-    data: Record<string, string>
-  }
-  requestScope: ManagedRequestScope
-  runId: number
-  scope: string
+function inputType(field: LlmCredentialField, showValues: boolean) {
+  if (field.type === 'secret' && !showValues) return 'password'
+  if (field.type === 'url') return 'url'
+  return 'text'
 }
 
 export default function SecretDetailPage({ params }: { params: Promise<{ secretId: string }> }) {
   const { secretId: rawSecretId } = React.use(params)
   const secretId = parseSecretId(rawSecretId)
   const { t } = useTranslation()
-  const router = useRouter()
   const queryClient = useQueryClient()
-  const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = useManagedRequestScope()
-  const operationScope = `${managedScope.key}:${secretId ?? ''}`
-  const saveRunRef = useRef(0)
-  const operationScopeRef = useRef(operationScope)
-  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
-  const hydratedSecretScopeRef = useRef<string | null>(null)
-
-  const [pairs, setPairs] = useState<KVPair[]>([])
-  const [provider, setProvider] = useState('custom')
-  const [protocol, setProtocol] = useState('custom')
+  const projectReadOnly = useCurrentProjectReadOnly()
+  const catalogQuery = useLlmCatalog()
+  const catalogVersion = catalogQuery.data?.version ?? ''
+  const catalogReady = catalogQuery.isSuccess && Boolean(catalogVersion)
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [genericPairs, setGenericPairs] = useState<GenericPair[]>([])
   const [showValues, setShowValues] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const {
-    data: secret,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
-    queryKey: ['secret', managedScope.key, secretId],
+  const secretQuery = useQuery({
+    queryKey: secretDetailQueryKey(managedScope.key, secretId, catalogVersion),
     queryFn: () =>
       managedGet<unknown>(
         apiResourcePath('secrets', secretId),
         managedRequestOptions(managedScope),
       ).then(parseSecretDetailResponse),
-    enabled: !!secretId && hasManagedRequestScope(managedScope),
+    enabled: catalogReady && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
 
   useEffect(() => {
-    if (operationScopeRef.current !== operationScope) {
-      operationScopeRef.current = operationScope
-      managedRequestScopeRef.current = managedScope
-      saveRunRef.current += 1
+    if (!secretQuery.data || dirty) return
+    setValues(secretQuery.data.secret_data)
+    setGenericPairs(
+      Object.entries(secretQuery.data.secret_data).map(([key, value]) => ({ key, value })),
+    )
+  }, [dirty, secretQuery.data])
+
+  const profile = useMemo(() => {
+    const secret = secretQuery.data
+    if (
+      !catalogQuery.data ||
+      !secret ||
+      secret.kind !== 'llm' ||
+      !secret.provider ||
+      !secret.protocol
+    ) {
+      return null
     }
-  }, [operationScope])
+    return findCredentialProfileForBinding(catalogQuery.data, secret.provider, secret.protocol)
+  }, [catalogQuery.data, secretQuery.data])
+  const catalogIdentityUnavailable =
+    secretQuery.data?.kind === 'llm' && catalogQuery.isSuccess && !profile
 
-  useEffect(
-    () => () => {
-      saveRunRef.current += 1
-    },
-    [],
-  )
-
-  useEffect(() => {
-    if (secret?.secret_data) {
-      const shouldHydrate = !dirty || hydratedSecretScopeRef.current !== operationScope
-      if (!shouldHydrate) return
-
-      setProvider(normalizeSecretProvider(secret.provider))
-      setProtocol(secret.protocol || 'custom')
-      setPairs(Object.entries(secret.secret_data).map(([key, value]) => ({ key, value })))
-      hydratedSecretScopeRef.current = operationScope
+  const save = async () => {
+    const secret = secretQuery.data
+    if (!secret || projectReadOnly) return
+    const data =
+      secret.kind === 'llm'
+        ? values
+        : Object.fromEntries(
+            genericPairs
+              .map((pair) => [pair.key.trim(), pair.value] as const)
+              .filter(([key]) => Boolean(key)),
+          )
+    setSaving(true)
+    try {
+      const response = await managedPut<unknown>(
+        apiResourcePath('secrets', secret.id),
+        { data },
+        managedRequestOptions(managedScope),
+      )
+      const updated = parseSecretDetailResponse(response)
+      queryClient.setQueryData(
+        secretDetailQueryKey(managedScope.key, secret.id, catalogVersion),
+        updated,
+      )
+      queryClient.invalidateQueries({ queryKey: ['secrets', managedScope.key] })
+      queryClient.invalidateQueries({ queryKey: ['compatible-secrets', managedScope.key] })
+      setValues(updated.secret_data)
+      setGenericPairs(Object.entries(updated.secret_data).map(([key, value]) => ({ key, value })))
       setDirty(false)
-    }
-  }, [dirty, operationScope, secret])
-
-  const updatePair = (index: number, field: 'key' | 'value', val: string) => {
-    if (!currentProjectAllowsWrite()) return
-    setPairs((prev) => prev.map((p, i) => (i === index ? { ...p, [field]: val } : p)))
-    setDirty(true)
-  }
-
-  const removePair = (index: number) => {
-    if (!currentProjectAllowsWrite()) return
-    setPairs((prev) => prev.filter((_, i) => i !== index))
-    setDirty(true)
-  }
-
-  const addPair = () => {
-    if (!currentProjectAllowsWrite()) return
-    setPairs((prev) => [...prev, { key: '', value: '' }])
-    setDirty(true)
-  }
-
-  const updateProvider = (nextProvider: string) => {
-    if (!currentProjectAllowsWrite()) return
-    const nextProtocol = getDefaultProtocol(nextProvider)
-    setProvider(nextProvider)
-    setProtocol(nextProtocol)
-    setDirty(true)
-  }
-
-  const updateProtocol = (nextProtocol: string) => {
-    if (!currentProjectAllowsWrite()) return
-    setProtocol(nextProtocol)
-    setDirty(true)
-  }
-
-  const buildSavePayload = (): SaveSecretVariables['payload'] => {
-    const data: Record<string, string> = {}
-    for (const p of pairs) {
-      if (p.key.trim()) {
-        data[p.key.trim()] = p.value
-      }
-    }
-    return {
-      name: secret!.name,
-      provider,
-      protocol,
-      data,
-    }
-  }
-
-  const getCurrentOperationScope = () => {
-    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${managedScopeKey(orgId, projectId)}:${secretId ?? ''}`
-  }
-
-  const getCurrentManagedScope = () => {
-    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return managedScopeKey(orgId, projectId)
-  }
-
-  const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
-    operationScopeRef.current === scope && getCurrentOperationScope() === scope
-
-  const currentSecretDetail = () => {
-    if (!currentOperationScopeIsActive()) return null
-    if (!currentProjectAllowsWrite()) return null
-    const current = queryClient.getQueryData<SecretDetail>([
-      'secret',
-      getCurrentManagedScope(),
-      secretId,
-    ])
-    return current?.id === secretId ? current : null
-  }
-
-  const isCurrentSaveRun = (runId: number, scope: string) =>
-    saveRunRef.current === runId &&
-    operationScopeRef.current === scope &&
-    getCurrentOperationScope() === scope &&
-    currentProjectAllowsWrite()
-
-  const saveMutation = useMutation({
-    mutationFn: async ({ secretId, payload, requestScope, runId, scope }: SaveSecretVariables) => {
-      if (!isCurrentSaveRun(runId, scope)) return undefined
-      return managedPut<unknown>(
-        apiResourcePath('secrets', secretId),
-        payload,
-        managedRequestOptions(requestScope),
-      ).then(parseSecretDetailResponse)
-    },
-    onSuccess: (_data, { secretId, requestScope, runId, scope }) => {
-      if (!isCurrentSaveRun(runId, scope)) return
-      setDirty(false)
-      queryClient.invalidateQueries({ queryKey: ['secret', requestScope.key, secretId] })
-    },
-    onError: (error, { runId, scope }) => {
-      if (!isCurrentSaveRun(runId, scope)) return
+    } catch (error) {
       toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  if (isLoading) {
-    return <div className="p-8 text-muted-foreground">{t('common.loading')}</div>
+    } finally {
+      setSaving(false)
+    }
   }
 
-  if (isError || !secret) {
+  if (catalogQuery.isError) {
+    return <LlmCatalogPageState state="error" onRetry={() => catalogQuery.refetch()} />
+  }
+  if (!catalogReady) {
+    return <LlmCatalogPageState state="loading" />
+  }
+  if (secretQuery.isError) {
     return (
       <ResourceErrorState
-        error={error}
+        error={secretQuery.error}
         resource="secret"
-        backLabel={t('managed.secrets.backToList')}
-        onBack={() => router.push('/managed/secrets')}
+        onRetry={() => secretQuery.refetch()}
       />
     )
   }
+  if (secretQuery.isLoading || !secretQuery.data) {
+    return (
+      <div className="py-10 text-center text-sm text-muted-foreground">{t('common.loading')}</div>
+    )
+  }
 
+  const secret: SecretDetail = secretQuery.data
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
-        title={secret.name || secretId}
+        title={secret.name}
         breadcrumb={[
           { label: t('managed.secrets.title'), to: '/managed/secrets' },
-          { label: secret.name || secretId },
+          { label: secret.name },
         ]}
+        titleExtra={
+          <Badge variant={secret.kind === 'llm' ? 'default' : 'outline'}>
+            {secret.kind === 'llm'
+              ? t('managed.llm.modelConfiguration')
+              : t('managed.llm.genericSecret')}
+          </Badge>
+        }
         action={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.push('/managed/secrets')}>
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              {t('common.back')}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                const current = currentSecretDetail()
-                if (!current) return
-                const requestScope = managedRequestScopeRef.current
-                const scope = operationScopeRef.current
-                if (!currentOperationScopeIsActive(scope)) return
-                const runId = saveRunRef.current + 1
-                saveRunRef.current = runId
-                saveMutation.mutate({
-                  secretId: current.id,
-                  payload: { ...buildSavePayload(), name: current.name },
-                  requestScope,
-                  runId,
-                  scope,
-                })
-              }}
-              disabled={!dirty || projectReadOnly || saveMutation.isPending}
-            >
+          projectReadOnly ? null : (
+            <Button onClick={save} disabled={!dirty || saving || catalogIdentityUnavailable}>
               <Save className="mr-1 h-4 w-4" />
-              {saveMutation.isPending ? t('common.saving') : t('common.save')}
+              {saving ? t('common.loading') : t('common.save')}
             </Button>
-          </div>
+          )
         }
       />
 
-      <div className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground">
-        <MonoId id={secret.id || secretId} truncate={false} />
-        <span>·</span>
-        <RelativeTime date={secret.created_at} />
-      </div>
-
-      <div className="space-y-4 rounded-lg border border-border p-6">
-        {!isCustomSecretProvider(provider) && (
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] gap-2">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('managed.secrets.provider')}</label>
-              <Select value={provider} onValueChange={updateProvider} disabled={projectReadOnly}>
-                <SelectTrigger disabled={projectReadOnly}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SECRET_PROVIDER_GROUPS.map((group) => (
-                    <SelectGroup key={group.label}>
-                      <SelectLabel className="flex items-center gap-2 px-2 py-2">
-                        <span
-                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white"
-                          style={{ backgroundColor: group.bgColor }}
-                        >
-                          {group.icon}
-                        </span>
-                        <span className="text-sm font-semibold text-foreground">
-                          {t(group.labelKey, { defaultValue: group.label })}
-                        </span>
-                      </SelectLabel>
-                      {group.options.map((item, i) => {
-                        const isLast = i === group.options.length - 1
-                        const prefix = isLast ? '└' : '├'
-                        return (
-                          <SelectItem key={item.value} value={item.value} className="pl-8 text-sm">
-                            <span className="flex items-center gap-1.5">
-                              <span className="text-xs text-muted-foreground/50">{prefix}</span>
-                              {item.label}
-                            </span>
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">{t('managed.secrets.protocol')}</label>
-              <Select value={protocol} onValueChange={updateProtocol} disabled={projectReadOnly}>
-                <SelectTrigger disabled={projectReadOnly}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SECRET_PROTOCOL_OPTIONS.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="h-10 w-10" />
+      <section className="grid gap-4 rounded-xl border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <p className="text-xs text-muted-foreground">{t('managed.table.id')}</p>
+          <MonoId id={secret.id} />
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">{t('managed.llm.provider')}</p>
+          <p className="mt-1 text-sm font-medium">{secret.provider ?? '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">{t('managed.llm.protocol')}</p>
+          <p className="mt-1 text-sm font-medium">{secret.protocol ?? '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">{t('managed.table.updated')}</p>
+          <p className="mt-1 text-sm">
+            <RelativeTime date={secret.updated_at} />
+          </p>
+        </div>
+        {secret.kind === 'llm' ? (
+          <div className="sm:col-span-2 lg:col-span-4">
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t('managed.llm.compatibleEngines')}
+            </p>
+            <CompatibleEngineBadges engineIds={secret.compatible_engine_ids} />
           </div>
-        )}
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium">{t('managed.secrets.dataLabel')}</label>
-          <Button variant="ghost" size="sm" onClick={() => setShowValues(!showValues)}>
+        ) : null}
+      </section>
+
+      <section className="space-y-4 rounded-xl border bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">{t('managed.secrets.dataLabel')}</h2>
+            {secret.kind === 'llm' ? (
+              <p className="text-xs text-muted-foreground">
+                {t('managed.llm.identityImmutableHint')}
+              </p>
+            ) : null}
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setShowValues((v) => !v)}>
             {showValues ? <EyeOff className="mr-1 h-4 w-4" /> : <Eye className="mr-1 h-4 w-4" />}
             {showValues ? t('managed.secrets.hideValues') : t('managed.secrets.showValues')}
           </Button>
         </div>
 
-        <div className="space-y-2">
-          {pairs.map((pair, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.5rem] items-center gap-2"
-            >
-              {isCustomSecretProvider(provider) ? (
+        {secret.kind === 'llm' ? (
+          profile ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {profile.fields.map((field) => (
+                <div key={field.key} className="space-y-2">
+                  <FormFieldLabel htmlFor={`secret-${field.key}`} required={field.required}>
+                    {field.label}
+                  </FormFieldLabel>
+                  {field.type === 'select' ? (
+                    <select
+                      id={`secret-${field.key}`}
+                      value={values[field.key] ?? ''}
+                      disabled={projectReadOnly}
+                      onChange={(event) => {
+                        setValues((current) => ({ ...current, [field.key]: event.target.value }))
+                        setDirty(true)
+                      }}
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">{t('common.select')}</option>
+                      {field.options.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      id={`secret-${field.key}`}
+                      type={inputType(field, showValues)}
+                      value={values[field.key] ?? ''}
+                      disabled={projectReadOnly}
+                      onChange={(event) => {
+                        setValues((current) => ({ ...current, [field.key]: event.target.value }))
+                        setDirty(true)
+                      }}
+                    />
+                  )}
+                  <code className="block text-[11px] text-muted-foreground">{field.key}</code>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Alert variant="destructive">
+              <AlertDescription>{t('managed.llm.catalogIdentityUnavailable')}</AlertDescription>
+            </Alert>
+          )
+        ) : (
+          <div className="space-y-3">
+            {genericPairs.map((pair, index) => (
+              <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                 <Input
-                  placeholder={t('managed.secrets.customKeyPlaceholder')}
                   value={pair.key}
-                  onChange={(e) => updatePair(i, 'key', e.target.value)}
-                  className="min-w-0 font-mono text-sm"
                   disabled={projectReadOnly}
+                  onChange={(event) => {
+                    setGenericPairs((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, key: event.target.value } : item,
+                      ),
+                    )
+                    setDirty(true)
+                  }}
                 />
-              ) : (
-                <SecretKeySelect
-                  value={pair.key}
-                  onChange={(v) => updatePair(i, 'key', v)}
-                  placeholder={t('managed.secrets.keyPlaceholder')}
-                  className="min-w-0"
-                  provider={provider}
-                  protocol={protocol}
-                  disabled={projectReadOnly}
-                />
-              )}
-              {isModelKey(pair.key) ? (
-                <SecretModelInput
-                  value={pair.value}
-                  onChange={(v) => updatePair(i, 'value', v)}
-                  placeholder={t('managed.secrets.selectModel')}
-                  className="min-w-0"
-                  disabled={projectReadOnly}
-                />
-              ) : (
                 <Input
-                  placeholder={t('managed.secrets.valuePlaceholder')}
+                  type={isSecretValueMaskedKey(pair.key) && !showValues ? 'password' : 'text'}
                   value={pair.value}
-                  onChange={(e) => updatePair(i, 'value', e.target.value)}
-                  className="min-w-0 font-mono text-sm"
-                  type={!isSecretValueMaskedKey(pair.key) || showValues ? 'text' : 'password'}
                   disabled={projectReadOnly}
+                  onChange={(event) => {
+                    setGenericPairs((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, value: event.target.value } : item,
+                      ),
+                    )
+                    setDirty(true)
+                  }}
                 />
-              )}
-              {projectReadOnly ? (
-                <div className="h-10 w-10" />
-              ) : (
                 <Button
+                  type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={() => removePair(i)}
-                  className="h-10 w-10 text-muted-foreground hover:text-destructive"
+                  disabled={projectReadOnly}
+                  onClick={() => {
+                    setGenericPairs((current) =>
+                      current.filter((_, itemIndex) => itemIndex !== index),
+                    )
+                    setDirty(true)
+                  }}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {!projectReadOnly && (
-          <Button variant="outline" size="sm" onClick={addPair}>
-            <Plus className="mr-1 h-3 w-3" />
-            {t('managed.secrets.addPair')}
-          </Button>
+              </div>
+            ))}
+            {!projectReadOnly ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setGenericPairs((current) => [...current, { key: '', value: '' }])
+                  setDirty(true)
+                }}
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                {t('managed.secrets.addPair')}
+              </Button>
+            ) : null}
+          </div>
         )}
-      </div>
+      </section>
     </div>
   )
 }

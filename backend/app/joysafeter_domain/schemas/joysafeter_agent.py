@@ -124,7 +124,7 @@ class SkillRef(BaseModel):
 
 class JoySafeterCreateAgentRequest(BaseModel):
     name: str
-    engine_kind: JoySafeterEngineKind = JoySafeterEngineKind.CLAUDE
+    engine_kind: JoySafeterEngineKind
     model: Union[str, JoySafeterModelConfig, None] = None
     system: Optional[str] = None
     description: Optional[str] = None
@@ -144,7 +144,10 @@ class JoySafeterCreateAgentRequest(BaseModel):
     @field_validator("name", "description", "environment_ref", "secret_ref")
     @classmethod
     def trim_config_value(cls, v: Optional[str]) -> Optional[str]:
-        return v.strip() if v is not None else v
+        if v is None:
+            return None
+        normalized = v.strip()
+        return normalized or None
 
     @model_validator(mode="before")
     @classmethod
@@ -179,7 +182,10 @@ class JoySafeterUpdateAgentRequest(BaseModel):
     @field_validator("name", "description", "environment_ref", "secret_ref")
     @classmethod
     def trim_config_value(cls, v: Optional[str]) -> Optional[str]:
-        return v.strip() if v is not None else v
+        if v is None:
+            return None
+        normalized = v.strip()
+        return normalized or None
 
     @model_validator(mode="before")
     @classmethod

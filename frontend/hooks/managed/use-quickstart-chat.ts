@@ -27,7 +27,7 @@ import {
 import { currentProjectAllowsWrite } from './use-current-project-read-only'
 
 export type StepId = 1 | 2 | 3 | 4 | 5 | 6
-export type QuickstartEngine = 'claude' | 'codex' | 'native' | 'pi'
+export type QuickstartEngine = string
 
 export interface ChatMessage {
   id: string
@@ -55,13 +55,6 @@ interface CreateSessionOptions {
 function getCurrentManagedScope() {
   const { currentOrgId, currentProjectId } = useProjectStore.getState()
   return managedScopeKey(currentOrgId, currentProjectId)
-}
-
-const ENGINE_CONFIG: Record<QuickstartEngine, { engineKind: string }> = {
-  claude: { engineKind: 'claude' },
-  codex: { engineKind: 'codex' },
-  native: { engineKind: 'native' },
-  pi: { engineKind: 'pi' },
 }
 
 function apiStepForUiStep(step: StepId): number {
@@ -124,10 +117,7 @@ function toApiStatusError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-export function useQuickstartChat(
-  agentSecretRef: string,
-  generationSecret?: { secretRef: string; provider: QuickstartEngine },
-) {
+export function useQuickstartChat(agentSecretRef: string) {
   const { t } = useTranslation()
   const managedScope = useManagedRequestScope()
   const managedScopeKeyValue = managedScope.key
@@ -230,7 +220,7 @@ export function useQuickstartChat(
       options?: {
         stepOverride?: StepId
         hidden?: boolean
-        providerOverride?: QuickstartEngine
+        engineKindOverride?: QuickstartEngine
         secretRefOverride?: string
       },
     ) => {
@@ -238,9 +228,9 @@ export function useQuickstartChat(
       if (streamInFlightRef.current || !trimmedText) return
       const step = options?.stepOverride ?? currentStep
       const hidden = options?.hidden ?? false
-      const provider = options?.providerOverride ?? generationSecret?.provider ?? 'claude'
-      const requestSecretRef =
-        options?.secretRefOverride ?? generationSecret?.secretRef ?? agentSecretRef
+      const engineKind = options?.engineKindOverride ?? selectedEngine
+      if (!engineKind) return
+      const requestSecretRef = options?.secretRefOverride ?? agentSecretRef
       const requestScope = managedRequestScopeRef.current
       const scopeAtStart = requestScope.key
       if (!isCurrentWritableManagedScope(scopeAtStart)) return
@@ -286,7 +276,7 @@ export function useQuickstartChat(
           {
             messages: historyForApi,
             current_step: apiStepForUiStep(step),
-            provider,
+            engine_kind: engineKind,
             secret_ref: requestSecretRef,
             agent_context: step === 4 || step === 5 ? configRef.current.agent : undefined,
           },
@@ -424,7 +414,7 @@ export function useQuickstartChat(
         }
       }
     },
-    [messages, currentStep, generationSecret, agentSecretRef, isCurrentWritableManagedScope, t],
+    [messages, currentStep, selectedEngine, agentSecretRef, isCurrentWritableManagedScope, t],
   )
 
   const createSession = useCallback(
@@ -709,12 +699,12 @@ export function useQuickstartChat(
       if (step === 3) {
         const a = latestConfig.agent
         if (!a) throw new Error(t('managed.quickstart.errors.agentConfigMissing'))
-        const engine = selectedEngine || 'claude'
-        const engineConfig = ENGINE_CONFIG[engine]
+        const engine = selectedEngine
+        if (!engine) throw new Error(t('managed.quickstart.errors.engineMissing'))
         result = await managedPost(
           'agents',
           buildQuickstartAgentCreateBody(a, {
-            engineKind: engineConfig.engineKind,
+            engineKind: engine,
             secretRef: agentSecretRef,
             suffix,
           }),
@@ -887,7 +877,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
 
     const requestScope = managedRequestScopeRef.current
     const scopeAtStart = requestScope.key
-    if (!isCurrentWritableManagedScope(scopeAtStart)) {
+    if (!selectedEngine || !isCurrentWritableManagedScope(scopeAtStart)) {
       return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     }
 
@@ -897,8 +887,8 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
         {
           messages: [{ role: 'user', content: prompt }],
           current_step: 5,
-          provider: generationSecret?.provider ?? 'claude',
-          secret_ref: generationSecret?.secretRef ?? agentSecretRef,
+          engine_kind: selectedEngine,
+          secret_ref: agentSecretRef,
           agent_context: agent,
         },
         managedRequestOptions(requestScope),
@@ -944,7 +934,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     } catch {
       return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     }
-  }, [agentSecretRef, generationSecret, isCurrentWritableManagedScope, t])
+  }, [agentSecretRef, selectedEngine, isCurrentWritableManagedScope, t])
 
   return {
     messages,

@@ -881,6 +881,12 @@ export function managedGet<T>(
   return apiFetch<T>(buildManagedUrl(url), { ...options, headers, method: 'GET' })
 }
 
+export function managedGetLlmCatalog(
+  options?: Omit<ApiRequestOptions, 'method' | 'body'>,
+): Promise<unknown> {
+  return managedGet<unknown>('/llm/catalog', options)
+}
+
 export function managedPost<T>(
   url: string,
   body?: unknown,

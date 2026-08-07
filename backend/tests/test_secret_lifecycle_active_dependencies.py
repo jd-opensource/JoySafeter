@@ -57,8 +57,9 @@ class _DisabledCipher:
 async def _secret(db_session, *, name: str | None = None) -> JoySafeterSecret:
     secret = JoySafeterSecret(
         name=name or f"secret-{uuid.uuid4()}",
-        provider="custom",
-        protocol="custom",
+        kind="generic",
+        provider=None,
+        protocol=None,
         data=encrypted_secret_data({"TOKEN": "value"}),
     )
     db_session.add(secret)
@@ -91,9 +92,26 @@ async def _project_secret(db_session, *, project_id: str, name: str | None = Non
     await _ensure_project(db_session, project_id)
     secret = JoySafeterSecret(
         name=name or f"secret-{uuid.uuid4()}",
-        provider="custom",
-        protocol="custom",
+        kind="generic",
+        provider=None,
+        protocol=None,
         data=encrypted_secret_data({"TOKEN": "value"}),
+        project_id=project_id,
+    )
+    db_session.add(secret)
+    await db_session.commit()
+    await db_session.refresh(secret)
+    return secret
+
+
+async def _project_llm_secret(db_session, *, project_id: str, name: str | None = None) -> JoySafeterSecret:
+    await _ensure_project(db_session, project_id)
+    secret = JoySafeterSecret(
+        name=name or f"llm-secret-{uuid.uuid4()}",
+        kind="llm",
+        provider="openai",
+        protocol="openai_responses",
+        data=encrypted_secret_data({"OPENAI_API_KEY": "value"}),
         project_id=project_id,
     )
     db_session.add(secret)
@@ -350,7 +368,7 @@ async def test_create_secret_reports_missing_vault_configuration(db_session, mon
         _DisabledCipher(),
     )
 
-    req = CreateSecretRequest(name=f"new-secret-{uuid.uuid4()}", data={"TOKEN": "new-value"})
+    req = CreateSecretRequest(kind="generic", name=f"new-secret-{uuid.uuid4()}", data={"TOKEN": "new-value"})
     with pytest.raises(AppError) as exc_info:
         await create_secret(req, None, db_session, _auth_ctx())  # type: ignore[arg-type]
 
@@ -420,8 +438,8 @@ async def test_delete_secret_rejects_cross_project_at_service_boundary(db_sessio
 
 @pytest.mark.asyncio
 async def test_set_default_secret_rejects_cross_project_at_service_boundary(db_session):
-    target = await _project_secret(db_session, project_id="project-b")
-    default = await _project_secret(db_session, project_id="project-a")
+    target = await _project_llm_secret(db_session, project_id="project-b")
+    default = await _project_llm_secret(db_session, project_id="project-a")
     target_id = target.id
     default_id = default.id
     default.is_default = True
@@ -443,9 +461,9 @@ async def test_set_default_secret_rejects_cross_project_at_service_boundary(db_s
 
 @pytest.mark.asyncio
 async def test_set_default_secret_clears_only_current_project_defaults(db_session):
-    project_a_default = await _project_secret(db_session, project_id="project-a")
-    project_a_next = await _project_secret(db_session, project_id="project-a")
-    project_b_default = await _project_secret(db_session, project_id="project-b")
+    project_a_default = await _project_llm_secret(db_session, project_id="project-a")
+    project_a_next = await _project_llm_secret(db_session, project_id="project-a")
+    project_b_default = await _project_llm_secret(db_session, project_id="project-b")
     project_a_default_id = project_a_default.id
     project_a_next_id = project_a_next.id
     project_b_default_id = project_b_default.id
@@ -487,7 +505,7 @@ async def test_create_secret_purges_only_same_project_soft_deleted_name(db_sessi
     await db_session.commit()
 
     created = await SecretService(db_session).create_secret(
-        CreateSecretRequest(name="old-secret", data={}),
+        CreateSecretRequest(kind="generic", name="old-secret", data={}),
         project_id="project-a",
     )
 

@@ -27,10 +27,10 @@ def _auth_ctx() -> JoySafeterAuthContext:
     )
 
 
-def _chat_req(*, secret_ref: str, provider: str = "codex") -> QuickstartChatRequest:
+def _chat_req(*, secret_ref: str, engine_kind: str = "codex") -> QuickstartChatRequest:
     return QuickstartChatRequest(
         secret_ref=secret_ref,
-        provider=provider,
+        engine_kind=engine_kind,
         messages=[QuickstartMessage(role="user", content="help me configure an agent")],
     )
 
@@ -79,7 +79,7 @@ async def test_quickstart_chat_missing_secret_returns_structured_error(db_sessio
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "QUICKSTART_SECRET_NOT_FOUND",
         "message": "Secret not found or missing required keys",
-        "data": {"secret_ref": missing_ref, "provider": "codex"},
+        "data": {"secret_ref": missing_ref, "engine_kind": "codex"},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -90,7 +90,8 @@ async def test_quickstart_chat_missing_secret_returns_structured_error(db_sessio
 async def test_quickstart_chat_missing_provider_key_returns_structured_error(db_session):
     secret = JoySafeterSecret(
         name=f"quickstart-missing-key-{uuid.uuid4()}",
-        provider="codex",
+        kind="llm",
+        provider="openai",
         protocol="openai_responses",
         data=encrypted_secret_data({"OPENAI_MODEL": "gpt-5.3-codex"}),
     )
@@ -102,9 +103,13 @@ async def test_quickstart_chat_missing_provider_key_returns_structured_error(db_
         await quickstart_chat(_chat_req(secret_ref=secret.name), db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
-        "code": "QUICKSTART_SECRET_MISSING_KEY",
-        "message": "Secret not found or missing required keys",
-        "data": {"secret_ref": secret.name, "provider": "codex", "required_key": "OPENAI_API_KEY"},
+        "code": "LLM_SECRET_CREDENTIALS_INCOMPLETE",
+        "message": "Required LLM credential fields are missing",
+        "data": {
+            "provider": "openai",
+            "protocol": "openai_responses",
+            "required_fields": ["OPENAI_API_KEY"],
+        },
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -115,7 +120,8 @@ async def test_quickstart_chat_missing_provider_key_returns_structured_error(db_
 async def test_quickstart_chat_invalid_base_url_returns_structured_error(db_session):
     secret = JoySafeterSecret(
         name=f"quickstart-invalid-url-{uuid.uuid4()}",
-        provider="codex",
+        kind="llm",
+        provider="openai",
         protocol="openai_responses",
         data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "http://169.254.169.254/latest"}),
     )
@@ -130,7 +136,7 @@ async def test_quickstart_chat_invalid_base_url_returns_structured_error(db_sess
         "code": "QUICKSTART_BASE_URL_INVALID",
         "message": "Invalid OPENAI_BASE_URL",
         "data": {
-            "provider": "codex",
+            "provider": "openai",
             "key": "OPENAI_BASE_URL",
             "base_url": "http://169.254.169.254/latest",
         },
@@ -145,7 +151,8 @@ async def test_quickstart_chat_rejects_unallowlisted_openai_base_url(db_session,
     monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "api.openai.com")
     secret = JoySafeterSecret(
         name=f"quickstart-unallowlisted-url-{uuid.uuid4()}",
-        provider="codex",
+        kind="llm",
+        provider="openai",
         protocol="openai_responses",
         data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"}),
     )
@@ -160,7 +167,7 @@ async def test_quickstart_chat_rejects_unallowlisted_openai_base_url(db_session,
         "code": "QUICKSTART_BASE_URL_NOT_ALLOWED",
         "message": "OPENAI_BASE_URL host is not allowlisted.",
         "data": {
-            "provider": "codex",
+            "provider": "openai",
             "key": "OPENAI_BASE_URL",
             "base_url": "https://evil.example.com/v1",
             "host": "evil.example.com",

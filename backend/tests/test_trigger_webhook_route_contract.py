@@ -166,8 +166,9 @@ async def test_webhook_route_resolves_project_secret_and_verifies_real_hmac(db_s
         JoySafeterSecret(
             name="hook-secret",
             project_id=trigger.project_id,
-            provider="custom",
-            protocol="custom",
+            kind="generic",
+            provider=None,
+            protocol=None,
             data=encrypted_secret_data({"WEBHOOK_SECRET": secret_value}),
         )
     )

@@ -158,8 +158,8 @@ export default function EnvironmentListPage() {
     parseCursor: parseEnvironmentId,
   })
   const { data: secrets } = usePaginatedList<Secret>({
-    queryKey: 'secrets',
-    path: '/secrets',
+    queryKey: 'generic-secrets',
+    path: '/secrets?kind=generic',
     limit: 50,
     parseItem: parseSecretResponse,
     parseCursor: parseSecretId,
