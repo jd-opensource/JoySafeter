@@ -1246,8 +1246,9 @@ mod tests {
 
     use super::{
         ensure_skill_runtime_ready, extract_content_text, mcp_credential_url_keys, parse_semver,
-        session_container_work_dir, should_inject_conversation_history,
-        trim_history_lines_to_budget, HarnessInputBuilder, SkillForArchive,
+        resolve_model_from_secrets, session_container_work_dir,
+        should_inject_conversation_history, trim_history_lines_to_budget, HarnessInput,
+        HarnessInputBuilder, SkillForArchive,
     };
     use crate::ids::{
         AgentId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId, SessionResourceId,
@@ -2080,6 +2081,46 @@ mod tests {
             .bind(vault_id)
             .execute(&pool)
             .await;
+    }
+
+    #[test]
+    fn resolve_model_prefers_openai_model_for_pi() {
+        let mut input = super::HarnessInput {
+            provider: "pi".to_string(),
+            secrets: std::collections::HashMap::from([
+                ("OPENAI_MODEL".to_string(), "GPT-4.1".to_string()),
+            ]),
+            ..Default::default()
+        };
+        super::resolve_model_from_secrets(&mut input);
+        assert_eq!(input.model.as_deref(), Some("GPT-4.1"));
+    }
+
+    #[test]
+    fn resolve_model_falls_back_to_anthropic_model_for_pi() {
+        let mut input = super::HarnessInput {
+            provider: "pi".to_string(),
+            secrets: std::collections::HashMap::from([
+                ("ANTHROPIC_MODEL".to_string(), "Claude-Opus-4.6".to_string()),
+            ]),
+            ..Default::default()
+        };
+        super::resolve_model_from_secrets(&mut input);
+        assert_eq!(input.model.as_deref(), Some("Claude-Opus-4.6"));
+    }
+
+    #[test]
+    fn resolve_model_noop_when_already_set() {
+        let mut input = super::HarnessInput {
+            provider: "pi".to_string(),
+            model: Some("preset".to_string()),
+            secrets: std::collections::HashMap::from([
+                ("OPENAI_MODEL".to_string(), "GPT-4.1".to_string()),
+            ]),
+            ..Default::default()
+        };
+        super::resolve_model_from_secrets(&mut input);
+        assert_eq!(input.model.as_deref(), Some("preset"));
     }
 }
 
