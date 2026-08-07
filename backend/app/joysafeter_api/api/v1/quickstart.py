@@ -50,7 +50,7 @@ class QuickstartAgentContext(BaseModel):
 class QuickstartChatRequest(BaseModel):
     messages: list[QuickstartMessage] = Field(..., max_length=50)
     current_step: int = Field(default=1, ge=1, le=5)
-    provider: Literal["claude", "claudecode", "codex", "native"] = "claude"
+    provider: Literal["claude", "claudecode", "codex", "native", "pi"] = "claude"
     secret_ref: str = ""
     agent_context: Optional[QuickstartAgentContext] = None
 

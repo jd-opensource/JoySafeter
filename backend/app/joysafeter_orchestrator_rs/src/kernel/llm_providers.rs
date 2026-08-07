@@ -97,6 +97,27 @@ pub fn llm_provider_registry() -> &'static [LlmProviderSpec] {
             extra_keys_to_remove: &["AZURE_OPENAI_API_KEY"],
             placeholder: None,
         },
+        // 6. DEEPSEEK_API_KEY — OpenAI-compatible, Bearer authorization.
+        LlmProviderSpec {
+            detection_keys: &["DEEPSEEK_API_KEY"],
+            base_url_var: "DEEPSEEK_BASE_URL",
+            default_host: Some("api.deepseek.com"),
+            header_name: "authorization",
+            is_bearer: true,
+            extra_keys_to_remove: &["DEEPSEEK_API_KEY"],
+            placeholder: None,
+        },
     ];
     REGISTRY
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn deepseek_provider_registered() {
+        let found = super::llm_provider_registry()
+            .iter()
+            .any(|s| s.detection_keys.contains(&"DEEPSEEK_API_KEY"));
+        assert!(found);
+    }
 }

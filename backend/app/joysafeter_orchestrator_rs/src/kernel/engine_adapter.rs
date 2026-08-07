@@ -36,6 +36,13 @@ pub fn engine_registry() -> &'static [EngineSpec] {
             injects_conversation_history: true,
             model_secret_keys: &["ANTHROPIC_MODEL", "MODEL"],
         },
+        EngineSpec {
+            engine_kind: "pi",
+            injects_conversation_history: true,
+            // pi 多供应商,模型经 HarnessInput.model → `--model` 透传;
+            // PI_MODEL 承载模型名,MODEL 兜底。
+            model_secret_keys: &["PI_MODEL", "MODEL"],
+        },
     ];
     REGISTRY
 }
@@ -45,4 +52,12 @@ pub fn engine_spec(engine_kind: &str) -> Option<&'static EngineSpec> {
     engine_registry()
         .iter()
         .find(|s| s.engine_kind == engine_kind)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn pi_engine_is_registered() {
+        assert!(super::engine_spec("pi").is_some());
+    }
 }

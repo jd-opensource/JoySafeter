@@ -571,6 +571,7 @@ async fn run_setup_commands(
 fn skill_base_dir(work_dir: &Path, provider: &str, target: &str) -> PathBuf {
     match provider {
         "codex" => work_dir.join(".agents").join(target),
+        "pi" => work_dir.join(".pi").join(target),
         // "claude", "native", and anything else default to Claude's layout.
         _ => work_dir.join(".claude").join(target),
     }
@@ -949,6 +950,12 @@ pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &Sess
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skill_base_dir_pi_uses_dot_pi() {
+        let base = skill_base_dir(std::path::Path::new("/w"), "pi", "skills");
+        assert_eq!(base, std::path::Path::new("/w/.pi/skills"));
+    }
 
     #[test]
     fn dedupe_only_applies_to_structured_live_input() {

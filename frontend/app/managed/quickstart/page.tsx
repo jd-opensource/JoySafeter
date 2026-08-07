@@ -277,7 +277,7 @@ function isSecretCompatible(secret: QuickstartSecret | undefined, engine: Quicks
     keys.has('ANTHROPIC_AUTH_TOKEN')
 
   if (engine === 'codex') return isOpenAiSecret
-  if (engine === 'native') return isOpenAiSecret || isAnthropicSecret
+  if (engine === 'native' || engine === 'pi') return isOpenAiSecret || isAnthropicSecret
   return isAnthropicSecret
 }
 
@@ -1690,10 +1690,17 @@ export default function QuickstartPage() {
                       { num: 1, label: t('managed.quickstart.engineClaudecode'), arrow: true },
                       { num: 2, label: t('managed.quickstart.engineCodex') },
                       { num: 3, label: t('managed.quickstart.engineNative') },
+                      { num: 4, label: t('managed.quickstart.enginePi') },
                     ]}
                     onSelect={(num) =>
                       handleQuickstartEngineSelect(
-                        num === 2 ? 'codex' : num === 3 ? 'native' : 'claude',
+                        num === 2
+                          ? 'codex'
+                          : num === 3
+                            ? 'native'
+                            : num === 4
+                              ? 'pi'
+                              : 'claude',
                       )
                     }
                   />

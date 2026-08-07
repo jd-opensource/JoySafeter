@@ -24,6 +24,7 @@ class JoySafeterEngineKind(str, Enum):
     CLAUDE = "claude"
     CODEX = "codex"
     NATIVE = "native"
+    PI = "pi"
 
 
 class JoySafeterModelConfig(BaseModel):

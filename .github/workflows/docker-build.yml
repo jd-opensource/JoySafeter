@@ -58,6 +58,11 @@ jobs:
             dockerfile: ./deploy/docker/codex.Dockerfile
             skillspector: false
             build_contexts: ''
+          - name: joysafeter-pi
+            context: .
+            dockerfile: ./deploy/docker/pi.Dockerfile
+            skillspector: false
+            build_contexts: ''
 
     steps:
       - name: Checkout code
