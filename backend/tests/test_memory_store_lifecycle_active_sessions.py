@@ -32,6 +32,7 @@ from app.joysafeter_domain.schemas.joysafeter_memory import CreateMemoryRequest,
 from app.joysafeter_domain.services.joysafeter_memory_service import MemoryService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import SessionId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -402,6 +403,31 @@ async def test_update_and_delete_memory_reject_cross_project_at_service_boundary
 
 
 @pytest.mark.asyncio
+async def test_memory_version_records_typed_session_identity(db_session):
+    store = await _project_store(db_session, "project-a")
+    session_id = SessionId.new()
+
+    memory = await MemoryService(db_session).create_memory(
+        store.id,
+        "/session-owned.txt",
+        "first",
+        session_id=session_id,
+        project_id="project-a",
+    )
+
+    assert memory is not None
+    assert memory.current_version_id is not None
+    version = (
+        await db_session.execute(
+            select(JoySafeterMemoryVersion).where(
+                JoySafeterMemoryVersion.id == memory.current_version_id
+            )
+        )
+    ).scalar_one()
+    assert version.session_id == session_id
+
+
+@pytest.mark.asyncio
 async def test_memory_versions_reject_cross_project_at_service_boundary(db_session):
     store = await _project_store(db_session, "project-b")
     memory = await MemoryService(db_session).create_memory(
@@ -449,14 +475,14 @@ async def test_memory_update_broadcast_targets_store_id_not_session_local_mount_
     assert payloads == [
         {
             "type": "memory_update",
-            "store_id": str(store_id),
+                "store_id": str(as_uuid(store_id)),
             "relative_path": "/notes.txt",
             "content": "updated",
             "operation": "modified",
         },
         {
             "type": "memory_update",
-            "store_id": str(store_id),
+                "store_id": str(as_uuid(store_id)),
             "relative_path": "/notes.txt",
             "content": "updated",
             "operation": "modified",

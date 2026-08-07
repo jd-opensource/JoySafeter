@@ -9,6 +9,7 @@ import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import type { Vault } from '@/types/managed'
 import { managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
@@ -115,6 +116,7 @@ export default function VaultListPage() {
     queryKey: 'vaults',
     path: '/vaults',
     includeArchived: showArchived,
+    parseItem: parseVaultResponse,
   })
 
   const archiveMutation = useMutation({

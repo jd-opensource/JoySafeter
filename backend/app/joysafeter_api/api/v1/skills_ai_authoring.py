@@ -44,6 +44,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import SkillId
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ class AuthoringChatRequest(BaseModel):
 class SaveDraftRequest(BaseModel):
     """Create-or-update a draft skill row. Idempotent on ``draft_skill_id``."""
 
-    draft_skill_id: Optional[str] = None
+    draft_skill_id: Optional[SkillId] = None
     name: str = Field(..., min_length=1, max_length=64)
     description: str = ""
     content: str = ""
@@ -130,12 +131,6 @@ def _sse(event: dict[str, Any]) -> str:
     # break the stream).
     payload = payload.replace("\r", "").replace("\n", "\\n")
     return f"data: {payload}\n\n"
-
-
-def _strip_skill_id_prefix(raw: str) -> str:
-    """Accept either ``skill_<uuid>`` or a bare uuid (mirrors how skills
-    page sends/receives ids)."""
-    return raw.removeprefix("skill_") if raw.startswith("skill_") else raw
 
 
 # Map a file extension to the ``file_type`` label the skill store uses.
@@ -307,12 +302,9 @@ async def authoring_save_draft(
     files = _normalize_draft_files(req.files)
 
     if req.draft_skill_id:
-        sid_str = _strip_skill_id_prefix(req.draft_skill_id)
         try:
-            import uuid as _uuid
-
             skill = await svc.update_skill(
-                _uuid.UUID(sid_str),
+                req.draft_skill_id,
                 current_user_id=auth_ctx.user_id,
                 name=req.name,
                 description=req.description,
@@ -328,7 +320,7 @@ async def authoring_save_draft(
                 f"技能名「{req.name}」已被占用，请换一个名称。",
                 code="SKILL_NAME_ALREADY_EXISTS",
             ) from None
-        return {"skill_id": f"skill_{skill.id}", "created": False}
+        return {"skill_id": str(skill.id), "created": False}
 
     # Only-when-taken suffix: keep the first save clean, auto-bump to
     # ``name-2`` / ``-3`` only if the project already has that name. Prevents
@@ -357,4 +349,4 @@ async def authoring_save_draft(
             f"技能名「{unique_name}」已存在，请换一个名称，或回到该草稿继续编辑。",
             code="SKILL_NAME_ALREADY_EXISTS",
         ) from None
-    return {"skill_id": f"skill_{skill.id}", "created": True}
+    return {"skill_id": str(skill.id), "created": True}

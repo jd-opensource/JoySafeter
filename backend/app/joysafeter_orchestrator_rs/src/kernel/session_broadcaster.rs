@@ -1,5 +1,5 @@
+use crate::ids::SessionId;
 use redis::AsyncCommands;
-use uuid::Uuid;
 
 /// Publish session events to Redis for API/SSE consumers.
 #[derive(Clone)]
@@ -17,8 +17,8 @@ impl SessionBroadcaster {
     }
 
     /// Publish an event to the session Redis channel.
-    pub async fn send(&self, session_id: Uuid, event: serde_json::Value) {
-        let channel = format!("joysafeter:session_events:{session_id}");
+    pub async fn send(&self, session_id: SessionId, event: serde_json::Value) {
+        let channel = format!("joysafeter:session_events:{}", session_id.as_uuid());
         let wrapper = serde_json::json!({
             "source_instance": self.instance_id,
             "event": event,

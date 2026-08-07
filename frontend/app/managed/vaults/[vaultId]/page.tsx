@@ -6,8 +6,12 @@ import { useTranslation } from '@/lib/i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Archive, Trash2 } from 'lucide-react'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
-import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
+import {
+  parseVaultCredentialListResponse,
+  parseVaultResponse,
+} from '@/lib/managed/vault-response-parsers'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -16,6 +20,7 @@ import {
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { Vault, VaultCredential } from '@/types/managed'
+import { parseVaultId, type CredentialId, type VaultId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import {
   PageHeader,
@@ -36,9 +41,9 @@ import {
 } from '@/hooks/managed/use-current-project-read-only'
 
 interface VaultDetailActionVariables {
-  vaultId: string
-  id: string
-  credId?: string
+  vaultId: VaultId
+  id: VaultId
+  credId?: CredentialId
   runId: number
   scope: string
   scopeKey: string
@@ -46,7 +51,9 @@ interface VaultDetailActionVariables {
 }
 
 export default function VaultDetailPage({ params }: { params: Promise<{ vaultId: string }> }) {
-  const { vaultId: id } = React.use(params)
+  const { vaultId: rawVaultId } = React.use(params)
+  const vaultId = parseVaultId(rawVaultId)
+  const id = vaultId
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -73,8 +80,6 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     destructive: false,
     onConfirm: () => {},
   })
-
-  const vaultId = apiResourceId(id || '')
 
   useEffect(() => {
     actionRunRef.current += 1
@@ -106,7 +111,10 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   } = useQuery({
     queryKey: ['vault', managedScope.key, id],
     queryFn: () =>
-      managedGet<Vault>(apiResourcePath('vaults', vaultId), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('vaults', vaultId),
+        managedRequestOptions(managedScope),
+      ).then(parseVaultResponse),
     enabled: !!id && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
@@ -118,13 +126,16 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
   } = useQuery({
     queryKey: ['vault-credentials', managedScope.key, id, showArchivedCredentials],
     queryFn: () =>
-      managedGet<{ data: VaultCredential[]; has_more: boolean }>(
+      managedGet<{ data: unknown[]; has_more: boolean }>(
         apiResourceSubpath('vaults', vaultId, ['credentials'], {
           limit: 100,
           include_archived: showArchivedCredentials,
         }),
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({
+        ...response,
+        data: parseVaultCredentialListResponse(response.data),
+      })),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
 
@@ -206,7 +217,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
         throw new Error('Archived project vault credential archive ignored')
       }
       return managedPost(
-        apiResourcePath('vaults', vaultId, 'credentials', apiResourceId(credId!), 'archive'),
+        apiResourcePath('vaults', vaultId, 'credentials', credId!, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
@@ -245,7 +256,7 @@ export default function VaultDetailPage({ params }: { params: Promise<{ vaultId:
     return !!currentVault && currentVault.id === vault?.id && !currentVault.archived_at
   }
 
-  const findCurrentCredential = (credId: string) =>
+  const findCurrentCredential = (credId: CredentialId) =>
     currentOperationScopeIsActive() &&
     currentProjectAllowsWrite() &&
     queryClient

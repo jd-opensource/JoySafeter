@@ -25,6 +25,7 @@ from app.joysafeter_domain.schemas.joysafeter_storage_mount import (
     UpdateStorageVolumeRequest,
 )
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
+from app.joysafeter_shared.ids import EnvironmentId, SessionId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -565,8 +566,8 @@ class StorageMountService:
         volume_ref: Optional[str] = None,
         volume_id: Optional[uuid.UUID] = None,
         project_id: Optional[str] = None,
-        session_id: Optional[uuid.UUID] = None,
-        environment_id: Optional[uuid.UUID] = None,
+        session_id: Optional[SessionId] = None,
+        environment_id: Optional[EnvironmentId] = None,
         user_id: Optional[str] = None,
         mount_path: Optional[str] = None,
         sub_path: Optional[str] = None,

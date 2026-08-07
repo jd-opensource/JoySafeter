@@ -25,6 +25,7 @@ import { RelativeTime } from '@/components/managed/shared'
 import { ResourceErrorState } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import { CreateSessionDialog } from './components/create-session-dialog'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -66,6 +67,7 @@ export default function SessionListPage() {
     queryKey: 'sessions',
     path: '/sessions',
     includeArchived: showArchived,
+    parseItem: parseSessionResponse,
   })
 
   const getEngineKindLabel = (engineKind?: string | null) => {

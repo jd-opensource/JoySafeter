@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { managedPost } from '@/lib/api-client'
 import { toastSuccess } from '@/lib/utils/toast'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { parseSkillId, type SkillId } from '@/types/entity-id'
 
 vi.mock('@/lib/api-client', () => ({
   managedPost: vi.fn(),
@@ -49,6 +50,8 @@ globalThis.HTMLElement = dom.window.HTMLElement
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 const toastSuccessMock = toastSuccess as unknown as ReturnType<typeof vi.fn>
+const SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f110'
+const SKILL_ID = parseSkillId(`skill_${SKILL_UUID}`)
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -80,7 +83,7 @@ describe('SkillLifecycleActions lifecycle', () => {
   it('does not toast or invalidate queries after a lifecycle mutation resolves post-unmount', async () => {
     const { SkillLifecycleActions } = await import('./skill-lifecycle-actions')
     const transitionResponse = deferred<{
-      skill_id: string
+      skill_id: SkillId
       from_status: string
       to_status: string
     }>()
@@ -108,10 +111,10 @@ describe('SkillLifecycleActions lifecycle', () => {
 
     const view = renderWithClient(
       <SkillLifecycleActions
-        skillId="skill_123"
+        skillId={SKILL_ID}
         currentStatus="draft"
         requestScope={{ orgId: 'org-a', projectId: 'project-a', key: 'org-a:project-a' }}
-        operationScope="org-a:project-a:skill_123"
+        operationScope={`org-a:project-a:${SKILL_ID}`}
         invalidateKeys={[['skills', 'org-a:project-a']]}
       />,
       queryClient,
@@ -123,7 +126,7 @@ describe('SkillLifecycleActions lifecycle', () => {
     })
 
     expect(managedPostMock).toHaveBeenCalledWith(
-      '/skills/123/submit-review',
+      `/skills/${SKILL_ID}/submit-review`,
       {},
       {
         headers: {
@@ -138,7 +141,7 @@ describe('SkillLifecycleActions lifecycle', () => {
 
     await act(async () => {
       transitionResponse.resolve({
-        skill_id: 'skill_123',
+        skill_id: SKILL_ID,
         from_status: 'draft',
         to_status: 'pending_review',
       })

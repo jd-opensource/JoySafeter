@@ -4,7 +4,6 @@ Skill Repository
 
 from __future__ import annotations
 
-import uuid
 from typing import List, Optional
 
 from sqlalchemy import and_, or_, select
@@ -21,6 +20,7 @@ from app.joysafeter_domain.models.joysafeter_skill import (
 )
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
+from app.joysafeter_shared.ids import SkillId, SkillSecurityScanId
 
 from .base import BaseRepository
 
@@ -38,7 +38,7 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
         project_id: Optional[str] = None,
         caller_org_role: Optional[JoySafeterRole] = None,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[SkillId] = None,
     ) -> tuple[List[JoySafeterSkill], bool]:
         """List skills for a user with cursor pagination.
 
@@ -142,14 +142,14 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
         has_more = len(items) > limit
         return items[:limit], has_more
 
-    async def get_with_files(self, skill_id: uuid.UUID) -> Optional[JoySafeterSkill]:
+    async def get_with_files(self, skill_id: SkillId) -> Optional[JoySafeterSkill]:
         """Get a skill with its associated files."""
         query = select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id)
         query = query.options(selectinload(JoySafeterSkill.files))
         result = await self.db.execute(query)
         return result.scalar_one_or_none()  # type: ignore[return-value]
 
-    async def get_by_ids(self, skill_ids: List[uuid.UUID]) -> List[JoySafeterSkill]:
+    async def get_by_ids(self, skill_ids: List[SkillId]) -> List[JoySafeterSkill]:
         """Get multiple skills by their IDs, with files eagerly loaded."""
         if not skill_ids:
             return []
@@ -179,12 +179,12 @@ class SkillFileRepository(BaseRepository[JoySafeterSkillFile]):
     def __init__(self, db: AsyncSession):
         super().__init__(JoySafeterSkillFile, db)
 
-    async def list_by_skill(self, skill_id: uuid.UUID) -> List[JoySafeterSkillFile]:
+    async def list_by_skill(self, skill_id: SkillId) -> List[JoySafeterSkillFile]:
         """List all files for a skill."""
         result = await self.db.execute(select(JoySafeterSkillFile).where(JoySafeterSkillFile.skill_id == skill_id))
         return list(result.scalars().all())
 
-    async def delete_by_skill(self, skill_id: uuid.UUID) -> int:
+    async def delete_by_skill(self, skill_id: SkillId) -> int:
         """Delete all files for a skill."""
         from sqlalchemy import delete
 
@@ -199,9 +199,9 @@ class SkillSecurityScanRepository(BaseRepository[JoySafeterSkillSecurityScan]):
 
     async def list_by_skill(
         self,
-        skill_id: uuid.UUID,
+        skill_id: SkillId,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[SkillSecurityScanId] = None,
     ) -> tuple[List[JoySafeterSkillSecurityScan], bool]:
         """List scan history for a skill with cursor pagination."""
         query = select(JoySafeterSkillSecurityScan).where(JoySafeterSkillSecurityScan.skill_id == skill_id)
@@ -211,7 +211,7 @@ class SkillSecurityScanRepository(BaseRepository[JoySafeterSkillSecurityScan]):
         has_more = len(items) > limit
         return items[:limit], has_more
 
-    async def get_latest_by_skill(self, skill_id: uuid.UUID) -> Optional[JoySafeterSkillSecurityScan]:
+    async def get_latest_by_skill(self, skill_id: SkillId) -> Optional[JoySafeterSkillSecurityScan]:
         """Get the latest scan for a skill."""
         query = (
             select(JoySafeterSkillSecurityScan)

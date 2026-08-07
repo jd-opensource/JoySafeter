@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.joysafeter_shared.ids import SecretId
+
 
 def _is_trimmed_secret_key(key: str) -> bool:
     normalized = "".join(ch if ch.isalnum() else "_" for ch in key).strip("_").upper()
@@ -72,7 +74,7 @@ class SecretTestResponse(BaseModel):
 
 
 class SecretListItem(BaseModel):
-    id: str
+    id: SecretId
     name: str
     provider: str = "custom"
     protocol: str = "custom"
@@ -85,7 +87,7 @@ class SecretListItem(BaseModel):
 
 
 class SecretResponse(BaseModel):
-    id: str
+    id: SecretId
     name: str
     provider: str = "custom"
     protocol: str = "custom"

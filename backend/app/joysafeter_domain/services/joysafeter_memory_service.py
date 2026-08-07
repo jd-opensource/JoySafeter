@@ -1,5 +1,4 @@
 import hashlib
-import uuid
 from typing import Optional
 
 from sqlalchemy import and_, func, select
@@ -13,6 +12,7 @@ from app.joysafeter_domain.models.joysafeter_memory import (
 )
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor, apply_ordered_cursor
+from app.joysafeter_shared.ids import MemoryId, MemoryStoreId, MemoryVersionId, SessionId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -59,7 +59,7 @@ class MemoryService:
         return store
 
     async def get_store(
-        self, store_id: uuid.UUID, project_id: Optional[str] = None, include_archived: bool = False
+        self, store_id: MemoryStoreId, project_id: Optional[str] = None, include_archived: bool = False
     ) -> Optional[JoySafeterMemoryStore]:
         conditions = [
             JoySafeterMemoryStore.id == store_id,
@@ -74,7 +74,7 @@ class MemoryService:
     async def list_stores(
         self,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[MemoryStoreId] = None,
         project_id: Optional[str] = None,
         include_archived: bool = False,
     ) -> tuple[list[JoySafeterMemoryStore], bool]:
@@ -91,7 +91,7 @@ class MemoryService:
 
     async def update_store(
         self,
-        store_id: uuid.UUID,
+        store_id: MemoryStoreId,
         name: Optional[str] = None,
         description: Optional[str] = None,
         metadata: Optional[dict] = None,
@@ -113,7 +113,7 @@ class MemoryService:
 
     async def store_is_referenced_by_sessions(
         self,
-        store_id: uuid.UUID,
+        store_id: MemoryStoreId,
         project_id: Optional[str] = None,
     ) -> bool:
         conditions = [
@@ -126,7 +126,7 @@ class MemoryService:
         result = await self.db.execute(select(JoySafeterSessionMemoryStore.id).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none() is not None
 
-    async def delete_store(self, store_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def delete_store(self, store_id: MemoryStoreId, project_id: Optional[str] = None) -> bool:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
             return False
@@ -136,7 +136,7 @@ class MemoryService:
         await self.db.commit()
         return True
 
-    async def archive_store(self, store_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def archive_store(self, store_id: MemoryStoreId, project_id: Optional[str] = None) -> bool:
         store = await self.get_store(store_id, project_id=project_id)
         if not store:
             return False
@@ -151,7 +151,7 @@ class MemoryService:
     # --- Memory ---
 
     async def _get_mutable_store(
-        self, store_id: uuid.UUID, project_id: Optional[str]
+        self, store_id: MemoryStoreId, project_id: Optional[str]
     ) -> Optional[JoySafeterMemoryStore]:
         """Return the store for a write, distinguishing not-found from archived.
 
@@ -168,10 +168,10 @@ class MemoryService:
 
     async def create_memory(
         self,
-        store_id: uuid.UUID,
+        store_id: MemoryStoreId,
         path: str,
         content: str = "",
-        session_id: Optional[uuid.UUID] = None,
+        session_id: Optional[SessionId] = None,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterMemory]:
         store = await self._get_mutable_store(store_id, project_id=project_id)
@@ -199,7 +199,14 @@ class MemoryService:
         await self.db.flush()
 
         version = await self._create_version(
-            store_id, mem.id, "created", path=path, content=content, sha=sha, size=len(content.encode())
+            store_id,
+            mem.id,
+            "created",
+            path=path,
+            content=content,
+            sha=sha,
+            size=len(content.encode()),
+            session_id=session_id,
         )
         mem.current_version_id = version.id
         await self.db.commit()
@@ -209,8 +216,8 @@ class MemoryService:
 
     async def get_memory(
         self,
-        store_id: uuid.UUID,
-        memory_id: uuid.UUID,
+        store_id: MemoryStoreId,
+        memory_id: MemoryId,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterMemory]:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
@@ -225,7 +232,7 @@ class MemoryService:
 
     async def get_memory_by_path(
         self,
-        store_id: uuid.UUID,
+        store_id: MemoryStoreId,
         path: str,
         project_id: Optional[str] = None,
         include_archived_store: bool = True,
@@ -240,10 +247,10 @@ class MemoryService:
 
     async def upsert_memory_from_agent(
         self,
-        store_id: uuid.UUID,
+        store_id: MemoryStoreId,
         path: str,
         content: str,
-        session_id: Optional[uuid.UUID] = None,
+        session_id: Optional[SessionId] = None,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterMemory]:
         existing = await self.get_memory_by_path(store_id, path, project_id=project_id)
@@ -261,9 +268,9 @@ class MemoryService:
 
     async def list_memories(
         self,
-        store_id: uuid.UUID,
+        store_id: MemoryStoreId,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[MemoryId] = None,
         path_prefix: Optional[str] = None,
         order_by: str = "path",
         order: str = "asc",
@@ -286,10 +293,10 @@ class MemoryService:
 
     async def update_memory(
         self,
-        store_id: uuid.UUID,
-        memory_id: uuid.UUID,
+        store_id: MemoryStoreId,
+        memory_id: MemoryId,
         content: str,
-        session_id: Optional[uuid.UUID] = None,
+        session_id: Optional[SessionId] = None,
         expected_sha256: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterMemory]:
@@ -309,7 +316,14 @@ class MemoryService:
         mem.updated_at = utc_now()
 
         version = await self._create_version(
-            store_id, mem.id, "modified", path=mem.path, content=content, sha=sha, size=len(content.encode())
+            store_id,
+            mem.id,
+            "modified",
+            path=mem.path,
+            content=content,
+            sha=sha,
+            size=len(content.encode()),
+            session_id=session_id,
         )
         mem.current_version_id = version.id
         await self.db.commit()
@@ -319,9 +333,9 @@ class MemoryService:
 
     async def delete_memory(
         self,
-        store_id: uuid.UUID,
-        memory_id: uuid.UUID,
-        session_id: Optional[uuid.UUID] = None,
+        store_id: MemoryStoreId,
+        memory_id: MemoryId,
+        session_id: Optional[SessionId] = None,
         project_id: Optional[str] = None,
     ) -> bool:
         store = await self._get_mutable_store(store_id, project_id=project_id)
@@ -331,7 +345,13 @@ class MemoryService:
         if not mem:
             return False
         path = mem.path
-        await self._create_version(store_id, mem.id, "deleted", path=path)
+        await self._create_version(
+            store_id,
+            mem.id,
+            "deleted",
+            path=path,
+            session_id=session_id,
+        )
         await self.db.delete(mem)
         await self.db.commit()
 
@@ -341,8 +361,8 @@ class MemoryService:
 
     async def is_live_version(
         self,
-        store_id: uuid.UUID,
-        version_id: uuid.UUID,
+        store_id: MemoryStoreId,
+        version_id: MemoryVersionId,
         project_id: Optional[str] = None,
     ) -> bool:
         """Check if any memory in this store has current_version_id == version_id."""
@@ -361,11 +381,11 @@ class MemoryService:
 
     async def list_versions(
         self,
-        store_id: uuid.UUID,
+        store_id: MemoryStoreId,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
-        memory_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        after_id: Optional[MemoryVersionId] = None,
+        memory_id: Optional[MemoryId] = None,
+        session_id: Optional[SessionId] = None,
         operation: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterMemoryVersion], bool]:
@@ -387,8 +407,8 @@ class MemoryService:
 
     async def get_version(
         self,
-        store_id: uuid.UUID,
-        version_id: uuid.UUID,
+        store_id: MemoryStoreId,
+        version_id: MemoryVersionId,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterMemoryVersion]:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
@@ -403,8 +423,8 @@ class MemoryService:
 
     async def redact_version(
         self,
-        store_id: uuid.UUID,
-        version_id: uuid.UUID,
+        store_id: MemoryStoreId,
+        version_id: MemoryVersionId,
         redacted_by: Optional[dict] = None,
         project_id: Optional[str] = None,
     ) -> bool:
@@ -428,13 +448,14 @@ class MemoryService:
 
     async def _create_version(
         self,
-        store_id: uuid.UUID,
-        memory_id: uuid.UUID,
+        store_id: MemoryStoreId,
+        memory_id: MemoryId,
         operation: str,
         path: Optional[str] = None,
         content: Optional[str] = None,
         sha: Optional[str] = None,
         size: Optional[int] = None,
+        session_id: Optional[SessionId] = None,
     ) -> JoySafeterMemoryVersion:
         ver = JoySafeterMemoryVersion(
             store_id=store_id,
@@ -444,6 +465,7 @@ class MemoryService:
             content=content,
             content_sha256=sha,
             content_size_bytes=size,
+            session_id=session_id,
         )
         self.db.add(ver)
         await self.db.flush()

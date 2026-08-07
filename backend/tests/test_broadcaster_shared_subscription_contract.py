@@ -10,10 +10,10 @@ subscriber leaves.
 
 import asyncio
 import json
-import uuid
 
 import pytest
 
+from app.joysafeter_shared.ids import SessionId
 from app.joysafeter_shared.orchestrator_bridge.session_broadcaster import SessionBroadcaster
 
 pytestmark = pytest.mark.no_db
@@ -60,7 +60,7 @@ def _remote_event() -> str:
 async def test_multiple_subscribers_share_one_redis_subscription():
     redis = _CountingRedis(_remote_event())
     b = SessionBroadcaster(redis_client=redis, instance_id="me")
-    sid = uuid.uuid4()
+    sid = SessionId.new()
 
     q1 = b.subscribe(sid)
     q2 = b.subscribe(sid)
@@ -80,7 +80,7 @@ async def test_multiple_subscribers_share_one_redis_subscription():
 async def test_shared_subscriber_torn_down_only_on_last_unsubscribe():
     redis = _CountingRedis(_remote_event())
     b = SessionBroadcaster(redis_client=redis, instance_id="me")
-    sid = uuid.uuid4()
+    sid = SessionId.new()
 
     q1 = b.subscribe(sid)
     q2 = b.subscribe(sid)

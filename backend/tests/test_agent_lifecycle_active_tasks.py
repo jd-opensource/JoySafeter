@@ -17,6 +17,7 @@ from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAg
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import SandboxId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -94,7 +95,7 @@ class _FakeCommandRedis:
 
 
 class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
-    def __init__(self, db_session, sandbox_id: uuid.UUID, new_external_id: str):
+    def __init__(self, db_session, sandbox_id: SandboxId, new_external_id: str):
         super().__init__()
         self.db_session = db_session
         self.sandbox_id = sandbox_id
@@ -109,7 +110,7 @@ class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
                     "SET external_id = :external_id, updated_at = NOW() "
                     "WHERE id = :sandbox_id"
                 ),
-                {"external_id": self.new_external_id, "sandbox_id": self.sandbox_id},
+                {"external_id": self.new_external_id, "sandbox_id": as_uuid(self.sandbox_id)},
             )
             await self.db_session.commit()
             self.changed = True
@@ -405,7 +406,7 @@ async def test_delete_agent_rejects_active_task_with_structured_task_ids(db_sess
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "AGENT_ACTIVE_TASKS",
         "message": "Agent has active tasks (pending/running). Use ?force=true to force delete.",
-        "data": {"agent_id": str(agent_id), "active_task_ids": [f"task_{task_id}"]},
+        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task_id)]},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -454,7 +455,7 @@ async def test_delete_agent_destroys_idle_session_sandbox_before_hard_delete(db_
     channel, payload = redis.published[0]
     assert channel == "joysafeter:cmd:owner-1"
     assert payload["type"] == "destroy"
-    assert payload["sandbox_id"] == str(sandbox_id)
+    assert payload["sandbox_id"] == str(as_uuid(sandbox_id))
     assert redis.blpop_timeouts == [30]
 
     db_session.expire_all()
@@ -545,7 +546,7 @@ async def test_force_delete_agent_does_not_hard_delete_when_cancel_fails(db_sess
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "AGENT_FORCE_CANCEL_ACTIVE_TASKS_FAILED",
         "message": "Failed to cancel all active tasks for agent",
-        "data": {"agent_id": str(agent_id), "active_task_ids": [f"task_{task_id}"]},
+        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task_id)]},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -596,8 +597,8 @@ async def test_force_delete_agent_keeps_agent_when_cancel_relay_fails(db_session
         "message": "Failed to cancel agent task in sandbox runtime.",
         "data": {
             "agent_id": str(agent_id),
-            "task_id": f"task_{task_id}",
-            "sandbox_id": f"sbx_{sandbox_id}",
+            "task_id": str(task_id),
+            "sandbox_id": str(sandbox_id),
         },
         "source": "runtime",
         "retryable": True,

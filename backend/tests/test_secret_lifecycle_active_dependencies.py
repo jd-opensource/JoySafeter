@@ -24,6 +24,7 @@ from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest,
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import SecretId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -101,7 +102,7 @@ async def _project_secret(db_session, *, project_id: str, name: str | None = Non
     return secret
 
 
-async def _assert_secret_intact(db_session, secret_id: uuid.UUID) -> JoySafeterSecret:
+async def _assert_secret_intact(db_session, secret_id: SecretId) -> JoySafeterSecret:
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterSecret).where(JoySafeterSecret.id == secret_id))).scalar_one()
     assert row.deleted_at is None
@@ -109,7 +110,7 @@ async def _assert_secret_intact(db_session, secret_id: uuid.UUID) -> JoySafeterS
 
 
 @pytest.mark.asyncio
-async def test_list_secrets_returns_uuid_cursor_compatible_with_after_id(db_session):
+async def test_list_secrets_returns_canonical_secret_cursor(db_session):
     await _secret(db_session)
     await _secret(db_session)
 
@@ -117,7 +118,7 @@ async def test_list_secrets_returns_uuid_cursor_compatible_with_after_id(db_sess
 
     assert page["has_more"] is True
     assert page["last_id"] is not None
-    uuid.UUID(page["last_id"])
+    assert SecretId.from_public(page["last_id"]) == SecretId(page["last_id"])
 
 
 @pytest.mark.asyncio
@@ -192,7 +193,7 @@ async def test_force_delete_secret_rejects_active_task_agent_secret_ref(db_sessi
         "data": {
             "secret_id": str(secret.id),
             "secret_name": secret.name,
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "source": "agent secret_ref",
             "operation": "deleting",
         },
@@ -242,7 +243,7 @@ async def test_force_delete_secret_rejects_active_task_session_environment_ref(d
         "data": {
             "secret_id": str(secret.id),
             "secret_name": secret.name,
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "source": "session environment_ref",
             "operation": "deleting",
         },
@@ -264,7 +265,7 @@ async def test_force_delete_secret_rejects_active_task_agent_environment_ref(db_
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
-    agent = JoySafeterAgent(name=f"agent-env-agent-{uuid.uuid4()}", environment_ref=f"env_{env.id}")
+    agent = JoySafeterAgent(name=f"agent-env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -289,7 +290,7 @@ async def test_force_delete_secret_rejects_active_task_agent_environment_ref(db_
         "data": {
             "secret_id": str(secret.id),
             "secret_name": secret.name,
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "source": "agent environment_ref",
             "operation": "deleting",
         },
@@ -329,7 +330,7 @@ async def test_update_secret_rejects_active_task_agent_secret_ref(db_session):
         "data": {
             "secret_id": str(secret.id),
             "secret_name": secret.name,
-            "task_id": f"task_{task.id}",
+            "task_id": str(task.id),
             "source": "agent secret_ref",
             "operation": "updating",
         },
@@ -366,6 +367,7 @@ async def test_create_secret_reports_missing_vault_configuration(db_session, mon
 @pytest.mark.asyncio
 async def test_update_secret_reports_missing_vault_configuration_without_mutating(db_session, monkeypatch):
     secret = await _secret(db_session)
+    original_data = dict(secret.data)
     monkeypatch.setattr(
         "app.joysafeter_domain.services.joysafeter_secret_service._cipher",
         _DisabledCipher(),
@@ -385,7 +387,7 @@ async def test_update_secret_reports_missing_vault_configuration_without_mutatin
     }
 
     row = await _assert_secret_intact(db_session, secret.id)
-    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
+    assert row.data == original_data
 
 
 @pytest.mark.asyncio

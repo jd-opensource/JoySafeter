@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import enum
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import AgentId, EntityIdType, EventId, SandboxId, SessionId
 
 from .base import JoySafeterBaseModel
 
@@ -39,14 +38,17 @@ class JoySafeterSession(JoySafeterBaseModel):
         Index("idx_csess_archived", "archived_at"),
     )
 
+    id: Mapped[SessionId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SessionId), primary_key=True, default=SessionId.new
+    )
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=True,
         index=True,
     )
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    agent_id: Mapped[AgentId] = mapped_column(
+        EntityIdType(AgentId),
         ForeignKey("joysafeter_agents.id"),
         nullable=False,
     )
@@ -67,7 +69,7 @@ class JoySafeterSession(JoySafeterBaseModel):
     environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_harness_session_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_work_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    last_sandbox_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_sandbox_id: Mapped[Optional[SandboxId]] = mapped_column(EntityIdType(SandboxId), nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     events: Mapped[list["JoySafeterSessionEvent"]] = relationship(
@@ -88,9 +90,9 @@ class JoySafeterSessionEvent(Base):
         Index("idx_cse_session_processed_event", "session_id", "processed_at", "event_type"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[EventId] = mapped_column(EntityIdType(EventId), primary_key=True, default=EventId.new)
+    session_id: Mapped[SessionId] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id"),
         nullable=False,
     )

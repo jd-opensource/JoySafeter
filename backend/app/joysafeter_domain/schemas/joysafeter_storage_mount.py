@@ -12,6 +12,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     normalize_safe_relative_path,
 )
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import EntityId, EnvironmentId, SessionId
 
 SUPPORTED_STORAGE_BACKENDS = {"generic", "cubefs", "cephfs", "nfs", "juicefs", "lustre", "pvc", "host_path"}
 SUPPORTED_STORAGE_ACCESS = {"read_only", "read_write"}
@@ -365,8 +366,8 @@ class StorageMountAuditResponse(BaseModel):
     id: uuid.UUID
     volume_id: Optional[uuid.UUID] = None
     project_id: Optional[str] = None
-    session_id: Optional[uuid.UUID] = None
-    environment_id: Optional[uuid.UUID] = None
+    session_id: Optional[SessionId] = None
+    environment_id: Optional[EnvironmentId] = None
     user_id: Optional[str] = None
     action: str
     volume_ref: Optional[str] = None
@@ -386,5 +387,5 @@ class StorageMountAuditResponse(BaseModel):
         return value or {}
 
     @field_serializer("id", "volume_id", "session_id", "environment_id")
-    def serialize_uuid(self, value: Optional[uuid.UUID]) -> Optional[str]:
+    def serialize_uuid(self, value: Optional[uuid.UUID | EntityId]) -> Optional[str]:
         return str(value) if value else None

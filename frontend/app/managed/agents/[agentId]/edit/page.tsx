@@ -18,6 +18,9 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
 import type { Agent } from '@/types/managed'
+import { parseAgentId, type AgentId, type SkillId } from '@/types/entity-id'
+import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
+import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -66,7 +69,7 @@ interface ManagedListResponse<T> {
 }
 
 interface SkillListItem {
-  id: string
+  id: SkillId
   name?: string
   display_title?: string
   // Latest published version string, or null/undefined if never published.
@@ -79,7 +82,7 @@ interface EnvironmentListItem {
 }
 
 interface SaveAgentVariables {
-  agentId: string
+  agentId: AgentId
   body: Record<string, unknown>
   requestScope: ManagedRequestScope
   runId: number
@@ -87,7 +90,8 @@ interface SaveAgentVariables {
 }
 
 export default function AgentEditPage({ params }: { params: Promise<{ agentId: string }> }) {
-  const { agentId } = React.use(params)
+  const { agentId: rawAgentId } = React.use(params)
+  const agentId = parseAgentId(rawAgentId)
   const router = useRouter()
   const queryClient = useQueryClient()
   const { t } = useTranslation()
@@ -103,7 +107,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const { data: agent, isLoading } = useQuery({
     queryKey: ['agent', managedScope.key, agentId],
     queryFn: () =>
-      managedGet<Agent>(apiResourcePath('agents', agentId), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('agents', agentId),
+        managedRequestOptions(managedScope),
+      ).then(parseAgentResponse),
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
 
@@ -120,11 +127,11 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const { data: skills } = useQuery({
     queryKey: ['skills', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<SkillListItem>>(
+      const res = await managedGet<ManagedListResponse<unknown>>(
         '/skills',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return (res.data || []).map(parseSkillResponse)
     },
     enabled: hasManagedRequestScope(managedScope),
   })
@@ -163,7 +170,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const [enabledTools, setEnabledTools] = useState<Set<string>>(new Set(BUILTIN_TOOLS))
 
   // ── Skills state ──
-  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<SkillId>>(new Set())
   /** skill_id → chosen published version keyword or semver string. */
   const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
 
@@ -184,7 +191,9 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const effectiveSkillVersions = useMemo(
     () =>
       Object.fromEntries(
-        Object.entries(skillVersions).filter(([id]) => effectiveSelectedSkillIds.has(id)),
+        Object.entries(skillVersions).filter(([id]) =>
+          Array.from(effectiveSelectedSkillIds).some((skillId) => skillId === id),
+        ),
       ),
     [effectiveSelectedSkillIds, skillVersions],
   )
@@ -348,7 +357,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   }
 
   // ── Skill toggle ──
-  const toggleSkill = (skillId: string) => {
+  const toggleSkill = (skillId: SkillId) => {
     markDirty()
     setSelectedSkillIds((prev) => {
       const next = new Set(prev)
@@ -398,9 +407,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     const currentEnvironments =
       queryClient.getQueryData<ManagedListResponse<EnvironmentListItem>>(['environments', scopeKey])
         ?.data ?? environments
-    const currentSkills =
-      queryClient.getQueryData<ManagedListResponse<SkillListItem>>(['skills', scopeKey])?.data ??
-      skills
+    const currentSkills = queryClient.getQueryData<SkillListItem[]>(['skills', scopeKey]) ?? skills
 
     const currentSecretRef =
       secretRef && (!currentSecrets || currentSecrets.some((secret) => secret.name === secretRef))

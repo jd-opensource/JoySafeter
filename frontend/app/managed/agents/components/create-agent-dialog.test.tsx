@@ -128,6 +128,9 @@ vi.mock('@/components/ui/select', () => ({
 }))
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' })
+const SKILL_ID = 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f120'
+const ENVIRONMENT_ID = 'env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f121'
+const CREATED_AGENT_ID = 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f122'
 globalThis.window = dom.window as unknown as Window & typeof globalThis
 globalThis.document = dom.window.document
 globalThis.navigator = dom.window.navigator
@@ -203,8 +206,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/secrets') return { data: [{ name: 'secret-a' }] }
       if (path === '/skills')
-        return { data: [{ id: 'skill-a', name: 'Skill A', latest_version: '1.0.0' }] }
-      if (path === '/environments') return { data: [{ id: 'env-a', name: 'Env A' }] }
+        return { data: [{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }] }
+      if (path === '/environments') return { data: [{ id: ENVIRONMENT_ID, name: 'Env A' }] }
       return { data: [] }
     })
     const queryClient = new QueryClient({
@@ -256,7 +259,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       }
       return { data: [] }
     })
-    managedPostMock.mockResolvedValue({ id: 'agent-created' })
+    managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -325,7 +328,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       if (path === '/environments') return { data: [] }
       return { data: [] }
     })
-    managedPostMock.mockResolvedValue({ id: 'agent-created' })
+    managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -368,7 +371,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       if (path === '/environments') return { data: [] }
       return { data: [] }
     })
-    managedPostMock.mockResolvedValue({ id: 'agent-created' })
+    managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -416,12 +419,12 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/secrets') return { data: [{ name: 'secret-a' }] }
       if (path === '/skills') {
-        return { data: [{ id: 'skill-a', name: 'Skill A', latest_version: '1.0.0' }] }
+        return { data: [{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }] }
       }
-      if (path === '/environments') return { data: [{ id: 'env-a', name: 'Env A' }] }
+      if (path === '/environments') return { data: [{ id: ENVIRONMENT_ID, name: 'Env A' }] }
       return { data: [] }
     })
-    managedPostMock.mockResolvedValue({ id: 'agent-created' })
+    managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -470,12 +473,12 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/secrets') return { data: [{ name: 'secret-a' }] }
       if (path === '/skills') {
-        return { data: [{ id: 'skill-a', name: 'Skill A', latest_version: '1.0.0' }] }
+        return { data: [{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }] }
       }
-      if (path === '/environments') return { data: [{ id: 'env-a', name: 'Env A' }] }
+      if (path === '/environments') return { data: [{ id: ENVIRONMENT_ID, name: 'Env A' }] }
       return { data: [] }
     })
-    managedPostMock.mockResolvedValue({ id: 'agent-created' })
+    managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -566,7 +569,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
-      create.resolve({ id: 'agent-created-in-project-a' })
+      create.resolve({ id: CREATED_AGENT_ID })
       await Promise.resolve()
     })
 
@@ -619,7 +622,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       useProjectStore.setState({
         currentProject: projectInfo('2026-01-02T00:00:00Z'),
       })
-      create.resolve({ id: 'agent-created-in-archived-project' })
+      create.resolve({ id: CREATED_AGENT_ID })
       await Promise.resolve()
     })
 
@@ -672,7 +675,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     view.unmount()
 
     await act(async () => {
-      create.resolve({ id: 'agent-created-after-unmount' })
+      create.resolve({ id: CREATED_AGENT_ID })
       await Promise.resolve()
     })
 

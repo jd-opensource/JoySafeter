@@ -4,7 +4,6 @@ Task service layer — pure CRUD + status machine (v2 JoySafeterTask).
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Optional, cast
 
@@ -24,6 +23,7 @@ from app.joysafeter_domain.models.joysafeter_task import (
 )
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
+from app.joysafeter_shared.ids import AgentId, SandboxId, SessionId, TaskId, TriggerId, as_uuid
 
 
 class JoySafeterTaskService:
@@ -38,17 +38,17 @@ class JoySafeterTaskService:
 
     async def create_task(
         self,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         prompt: str,
         system_prompt: Optional[str] = None,
-        chat_session_id: Optional[uuid.UUID] = None,
+        chat_session_id: Optional[SessionId] = None,
         timeout_sec: int = 7200,
         max_retries: int = 2,
         project_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         user_id: Optional[str] = None,
         org_id: Optional[str] = None,
-        trigger_id: Optional[uuid.UUID] = None,
+        trigger_id: Optional[TriggerId] = None,
     ) -> JoySafeterTask:
         values: dict[str, Any] = dict(
             agent_id=agent_id,
@@ -121,7 +121,7 @@ class JoySafeterTaskService:
         result = await self.db.execute(select(JoySafeterTask).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
-    async def get_task(self, task_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterTask]:
+    async def get_task(self, task_id: TaskId, project_id: Optional[str] = None) -> Optional[JoySafeterTask]:
         conditions = [JoySafeterTask.id == task_id]
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
@@ -130,9 +130,9 @@ class JoySafeterTaskService:
 
     async def list_tasks_by_agent(
         self,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[TaskId] = None,
         project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterTask], bool]:
         conditions = [JoySafeterTask.agent_id == agent_id]
@@ -148,9 +148,9 @@ class JoySafeterTaskService:
     async def list_tasks(
         self,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
-        agent_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        after_id: Optional[TaskId] = None,
+        agent_id: Optional[AgentId] = None,
+        session_id: Optional[SessionId] = None,
         status: Optional[str] = None,
         project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterTask], bool]:
@@ -172,14 +172,14 @@ class JoySafeterTaskService:
         has_more = len(tasks) > limit
         return tasks[:limit], has_more
 
-    async def cancel_task(self, task_id: uuid.UUID) -> Optional[JoySafeterTask]:
+    async def cancel_task(self, task_id: TaskId) -> Optional[JoySafeterTask]:
         return await self.state_machine.cancel(task_id)
 
     async def cancel_task_if_owner_matches(
         self,
-        task_id: uuid.UUID,
+        task_id: TaskId,
         *,
-        expected_sandbox_id: Optional[uuid.UUID],
+        expected_sandbox_id: Optional[SandboxId],
         expected_owner_epoch: Optional[int],
     ) -> Optional[JoySafeterTask]:
         return await self.state_machine.cancel_if_owner_matches(
@@ -188,20 +188,20 @@ class JoySafeterTaskService:
             expected_owner_epoch=expected_owner_epoch,
         )
 
-    async def claim_task_for_scheduling(self, task_id: uuid.UUID) -> bool:
+    async def claim_task_for_scheduling(self, task_id: TaskId) -> bool:
         return await self.state_machine.claim_for_scheduling(task_id)
 
-    async def claim_pending_tasks_for_scheduling(self, limit: int) -> list[uuid.UUID]:
+    async def claim_pending_tasks_for_scheduling(self, limit: int) -> list[TaskId]:
         return await self.state_machine.claim_pending_batch(limit)
 
-    async def append_task_output(self, task_id: uuid.UUID, chunk: str) -> None:
+    async def append_task_output(self, task_id: TaskId, chunk: str) -> None:
         await self.db.execute(
             text("UPDATE joysafeter_tasks SET output = output || :chunk WHERE id = :id"),
-            {"chunk": chunk, "id": task_id},
+            {"chunk": chunk, "id": as_uuid(task_id)},
         )
         await self.db.commit()
 
-    async def update_task_chat_session(self, task_id: uuid.UUID, session_id: uuid.UUID) -> None:
+    async def update_task_chat_session(self, task_id: TaskId, session_id: SessionId) -> None:
         await self.db.execute(
             sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(chat_session_id=session_id)
         )
@@ -223,7 +223,7 @@ class JoySafeterTaskService:
         )
         return list(result.scalars().all())
 
-    async def next_scheduling_task_for_sandbox(self, sandbox_id: uuid.UUID) -> Optional[uuid.UUID]:
+    async def next_scheduling_task_for_sandbox(self, sandbox_id: SandboxId) -> Optional[TaskId]:
         result = await self.db.execute(
             select(JoySafeterTask.id)
             .where(
@@ -237,10 +237,10 @@ class JoySafeterTaskService:
         )
         return result.scalar_one_or_none()
 
-    async def claim_next_sandbox_task_for_running(self, sandbox_id: uuid.UUID) -> Optional[tuple[uuid.UUID, int]]:
+    async def claim_next_sandbox_task_for_running(self, sandbox_id: SandboxId) -> Optional[tuple[TaskId, int]]:
         return await self.state_machine.claim_next_sandbox_task_for_running(sandbox_id)
 
-    async def list_recoverable_tasks_by_sandbox(self, sandbox_id: uuid.UUID) -> list[uuid.UUID]:
+    async def list_recoverable_tasks_by_sandbox(self, sandbox_id: SandboxId) -> list[TaskId]:
         result = await self.db.execute(
             select(JoySafeterTask.id)
             .where(
@@ -260,7 +260,7 @@ class JoySafeterTaskService:
 
     async def list_active_tasks_by_session(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         project_id: Optional[str] = None,
     ) -> list[JoySafeterTask]:
         terminal_values = [s.value for s in TERMINAL_STATUSES]
@@ -277,7 +277,7 @@ class JoySafeterTaskService:
 
     async def update_task_status(
         self,
-        task_id: uuid.UUID,
+        task_id: TaskId,
         new_status: JoySafeterTaskStatus,
         expected_epoch: Optional[int] = None,
     ) -> bool:
@@ -285,32 +285,32 @@ class JoySafeterTaskService:
 
     async def update_task_error(
         self,
-        task_id: uuid.UUID,
+        task_id: TaskId,
         error: str,
         new_status: JoySafeterTaskStatus,
         expected_epoch: Optional[int] = None,
     ) -> bool:
         return await self.state_machine.fail_with_error(task_id, error, new_status, expected_epoch=expected_epoch)
 
-    async def update_task_output(self, task_id: uuid.UUID, output: str, expected_epoch: Optional[int] = None) -> bool:
+    async def update_task_output(self, task_id: TaskId, output: str, expected_epoch: Optional[int] = None) -> bool:
         return await self.state_machine.update_output(task_id, output, expected_epoch=expected_epoch)
 
-    async def update_task_usage(self, task_id: uuid.UUID, usage: dict, expected_epoch: Optional[int] = None) -> bool:
+    async def update_task_usage(self, task_id: TaskId, usage: dict, expected_epoch: Optional[int] = None) -> bool:
         return await self.state_machine.update_usage(task_id, usage, expected_epoch=expected_epoch)
 
-    async def update_task_sandbox(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> None:
+    async def update_task_sandbox(self, task_id: TaskId, sandbox_id: SandboxId) -> None:
         await self.db.execute(
             sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(sandbox_id=sandbox_id)
         )
         await self.db.commit()
 
-    async def attach_sandbox_if_scheduling(self, task_id: uuid.UUID, sandbox_id: uuid.UUID) -> bool:
+    async def attach_sandbox_if_scheduling(self, task_id: TaskId, sandbox_id: SandboxId) -> bool:
         return await self.state_machine.attach_sandbox_if_scheduling(task_id, sandbox_id)
 
-    async def increment_retry(self, task_id: uuid.UUID, expected_epoch: Optional[int] = None) -> bool:
+    async def increment_retry(self, task_id: TaskId, expected_epoch: Optional[int] = None) -> bool:
         return await self.state_machine.retry(task_id, expected_epoch=expected_epoch)
 
-    async def agent_has_active_tasks(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def agent_has_active_tasks(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
         terminal_values = [s.value for s in TERMINAL_STATUSES]
         conditions = [
             JoySafeterTask.agent_id == agent_id,

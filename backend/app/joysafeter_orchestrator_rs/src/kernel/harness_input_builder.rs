@@ -16,6 +16,10 @@ use uuid::Uuid;
 
 use crate::db::queries;
 use crate::grpc::proto;
+use crate::ids::{
+    CredentialId, EnvironmentId, SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId,
+    SkillVersionId, TaskId, VaultId,
+};
 use crate::kernel::run_spec::{
     agent_for_execution, environment_for_execution, SnapshotEnvironment,
 };
@@ -95,7 +99,7 @@ impl HarnessInputBuilder {
         &self,
         task: &crate::db::models::JoySafeterTask,
         sandbox_external_id: &str,
-        _sandbox_db_id: Uuid,
+        _sandbox_db_id: SandboxId,
     ) -> anyhow::Result<HarnessInput> {
         let live_agent = match task.agent_id {
             Some(aid) => queries::get_agent(&self.pool, aid).await?,
@@ -226,7 +230,7 @@ impl HarnessInputBuilder {
         timeout_seconds: u64,
     ) -> proto::StartTask {
         proto::StartTask {
-            task_id: task.id.to_string(),
+            task_id: task.id.as_uuid().to_string(),
             provider: input.provider.clone(),
             prompt: input.prompt.clone(),
             system_prompt: input.system_prompt.clone(),
@@ -289,7 +293,7 @@ impl HarnessInputBuilder {
         env_ref: &str,
         project_id: Option<&str>,
     ) -> anyhow::Result<Option<EnvironmentRow>> {
-        if let Some(env_id) = parse_prefixed_uuid(env_ref, "env_") {
+        if let Ok(env_id) = EnvironmentId::from_public(env_ref) {
             return sqlx::query_as::<_, EnvironmentRow>(
                 r#"
                 SELECT config FROM joysafeter_environments
@@ -473,16 +477,15 @@ impl HarnessInputBuilder {
             .get("version")
             .and_then(|v| v.as_str())
             .unwrap_or("latest");
-        let Some(skill_uuid) = parse_prefixed_uuid(skill_id, "skill_") else {
-            anyhow::bail!("invalid skill_id for target {target}: {skill_id}");
-        };
-        self.pack_skill(skill_uuid, version, target, agent, task)
+        let skill_id = SkillId::from_public(skill_id)
+            .map_err(|_| anyhow::anyhow!("invalid skill_id for target {target}: {skill_id}"))?;
+        self.pack_skill(skill_id, version, target, agent, task)
             .await
     }
 
     async fn pack_skill(
         &self,
-        skill_id: Uuid,
+        skill_id: SkillId,
         version: &str,
         target: &str,
         agent: &crate::db::models::JoySafeterAgent,
@@ -544,7 +547,7 @@ impl HarnessInputBuilder {
 
     async fn load_skill_for_archive(
         &self,
-        skill_id: Uuid,
+        skill_id: SkillId,
     ) -> anyhow::Result<Option<SkillForArchive>> {
         sqlx::query_as::<_, SkillForArchive>(
             r#"
@@ -561,7 +564,7 @@ impl HarnessInputBuilder {
 
     async fn load_skill_version_meta(
         &self,
-        skill_id: Uuid,
+        skill_id: SkillId,
         version: &str,
     ) -> anyhow::Result<Option<SkillVersionForArchive>> {
         sqlx::query_as::<_, SkillVersionForArchive>(
@@ -580,7 +583,7 @@ impl HarnessInputBuilder {
 
     async fn record_skill_usage(
         &self,
-        skill_id: Uuid,
+        skill_id: SkillId,
         skill_version: &str,
         version_meta: Option<&SkillVersionForArchive>,
         skill: &SkillForArchive,
@@ -616,7 +619,7 @@ impl HarnessInputBuilder {
                     $7, $8, $9, $10, $11, $12, $13, NULL, NOW(), NOW())
             "#,
         )
-        .bind(Uuid::now_v7())
+        .bind(SkillUsageId::from_uuid(Uuid::now_v7()))
         .bind(skill_id)
         .bind(&skill.name)
         .bind(skill.source_type.as_deref())
@@ -626,8 +629,8 @@ impl HarnessInputBuilder {
         .bind(security_scan_id)
         .bind(target_hash)
         .bind(artifact_hash)
-        .bind(task.session_id.map(|id| id.to_string()))
-        .bind(agent.id.to_string())
+        .bind(task.session_id.map(|id| id.as_uuid()))
+        .bind(agent.id.as_uuid())
         .bind(agent.project_id.as_deref())
         .execute(&self.pool)
         .await
@@ -639,7 +642,7 @@ impl HarnessInputBuilder {
     /// Return the highest published version string for a skill, or None if it
     /// has never been published. Versions are MAJOR.MINOR.PATCH (the publish
     /// API rejects prerelease/build), so a numeric tuple sort is exact.
-    async fn highest_published_version(&self, skill_id: Uuid) -> Option<String> {
+    async fn highest_published_version(&self, skill_id: SkillId) -> Option<String> {
         let versions: Vec<String> = sqlx::query_scalar::<_, String>(
             "SELECT version FROM joysafeter_skill_versions WHERE skill_id = $1",
         )
@@ -657,7 +660,7 @@ impl HarnessInputBuilder {
 
     async fn load_skill_version_files(
         &self,
-        skill_id: Uuid,
+        skill_id: SkillId,
         version: &str,
     ) -> anyhow::Result<Vec<SkillFileForArchive>> {
         sqlx::query_as::<_, SkillFileForArchive>(
@@ -681,7 +684,7 @@ impl HarnessInputBuilder {
         vault_ids: &serde_json::Value,
         mcp_servers: &mut Vec<proto::McpConfig>,
     ) -> anyhow::Result<()> {
-        let ids: Vec<Uuid> = match vault_ids.as_array() {
+        let ids: Vec<VaultId> = match vault_ids.as_array() {
             Some(arr) => arr
                 .iter()
                 .filter_map(|v| v.as_str())
@@ -855,7 +858,7 @@ impl HarnessInputBuilder {
 
     async fn load_memory_stores(
         &self,
-        session_id: Uuid,
+        session_id: SessionId,
         input: &mut HarnessInput,
     ) -> anyhow::Result<()> {
         let stores = queries::list_session_memory_stores(&self.pool, session_id)
@@ -890,7 +893,7 @@ impl HarnessInputBuilder {
             }
 
             input.memory_mounts.push(proto::MemoryStoreMount {
-                store_id: format!("memstore_{}", store.store_id),
+                store_id: store.store_id.as_uuid().to_string(),
                 mount_name: store.mount_name.clone(),
                 mount_path: mount_path.clone(),
                 access: store.access.clone(),
@@ -912,7 +915,7 @@ impl HarnessInputBuilder {
 
     async fn load_session_files(
         &self,
-        session_id: Uuid,
+        session_id: SessionId,
         input: &mut HarnessInput,
     ) -> anyhow::Result<()> {
         let rows: Vec<SessionFileRow> = sqlx::query_as(
@@ -954,7 +957,7 @@ impl HarnessInputBuilder {
     /// stored encrypted and decrypted here just before handing it to the runner.
     async fn load_session_repos(
         &self,
-        session_id: Uuid,
+        session_id: SessionId,
         input: &mut HarnessInput,
     ) -> anyhow::Result<()> {
         let rows: Vec<SessionRepoRow> = sqlx::query_as(
@@ -1020,7 +1023,7 @@ impl HarnessInputBuilder {
         Ok(())
     }
 
-    async fn build_conversation_history(&self, session_id: Uuid, task_id: Uuid) -> String {
+    async fn build_conversation_history(&self, session_id: SessionId, task_id: TaskId) -> String {
         // I-NEW-12 fix: find the user.message seq BEFORE status_running as the boundary.
         // The user.message immediately before the current turn's status_running is the
         // current prompt — it should be excluded from history (matching Python).
@@ -1246,6 +1249,10 @@ mod tests {
         session_container_work_dir, should_inject_conversation_history,
         trim_history_lines_to_budget, HarnessInputBuilder, SkillForArchive,
     };
+    use crate::ids::{
+        AgentId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId, SessionResourceId,
+        SkillSecurityScanId, TaskId, VaultId,
+    };
     use uuid::Uuid;
 
     fn database_url() -> Option<String> {
@@ -1278,9 +1285,9 @@ mod tests {
 
     async fn cleanup(
         pool: &PgPool,
-        agent_id: Uuid,
-        session_id: Uuid,
-        environment_id: Uuid,
+        agent_id: AgentId,
+        session_id: SessionId,
+        environment_id: EnvironmentId,
         secret_names: &[String],
     ) {
         let _ =
@@ -1392,7 +1399,7 @@ mod tests {
             lifecycle_status: "approved".to_string(),
             security_status: "passed".to_string(),
             security_scan_hash: Some("a".repeat(64)),
-            security_scan_id: Some(Uuid::nil()),
+            security_scan_id: Some(SkillSecurityScanId::from_uuid(Uuid::nil())),
         }
     }
 
@@ -1422,12 +1429,12 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let environment_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
-        let environment_ref = format!("env_{environment_id}");
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let environment_ref = environment_id.to_string();
         let snapshot_secret = format!("snapshot-secret-{unique}");
         let live_secret = format!("live-secret-{unique}");
         let agent_name = format!("snapshot-agent-{unique}");
@@ -1570,7 +1577,7 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let input = HarnessInputBuilder::new(pool.clone())
-                .build(&task, "sandbox-ext", Uuid::now_v7())
+                .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect("build harness input");
 
@@ -1622,12 +1629,12 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let file_id = Uuid::now_v7();
-        let session_file_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let file_id = FileId::from_uuid(Uuid::now_v7());
+        let session_file_id = SessionResourceId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let org_id = format!("org-{unique}");
         let project_id = format!("proj-{unique}");
         let missing_storage_key = format!("missing-session-file-{unique}.txt");
@@ -1752,7 +1759,7 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let err = HarnessInputBuilder::new(pool.clone())
-                .build(&task, "sandbox-ext", Uuid::now_v7())
+                .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect_err("missing session file content must fail harness input build");
             let message = err.to_string();
@@ -1800,12 +1807,12 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let vault_id = Uuid::now_v7();
-        let credential_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let vault_id = VaultId::from_uuid(Uuid::now_v7());
+        let credential_id = CredentialId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let mcp_url = "https://mcp.vault-alias.example/api";
 
         async {
@@ -1868,7 +1875,7 @@ mod tests {
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(json!([format!("vault_{vault_id}")]))
+            .bind(json!([vault_id.to_string()]))
             .execute(&pool)
             .await
             .expect("insert session");
@@ -1894,7 +1901,7 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let input = HarnessInputBuilder::new(pool.clone())
-                .build(&task, "sandbox-ext", Uuid::now_v7())
+                .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect("build harness input");
 
@@ -1941,12 +1948,12 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let vault_id = Uuid::now_v7();
-        let credential_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let vault_id = VaultId::from_uuid(Uuid::now_v7());
+        let credential_id = CredentialId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let mcp_url = "https://mcp.vault-decrypt-fail.example/api";
 
         async {
@@ -2009,7 +2016,7 @@ mod tests {
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(json!([format!("vault_{vault_id}")]))
+            .bind(json!([vault_id.to_string()]))
             .execute(&pool)
             .await
             .expect("insert session");
@@ -2035,7 +2042,11 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let err = HarnessInputBuilder::new(pool.clone())
-                .build(&task, "sandbox-ext", Uuid::now_v7())
+                .build(
+                    &task,
+                    "sandbox-ext",
+                    SandboxId::from_uuid(Uuid::now_v7()),
+                )
                 .await
                 .expect_err("broken vault credential must fail harness input build");
             let message = err.to_string();
@@ -2353,23 +2364,26 @@ fn combine_system_prompt(base: Option<String>, memory: Option<String>) -> Option
     }
 }
 
-fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
-    raw.strip_prefix(prefix).unwrap_or(raw).parse().ok()
-}
-
-fn parse_vault_ref(raw: &str) -> Option<Uuid> {
-    raw.strip_prefix("vault_").unwrap_or(raw).parse().ok()
+fn parse_vault_ref(raw: &str) -> Option<VaultId> {
+    // session.vault_ids is persisted canonically prefixed (Python list[VaultId] ->
+    // str(vault_id)); only the prefixed form is accepted.
+    VaultId::from_public(raw).ok()
 }
 
 #[cfg(test)]
 mod vault_ref_tests {
     use super::parse_vault_ref;
+    use crate::ids::VaultId;
     use uuid::Uuid;
 
     #[test]
-    fn removed_vault_prefix_is_rejected() {
+    fn parse_vault_ref_accepts_only_canonical_prefixed() {
         let id = Uuid::now_v7();
-        assert_eq!(parse_vault_ref(&format!("vault_{id}")), Some(id));
+        let vault_id = VaultId::from_uuid(id);
+        assert_eq!(parse_vault_ref(&vault_id.to_string()), Some(vault_id));
+        // Bare uuid and wrong-prefixed refs are rejected: vault_ids is canonically
+        // prefixed, so there is no bare-form tolerance.
+        assert_eq!(parse_vault_ref(&id.to_string()), None);
         assert_eq!(parse_vault_ref(&format!("vlt_{id}")), None);
     }
 }
@@ -2559,7 +2573,7 @@ struct SecretRow {
 
 #[derive(Debug, Clone, FromRow)]
 struct VaultCredentialRow {
-    id: Uuid,
+    id: CredentialId,
     mcp_server_url: Option<String>,
     token_value: String,
     credential_type: String,
@@ -2573,13 +2587,13 @@ struct SkillForArchive {
     lifecycle_status: String,
     security_status: String,
     security_scan_hash: Option<String>,
-    security_scan_id: Option<Uuid>,
+    security_scan_id: Option<SkillSecurityScanId>,
 }
 
 #[derive(Debug, FromRow)]
 struct SkillVersionForArchive {
-    id: Uuid,
-    security_scan_id: Option<Uuid>,
+    id: SkillVersionId,
+    security_scan_id: Option<SkillSecurityScanId>,
     target_hash: Option<String>,
 }
 

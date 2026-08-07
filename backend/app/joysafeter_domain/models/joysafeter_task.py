@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import enum
-import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -16,8 +15,10 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SandboxId, SessionId, TaskId, TriggerId
 
 from .base import JoySafeterBaseModel
 
@@ -84,6 +85,10 @@ class JoySafeterTask(JoySafeterBaseModel):
         Index("idx_ct_trigger", "trigger_id"),
     )
 
+    id: Mapped[TaskId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(TaskId), primary_key=True, default=TaskId.new
+    )
+
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         ForeignKey("joysafeter_organization_projects.id"),
@@ -95,20 +100,20 @@ class JoySafeterTask(JoySafeterBaseModel):
     # FK-constrained so a task's audit record survives user/org deletion.
     user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     org_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    agent_id: Mapped[AgentId] = mapped_column(
+        EntityIdType(AgentId),
         ForeignKey("joysafeter_agents.id"),
         nullable=False,
     )
-    chat_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    chat_session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id"),
         nullable=True,
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    sandbox_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    sandbox_id: Mapped[Optional[SandboxId]] = mapped_column(EntityIdType(SandboxId), nullable=True)
     output: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     usage: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
@@ -129,8 +134,8 @@ class JoySafeterTask(JoySafeterBaseModel):
     owner_epoch: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     # Set when this task was created by a trigger fire (cron/webhook/manual);
     # NULL for interactive tasks. References the unified joysafeter_triggers row.
-    trigger_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    trigger_id: Mapped[Optional[TriggerId]] = mapped_column(
+        EntityIdType(TriggerId),
         ForeignKey("joysafeter_triggers.id", ondelete="SET NULL"),
         nullable=True,
     )

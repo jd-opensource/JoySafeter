@@ -29,6 +29,17 @@ from sqlalchemy.pool import NullPool
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 ALEMBIC = Path(sys.executable).with_name("alembic")
 
+# ``Settings`` requires SECRET_KEY at import time (no default), and the module-level
+# ``settings = Settings()`` runs during collection. Provide a deterministic test
+# value so ``uv run pytest`` works without external secrets, matching how the other
+# required env vars below are injected. A real value in the environment still wins.
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-local-and-ci-runs-only")
+# CredentialCipher (vault/secret tests) requires a 32-byte AES key as 64 hex chars.
+os.environ.setdefault(
+    "JOYSAFETER_VAULT_ENCRYPTION_KEY",
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+)
+
 # testcontainers talks to Docker via docker-py, which defaults to the socket at
 # /var/run/docker.sock. On colima / Docker Desktop the real socket lives
 # elsewhere, so derive it from the active docker context when DOCKER_HOST is
@@ -134,12 +145,19 @@ async def _clean_tables(request: FixtureRequest) -> AsyncIterator[None]:
     yield
     from app.joysafeter_shared.database import Base
 
-    tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
-    if not tables:
+    metadata_table_names = {table.name for table in Base.metadata.sorted_tables}
+    if not metadata_table_names:
         return
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     try:
         async with engine.begin() as conn:
+            existing_result = await conn.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()")
+            )
+            existing_table_names = metadata_table_names.intersection(existing_result.scalars())
+            tables = ", ".join(f'"{name}"' for name in sorted(existing_table_names))
+            if not tables:
+                return
             await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     finally:
         await engine.dispose()

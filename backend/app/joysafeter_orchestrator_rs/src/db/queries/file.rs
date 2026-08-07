@@ -1,11 +1,12 @@
 use sqlx::PgPool;
-use uuid::Uuid;
+
+use crate::ids::{FileId, SessionId};
 
 pub async fn insert_artifact_file(
     pool: &PgPool,
-    id: Uuid,
+    id: FileId,
     project_id: &str,
-    session_id: Option<Uuid>,
+    session_id: Option<SessionId>,
     filename: &str,
     content_type: &str,
     size_bytes: i64,

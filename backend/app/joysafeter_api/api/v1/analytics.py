@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.schemas.analytics import (
     AgentMetricsResponse,
+    AgentRankingItem,
     AnalyticsSummaryResponse,
     CallsListResponse,
     CallsTimePoint,
@@ -30,6 +31,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     get_joysafeter_auth_context,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import AgentId
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ async def get_analytics_summary(
     range: str = Query("7d", alias="range"),
     engine: Optional[str] = Query(None),
     model: Optional[str] = Query(None),
-    agent_id: Optional[str] = Query(None),
+    agent_id: Optional[AgentId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> AnalyticsSummaryResponse:
@@ -68,7 +70,7 @@ async def get_analytics_timeseries(
     metric: str = Query("calls"),
     range: str = Query("7d", alias="range"),
     engine: Optional[str] = Query(None),
-    agent_id: Optional[str] = Query(None),
+    agent_id: Optional[AgentId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> list:
@@ -114,7 +116,7 @@ async def get_calls_list(
     engine: Optional[str] = Query(None),
     model: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
-    agent_id: Optional[str] = Query(None),
+    agent_id: Optional[AgentId] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     sort_by: str = Query("created_at"),
@@ -207,15 +209,16 @@ async def get_health_check(
 # --- Agent Ranking ---
 
 
-@router.get("/agent-ranking")
+@router.get("/agent-ranking", response_model=list[AgentRankingItem])
 async def get_agent_ranking(
     range: str = Query("7d", alias="range"),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> list[AgentRankingItem]:
     """Rank agents by composite health score (worst first)."""
     service = AnalyticsService(db)
-    return await service.get_agent_ranking(auth_ctx.project_id, range)
+    data = await service.get_agent_ranking(auth_ctx.project_id, range)
+    return [AgentRankingItem(**item) for item in data]
 
 
 # --- Time Heatmap ---
@@ -239,7 +242,7 @@ async def get_time_heatmap(
 async def get_error_summary(
     range: str = Query("7d", alias="range"),
     engine: Optional[str] = Query(None),
-    agent_id: Optional[str] = Query(None),
+    agent_id: Optional[AgentId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> ErrorSummaryResponse:
@@ -256,7 +259,7 @@ async def get_error_summary(
 async def get_latency_stats(
     range: str = Query("7d", alias="range"),
     engine: Optional[str] = Query(None),
-    agent_id: Optional[str] = Query(None),
+    agent_id: Optional[AgentId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> LatencyStatsResponse:

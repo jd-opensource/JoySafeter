@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { TASK_ID } from '@/test-utils/entity-ids'
+
 import { ApiError } from '../api-client'
+
 import {
   getOperationErrorMessage,
   getOperationErrorMessageWithDetails,
@@ -99,14 +102,14 @@ describe('managed operation errors', () => {
       parseApiError({
         code: 'TASK_ENQUEUE_FAILED',
         message: 'Failed to enqueue task',
-        data: { task_id: 'task-1' },
+        data: { task_id: TASK_ID },
         source: 'runtime',
         payload: { code: 'OLD_SHAPE' },
       }),
     ).toMatchObject({
       code: 'TASK_ENQUEUE_FAILED',
       message: 'Failed to enqueue task',
-      data: { task_id: 'task-1' },
+      data: { task_id: TASK_ID },
       source: 'runtime',
     })
   })

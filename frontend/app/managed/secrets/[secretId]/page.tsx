@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, Trash2, Eye, EyeOff, Save } from 'lucide-react'
 import { managedGet, managedPut } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import {
   hasManagedRequestScope,
@@ -15,6 +16,8 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import { parseSecretId, type SecretId } from '@/types/entity-id'
+import type { SecretDetail } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -49,23 +52,13 @@ import {
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
 
-interface SecretDetail {
-  id: string
-  name: string
-  provider: string
-  protocol: string
-  secret_data: Record<string, string>
-  created_at: string
-  updated_at: string
-}
-
 interface KVPair {
   key: string
   value: string
 }
 
 interface SaveSecretVariables {
-  secretId: string
+  secretId: SecretId
   payload: {
     name: string
     provider: string
@@ -78,7 +71,8 @@ interface SaveSecretVariables {
 }
 
 export default function SecretDetailPage({ params }: { params: Promise<{ secretId: string }> }) {
-  const { secretId } = React.use(params)
+  const { secretId: rawSecretId } = React.use(params)
+  const secretId = parseSecretId(rawSecretId)
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -104,10 +98,10 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   } = useQuery({
     queryKey: ['secret', managedScope.key, secretId],
     queryFn: () =>
-      managedGet<SecretDetail>(
+      managedGet<unknown>(
         apiResourcePath('secrets', secretId),
         managedRequestOptions(managedScope),
-      ),
+      ).then(parseSecretDetailResponse),
     enabled: !!secretId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
@@ -220,11 +214,11 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
   const saveMutation = useMutation({
     mutationFn: async ({ secretId, payload, requestScope, runId, scope }: SaveSecretVariables) => {
       if (!isCurrentSaveRun(runId, scope)) return undefined
-      return managedPut(
+      return managedPut<unknown>(
         apiResourcePath('secrets', secretId),
         payload,
         managedRequestOptions(requestScope),
-      )
+      ).then(parseSecretDetailResponse)
     },
     onSuccess: (_data, { secretId, requestScope, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return

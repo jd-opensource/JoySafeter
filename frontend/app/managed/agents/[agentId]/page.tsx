@@ -16,7 +16,10 @@ import {
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
-import type { Agent, AgentTool, McpServer, PaginatedResponse, Session } from '@/types/managed'
+import type { Agent, AgentTool, McpServer, Session } from '@/types/managed'
+import { parseAgentId, parseSessionId } from '@/types/entity-id'
+import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import { parseSessionListResponse } from '@/lib/managed/session-response-parsers'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
@@ -65,7 +68,8 @@ const ENGINE_KIND_LABELS: Record<string, string> = {
 }
 
 export default function AgentDetailPage({ params }: { params: Promise<{ agentId: string }> }) {
-  const { agentId } = React.use(params)
+  const { agentId: rawAgentId } = React.use(params)
+  const agentId = parseAgentId(rawAgentId)
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -154,7 +158,10 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   } = useQuery({
     queryKey: ['agent', managedScope.key, agentId],
     queryFn: () =>
-      managedGet<Agent>(apiResourcePath('agents', agentId), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('agents', agentId),
+        managedRequestOptions(managedScope),
+      ).then(parseAgentResponse),
     enabled: !!agentId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
@@ -162,13 +169,13 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const { data: sessions } = useQuery({
     queryKey: ['agent-sessions', managedScope.key, agentId, showArchived],
     queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Session>>(
+      const res = await managedGet<{ data: unknown[] }>(
         apiResourceSubpath('agents', agentId, ['sessions'], {
           include_archived: showArchived || undefined,
         }),
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseSessionListResponse(res.data || [])
     },
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
@@ -180,7 +187,10 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         apiResourcePath('agents', agentId, 'versions'),
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return (res.data || []).map((version) => ({
+        ...version,
+        snapshot: version.snapshot ? parseAgentResponse(version.snapshot) : undefined,
+      }))
     },
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
@@ -200,7 +210,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         managedRequestOptions(requestScope),
       )
       if (!isCurrentAction(runId, actionScope)) return
-      router.push(`/managed/sessions/${res.id}`)
+      router.push(`/managed/sessions/${parseSessionId(res.id)}`)
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')

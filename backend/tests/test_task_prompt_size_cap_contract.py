@@ -7,6 +7,8 @@ lands in a DB row and is fanned out over Redis pub/sub to every SSE subscriber
 and bounds the row + fan-out cost of one submission.
 """
 
+import uuid
+
 import pytest
 from pydantic import ValidationError
 
@@ -16,6 +18,7 @@ from app.joysafeter_domain.schemas.joysafeter_task import (
     JoySafeterCreateTaskResponse,
     JoySafeterTaskResponse,
 )
+from app.joysafeter_shared.ids import AgentId, SandboxId, SessionId, TaskId
 
 pytestmark = pytest.mark.no_db
 
@@ -49,8 +52,8 @@ def test_removed_system_prompt_field_is_rejected():
 def test_task_response_serializes_internal_system_prompt_as_system():
     response = JoySafeterTaskResponse.model_validate(
         {
-            "id": "00000000-0000-0000-0000-000000000001",
-            "agent_id": "00000000-0000-0000-0000-000000000002",
+            "id": TaskId(uuid.UUID("00000000-0000-0000-0000-000000000001")),
+            "agent_id": AgentId(uuid.UUID("00000000-0000-0000-0000-000000000002")),
             "status": "pending",
             "prompt": "scan",
             "system_prompt": "be precise",
@@ -67,10 +70,10 @@ def test_task_response_serializes_internal_system_prompt_as_system():
 
 
 def test_task_responses_use_canonical_prefixed_ids():
-    task_id = "00000000-0000-0000-0000-000000000001"
-    agent_id = "00000000-0000-0000-0000-000000000002"
-    session_id = "00000000-0000-0000-0000-000000000003"
-    sandbox_id = "00000000-0000-0000-0000-000000000004"
+    task_id = TaskId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
+    agent_id = AgentId(uuid.UUID("00000000-0000-0000-0000-000000000002"))
+    session_id = SessionId(uuid.UUID("00000000-0000-0000-0000-000000000003"))
+    sandbox_id = SandboxId(uuid.UUID("00000000-0000-0000-0000-000000000004"))
 
     created = JoySafeterCreateTaskResponse(id=task_id, status="pending").model_dump(mode="json")
     task = JoySafeterTaskResponse.model_validate(
@@ -88,8 +91,42 @@ def test_task_responses_use_canonical_prefixed_ids():
         }
     ).model_dump(mode="json")
 
-    assert created["id"] == f"task_{task_id}"
-    assert task["id"] == f"task_{task_id}"
-    assert task["agent_id"] == f"agent_{agent_id}"
-    assert task["chat_session_id"] == f"sess_{session_id}"
-    assert task["sandbox_id"] == f"sbx_{sandbox_id}"
+    assert created["id"] == str(task_id)
+    assert task["id"] == str(task_id)
+    assert task["agent_id"] == str(agent_id)
+    assert task["chat_session_id"] == str(session_id)
+    assert task["sandbox_id"] == str(sandbox_id)
+
+
+def test_task_response_hydrates_from_typed_task_id_attribute():
+    # After migration the ORM attribute ``JoySafeterTask.id`` is a ``TaskId``; a
+    # RESPONSE schema field still typed ``uuid.UUID`` raises ValidationError on it
+    # (the from_attributes trap). The field must accept a ``TaskId`` and serialize
+    # to the canonical ``task_<uuid>`` prefix.
+    from types import SimpleNamespace
+
+    task_uuid = uuid.uuid4()
+    agent_uuid = uuid.uuid4()
+    task = JoySafeterTaskResponse.model_validate(
+        SimpleNamespace(
+            id=TaskId(task_uuid),
+            agent_id=AgentId(agent_uuid),
+            chat_session_id=None,
+            status="pending",
+            prompt="scan",
+            system_prompt=None,
+            sandbox_id=None,
+            output="",
+            error=None,
+            usage=None,
+            timeout_sec=60,
+            retry_count=0,
+            max_retries=0,
+            created_at="2026-08-06T00:00:00Z",
+            started_at=None,
+            completed_at=None,
+            duration_ms=None,
+        )
+    )
+
+    assert task.model_dump(mode="json")["id"] == f"task_{task_uuid}"

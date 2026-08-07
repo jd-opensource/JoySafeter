@@ -31,11 +31,16 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import { getManagedStreamErrorMessage } from '@/lib/managed/stream-errors'
+import {
+  parseSkillAuthoringSaveResponse,
+  parseSkillSecurityScanResponse,
+} from '@/lib/managed/skill-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
+import { tryParseSkillId, type SkillId, type SkillSecurityScanId } from '@/types/entity-id'
 
 const STORAGE_KEY_PREFIX = 'joysafeter:skill-authoring-state:v2'
 
@@ -70,13 +75,11 @@ const EMPTY_DRAFT: SkillDraft = {
 type PersistedState = {
   messages: AuthoringMessage[]
   draft: SkillDraft
-  draftSkillId: string | null
+  draftSkillId: SkillId | null
 }
 
-type SaveDraftResponse = { skill_id?: string; created?: boolean; error?: string; code?: string }
-
 type ScanRecord = {
-  id?: string
+  id?: SkillSecurityScanId
   status?: string
   severity?: string | null
   score?: number | null
@@ -115,7 +118,7 @@ function getInitialState(startFresh: boolean, storageKey: string): PersistedStat
   return {
     messages: Array.isArray(saved?.messages) ? saved.messages : [],
     draft: saved?.draft ? { ...EMPTY_DRAFT, ...saved.draft } : EMPTY_DRAFT,
-    draftSkillId: saved?.draftSkillId || null,
+    draftSkillId: tryParseSkillId(saved?.draftSkillId),
   }
 }
 
@@ -128,7 +131,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   const [initialState] = useState(() => getInitialState(startFresh, storageKey))
   const [messages, setMessages] = useState<AuthoringMessage[]>(initialState.messages)
   const [draft, setDraft] = useState<SkillDraft>(initialState.draft)
-  const [draftSkillId, setDraftSkillId] = useState<string | null>(initialState.draftSkillId)
+  const [draftSkillId, setDraftSkillId] = useState<SkillId | null>(initialState.draftSkillId)
   const [streaming, setStreaming] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [scanRunning, setScanRunning] = useState(false)
@@ -441,7 +444,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     setStreaming(false)
   }, [])
 
-  const saveDraft = useCallback(async (): Promise<string | null> => {
+  const saveDraft = useCallback(async (): Promise<SkillId | null> => {
     setSaveError(null)
     const current = draftRef.current
     if (!current.name.trim()) {
@@ -453,17 +456,19 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     const lifecycleRunAtStart = lifecycleRunRef.current
     if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
     try {
-      const data = await managedPost<SaveDraftResponse>(
-        'skills/ai-authoring/save-draft',
-        {
-          draft_skill_id: draftSkillId,
-          name: current.name,
-          description: current.description,
-          content: current.content,
-          tags: current.tags,
-          files: current.files,
-        },
-        managedRequestOptions(requestScope),
+      const data = parseSkillAuthoringSaveResponse(
+        await managedPost<unknown>(
+          'skills/ai-authoring/save-draft',
+          {
+            draft_skill_id: draftSkillId,
+            name: current.name,
+            description: current.description,
+            content: current.content,
+            tags: current.tags,
+            files: current.files,
+          },
+          managedRequestOptions(requestScope),
+        ),
       )
       if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
       if (data.error || !data.skill_id) {
@@ -482,10 +487,12 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   }, [draftSkillId, isCurrentLifecycleRun])
 
   const fetchLatestScan = useCallback(
-    async (skillId: string, requestScope: ManagedRequestScope): Promise<ScanRecord | null> => {
-      return await managedGet<ScanRecord>(
-        apiResourcePath('skills', skillId, 'security-scans', 'latest'),
-        managedRequestOptions(requestScope),
+    async (skillId: SkillId, requestScope: ManagedRequestScope): Promise<ScanRecord | null> => {
+      return parseSkillSecurityScanResponse(
+        await managedGet<unknown>(
+          apiResourcePath('skills', skillId, 'security-scans', 'latest'),
+          managedRequestOptions(requestScope),
+        ),
       )
     },
     [],
@@ -506,10 +513,12 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     setScanRunning(true)
     setScanResult(null)
     try {
-      const initialScan = await managedPost<ScanRecord>(
-        apiResourcePath('skills', sid, 'security-scans', 'rescan'),
-        {},
-        managedRequestOptions(requestScope),
+      const initialScan = parseSkillSecurityScanResponse(
+        await managedPost<unknown>(
+          apiResourcePath('skills', sid, 'security-scans', 'rescan'),
+          {},
+          managedRequestOptions(requestScope),
+        ),
       )
       if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       setScanResult(initialScan)
@@ -551,7 +560,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   // approve → cut version 1.0.0. Runs the lifecycle transitions in sequence;
   // any already-satisfied transition (e.g. re-publishing) is treated as a
   // no-op rather than a hard error. Returns the skill id on success.
-  const publish = useCallback(async (): Promise<{ skillId: string | null; error?: string }> => {
+  const publish = useCallback(async (): Promise<{ skillId: SkillId | null; error?: string }> => {
     const requestScope = managedRequestScopeRef.current
     const scopeAtStart = requestScope.key
     const lifecycleRunAtStart = lifecycleRunRef.current

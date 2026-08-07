@@ -53,10 +53,16 @@ import {
 } from '@/lib/managed/request-scope'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { parseSessionId, type FileId, type MemoryStoreId, type SessionId, type VaultId } from '@/types/entity-id'
+import { parseAgentListResponse } from '@/lib/managed/agent-response-parsers'
+import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
+import { parseVaultListResponse } from '@/lib/managed/vault-response-parsers'
+import { parseMemoryStoreResponse } from '@/lib/managed/memory-response-parsers'
+import { parseFileListResponse } from '@/lib/managed/file-response-parsers'
 import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
 
 interface SelectedFile {
-  file_id: string
+  file_id: FileId
   filename: string
   mount_path: string
 }
@@ -70,7 +76,7 @@ interface SelectedRepo {
 }
 
 interface MemoryStoreOption {
-  id: string
+  id: MemoryStoreId
   name: string
   description?: string
   archived_at?: string | null
@@ -79,7 +85,7 @@ interface MemoryStoreOption {
 interface CreateSessionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated?: (sessionId: string) => void
+  onCreated?: (sessionId: SessionId) => void
 }
 
 interface CreateSessionMutationInput {
@@ -109,14 +115,14 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const [agentSearch, setAgentSearch] = useState('')
   const [envId, setEnvId] = useState('')
   const [envSearch, setEnvSearch] = useState('')
-  const [selectedVaultIds, setSelectedVaultIds] = useState<string[]>([])
+  const [selectedVaultIds, setSelectedVaultIds] = useState<VaultId[]>([])
   const [vaultSearch, setVaultSearch] = useState('')
   const [showVaultDropdown, setShowVaultDropdown] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [fileSearch, setFileSearch] = useState('')
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [selectedRepos, setSelectedRepos] = useState<SelectedRepo[]>([])
-  const [selectedMemoryStores, setSelectedMemoryStores] = useState<string[]>([])
+  const [selectedMemoryStores, setSelectedMemoryStores] = useState<MemoryStoreId[]>([])
   const [memoryStoreSearch, setMemoryStoreSearch] = useState('')
   const [showMemoryStoreDropdown, setShowMemoryStoreDropdown] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -124,11 +130,11 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const { data: agents = [] } = useQuery({
     queryKey: ['agents-for-session', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Agent>>(
+      const res = await managedGet<{ data: unknown[] }>(
         '/agents',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseAgentListResponse(res.data || [])
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
@@ -140,14 +146,17 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
         '/environments',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseEnvironmentListResponse(res.data || [])
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultsRes } = useQuery({
     queryKey: ['vaults-for-session', managedScope.key],
-    queryFn: () => managedGet<{ data: Vault[] }>('/vaults', managedRequestOptions(managedScope)),
+    queryFn: () =>
+      managedGet<{ data: unknown[] }>('/vaults', managedRequestOptions(managedScope)).then(
+        (response) => ({ ...response, data: parseVaultListResponse(response.data) }),
+      ),
     enabled: open && hasManagedRequestScope(managedScope),
   })
   const vaults = useMemo(() => vaultsRes?.data || [], [vaultsRes])
@@ -155,7 +164,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const { data: filesResp } = useQuery({
     queryKey: ['files-for-session', managedScope.key],
     queryFn: () =>
-      managedGet<{ data: FileRecord[] }>('/files?limit=100', managedRequestOptions(managedScope)),
+      managedGet<{ data: unknown[] }>('/files?limit=100', managedRequestOptions(managedScope)).then(
+        (response) => ({ ...response, data: parseFileListResponse(response.data) }),
+      ),
     enabled: open && hasManagedRequestScope(managedScope),
   })
   const files = useMemo(() => {
@@ -166,10 +177,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const { data: memoryStoresResp } = useQuery({
     queryKey: ['memory-stores-for-session', managedScope.key],
     queryFn: () =>
-      managedGet<{ data: MemoryStoreOption[] }>(
+      managedGet<{ data: unknown[] }>(
         '/memory_stores?limit=100',
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({ ...response, data: response.data.map(parseMemoryStoreResponse) })),
     enabled: open && hasManagedRequestScope(managedScope),
   })
   const memoryStores = useMemo(() => {
@@ -315,7 +326,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project session create ignored')
       }
-      return managedPost<{ id: string }>('/sessions', body, managedRequestOptions(scope))
+      return managedPost<{ id: string }>('/sessions', body, managedRequestOptions(scope)).then(
+        (response) => ({ ...response, id: parseSessionId(response.id) }),
+      )
     },
     onSuccess: (res, input) => {
       if (!isCurrentCreateRun(input.runId, input.scope.key)) return
@@ -422,7 +435,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     }
     if (currentSelectedMemoryStores.length > 0) {
       body.resources = currentSelectedMemoryStores.map((id) => ({
-        memory_store_id: apiResourceId(id),
+        memory_store_id: id,
         access: 'read_write',
       }))
     }
@@ -475,7 +488,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     }
   }
 
-  const toggleVault = (id: string) => {
+  const toggleVault = (id: VaultId) => {
     setSelectedVaultIds((prev) =>
       prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
     )
@@ -490,11 +503,11 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     setShowFileDropdown(false)
   }
 
-  const removeFile = (fileId: string) => {
+  const removeFile = (fileId: FileId) => {
     setSelectedFiles((prev) => prev.filter((f) => f.file_id !== fileId))
   }
 
-  const updateMountPath = (fileId: string, mountPath: string) => {
+  const updateMountPath = (fileId: FileId, mountPath: string) => {
     setSelectedFiles((prev) =>
       prev.map((f) => (f.file_id === fileId ? { ...f, mount_path: mountPath } : f)),
     )

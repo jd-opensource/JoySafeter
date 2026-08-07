@@ -1,12 +1,12 @@
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
+from app.joysafeter_shared.ids import CredentialId, EntityIdType, VaultId
 
 
 class JoySafeterVault(JoySafeterBaseModel):
@@ -28,6 +28,10 @@ class JoySafeterVault(JoySafeterBaseModel):
             sqlite_where=text("project_id IS NULL AND deleted_at IS NULL"),
         ),
         Index("idx_cv_project", "project_id"),
+    )
+
+    id: Mapped[VaultId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(VaultId), primary_key=True, default=VaultId.new
     )
 
     project_id: Mapped[Optional[str]] = mapped_column(
@@ -55,8 +59,12 @@ class JoySafeterVaultCredential(JoySafeterBaseModel):
         ),
     )
 
-    vault_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[CredentialId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(CredentialId), primary_key=True, default=CredentialId.new
+    )
+
+    vault_id: Mapped[VaultId] = mapped_column(
+        EntityIdType(VaultId),
         ForeignKey("joysafeter_vaults.id"),
         nullable=False,
     )

@@ -8,9 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
-from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
@@ -21,6 +21,7 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
     ProjectRole,
     default_project_role_for_org_role,
 )
+from app.joysafeter_shared.ids import SessionId
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_destroy_via_redis
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -430,7 +431,7 @@ class ProjectService:
     async def _cleanup_sessions_for_archive(
         self,
         project_id: str,
-        session_ids: Optional[list[uuid.UUID]] = None,
+        session_ids: Optional[list[SessionId]] = None,
     ) -> None:
         if session_ids is None:
             result = await self.db.execute(
@@ -515,7 +516,7 @@ class ProjectService:
                     user_action="retry",
                 )
 
-    async def _count_active_tasks_for_sessions(self, session_ids: list[uuid.UUID]) -> int:
+    async def _count_active_tasks_for_sessions(self, session_ids: list[SessionId]) -> int:
         if not session_ids:
             return 0
         result = await self.db.execute(

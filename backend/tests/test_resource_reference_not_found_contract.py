@@ -24,6 +24,7 @@ from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxSer
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, EnvironmentId, SandboxId, SecretId, TaskId
 
 
 def _auth_ctx(project_id: str | None = None) -> JoySafeterAuthContext:
@@ -67,7 +68,7 @@ async def _create_project_session(db_session, name: str) -> tuple[Project, JoySa
 
 @pytest.mark.asyncio
 async def test_get_agent_missing_agent_returns_structured_error(db_session):
-    agent_id = uuid.uuid4()
+    agent_id = AgentId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_agent(agent_id, db_session, _auth_ctx())
@@ -84,7 +85,7 @@ async def test_get_agent_missing_agent_returns_structured_error(db_session):
 
 @pytest.mark.asyncio
 async def test_create_task_missing_agent_returns_structured_error(db_session):
-    agent_id = uuid.uuid4()
+    agent_id = AgentId.new()
     req = JoySafeterCreateTaskRequest(agent_id=agent_id, prompt="run scan")
 
     with pytest.raises(AppError) as exc_info:
@@ -119,7 +120,7 @@ async def test_get_memory_store_missing_store_returns_structured_error(db_sessio
 
 @pytest.mark.asyncio
 async def test_get_secret_missing_secret_returns_structured_error(db_session):
-    secret_id = uuid.uuid4()
+    secret_id = SecretId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_secret(secret_id, db_session, _auth_ctx())
@@ -136,7 +137,7 @@ async def test_get_secret_missing_secret_returns_structured_error(db_session):
 
 @pytest.mark.asyncio
 async def test_get_environment_missing_environment_returns_structured_error(db_session):
-    environment_id = uuid.uuid4()
+    environment_id = EnvironmentId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_environment(environment_id, db_session, _auth_ctx())
@@ -153,7 +154,7 @@ async def test_get_environment_missing_environment_returns_structured_error(db_s
 
 @pytest.mark.asyncio
 async def test_get_sandbox_missing_sandbox_returns_structured_error(db_session):
-    sandbox_id = uuid.uuid4()
+    sandbox_id = SandboxId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_sandbox(sandbox_id, db_session, _auth_ctx())
@@ -302,7 +303,7 @@ async def test_get_task_missing_task_returns_structured_error(db_session):
     task_id = uuid.uuid4()
 
     with pytest.raises(AppError) as exc_info:
-        await get_task(task_id, db_session, _auth_ctx())
+        await get_task(TaskId(task_id), db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "TASK_NOT_FOUND",

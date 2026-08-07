@@ -17,6 +17,7 @@ from pydantic import (
 )
 
 from app.joysafeter_domain.schemas.joysafeter_environment import MountResource
+from app.joysafeter_shared.ids import AgentId, EventId, FileId, MemoryStoreId, SessionId, SessionResourceId, VaultId
 
 # ---------------------------------------------------------------------------
 # JoySafeter Session Schemas
@@ -45,7 +46,7 @@ class SessionStats(BaseModel):
 
 class SessionAgent(BaseModel):
     type: str = "agent"
-    id: uuid.UUID
+    id: AgentId
     version: int
     name: str
     engine_kind: Optional[str] = None
@@ -56,10 +57,6 @@ class SessionAgent(BaseModel):
     skills: list[Dict[str, Any]] = Field(default_factory=list)
     mcp_servers: list[Dict[str, Any]] = Field(default_factory=list)
     multiagent: Optional[Dict[str, Any]] = None
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"agent_{v}"
 
     @classmethod
     def from_agent(cls, agent) -> "SessionAgent":
@@ -149,12 +146,12 @@ class AgentRef(BaseModel):
     """Agent reference supporting pinned versions: {type, id, version}."""
 
     type: str = "agent"
-    id: uuid.UUID
+    id: AgentId
     version: Optional[int] = None
 
 
 class SessionResourceRequest(BaseModel):
-    memory_store_id: uuid.UUID
+    memory_store_id: MemoryStoreId
     access: str = "read_write"
     instructions: Optional[str] = None
     mount_name: Optional[str] = None
@@ -162,7 +159,7 @@ class SessionResourceRequest(BaseModel):
 
 class SessionFileResourceRequest(BaseModel):
     type: str = "file"
-    file_id: str
+    file_id: FileId
     mount_path: Optional[str] = None
 
     @model_validator(mode="after")
@@ -220,19 +217,13 @@ MAX_REPO_RESOURCES = 16
 MAX_STORAGE_MOUNT_RESOURCES = 16
 
 
-def _parse_agent_id(raw: str) -> uuid.UUID:
-    """Strip optional 'agent_' prefix and parse UUID."""
-    s = raw.removeprefix("agent_")
-    return uuid.UUID(s)
-
-
 class CreateSessionRequest(BaseModel):
     agent: Optional[Union[AgentRef, str]] = None
-    agent_id: Optional[uuid.UUID] = None
+    agent_id: Optional[AgentId] = None
     agent_name: Optional[str] = None
     title: Optional[str] = None
     metadata: dict[str, str] = Field(default_factory=dict)
-    vault_ids: list[str] = Field(default_factory=list)
+    vault_ids: list[VaultId] = Field(default_factory=list)
     environment_id: Optional[str] = None
     resources: list[SessionResourceRequest] = Field(default_factory=list)
     file_resources: list[SessionFileResourceRequest] = Field(default_factory=list)
@@ -245,27 +236,22 @@ class CreateSessionRequest(BaseModel):
         if isinstance(data, dict):
             agent = data.get("agent")
             if isinstance(agent, str):
-                data["agent_id"] = str(_parse_agent_id(agent))
+                data["agent_id"] = agent
                 data["agent"] = None
         return data
 
 
 class SessionResourceResponse(BaseModel):
-    memory_store_id: uuid.UUID
+    memory_store_id: MemoryStoreId
     access: str = "read_write"
     instructions: Optional[str] = None
     mount_name: str = ""
-
-    @field_serializer("memory_store_id")
-    def serialize_store_id(self, v: uuid.UUID) -> str:
-        return f"memstore_{v}"
-
 
 class SessionRepoResourceResponse(BaseModel):
     """Repo resource as returned by the API. Deliberately omits the
     ``authorization_token`` — clone credentials are never echoed."""
 
-    id: uuid.UUID
+    id: SessionResourceId
     type: str = "github_repository"
     url: str
     branch: str = ""
@@ -274,29 +260,15 @@ class SessionRepoResourceResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sesrsc_{v}"
-
-
 class SessionFileResourceResponse(BaseModel):
-    id: uuid.UUID
+    id: SessionResourceId
     type: str = "file"
-    file_id: uuid.UUID
+    file_id: FileId
     mount_path: str
     access: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sesrsc_{v}"
-
-    @field_serializer("file_id")
-    def serialize_file_id(self, v: uuid.UUID) -> str:
-        return f"file_{v}"
-
 
 class SessionStorageMountResponse(BaseModel):
     id: uuid.UUID
@@ -321,7 +293,7 @@ class UpdateRepoResourceRequest(BaseModel):
 
 
 class SessionResponse(BaseModel):
-    id: uuid.UUID
+    id: SessionId
     type: str = "session"
     agent: SessionAgent
     environment_id: Optional[str] = None
@@ -329,7 +301,7 @@ class SessionResponse(BaseModel):
     stop_reason: Optional[Dict[str, Any]] = None
     title: Optional[str] = None
     metadata: dict[str, str] = Field(default_factory=dict)
-    vault_ids: list[str] = Field(default_factory=list)
+    vault_ids: list[VaultId] = Field(default_factory=list)
     resources: list[SessionResourceResponse] = Field(default_factory=list)
     repo_resources: list[SessionRepoResourceResponse] = Field(default_factory=list)
     storage_mounts: list[SessionStorageMountResponse] = Field(default_factory=list)
@@ -340,10 +312,6 @@ class SessionResponse(BaseModel):
     archived_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sess_{v}"
 
 
 class SingleEventRequest(BaseModel):
@@ -399,7 +367,7 @@ class SendEventRequest(BaseModel):
 
 
 class SessionEventResponse(BaseModel):
-    id: uuid.UUID
+    id: EventId
     event_type: str
     payload: Dict[str, Any] = Field(default_factory=dict)
     seq: int
@@ -411,7 +379,7 @@ class SessionEventResponse(BaseModel):
     @model_serializer
     def _flatten(self) -> Dict[str, Any]:
         base: Dict[str, Any] = {
-            "id": f"evt_{self.id}",
+            "id": str(self.id),
             "type": self.event_type,
             "seq": self.seq,
             "processed_at": self.processed_at.isoformat() if self.processed_at else None,

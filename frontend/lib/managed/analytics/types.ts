@@ -3,6 +3,7 @@
  * These types define the API response shapes consumed by chart components.
  */
 
+import type { AgentId, SessionId, TaskId } from '@/types/entity-id'
 // --- KPI Summary ---
 
 export interface AnalyticsDelta {
@@ -67,10 +68,10 @@ export interface EngineShareItem {
 export type CallStatus = 'running' | 'completed' | 'error' | 'timeout' | 'cancelled'
 
 export interface CallRecord {
-  id: string
-  trace_id: string
-  session_id: string
-  agent_id: string
+  id: TaskId
+  trace_id: TaskId
+  session_id: SessionId | null
+  agent_id: AgentId | null
   agent_name: string
   engine_kind: string
   model: string
@@ -132,7 +133,7 @@ export interface ObservationNode {
 // --- Agent Comparison ---
 
 export interface AgentMetrics {
-  agent_id: string
+  agent_id: AgentId
   agent_name: string
   engine_kind: string
   total_sessions: number
@@ -147,7 +148,7 @@ export interface AgentMetrics {
 
 export interface AgentTrendPoint {
   timestamp: string
-  agent_id: string
+  agent_id: AgentId
   agent_name: string
   value: number
 }
@@ -159,7 +160,7 @@ export interface AnalyticsFilters {
   engine: string | null
   model: string | null
   status: CallStatus | null
-  agent_id: string | null
+  agent_id: AgentId | null
 }
 
 // --- Health Check ---
@@ -172,7 +173,7 @@ export interface AlertItem {
   type: string
   severity: AlertSeverity
   agent_name: string | null
-  agent_id: string | null
+  agent_id: AgentId | null
   params: Record<string, number>
 }
 
@@ -232,7 +233,7 @@ export interface LatencyStats {
 // --- Agent Ranking ---
 
 export interface AgentRankingItem {
-  agent_id: string
+  agent_id: AgentId
   agent_name: string
   engine_kind: string
   total_tasks: number

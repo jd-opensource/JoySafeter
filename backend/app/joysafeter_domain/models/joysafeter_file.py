@@ -1,17 +1,20 @@
 """JoySafeterFile model - stores file metadata for uploaded and agent-generated files."""
 
-import uuid
 from typing import Optional
 
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel, SoftDeleteMixin
+from app.joysafeter_shared.ids import EntityIdType, FileId, SessionId
 
 
 class JoySafeterFile(JoySafeterBaseModel, SoftDeleteMixin):
     __tablename__ = "joysafeter_files"
+
+    id: Mapped[FileId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(FileId), primary_key=True, default=FileId.new
+    )
 
     project_id: Mapped[str] = mapped_column(
         String(255),
@@ -26,8 +29,8 @@ class JoySafeterFile(JoySafeterBaseModel, SoftDeleteMixin):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     storage_key: Mapped[str] = mapped_column(Text, nullable=False)
     downloadable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"),
         nullable=True,
     )

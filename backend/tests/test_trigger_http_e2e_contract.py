@@ -19,6 +19,7 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import SessionId, TaskId, TriggerId
 
 
 class _FakeQueueRedis:
@@ -162,20 +163,19 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
         assert runs[0]["trigger_id"] == trigger_id
         assert runs[0]["chat_session_id"] == fired["session_id"]
 
+        typed_trigger_id = TriggerId.from_public(trigger_id)
         active_task = (
-            await db_session.execute(
-                select(JoySafeterTask).where(JoySafeterTask.trigger_id == uuid.UUID(trigger_id.removeprefix("trig_")))
-            )
+            await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.trigger_id == typed_trigger_id))
         ).scalar_one()
         original_task_trigger_id = active_task.trigger_id
-        assert redis.rpushed == [("joysafeter:global_queue", str(active_task.id))]
+        assert redis.rpushed == [("joysafeter:global_queue", str(active_task.id.uuid))]
 
         active_delete_resp = await client.delete(f"/api/v1/triggers/{trigger_id}")
         assert active_delete_resp.status_code == 409
         assert active_delete_resp.json()["code"] == "TRIGGER_HAS_ACTIVE_RUNS"
         assert active_delete_resp.json()["data"] == {
-            "trigger_id": trigger_id.removeprefix("trig_"),
-            "active_task_ids": [f"task_{active_task.id}"],
+            "trigger_id": trigger_id,
+            "active_task_ids": [str(active_task.id)],
         }
 
         active_task.status = JoySafeterTaskStatus.COMPLETED.value
@@ -278,7 +278,7 @@ async def test_trigger_http_manual_type_create_list_run_and_history(db_session, 
     stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
     stored_trigger = (
         await db_session.execute(
-            select(JoySafeterTrigger).where(JoySafeterTrigger.id == uuid.UUID(trigger_id.removeprefix("trig_")))
+            select(JoySafeterTrigger).where(JoySafeterTrigger.id == TriggerId.from_public(trigger_id))
         )
     ).scalar_one()
     stored_session = (
@@ -318,8 +318,8 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
     await db_session.commit()
     await db_session.refresh(trigger)
 
-    task_id = uuid.uuid4()
-    session_id = uuid.uuid4()
+    task_id = TaskId.new()
+    session_id = SessionId.new()
     captured: dict[str, object] = {}
 
     async def fake_fire_webhook(
@@ -340,7 +340,7 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
         fake_fire_webhook,
     )
     app = _app(db_session, _ctx(project.id, org.id))
-    trigger_id = f"trig_{trigger.id}"
+    trigger_id = str(trigger.id)
 
     async with _client(app) as client:
         sample_resp = await client.get(f"/api/v1/triggers/{trigger_id}/webhook-sample")
@@ -358,8 +358,8 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
         assert test_resp.status_code == 202
         assert test_resp.json() == {
             "status": "fired",
-            "task_id": f"task_{task_id}",
-            "session_id": f"sess_{session_id}",
+            "task_id": str(task_id),
+            "session_id": str(session_id),
             "deduped": False,
             "reason": None,
         }
@@ -459,7 +459,7 @@ async def test_trigger_http_cron_create_toggle_run_and_webhook_only_errors(db_se
     db_session.expire_all()
     stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
     assert stored_task.prompt == "run cron"
-    assert stored_task.trigger_id == uuid.UUID(trigger_id.removeprefix("trig_"))
+    assert stored_task.trigger_id == TriggerId.from_public(trigger_id)
     assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
 
 
@@ -492,7 +492,7 @@ async def test_trigger_http_management_endpoints_are_project_scoped(db_session, 
 
     monkeypatch.setattr(JoySafeterTriggerService, "fire_manual", fail_fire_manual)
     app = _app(db_session, _ctx(project_a.id, org_a.id))
-    trigger_id = f"trig_{trigger_b.id}"
+    trigger_id = str(trigger_b.id)
 
     async with _client(app) as client:
         list_resp = await client.get("/api/v1/triggers")

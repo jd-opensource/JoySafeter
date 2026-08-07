@@ -1,7 +1,7 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::db::models::JoySafeterSession;
+use crate::ids::{AgentId, EventId, MemoryStoreId, SandboxId, SessionId};
 
 // ---------------------------------------------------------------------------
 // Structs
@@ -10,7 +10,7 @@ use crate::db::models::JoySafeterSession;
 /// A session's memory store mount info.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SessionMemoryStore {
-    pub store_id: Uuid,
+    pub store_id: MemoryStoreId,
     pub store_name: String,
     pub mount_name: String,
     pub access: String,
@@ -30,7 +30,7 @@ pub struct MemoryFileRow {
 /// Get a session by ID.
 pub async fn get_session(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
 ) -> Result<Option<JoySafeterSession>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterSession>("SELECT * FROM joysafeter_sessions WHERE id = $1")
         .bind(session_id)
@@ -46,12 +46,12 @@ pub async fn get_session(
 /// DB `seq` in the same transaction.
 pub async fn update_session_status_and_insert_event(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
     new_status: &str,
     stop_reason: Option<&serde_json::Value>,
     event_type: &str,
     payload: &serde_json::Value,
-) -> Result<Option<(Uuid, i64)>, sqlx::Error> {
+) -> Result<Option<(EventId, i64)>, sqlx::Error> {
     update_session_status_and_insert_event_inner(
         pool,
         session_id,
@@ -72,12 +72,12 @@ pub async fn update_session_status_and_insert_event(
 /// is still pending, scheduling, or running.
 pub async fn update_session_status_if_no_active_tasks_and_insert_event(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
     new_status: &str,
     stop_reason: Option<&serde_json::Value>,
     event_type: &str,
     payload: &serde_json::Value,
-) -> Result<Option<(Uuid, i64)>, sqlx::Error> {
+) -> Result<Option<(EventId, i64)>, sqlx::Error> {
     update_session_status_and_insert_event_inner(
         pool,
         session_id,
@@ -92,16 +92,16 @@ pub async fn update_session_status_if_no_active_tasks_and_insert_event(
 
 async fn update_session_status_and_insert_event_inner(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
     new_status: &str,
     stop_reason: Option<&serde_json::Value>,
     event_type: &str,
     payload: &serde_json::Value,
     require_no_active_tasks: bool,
-) -> Result<Option<(Uuid, i64)>, sqlx::Error> {
+) -> Result<Option<(EventId, i64)>, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    let lock_key = i64::from_be_bytes(session_id.as_bytes()[8..16].try_into().unwrap());
+    let lock_key = i64::from_be_bytes(session_id.as_uuid().as_bytes()[8..16].try_into().unwrap());
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(lock_key)
         .execute(&mut *tx)
@@ -160,8 +160,8 @@ async fn update_session_status_and_insert_event_inner(
     .fetch_one(&mut *tx)
     .await?;
 
-    let event_id = Uuid::now_v7();
-    let inserted = sqlx::query_as::<_, (Uuid, i64)>(
+    let event_id = EventId::from_uuid(uuid::Uuid::now_v7());
+    let inserted = sqlx::query_as::<_, (EventId, i64)>(
         r#"
         INSERT INTO joysafeter_session_events (id, session_id, event_type, payload, seq, created_at)
         VALUES ($1, $2, $3, $4, $5, NOW())
@@ -183,8 +183,8 @@ async fn update_session_status_and_insert_event_inner(
 /// Update session sandbox reference.
 pub async fn update_session_sandbox(
     pool: &PgPool,
-    session_id: Uuid,
-    sandbox_id: Uuid,
+    session_id: SessionId,
+    sandbox_id: SandboxId,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE joysafeter_sessions SET last_sandbox_id = $2, updated_at = NOW() WHERE id = $1",
@@ -200,7 +200,7 @@ pub async fn update_session_sandbox(
 /// Matches Python SessionService.accumulate_usage which adds each token field.
 pub async fn accumulate_session_usage(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
     usage: &serde_json::Value,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
@@ -253,8 +253,8 @@ pub async fn accumulate_session_usage(
 /// Create a new session record.
 pub async fn create_session(
     pool: &PgPool,
-    id: Uuid,
-    agent_id: Option<Uuid>,
+    id: SessionId,
+    agent_id: Option<AgentId>,
     project_id: Option<&str>,
     agent_snapshot: Option<&serde_json::Value>,
     environment_ref: Option<&str>,
@@ -279,8 +279,8 @@ pub async fn create_session(
 /// Update session with sandbox info (harness_session_id, work_dir).
 pub async fn update_session_sandbox_info(
     pool: &PgPool,
-    session_id: Uuid,
-    sandbox_id: Uuid,
+    session_id: SessionId,
+    sandbox_id: SandboxId,
     harness_session_id: Option<&str>,
     work_dir: Option<&str>,
 ) -> Result<(), sqlx::Error> {
@@ -306,7 +306,7 @@ pub async fn update_session_sandbox_info(
 /// Query session memory stores for a session.
 pub async fn list_session_memory_stores(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
 ) -> Result<Vec<SessionMemoryStore>, sqlx::Error> {
     sqlx::query_as::<_, SessionMemoryStore>(
         r#"
@@ -324,7 +324,7 @@ pub async fn list_session_memory_stores(
 /// Load memory files for a store.
 pub async fn load_memory_files(
     pool: &PgPool,
-    store_id: Uuid,
+    store_id: MemoryStoreId,
     limit: i64,
 ) -> Result<Vec<MemoryFileRow>, sqlx::Error> {
     sqlx::query_as::<_, MemoryFileRow>(

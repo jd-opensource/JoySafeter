@@ -5,6 +5,7 @@ import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentTrigger } from '@/lib/managed/triggers'
+import { AGENT_ID, MANUAL_TRIGGER_ID, OTHER_TRIGGER_ID, TRIGGER_ID } from '@/test-utils/entity-ids'
 
 const mutateAsync = vi.fn()
 
@@ -36,7 +37,14 @@ vi.mock('@/lib/managed/request-scope', () => ({
 vi.mock('@/lib/api-client', () => ({
   managedGet: vi.fn(async (path: string) => {
     if (path.startsWith('/agents/')) return []
-    if (path.startsWith('/agents')) return [{ id: 'agt_1', name: 'Agent 1', archived_at: null }]
+    if (path.startsWith('/agents'))
+      return [
+        {
+          id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001',
+          name: 'Agent 1',
+          archived_at: null,
+        },
+      ]
     if (path.startsWith('/environments')) return []
     return []
   }),
@@ -63,11 +71,11 @@ import { CreateTriggerDialog } from './create-trigger-dialog'
 
 function completedOneOffTrigger(): AgentTrigger {
   return {
-    id: 'trig_done',
+    id: TRIGGER_ID,
     name: 'Completed once',
     description: null,
     type: 'cron',
-    agent_id: 'agt_1',
+    agent_id: AGENT_ID,
     prompt_template: 'run once',
     environment_ref: null,
     enabled: true,
@@ -106,7 +114,7 @@ function completedOneOffTrigger(): AgentTrigger {
 function pendingOneOffTrigger(): AgentTrigger {
   return {
     ...completedOneOffTrigger(),
-    id: 'trig_pending_once',
+    id: OTHER_TRIGGER_ID,
     name: 'Pending once',
     run_at: '2030-01-01T00:01:00Z',
     next_run_at: '2030-01-01T00:01:00Z',
@@ -119,7 +127,7 @@ function pendingOneOffTrigger(): AgentTrigger {
 function manualTrigger(): AgentTrigger {
   return {
     ...completedOneOffTrigger(),
-    id: 'trig_manual',
+    id: MANUAL_TRIGGER_ID,
     name: 'Manual only',
     type: 'manual',
     prompt_template: 'run on demand',
@@ -170,7 +178,7 @@ describe('CreateTriggerDialog edit mode', () => {
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled())
     const payload = mutateAsync.mock.calls[0][0]
-    expect(payload.id).toBe('trig_done')
+    expect(payload.id).toBe(TRIGGER_ID)
     expect('run_at' in payload.body).toBe(false)
     expect('cron_expr' in payload.body).toBe(false)
   })
@@ -218,7 +226,7 @@ describe('CreateTriggerDialog edit mode', () => {
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled())
     const payload = mutateAsync.mock.calls[0][0]
-    expect(payload.id).toBe('trig_manual')
+    expect(payload.id).toBe(MANUAL_TRIGGER_ID)
     expect(payload.body).not.toHaveProperty('cron_expr')
     expect(payload.body).not.toHaveProperty('run_at')
     expect(payload.body).not.toHaveProperty('timezone')

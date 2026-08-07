@@ -1,12 +1,10 @@
 import json
 import logging
-import uuid
 from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.id_helpers import parse_agent_id
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     AgentVersionResponse,
@@ -41,10 +39,10 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import AgentId, SessionId
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import (
     relay_sandbox_destroy_via_redis,
 )
-from app.joysafeter_shared.utils.id_utils import format_sandbox_id, format_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +61,7 @@ def _agent_config_error(*, code: str, message: str, data: dict[str, Any]) -> App
     )
 
 
-def _agent_not_found_error(agent_id: uuid.UUID) -> AppError:
+def _agent_not_found_error(agent_id: AgentId) -> AppError:
     return NotFoundError(
         code="AGENT_NOT_FOUND",
         message="Agent not found",
@@ -297,7 +295,7 @@ async def create_agent(
 @router.get("")
 async def list_agents(
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[AgentId] = Query(None),
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
@@ -331,7 +329,7 @@ async def list_agents(
 
 @router.get("/{agent_id}")
 async def get_agent(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> AgentResponse:
@@ -347,7 +345,7 @@ async def get_agent(
 @router.post("/{agent_id}")
 async def update_agent(
     req: UpdateAgentRequest,
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> AgentResponse:
@@ -418,7 +416,7 @@ async def update_agent(
                 message="Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
                 data={
                     "agent_id": str(agent_id),
-                    "active_task_ids": [format_task_id(task.id) for task in active_tasks],
+                    "active_task_ids": [str(task.id) for task in active_tasks],
                 },
                 retryable=True,
                 user_action="retry",
@@ -456,7 +454,7 @@ async def update_agent(
 
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     force: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -475,7 +473,7 @@ async def delete_agent(
                 message="Agent has active tasks (pending/running). Use ?force=true to force delete.",
                 data={
                     "agent_id": str(agent_id),
-                    "active_task_ids": [format_task_id(task.id) for task in active_tasks],
+                    "active_task_ids": [str(task.id) for task in active_tasks],
                 },
                 retryable=True,
                 user_action="retry",
@@ -523,7 +521,7 @@ async def delete_agent(
 
 
 async def _cancel_active_tasks_for_agent(
-    agent_id: uuid.UUID, db: AsyncSession, project_id: Optional[str] = None
+    agent_id: AgentId, db: AsyncSession, project_id: Optional[str] = None
 ) -> None:
     """Cancel all active tasks through the Rust runtime boundary."""
     from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
@@ -546,8 +544,8 @@ async def _cancel_active_tasks_for_agent(
                     message="Failed to cancel agent task in sandbox runtime.",
                     data={
                         "agent_id": str(agent_id),
-                        "task_id": format_task_id(task.id),
-                        "sandbox_id": format_sandbox_id(sandbox_id),
+                        "task_id": str(task.id),
+                        "sandbox_id": str(sandbox_id),
                     },
                     source="runtime",
                     retryable=True,
@@ -569,7 +567,7 @@ async def _cancel_active_tasks_for_agent(
             message="Failed to cancel all active tasks for agent",
             data={
                 "agent_id": str(agent_id),
-                "active_task_ids": [format_task_id(task.id) for task in remaining_active],
+                "active_task_ids": [str(task.id) for task in remaining_active],
             },
             source="runtime",
             retryable=True,
@@ -606,7 +604,7 @@ async def _cancel_active_tasks_for_agent(
 
 
 async def _destroy_sandboxes_for_agent(
-    agent_id: uuid.UUID,
+    agent_id: AgentId,
     db: AsyncSession,
     *,
     reason: str,
@@ -677,7 +675,7 @@ async def _destroy_sandboxes_for_agent(
 
 @router.post("/{agent_id}/archive", status_code=200)
 async def archive_agent(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
@@ -705,7 +703,7 @@ async def archive_agent(
 
 @router.get("/{agent_id}/tasks")
 async def list_agent_tasks(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> list[TaskResponse]:
@@ -719,9 +717,9 @@ async def list_agent_tasks(
 
 @router.get("/{agent_id}/sessions")
 async def list_agent_sessions(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[SessionId] = Query(None),
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
@@ -755,7 +753,7 @@ async def list_agent_sessions(
 
 @router.get("/{agent_id}/versions")
 async def list_agent_versions(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     limit: int = Query(20, ge=1, le=100),
     before_version: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),

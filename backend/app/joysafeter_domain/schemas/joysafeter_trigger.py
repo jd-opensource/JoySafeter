@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.joysafeter_shared.utils.id_utils import format_task_id
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
 
 
 def _strip_required(value: str) -> str:
@@ -27,13 +26,13 @@ class TriggerCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=255)
     type: str = "webhook"
-    agent_id: uuid.UUID
+    agent_id: AgentId
     prompt_template: str = Field(min_length=1)
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: bool = True
     session_mode: str = "fresh"
-    pinned_session_id: Optional[uuid.UUID] = None
+    pinned_session_id: Optional[SessionId] = None
     session_key: Optional[str] = None
     filter: dict[str, Any] = Field(default_factory=dict)
     timeout_sec: int = Field(default=7200, ge=1)
@@ -82,7 +81,7 @@ class TriggerUpdateRequest(BaseModel):
     description: Optional[str] = None
     enabled: Optional[bool] = None
     session_mode: Optional[str] = None
-    pinned_session_id: Optional[uuid.UUID] = None
+    pinned_session_id: Optional[SessionId] = None
     session_key: Optional[str] = None
     filter: Optional[dict[str, Any]] = None
     timeout_sec: Optional[int] = Field(default=None, ge=1)
@@ -144,17 +143,17 @@ class TriggerUpdateRequest(BaseModel):
 class TriggerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: TriggerId
     name: str
     description: Optional[str]
     type: Literal["cron", "webhook", "manual"]
-    agent_id: uuid.UUID
+    agent_id: AgentId
     prompt_template: str
     environment_ref: Optional[str]
     enabled: bool
     session_mode: str
-    pinned_session_id: Optional[uuid.UUID]
-    reusable_session_id: Optional[uuid.UUID]
+    pinned_session_id: Optional[SessionId]
+    reusable_session_id: Optional[SessionId]
     session_key: Optional[str] = None
     filter: dict[str, Any]
     config: dict[str, Any]
@@ -176,26 +175,11 @@ class TriggerResponse(BaseModel):
     consecutive_failures: int
     auto_disabled_at: Optional[datetime] = None
     disabled_reason: Optional[str] = None
-    last_task_id: Optional[uuid.UUID]
-    last_session_id: Optional[uuid.UUID]
+    last_task_id: Optional[TaskId]
+    last_session_id: Optional[SessionId]
     last_payload: dict[str, Any]
     created_at: datetime
     updated_at: datetime
-
-    @field_serializer("id")
-    def _serialize_id(self, value: uuid.UUID) -> str:
-        return f"trig_{value}"
-
-    @field_serializer("agent_id", "pinned_session_id", "reusable_session_id", "last_session_id")
-    def _serialize_uuid(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        if value is None:
-            return None
-        return str(value)
-
-    @field_serializer("last_task_id")
-    def _serialize_last_task_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return format_task_id(value) if value is not None else None
-
 
 class TriggerVariable(BaseModel):
     path: str
@@ -210,8 +194,8 @@ class TriggerVariableCatalogResponse(BaseModel):
 
 class TriggerFireResponse(BaseModel):
     status: str
-    task_id: Optional[str] = None
-    session_id: Optional[str] = None
+    task_id: Optional[TaskId] = None
+    session_id: Optional[SessionId] = None
     deduped: bool = False
     reason: Optional[str] = None
 
@@ -221,25 +205,13 @@ class TriggerRunResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    trigger_id: Optional[uuid.UUID]
+    id: TaskId
+    trigger_id: Optional[TriggerId]
     status: str
     retry_count: int
     max_retries: int
-    chat_session_id: Optional[uuid.UUID]
+    chat_session_id: Optional[SessionId]
     error: Optional[str]
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
-
-    @field_serializer("id")
-    def _serialize_id(self, value: uuid.UUID) -> str:
-        return f"task_{value}"
-
-    @field_serializer("trigger_id")
-    def _serialize_trigger_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return f"trig_{value}" if value is not None else None
-
-    @field_serializer("chat_session_id")
-    def _serialize_chat_session_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return f"sess_{value}" if value is not None else None

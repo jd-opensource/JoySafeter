@@ -1,12 +1,10 @@
 import logging
 import re
-import uuid
 from typing import NamedTuple, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.id_helpers import parse_env_id
 from app.joysafeter_api.api.v1.network_policy_refresh import (
     refresh_live_limited_sandbox_network_policies,
 )
@@ -32,7 +30,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.utils.id_utils import format_task_id
+from app.joysafeter_shared.ids import EnvironmentId, TaskId
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +46,7 @@ class _EnvironmentImageUpdate(NamedTuple):
     image_version: int
 
 
-def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
+def _environment_conflict_error(env_id: EnvironmentId, exc: ValueError) -> AppError:
     message = str(exc)
     active_task_match = _ACTIVE_TASK_ENV_RE.match(message)
     if active_task_match:
@@ -56,7 +54,7 @@ def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
         return ResourceConflictError(
             code="ENVIRONMENT_ACTIVE_TASK",
             message=message,
-            data={"environment_id": str(env_id), "task_id": format_task_id(task_id), "source": source},
+            data={"environment_id": str(env_id), "task_id": str(TaskId(task_id)), "source": source},
             retryable=True,
             user_action="retry",
         )
@@ -93,7 +91,7 @@ def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
     )
 
 
-def _environment_not_found_error(env_id: uuid.UUID) -> AppError:
+def _environment_not_found_error(env_id: EnvironmentId) -> AppError:
     return NotFoundError(
         code="ENVIRONMENT_NOT_FOUND",
         message="Environment not found",
@@ -102,7 +100,7 @@ def _environment_not_found_error(env_id: uuid.UUID) -> AppError:
     )
 
 
-def _environment_image_build_error(env_id: uuid.UUID, *, operation: str, exc: Exception) -> AppError:
+def _environment_image_build_error(env_id: EnvironmentId, *, operation: str, exc: Exception) -> AppError:
     return InternalServiceError(
         code="ENVIRONMENT_IMAGE_BUILD_FAILED",
         message=f"Image build failed: {exc}",
@@ -113,7 +111,7 @@ def _environment_image_build_error(env_id: uuid.UUID, *, operation: str, exc: Ex
     )
 
 
-def _environment_image_builder_unavailable_error(env_id: uuid.UUID) -> AppError:
+def _environment_image_builder_unavailable_error(env_id: EnvironmentId) -> AppError:
     return ServiceUnavailableError(
         code="ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE",
         message="Image builder is unavailable; cannot provision environment packages right now",
@@ -242,7 +240,7 @@ async def create_environment(
 @router.get("")
 async def list_environments(
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[EnvironmentId] = Query(None),
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
@@ -260,7 +258,7 @@ async def list_environments(
 
 @router.get("/{env_id}")
 async def get_environment(
-    env_id: uuid.UUID = Depends(parse_env_id),
+    env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> EnvironmentResponse:
@@ -274,7 +272,7 @@ async def get_environment(
 @router.post("/{env_id}")
 async def update_environment(
     req: UpdateEnvironmentRequest,
-    env_id: uuid.UUID = Depends(parse_env_id),
+    env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
@@ -333,7 +331,7 @@ async def update_environment(
 
 @router.delete("/{env_id}", status_code=204)
 async def delete_environment(
-    env_id: uuid.UUID = Depends(parse_env_id),
+    env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
@@ -361,7 +359,7 @@ async def delete_environment(
 
 @router.post("/{env_id}/archive")
 async def archive_environment(
-    env_id: uuid.UUID = Depends(parse_env_id),
+    env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:

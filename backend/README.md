@@ -152,7 +152,7 @@ curl -X POST http://localhost:8000/api/v1/triggers \
   -d '{
     "name": "daily-report",
     "type": "cron",
-    "agent_id": "<agent-uuid>",
+    "agent_id": "agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001",
     "prompt_template": "生成今天的巡检报告",
     "cron_expr": "0 9 * * *",
     "timezone": "Asia/Shanghai",
@@ -173,7 +173,7 @@ curl -X POST http://localhost:8000/api/v1/triggers \
   -d '{
     "name": "on-alert",
     "type": "webhook",
-    "agent_id": "<agent-uuid>",
+    "agent_id": "agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001",
     "prompt_template": "处理告警：{{ body.alert.name }}",
     "secret_ref": "<vault-key>",
     "auth_methods": ["hmac"]

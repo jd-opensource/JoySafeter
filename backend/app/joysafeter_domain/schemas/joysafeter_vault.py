@@ -1,9 +1,10 @@
-import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+
+from app.joysafeter_shared.ids import CredentialId, VaultId
 
 
 class CredentialType(str, Enum):
@@ -37,7 +38,7 @@ class UpdateVaultRequest(BaseModel):
 
 
 class VaultResponse(BaseModel):
-    id: uuid.UUID
+    id: VaultId
     name: str
     description: str = ""
     metadata: dict[str, str] = Field(default_factory=dict)
@@ -46,11 +47,6 @@ class VaultResponse(BaseModel):
     archived_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"vault_{v}"
-
 
 class CreateCredentialRequest(BaseModel):
     name: str
@@ -76,8 +72,8 @@ class UpdateCredentialRequest(BaseModel):
 
 
 class VaultCredentialResponse(BaseModel):
-    id: uuid.UUID
-    vault_id: uuid.UUID
+    id: CredentialId
+    vault_id: VaultId
     name: str
     credential_type: str
     mcp_server_url: str
@@ -88,14 +84,6 @@ class VaultCredentialResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"cred_{v}"
-
-    @field_serializer("vault_id")
-    def serialize_vault_id(self, v: uuid.UUID) -> str:
-        return f"vault_{v}"
 
     @field_serializer("token_value")
     def redact_token(self, v: str) -> str:

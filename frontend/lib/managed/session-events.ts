@@ -10,10 +10,6 @@ const STATUS_EVENT_TYPES = new Set([
   'session.thread_status_terminated',
 ])
 
-export function normalizeSessionEventId(id: string) {
-  return id.replace(/^evt_/, '')
-}
-
 export function getEventType(event: SessionEvent) {
   return event.type
 }
@@ -27,7 +23,7 @@ export function compareSessionEvents(a: SessionEvent, b: SessionEvent) {
   const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
   if (timeA !== timeB) return timeA - timeB
 
-  return normalizeSessionEventId(a.id || '').localeCompare(normalizeSessionEventId(b.id || ''))
+  return (a.id || '').localeCompare(b.id || '')
 }
 
 export function sortSessionEvents(events: SessionEvent[]) {
@@ -41,7 +37,7 @@ export function getMaxSeq(events: SessionEvent[]) {
 export function getEventIdentity(event: SessionEvent) {
   const eventType = getEventType(event)
   if (event.seq != null) return `seq:${event.seq}:${eventType}`
-  if (event.id) return `id:${normalizeSessionEventId(event.id)}:${eventType}`
+  if (event.id) return `id:${event.id}:${eventType}`
   return `payload:${eventType}:${JSON.stringify(
     event.usage ?? event.content ?? event.stop_reason ?? event.tool ?? '',
   )}`
@@ -50,9 +46,6 @@ export function getEventIdentity(event: SessionEvent) {
 function preferSessionEvent(existing: SessionEvent, incoming: SessionEvent) {
   if (existing.seq == null && incoming.seq != null) return incoming
   if (!existing.created_at && incoming.created_at) return incoming
-  if (existing.id?.startsWith('evt_') && incoming.id && !incoming.id.startsWith('evt_')) {
-    return incoming
-  }
   return existing
 }
 

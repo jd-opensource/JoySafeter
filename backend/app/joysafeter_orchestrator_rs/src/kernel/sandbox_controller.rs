@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::ids::{AgentId, SandboxId, SessionId, TaskId};
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 use crate::kernel::sandbox_resolver::SandboxResolver;
@@ -387,7 +388,7 @@ impl SandboxController {
         let disconnect_grace = self.config.sandbox_bridge_disconnect_grace as i64;
         let hard_timeout = self.config.sandbox_hard_timeout as i64;
 
-        let reapable: Vec<(Uuid, Option<String>, String)> = sqlx::query_as(
+        let reapable: Vec<(SandboxId, Option<String>, String)> = sqlx::query_as(
             r#"
             SELECT id, external_id, status FROM joysafeter_sandboxes
             WHERE destroyed_at IS NULL
@@ -450,7 +451,7 @@ impl SandboxController {
     /// trust the runner to flush).
     async fn stop_idle_sandbox(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: Option<String>,
         current_status: String,
     ) {
@@ -642,7 +643,7 @@ impl SandboxController {
 
     /// Phase 2: Force-stop sandboxes stuck in 'stopping' for > 60s.
     async fn force_stop_stuck(&self) -> anyhow::Result<()> {
-        let stuck: Vec<(Uuid, Option<String>)> = sqlx::query_as(
+        let stuck: Vec<(SandboxId, Option<String>)> = sqlx::query_as(
             r#"
             SELECT id, external_id FROM joysafeter_sandboxes
             WHERE status = 'stopping'
@@ -725,7 +726,7 @@ impl SandboxController {
     async fn sweep_stopped_sandboxes(&self) -> anyhow::Result<()> {
         let ttl_secs = self.runtime_config.stopped_max_age_sec() as i64;
 
-        let stopped: Vec<(Uuid, Option<String>, String)> = sqlx::query_as(
+        let stopped: Vec<(SandboxId, Option<String>, String)> = sqlx::query_as(
             r#"
             SELECT id, external_id, status FROM joysafeter_sandboxes
             WHERE status IN ('stopped', 'error')
@@ -764,7 +765,7 @@ impl SandboxController {
     /// Detect sandboxes stuck in provisioning (>180s relative, >300s absolute).
     async fn check_provisioning_timeout(&self) -> anyhow::Result<()> {
         // Query ALL provisioning sandboxes (not just timed out ones)
-        let provisioning: Vec<(Uuid, Option<String>)> = sqlx::query_as(
+        let provisioning: Vec<(SandboxId, Option<String>)> = sqlx::query_as(
             r#"
             SELECT id, external_id FROM joysafeter_sandboxes
             WHERE status = 'provisioning'
@@ -873,7 +874,7 @@ impl SandboxController {
 
     async fn stop_provisioning_sandbox(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: Option<&str>,
     ) -> anyhow::Result<bool> {
         let claimed =
@@ -917,7 +918,7 @@ impl SandboxController {
         Ok(stop_succeeded)
     }
 
-    async fn requeue_scheduling_tasks(&self, sandbox_id: Uuid) -> anyhow::Result<u64> {
+    async fn requeue_scheduling_tasks(&self, sandbox_id: SandboxId) -> anyhow::Result<u64> {
         let _ = self.queue.drain(sandbox_id).await;
         let failure_reason = "sandbox provisioning failed after retry limit";
         let failed_tasks =
@@ -942,7 +943,7 @@ impl SandboxController {
 
     async fn recover_tasks_for_missing_runtime(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         failure_reason: &str,
     ) -> anyhow::Result<()> {
         let _ = self.queue.drain(sandbox_id).await;
@@ -1100,7 +1101,7 @@ impl SandboxController {
 
         // Cleanup stale pool entries (older than max_age)
         let max_age = self.runtime_config.pool_max_age_sec() as i64;
-        let stale: Vec<(Uuid, Option<String>, String)> = sqlx::query_as(
+        let stale: Vec<(SandboxId, Option<String>, String)> = sqlx::query_as(
             r#"
             SELECT id, external_id, status FROM joysafeter_sandboxes
             WHERE status = 'pooled'
@@ -1152,7 +1153,8 @@ impl SandboxController {
 
             let mut exists = false;
             if let Some(raw_id) = item.labels.get("joysafeter.sandbox_id") {
-                if let Ok(sandbox_id) = Uuid::parse_str(raw_id) {
+                if let Ok(sandbox_uuid) = Uuid::parse_str(raw_id) {
+                    let sandbox_id = SandboxId::from_uuid(sandbox_uuid);
                     exists = sqlx::query_scalar::<_, bool>(
                         r#"
                         SELECT EXISTS(
@@ -1206,7 +1208,7 @@ impl SandboxController {
             }
         }
 
-        let db_rows: Vec<(Uuid, Option<String>, String)> = sqlx::query_as(
+        let db_rows: Vec<(SandboxId, Option<String>, String)> = sqlx::query_as(
             r#"
             SELECT id, external_id, status FROM joysafeter_sandboxes
             WHERE status NOT IN ('destroyed', 'error')
@@ -1258,13 +1260,13 @@ impl SandboxController {
         Ok(cleaned)
     }
 
-    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         self.provider.teardown_networking(sandbox_id).await
     }
 
     async fn destroy_observed_sandbox(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         observed_status: &str,
         external_id: Option<&str>,
         reason: &str,
@@ -1281,7 +1283,7 @@ impl SandboxController {
     }
 }
 
-fn notify_global_task_best_effort(queue: TaskQueue, sandbox_id: Uuid, task_id: Uuid) {
+fn notify_global_task_best_effort(queue: TaskQueue, sandbox_id: SandboxId, task_id: TaskId) {
     tokio::spawn(async move {
         if let Err(e) = queue.push_to_global(task_id).await {
             error!(sandbox_id = %sandbox_id, task_id = %task_id, "Failed to enqueue task after missing runtime cleanup: {e}");
@@ -1418,7 +1420,7 @@ mod tests {
 
     struct StopMarksErrorProvider {
         pool: PgPool,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
     }
 
     #[async_trait]
@@ -1466,7 +1468,7 @@ mod tests {
 
     struct StopClaimsTaskProvider {
         pool: PgPool,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: String,
         observed_statuses: tokio::sync::Mutex<Vec<String>>,
     }
@@ -1538,25 +1540,25 @@ mod tests {
 
     struct DestroyObservesDbStateProvider {
         pool: PgPool,
-        sandbox_id: Uuid,
-        task_id: Uuid,
+        sandbox_id: SandboxId,
+        task_id: TaskId,
         external_id: String,
-        observed_states: tokio::sync::Mutex<Vec<(String, String, Option<Uuid>)>>,
+        observed_states: tokio::sync::Mutex<Vec<(String, String, Option<SandboxId>)>>,
         destroyed: tokio::sync::Mutex<Vec<String>>,
     }
 
     struct StopObservesDbStateProvider {
         pool: PgPool,
-        sandbox_id: Uuid,
-        task_id: Uuid,
+        sandbox_id: SandboxId,
+        task_id: TaskId,
         external_id: String,
-        observed_states: tokio::sync::Mutex<Vec<(String, String, Option<Uuid>)>>,
+        observed_states: tokio::sync::Mutex<Vec<(String, String, Option<SandboxId>)>>,
         stopped: tokio::sync::Mutex<Vec<String>>,
     }
 
     struct DestroyTransitionsSandboxProvider {
         pool: PgPool,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: String,
         observed_statuses: tokio::sync::Mutex<Vec<String>>,
         destroyed: tokio::sync::Mutex<Vec<String>>,
@@ -1634,7 +1636,7 @@ mod tests {
         async fn stop(&self, external_id: &str) -> anyhow::Result<()> {
             self.stopped.lock().await.push(external_id.to_string());
             if external_id == self.external_id {
-                let observed: (String, String, Option<Uuid>) = sqlx::query_as(
+                let observed: (String, String, Option<SandboxId>) = sqlx::query_as(
                     r#"
                     SELECT s.status, t.status, t.sandbox_id
                     FROM joysafeter_sandboxes s
@@ -1691,7 +1693,7 @@ mod tests {
         async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
             self.destroyed.lock().await.push(external_id.to_string());
             if external_id == self.external_id {
-                let observed: (String, String, Option<Uuid>) = sqlx::query_as(
+                let observed: (String, String, Option<SandboxId>) = sqlx::query_as(
                     r#"
                     SELECT s.status, t.status, t.sandbox_id
                     FROM joysafeter_sandboxes s
@@ -1779,11 +1781,14 @@ mod tests {
     }
 
     fn provider_sandbox_info(
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: &str,
     ) -> crate::sandbox::provider::ProviderSandboxInfo {
         let mut labels = HashMap::new();
-        labels.insert("joysafeter.sandbox_id".to_string(), sandbox_id.to_string());
+        labels.insert(
+            "joysafeter.sandbox_id".to_string(),
+            sandbox_id.as_uuid().to_string(),
+        );
         crate::sandbox::provider::ProviderSandboxInfo {
             id: external_id.to_string(),
             name: external_id.to_string(),
@@ -1799,7 +1804,7 @@ mod tests {
             return;
         };
 
-        let sandbox_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let external_id = format!("stopped-sweep-race-{sandbox_id}");
 
         async {
@@ -1888,8 +1893,8 @@ mod tests {
             return;
         };
 
-        let destroyed_sandbox_id = Uuid::now_v7();
-        let error_sandbox_id = Uuid::now_v7();
+        let destroyed_sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let error_sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let destroyed_external_id = format!("cleanup-destroyed-{destroyed_sandbox_id}");
         let error_external_id = format!("cleanup-error-{error_sandbox_id}");
 
@@ -1964,7 +1969,7 @@ mod tests {
             expected.sort();
             assert_eq!(destroyed, expected);
 
-            let rows: Vec<(Uuid, String)> = sqlx::query_as(
+            let rows: Vec<(SandboxId, String)> = sqlx::query_as(
                 r#"
                 SELECT id, status FROM joysafeter_sandboxes
                 WHERE id IN ($1, $2)
@@ -1999,12 +2004,12 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let external_id = format!("missing-runtime-{sandbox_id}");
-        let unique = agent_id.simple().to_string();
+        let unique = agent_id.as_uuid().simple().to_string();
 
         async {
             sqlx::query(
@@ -2101,7 +2106,7 @@ mod tests {
                 .expect("cleanup missing provider runtime");
             assert_eq!(cleaned, 1);
 
-            let task: (String, i32, Option<Uuid>) = sqlx::query_as(
+            let task: (String, i32, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -2178,13 +2183,13 @@ mod tests {
         retry_count: i32,
         max_retries: i32,
         prompt: &str,
-    ) -> (Uuid, Uuid, Uuid, Uuid, String) {
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
+    ) -> (AgentId, SessionId, TaskId, SandboxId, String) {
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let external_id = format!("{prompt}-{sandbox_id}");
-        let unique = agent_id.simple().to_string();
+        let unique = agent_id.as_uuid().simple().to_string();
 
         sqlx::query(
             r#"
@@ -2307,7 +2312,7 @@ mod tests {
                 .expect("cleanup missing runtime running task");
             assert_eq!(cleaned, 1);
 
-            let task: (String, i32, Option<Uuid>) = sqlx::query_as(
+            let task: (String, i32, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -2379,7 +2384,7 @@ mod tests {
                 .expect("cleanup missing runtime exhausted running task");
             assert_eq!(cleaned, 1);
 
-            let task: (String, i32, Option<String>, Option<Uuid>) = sqlx::query_as(
+            let task: (String, i32, Option<String>, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, error, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -2491,7 +2496,7 @@ mod tests {
                 &[external_id.clone()]
             );
 
-            let task: (String, i32, Option<Uuid>) = sqlx::query_as(
+            let task: (String, i32, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -2666,7 +2671,7 @@ mod tests {
                 .stop_idle_sandbox(sandbox_id, Some(external_id.clone()), "running".to_string())
                 .await;
 
-            let task: (String, i32, Option<Uuid>) = sqlx::query_as(
+            let task: (String, i32, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -2893,12 +2898,12 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let external_id = format!("provisioning-timeout-race-{sandbox_id}");
-        let unique = agent_id.simple().to_string();
+        let unique = agent_id.as_uuid().simple().to_string();
 
         async {
             sqlx::query(
@@ -3004,7 +3009,7 @@ mod tests {
                 .await
                 .expect("run provisioning timeout race check");
 
-            let task: (String, i32, Option<Uuid>) = sqlx::query_as(
+            let task: (String, i32, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -3068,7 +3073,7 @@ mod tests {
             return;
         };
 
-        let sandbox_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
         async {
             queries::create_sandbox(
@@ -3141,11 +3146,11 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
 
         async {
             sqlx::query(
@@ -3224,7 +3229,7 @@ mod tests {
 
             mark_reset_tasks_rescheduling(&pool, &reset_tasks).await;
 
-            let task: (String, i32, Option<Uuid>) = sqlx::query_as(
+            let task: (String, i32, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -3297,11 +3302,11 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let failure_reason = "sandbox provisioning failed after retry limit";
 
         async {

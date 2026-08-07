@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
+from app.joysafeter_shared.ids import MemoryId, MemoryStoreId, MemoryVersionId, SessionId
+
 MEMORY_MAX_CONTENT_BYTES = 102400  # 100 KB
 MEMORY_MAX_PATH_BYTES = 1024
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -40,7 +42,7 @@ class UpdateMemoryStoreRequest(BaseModel):
 
 
 class MemoryStoreResponse(BaseModel):
-    id: uuid.UUID
+    id: MemoryStoreId
     type: str = "memory_store"
     name: str
     description: Optional[str] = None
@@ -50,11 +52,6 @@ class MemoryStoreResponse(BaseModel):
     archived_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"memstore_{v}"
-
 
 class CreateMemoryRequest(BaseModel):
     path: str
@@ -100,38 +97,25 @@ class UpdateMemoryRequest(BaseModel):
 
 
 class MemoryResponse(BaseModel):
-    id: uuid.UUID
+    id: MemoryId
     type: str = "memory"
-    memory_store_id: uuid.UUID
+    memory_store_id: MemoryStoreId
     path: str
     content: Optional[str] = None
     content_sha256: str = ""
     content_size_bytes: int = 0
     version: int = 1
-    memory_version_id: Optional[uuid.UUID] = None
+    memory_version_id: Optional[MemoryVersionId] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"mem_{v}"
-
-    @field_serializer("memory_store_id")
-    def serialize_store_id(self, v: uuid.UUID) -> str:
-        return f"memstore_{v}"
-
-    @field_serializer("memory_version_id")
-    def serialize_version_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
-        return f"memver_{v}" if v else None
-
-
 class MemoryVersionResponse(BaseModel):
-    id: uuid.UUID
+    id: MemoryVersionId
     type: str = "memory_version"
-    memory_store_id: uuid.UUID
-    memory_id: uuid.UUID
+    memory_store_id: MemoryStoreId
+    memory_id: MemoryId
     operation: str
     path: Optional[str] = None
     content: Optional[str] = None
@@ -144,24 +128,11 @@ class MemoryVersionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"memver_{v}"
-
-    @field_serializer("memory_store_id")
-    def serialize_store_id(self, v: uuid.UUID) -> str:
-        return f"memstore_{v}"
-
-    @field_serializer("memory_id")
-    def serialize_memory_id(self, v: uuid.UUID) -> str:
-        return f"mem_{v}"
-
-
 class SessionMemoryStoreResponse(BaseModel):
     id: uuid.UUID
     type: str = "session_memory_store"
-    session_id: uuid.UUID
-    store_id: uuid.UUID
+    session_id: SessionId
+    store_id: MemoryStoreId
     access: str = "read_write"
     instructions: Optional[str] = None
     mount_name: str
@@ -172,7 +143,3 @@ class SessionMemoryStoreResponse(BaseModel):
     @field_serializer("id")
     def serialize_id(self, v: uuid.UUID) -> str:
         return f"sesrsc_{v}"
-
-    @field_serializer("store_id")
-    def serialize_store_id(self, v: uuid.UUID) -> str:
-        return f"memstore_{v}"

@@ -3,6 +3,15 @@ import { JSDOM } from 'jsdom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  AGENT_ID,
+  CREATED_AGENT_ID,
+  ENVIRONMENT_ID,
+  OTHER_ENVIRONMENT_ID,
+  OTHER_VAULT_ID,
+  SESSION_ID,
+  VAULT_ID,
+} from '@/test-utils/entity-ids'
 
 import { useQuickstartChat } from './use-quickstart-chat'
 
@@ -258,7 +267,7 @@ describe('useQuickstartChat resource creation', () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       Response.json({
         success: true,
-        data: { id: 'vault_123' },
+        data: { id: VAULT_ID },
       }),
     ) as typeof fetch
 
@@ -270,7 +279,7 @@ describe('useQuickstartChat resource creation', () => {
     })
 
     expect(created).toBe(true)
-    expect(result.current.resourceIds[5]).toBe('vault_123')
+    expect(result.current.resourceIds[5]).toBe(VAULT_ID)
     expect(result.current.completedSteps.has(5)).toBe(true)
   })
 
@@ -294,7 +303,7 @@ describe('useQuickstartChat resource creation', () => {
       createEnvironmentResponse.resolve(
         Response.json({
           success: true,
-          data: { id: 'env_after_unmount' },
+          data: { id: OTHER_ENVIRONMENT_ID },
         }),
       )
       created = await createdPromise
@@ -323,7 +332,7 @@ describe('useQuickstartChat resource creation', () => {
       createVaultResponse.resolve(
         Response.json({
           success: true,
-          data: { id: 'vault_after_unmount' },
+          data: { id: OTHER_VAULT_ID },
         }),
       )
       created = await createdPromise
@@ -401,7 +410,7 @@ describe('useQuickstartChat resource creation', () => {
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'agent_created', model: { id: 'claude-sonnet-4-5' } },
+          data: { id: CREATED_AGENT_ID, model: { id: 'claude-sonnet-4-5' } },
         }),
       )
     globalThis.fetch = fetchMock as typeof fetch
@@ -415,14 +424,14 @@ describe('useQuickstartChat resource creation', () => {
       await result.current.confirmStep()
     })
 
-    expect(result.current.resourceIds[3]).toBe('agent_created')
-    expect(result.current.createdResourceIds.has('agent_created')).toBe(true)
+    expect(result.current.resourceIds[3]).toBe(CREATED_AGENT_ID)
+    expect(result.current.createdResourceIds.has(CREATED_AGENT_ID)).toBe(true)
   })
 
   it('requires a session id before marking session creation complete', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(quickstartAgentConfigResponse('agent_123'))
+      .mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
@@ -436,7 +445,7 @@ describe('useQuickstartChat resource creation', () => {
     await act(async () => {
       await result.current.sendMessage('make an agent', { stepOverride: 3 })
     })
-    expect(result.current.resourceIds[3]).toBe('agent_123')
+    expect(result.current.resourceIds[3]).toBe(AGENT_ID)
 
     await act(async () => {
       await result.current.createSession()
@@ -452,23 +461,23 @@ describe('useQuickstartChat resource creation', () => {
   it('uses validated session resource overrides instead of stale stored environment and vault ids', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(quickstartAgentConfigResponse('agent_123'))
+      .mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'env_stale' },
+          data: { id: OTHER_ENVIRONMENT_ID },
         }),
       )
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'vault_stale' },
+          data: { id: OTHER_VAULT_ID },
         }),
       )
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'session_123' },
+          data: { id: SESSION_ID },
         }),
       )
     globalThis.fetch = fetchMock as typeof fetch
@@ -486,9 +495,9 @@ describe('useQuickstartChat resource creation', () => {
     })
 
     expect(result.current.resourceIds).toMatchObject({
-      3: 'agent_123',
-      4: 'env_stale',
-      5: 'vault_stale',
+      3: AGENT_ID,
+      4: OTHER_ENVIRONMENT_ID,
+      5: OTHER_VAULT_ID,
     })
 
     await act(async () => {
@@ -498,24 +507,24 @@ describe('useQuickstartChat resource creation', () => {
     const sessionCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/sessions'))
     expect(sessionCall).toBeTruthy()
     expectManagedHeaders(sessionCall)
-    expect(JSON.parse(sessionCall?.[1]?.body as string)).toEqual({ agent: '123' })
+    expect(JSON.parse(sessionCall?.[1]?.body as string)).toEqual({ agent: AGENT_ID })
   })
 
   it('does not create a session from an old quickstart closure in the same turn as a project switch', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(quickstartAgentConfigResponse('agent_a'))
+      .mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'env_a' },
+          data: { id: ENVIRONMENT_ID },
         }),
       )
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'vault_a' },
+          data: { id: VAULT_ID },
         }),
       )
     globalThis.fetch = fetchMock as typeof fetch
@@ -533,9 +542,9 @@ describe('useQuickstartChat resource creation', () => {
     })
 
     expect(result.current.resourceIds).toMatchObject({
-      3: 'agent_a',
-      4: 'env_a',
-      5: 'vault_a',
+      3: AGENT_ID,
+      4: ENVIRONMENT_ID,
+      5: VAULT_ID,
     })
 
     const createSessionFromProjectA = result.current.createSession
@@ -552,7 +561,7 @@ describe('useQuickstartChat resource creation', () => {
 
   it('does not append or lock streaming from an old chat closure after a same-turn project switch', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
-    const fetchMock = vi.fn().mockResolvedValue(quickstartAgentConfigResponse('agent_a'))
+    const fetchMock = vi.fn().mockResolvedValue(quickstartAgentConfigResponse(AGENT_ID))
     globalThis.fetch = fetchMock as typeof fetch
 
     const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
@@ -574,7 +583,7 @@ describe('useQuickstartChat resource creation', () => {
     const createSessionResponse = deferred<Response>()
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(quickstartAgentConfigResponse('agent_a'))
+      .mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
       .mockReturnValueOnce(createSessionResponse.promise)
     globalThis.fetch = fetchMock as typeof fetch
 
@@ -583,7 +592,7 @@ describe('useQuickstartChat resource creation', () => {
     await act(async () => {
       await result.current.sendMessage('make an agent', { stepOverride: 3 })
     })
-    expect(result.current.resourceIds[3]).toBe('agent_a')
+    expect(result.current.resourceIds[3]).toBe(AGENT_ID)
 
     let sessionPromise!: Promise<void>
     await act(async () => {
@@ -644,7 +653,7 @@ describe('useQuickstartChat resource creation', () => {
       createAgentResponse.resolve(
         Response.json({
           success: true,
-          data: { id: 'agent_after_project_switch' },
+          data: { id: CREATED_AGENT_ID },
         }),
       )
       await confirmPromise
@@ -761,7 +770,7 @@ describe('useQuickstartChat resource creation', () => {
       stream.enqueue({
         type: 'step_complete',
         step: 2,
-        resource_id: 'agent_from_project_a',
+        resource_id: CREATED_AGENT_ID,
         curl: 'curl -X POST /agents',
       })
       stream.close()
@@ -844,7 +853,7 @@ describe('useQuickstartChat resource creation', () => {
 
   it('does not generate a test message from an old quickstart closure after a same-turn project switch', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
-    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse('agent_a'))
+    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
     globalThis.fetch = fetchMock as typeof fetch
 
     const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
@@ -872,23 +881,23 @@ describe('useQuickstartChat resource creation', () => {
 
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(quickstartAgentConfigResponse('agent_a'))
+      .mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'env_a' },
+          data: { id: ENVIRONMENT_ID },
         }),
       )
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'vault_a' },
+          data: { id: VAULT_ID },
         }),
       )
       .mockResolvedValueOnce(
         Response.json({
           success: true,
-          data: { id: 'sess_should_not_be_created' },
+          data: { id: SESSION_ID },
         }),
       )
     globalThis.fetch = fetchMock as typeof fetch
@@ -906,9 +915,9 @@ describe('useQuickstartChat resource creation', () => {
     })
 
     expect(result.current.resourceIds).toMatchObject({
-      3: 'agent_a',
-      4: 'env_a',
-      5: 'vault_a',
+      3: AGENT_ID,
+      4: ENVIRONMENT_ID,
+      5: VAULT_ID,
     })
 
     await act(async () => {
@@ -931,7 +940,7 @@ describe('useQuickstartChat resource creation', () => {
   it('does not create a session after the current project is archived with an agent already in quickstart state', async () => {
     setCurrentProject(null)
 
-    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse('agent_a'))
+    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
     globalThis.fetch = fetchMock as typeof fetch
 
     const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
@@ -940,7 +949,7 @@ describe('useQuickstartChat resource creation', () => {
       await result.current.sendMessage('make an agent', { stepOverride: 3 })
     })
 
-    expect(result.current.resourceIds[3]).toBe('agent_a')
+    expect(result.current.resourceIds[3]).toBe(AGENT_ID)
 
     await act(async () => {
       setCurrentProject('2026-07-10T00:00:00Z')
@@ -956,7 +965,7 @@ describe('useQuickstartChat resource creation', () => {
   it('keeps a generated test message final text delta when the stream closes without a trailing newline', async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(quickstartAgentConfigResponse('agent_123'))
+      .mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
       .mockResolvedValueOnce(
         quickstartResponseText(
           `data: ${JSON.stringify({

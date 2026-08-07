@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::ids::SandboxId;
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, AttachParams, DeleteParams, PostParams};
@@ -9,7 +10,6 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio::io::AsyncReadExt;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
@@ -131,8 +131,8 @@ impl K8sProvider {
         Api::namespaced(self.client.clone(), &self.namespace)
     }
 
-    fn pod_name(sandbox_id: Uuid) -> String {
-        format!("joysafeter-{sandbox_id}")
+    fn pod_name(sandbox_id: SandboxId) -> String {
+        format!("joysafeter-{}", sandbox_id.as_uuid())
     }
 
     fn build_pod(&self, config: &SandboxCreateConfig, pod_name: &str) -> anyhow::Result<Pod> {
@@ -146,6 +146,7 @@ impl K8sProvider {
         config: &SandboxCreateConfig,
         pod_name: &str,
     ) -> anyhow::Result<Value> {
+        let sandbox_uuid = config.sandbox_id.as_uuid();
         let mut labels = BTreeMap::new();
         for (key, value) in &config.labels {
             labels.insert(sanitize_label_key(key), value.clone());
@@ -156,7 +157,7 @@ impl K8sProvider {
         );
         labels.insert(
             "joysafeter.sandbox_id".to_string(),
-            config.sandbox_id.to_string(),
+            sandbox_uuid.to_string(),
         );
 
         let env: Vec<Value> = config
@@ -227,8 +228,8 @@ impl K8sProvider {
             }));
             volume_mounts.push(json!({
                 "name": "envoy-sockets",
-                "mountPath": format!("/sockets/{}", config.sandbox_id),
-                "subPath": config.sandbox_id.to_string()
+                "mountPath": format!("/sockets/{sandbox_uuid}"),
+                "subPath": sandbox_uuid.to_string()
             }));
 
             // initContainer: create per-sandbox socket directory with correct perms.
@@ -238,7 +239,7 @@ impl K8sProvider {
                 "image": self.config.envoy_image,
                 "command": ["sh", "-c", format!(
                     "mkdir -p /sockets/{sid} && chmod 777 /sockets/{sid}",
-                    sid = config.sandbox_id
+                    sid = sandbox_uuid
                 )],
                 "securityContext": {
                     "runAsUser": 0
@@ -430,7 +431,7 @@ impl SandboxProvider for K8sProvider {
 
     async fn setup_networking(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         _sandbox_external_id: &str,
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
@@ -449,7 +450,7 @@ impl SandboxProvider for K8sProvider {
 
     async fn refresh_networking(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         sandbox_external_id: &str,
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
@@ -458,7 +459,7 @@ impl SandboxProvider for K8sProvider {
             .await
     }
 
-    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
             manager.teardown_for_sandbox(sandbox_id).await?;
         }

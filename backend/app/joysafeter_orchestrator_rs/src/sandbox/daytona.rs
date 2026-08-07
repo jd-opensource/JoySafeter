@@ -59,7 +59,7 @@ impl SandboxProvider for DaytonaProvider {
         let mut body = serde_json::json!({
             "labels": {
                 "joysafeter": "true",
-                "joysafeter.sandbox_id": config.sandbox_id.to_string(),
+                "joysafeter.sandbox_id": config.sandbox_id.as_uuid().to_string(),
             },
             "target": self.target,
         });

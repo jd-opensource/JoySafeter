@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 
-use async_trait::async_trait;
-use sqlx::PgPool;
-use uuid::Uuid;
-
+use crate::ids::SandboxId;
 use crate::sandbox::file_injection::{FileToInject, InjectionStrategy};
 use crate::sandbox::lds_backend::SandboxCredentials;
 use crate::sandbox::mounts::SandboxMount;
+use async_trait::async_trait;
+use sqlx::PgPool;
 
 /// Status of a sandbox container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,7 +44,7 @@ pub struct ProviderCapabilities {
 /// Configuration for creating a sandbox container.
 #[derive(Debug, Clone)]
 pub struct SandboxCreateConfig {
-    pub sandbox_id: Uuid,
+    pub sandbox_id: SandboxId,
     pub image: String,
     pub env: HashMap<String, String>,
     pub labels: HashMap<String, String>,
@@ -151,7 +150,7 @@ pub trait SandboxProvider: Send + Sync + 'static {
     /// Daytona/E2B: platform-managed or no-op.
     async fn setup_networking(
         &self,
-        _sandbox_id: Uuid,
+        _sandbox_id: SandboxId,
         _sandbox_external_id: &str,
         _networking: Option<&serde_json::Value>,
         _credentials: SandboxCredentials,
@@ -166,7 +165,7 @@ pub trait SandboxProvider: Send + Sync + 'static {
     /// API is idempotent, or override this with a cheaper patch call.
     async fn refresh_networking(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         sandbox_external_id: &str,
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
@@ -178,7 +177,7 @@ pub trait SandboxProvider: Send + Sync + 'static {
     /// Tear down sandbox networking configuration.
     ///
     /// Docker: calls EnvoyManager.teardown_for_sandbox() to remove listeners.
-    async fn teardown_networking(&self, _sandbox_id: Uuid) -> anyhow::Result<()> {
+    async fn teardown_networking(&self, _sandbox_id: SandboxId) -> anyhow::Result<()> {
         Ok(())
     }
 

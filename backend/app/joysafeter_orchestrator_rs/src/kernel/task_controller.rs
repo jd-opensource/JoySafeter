@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::ids::{AgentId, SandboxId, SessionId, TaskId};
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 
@@ -65,7 +66,7 @@ impl TaskController {
 
         let recovery_result: anyhow::Result<()> = async {
             // Python parity: only running tasks that exceeded their own timeout are failed.
-            let recovered_tasks: Vec<(Uuid, Option<Uuid>, Option<Uuid>, Option<i64>)> = sqlx::query_as(
+            let recovered_tasks: Vec<(TaskId, Option<SessionId>, Option<SandboxId>, Option<i64>)> = sqlx::query_as(
                 r#"
                 SELECT id, chat_session_id, sandbox_id, owner_epoch FROM joysafeter_tasks
                 WHERE status = 'running'
@@ -96,7 +97,7 @@ impl TaskController {
             }
 
             // Scheduling tasks -> pending (unconditional, retry increment), matching Python.
-            let scheduling_tasks: Vec<(Uuid, Option<Uuid>, Option<Uuid>, i32, i32)> =
+            let scheduling_tasks: Vec<(TaskId, Option<SessionId>, Option<SandboxId>, i32, i32)> =
                 sqlx::query_as(
                     r#"
                     SELECT id, chat_session_id, sandbox_id, retry_count, max_retries
@@ -137,7 +138,7 @@ impl TaskController {
             } else {
                 20
             };
-            let stale_provisioning: Vec<(Uuid,)> = sqlx::query_as(
+            let stale_provisioning: Vec<(SandboxId,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM joysafeter_sandboxes
                 WHERE status = 'provisioning'
@@ -158,7 +159,7 @@ impl TaskController {
             }
 
             // Reset sessions stuck in 'rescheduling'.
-            let stale_rescheduling_sessions: Vec<(Uuid,)> = sqlx::query_as(
+            let stale_rescheduling_sessions: Vec<(SessionId,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM joysafeter_sessions
                 WHERE status = 'rescheduling'
@@ -187,7 +188,7 @@ impl TaskController {
             }
 
             // Reset running sessions only when stale and no active task remains.
-            let stale_running_sessions: Vec<(Uuid,)> = sqlx::query_as(
+            let stale_running_sessions: Vec<(SessionId,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM joysafeter_sessions
                 WHERE status = 'running'
@@ -268,7 +269,7 @@ impl TaskController {
         })
     }
 
-    async fn active_task_ids(&self) -> Vec<Uuid> {
+    async fn active_task_ids(&self) -> Vec<TaskId> {
         let mut active_task_ids = Vec::new();
         for bridge in self.bridge_registry.all_bridges() {
             if let Some(task_id) = *bridge.current_task_id.lock().await {
@@ -278,7 +279,7 @@ impl TaskController {
         active_task_ids
     }
 
-    async fn active_task_leases(&self) -> Vec<(Uuid, i64)> {
+    async fn active_task_leases(&self) -> Vec<(TaskId, i64)> {
         let mut active_task_leases = Vec::new();
         for bridge in self.bridge_registry.all_bridges() {
             let task_id = *bridge.current_task_id.lock().await;
@@ -378,17 +379,18 @@ impl TaskController {
             return Ok(());
         }
 
-        let overdue: Vec<(Uuid, Option<Uuid>, Option<Uuid>, Option<i64>)> = sqlx::query_as(
-            r#"
+        let overdue: Vec<(TaskId, Option<SessionId>, Option<SandboxId>, Option<i64>)> =
+            sqlx::query_as(
+                r#"
             SELECT id, chat_session_id, sandbox_id, owner_epoch FROM joysafeter_tasks
             WHERE status = 'running'
               AND started_at IS NOT NULL
               AND started_at + (COALESCE(timeout_sec, 7200) * INTERVAL '1 second') < NOW()
             LIMIT 20
             "#,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+            )
+            .fetch_all(&mut *tx)
+            .await?;
 
         tx.commit().await?;
 
@@ -462,7 +464,7 @@ impl TaskController {
 
         // T6 fix: also select retry_count and max_retries to avoid
         // infinite re-enqueue past max_retries
-        let stuck: Vec<(Uuid, Option<Uuid>, Option<Uuid>, i32, i32)> = sqlx::query_as(
+        let stuck: Vec<(TaskId, Option<SessionId>, Option<SandboxId>, i32, i32)> = sqlx::query_as(
             r#"
             SELECT id, chat_session_id, sandbox_id, retry_count, max_retries
             FROM joysafeter_tasks
@@ -526,7 +528,7 @@ impl TaskController {
             return Ok(());
         }
 
-        let tasks: Vec<(Uuid,)> = sqlx::query_as(
+        let tasks: Vec<(TaskId,)> = sqlx::query_as(
             r#"
             SELECT id FROM joysafeter_tasks
             WHERE status = 'pending'
@@ -554,9 +556,9 @@ impl TaskController {
 
     async fn retry_task_and_mark_session_rescheduling(
         &self,
-        task_id: Uuid,
-        session_id: Option<Uuid>,
-        sandbox_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: Option<SessionId>,
+        sandbox_id: Option<SandboxId>,
         expected_retry_count: Option<i32>,
         expected_owner_epoch: Option<i64>,
     ) -> bool {
@@ -611,9 +613,9 @@ impl TaskController {
 
     async fn retry_scheduling_task_and_mark_session_rescheduling(
         &self,
-        task_id: Uuid,
-        session_id: Option<Uuid>,
-        sandbox_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: Option<SessionId>,
+        sandbox_id: Option<SandboxId>,
         expected_retry_count: i32,
     ) -> bool {
         match queries::increment_scheduling_retry(&self.pool, task_id, expected_retry_count).await {
@@ -652,9 +654,9 @@ impl TaskController {
 
     async fn fail_task_and_mark_session_idle(
         &self,
-        task_id: Uuid,
-        session_id: Option<Uuid>,
-        sandbox_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: Option<SessionId>,
+        sandbox_id: Option<SandboxId>,
         observed_owner_epoch: Option<i64>,
         reason: &str,
     ) {
@@ -700,9 +702,9 @@ impl TaskController {
 
     async fn fail_scheduling_task_and_mark_session_idle(
         &self,
-        task_id: Uuid,
-        session_id: Option<Uuid>,
-        sandbox_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: Option<SessionId>,
+        sandbox_id: Option<SandboxId>,
         reason: &str,
     ) -> bool {
         match queries::transition_task_cas(
@@ -761,7 +763,7 @@ impl TaskController {
     /// Checks agent output first — if task produced output, mark completed instead.
     pub async fn failover_or_fail_task(
         &self,
-        task_id: Uuid,
+        task_id: TaskId,
         error_msg: &str,
     ) -> anyhow::Result<()> {
         let task = queries::get_task(&self.pool, task_id).await?;
@@ -913,9 +915,9 @@ mod tests {
         )
     }
 
-    async fn create_agent_session(pool: &PgPool, status: &str) -> (Uuid, Uuid) {
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
+    async fn create_agent_session(pool: &PgPool, status: &str) -> (AgentId, SessionId) {
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
         sqlx::query(
             r#"
             INSERT INTO joysafeter_agents (id, name, engine_kind, permission_mode, version)
@@ -944,7 +946,12 @@ mod tests {
         (agent_id, session_id)
     }
 
-    async fn cleanup(pool: &PgPool, agent_id: Uuid, session_id: Uuid, sandbox_id: Uuid) {
+    async fn cleanup(
+        pool: &PgPool,
+        agent_id: AgentId,
+        session_id: SessionId,
+        sandbox_id: SandboxId,
+    ) {
         let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id = $1")
             .bind(session_id)
             .execute(pool)
@@ -1025,16 +1032,16 @@ mod tests {
 
     async fn create_sandbox_task(
         pool: &PgPool,
-        agent_id: Uuid,
-        session_id: Uuid,
+        agent_id: AgentId,
+        session_id: SessionId,
         label: &str,
         status: &str,
         retry_count: i32,
         max_retries: i32,
         stale: bool,
-    ) -> (Uuid, Uuid) {
-        let sandbox_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
+    ) -> (SandboxId, TaskId) {
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
         queries::create_sandbox(
             pool,
             sandbox_id,
@@ -1140,7 +1147,7 @@ mod tests {
                 Some("Orchestrator restarted - task was running when process exited")
             );
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -1231,7 +1238,7 @@ mod tests {
             );
             assert!(completed_at.is_some());
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -1311,7 +1318,7 @@ mod tests {
                     .await
             );
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )
@@ -1398,7 +1405,7 @@ mod tests {
             assert_eq!(task_status, "completed");
             assert_eq!(retry_count, 0);
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -1482,7 +1489,7 @@ mod tests {
             assert_eq!(task_status, "cancelled");
             assert_eq!(task_error.as_deref(), Some("user cancellation already won"));
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -1578,7 +1585,7 @@ mod tests {
                 String,
                 i32,
                 Option<String>,
-                Option<Uuid>,
+                Option<SandboxId>,
             ) = sqlx::query_as(
                 "SELECT status, retry_count, error, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
@@ -1591,7 +1598,7 @@ mod tests {
             assert_eq!(task_error, None);
             assert_eq!(task_sandbox_id, None);
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -1655,7 +1662,7 @@ mod tests {
                     .await
             );
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )
@@ -1667,7 +1674,7 @@ mod tests {
             assert_eq!(retry_count, 0);
             assert_eq!(task_sandbox_id, Some(sandbox_id));
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -1752,7 +1759,7 @@ mod tests {
             assert_eq!(retry_count, 2);
             assert_eq!(task_error, None);
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -2048,7 +2055,7 @@ mod tests {
                 .await
                 .expect("late failover should not complete pending retry");
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )

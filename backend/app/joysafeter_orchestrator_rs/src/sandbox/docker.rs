@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::ids::SandboxId;
 use async_trait::async_trait;
 use bollard::container::{
     Config, CreateContainerOptions, RemoveContainerOptions, StartContainerOptions,
@@ -11,7 +12,6 @@ use bollard::Docker;
 use futures::StreamExt;
 use sqlx::PgPool;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
@@ -417,13 +417,14 @@ impl DockerProvider {
 #[async_trait]
 impl SandboxProvider for DockerProvider {
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
-        let container_name = format!("joysafeter-{}", config.sandbox_id);
+        let sandbox_uuid = config.sandbox_id.as_uuid();
+        let container_name = format!("joysafeter-{sandbox_uuid}");
 
         let mut labels = config.labels.clone();
         labels.insert("joysafeter".to_string(), "true".to_string());
         labels.insert(
             "joysafeter.sandbox_id".to_string(),
-            config.sandbox_id.to_string(),
+            sandbox_uuid.to_string(),
         );
 
         let mut env_map = config.env.clone();
@@ -457,11 +458,8 @@ impl SandboxProvider for DockerProvider {
                 manager.prepare_socket_dir(config.sandbox_id).await?;
             }
             if let Some(socket_host_dir) = self.config.envoy_socket_host_dir.as_deref() {
-                let sandbox_socket_dir = format!("{socket_host_dir}/{}", config.sandbox_id);
-                binds.push(format!(
-                    "{sandbox_socket_dir}:/sockets/{}",
-                    config.sandbox_id
-                ));
+                let sandbox_socket_dir = format!("{socket_host_dir}/{sandbox_uuid}");
+                binds.push(format!("{sandbox_socket_dir}:/sockets/{sandbox_uuid}"));
             } else if self.socket_subpath_mount {
                 let socket_volume = self
                     .socket_volume
@@ -471,13 +469,13 @@ impl SandboxProvider for DockerProvider {
                 // volume. Envoy still owns `/sockets/<sandbox_id>`, but the sandbox
                 // cannot enumerate or connect to sibling sandbox sockets.
                 mounts.push(Mount {
-                    target: Some(format!("/sockets/{}", config.sandbox_id)),
+                    target: Some(format!("/sockets/{sandbox_uuid}")),
                     source: Some(socket_volume),
                     typ: Some(MountTypeEnum::VOLUME),
                     read_only: Some(false),
                     volume_options: Some(MountVolumeOptions {
                         no_copy: Some(true),
-                        subpath: Some(config.sandbox_id.to_string()),
+                        subpath: Some(sandbox_uuid.to_string()),
                         ..Default::default()
                     }),
                     ..Default::default()
@@ -515,7 +513,7 @@ impl SandboxProvider for DockerProvider {
             env_map.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), orchestrator_url);
             env_map.insert(
                 "JOYSAFETER_EGRESS_HTTP_SOCKET_PATH".to_string(),
-                format!("/sockets/{}/http.sock", config.sandbox_id),
+                format!("/sockets/{sandbox_uuid}/http.sock"),
             );
         }
 
@@ -931,7 +929,7 @@ impl SandboxProvider for DockerProvider {
 
     async fn setup_networking(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         _sandbox_external_id: &str,
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
@@ -948,7 +946,7 @@ impl SandboxProvider for DockerProvider {
 
     async fn refresh_networking(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         sandbox_external_id: &str,
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
@@ -957,7 +955,7 @@ impl SandboxProvider for DockerProvider {
             .await
     }
 
-    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
             manager.teardown_for_sandbox(sandbox_id).await?;
         }

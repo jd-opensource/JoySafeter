@@ -17,6 +17,7 @@ from uuid import uuid4
 import pytest
 
 from app.joysafeter_shared.common.app_errors import ServiceUnavailableError
+from app.joysafeter_shared.ids import AgentId
 from app.joysafeter_worker.scheduler.loop import SchedulerLoop
 
 pytestmark = pytest.mark.no_db
@@ -166,7 +167,7 @@ async def test_unexpected_error_is_permanent(monkeypatch):
 async def test_idempotent_slot_precheck_skips_auto_session_creation(monkeypatch):
     trigger = SimpleNamespace(
         id=uuid4(),
-        agent_id=uuid4(),
+        agent_id=AgentId.from_uuid(uuid4()),
         project_id="project-a",
         user_id="user-a",
         org_id="org-a",
@@ -210,7 +211,7 @@ async def test_idempotent_slot_precheck_skips_auto_session_creation(monkeypatch)
 async def test_idempotent_slot_replay_precedes_concurrency_policy(monkeypatch, policy):
     trigger = SimpleNamespace(
         id=uuid4(),
-        agent_id=uuid4(),
+        agent_id=AgentId.from_uuid(uuid4()),
         project_id="project-a",
         user_id="user-a",
         org_id="org-a",
@@ -256,7 +257,7 @@ async def test_idempotent_slot_replay_precedes_concurrency_policy(monkeypatch, p
 async def test_idempotent_slot_replay_precedes_admission_quota(monkeypatch):
     trigger = SimpleNamespace(
         id=uuid4(),
-        agent_id=uuid4(),
+        agent_id=AgentId.from_uuid(uuid4()),
         project_id="project-at-quota",
         user_id="user-a",
         org_id="org-a",
@@ -295,7 +296,7 @@ async def test_idempotent_slot_replay_precedes_admission_quota(monkeypatch):
 async def test_fire_rechecks_project_pause_after_claim_before_admission(monkeypatch):
     trigger = SimpleNamespace(
         id=uuid4(),
-        agent_id=uuid4(),
+        agent_id=AgentId.from_uuid(uuid4()),
         project_id="project-paused-after-claim",
         user_id="user-a",
         org_id="org-a",

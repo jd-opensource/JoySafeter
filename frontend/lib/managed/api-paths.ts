@@ -1,4 +1,5 @@
 import { stripIdPrefix } from '@/lib/managed/id'
+import { isEntityId } from '@/types/entity-id'
 
 type QueryValue = string | number | boolean | null | undefined
 
@@ -19,7 +20,31 @@ function cleanSegment(segment: string | number): string {
 }
 
 export function apiResourceId(id: string | null | undefined): string {
-  return stripIdPrefix(id ?? '')
+  const value = id ?? ''
+  if (
+    isEntityId(value, 'agent') ||
+    isEntityId(value, 'session') ||
+    isEntityId(value, 'task') ||
+    isEntityId(value, 'trigger') ||
+    isEntityId(value, 'environment') ||
+    isEntityId(value, 'secret') ||
+    isEntityId(value, 'vault') ||
+    isEntityId(value, 'credential') ||
+    isEntityId(value, 'memoryStore') ||
+    isEntityId(value, 'memory') ||
+    isEntityId(value, 'memoryVersion') ||
+    isEntityId(value, 'skill') ||
+    isEntityId(value, 'skillFile') ||
+    isEntityId(value, 'skillSecurityScan') ||
+    isEntityId(value, 'skillVersion') ||
+    isEntityId(value, 'skillVersionFile') ||
+    isEntityId(value, 'skillUsage') ||
+    isEntityId(value, 'file') ||
+    isEntityId(value, 'sessionResource')
+  ) {
+    return value
+  }
+  return stripIdPrefix(value)
 }
 
 export function apiCollectionPath(resource: string, query?: Record<string, QueryValue>): string {

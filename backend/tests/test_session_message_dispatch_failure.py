@@ -34,6 +34,7 @@ from app.joysafeter_domain.schemas.joysafeter_session import SendEventRequest, S
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import SandboxId, SessionId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -47,13 +48,13 @@ class _FakeRedis:
 
 class _FakeBroadcaster:
     def __init__(self):
-        self.sent: list[tuple[uuid.UUID, dict]] = []
-        self._channels: dict[uuid.UUID, list] = {}
+        self.sent: list[tuple[SessionId, dict]] = []
+        self._channels: dict[SessionId, list] = {}
 
-    async def send(self, session_id: uuid.UUID, payload: dict) -> None:
+    async def send(self, session_id: SessionId, payload: dict) -> None:
         self.sent.append((session_id, payload))
 
-    def remove(self, session_id: uuid.UUID) -> None:
+    def remove(self, session_id: SessionId) -> None:
         self._channels.pop(session_id, None)
 
 
@@ -99,7 +100,7 @@ class _FakeCommandRedis:
 
 
 class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
-    def __init__(self, db_session, sandbox_id: uuid.UUID, new_external_id: str):
+    def __init__(self, db_session, sandbox_id: SandboxId, new_external_id: str):
         super().__init__()
         self.db_session = db_session
         self.sandbox_id = sandbox_id
@@ -114,7 +115,7 @@ class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
                     "SET external_id = :external_id, updated_at = NOW() "
                     "WHERE id = :sandbox_id"
                 ),
-                {"external_id": self.new_external_id, "sandbox_id": self.sandbox_id},
+                {"external_id": self.new_external_id, "sandbox_id": as_uuid(self.sandbox_id)},
             )
             await self.db_session.commit()
             self.changed = True
@@ -272,7 +273,7 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"session_id": str(session_id), "task_id": f"task_{task.id}"},
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -288,7 +289,7 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
         "type": "error",
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"session_id": str(session_id), "task_id": f"task_{task.id}"},
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -440,7 +441,7 @@ async def test_user_message_rejects_idle_session_with_active_task(db_session, mo
         "user_action": "retry",
         "data": {
             "session_id": str(session_id),
-            "active_task_ids": [f"task_{task.id}"],
+            "active_task_ids": [str(task.id)],
         },
     }
     user_message_count = (
@@ -512,7 +513,7 @@ async def test_user_message_idempotent_retry_after_enqueue_failure_stays_503(
     assert await handled_app_error_payload(second_exc.value, status_code=503) == {
         "code": "TASK_ENQUEUE_FAILED",
         "message": "Failed to enqueue task",
-        "data": {"session_id": str(session_id), "task_id": f"task_{task.id}"},
+        "data": {"session_id": str(session_id), "task_id": str(task.id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
@@ -647,7 +648,7 @@ async def test_user_message_rejects_idempotency_key_reuse_for_different_message(
         "message": "Idempotency-Key was already used for a different message",
         "data": {
             "session_id": str(session_id),
-            "task_id": redis.rpushed[0][1],
+            "task_id": f"task_{redis.rpushed[0][1]}",
             "conflict_field": "message",
             "requested_value": "second",
             "existing_value": "first",
@@ -710,7 +711,7 @@ async def test_tool_confirmation_fallback_enqueues_via_redis_without_local_sched
     task = (await db_session.execute(select(JoySafeterTask))).scalar_one()
     assert task.status == JoySafeterTaskStatus.PENDING.value
     assert "User approved tool call event" in task.prompt
-    assert redis.rpushed == [("joysafeter:global_queue", str(task.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(task.id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -825,7 +826,7 @@ async def test_tool_confirmation_event_id_is_resolved_to_runtime_call_id_for_red
         events=[
             SingleEventRequest(
                 type="user.tool_confirmation",
-                tool_use_id=f"evt_{tool_event.id}",
+                tool_use_id=str(tool_event.id),
                 approved=True,
             )
         ]
@@ -847,7 +848,7 @@ async def test_tool_confirmation_event_id_is_resolved_to_runtime_call_id_for_red
             )
         )
     ).scalar_one()
-    assert control_event.payload["tool_use_event_id"] == f"evt_{tool_event.id}"
+    assert control_event.payload["tool_use_event_id"] == str(tool_event.id)
     assert control_event.payload["call_id"] == "runtime-call-1"
     assert control_event.processed_at is not None
 
@@ -901,7 +902,7 @@ async def test_custom_tool_result_event_id_is_resolved_to_runtime_call_id_for_re
         events=[
             SingleEventRequest(
                 type="user.custom_tool_result",
-                tool_use_event_id=f"evt_{custom_tool_event.id}",
+                tool_use_event_id=str(custom_tool_event.id),
                 content="lookup result",
             )
         ]
@@ -923,7 +924,7 @@ async def test_custom_tool_result_event_id_is_resolved_to_runtime_call_id_for_re
             )
         )
     ).scalar_one()
-    assert control_event.payload["tool_use_event_id"] == f"evt_{custom_tool_event.id}"
+    assert control_event.payload["tool_use_event_id"] == str(custom_tool_event.id)
     assert control_event.payload["call_id"] == "runtime-custom-call-1"
     assert control_event.payload["content"] == "lookup result"
     assert control_event.processed_at is not None
@@ -1104,7 +1105,7 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     db_session.add(sandbox)
     await db_session.flush()
     session.last_sandbox_id = sandbox.id
-    sandbox_id = str(sandbox.id)
+    sandbox_id = sandbox.id
 
     task = JoySafeterTask(
         agent_id=agent.id,
@@ -1146,7 +1147,7 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     assert task_row.status == JoySafeterTaskStatus.CANCELLED.value
     assert session_row.status == "idle"
     assert session_row.stop_reason == {"type": "cancelled"}
-    assert idle_event.payload == {"task_id": f"task_{task_id}", "stop_reason": {"type": "cancelled"}}
+    assert idle_event.payload == {"task_id": str(task_id), "stop_reason": {"type": "cancelled"}}
     command_publishes = [
         (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
     ]
@@ -1154,7 +1155,7 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     channel, payload = command_publishes[0]
     assert channel == "joysafeter:cmd:owner-1"
     assert payload["type"] == "cancel"
-    assert payload["sandbox_id"] == sandbox_id
+    assert payload["sandbox_id"] == str(as_uuid(sandbox_id))
     assert payload["reason"] == "Cancelled via session stop"
 
 
@@ -1231,7 +1232,7 @@ async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_se
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "SESSION_ACTIVE_TASK",
         "message": "Session has an active task; stop it before deleting session",
-        "data": {"session_id": str(session_id), "active_task_ids": [f"task_{task_id}"]},
+        "data": {"session_id": str(session_id), "active_task_ids": [str(task_id)]},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -1289,12 +1290,12 @@ async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_pro
 
     response = await delete_session_endpoint(session_id, db_session, auth_ctx)
 
-    assert response == {"id": f"sess_{session_id}", "object": "session", "deleted": True}
+    assert response == {"id": str(session_id), "object": "session", "deleted": True}
     assert len(redis.published) == 1
     channel, payload = redis.published[0]
     assert channel == "joysafeter:cmd:owner-1"
     assert payload["type"] == "destroy"
-    assert payload["sandbox_id"] == str(sandbox_id)
+    assert payload["sandbox_id"] == str(as_uuid(sandbox_id))
     assert payload["external_id"] == external_id
     assert payload["reason"] == "session deleted"
     assert payload["ack_key"].startswith("joysafeter:cmd_ack:")

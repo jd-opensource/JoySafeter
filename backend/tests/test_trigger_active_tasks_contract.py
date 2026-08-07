@@ -82,7 +82,7 @@ async def test_delete_rejects_trigger_with_active_runs(db_session):
         await svc.delete(trigger.id, trigger.project_id)
 
     assert exc_info.value.code == "TRIGGER_HAS_ACTIVE_RUNS"
-    assert exc_info.value.data == {"trigger_id": str(trigger.id), "active_task_ids": [f"task_{task.id}"]}
+    assert exc_info.value.data == {"trigger_id": str(trigger.id), "active_task_ids": [str(task.id)]}
     assert await svc.get(trigger.id, project_id=trigger.project_id) is not None
     persisted_task = await db_session.scalar(select(JoySafeterTask).where(JoySafeterTask.id == task.id))
     assert persisted_task is not None

@@ -37,6 +37,8 @@ use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+use crate::ids::SandboxId;
+
 use envoy_types::pb::envoy::service::discovery::v3::{
     aggregated_discovery_service_server::AggregatedDiscoveryService, DeltaDiscoveryRequest,
     DeltaDiscoveryResponse, DiscoveryRequest, DiscoveryResponse, Resource,
@@ -144,7 +146,7 @@ pub enum ListenerKind {
 /// this to its own wire form (JSON for filesystem, typed protobuf for gRPC).
 #[derive(Debug, Clone)]
 pub struct ListenerSpec {
-    pub sandbox_id: Uuid,
+    pub sandbox_id: SandboxId,
     pub kind: ListenerKind,
     /// Egress allowlist (only meaningful for [`ListenerKind::Http`]).
     pub allowed_hosts: Vec<String>,
@@ -303,7 +305,11 @@ pub fn git_repo_slug(mount_name: &str, idx: usize) -> String {
 
 /// Deterministic cluster name for a sandbox's upstream host. Scoped per sandbox
 /// so cluster sets never collide across sandboxes sharing the Envoy.
-pub fn upstream_cluster_name(sandbox_id: &Uuid, upstream_host: &str, upstream_port: u16) -> String {
+pub fn upstream_cluster_name(
+    sandbox_id: &SandboxId,
+    upstream_host: &str,
+    upstream_port: u16,
+) -> String {
     // Envoy cluster names must be simple; sanitise host to alnum/_/-.
     let safe: String = upstream_host
         .chars()
@@ -315,7 +321,7 @@ pub fn upstream_cluster_name(sandbox_id: &Uuid, upstream_host: &str, upstream_po
             }
         })
         .collect();
-    format!("up_{sandbox_id}_{safe}_{upstream_port}")
+    format!("up_{}_{safe}_{upstream_port}", sandbox_id.as_uuid())
 }
 
 /// Unified egress policy for one sandbox. This is the Envoy-facing abstraction:
@@ -348,7 +354,7 @@ impl SandboxEgressPolicy {
         self
     }
 
-    pub fn clusters(&self, _sandbox_id: &Uuid) -> Vec<ClusterSpec> {
+    pub fn clusters(&self, _sandbox_id: &SandboxId) -> Vec<ClusterSpec> {
         // No per-sandbox clusters needed — all credential-injection routes point
         // to the shared dynamic_forward_proxy / dynamic_forward_proxy_tls clusters.
         Vec::new()
@@ -356,7 +362,7 @@ impl SandboxEgressPolicy {
 }
 
 pub fn validate_egress_policy(
-    _sandbox_id: &Uuid,
+    _sandbox_id: &SandboxId,
     policy: &SandboxEgressPolicy,
 ) -> anyhow::Result<()> {
     let mut route_ids = std::collections::HashSet::new();
@@ -444,7 +450,7 @@ pub fn validate_egress_policy(
     Ok(())
 }
 
-pub fn egress_policy_summary(sandbox_id: &Uuid, policy: &SandboxEgressPolicy) -> Value {
+pub fn egress_policy_summary(sandbox_id: &SandboxId, policy: &SandboxEgressPolicy) -> Value {
     let routes: Vec<Value> = policy
         .credential_routes
         .iter()
@@ -535,7 +541,7 @@ impl SandboxCredentials {
 
     pub fn to_policy(
         &self,
-        sandbox_id: &Uuid,
+        sandbox_id: &SandboxId,
         allowlist_hosts: Vec<String>,
     ) -> SandboxEgressPolicy {
         SandboxEgressPolicy {
@@ -549,7 +555,7 @@ impl SandboxCredentials {
     /// point at the shared dynamic_forward_proxy cluster (TLS or plain) based on
     /// the route's `upstream_tls`. No per-sandbox clusters are created; the DFP
     /// cluster resolves DNS on-demand from the `host_rewrite_literal` target.
-    pub fn to_routes(&self, _sandbox_id: &Uuid) -> Vec<EgressCredentialRoute> {
+    pub fn to_routes(&self, _sandbox_id: &SandboxId) -> Vec<EgressCredentialRoute> {
         self.routes
             .iter()
             .map(|r| {
@@ -568,7 +574,7 @@ impl SandboxCredentials {
 
     /// The per-upstream STRICT_DNS clusters this sandbox needs, de-duplicated by
     /// cluster name (multiple MCP servers may share a host).
-    pub fn to_clusters(&self, sandbox_id: &Uuid) -> Vec<ClusterSpec> {
+    pub fn to_clusters(&self, sandbox_id: &SandboxId) -> Vec<ClusterSpec> {
         self.to_policy(sandbox_id, vec![]).clusters(sandbox_id)
     }
 }
@@ -667,7 +673,7 @@ impl ListenerSpec {
     /// Resource name Envoy sees, e.g. `"<uuid>_http"`.
     pub fn resource_name(&self) -> String {
         match self.kind {
-            ListenerKind::Http => format!("{}_http", self.sandbox_id),
+            ListenerKind::Http => format!("{}_http", self.sandbox_id.as_uuid()),
         }
     }
 }
@@ -689,14 +695,14 @@ pub trait LdsBackend: Send + Sync {
     /// Filesystem LDS has no ACK channel, so its default is successful after write.
     async fn wait_for_sandbox_ack(
         &self,
-        _sandbox_id: Uuid,
+        _sandbox_id: SandboxId,
         _timeout: Duration,
     ) -> anyhow::Result<()> {
         Ok(())
     }
     /// Release any retained per-sandbox apply/ACK bookkeeping on teardown.
     /// Filesystem LDS keeps no such state, so the default is a no-op.
-    async fn forget_sandbox(&self, _sandbox_id: Uuid) {}
+    async fn forget_sandbox(&self, _sandbox_id: SandboxId) {}
 
     /// Atomically apply one sandbox's clusters and listeners in a single update
     /// (CDS ordered before LDS for make-before-break). Existing clusters under
@@ -940,19 +946,20 @@ fn render_listener_json(spec: &ListenerSpec) -> Value {
 
 /// HTTP connection manager listener with domain-based allowlist.
 fn build_http_listener_json(
-    sandbox_id: &Uuid,
+    sandbox_id: &SandboxId,
     allowed_hosts: &[String],
     credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> Value {
     let virtual_hosts = build_virtual_hosts_json(allowed_hosts, credentials, proxy_auth_token);
+    let sandbox_uuid = sandbox_id.as_uuid();
 
     json!({
         "@type": LISTENER_TYPE_URL,
-        "name": format!("{sandbox_id}_http"),
+        "name": format!("{sandbox_uuid}_http"),
         "address": {
             "pipe": {
-                "path": format!("/sockets/{sandbox_id}/http.sock"),
+                "path": format!("/sockets/{sandbox_uuid}/http.sock"),
                 "mode": 438
             }
         },
@@ -961,7 +968,7 @@ fn build_http_listener_json(
                 "name": "envoy.filters.network.http_connection_manager",
                 "typed_config": {
                     "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
-                    "stat_prefix": format!("{sandbox_id}_http"),
+                    "stat_prefix": format!("{sandbox_uuid}_http"),
                     "http_protocol_options": {
                         "allow_absolute_url": true
                     },
@@ -986,7 +993,7 @@ fn build_http_listener_json(
                                     "upstream_cluster": "%UPSTREAM_CLUSTER%",
                                     "attempt_count": "%UPSTREAM_REQUEST_ATTEMPT_COUNT%",
                                     "duration_ms": "%DURATION%",
-                                    "listener": format!("{sandbox_id}_http")
+                                    "listener": format!("{sandbox_uuid}_http")
                                 }
                             }
                         }
@@ -1478,7 +1485,7 @@ pub struct DeltaXdsServer {
     /// Optional DB handle attached on orchestrator startup for ACK/NACK status
     /// persistence. Kept optional so unit tests and filesystem mode do not need a DB.
     db_pool: Arc<Mutex<Option<PgPool>>>,
-    apply_status: Arc<Mutex<HashMap<Uuid, XdsApplyStatus>>>,
+    apply_status: Arc<Mutex<HashMap<SandboxId, XdsApplyStatus>>>,
     status_notify: watch::Sender<u64>,
 }
 
@@ -1501,7 +1508,7 @@ impl DeltaXdsServer {
 
     pub async fn wait_for_sandbox_ack(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         timeout: Duration,
     ) -> anyhow::Result<()> {
         let mut rx = self.status_notify.subscribe();
@@ -1531,7 +1538,7 @@ impl DeltaXdsServer {
     /// sandbox's listeners/clusters are removed so `apply_status` cannot grow
     /// unboundedly over the orchestrator's lifetime (one entry per sandbox ever
     /// created otherwise).
-    async fn forget_sandbox(&self, sandbox_id: Uuid) {
+    async fn forget_sandbox(&self, sandbox_id: SandboxId) {
         self.apply_status.lock().await.remove(&sandbox_id);
     }
 
@@ -1540,7 +1547,7 @@ impl DeltaXdsServer {
         &self,
         type_url: &str,
         changes: Vec<Change>,
-        pending_sandboxes: Vec<Uuid>,
+        pending_sandboxes: Vec<SandboxId>,
     ) -> u64 {
         self.apply_batch(vec![(type_url.to_string(), changes)], pending_sandboxes)
             .await
@@ -1554,7 +1561,7 @@ impl DeltaXdsServer {
     async fn apply_batch(
         &self,
         groups: Vec<(String, Vec<Change>)>,
-        pending_sandboxes: Vec<Uuid>,
+        pending_sandboxes: Vec<SandboxId>,
     ) -> u64 {
         let groups: Vec<(String, Vec<Change>)> = groups
             .into_iter()
@@ -1668,13 +1675,13 @@ impl LdsBackend for GrpcLds {
 
     async fn wait_for_sandbox_ack(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         timeout: Duration,
     ) -> anyhow::Result<()> {
         self.server.wait_for_sandbox_ack(sandbox_id, timeout).await
     }
 
-    async fn forget_sandbox(&self, sandbox_id: Uuid) {
+    async fn forget_sandbox(&self, sandbox_id: SandboxId) {
         self.server.forget_sandbox(sandbox_id).await;
     }
 
@@ -1994,7 +2001,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
 
 struct XdsStatusHandle {
     db_pool: Arc<Mutex<Option<PgPool>>>,
-    apply_status: Arc<Mutex<HashMap<Uuid, XdsApplyStatus>>>,
+    apply_status: Arc<Mutex<HashMap<SandboxId, XdsApplyStatus>>>,
     status_notify: watch::Sender<u64>,
 }
 
@@ -2190,7 +2197,7 @@ impl DeltaXdsServer {
     }
 }
 
-fn sandbox_ids_from_xds_resources(resource_names: &[String]) -> Vec<Uuid> {
+fn sandbox_ids_from_xds_resources(resource_names: &[String]) -> Vec<SandboxId> {
     let mut ids = Vec::new();
     for name in resource_names {
         if let Some(id) = sandbox_id_from_xds_resource(name) {
@@ -2202,7 +2209,7 @@ fn sandbox_ids_from_xds_resources(resource_names: &[String]) -> Vec<Uuid> {
     ids
 }
 
-fn sandbox_id_from_xds_resource(name: &str) -> Option<Uuid> {
+fn sandbox_id_from_xds_resource(name: &str) -> Option<SandboxId> {
     let candidate = if let Some(listener_id) = name.strip_suffix("_http") {
         listener_id
     } else if let Some(cluster_name) = name.strip_prefix("up_") {
@@ -2210,7 +2217,7 @@ fn sandbox_id_from_xds_resource(name: &str) -> Option<Uuid> {
     } else {
         return None;
     };
-    Uuid::parse_str(candidate).ok()
+    Uuid::parse_str(candidate).ok().map(SandboxId::from_uuid)
 }
 
 // ---------------------------------------------------------------------------
@@ -2359,7 +2366,7 @@ fn pack_any<M: Message>(type_url: &str, msg: &M) -> Any {
 }
 
 fn build_http_listener_proto(
-    sandbox_id: &Uuid,
+    sandbox_id: &SandboxId,
     allowed_hosts: &[String],
     credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
@@ -2384,6 +2391,7 @@ fn build_http_listener_proto(
         http_connection_manager, http_filter, HttpConnectionManager, HttpFilter,
     };
 
+    let sandbox_uuid = sandbox_id.as_uuid();
     let dfp_filter = FilterConfig {
         implementation_specifier: Some(filter_config::ImplementationSpecifier::DnsCacheConfig(
             DnsCacheConfig {
@@ -2396,7 +2404,7 @@ fn build_http_listener_proto(
     };
 
     let hcm = HttpConnectionManager {
-        stat_prefix: format!("{sandbox_id}_http"),
+        stat_prefix: format!("{sandbox_uuid}_http"),
         http_protocol_options: Some(Http1ProtocolOptions {
             allow_absolute_url: Some(envoy_types::pb::google::protobuf::BoolValue { value: true }),
             ..Default::default()
@@ -2409,7 +2417,7 @@ fn build_http_listener_proto(
                     access_log_format: Some(stdout_access_log::AccessLogFormat::LogFormat(
                         SubstitutionFormatString {
                             format: Some(substitution_format_string::Format::JsonFormat(
-                                access_log_json_format(format!("{sandbox_id}_http")),
+                                access_log_json_format(format!("{sandbox_uuid}_http")),
                             )),
                             ..Default::default()
                         },
@@ -2457,10 +2465,10 @@ fn build_http_listener_proto(
     };
 
     Listener {
-        name: format!("{sandbox_id}_http"),
+        name: format!("{sandbox_uuid}_http"),
         address: Some(Address {
             address: Some(address::Address::Pipe(Pipe {
-                path: format!("/sockets/{sandbox_id}/http.sock"),
+                path: format!("/sockets/{sandbox_uuid}/http.sock"),
                 // See the gRPC listener pipe above for why this is 0666 at
                 // creation time. The HTTP proxy still requires the per-sandbox
                 // proxy auth token before credential-bearing routes are usable.
@@ -2757,7 +2765,7 @@ mod tests {
         let server = DeltaXdsServer::new();
         let lds = GrpcLds::new(server.clone());
         let mut listener = spec(ListenerKind::Http, &["example.com"]);
-        listener.sandbox_id = Uuid::from_u128(1);
+        listener.sandbox_id = SandboxId::from_uuid(Uuid::from_u128(1));
 
         // Before the fix this future never resolves; bound it so the test fails
         // as a timeout instead of hanging the whole test binary.
@@ -2776,7 +2784,7 @@ mod tests {
         // The pending status was recorded for the sandbox.
         let statuses = server.apply_status.lock().await;
         assert!(matches!(
-            statuses.get(&Uuid::from_u128(1)),
+            statuses.get(&SandboxId::from_uuid(Uuid::from_u128(1))),
             Some(XdsApplyStatus::Pending { .. })
         ));
     }
@@ -2787,7 +2795,7 @@ mod tests {
     async fn forget_sandbox_clears_apply_status() {
         let server = DeltaXdsServer::new();
         let lds = GrpcLds::new(server.clone());
-        let sandbox = Uuid::from_u128(7);
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(7));
         let mut listener = spec(ListenerKind::Http, &["example.com"]);
         listener.sandbox_id = sandbox;
 
@@ -2825,7 +2833,7 @@ mod tests {
     async fn apply_sandbox_batch_is_atomic_and_ordered() {
         let server = DeltaXdsServer::new();
         let lds = GrpcLds::new(server.clone());
-        let sandbox = Uuid::from_u128(9);
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(9));
         let prefix = format!("up_{sandbox}_");
 
         // Seed a stale cluster under the prefix that should be pruned.
@@ -2880,12 +2888,12 @@ mod tests {
         assert!(!clusters_now.contains_key(&format!("{prefix}stale_443")));
         assert!(st
             .snapshot_type(LISTENER_TYPE_URL)
-            .contains_key(&format!("{sandbox}_http")));
+            .contains_key(&format!("{}_http", sandbox.as_uuid())));
     }
 
     fn spec(kind: ListenerKind, hosts: &[&str]) -> ListenerSpec {
         ListenerSpec {
-            sandbox_id: Uuid::nil(),
+            sandbox_id: SandboxId::from_uuid(Uuid::nil()),
             kind,
             allowed_hosts: hosts.iter().map(|s| s.to_string()).collect(),
             credentials: vec![],
@@ -2899,7 +2907,7 @@ mod tests {
         creds: Vec<EgressCredentialRoute>,
     ) -> ListenerSpec {
         ListenerSpec {
-            sandbox_id: Uuid::nil(),
+            sandbox_id: SandboxId::from_uuid(Uuid::nil()),
             kind,
             allowed_hosts: hosts.iter().map(|s| s.to_string()).collect(),
             credentials: creds,
@@ -2953,22 +2961,26 @@ mod tests {
 
     #[test]
     fn xds_resource_names_map_back_to_sandbox_ids() {
-        let id = Uuid::parse_str("018f5f50-0000-7000-8000-000000000001").unwrap();
+        let id =
+            SandboxId::from_uuid(Uuid::parse_str("018f5f50-0000-7000-8000-000000000001").unwrap());
         assert_eq!(
-            sandbox_id_from_xds_resource(&format!("{id}_http")),
+            sandbox_id_from_xds_resource(&format!("{}_http", id.as_uuid())),
             Some(id)
         );
         assert_eq!(
-            sandbox_id_from_xds_resource(&format!("up_{id}_external_api")),
+            sandbox_id_from_xds_resource(&format!("up_{}_external_api", id.as_uuid())),
             Some(id)
         );
-        assert_eq!(sandbox_id_from_xds_resource(&format!("{id}_grpc")), None);
+        assert_eq!(
+            sandbox_id_from_xds_resource(&format!("{}_grpc", id.as_uuid())),
+            None
+        );
         assert_eq!(sandbox_id_from_xds_resource("dynamic_forward_proxy"), None);
     }
 
     #[test]
     fn validates_duplicate_credential_and_allowlist_domains() {
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let policy = SandboxEgressPolicy {
             allowlist_hosts: vec![LLM_EGRESS_HOST.to_string()],
             credential_routes: vec![llm_route()],
@@ -2982,7 +2994,7 @@ mod tests {
 
     #[test]
     fn policy_summary_hashes_injected_header_values() {
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let policy = SandboxCredentials {
             routes: vec![llm_route()],
             proxy_auth_token: None,
@@ -3054,7 +3066,7 @@ mod tests {
             ],
             proxy_auth_token: None,
         };
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let routes = creds.to_routes(&sid);
         let clusters = creds.to_clusters(&sid);
 
@@ -3100,7 +3112,7 @@ mod tests {
         // (external-egress.internal/services/<name>/) and a transparent route on
         // the real host so a skill can call http://crm.example.com/api/ directly.
         // Both now point to the shared dynamic_forward_proxy_tls cluster.
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let creds = SandboxCredentials {
             routes: vec![
                 EgressCredentialRoute {
@@ -3188,7 +3200,7 @@ mod tests {
         // (e.g. crm.example.com/api/ and crm.example.com/auth/). Their
         // transparent routes must land in ONE vhost for that host, ordered
         // longest-prefix-first, with the host's exact domain declared once.
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let mk = |id: &str, prefix: &str| EgressCredentialRoute {
             id: id.to_string(),
             kind: EgressKind::External,

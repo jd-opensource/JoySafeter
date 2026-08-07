@@ -51,7 +51,7 @@ async def test_create_invalid_trigger_type_returns_semantic_error_without_db_acc
             json={
                 "name": "bad-type",
                 "type": "event",
-                "agent_id": str(uuid.uuid4()),
+                "agent_id": f"agent_{uuid.uuid4()}",
                 "prompt_template": "run",
             },
         )
@@ -72,7 +72,7 @@ async def test_create_invalid_webhook_auth_method_returns_semantic_error_without
             json={
                 "name": "bad-auth",
                 "type": "webhook",
-                "agent_id": str(uuid.uuid4()),
+                "agent_id": f"agent_{uuid.uuid4()}",
                 "prompt_template": "run",
                 "secret_ref": "hook-secret",
                 "auth_methods": ["magic-link"],
@@ -95,7 +95,7 @@ async def test_create_missing_webhook_auth_methods_returns_semantic_error_withou
             json={
                 "name": "missing-auth",
                 "type": "webhook",
-                "agent_id": str(uuid.uuid4()),
+                "agent_id": f"agent_{uuid.uuid4()}",
                 "prompt_template": "run",
                 "secret_ref": "hook-secret",
             },
@@ -117,7 +117,7 @@ async def test_create_blank_webhook_secret_key_returns_semantic_error_without_db
             json={
                 "name": "blank-secret-key",
                 "type": "webhook",
-                "agent_id": str(uuid.uuid4()),
+                "agent_id": f"agent_{uuid.uuid4()}",
                 "prompt_template": "run",
                 "secret_ref": "hook-secret",
                 "secret_key": "   ",
@@ -165,7 +165,7 @@ async def test_update_invalid_session_mode_returns_semantic_error(db_session):
 
     app = _app(db_session, _ctx(project_id=project.id, org_id=org.id))
     async with _client(app) as client:
-        resp = await client.patch(f"/api/v1/triggers/trig_{trigger.id}", json={"session_mode": "loop"})
+        resp = await client.patch(f"/api/v1/triggers/{trigger.id}", json={"session_mode": "loop"})
 
     assert resp.status_code == 422
     assert resp.json()["code"] == "TRIGGER_SESSION_MODE_INVALID"
@@ -210,7 +210,7 @@ async def test_update_blank_webhook_secret_key_returns_semantic_error_without_pe
 
     app = _app(db_session, _ctx(project_id=project.id, org_id=org.id))
     async with _client(app) as client:
-        resp = await client.patch(f"/api/v1/triggers/trig_{trigger.id}", json={"secret_key": "   "})
+        resp = await client.patch(f"/api/v1/triggers/{trigger.id}", json={"secret_key": "   "})
 
     assert resp.status_code == 422
     assert resp.json()["code"] == "TRIGGER_SECRET_KEY_REQUIRED"

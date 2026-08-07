@@ -4,18 +4,26 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 
 import { API_BASE, ApiError, apiStream, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { getOperationErrorMessage } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
 import { apiResourceId } from '@/lib/managed/api-paths'
+import { getOperationErrorMessage } from '@/lib/managed/errors'
+import { buildQuickstartAgentCreateBody } from '@/lib/managed/quickstart-create'
 import {
   managedRequestOptions,
   managedScopeKey,
   type ManagedRequestScope,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { buildQuickstartAgentCreateBody } from '@/lib/managed/quickstart-create'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  parseAgentId,
+  parseEnvironmentId,
+  parseSessionId,
+  parseVaultId,
+  type EnvironmentId,
+  type VaultId,
+} from '@/types/entity-id'
+
 import { currentProjectAllowsWrite } from './use-current-project-read-only'
 
 export type StepId = 1 | 2 | 3 | 4 | 5 | 6
@@ -40,8 +48,8 @@ export interface QuickstartTemplateConfig {
 }
 
 interface CreateSessionOptions {
-  environmentId?: string | null
-  vaultId?: string | null
+  environmentId?: EnvironmentId | null
+  vaultId?: VaultId | null
 }
 
 function getCurrentManagedScope() {
@@ -98,6 +106,14 @@ function getCreatedResourceId(payload: unknown): string | null {
   }
 
   return null
+}
+
+function parseQuickstartResourceId(step: StepId, value: string): string {
+  if (step === 3) return parseAgentId(value)
+  if (step === 4) return parseEnvironmentId(value)
+  if (step === 5) return parseVaultId(value)
+  if (step === 6) return parseSessionId(value)
+  return value
 }
 
 function toApiStatusError(error: unknown): Error {
@@ -325,8 +341,9 @@ export function useQuickstartChat(
                     curl: event.curl || '',
                   })
                   if (event.resource_id) {
+                    const resourceId = parseQuickstartResourceId(uiStep, event.resource_id)
                     setResourceIds((prev) => {
-                      const next = { ...prev, [uiStep]: event.resource_id! }
+                      const next = { ...prev, [uiStep]: resourceId }
                       resourceIdsRef.current = next
                       return next
                     })
@@ -446,8 +463,9 @@ export function useQuickstartChat(
           throw toApiStatusError(error)
         })
         if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
-        const sessionId = getCreatedResourceId(result)
-        if (!sessionId) throw new Error(t('managed.quickstart.errors.createSessionFailed'))
+        const rawSessionId = getCreatedResourceId(result)
+        if (!rawSessionId) throw new Error(t('managed.quickstart.errors.createSessionFailed'))
+        const sessionId = parseSessionId(rawSessionId)
 
         setResourceIds((prev) => {
           const next = { ...prev, [6]: sessionId }
@@ -514,8 +532,10 @@ export function useQuickstartChat(
           throw toApiStatusError(error)
         })
         if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
-        const environmentId = getCreatedResourceId(result)
-        if (!environmentId) throw new Error(t('managed.quickstart.errors.createEnvironmentFailed'))
+        const rawEnvironmentId = getCreatedResourceId(result)
+        if (!rawEnvironmentId)
+          throw new Error(t('managed.quickstart.errors.createEnvironmentFailed'))
+        const environmentId = parseEnvironmentId(rawEnvironmentId)
 
         setResourceIds((prev) => {
           const next = { ...prev, [4]: environmentId }
@@ -573,8 +593,9 @@ export function useQuickstartChat(
           throw toApiStatusError(error)
         })
         if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
-        const vaultId = getCreatedResourceId(result)
-        if (!vaultId) throw new Error(t('managed.quickstart.errors.createVaultFailed'))
+        const rawVaultId = getCreatedResourceId(result)
+        if (!rawVaultId) throw new Error(t('managed.quickstart.errors.createVaultFailed'))
+        const vaultId = parseVaultId(rawVaultId)
 
         setResourceIds((prev) => {
           const next = { ...prev, [5]: vaultId }
@@ -754,8 +775,9 @@ export function useQuickstartChat(
           },
         }))
       }
-      const resourceId = getCreatedResourceId(result)
-      if (!resourceId) throw new Error(t('managed.quickstart.errors.createResourceFailed'))
+      const rawResourceId = getCreatedResourceId(result)
+      if (!rawResourceId) throw new Error(t('managed.quickstart.errors.createResourceFailed'))
+      const resourceId = parseQuickstartResourceId(step, rawResourceId)
 
       setResourceIds((prev) => {
         const next = { ...prev, [step]: resourceId }
@@ -804,7 +826,7 @@ export function useQuickstartChat(
     setPendingConfirmation(null)
   }, [])
 
-  const selectExistingEnvironment = useCallback((envId: string) => {
+  const selectExistingEnvironment = useCallback((envId: EnvironmentId) => {
     setResourceIds((prev) => {
       const next = { ...prev, [4]: envId }
       resourceIdsRef.current = next
@@ -813,7 +835,7 @@ export function useQuickstartChat(
     setCompletedSteps((prev) => new Set([...prev, 4]))
   }, [])
 
-  const selectExistingVault = useCallback((vaultId: string) => {
+  const selectExistingVault = useCallback((vaultId: VaultId) => {
     setResourceIds((prev) => {
       const next = { ...prev, [5]: vaultId }
       resourceIdsRef.current = next

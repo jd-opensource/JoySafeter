@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import enum
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+
+from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId, TaskId, TriggerId
 
 from .base import JoySafeterBaseModel
 
@@ -52,20 +53,24 @@ class JoySafeterTrigger(JoySafeterBaseModel):
         ),
     )
 
+    id: Mapped[TriggerId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(TriggerId), primary_key=True, default=TriggerId.new
+    )
+
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     type: Mapped[str] = mapped_column(String(16), nullable=False, default="webhook")
-    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("joysafeter_agents.id"), nullable=False)
+    agent_id: Mapped[AgentId] = mapped_column(EntityIdType(AgentId), ForeignKey("joysafeter_agents.id"), nullable=False)
     prompt_template: Mapped[str] = mapped_column(Text, nullable=False)
     environment_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     session_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fresh", server_default="fresh")
     session_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    pinned_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
+    pinned_session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
-    reusable_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
+    reusable_session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
     secret_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     secret_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -105,10 +110,10 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    last_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_tasks.id", ondelete="SET NULL"), nullable=True
+    last_task_id: Mapped[Optional[TaskId]] = mapped_column(
+        EntityIdType(TaskId), ForeignKey("joysafeter_tasks.id", ondelete="SET NULL"), nullable=True
     )
-    last_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
+    last_session_id: Mapped[Optional[SessionId]] = mapped_column(
+        EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
     last_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")

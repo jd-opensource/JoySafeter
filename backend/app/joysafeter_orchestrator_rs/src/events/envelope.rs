@@ -1,17 +1,17 @@
+use crate::ids::{EventId, SandboxId, SessionId, TaskId};
 use serde_json::Value;
-use uuid::Uuid;
 
 /// A single event flowing through the joysafeter event bus.
 ///
 /// Mirrors the Python `JoySafeterEventEnvelope` dataclass.
 #[derive(Debug, Clone)]
 pub struct EventEnvelope {
-    pub session_id: Uuid,
+    pub session_id: SessionId,
     pub event_type: String,
     pub payload: Value,
-    pub task_id: Option<Uuid>,
-    pub sandbox_id: Option<Uuid>,
-    pub event_id: Option<Uuid>,
+    pub task_id: Option<TaskId>,
+    pub sandbox_id: Option<SandboxId>,
+    pub event_id: Option<EventId>,
     pub session_seq: Option<i64>,
     pub runner_seq: Option<i64>,
     pub flush_immediately: bool,
@@ -23,14 +23,14 @@ pub struct EventEnvelope {
 }
 
 impl EventEnvelope {
-    pub fn new(session_id: Uuid, event_type: impl Into<String>, payload: Value) -> Self {
+    pub fn new(session_id: SessionId, event_type: impl Into<String>, payload: Value) -> Self {
         Self {
             session_id,
             event_type: event_type.into(),
             payload,
             task_id: None,
             sandbox_id: None,
-            event_id: Some(Uuid::now_v7()),
+            event_id: Some(EventId::from_uuid(uuid::Uuid::now_v7())),
             session_seq: None,
             runner_seq: None,
             flush_immediately: false,
@@ -41,12 +41,12 @@ impl EventEnvelope {
         }
     }
 
-    pub fn with_task(mut self, task_id: Uuid) -> Self {
+    pub fn with_task(mut self, task_id: TaskId) -> Self {
         self.task_id = Some(task_id);
         self
     }
 
-    pub fn with_sandbox(mut self, sandbox_id: Uuid) -> Self {
+    pub fn with_sandbox(mut self, sandbox_id: SandboxId) -> Self {
         self.sandbox_id = Some(sandbox_id);
         self
     }
@@ -68,7 +68,7 @@ impl EventEnvelope {
         self
     }
 
-    pub fn with_db_persisted(mut self, event_id: Uuid, seq: i64) -> Self {
+    pub fn with_db_persisted(mut self, event_id: EventId, seq: i64) -> Self {
         self.event_id = Some(event_id);
         self.session_seq = Some(seq);
         self.db_persisted = true;

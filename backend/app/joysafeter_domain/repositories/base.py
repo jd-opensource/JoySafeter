@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import EntityId
 
 T = TypeVar("T", bound=Base)
 
@@ -28,7 +29,7 @@ class BaseRepository(Generic[T]):
         self.model = model
         self.db = db
 
-    async def get(self, id: uuid.UUID, relations: Optional[List[str]] = None) -> Optional[T]:
+    async def get(self, id: uuid.UUID | EntityId, relations: Optional[List[str]] = None) -> Optional[T]:
         """Get a record by ID."""
         query = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
 
@@ -83,7 +84,7 @@ class BaseRepository(Generic[T]):
         await self.db.refresh(instance)
         return instance
 
-    async def update(self, id: uuid.UUID, data: Dict[str, Any]) -> Optional[T]:
+    async def update(self, id: uuid.UUID | EntityId, data: Dict[str, Any]) -> Optional[T]:
         """Update a record."""
         instance = await self.get(id)
         if not instance:
@@ -97,7 +98,7 @@ class BaseRepository(Generic[T]):
         await self.db.refresh(instance)
         return instance
 
-    async def delete(self, id: uuid.UUID) -> bool:
+    async def delete(self, id: uuid.UUID | EntityId) -> bool:
         """Delete a record."""
         instance = await self.get(id)
         if not instance:
@@ -107,7 +108,7 @@ class BaseRepository(Generic[T]):
         await self.db.flush()
         return True
 
-    async def soft_delete(self, id: uuid.UUID) -> bool:
+    async def soft_delete(self, id: uuid.UUID | EntityId) -> bool:
         """Soft-delete a record."""
         from datetime import datetime, timezone
 

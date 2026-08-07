@@ -6,6 +6,7 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterUpdateAgentRequest,
 )
+from app.joysafeter_shared.ids import SkillId
 
 pytestmark = pytest.mark.no_db
 
@@ -29,6 +30,8 @@ def test_agent_requests_reject_removed_system_prompt_field(request_type) -> None
 
 
 def test_agent_skill_refs_reject_packed_archives_and_drafts() -> None:
+    skill_id = SkillId.new()
+
     with pytest.raises(ValidationError):
         JoySafeterCreateAgentRequest(
             name="Agent",
@@ -38,7 +41,7 @@ def test_agent_skill_refs_reject_packed_archives_and_drafts() -> None:
     with pytest.raises(ValidationError):
         JoySafeterCreateAgentRequest(
             name="Agent",
-            skills=[{"type": "custom", "skill_id": "skill_123", "version": "draft"}],
+            skills=[{"type": "custom", "skill_id": str(skill_id), "version": "draft"}],
         )
 
 

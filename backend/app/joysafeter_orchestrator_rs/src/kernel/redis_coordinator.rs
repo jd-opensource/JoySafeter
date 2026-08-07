@@ -1,9 +1,9 @@
 use std::time::Duration;
 
+use crate::ids::{SandboxId, TaskId};
 use redis::AsyncCommands;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 /// Redis-backed HA coordinator for cross-instance orchestration.
 ///
@@ -107,18 +107,18 @@ impl RedisCoordinator {
     // -----------------------------------------------------------------------
 
     /// Register ownership of a sandbox (always sets, for initial registration).
-    pub async fn register_sandbox(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    pub async fn register_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{sandbox_id}");
+        let key = format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid());
         conn.set_ex::<_, _, ()>(&key, &self.instance_id, 300)
             .await?;
         Ok(())
     }
 
     /// Refresh sandbox ownership TTL (CAS — only if we own it).
-    pub async fn refresh_sandbox(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    pub async fn refresh_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{sandbox_id}");
+        let key = format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid());
         // Lua CAS: only refresh if value matches our instance_id
         let script = r#"
             if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -137,9 +137,9 @@ impl RedisCoordinator {
     }
 
     /// Remove sandbox ownership (CAS — only if we own it, matching Python L90-94).
-    pub async fn remove_sandbox(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    pub async fn remove_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{sandbox_id}");
+        let key = format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid());
         let script = r#"
             if redis.call("get", KEYS[1]) == ARGV[1] then
                 return redis.call("del", KEYS[1])
@@ -156,9 +156,9 @@ impl RedisCoordinator {
     }
 
     /// Check which instance owns a sandbox.
-    pub async fn get_sandbox_owner(&self, sandbox_id: Uuid) -> anyhow::Result<Option<String>> {
+    pub async fn get_sandbox_owner(&self, sandbox_id: SandboxId) -> anyhow::Result<Option<String>> {
         let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{sandbox_id}");
+        let key = format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid());
         let owner: Option<String> = conn.get(&key).await?;
         Ok(owner)
     }
@@ -168,18 +168,22 @@ impl RedisCoordinator {
     // -----------------------------------------------------------------------
 
     /// Map a task to a sandbox.
-    pub async fn map_task_to_sandbox(&self, task_id: Uuid, sandbox_id: Uuid) -> anyhow::Result<()> {
+    pub async fn map_task_to_sandbox(
+        &self,
+        task_id: TaskId,
+        sandbox_id: SandboxId,
+    ) -> anyhow::Result<()> {
         let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:task_sandbox:{task_id}");
-        conn.set_ex::<_, _, ()>(&key, sandbox_id.to_string(), 7200) // 2h TTL
+        let key = format!("joysafeter:task_sandbox:{}", task_id.as_uuid());
+        conn.set_ex::<_, _, ()>(&key, sandbox_id.as_uuid().to_string(), 7200) // 2h TTL
             .await?;
         Ok(())
     }
 
     /// Remove task-sandbox mapping.
-    pub async fn remove_task_sandbox(&self, task_id: Uuid) -> anyhow::Result<()> {
+    pub async fn remove_task_sandbox(&self, task_id: TaskId) -> anyhow::Result<()> {
         let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:task_sandbox:{task_id}");
+        let key = format!("joysafeter:task_sandbox:{}", task_id.as_uuid());
         conn.del::<_, ()>(&key).await?;
         Ok(())
     }
@@ -230,9 +234,9 @@ impl RedisCoordinator {
 
     /// Publish an event to a per-task channel.
     /// Python L159: directly publishes the payload string (no wrapper).
-    pub async fn publish_task_event(&self, task_id: Uuid, payload: &str) -> anyhow::Result<()> {
+    pub async fn publish_task_event(&self, task_id: TaskId, payload: &str) -> anyhow::Result<()> {
         let mut conn = self.get_conn().await?;
-        let channel = format!("joysafeter:events:{task_id}");
+        let channel = format!("joysafeter:events:{}", task_id.as_uuid());
         conn.publish::<_, _, ()>(&channel, payload).await?;
         Ok(())
     }
@@ -252,9 +256,9 @@ impl RedisCoordinator {
     }
 
     /// Remove sandbox queue wakeup key.
-    pub async fn remove_sandbox_queue(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    pub async fn remove_sandbox_queue(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_wakeup:{sandbox_id}");
+        let key = format!("joysafeter:sandbox_wakeup:{}", sandbox_id.as_uuid());
         conn.del::<_, ()>(&key).await?;
         Ok(())
     }

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterable, Literal, Optional
@@ -46,6 +45,7 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
 )
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import SkillId, SkillSecurityScanId
 from app.joysafeter_shared.security.ssrf_guard import validate_url
 from app.joysafeter_shared.skill.yaml_parser import is_system_file
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -329,7 +329,7 @@ class SkillSecurityService:
         created_by_id: str,
         owner_id: Optional[str],
         project_id: Optional[str],
-        skill_id: Optional[uuid.UUID],
+        skill_id: Optional[SkillId],
         name: str,
         description: str,
         content: str,
@@ -474,7 +474,7 @@ class SkillSecurityService:
             )
         return scan
 
-    async def rescan_existing_skill(self, skill_id: uuid.UUID, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def rescan_existing_skill(self, skill_id: SkillId, current_user_id: str) -> JoySafeterSkillSecurityScan:
         """Rescan persisted skill content and update the skill's current security state."""
         skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
@@ -542,10 +542,10 @@ class SkillSecurityService:
 
     async def list_scans(
         self,
-        skill_id: uuid.UUID,
+        skill_id: SkillId,
         current_user_id: str,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[SkillSecurityScanId] = None,
     ) -> tuple[list[JoySafeterSkillSecurityScan], bool]:
         skill = await self.skill_repo.get(skill_id)
         if not skill:
@@ -560,7 +560,7 @@ class SkillSecurityService:
         )
         return await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
 
-    async def get_latest_scan(self, skill_id: uuid.UUID, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def get_latest_scan(self, skill_id: SkillId, current_user_id: str) -> JoySafeterSkillSecurityScan:
         skill = await self.skill_repo.get(skill_id)
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
@@ -581,7 +581,7 @@ class SkillSecurityService:
             )
         return scan
 
-    async def get_scan(self, scan_id: uuid.UUID, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def get_scan(self, scan_id: SkillSecurityScanId, current_user_id: str) -> JoySafeterSkillSecurityScan:
         scan = await self.repo.get(scan_id)
         if not scan:
             raise NotFoundError(
@@ -739,7 +739,7 @@ class SkillSecurityService:
         created_by_id: str,
         owner_id: Optional[str],
         project_id: Optional[str],
-        skill_id: Optional[uuid.UUID],
+        skill_id: Optional[SkillId],
         target_name: str,
         target_hash: str,
     ) -> JoySafeterSkillSecurityScan:
@@ -998,7 +998,7 @@ class SkillSecurityService:
         )
         return size >= threshold
 
-    async def mark_scanning(self, skill_id: uuid.UUID) -> None:
+    async def mark_scanning(self, skill_id: SkillId) -> None:
         """Flip the skill row to ``security_status='scanning'`` so the
         runtime gate refuses to load while a BG scan is in flight.
 
@@ -1227,7 +1227,7 @@ def scan_input_bytes(
 
 async def run_scan_in_background(
     *,
-    skill_id: uuid.UUID,
+    skill_id: SkillId,
     trigger: str,
     created_by_id: str,
     owner_id: Optional[str],

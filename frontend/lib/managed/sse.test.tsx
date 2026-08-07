@@ -7,6 +7,8 @@ vi.mock('next-runtime-env', () => ({
 }))
 
 import { useProjectStore } from '@/stores/managed/project-store'
+import { EVENT_ID, OTHER_EVENT_ID, OTHER_SESSION_ID, SESSION_ID } from '@/test-utils/entity-ids'
+import type { SessionId } from '@/types/entity-id'
 
 import { useSessionStream } from './sse'
 
@@ -16,7 +18,7 @@ globalThis.document = dom.window.document
 globalThis.navigator = dom.window.navigator
 globalThis.HTMLElement = dom.window.HTMLElement
 
-function HookHarness({ sessionId }: { sessionId: string }) {
+function HookHarness({ sessionId }: { sessionId: SessionId }) {
   const { events } = useSessionStream(sessionId, true)
   return <div data-testid="events">{events.map((event) => event.id).join(',')}</div>
 }
@@ -74,38 +76,38 @@ describe('useSessionStream', () => {
 
   it('resets events and after_seq when switching sessions', async () => {
     const fetchMock = vi.fn((url: string) => {
-      if (url.includes('/sessions/session-a/')) {
-        return Promise.resolve(sseResponse({ id: 'evt-a', type: 'user.message', seq: 9 }))
+      if (url.includes(`/sessions/${SESSION_ID}/`)) {
+        return Promise.resolve(sseResponse({ id: EVENT_ID, type: 'user.message', seq: 9 }))
       }
-      if (url.includes('/sessions/session-b/')) {
-        return Promise.resolve(sseResponse({ id: 'evt-b', type: 'user.message', seq: 1 }))
+      if (url.includes(`/sessions/${OTHER_SESSION_ID}/`)) {
+        return Promise.resolve(sseResponse({ id: OTHER_EVENT_ID, type: 'user.message', seq: 1 }))
       }
       return Promise.resolve(new Response('', { status: 404 }))
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
-    const { getByTestId, rerender } = render(<HookHarness sessionId="session-a" />)
+    const { getByTestId, rerender } = render(<HookHarness sessionId={SESSION_ID} />)
 
     await act(async () => {
       await wait(80)
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0][0])).toContain(
-      '/sessions/session-a/events/stream?after_seq=0',
+      `/sessions/${SESSION_ID}/events/stream?after_seq=0`,
     )
-    expect(getByTestId('events').textContent).toContain('evt-a')
+    expect(getByTestId('events').textContent).toContain(EVENT_ID)
 
-    rerender(<HookHarness sessionId="session-b" />)
+    rerender(<HookHarness sessionId={OTHER_SESSION_ID} />)
 
     await act(async () => {
       await wait(80)
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(String(fetchMock.mock.calls[1][0])).toContain(
-      '/sessions/session-b/events/stream?after_seq=0',
+      `/sessions/${OTHER_SESSION_ID}/events/stream?after_seq=0`,
     )
-    expect(getByTestId('events').textContent).toContain('evt-b')
-    expect(getByTestId('events').textContent).not.toContain('evt-a')
+    expect(getByTestId('events').textContent).toContain(OTHER_EVENT_ID)
+    expect(getByTestId('events').textContent).not.toContain(EVENT_ID)
   })
 
   it('reconnects the stream when managed project context changes', async () => {
@@ -119,7 +121,7 @@ describe('useSessionStream', () => {
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
-    render(<HookHarness sessionId="session-a" />)
+    render(<HookHarness sessionId={SESSION_ID} />)
 
     await act(async () => {
       await wait(20)
@@ -144,18 +146,18 @@ describe('useSessionStream', () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
         sseResponseText(
-          `data: ${JSON.stringify({ id: 'evt-final', type: 'user.message', seq: 1 })}`,
+          `data: ${JSON.stringify({ id: EVENT_ID, type: 'user.message', seq: 1 })}`,
         ),
       ),
     )
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
-    const { getByTestId } = render(<HookHarness sessionId="session-a" />)
+    const { getByTestId } = render(<HookHarness sessionId={SESSION_ID} />)
 
     await act(async () => {
       await wait(80)
     })
 
-    expect(getByTestId('events').textContent).toContain('evt-final')
+    expect(getByTestId('events').textContent).toContain(EVENT_ID)
   })
 })

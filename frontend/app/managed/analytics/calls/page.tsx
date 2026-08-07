@@ -1,26 +1,27 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { stripIdPrefix } from '@/lib/managed/id'
-import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
-import type { AnalyticsFilters, CallRecord } from '@/lib/managed/analytics/types'
-import { useCallsList, useAgentsForFilters } from '@/lib/managed/analytics/hooks'
-import { formatCompactNumber, formatDuration } from '@/lib/managed/analytics/formatters'
+import { useSearchParams } from 'next/navigation'
+import { useMemo, useState } from 'react'
+
 import { AnalyticsFilterBar } from '@/components/managed/analytics/analytics-filter-bar'
+import { CallDetailDrawer } from '@/components/managed/analytics/call-detail-drawer'
 import {
   DataTable,
-  StatusBadge,
   MonoId,
-  RelativeTime,
   PageHeader,
+  RelativeTime,
+  StatusBadge,
 } from '@/components/managed/shared'
+import type { Column } from '@/components/managed/shared/data-table'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
-import { CallDetailDrawer } from '@/components/managed/analytics/call-detail-drawer'
-import type { Column } from '@/components/managed/shared/data-table'
+import { useTranslation } from '@/lib/i18n'
+import { formatCompactNumber, formatDuration } from '@/lib/managed/analytics/formatters'
+import { useCallsList, useAgentsForFilters } from '@/lib/managed/analytics/hooks'
+import type { AnalyticsFilters, CallRecord } from '@/lib/managed/analytics/types'
+import { cn } from '@/lib/utils'
+import { tryParseAgentId } from '@/types/entity-id'
 
 export default function CallsPage() {
   const { t } = useTranslation()
@@ -31,7 +32,7 @@ export default function CallsPage() {
     engine: null,
     model: null,
     status: null,
-    agent_id: initialAgentId || null,
+    agent_id: tryParseAgentId(initialAgentId),
   })
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
@@ -69,7 +70,7 @@ export default function CallsPage() {
 
   const agents = useMemo(() => {
     if (!agentsList.data) return undefined
-    return agentsList.data.map((a) => ({ id: stripIdPrefix(a.id), name: a.name }))
+    return agentsList.data.map((a) => ({ id: a.id, name: a.name }))
   }, [agentsList.data])
 
   const columns: Column<CallRecord>[] = [

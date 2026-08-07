@@ -9,7 +9,7 @@
  *
  * Components / helpers:
  *   - ``TreeNode``        — folder + file tree model
- *   - ``buildFileTree``   — turn flat ``SkillFile[]`` into a TreeNode
+ *   - ``buildFileTree``   — turn flat workspace files into a TreeNode
  *   - ``FileTreeNode``    — recursive renderer for one tree node
  *   - ``SkillWorkspace``  — the full 260px left panel (SKILL.md + tree)
  *   - ``formatBytes``     — pretty file size
@@ -30,6 +30,11 @@ import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 import type { SkillFileRecord } from '@/types/managed'
 
+export type SkillWorkspaceFile = Pick<SkillFileRecord, 'path' | 'file_name'> & {
+  id: string
+  size: number
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -39,11 +44,11 @@ export function formatBytes(bytes: number): string {
 export interface TreeNode {
   name: string
   fullPath: string
-  file?: SkillFileRecord
+  file?: SkillWorkspaceFile
   children: TreeNode[]
 }
 
-export function buildFileTree(files: SkillFileRecord[]): TreeNode {
+export function buildFileTree(files: SkillWorkspaceFile[]): TreeNode {
   const root: TreeNode = { name: '', fullPath: '', children: [] }
 
   for (const f of files) {
@@ -244,7 +249,7 @@ export function SkillWorkspace({
   isMainSelected,
   canEdit = true,
 }: {
-  files: SkillFileRecord[]
+  files: SkillWorkspaceFile[]
   selectedFileId: string | null
   onSelectFile: (id: string) => void
   onSelectMain: () => void

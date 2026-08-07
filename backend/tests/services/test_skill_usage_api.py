@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -8,6 +7,14 @@ import pytest
 from app.joysafeter_api.api.v1 import skills as skills_api
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import (
+    AgentId,
+    SessionId,
+    SkillId,
+    SkillSecurityScanId,
+    SkillUsageId,
+    SkillVersionId,
+)
 
 pytestmark = pytest.mark.no_db
 
@@ -51,20 +58,21 @@ def _ctx(project_id: str | None = "proj-a") -> JoySafeterAuthContext:
     )
 
 
-def _usage_row(skill_id: uuid.UUID | None, scan_id: uuid.UUID) -> JoySafeterSkillUsageLog:
+def _usage_row(skill_id: SkillId | None, scan_id: SkillSecurityScanId) -> JoySafeterSkillUsageLog:
+    session_id = SessionId.new()
     row = JoySafeterSkillUsageLog(
-        id=uuid.uuid4(),
+        id=SkillUsageId.new(),
         skill_id=skill_id,
         skill_name="runtime-audit-skill",
         skill_source_type="manual",
         skill_version="1.2.3",
-        skill_version_id=uuid.uuid4(),
+        skill_version_id=SkillVersionId.new(),
         target="/skills/runtime-audit-skill",
         security_scan_id=scan_id,
         target_hash="a" * 64,
         artifact_hash="b" * 64,
-        session_id="sess-a",
-        agent_id="agent-a",
+        session_id=session_id,
+        agent_id=AgentId.new(),
         project_id="proj-a",
         user_id="user-a",
     )
@@ -74,8 +82,8 @@ def _usage_row(skill_id: uuid.UUID | None, scan_id: uuid.UUID) -> JoySafeterSkil
 
 @pytest.mark.asyncio
 async def test_skill_usage_api_filters_security_response_surface(monkeypatch):
-    skill_id = uuid.uuid4()
-    scan_id = uuid.uuid4()
+    skill_id = SkillId.new()
+    scan_id = SkillSecurityScanId.new()
     db = _Db([_usage_row(skill_id, scan_id)])
 
     class _Svc:
@@ -103,7 +111,7 @@ async def test_skill_usage_api_filters_security_response_surface(monkeypatch):
     assert len(response.data) == 1
     item = response.data[0]
     assert item.skill_name == "runtime-audit-skill"
-    assert item.session_id == "sess-a"
+    assert isinstance(item.session_id, SessionId)
     assert item.security_scan_id == scan_id
 
     compiled = str(db.statement.compile(compile_kwargs={"literal_binds": True}))
@@ -134,7 +142,7 @@ async def test_skill_usage_search_requires_specific_filter():
 
 @pytest.mark.asyncio
 async def test_skill_usage_search_finds_deleted_skill_by_hash():
-    scan_id = uuid.uuid4()
+    scan_id = SkillSecurityScanId.new()
     db = _Db([_usage_row(None, scan_id)])
 
     response = await skills_api.search_skill_usage(

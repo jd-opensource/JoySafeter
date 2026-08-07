@@ -7,16 +7,18 @@ one definition and cannot drift from the contract the orchestrator expects
 (``joysafeter_orchestrator_rs`` pops this list and claims the task by id).
 """
 
-import uuid
+from app.joysafeter_shared.ids import TaskId
 
 GLOBAL_QUEUE_KEY = "joysafeter:global_queue"
 
 
-async def enqueue_joysafeter_task(task_id: uuid.UUID) -> None:
+async def enqueue_joysafeter_task(task_id: TaskId) -> None:
     """Enqueue a persisted (pending) task for the Rust orchestrator scheduler."""
     from app.joysafeter_shared.cache.redis import RedisClient
 
     redis = RedisClient.get_client()
     if redis is None:
         raise RuntimeError("Redis unavailable; cannot enqueue task to global queue")
-    await redis.rpush(GLOBAL_QUEUE_KEY, str(task_id))
+    # The Rust orchestrator pops this list and parses a bare UUID; a typed TaskId
+    # must degrade to its raw uuid at this cross-language boundary (never task_<uuid>).
+    await redis.rpush(GLOBAL_QUEUE_KEY, str(task_id.uuid))

@@ -7,6 +7,7 @@ mod config;
 mod db;
 mod events;
 mod grpc;
+mod ids;
 mod kernel;
 mod runtime_config;
 mod sandbox;

@@ -6,11 +6,11 @@ use sqlx::PgPool;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use uuid::Uuid;
 
 use super::envelope::EventEnvelope;
 use super::realtime::publish_session_event_realtime;
 use super::sink::EventSink;
+use crate::ids::{EventId, SessionId};
 use crate::runtime_config::RuntimeConfig;
 
 /// Batched event persister — collects events and flushes them to the DB
@@ -39,8 +39,8 @@ struct EventBuffer {
 
 #[derive(Clone)]
 struct PendingEvent {
-    id: Uuid,
-    session_id: Uuid,
+    id: EventId,
+    session_id: SessionId,
     event_type: String,
     payload: serde_json::Value,
     seq: Option<i64>,
@@ -129,8 +129,8 @@ impl EventPersister {
     /// Push an event into the buffer. Flushes automatically if full.
     pub async fn push(
         &self,
-        id: Uuid,
-        session_id: Uuid,
+        id: EventId,
+        session_id: SessionId,
         event_type: &str,
         payload: &serde_json::Value,
         seq: Option<i64>,
@@ -187,7 +187,7 @@ impl EventPersister {
         // Group events by session_id and sort keys to prevent deadlocks
         // (matching Python batch_writer sort fix).
         use std::collections::BTreeMap;
-        let mut groups: BTreeMap<Uuid, Vec<&PendingEvent>> = BTreeMap::new();
+        let mut groups: BTreeMap<SessionId, Vec<&PendingEvent>> = BTreeMap::new();
         for event in &events {
             if is_session_status_event(&event.event_type) {
                 tracing::warn!(
@@ -211,7 +211,7 @@ impl EventPersister {
             // Acquire advisory locks in sorted session_id order (prevent deadlocks)
             for session_id in groups.keys() {
                 let lock_key = i64::from_be_bytes(
-                    session_id.as_bytes()[8..16].try_into().unwrap(),
+                    session_id.as_uuid().as_bytes()[8..16].try_into().unwrap(),
                 );
                 sqlx::query("SELECT pg_advisory_xact_lock($1)")
                     .bind(lock_key)
@@ -230,7 +230,7 @@ impl EventPersister {
                 .fetch_one(&mut *tx)
                 .await?;
 
-                let latest = sqlx::query_as::<_, (Uuid, String, serde_json::Value, i64)>(
+                let latest = sqlx::query_as::<_, (EventId, String, serde_json::Value, i64)>(
                     r#"
                     SELECT id, event_type, payload, seq
                     FROM joysafeter_session_events

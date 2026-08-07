@@ -70,8 +70,10 @@ impl EventStreamPublisher {
         // Build stream entry fields
         let payload_str = serde_json::to_string(&envelope.payload).unwrap_or_default();
         let fields: Vec<(&str, String)> = vec![
-            ("event_id", event_id.to_string()),
-            ("session_id", envelope.session_id.to_string()),
+            // Bare uuid: the Python stream consumer parses this with uuid.UUID(...)
+            // (like the session_id field below), so it must NOT carry the evt_ prefix.
+            ("event_id", event_id.as_uuid().to_string()),
+            ("session_id", envelope.session_id.as_uuid().to_string()),
             ("event_type", envelope.event_type.clone()),
             ("payload", payload_str),
             ("seq", envelope.session_seq.unwrap_or(0).to_string()),
