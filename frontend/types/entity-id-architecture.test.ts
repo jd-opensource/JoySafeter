@@ -4,10 +4,11 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:ts|tsx)$/
+const SOURCE_FILE_PATTERN = /\.(?:ts|tsx)$/
 const QUOTED_CORE_ID_PATTERN =
-  /["'`]((?:agent_|sess_|task_|trig_|env_|secret_|vault_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_)[^"'`\s]*)["'`]/g
+  /["'`]((?:agent_|sess_|task_|trig_|env_|secret_|vault_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_)[^"'`\s]*)["'`]/g
 const CANONICAL_CORE_ID_PATTERN =
-  /^(?:agent_|sess_|task_|trig_|env_|secret_|vault_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  /^(?:agent_|sess_|task_|trig_|env_|secret_|vault_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function collectTestFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -18,11 +19,30 @@ function collectTestFiles(directory: string): string[] {
   })
 }
 
+function collectProductionFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) return []
+    const entryPath = path.join(directory, entry.name)
+    if (entry.isDirectory()) return collectProductionFiles(entryPath)
+    return SOURCE_FILE_PATTERN.test(entry.name) && !TEST_FILE_PATTERN.test(entry.name)
+      ? [entryPath]
+      : []
+  })
+}
+
 function readProjectFile(relativePath: string): string {
   return readFileSync(path.join(process.cwd(), relativePath), 'utf8')
 }
 
 describe('typed entity id architecture', () => {
+  it('does not import or call legacy prefix helpers in production code', () => {
+    const violations = collectProductionFiles(process.cwd()).filter((file) =>
+      /\b(?:stripIdPrefix|withIdPrefix)\b/.test(readFileSync(file, 'utf8')),
+    )
+
+    expect(violations).toEqual([])
+  })
+
   it('keeps core entity fixtures canonical', () => {
     const violations: string[] = []
     for (const file of collectTestFiles(process.cwd())) {
@@ -123,10 +143,32 @@ describe('typed entity id architecture', () => {
 
     expect(listPage).toContain('parseItem: parseEnvironmentResponse')
     expect(parsers).toContain('id: parseEnvironmentId(raw.id)')
-    expect(readProjectFile('lib/managed/api-paths.ts')).toContain(
-      "isEntityId(value, 'environment')",
-    )
+    expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
     expect(storageParsers).toContain('environment_id: parseOptionalId<EnvironmentId>')
+  })
+
+  it('parses storage identities at every frontend ingress', () => {
+    const types = readProjectFile('types/managed.ts')
+    const parsers = readProjectFile('lib/managed/storage-mount-response-parsers.ts')
+    const sessionParsers = readProjectFile('lib/managed/session-response-parsers.ts')
+    const page = readProjectFile('components/managed/storage-volumes/storage-volumes-page.tsx')
+
+    expect(types).toContain('id: StorageVolumeId')
+    expect(types).toContain('id: StorageGrantId')
+    expect(types).toContain('id: StorageMountAuditId')
+    expect(types).toContain('volume_id: StorageVolumeId')
+    expect(types).toContain('id: SessionResourceId')
+    expect(parsers).toContain('id: parseStorageVolumeId(raw.id)')
+    expect(parsers).toContain('id: parseStorageGrantId(raw.id)')
+    expect(parsers).toContain('id: parseStorageMountAuditId(raw.id)')
+    expect(parsers).toContain('id: parseSessionResourceId(raw.id)')
+    expect(sessionParsers).toContain('storage_mounts: raw.storage_mounts?.map')
+    expect(page).toContain('managedGet<unknown>')
+    expect(page).toContain('.then(parseStorageVolumeListResponse)')
+    expect(page).toContain('.then(parseStorageVolumeResponse)')
+    expect(page).toContain('.then(parseStorageProjectGrantResponse)')
+    expect(page).toContain('.then(parseStorageOrganizationGrantResponse)')
+    expect(page).toContain('apiResourceId(selectedVolume.id)')
   })
 
   it('keeps secret routes and response data typed end-to-end', () => {
@@ -138,7 +180,7 @@ describe('typed entity id architecture', () => {
     expect(detailPage).toContain('const secretId = parseSecretId(rawSecretId)')
     expect(detailPage).toContain('.then(parseSecretDetailResponse)')
     expect(parsers).toContain('id: parseSecretId(raw.id)')
-    expect(readProjectFile('lib/managed/api-paths.ts')).toContain("isEntityId(value, 'secret')")
+    expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
   })
 
   it('keeps vault and credential routes typed end-to-end', () => {
@@ -151,8 +193,7 @@ describe('typed entity id architecture', () => {
     expect(detailPage).toContain('parseVaultCredentialListResponse(response.data)')
     expect(parsers).toContain('id: parseCredentialId(raw.id)')
     expect(parsers).toContain('vault_id: parseVaultId(raw.vault_id)')
-    expect(readProjectFile('lib/managed/api-paths.ts')).toContain("isEntityId(value, 'vault')")
-    expect(readProjectFile('lib/managed/api-paths.ts')).toContain("isEntityId(value, 'credential')")
+    expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
   })
 
   it('keeps sandbox diagnostics typed at the API boundary', () => {
@@ -216,8 +257,7 @@ describe('typed entity id architecture', () => {
     expect(sessionPage).toContain('parseSessionResourceListResponse(response.data)')
     expect(parsers).toContain('id: parseFileId(raw.id)')
     expect(parsers).toContain('id: parseSessionResourceId(raw.id)')
-    expect(apiPaths).toContain("isEntityId(value, 'file')")
-    expect(apiPaths).toContain("isEntityId(value, 'sessionResource')")
+    expect(apiPaths).toContain('parseAnyEntityId')
   })
 
   it('keeps persisted event identities typed across REST and SSE boundaries', () => {

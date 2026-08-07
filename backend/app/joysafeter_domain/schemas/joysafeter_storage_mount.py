@@ -1,18 +1,23 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     _is_safe_token,
     normalize_safe_relative_path,
 )
 from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_shared.ids import EntityId, EnvironmentId, SessionId
+from app.joysafeter_shared.ids import (
+    EnvironmentId,
+    SessionId,
+    StorageGrantId,
+    StorageMountAuditId,
+    StorageVolumeId,
+)
 
 SUPPORTED_STORAGE_BACKENDS = {"generic", "cubefs", "cephfs", "nfs", "juicefs", "lustre", "pvc", "host_path"}
 SUPPORTED_STORAGE_ACCESS = {"read_only", "read_write"}
@@ -288,8 +293,8 @@ class StorageOrganizationGrantInput(BaseModel):
 
 
 class StorageProjectGrantResponse(BaseModel):
-    id: uuid.UUID
-    volume_id: uuid.UUID
+    id: StorageGrantId
+    volume_id: StorageVolumeId
     project_id: str
     max_access: str
     allowed_prefixes: list[str] = Field(default_factory=list)
@@ -300,14 +305,10 @@ class StorageProjectGrantResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id", "volume_id")
-    def serialize_uuid(self, value: uuid.UUID) -> str:
-        return str(value)
-
 
 class StorageOrganizationGrantResponse(BaseModel):
-    id: uuid.UUID
-    volume_id: uuid.UUID
+    id: StorageGrantId
+    volume_id: StorageVolumeId
     org_id: str
     max_access: str
     allowed_prefixes: list[str] = Field(default_factory=list)
@@ -318,13 +319,9 @@ class StorageOrganizationGrantResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id", "volume_id")
-    def serialize_uuid(self, value: uuid.UUID) -> str:
-        return str(value)
-
 
 class StorageVolumeResponse(BaseModel):
-    id: uuid.UUID
+    id: StorageVolumeId
     volume_ref: str
     backend_type: str
     display_name: str
@@ -344,10 +341,6 @@ class StorageVolumeResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, value: uuid.UUID) -> str:
-        return str(value)
-
 
 class StorageCatalogItem(BaseModel):
     volume_ref: str
@@ -363,8 +356,8 @@ class StorageCatalogItem(BaseModel):
 
 
 class StorageMountAuditResponse(BaseModel):
-    id: uuid.UUID
-    volume_id: Optional[uuid.UUID] = None
+    id: StorageMountAuditId
+    volume_id: Optional[StorageVolumeId] = None
     project_id: Optional[str] = None
     session_id: Optional[SessionId] = None
     environment_id: Optional[EnvironmentId] = None
@@ -385,7 +378,3 @@ class StorageMountAuditResponse(BaseModel):
     @classmethod
     def normalize_detail(cls, value: Any) -> dict[str, Any]:
         return value or {}
-
-    @field_serializer("id", "volume_id", "session_id", "environment_id")
-    def serialize_uuid(self, value: Optional[uuid.UUID | EntityId]) -> Optional[str]:
-        return str(value) if value else None

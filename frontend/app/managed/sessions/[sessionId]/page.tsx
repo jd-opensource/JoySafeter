@@ -41,7 +41,7 @@ import {
 } from '@/lib/api-client'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { shortEntityId } from '@/lib/managed/id'
 import { generateUUID } from '@/lib/utils/uuid'
 import {
   hasManagedRequestScope,
@@ -993,7 +993,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   if (session.environment_id) {
     metaItems.push({
       icon: <Globe className="h-3.5 w-3.5" />,
-      label: envDetail?.name || stripIdPrefix(session.environment_id).slice(0, 12),
+      label:
+        envDetail?.name ||
+        (envId ? shortEntityId(envId, 'environment', 12) : session.environment_id),
       tooltip: envDetail?.name || session.environment_id,
       onClick: () => setActiveDrawer('env'),
     })
@@ -1005,7 +1007,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         vaultDetail?.name ||
         (session.vault_ids.length > 1
           ? `${session.vault_ids.length} vaults`
-          : stripIdPrefix(session.vault_ids[0]).slice(0, 12)),
+          : shortEntityId(session.vault_ids[0], 'vault', 12)),
       tooltip: vaultDetail?.name || session.vault_ids[0],
       onClick: () => setActiveDrawer('vault'),
     })
@@ -1065,7 +1067,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     label: formatRelativeTime(session.created_at),
   })
 
-  const sessionDisplayName = formatSessionId(session.id)
+  const sessionDisplayName = session.id
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
@@ -3050,10 +3052,6 @@ function formatRelativeTime(dateStr: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-function formatSessionId(id: string): string {
-  return id.startsWith('sess_') ? id : `sess_${stripIdPrefix(id)}`
 }
 
 function getDownloadFilename(response: Response, path: string, archive: boolean): string {

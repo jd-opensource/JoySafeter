@@ -46,7 +46,7 @@ import {
   type ManagedRequestScope,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { shortIdWithPrefix } from '@/lib/managed/id'
+import { shortEntityId } from '@/lib/managed/id'
 import { generateUUID } from '@/lib/utils/uuid'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSessionStream } from '@/lib/managed/sse'
@@ -64,6 +64,7 @@ import yaml from 'js-yaml'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   parseSessionId,
+  tryParseAgentId,
   tryParseEnvironmentId,
   tryParseVaultId,
   type SessionId,
@@ -71,6 +72,7 @@ import {
 } from '@/types/entity-id'
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import { parseVaultListResponse } from '@/lib/managed/vault-response-parsers'
+import { quickstartQueryOptions } from '@/lib/managed/quickstart-query-options'
 import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import {
   currentProjectAllowsWrite,
@@ -812,34 +814,40 @@ export default function QuickstartPage() {
   const currentPageProjectAllowsWrite = () =>
     currentPageScopeIsActive() && currentProjectAllowsWrite()
 
-  const { data: secretsRes } = useQuery({
-    queryKey: ['secrets', managedScope.key],
-    queryFn: () =>
-      managedGet<{ data: QuickstartSecret[] }>('/secrets', managedRequestOptions(managedScope)),
-    enabled: hasManagedRequestScope(managedScope),
-  })
+  const { data: secretsRes } = useQuery(
+    quickstartQueryOptions({
+      queryKey: ['secrets', managedScope.key],
+      queryFn: () =>
+        managedGet<{ data: QuickstartSecret[] }>('/secrets', managedRequestOptions(managedScope)),
+      enabled: hasManagedRequestScope(managedScope),
+    }),
+  )
   const secrets = secretsRes?.data
 
-  const { data: environments } = useQuery({
-    queryKey: ['environments-active', managedScope.key],
-    queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Environment>>(
-        '/environments',
-        managedRequestOptions(managedScope),
-      )
-      return parseEnvironmentListResponse(res.data || [])
-    },
-    enabled: hasManagedRequestScope(managedScope),
-  })
+  const { data: environments } = useQuery(
+    quickstartQueryOptions({
+      queryKey: ['environments-active', managedScope.key],
+      queryFn: async () => {
+        const res = await managedGet<PaginatedResponse<Environment>>(
+          '/environments',
+          managedRequestOptions(managedScope),
+        )
+        return parseEnvironmentListResponse(res.data || [])
+      },
+      enabled: hasManagedRequestScope(managedScope),
+    }),
+  )
 
-  const { data: vaultsRes } = useQuery({
-    queryKey: ['vaults-active', managedScope.key],
-    queryFn: () =>
-      managedGet<{ data: unknown[] }>('/vaults', managedRequestOptions(managedScope)).then(
-        (response) => ({ ...response, data: parseVaultListResponse(response.data) }),
-      ),
-    enabled: hasManagedRequestScope(managedScope),
-  })
+  const { data: vaultsRes } = useQuery(
+    quickstartQueryOptions({
+      queryKey: ['vaults-active', managedScope.key],
+      queryFn: () =>
+        managedGet<{ data: unknown[] }>('/vaults', managedRequestOptions(managedScope)).then(
+          (response) => ({ ...response, data: parseVaultListResponse(response.data) }),
+        ),
+      enabled: hasManagedRequestScope(managedScope),
+    }),
+  )
   const vaults = vaultsRes?.data
 
   const defaultGenerationSecret = useMemo(() => {
@@ -908,6 +916,9 @@ export default function QuickstartPage() {
   }, [messages])
 
   const isLanding = messages.length === 0 && !isStreaming
+  const quickstartAgentId = tryParseAgentId(resourceIds[3])
+  const quickstartEnvironmentId = tryParseEnvironmentId(resourceIds[4])
+  const quickstartVaultId = tryParseVaultId(resourceIds[5])
   const rawSessionId = resourceIds[6] || localSessionId
   const sessionId = rawSessionId ? parseSessionId(rawSessionId) : null
   const isSessionActive = !!sessionId
@@ -1316,7 +1327,7 @@ export default function QuickstartPage() {
           {
             id: quickstartEnvId,
             name:
-              envAnswers.choiceLabel || generatedName || shortIdWithPrefix(quickstartEnvId, 'env_'),
+              envAnswers.choiceLabel || generatedName || shortEntityId(quickstartEnvId, 'environment'),
             created_at: '',
             updated_at: '',
             archived_at: null,
@@ -2066,18 +2077,18 @@ export default function QuickstartPage() {
                     <div className="space-y-1 rounded-lg border border-border bg-muted/50 p-3 font-mono text-xs">
                       <div>
                         <span className="text-muted-foreground">agent:</span>{' '}
-                        {resourceIds[3] ? shortIdWithPrefix(resourceIds[3], 'agent_') : '—'}
+                        {quickstartAgentId ? shortEntityId(quickstartAgentId, 'agent') : '—'}
                       </div>
-                      {resourceIds[4] && (
+                      {quickstartEnvironmentId && (
                         <div>
                           <span className="text-muted-foreground">environment_id:</span>{' '}
-                          {shortIdWithPrefix(resourceIds[4], 'env_')}
+                          {shortEntityId(quickstartEnvironmentId, 'environment')}
                         </div>
                       )}
-                      {resourceIds[5] && (
+                      {quickstartVaultId && (
                         <div>
                           <span className="text-muted-foreground">vault_ids:</span>{' '}
-                          {`["${shortIdWithPrefix(resourceIds[5], 'vault_')}"]`}
+                          {`["${shortEntityId(quickstartVaultId, 'vault')}"]`}
                         </div>
                       )}
                     </div>

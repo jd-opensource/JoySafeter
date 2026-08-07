@@ -14,6 +14,9 @@ import type {
   SkillUsageId,
   SkillVersionFileId,
   SkillVersionId,
+  StorageGrantId,
+  StorageMountAuditId,
+  StorageVolumeId,
   TaskId,
   VaultId,
 } from '@/types/entity-id'
@@ -91,6 +94,7 @@ export interface Session {
   metadata?: Record<string, unknown>
   vault_ids?: VaultId[]
   repo_resources?: SessionRepoResource[]
+  storage_mounts?: SessionStorageMount[]
   usage?: SessionUsage
   stats?: SessionStats
   created_at: string
@@ -247,7 +251,7 @@ export interface EnvironmentMountResource {
 
 export interface EnvironmentStorageVolume {
   name?: string
-  volume_id?: string
+  volume_id?: StorageVolumeId
   mount_path?: string
 }
 
@@ -265,8 +269,8 @@ export interface StorageVolumeCatalogItem {
 }
 
 export interface StorageProjectGrant {
-  id: string
-  volume_id: string
+  id: StorageGrantId
+  volume_id: StorageVolumeId
   project_id: string
   max_access: 'read_only' | 'read_write' | string
   allowed_prefixes?: string[]
@@ -277,8 +281,8 @@ export interface StorageProjectGrant {
 }
 
 export interface StorageOrganizationGrant {
-  id: string
-  volume_id: string
+  id: StorageGrantId
+  volume_id: StorageVolumeId
   org_id: string
   max_access: 'read_only' | 'read_write' | string
   allowed_prefixes?: string[]
@@ -289,7 +293,7 @@ export interface StorageOrganizationGrant {
 }
 
 export interface StorageVolume extends StorageVolumeCatalogItem {
-  id: string
+  id: StorageVolumeId
   docker?: Record<string, unknown>
   k8s?: Record<string, unknown>
   enabled: boolean
@@ -301,8 +305,8 @@ export interface StorageVolume extends StorageVolumeCatalogItem {
 }
 
 export interface StorageMountAudit {
-  id: string
-  volume_id?: string | null
+  id: StorageMountAuditId
+  volume_id?: StorageVolumeId | null
   project_id?: string | null
   session_id?: SessionId | null
   environment_id?: EnvironmentId | null
@@ -412,6 +416,19 @@ export interface SessionRepoResource {
   mount_path: string
   mount_name: string
   // The clone token (authorization_token) is never returned by the API.
+}
+
+export interface SessionStorageMount {
+  id: SessionResourceId
+  type: 'storage'
+  name: string
+  volume_ref: string
+  volume_id: StorageVolumeId
+  sub_path: string
+  mount_path: string
+  access: string
+  required: boolean
+  created_at: string
 }
 
 export type SessionResource = SessionFileResource | SessionRepoResource

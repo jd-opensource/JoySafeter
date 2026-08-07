@@ -44,7 +44,7 @@ def _parse_session_scope(scope_id: str | None) -> SessionId | None:
     if not scope_id:
         return None
     try:
-        return SessionId(scope_id)
+        return SessionId.from_public(scope_id)
     except ValueError:
         raise InvalidRequestError(
             code="SESSION_ID_INVALID",
@@ -137,7 +137,7 @@ async def list_files(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(default=20, ge=1, le=100),
     after_id: Optional[FileId] = Query(default=None),
-    scope_id: Optional[str] = Query(default=None, description="Filter by session id (sess_xxx or bare UUID)"),
+    scope_id: Optional[str] = Query(default=None, description="Filter by session id (sess_xxx)"),
 ) -> CursorPaginatedResponse[FileResponse]:
     svc = _get_service()
     session_filter = _parse_session_scope(scope_id)

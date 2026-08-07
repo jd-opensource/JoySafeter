@@ -103,7 +103,7 @@ def test_file_response_uses_canonical_session_prefix():
             size_bytes=6,
             sha256="abc123",
             downloadable=True,
-            session_id=session_id,
+            session_id=SessionId(session_id),
             created_at=datetime.now(UTC),
         )
     )
@@ -114,6 +114,11 @@ def test_file_response_uses_canonical_session_prefix():
 def test_file_scope_rejects_removed_session_prefix():
     with pytest.raises(AppError):
         _parse_session_scope(f"sesn_{uuid.uuid4()}")
+
+
+def test_file_scope_rejects_bare_session_uuid():
+    with pytest.raises(AppError):
+        _parse_session_scope(str(uuid.uuid4()))
 
 
 def test_session_response_serializes_canonical_session_prefix():

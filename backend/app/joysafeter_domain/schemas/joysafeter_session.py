@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional, Union
 
@@ -10,14 +9,22 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    field_serializer,
     field_validator,
     model_serializer,
     model_validator,
 )
 
 from app.joysafeter_domain.schemas.joysafeter_environment import MountResource
-from app.joysafeter_shared.ids import AgentId, EventId, FileId, MemoryStoreId, SessionId, SessionResourceId, VaultId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    EventId,
+    FileId,
+    MemoryStoreId,
+    SessionId,
+    SessionResourceId,
+    StorageVolumeId,
+    VaultId,
+)
 
 # ---------------------------------------------------------------------------
 # JoySafeter Session Schemas
@@ -218,7 +225,7 @@ MAX_STORAGE_MOUNT_RESOURCES = 16
 
 
 class CreateSessionRequest(BaseModel):
-    agent: Optional[Union[AgentRef, str]] = None
+    agent: AgentRef | None = None
     agent_id: Optional[AgentId] = None
     agent_name: Optional[str] = None
     title: Optional[str] = None
@@ -247,6 +254,7 @@ class SessionResourceResponse(BaseModel):
     instructions: Optional[str] = None
     mount_name: str = ""
 
+
 class SessionRepoResourceResponse(BaseModel):
     """Repo resource as returned by the API. Deliberately omits the
     ``authorization_token`` — clone credentials are never echoed."""
@@ -260,6 +268,7 @@ class SessionRepoResourceResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class SessionFileResourceResponse(BaseModel):
     id: SessionResourceId
     type: str = "file"
@@ -270,20 +279,18 @@ class SessionFileResourceResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class SessionStorageMountResponse(BaseModel):
-    id: uuid.UUID
+    id: SessionResourceId
     type: str = "storage"
     name: str
     volume_ref: str
+    volume_id: StorageVolumeId
     sub_path: str = ""
     mount_path: str
     access: str
     required: bool = True
     created_at: datetime
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return str(v)
 
 
 class UpdateRepoResourceRequest(BaseModel):

@@ -24,6 +24,9 @@ export const ENTITY_ID_PREFIXES = {
   file: 'file_',
   sessionResource: 'sesrsc_',
   event: 'evt_',
+  storageVolume: 'vol_',
+  storageGrant: 'stgrant_',
+  storageMountAudit: 'staudit_',
 } as const
 
 export type EntityKind = keyof typeof ENTITY_ID_PREFIXES
@@ -54,6 +57,12 @@ export type SkillUsageId = EntityId<'skluse_'>
 export type FileId = EntityId<'file_'>
 export type SessionResourceId = EntityId<'sesrsc_'>
 export type EventId = EntityId<'evt_'>
+export type StorageVolumeId = EntityId<'vol_'>
+export type StorageGrantId = EntityId<'stgrant_'>
+export type StorageMountAuditId = EntityId<'staudit_'>
+export type AnyEntityId = {
+  [Kind in EntityKind]: EntityId<(typeof ENTITY_ID_PREFIXES)[Kind]>
+}[EntityKind]
 
 const ENTITY_ID_PATTERNS: Record<EntityKind, RegExp> = Object.fromEntries(
   Object.entries(ENTITY_ID_PREFIXES).map(([kind, prefix]) => [
@@ -77,6 +86,13 @@ export function parseEntityId<Kind extends EntityKind>(
     throw new TypeError(`Expected ${ENTITY_ID_PREFIXES[kind]}<uuid>, received ${value}`)
   }
   return value
+}
+
+export function parseAnyEntityId(value: string): AnyEntityId {
+  for (const kind of Object.keys(ENTITY_ID_PREFIXES) as EntityKind[]) {
+    if (isEntityId(value, kind)) return value as AnyEntityId
+  }
+  throw new TypeError(`Expected a registered entity ID, received ${value}`)
 }
 
 export function parseAgentId(value: string): AgentId {
@@ -177,4 +193,16 @@ export function parseSessionResourceId(value: string): SessionResourceId {
 
 export function parseEventId(value: string): EventId {
   return parseEntityId(value, 'event')
+}
+
+export function parseStorageVolumeId(value: string): StorageVolumeId {
+  return parseEntityId(value, 'storageVolume')
+}
+
+export function parseStorageGrantId(value: string): StorageGrantId {
+  return parseEntityId(value, 'storageGrant')
+}
+
+export function parseStorageMountAuditId(value: string): StorageMountAuditId {
+  return parseEntityId(value, 'storageMountAudit')
 }

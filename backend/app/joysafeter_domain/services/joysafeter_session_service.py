@@ -9,7 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, cast
+import uuid
+from typing import Any, TypedDict, cast
 
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
@@ -18,6 +19,12 @@ from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_shared.ids import AgentId, EventId, SandboxId, SessionId, TaskId, VaultId, as_uuid
 
 logger = logging.getLogger(__name__)
+
+
+class SessionEventBatchItem(TypedDict):
+    session_id: SessionId | uuid.UUID
+    event_type: str
+    payload: dict[str, Any]
 
 
 def build_session_event_payload(
@@ -1008,14 +1015,19 @@ class SessionService:
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
-    async def batch_insert_session_events(self, events: list[dict]) -> list:
+    async def batch_insert_session_events(self, events: list[SessionEventBatchItem]) -> list:
         if not events:
             return []
 
         # Group events by session_id
-        groups: dict[SessionId, list[dict]] = defaultdict(list)
+        groups: dict[SessionId, list[SessionEventBatchItem]] = defaultdict(list)
         for ev in events:
-            groups[SessionId(ev["session_id"])].append(ev)
+            session_id = ev["session_id"]
+            if isinstance(session_id, uuid.UUID):
+                session_id = SessionId.from_uuid(session_id)
+            if not isinstance(session_id, SessionId):
+                raise TypeError("session_id must be a SessionId or UUID")
+            groups[session_id].append(ev)
 
         created = []
         for session_id in sorted(groups.keys()):

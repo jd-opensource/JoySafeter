@@ -54,7 +54,11 @@ def _environment_conflict_error(env_id: EnvironmentId, exc: ValueError) -> AppEr
         return ResourceConflictError(
             code="ENVIRONMENT_ACTIVE_TASK",
             message=message,
-            data={"environment_id": str(env_id), "task_id": str(TaskId(task_id)), "source": source},
+            data={
+                "environment_id": str(env_id),
+                "task_id": str(TaskId.from_public(task_id)),
+                "source": source,
+            },
             retryable=True,
             user_action="retry",
         )

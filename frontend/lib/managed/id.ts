@@ -1,20 +1,22 @@
-const ID_PREFIX_RE =
-  /^(agent_|trig_|task_|sess_|env_|vault_|cred_|evt_|memstore_|mem_|file_|skill_|sklver_|sklfile_|secret_)/
+import {
+  ENTITY_ID_PREFIXES,
+  parseEntityId,
+  type EntityId,
+  type EntityKind,
+} from '@/types/entity-id'
 
-export function stripIdPrefix(id: string): string {
-  let value = id
-  let next = value.replace(ID_PREFIX_RE, '')
-  while (next !== value) {
-    value = next
-    next = value.replace(ID_PREFIX_RE, '')
-  }
-  return value
+export function entityIdUuid<Kind extends EntityKind>(
+  id: EntityId<(typeof ENTITY_ID_PREFIXES)[Kind]>,
+  kind: Kind,
+): string {
+  const parsed = parseEntityId(id, kind)
+  return parsed.slice(ENTITY_ID_PREFIXES[kind].length)
 }
 
-export function withIdPrefix(id: string, prefix: string): string {
-  return `${prefix}${stripIdPrefix(id)}`
-}
-
-export function shortIdWithPrefix(id: string, prefix: string, length = 8): string {
-  return `${prefix}${stripIdPrefix(id).slice(0, length)}`
+export function shortEntityId<Kind extends EntityKind>(
+  id: EntityId<(typeof ENTITY_ID_PREFIXES)[Kind]>,
+  kind: Kind,
+  length = 8,
+): string {
+  return `${ENTITY_ID_PREFIXES[kind]}${entityIdUuid(id, kind).slice(0, length)}`
 }

@@ -27,8 +27,9 @@ describe('managed API path helpers', () => {
     )
   })
 
-  it('keeps legacy normalization for untyped values', () => {
-    expect(apiResourceId(['trig', 'task', '123'].join('_'))).toBe('123')
+  it('rejects bare and malformed resource ids', () => {
+    expect(() => apiResourceId(UUID)).toThrow(TypeError)
+    expect(() => apiResourceId(`task_agent_${UUID}`)).toThrow(TypeError)
   })
 
   it('preserves canonical memory resource IDs', () => {
@@ -37,11 +38,6 @@ describe('managed API path helpers', () => {
     expect(apiResourcePath('memory_stores', storeId, 'archive')).toBe(
       `/memory_stores/${storeId}/archive`,
     )
-  })
-
-  it('does not normalize removed id prefixes', () => {
-    expect(apiResourceId('vlt_abc')).toBe('vlt_abc')
-    expect(apiResourceId('mst_abc')).toBe('mst_abc')
   })
 
   it('builds collection and child paths with encoded segments and query params', () => {

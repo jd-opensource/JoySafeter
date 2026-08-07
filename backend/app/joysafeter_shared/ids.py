@@ -21,7 +21,7 @@ class EntityId:
     prefix: ClassVar[str]
     __slots__ = ("_uuid",)
 
-    def __init__(self, value: uuid.UUID | str | "EntityId") -> None:
+    def __init__(self, value: uuid.UUID | "EntityId") -> None:
         self._uuid = self._coerce(value)
 
     @classmethod
@@ -31,21 +31,14 @@ class EntityId:
                 raise TypeError(
                     f"cannot build {cls.__name__} from {type(value).__name__}"
                 )
-            return value._uuid
+            return value.uuid
         if isinstance(value, uuid.UUID):
             return value
-        if not isinstance(value, str):
-            raise TypeError(
-                f"cannot build {cls.__name__} from {type(value).__name__}"
-            )
-        s = value
-        if s.startswith(cls.prefix):
-            s = s[len(cls.prefix):]
-        return uuid.UUID(s)  # raises ValueError on non-uuid remainder
+        raise TypeError(f"cannot build {cls.__name__} from {type(value).__name__}")
 
     @classmethod
     def new(cls) -> Self:
-        return cls(uuid.UUID(str(uuid7())))
+        return cls.from_uuid(uuid.UUID(str(uuid7())))
 
     @classmethod
     def from_uuid(cls, value: uuid.UUID) -> Self:
@@ -53,9 +46,9 @@ class EntityId:
 
     @classmethod
     def from_public(cls, value: str) -> Self:
-        if not value.startswith(cls.prefix):
+        if not isinstance(value, str) or not value.startswith(cls.prefix):
             raise ValueError(f"expected {cls.prefix} prefix")
-        return cls(value)
+        return cls.from_uuid(uuid.UUID(value[len(cls.prefix) :]))
 
     @property
     def uuid(self) -> uuid.UUID:
@@ -95,6 +88,8 @@ class EntityId:
             try:
                 if isinstance(value, str):
                     return cls.from_public(value)
+                if isinstance(value, uuid.UUID):
+                    return cls.from_uuid(value)
                 return cls(value)
             except (ValueError, TypeError):
                 raise ValueError(f"__entity_id__:{cls.__name__}")  # marker for the handler
@@ -191,6 +186,18 @@ class SessionResourceId(EntityId):
     prefix = "sesrsc_"
 
 
+class StorageVolumeId(EntityId):
+    prefix = "vol_"
+
+
+class StorageGrantId(EntityId):
+    prefix = "stgrant_"
+
+
+class StorageMountAuditId(EntityId):
+    prefix = "staudit_"
+
+
 def as_uuid(value: "uuid.UUID | EntityId") -> uuid.UUID:
     """Return the bare UUID for a typed entity or native UUID.
 
@@ -218,13 +225,11 @@ class EntityIdType(TypeDecorator):
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        if isinstance(value, EntityId):
-            if type(value) is not self.id_cls:
-                raise TypeError(
-                    f"cannot bind {type(value).__name__} as {self.id_cls.__name__}"
-                )
+        if type(value) is self.id_cls:
             return value.uuid
-        return self.id_cls(value).uuid
+        if isinstance(value, uuid.UUID):
+            return value
+        raise TypeError(f"cannot bind {type(value).__name__} as {self.id_cls.__name__}")
 
     def process_result_value(self, value, dialect):
-        return None if value is None else self.id_cls(value)
+        return None if value is None else self.id_cls.from_uuid(value)

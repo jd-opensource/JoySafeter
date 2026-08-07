@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
+import { entityIdUuid, shortEntityId } from '@/lib/managed/id'
+
 import {
+  ENTITY_ID_PREFIXES,
   isEntityId,
+  parseAnyEntityId,
   parseAgentId,
   parseEnvironmentId,
   parseEventId,
@@ -22,6 +26,9 @@ import {
   parseSkillVersionId,
   parseFileId,
   parseSessionResourceId,
+  parseStorageGrantId,
+  parseStorageMountAuditId,
+  parseStorageVolumeId,
 } from './entity-id'
 
 const UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f001'
@@ -73,5 +80,40 @@ describe('typed entity ids', () => {
   it('rejects prefixed non-UUID fixtures', () => {
     expect(isEntityId('agent_123', 'agent')).toBe(false)
     expect(() => parseTaskId('task_test')).toThrow(TypeError)
+  })
+
+  it('parses every registered canonical entity id', () => {
+    for (const prefix of Object.values(ENTITY_ID_PREFIXES)) {
+      expect(parseAnyEntityId(`${prefix}${UUID}`)).toBe(`${prefix}${UUID}`)
+    }
+  })
+
+  it('registers every storage resource identity prefix', () => {
+    expect(ENTITY_ID_PREFIXES).toMatchObject({
+      storageVolume: 'vol_',
+      storageGrant: 'stgrant_',
+      storageMountAudit: 'staudit_',
+    })
+    expect(parseAnyEntityId(`vol_${UUID}`)).toBe(`vol_${UUID}`)
+    expect(parseAnyEntityId(`stgrant_${UUID}`)).toBe(`stgrant_${UUID}`)
+    expect(parseAnyEntityId(`staudit_${UUID}`)).toBe(`staudit_${UUID}`)
+    expect(parseStorageVolumeId(`vol_${UUID}`)).toBe(`vol_${UUID}`)
+    expect(parseStorageGrantId(`stgrant_${UUID}`)).toBe(`stgrant_${UUID}`)
+    expect(parseStorageMountAuditId(`staudit_${UUID}`)).toBe(`staudit_${UUID}`)
+    expect(() => parseStorageVolumeId(UUID)).toThrow(TypeError)
+    expect(() => parseStorageGrantId(`vol_${UUID}`)).toThrow(TypeError)
+    expect(() => parseStorageMountAuditId(`stgrant_${UUID}`)).toThrow(TypeError)
+  })
+
+  it('rejects bare and stacked entity ids', () => {
+    expect(() => parseAnyEntityId(UUID)).toThrow(TypeError)
+    expect(() => parseAnyEntityId(`agent_sess_${UUID}`)).toThrow(TypeError)
+  })
+
+  it('formats validated entity ids for display only', () => {
+    const agentId = parseAgentId(`agent_${UUID}`)
+
+    expect(entityIdUuid(agentId, 'agent')).toBe(UUID)
+    expect(shortEntityId(agentId, 'agent', 6)).toBe('agent_018f6f')
   })
 })

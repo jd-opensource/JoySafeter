@@ -10,10 +10,17 @@ import type {
   StorageProjectGrant,
   StorageVolume,
 } from '@/types/managed'
+import type { StorageVolumeId } from '@/types/entity-id'
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { apiResourceId } from '@/lib/managed/api-paths'
-import { parseStorageMountAuditResponse } from '@/lib/managed/storage-mount-response-parsers'
+import {
+  parseStorageMountAuditResponse,
+  parseStorageOrganizationGrantResponse,
+  parseStorageProjectGrantResponse,
+  parseStorageVolumeListResponse,
+  parseStorageVolumeResponse,
+} from '@/lib/managed/storage-mount-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -68,7 +75,7 @@ type VolumeFormMode = 'create' | 'edit'
 type StorageRuntimeMode = 'docker' | 'k8s'
 
 interface VolumeFormState {
-  id?: string
+  id?: StorageVolumeId
   mode: VolumeFormMode
   volumeRef: string
   backendType: string
@@ -432,9 +439,9 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   const volumesQuery = useQuery({
     queryKey: ['storage-volumes', requestScope.key],
     queryFn: () =>
-      managedGet<CollectionResponse<StorageVolume>>(
+      managedGet<unknown>(
         `/storage-volumes?include_disabled=true${platformMode ? '' : '&scope=organization'}`,
-      ),
+      ).then(parseStorageVolumeListResponse),
   })
   const auditPath = selectedVolume
     ? `/storage-volumes/audit/logs?volume_id=${encodeURIComponent(apiResourceId(selectedVolume.id))}`
@@ -564,17 +571,17 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
     mutationFn: async (form: VolumeFormState) => {
       const payload = buildVolumePayload(form)
       if (form.mode === 'edit' && form.id) {
-        return managedPost<StorageVolume>(
+        return managedPost<unknown>(
           `/storage-volumes/${form.id}`,
           payload,
           managedRequestOptions(requestScope),
-        )
+        ).then(parseStorageVolumeResponse)
       }
-      return managedPost<StorageVolume>(
+      return managedPost<unknown>(
         '/storage-volumes',
         payload,
         managedRequestOptions(requestScope),
-      )
+      ).then(parseStorageVolumeResponse)
     },
     onSuccess: () => {
       setVolumeForm(null)
@@ -587,17 +594,17 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   const saveGrantMutation = useMutation({
     mutationFn: async ({ volume, form }: { volume: StorageVolume; form: GrantFormState }) => {
       if (platformMode) {
-        return managedPost<StorageOrganizationGrant>(
+        return managedPost<unknown>(
           `/storage-volumes/${volume.id}/organization-grants`,
           buildOrganizationGrantPayload(form),
           managedRequestOptions(requestScope),
-        )
+        ).then(parseStorageOrganizationGrantResponse)
       }
-      return managedPost<StorageProjectGrant>(
+      return managedPost<unknown>(
         `/storage-volumes/${volume.id}/grants`,
         buildGrantPayload(form),
         managedRequestOptions(requestScope),
-      )
+      ).then(parseStorageProjectGrantResponse)
     },
     onSuccess: () => {
       setGrantTarget(null)
@@ -647,11 +654,11 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
 
   const toggleVolumeMutation = useMutation({
     mutationFn: async (volume: StorageVolume) =>
-      managedPost<StorageVolume>(
+      managedPost<unknown>(
         `/storage-volumes/${volume.id}`,
         { enabled: !volume.enabled },
         managedRequestOptions(requestScope),
-      ),
+      ).then(parseStorageVolumeResponse),
     onSuccess: invalidateStorage,
     onError: (err) =>
       toastOperationError({ t: (key: string) => key } as never, err, 'common.operationFailed'),

@@ -23,6 +23,20 @@ function rawSession() {
         mount_name: 'repo',
       },
     ],
+    storage_mounts: [
+      {
+        id: `sesrsc_${RESOURCE_UUID}`,
+        type: 'storage' as const,
+        name: 'datasets',
+        volume_ref: 'datasets',
+        volume_id: `vol_${RESOURCE_UUID}`,
+        sub_path: '',
+        mount_path: '/mnt/datasets',
+        access: 'read_only',
+        required: true,
+        created_at: '2026-08-07T00:00:00Z',
+      },
+    ],
     created_at: '2026-08-07T00:00:00Z',
     updated_at: '2026-08-07T00:00:00Z',
   }
@@ -35,12 +49,20 @@ describe('session response parsers', () => {
     expect(session.agent?.id).toBe(`agent_${AGENT_UUID}`)
     expect(session.vault_ids?.[0]).toBe(`vault_${VAULT_UUID}`)
     expect(session.repo_resources?.[0].id).toBe(`sesrsc_${RESOURCE_UUID}`)
+    expect(session.storage_mounts?.[0].id).toBe(`sesrsc_${RESOURCE_UUID}`)
+    expect(session.storage_mounts?.[0].volume_id).toBe(`vol_${RESOURCE_UUID}`)
   })
 
   it('rejects bare and cross-entity IDs', () => {
     expect(() => parseSessionResponse({ ...rawSession(), id: SESSION_UUID })).toThrow()
     expect(() =>
       parseSessionResponse({ ...rawSession(), agent: { id: `task_${AGENT_UUID}`, name: 'Agent' } }),
+    ).toThrow()
+    expect(() =>
+      parseSessionResponse({
+        ...rawSession(),
+        storage_mounts: [{ ...rawSession().storage_mounts[0], volume_id: RESOURCE_UUID }],
+      }),
     ).toThrow()
   })
 })

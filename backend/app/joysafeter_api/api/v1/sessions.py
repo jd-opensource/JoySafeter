@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -88,12 +89,26 @@ def _canonical_environment_ref(raw: str | None) -> str:
     ref = (raw or "").strip()
     if not ref:
         return ""
-    if not ref.startswith(EnvironmentId.prefix):
-        return ref
+    if ref.startswith(EnvironmentId.prefix):
+        try:
+            return str(EnvironmentId.from_public(ref))
+        except (TypeError, ValueError) as exc:
+            raise InvalidRequestError(
+                code="ENVIRONMENT_ID_INVALID",
+                message="Invalid environment_id",
+                data={"environment_id": ref},
+                user_action="fix_input",
+            ) from exc
     try:
-        return str(EnvironmentId.from_public(ref))
-    except (TypeError, ValueError):
+        uuid.UUID(ref)
+    except ValueError:
         return ref
+    raise InvalidRequestError(
+        code="ENVIRONMENT_ID_INVALID",
+        message="Invalid environment_id",
+        data={"environment_id": ref},
+        user_action="fix_input",
+    )
 
 
 def _safe_content_disposition(filename: str) -> str:
@@ -249,6 +264,7 @@ def _session_to_response(
                 id=mount.id,
                 name=mount.name,
                 volume_ref=str(config.get("volume_ref") or ""),
+                volume_id=mount.volume_id,
                 sub_path=mount.sub_path or "",
                 mount_path=mount.mount_path,
                 access=mount.access,
@@ -305,20 +321,8 @@ async def create_session(
     agent = None
     pinned_version: Optional[int] = None
     if req.agent:
-        if isinstance(req.agent, AgentRef):
-            agent = await agent_svc.get_agent(req.agent.id, project_id=auth_ctx.project_id)
-            pinned_version = req.agent.version
-        else:
-            try:
-                agent_id = AgentId(req.agent)
-            except ValueError:
-                raise InvalidRequestError(
-                    code="SESSION_AGENT_ID_INVALID",
-                    message=f"Invalid agent id: {req.agent}",
-                    data={"agent_id": str(req.agent)},
-                    user_action="fix_input",
-                )
-            agent = await agent_svc.get_agent(agent_id, project_id=auth_ctx.project_id)
+        agent = await agent_svc.get_agent(req.agent.id, project_id=auth_ctx.project_id)
+        pinned_version = req.agent.version
     elif req.agent_id:
         agent = await agent_svc.get_agent(req.agent_id, project_id=auth_ctx.project_id)
     elif req.agent_name:
@@ -328,7 +332,7 @@ async def create_session(
             code="SESSION_AGENT_NOT_FOUND",
             message="Agent not found",
             data={
-                "agent_id": str(req.agent_id or (req.agent.id if isinstance(req.agent, AgentRef) else req.agent)),
+                "agent_id": str(req.agent.id if req.agent else req.agent_id),
                 "agent_name": req.agent_name,
             },
             user_action="refresh",

@@ -43,7 +43,6 @@ import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourceId } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -271,10 +270,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const selectedAgentDefaultEnv = useMemo(() => {
     const ref = selectedAgent?.environment_ref
     if (!ref) return null
-    return (
-      activeEnvs.find((env) => env.id === ref || stripIdPrefix(env.id) === stripIdPrefix(ref)) ||
-      null
-    )
+    return activeEnvs.find((env) => env.id === ref) || null
   }, [activeEnvs, selectedAgent])
 
   const availableFiles = useMemo(

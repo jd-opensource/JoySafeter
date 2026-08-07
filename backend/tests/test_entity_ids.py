@@ -1,10 +1,12 @@
 import uuid
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from app.joysafeter_shared import ids as entity_ids
 from app.joysafeter_shared.ids import (
     AgentId,
+    EntityIdType,
     EnvironmentId,
     EventId,
     FileId,
@@ -28,14 +30,22 @@ def test_str_roundtrip_adds_prefix():
     assert str(AgentId(u)) == f"agent_{u}"
 
 
-def test_accepts_prefixed_string():
-    u = uuid.uuid4()
-    assert AgentId(f"agent_{u}").uuid == u
+def test_direct_constructor_rejects_all_strings():
+    value = uuid.uuid4()
+
+    with pytest.raises(TypeError, match="cannot build AgentId from str"):
+        AgentId(str(value))
+    with pytest.raises(TypeError, match="cannot build AgentId from str"):
+        AgentId(f"agent_{value}")
 
 
-def test_internal_constructor_accepts_bare_uuid_string():
-    u = uuid.uuid4()
-    assert AgentId(str(u)).uuid == u
+def test_named_factories_separate_public_and_physical_values():
+    value = uuid.uuid4()
+
+    assert AgentId.from_uuid(value).uuid == value
+    assert AgentId.from_public(f"agent_{value}").uuid == value
+    with pytest.raises(ValueError, match="expected agent_ prefix"):
+        AgentId.from_public(str(value))
 
 
 def test_physical_uuid_adapter_rejects_string_compatibility():
@@ -44,6 +54,16 @@ def test_physical_uuid_adapter_rejects_string_compatibility():
     assert as_uuid(agent_id) == agent_id.uuid
     with pytest.raises(TypeError, match="cannot unwrap str as UUID"):
         as_uuid(str(agent_id))  # type: ignore[arg-type]
+
+
+def test_entity_id_type_binds_only_native_uuid_or_matching_entity_id():
+    value = uuid.uuid4()
+    adapter = EntityIdType(AgentId)
+
+    assert adapter.process_bind_param(value, None) == value
+    assert adapter.process_bind_param(AgentId.from_uuid(value), None) == value
+    with pytest.raises(TypeError):
+        adapter.process_bind_param(str(value), None)
 
 
 def test_cross_type_inequality():
@@ -58,19 +78,12 @@ def test_cross_entity_construction_raises():
 
 def test_wrong_prefix_rejected():
     with pytest.raises(ValueError):
-        AgentId(f"sesn_{uuid.uuid4()}")
+        AgentId.from_public(f"sesn_{uuid.uuid4()}")
 
 
 def test_new_is_unique_and_typed():
     a, b = AgentId.new(), AgentId.new()
     assert isinstance(a, AgentId) and a != b
-
-
-def test_explicit_uuid_and_public_factories():
-    u = uuid.uuid4()
-
-    assert AgentId.from_uuid(u) == AgentId(u)
-    assert AgentId.from_public(f"agent_{u}") == AgentId(u)
 
 
 @pytest.mark.parametrize(
@@ -92,6 +105,35 @@ def test_entity_id_prefix_contract(id_type, prefix: str):
 
     assert str(id_type.from_uuid(value)) == f"{prefix}{value}"
     assert id_type.from_public(f"{prefix}{value}").uuid == value
+
+
+def test_storage_entity_id_prefix_inventory_and_public_contract():
+    expected = {
+        "StorageVolumeId": "vol_",
+        "StorageGrantId": "stgrant_",
+        "StorageMountAuditId": "staudit_",
+    }
+
+    for name, prefix in expected.items():
+        id_type = getattr(entity_ids, name, None)
+        assert id_type is not None, name
+        value = uuid.uuid4()
+        typed_id = id_type.from_uuid(value)
+
+        assert typed_id.uuid == value
+        assert str(typed_id) == f"{prefix}{value}"
+        assert id_type.from_public(str(typed_id)) == typed_id
+        with pytest.raises(ValueError):
+            id_type.from_public(str(value))
+        with pytest.raises(ValueError):
+            id_type.from_public(f"agent_{value}")
+
+        class Response(BaseModel):
+            id: id_type
+
+        assert Response(id=str(typed_id)).model_dump(mode="json") == {"id": str(typed_id)}
+        with pytest.raises(ValidationError):
+            Response(id=str(value))
 
 
 def test_public_factory_requires_canonical_prefix():
@@ -153,7 +195,14 @@ def test_task_response_serializes_agent_id_prefix():
     assert resp.model_dump(mode="json")["agent_id"] == f"agent_{aid}"
 
 
-def test_create_session_agent_string_stays_typed():
+def test_create_session_agent_alias_rejects_bare_uuid_string():
+    from app.joysafeter_domain.schemas.joysafeter_session import CreateSessionRequest
+
+    with pytest.raises(ValidationError):
+        CreateSessionRequest(agent=str(uuid.uuid4()))
+
+
+def test_create_session_agent_alias_accepts_canonical_agent_id():
     from app.joysafeter_domain.schemas.joysafeter_session import CreateSessionRequest
 
     agent_id = AgentId.new()

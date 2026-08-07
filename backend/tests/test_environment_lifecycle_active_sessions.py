@@ -11,6 +11,7 @@ from app.joysafeter_api.api.v1.environments import (
     delete_environment,
     update_environment,
 )
+from app.joysafeter_api.api.v1.sessions import _canonical_environment_ref
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -27,7 +28,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import as_uuid
+from app.joysafeter_shared.ids import EnvironmentId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -359,6 +360,17 @@ async def test_environment_reference_resolver_requires_prefix_for_id_lookup(db_s
     assert await service.get_environment_by_ref(str(env.id)) == env
     assert await service.get_environment_by_ref(str(env.id.uuid)) is None
     assert await service.get_environment_by_ref(env.name) == env
+
+
+def test_session_environment_reference_rejects_bare_uuid_but_preserves_names():
+    environment_id = EnvironmentId.new()
+
+    assert _canonical_environment_ref(str(environment_id)) == str(environment_id)
+    assert _canonical_environment_ref("development") == "development"
+    with pytest.raises(AppError) as exc_info:
+        _canonical_environment_ref(str(environment_id.uuid))
+
+    assert exc_info.value.code == "ENVIRONMENT_ID_INVALID"
 
 
 @pytest.mark.asyncio

@@ -45,6 +45,13 @@ SKILL_TYPED_ID_FILES = (
     "app/joysafeter_domain/services/joysafeter_skill_service.py",
 )
 
+STORAGE_TYPED_ID_FILES = (
+    "app/joysafeter_api/api/v1/storage_volumes.py",
+    "app/joysafeter_domain/schemas/joysafeter_storage_mount.py",
+    "app/joysafeter_domain/schemas/joysafeter_session.py",
+    "app/joysafeter_domain/services/joysafeter_storage_mount_service.py",
+)
+
 
 @pytest.mark.parametrize("relative_path", CORE_TYPED_ID_FILES)
 def test_core_execution_graph_has_no_bare_uuid_entity_annotations(relative_path: str):
@@ -70,7 +77,7 @@ def test_agent_legacy_helpers_are_removed_from_application_code():
 def test_python_application_has_no_bare_core_entity_annotations():
     app_root = BACKEND_ROOT / "app"
     forbidden = re.compile(
-        r"\b(?P<field>(?:(?:[A-Za-z0-9]+_)?(?:agent|session|task|sandbox|trigger|environment|secret|vault|credential|memory_store|memory|memory_version|file|session_resource|event)_id|store_id|env_id|cred_id|resource_id))\s*:\s*"
+        r"\b(?P<field>(?:(?:[A-Za-z0-9]+_)?(?:agent|session|task|sandbox|trigger|environment|secret|vault|credential|memory_store|memory|memory_version|file|session_resource|event|storage_volume|storage_grant|storage_mount_audit|volume)_id|store_id|env_id|cred_id|resource_id))\s*:\s*"
         r"(?:(?:Optional|Union)\[)?(?:uuid\.UUID|UUID|str|Any)"
     )
     matches = []
@@ -141,6 +148,14 @@ def test_skill_execution_graph_has_no_bare_uuid_entity_annotations(relative_path
     assert forbidden.search(source) is None, relative_path
 
 
+@pytest.mark.parametrize("relative_path", STORAGE_TYPED_ID_FILES)
+def test_storage_execution_graph_has_no_bare_identity_annotations(relative_path: str):
+    source = (BACKEND_ROOT / relative_path).read_text()
+    forbidden = re.compile(r"\b(volume_id|after_id)\s*:\s*(?:Optional\[)?(?:uuid\.UUID|UUID|str|Any)")
+
+    assert forbidden.search(source) is None, relative_path
+
+
 def test_same_id_compatibility_helper_is_removed():
     app_root = BACKEND_ROOT / "app"
     matches = []
@@ -151,10 +166,26 @@ def test_same_id_compatibility_helper_is_removed():
     assert matches == []
 
 
+def test_python_application_has_no_direct_concrete_entity_id_construction():
+    app_root = BACKEND_ROOT / "app"
+    id_module = app_root / "joysafeter_shared/ids.py"
+    direct_constructor = re.compile(
+        r"\b(?:AgentId|SessionId|TaskId|EnvironmentId|SecretId|TriggerId|MemoryStoreId|MemoryId|MemoryVersionId|SandboxId|VaultId|CredentialId|SkillId|SkillFileId|SkillSecurityScanId|SkillVersionId|SkillVersionFileId|SkillUsageId|EventId|FileId|SessionResourceId|StorageVolumeId|StorageGrantId|StorageMountAuditId)\s*\("
+    )
+    matches = []
+    for path in app_root.rglob("*.py"):
+        if path == id_module:
+            continue
+        if direct_constructor.search(path.read_text()):
+            matches.append(str(path.relative_to(BACKEND_ROOT)))
+
+    assert matches == []
+
+
 def test_python_application_does_not_reprefix_typed_entity_rows():
     app_root = BACKEND_ROOT / "app"
     forbidden = re.compile(
-        r"f[\"'](?:agent_|sess_|task_|sbx_|trig_|env_|secret_|vault_|cred_|file_|sesrsc_|evt_)\{[^}]+\.id\}"
+        r"f[\"'](?:agent_|sess_|task_|sbx_|trig_|env_|secret_|vault_|cred_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_)\{[^}]+\.id\}"
     )
     matches = []
     for path in app_root.rglob("*.py"):
@@ -288,6 +319,47 @@ def test_file_and_session_resource_models_keep_identity_typed():
     assert re.search(
         r"\bid:\s*Mapped\[SessionResourceId\].*?EntityIdType\(SessionResourceId\)",
         session_repo_source,
+        re.S,
+    )
+
+
+def test_storage_models_keep_resource_identity_typed():
+    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_storage_mount.py").read_text()
+
+    expected = (
+        ("JoySafeterStorageVolume", "StorageVolumeId"),
+        ("JoySafeterStorageProjectGrant", "StorageGrantId"),
+        ("JoySafeterStorageOrganizationGrant", "StorageGrantId"),
+        ("JoySafeterSessionStorageMount", "SessionResourceId"),
+        ("JoySafeterStorageMountAudit", "StorageMountAuditId"),
+    )
+    for model, id_type in expected:
+        assert re.search(
+            rf"class {model}.*?\bid:\s*Mapped\[{id_type}\].*?EntityIdType\({id_type}\)",
+            source,
+            re.S,
+        )
+    assert source.count("volume_id: Mapped[StorageVolumeId]") == 3
+    assert "volume_id: Mapped[Optional[StorageVolumeId]]" in source
+
+
+def test_storage_response_schemas_keep_resource_identity_typed():
+    storage_source = (BACKEND_ROOT / "app/joysafeter_domain/schemas/joysafeter_storage_mount.py").read_text()
+    session_source = (BACKEND_ROOT / "app/joysafeter_domain/schemas/joysafeter_session.py").read_text()
+
+    assert re.search(r"class StorageVolumeResponse.*?\bid:\s*StorageVolumeId", storage_source, re.S)
+    assert storage_source.count("id: StorageGrantId") == 2
+    assert storage_source.count("volume_id: StorageVolumeId") == 2
+    assert re.search(
+        r"class StorageMountAuditResponse.*?\bid:\s*StorageMountAuditId.*?"
+        r"volume_id:\s*Optional\[StorageVolumeId\]",
+        storage_source,
+        re.S,
+    )
+    assert re.search(
+        r"class SessionStorageMountResponse.*?\bid:\s*SessionResourceId.*?"
+        r"volume_id:\s*StorageVolumeId",
+        session_source,
         re.S,
     )
 

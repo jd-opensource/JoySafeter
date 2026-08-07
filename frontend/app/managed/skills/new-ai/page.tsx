@@ -51,7 +51,6 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { managedGet } from '@/lib/api-client'
-import { stripIdPrefix } from '@/lib/managed/id'
 import {
   useSkillAuthoring,
   type SkillDraft,
@@ -424,7 +423,7 @@ export default function SkillAiAuthoringPage() {
     }
     toast({ title: t('managed.skills.aiAuthor.publishedToast') })
     reset()
-    router.push(`/managed/skills?selected=${stripIdPrefix(skillId)}`)
+    router.push(`/managed/skills?selected=${encodeURIComponent(skillId)}`)
   }
 
   // The active file for the Editor tab's right-hand side.
