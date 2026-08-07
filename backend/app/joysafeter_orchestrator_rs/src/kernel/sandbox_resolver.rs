@@ -67,6 +67,44 @@ fn mcp_credential_url_keys(raw: &str) -> Vec<String> {
     keys
 }
 
+#[cfg(test)]
+mod protocol_env_tests {
+    use super::model_protocol_env_value;
+
+    #[test]
+    fn maps_known_protocols() {
+        assert_eq!(
+            model_protocol_env_value("openai_responses"),
+            Some("openai_responses".to_string())
+        );
+        assert_eq!(
+            model_protocol_env_value("chat_completions"),
+            Some("chat_completions".to_string())
+        );
+        assert_eq!(
+            model_protocol_env_value("anthropic_messages"),
+            Some("anthropic_messages".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_custom_and_blank() {
+        assert_eq!(model_protocol_env_value("custom"), None);
+        assert_eq!(model_protocol_env_value(""), None);
+        assert_eq!(model_protocol_env_value("   "), None);
+    }
+}
+
+/// Normalizes a stored secret `protocol` into the container-env signal read by
+/// pi-entrypoint.sh. Returns `None` for `custom`/blank so we never emit a
+/// meaningless `JOYSAFETER_MODEL_PROTOCOL`.
+fn model_protocol_env_value(protocol: &str) -> Option<String> {
+    match protocol.trim() {
+        "" | "custom" => None,
+        other => Some(other.to_string()),
+    }
+}
+
 /// 3-stage sandbox resolution with full Python parity:
 /// 1. Reuse existing active sandbox for the session (with fingerprint check)
 /// 1b. Restart stopped sandbox for the session
@@ -1746,6 +1784,17 @@ impl SandboxResolver {
             }
             None
         };
+
+        // The agent's primary secret (override_existing) defines the model wire
+        // protocol for the sandbox. Environment-level secret_refs must not clobber
+        // it. pi-entrypoint.sh maps this to the models.json `api` field.
+        if override_existing {
+            if let Some(protocol) = secret.protocol.as_deref() {
+                if let Some(value) = model_protocol_env_value(protocol) {
+                    env.insert("JOYSAFETER_MODEL_PROTOCOL".to_string(), value);
+                }
+            }
+        }
 
         let cipher = VaultCipher::from_env();
         if let Some(obj) = secret.data.as_object() {
