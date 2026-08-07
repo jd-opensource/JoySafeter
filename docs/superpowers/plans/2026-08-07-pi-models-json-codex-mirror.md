@@ -8,6 +8,8 @@
 
 **Tech Stack:** Rust (orchestrator crate `joysafeter-orchestrator`; runtime crate `joysafeter-runtime`), Bash (Docker entrypoints + `deploy/tests` regression scripts), pi 0.83.0 (`@earendil-works/pi-coding-agent`).
 
+> **Post-execution amendment (2026-08-07).** During execution, the `feat/llm-catalog-compatibility` branch was merged into `joysafeter-v2`, replacing `EngineSpec.model_secret_keys` / `resolve_model_from_secrets` with a catalog-driven `RuntimeSecretBinding` + `resolve_model_from_binding`. This **superseded Tasks 1–2** (pi model resolution is now catalog-validated via `OPENAI_MODEL`/`ANTHROPIC_MODEL` — behaviorally equivalent). Tasks 3–8 were implemented as written and are merge-ready (final cross-task review: PASS). Task 3's `JOYSAFETER_MODEL_PROTOCOL` is a benign parallel signal to the merge's canonical `binding.protocol_id` (proven non-divergent). Task 9 (image rebuild + live verify) is a deploy/verification step to be run by the operator.
+
 ## Global Constraints
 
 - Backend Rust orchestrator tests: run from `backend/app/joysafeter_orchestrator_rs/` with `cargo test`. Package name: `joysafeter-orchestrator`. Postgres-backed builder tests self-skip when `DATABASE_URL`/`JOYSAFETER_TEST_DATABASE_URL` is unset; pure-function tests always run.
