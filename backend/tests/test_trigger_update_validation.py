@@ -163,11 +163,26 @@ def test_update_plan_captures_runtime_and_secret_dependency_checks():
     assert plan.should_resolve_target is True
     assert plan.next_environment_ref == "new-env"
     assert plan.secret_ref_to_verify == "new-secret"
+    assert plan.secret_key_to_verify == "WEBHOOK_SECRET"
     assert plan.recompute_next_run is False
     plan.apply_to(trigger)
     assert trigger.environment_ref == "new-env"
     assert trigger.secret_ref == "new-secret"
     assert trigger.config["auth_methods"] == ["bearer"]
+
+
+def test_update_plan_uses_existing_secret_ref_when_secret_key_changes():
+    trigger = _trigger(
+        type="webhook",
+        secret_ref="hook-secret",
+        secret_key="WEBHOOK_SECRET",
+        config={"auth_methods": ["hmac"]},
+    )
+
+    plan = TriggerConfigPolicy.plan_update(trigger, {"secret_key": "NEXT_WEBHOOK_SECRET"})
+
+    assert plan.secret_ref_to_verify == "hook-secret"
+    assert plan.secret_key_to_verify == "NEXT_WEBHOOK_SECRET"
 
 
 def test_update_plan_marks_cron_rearm_and_reenable_intent():

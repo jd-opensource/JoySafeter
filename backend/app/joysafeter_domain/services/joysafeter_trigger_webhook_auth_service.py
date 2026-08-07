@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError
 
@@ -72,6 +73,43 @@ class WebhookAuthService:
             return True
         return False
 
+    async def resolve_secret_value(
+        self,
+        *,
+        secret_ref: str,
+        secret_key: str,
+        project_id: Optional[str],
+        trigger_id: Optional[str] = None,
+    ) -> str:
+        secret_svc = SecretService(self.db)
+        secret = await secret_svc.get_secret_by_name(secret_ref, project_id=project_id)
+        context = {"secret_ref": secret_ref}
+        if trigger_id is not None:
+            context["trigger_id"] = trigger_id
+        if secret is None:
+            raise NotFoundError(
+                code="TRIGGER_SECRET_NOT_FOUND",
+                message=f"Secret not found: {secret_ref}",
+                data=context,
+                user_action="fix_input",
+            )
+        if secret.kind != SecretKind.GENERIC.value:
+            raise RequestValidationAppError(
+                code="TRIGGER_SECRET_KIND_INVALID",
+                message="Webhook triggers require a generic Secret",
+                data={**context, "kind": secret.kind},
+                user_action="fix_input",
+            )
+        secret_data = secret_svc.get_secret_data(secret)
+        if secret_key not in secret_data:
+            raise RequestValidationAppError(
+                code="TRIGGER_SECRET_KEY_NOT_FOUND",
+                message=f"Secret key not found: {secret_key}",
+                data={**context, "secret_key": secret_key},
+                user_action="fix_input",
+            )
+        return secret_data[secret_key]
+
     async def resolve_webhook_secret(self, trigger: Any) -> str:
         if not trigger.secret_ref:
             raise RequestValidationAppError(
@@ -80,26 +118,12 @@ class WebhookAuthService:
                 data={"trigger_id": str(trigger.id)},
                 user_action="fix_input",
             )
-        secret_svc = SecretService(self.db)
-        secret = await secret_svc.get_secret_by_name(trigger.secret_ref, project_id=trigger.project_id)
-        if secret is None:
-            raise NotFoundError(
-                code="TRIGGER_SECRET_NOT_FOUND",
-                message=f"Secret not found: {trigger.secret_ref}",
-                data={"secret_ref": trigger.secret_ref, "trigger_id": str(trigger.id)},
-                user_action="fix_input",
-            )
-        secret_data = secret_svc.get_secret_data(secret)
-        secret_key = trigger.secret_key or "WEBHOOK_SECRET"
-        value = secret_data.get(secret_key)
-        if not value:
-            raise RequestValidationAppError(
-                code="TRIGGER_SECRET_KEY_NOT_FOUND",
-                message=f"Secret key not found: {secret_key}",
-                data={"secret_ref": trigger.secret_ref, "secret_key": secret_key},
-                user_action="fix_input",
-            )
-        return value
+        return await self.resolve_secret_value(
+            secret_ref=trigger.secret_ref,
+            secret_key=trigger.secret_key or "WEBHOOK_SECRET",
+            project_id=trigger.project_id,
+            trigger_id=str(trigger.id),
+        )
 
     @classmethod
     def build_signed_curl(cls, *, secret: str, url: str, sample_body: Optional[dict[str, Any]] = None) -> str:
