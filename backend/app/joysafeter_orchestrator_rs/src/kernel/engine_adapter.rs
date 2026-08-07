@@ -39,9 +39,11 @@ pub fn engine_registry() -> &'static [EngineSpec] {
         EngineSpec {
             engine_kind: "pi",
             injects_conversation_history: true,
-            // pi 多供应商,模型经 HarnessInput.model → `--model` 透传;
-            // PI_MODEL 承载模型名,MODEL 兜底。
-            model_secret_keys: &["PI_MODEL", "MODEL"],
+            // pi is multi-provider. The frontend pi secret groups store the model
+            // under OPENAI_MODEL (openai_responses / chat_completions protocols) or
+            // ANTHROPIC_MODEL (anthropic_messages protocol); MODEL is a generic
+            // fallback. PI_MODEL is never populated anywhere, so it is not read.
+            model_secret_keys: &["OPENAI_MODEL", "ANTHROPIC_MODEL", "MODEL"],
         },
     ];
     REGISTRY
@@ -59,5 +61,17 @@ mod tests {
     #[test]
     fn pi_engine_is_registered() {
         assert!(super::engine_spec("pi").is_some());
+    }
+
+    #[test]
+    fn pi_resolves_openai_and_anthropic_model_keys() {
+        let spec = super::engine_spec("pi").expect("pi registered");
+        // pi is multi-protocol: OpenAI-compatible operators store OPENAI_MODEL,
+        // Anthropic-protocol operators store ANTHROPIC_MODEL. PI_MODEL is never
+        // populated by the frontend secret groups, so it must not be relied on.
+        assert_eq!(
+            spec.model_secret_keys,
+            &["OPENAI_MODEL", "ANTHROPIC_MODEL", "MODEL"]
+        );
     }
 }
