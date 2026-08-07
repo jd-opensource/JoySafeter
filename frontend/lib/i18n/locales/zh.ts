@@ -8,6 +8,7 @@ const zh = {
       confirm: '确认',
       delete: '删除',
       archive: '归档',
+      restore: '恢复',
       save: '保存',
       edit: '编辑',
       saving: '保存中...',
@@ -273,7 +274,8 @@ const zh = {
         envKeyPlaceholder: '键',
         envValuePlaceholder: '值',
       },
-      archiveDescription: '确定要归档 "{{name}}" 吗？归档后的智能体无法创建新会话。',
+      archiveDescription:
+        '归档 "{{name}}" 将终止其所有进行中的会话、暂停其定时触发器，并将配置设为只读。你可以稍后恢复。确定继续吗？',
       deleteDescription:
         '这将永久删除 "{{name}}" 及所有相关数据：\n• {{sessions}} 个会话\n• {{tasks}} 个任务\n• {{versions}} 个版本\n\n此操作无法撤销。',
       editTitle: '编辑：{{name}}',
@@ -592,7 +594,11 @@ const zh = {
         startSession: '启动会话',
         guidedEdit: '引导编辑',
         archiveTitle: '归档智能体',
-        archiveDescription: '确定要归档 "{{name}}" 吗？归档后的智能体无法创建新会话。',
+        archiveDescription:
+          '归档 "{{name}}" 将终止其所有进行中的会话、暂停其定时触发器，并将配置设为只读。你可以稍后恢复。确定继续吗？',
+        restoreTitle: '恢复智能体',
+        restoreDescription:
+          '恢复 "{{name}}" 会将其重新设为可用，并重新计算其定时触发器的下次执行时间。已终止的会话不会恢复。',
         deleteDescription:
           '这将永久删除 "{{name}}" 及所有相关数据：\n• {{sessions}} 个会话\n• {{tasks}} 个任务\n• {{versions}} 个版本\n\n此操作无法撤销。',
         tab: {
