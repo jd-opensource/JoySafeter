@@ -140,7 +140,7 @@ def _secret_matches_engine(secret, engine_kind: str) -> bool:
         return is_openai_secret
     if engine_kind == "claude":
         return is_anthropic_secret
-    if engine_kind == "native":
+    if engine_kind in ("native", "pi"):
         return is_anthropic_secret or is_openai_secret
     return True
 
@@ -206,7 +206,7 @@ def _model_from_secret_data(secret_data: dict[str, Any] | None, engine_kind: str
 
     if (engine_kind or "claude") == "codex":
         model_id = secret_data.get("OPENAI_MODEL")
-    elif engine_kind == "native":
+    elif engine_kind in ("native", "pi"):
         model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("OPENAI_MODEL") or secret_data.get("MODEL")
     else:
         # claude and any other engine

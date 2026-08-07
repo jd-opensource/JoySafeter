@@ -202,11 +202,13 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           return 'Codex'
         case 'native':
           return 'Native'
+        case 'pi':
+          return 'Pi'
         default:
           return k || 'Other'
       }
     }
-    const order = ['Claude Code', 'Codex', 'Native']
+    const order = ['Claude Code', 'Codex', 'Native', 'Pi']
     const q = agentSearch.trim().toLowerCase()
     const buckets = new Map<string, typeof activeAgents>()
     for (const a of activeAgents) {

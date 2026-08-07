@@ -79,6 +79,8 @@ export default function SessionListPage() {
         return 'Codex'
       case 'native':
         return 'Native'
+      case 'pi':
+        return 'Pi'
       default:
         return engineKind || '-'
     }

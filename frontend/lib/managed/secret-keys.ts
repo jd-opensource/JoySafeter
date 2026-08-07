@@ -8,6 +8,7 @@ export const SECRET_PROVIDER_GROUPS = [
       { value: 'claude', label: 'Claude Code' },
       { value: 'codex', label: 'Codex' },
       { value: 'native', label: 'Native' },
+      { value: 'pi', label: 'Pi' },
     ],
   },
 ]
@@ -19,6 +20,7 @@ export function normalizeSecretProvider(provider?: string) {
   if (normalized === 'claude' || normalized === 'anthropic') return 'claude'
   if (normalized === 'codex') return 'codex'
   if (normalized === 'native') return 'native'
+  if (normalized === 'pi') return 'pi'
   return 'custom'
 }
 
@@ -27,6 +29,7 @@ export function getSecretProviderLabel(provider?: string) {
   if (normalized === 'claude') return 'Claude Code'
   if (normalized === 'codex') return 'Codex'
   if (normalized === 'native') return 'Native'
+  if (normalized === 'pi') return 'Pi'
   return 'Custom'
 }
 
@@ -96,8 +99,8 @@ const SECRET_KEY_GROUP_IDS_BY_PROVIDER: Record<string, string[]> = {
 export function getSecretKeyGroups(provider?: string, protocol?: string) {
   const normalizedProvider = (provider || '').toLowerCase()
 
-  // Native engine: key group depends on protocol
-  if (normalizedProvider === 'native') {
+  // Native and pi engines are multi-provider: key group depends on protocol.
+  if (normalizedProvider === 'native' || normalizedProvider === 'pi') {
     if (protocol === 'openai_responses' || protocol === 'chat_completions') {
       return SECRET_KEY_GROUPS.filter((group) => group.id === 'native_openai')
     }
@@ -131,7 +134,7 @@ export function getSecretKeyGroups(provider?: string, protocol?: string) {
 }
 
 export function getDefaultProtocol(provider: string) {
-  if (provider === 'claude' || provider === 'anthropic' || provider === 'native')
+  if (provider === 'claude' || provider === 'anthropic' || provider === 'native' || provider === 'pi')
     return 'anthropic_messages'
   if (provider === 'codex') return 'openai_responses'
   return 'chat_completions'
@@ -143,7 +146,7 @@ export function getDefaultSecretPairs(provider: string, protocol: string) {
   if (
     provider === 'claude' ||
     provider === 'anthropic' ||
-    (provider === 'native' && !isOpenAIProtocol)
+    ((provider === 'native' || provider === 'pi') && !isOpenAIProtocol)
   ) {
     return [
       { key: 'ANTHROPIC_API_KEY', value: '' },
@@ -151,7 +154,7 @@ export function getDefaultSecretPairs(provider: string, protocol: string) {
       { key: 'ANTHROPIC_BASE_URL', value: '' },
     ]
   }
-  if (provider === 'codex' || (provider === 'native' && isOpenAIProtocol)) {
+  if (provider === 'codex' || ((provider === 'native' || provider === 'pi') && isOpenAIProtocol)) {
     return [
       { key: 'OPENAI_API_KEY', value: '' },
       { key: 'OPENAI_MODEL', value: provider === 'codex' ? 'gpt-5.3-codex' : '' },
