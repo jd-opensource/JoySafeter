@@ -15,6 +15,21 @@ use tracing::info;
 
 type SharedStdin = Arc<Mutex<Option<tokio::process::ChildStdin>>>;
 
+/// Provider name declared in ~/.pi/agent/models.json by pi-entrypoint.sh.
+/// MUST stay in sync with deploy/docker/pi-entrypoint.sh (PI_PROVIDER_NAME).
+pub(crate) const PI_PROVIDER_NAME: &str = "joysafeter";
+
+/// Qualifies a bare model id with the declared provider so pi selects the
+/// JoySafeter-declared provider (whose baseUrl/apiKey route through Envoy)
+/// instead of a built-in catalog model.
+pub(crate) fn pi_model_arg(model: &str) -> String {
+    if model.contains('/') {
+        model.to_string()
+    } else {
+        format!("{PI_PROVIDER_NAME}/{model}")
+    }
+}
+
 pub struct PiAdapter {
     session: Arc<Mutex<Option<PersistentPi>>>,
 }
@@ -439,7 +454,7 @@ impl PiAdapter {
         // extension; that is out of scope for this adapter.
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
         if let Some(model) = &input.model {
-            args.extend(["--model".to_string(), model.clone()]);
+            args.extend(["--model".to_string(), pi_model_arg(model)]);
         }
 
         let mut cmd = Command::new("pi");
@@ -492,6 +507,18 @@ mod tests {
     fn map(v: serde_json::Value) -> PiMapped {
         let mut m = HashMap::new();
         map_pi_event(&v, &mut m)
+    }
+
+    #[test]
+    fn pi_model_arg_prefixes_declared_provider() {
+        assert_eq!(super::pi_model_arg("GPT-4.1"), "joysafeter/GPT-4.1");
+        assert_eq!(super::pi_model_arg("Claude-Opus-4.6"), "joysafeter/Claude-Opus-4.6");
+    }
+
+    #[test]
+    fn pi_model_arg_does_not_double_prefix() {
+        // If a caller ever passes an already-qualified id, keep it as-is.
+        assert_eq!(super::pi_model_arg("joysafeter/GPT-4.1"), "joysafeter/GPT-4.1");
     }
 
     #[test]
