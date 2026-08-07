@@ -301,7 +301,21 @@ pub fn map_pi_event(
             turn_done = true;
         }
         "error" => {
-            let msg = event.get("message").and_then(|m| m.as_str()).unwrap_or("pi error").to_string();
+            let msg = event
+                .get("message")
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    event.get("error").and_then(|e| match e {
+                        serde_json::Value::String(s) => Some(s.clone()),
+                        serde_json::Value::Object(_) => e
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .map(|s| s.to_string()),
+                        _ => None,
+                    })
+                })
+                .unwrap_or_else(|| "pi error".to_string());
             events.push(HarnessEvent::Error { message: msg });
         }
         _ => {}
@@ -669,6 +683,32 @@ mod tests {
             !absent_usage.events.iter().any(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. })),
             "absent usage must not emit ModelRequestEnd"
         );
+    }
+
+    #[test]
+    fn maps_nested_error_object() {
+        let m = map(serde_json::json!({
+            "type": "error",
+            "error": { "message": "model not found: gpt-x" }
+        }));
+        assert!(m.events.iter().any(|e|
+            matches!(e, HarnessEvent::Error { message } if message.contains("model not found"))));
+    }
+
+    #[test]
+    fn maps_top_level_error_string_field() {
+        let m = map(serde_json::json!({ "type": "error", "error": "boom" }));
+        assert!(m.events.iter().any(|e|
+            matches!(e, HarnessEvent::Error { message } if message == "boom")));
+    }
+
+    #[test]
+    fn normal_message_end_is_not_an_error() {
+        let m = map(serde_json::json!({
+            "type": "message_end",
+            "message": { "model": "m", "usage": { "input": 1, "output": 1 } }
+        }));
+        assert!(!m.events.iter().any(|e| matches!(e, HarnessEvent::Error { .. })));
     }
 
     #[test]
