@@ -17,6 +17,8 @@ from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnviro
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_domain.schemas.joysafeter_environment import extract_environment_secret_references
 from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, SecretKind, UpdateSecretRequest
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.ids import SecretId, TaskId
@@ -73,15 +75,6 @@ def _mask_secret_value(value: str) -> str:
 
 def _secret_ref_matches(secret_ref: object, name: str) -> bool:
     return str(secret_ref).strip() == name if secret_ref is not None else False
-
-
-def _environment_secret_refs(config: object) -> list[str]:
-    if not isinstance(config, dict):
-        return []
-    refs = config.get("secret_refs")
-    if not isinstance(refs, list):
-        return []
-    return [str(ref).strip() for ref in refs if str(ref).strip()]
 
 
 class SecretService:
@@ -385,10 +378,12 @@ class SecretService:
         return bool(getattr(result, "rowcount", 0))
 
     async def secret_is_referenced(self, name: str, project_id: Optional[str] = None) -> bool:
-        """Check if any live agent or environment references this secret name."""
+        """Check if any live resource references this secret name."""
         if await self.secret_is_referenced_by_agent(name, project_id=project_id):
             return True
         if await self.secret_is_referenced_by_environment(name, project_id=project_id):
+            return True
+        if await self.secret_is_referenced_by_trigger(name, project_id=project_id):
             return True
         return False
 
@@ -414,9 +409,21 @@ class SecretService:
             select(JoySafeterEnvironment.name, JoySafeterEnvironment.config).where(and_(*conditions))
         )
         for env_name, config in result.all():
-            if any(_secret_ref_matches(ref, name) for ref in _environment_secret_refs(config)):
+            references = extract_environment_secret_references(config)
+            if any(_secret_ref_matches(reference.name, name) for reference in references):
                 return str(env_name)
         return None
+
+    async def secret_is_referenced_by_trigger(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
+        """Return the name of the first trigger referencing this secret, or None."""
+        conditions = [
+            JoySafeterTrigger.secret_ref == name,
+            JoySafeterTrigger.deleted_at.is_(None),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterTrigger.project_id == project_id)
+        result = await self.db.execute(select(JoySafeterTrigger.name).where(and_(*conditions)).limit(1))
+        return result.scalar_one_or_none()
 
     async def _environment_refs_for_secret(self, name: str, project_id: Optional[str] = None) -> set[str]:
         conditions: list[ColumnElement[bool]] = [
@@ -431,7 +438,8 @@ class SecretService:
         )
         refs: set[str] = set()
         for env_id, env_name, config in result.all():
-            if any(_secret_ref_matches(ref, name) for ref in _environment_secret_refs(config)):
+            references = extract_environment_secret_references(config)
+            if any(_secret_ref_matches(reference.name, name) for reference in references):
                 refs.add(str(env_name))
                 refs.add(str(env_id))
         return refs

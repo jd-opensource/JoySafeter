@@ -7,6 +7,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
+from app.joysafeter_api.api.v1.network_policy_refresh import (
+    refresh_live_limited_sandbox_network_policies,
+)
 from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
@@ -472,6 +475,13 @@ async def update_secret(
         raise _secret_value_error(exc=exc, operation="update") from exc
     if secret is None:
         raise _secret_not_found_error(secret_id)
+    await refresh_live_limited_sandbox_network_policies(
+        db,
+        project_id=auth_ctx.project_id,
+        reason="secret.updated",
+        source_type="secret",
+        source_id=str(secret.id),
+    )
     await audit_joysafeter_event(
         db,
         request,
@@ -557,6 +567,16 @@ async def delete_secret(
                 reference_key="environment_name",
                 reference_value=environment_name,
             )
+        trigger_name = await svc.secret_is_referenced_by_trigger(secret.name, project_id=auth_ctx.project_id)
+        if trigger_name:
+            raise _secret_reference_error(
+                secret_id=secret_id,
+                secret_name=secret.name,
+                code="SECRET_TRIGGER_REFERENCE",
+                message=f"Secret is referenced by trigger '{trigger_name}'. Use ?force=true to force delete.",
+                reference_key="trigger_name",
+                reference_value=trigger_name,
+            )
 
     if force:
         ok = await svc.hard_delete_secret(secret_id, project_id=auth_ctx.project_id)
@@ -566,6 +586,13 @@ async def delete_secret(
         ok = await svc.delete_secret(secret_id, project_id=auth_ctx.project_id)
         if not ok:
             raise _secret_not_found_error(secret_id)
+    await refresh_live_limited_sandbox_network_policies(
+        db,
+        project_id=auth_ctx.project_id,
+        reason="secret.deleted",
+        source_type="secret",
+        source_id=str(secret_id),
+    )
     await audit_joysafeter_event(
         db,
         request,

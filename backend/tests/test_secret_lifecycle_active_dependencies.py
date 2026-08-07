@@ -1,10 +1,13 @@
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
+from starlette.requests import Request
 from sqlalchemy import select
 
+from app.joysafeter_api.api.v1 import secrets as secrets_api
 from app.joysafeter_api.api.v1.secrets import (
     create_secret,
     delete_secret,
@@ -20,6 +23,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, UpdateSecretRequest
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.common.app_errors import AppError
@@ -43,6 +47,20 @@ def _project_auth_ctx(project_id: str) -> JoySafeterAuthContext:
         org_id="test-org",
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
+    )
+
+
+def _request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "client": ("127.0.0.1", 34567),
+            "path": "/api/v1/secrets",
+            "headers": [],
+            "query_string": b"",
+        }
     )
 
 
@@ -164,6 +182,35 @@ async def test_delete_secret_rejects_environment_reference_without_force(db_sess
 
 
 @pytest.mark.asyncio
+async def test_delete_secret_rejects_egress_environment_reference_without_force(db_session):
+    secret = await _secret(db_session)
+    env = JoySafeterEnvironment(
+        name=f"egress-secret-env-{uuid.uuid4()}",
+        description="",
+        config={
+            "egress_services": [
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com",
+                    "credential_ref": secret.name,
+                    "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                }
+            ]
+        },
+    )
+    db_session.add(env)
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await secrets_api.delete_secret(None, secret.id, False, db_session, _auth_ctx())  # type: ignore[arg-type]
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=409)
+    assert payload["code"] == "SECRET_ENVIRONMENT_REFERENCE"
+    assert payload["data"]["environment_name"] == env.name
+    await _assert_secret_intact(db_session, secret.id)
+
+
+@pytest.mark.asyncio
 async def test_delete_secret_rejects_agent_reference_without_force(db_session):
     secret = await _secret(db_session)
     agent = JoySafeterAgent(name=f"static-secret-agent-{uuid.uuid4()}", secret_ref=secret.name)
@@ -181,6 +228,40 @@ async def test_delete_secret_rejects_agent_reference_without_force(db_session):
         "retryable": False,
     }
     await _assert_secret_intact(db_session, secret.id)
+
+
+@pytest.mark.asyncio
+async def test_delete_secret_rejects_trigger_reference_without_force_but_allows_force(db_session):
+    secret = await _secret(db_session)
+    agent = JoySafeterAgent(name=f"trigger-secret-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    trigger = JoySafeterTrigger(
+        name=f"secret-trigger-{uuid.uuid4()}",
+        type="webhook",
+        agent_id=agent.id,
+        prompt_template="run",
+        secret_ref=secret.name,
+        secret_key="TOKEN",
+        config={"auth_methods": ["hmac"]},
+        filter={},
+        last_payload={},
+    )
+    db_session.add(trigger)
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await secrets_api.delete_secret(None, secret.id, False, db_session, _auth_ctx())  # type: ignore[arg-type]
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=409)
+    assert payload["code"] == "SECRET_TRIGGER_REFERENCE"
+    assert payload["data"]["trigger_name"] == trigger.name
+    await _assert_secret_intact(db_session, secret.id)
+
+    await secrets_api.delete_secret(_request(), secret.id, True, db_session, _auth_ctx())
+    deleted = await SecretService(db_session).get_secret(secret.id)
+    assert deleted is None
 
 
 @pytest.mark.asyncio
@@ -219,6 +300,50 @@ async def test_force_delete_secret_rejects_active_task_agent_secret_ref(db_sessi
         "retryable": True,
         "user_action": "retry",
     }
+    await _assert_secret_intact(db_session, secret.id)
+
+
+@pytest.mark.asyncio
+async def test_force_delete_secret_rejects_active_task_agent_egress_environment_ref(db_session):
+    secret = await _secret(db_session)
+    env = JoySafeterEnvironment(
+        name=f"agent-egress-env-secret-{uuid.uuid4()}",
+        description="",
+        config={
+            "egress_services": [
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com",
+                    "credential_ref": secret.name,
+                    "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                }
+            ]
+        },
+    )
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+    agent = JoySafeterAgent(name=f"agent-egress-env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    with pytest.raises(AppError) as exc_info:
+        await secrets_api.delete_secret(None, secret.id, True, db_session, _auth_ctx())  # type: ignore[arg-type]
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=409)
+    assert payload["code"] == "SECRET_ACTIVE_TASK_DEPENDENCY"
+    assert payload["data"]["task_id"] == str(task.id)
+    assert payload["data"]["source"] == "agent environment_ref"
+    assert payload["data"]["operation"] == "deleting"
     await _assert_secret_intact(db_session, secret.id)
 
 
@@ -359,6 +484,132 @@ async def test_update_secret_rejects_active_task_agent_secret_ref(db_session):
 
     row = await _assert_secret_intact(db_session, secret.id)
     assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
+
+
+@pytest.mark.asyncio
+async def test_update_secret_rejects_active_task_agent_egress_environment_ref(db_session):
+    secret = await _secret(db_session)
+    env = JoySafeterEnvironment(
+        name=f"update-agent-egress-env-secret-{uuid.uuid4()}",
+        description="",
+        config={
+            "egress_services": [
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com",
+                    "credential_ref": secret.name,
+                    "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                }
+            ]
+        },
+    )
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+    agent = JoySafeterAgent(name=f"update-agent-egress-env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+
+    with pytest.raises(AppError) as exc_info:
+        await secrets_api.update_secret(
+            UpdateSecretRequest(data={"TOKEN": "new-value"}),
+            None,
+            secret.id,
+            db_session,
+            _auth_ctx(),
+        )  # type: ignore[arg-type]
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=409)
+    assert payload["code"] == "SECRET_ACTIVE_TASK_DEPENDENCY"
+    assert payload["data"]["task_id"] == str(task.id)
+    assert payload["data"]["source"] == "agent environment_ref"
+    assert payload["data"]["operation"] == "updating"
+    row = await _assert_secret_intact(db_session, secret.id)
+    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
+
+
+@pytest.mark.asyncio
+async def test_update_secret_refreshes_live_limited_sandbox_network_policies(db_session, monkeypatch):
+    secret = await _secret(db_session)
+    refresh = AsyncMock(return_value=0)
+    monkeypatch.setattr(
+        "app.joysafeter_api.api.v1.secrets.refresh_live_limited_sandbox_network_policies",
+        refresh,
+    )
+
+    await secrets_api.update_secret(
+        UpdateSecretRequest(data={"TOKEN": "new-value"}),
+        _request(),
+        secret.id,
+        db_session,
+        _auth_ctx(),
+    )  # type: ignore[arg-type]
+
+    refresh.assert_awaited_once_with(
+        db_session,
+        project_id=None,
+        reason="secret.updated",
+        source_type="secret",
+        source_id=str(secret.id),
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_secret_refreshes_live_limited_sandbox_network_policies(db_session, monkeypatch):
+    secret = await _secret(db_session)
+    refresh = AsyncMock(return_value=0)
+    monkeypatch.setattr(
+        "app.joysafeter_api.api.v1.secrets.refresh_live_limited_sandbox_network_policies",
+        refresh,
+    )
+
+    await secrets_api.delete_secret(_request(), secret.id, False, db_session, _auth_ctx())
+
+    refresh.assert_awaited_once_with(
+        db_session,
+        project_id=None,
+        reason="secret.deleted",
+        source_type="secret",
+        source_id=str(secret.id),
+    )
+
+
+@pytest.mark.asyncio
+async def test_force_delete_secret_refreshes_only_after_successful_validation(db_session, monkeypatch):
+    secret = await _secret(db_session)
+    referenced_secret = await _secret(db_session)
+    agent = JoySafeterAgent(name=f"refresh-secret-agent-{uuid.uuid4()}", secret_ref=referenced_secret.name)
+    db_session.add(agent)
+    await db_session.commit()
+    refresh = AsyncMock(return_value=0)
+    monkeypatch.setattr(
+        "app.joysafeter_api.api.v1.secrets.refresh_live_limited_sandbox_network_policies",
+        refresh,
+    )
+
+    await secrets_api.delete_secret(_request(), secret.id, True, db_session, _auth_ctx())
+
+    refresh.assert_awaited_once_with(
+        db_session,
+        project_id=None,
+        reason="secret.deleted",
+        source_type="secret",
+        source_id=str(secret.id),
+    )
+
+    with pytest.raises(AppError):
+        await secrets_api.delete_secret(None, referenced_secret.id, False, db_session, _auth_ctx())  # type: ignore[arg-type]
+
+    assert refresh.await_count == 1
 
 
 @pytest.mark.asyncio
