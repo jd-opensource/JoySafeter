@@ -1,8 +1,12 @@
 # Typed Entity IDs Completion Audit
 
 **Date:** 2026-08-06
-**Status:** Complete — all audited entity identities are typed across Python, frontend, and the Rust orchestrator
+**Status:** Historical completion audit; bare-string compatibility statements are superseded by `2026-08-07-strict-entity-id-boundaries-design.md`
 **Scope:** Backend API/domain/ORM, tests, frontend, and Rust orchestrator
+
+> **Supersession note:** Implementation evidence remains historical. References below to temporary bare
+> UUID string acceptance, legacy prefix helpers, or dual-format Vault JSONB reads are no longer current
+> guidance. Public and persisted-JSON IDs are strict; only reviewed physical adapters remain bare.
 
 ## Decision
 
@@ -42,11 +46,11 @@ at boundary codecs, not repeated in services, routes, frontend helpers, or tests
   annotations, legacy helpers, cross-entity persistence binds, and implicit Sandbox
   serialization at Redis/provider boundaries.
 - The generic `same_id` string-comparison helper is removed. Physical UUID
-  unwrapping accepts only `EntityId` or `uuid.UUID`; string compatibility remains
-  isolated to explicit constructors and persistence adapters.
+  unwrapping accepts only `EntityId` or `uuid.UUID`; the historical constructor string compatibility
+  recorded here is superseded and has been removed.
 - The frontend preserves canonical `agent_`, `sess_`, `task_`, `trig_`, `env_`, `secret_`, `vault_`, `cred_`, `sbx_`, `memstore_`, `mem_`, `memver_`, `skill_`, `sklfile_`, `sklscan_`, `sklver_`, `sklvfile_`, `skluse_`, `file_`, `sesrsc_`, and `evt_` IDs through API
-  paths and bodies. Prefix stripping remains available only for explicitly
-  unaudited legacy resource families whose backend contracts are not migrated.
+  paths and bodies. The historical allowance for prefix stripping on unaudited legacy families is
+  superseded; production `stripIdPrefix` and `withIdPrefix` usage is prohibited.
 - Frontend `AgentId`, `SessionId`, `TaskId`, `TriggerId`, `EnvironmentId`, `SecretId`, `VaultId`, `CredentialId`, `SandboxId`, `MemoryStoreId`, `MemoryId`, `MemoryVersionId`, `SkillId`, `SkillFileId`, `SkillSecurityScanId`, `SkillVersionId`, `SkillVersionFileId`, `SkillUsageId`, `FileId`, `SessionResourceId`, and `EventId` are branded
   template-literal types with strict runtime parsers. Agent, Session, Trigger,
   Trigger-run/fire, and analytics contracts validate IDs at their API boundaries.
@@ -78,8 +82,8 @@ at boundary codecs, not repeated in services, routes, frontend helpers, or tests
 - Vault and nested Credential ORM fields, schemas, routes, cursors, services, errors, and frontend
   response parsers now retain `VaultId`/`CredentialId`; obsolete `parse_vault_id`/`parse_cred_id` are removed.
 - Session `vault_ids` is validated as `list[VaultId]`, persisted as canonical strings in JSONB, and
-  unwrapped by the Rust harness only at its SQL boundary; dedicated compatibility coverage retains
-  readability for historical bare UUID JSONB values.
+  unwrapped by the Rust harness only at its SQL boundary. The historical bare-UUID JSONB compatibility
+  statement is superseded; only canonical `vault_<uuid>` rows are queried or read.
 - Sandbox ORM/FK fields, schemas, routes, services, cancellation flows, Redis commands, Rust queries,
   scheduler/controllers/providers, and frontend network-policy diagnostics now retain `SandboxId`.
   Public values use `sbx_<uuid>`; database, Redis, protobuf, provider labels/names, runner environment
@@ -97,15 +101,17 @@ at boundary codecs, not repeated in services, routes, frontend helpers, or tests
 - The migration uncovered and fixed a production double-prefix defect in Skill
   impact references (`agent_agent_...` / `trig_trig_...`) and added a guard that
   rejects future manual re-prefixing of typed query rows.
-- The Rust orchestrator now defines transparent `AgentId`, `SessionId`, `TaskId`, `EnvironmentId`,
+- The Rust orchestrator now defines typed `AgentId`, `SessionId`, `TaskId`, `EnvironmentId`,
   `VaultId`, `CredentialId`, `SandboxId`, `MemoryStoreId`, `MemoryId`, `MemoryVersionId`, all six
   Skill ID newtypes, `FileId`, `SessionResourceId`, and `EventId`. Models, queries, scheduler,
   resolver, controllers, event
   flow, gRPC harnesses, and DB tests use the matching core type; no migrated core
-  identity annotations remain on `Uuid` inside the kernel.
+  identity annotations remain on `Uuid` inside the kernel. The historical transparent-serde claim is
+  superseded: serde now reads and writes canonical prefixed public IDs, while SQLx remains the explicit
+  transparent UUID storage boundary.
 - Rust entity IDs no longer implement `Deref<Uuid>`. Task subscriber maps retain `TaskId`,
-  Environment lookup rejects bare UUIDs, Vault JSONB compatibility restores `VaultId` immediately,
-  and Vault credential rows retain `CredentialId`.
+  Environment lookup rejects bare UUIDs, Vault JSONB retains canonical `VaultId` strings only,
+  and Vault credential rows retain `CredentialId`. The former dual-format compatibility is superseded.
 - Redis keys/values and protobuf UUID fields are explicit physical adapters via
   `.as_uuid()`/`from_uuid()`, while public JSON/log formatting retains canonical
   `agent_`, `sess_`, `task_`, `sbx_`, `memstore_`, `mem_`, `memver_`, the six Skill prefixes,
@@ -153,10 +159,10 @@ response parsers, and fixtures moved together; SQL/Redis/protobuf adapters remai
 - [x] Remove obsolete application-level `parse_*` functions and inline prefix
       manipulation. The remaining Rust `parse_task_id` is an explicit queue
       boundary codec; `format_agent_id` and `same_id` are removed.
-- [x] Treat bare UUID strings as a temporary compatibility policy only for
-      unmigrated entity helpers. Typed Agent/Session/Task/Trigger/Environment/Secret/Vault/Credential/Sandbox/Memory/Skill/File/SessionResource public inputs require
-      canonical prefixes. Constructors, ORM, Redis, and protobuf adapters retain
-      explicit bare-UUID support at physical boundaries.
+- [x] ~~Treat bare UUID strings as a temporary compatibility policy for unmigrated entity helpers.~~
+      **Superseded:** every typed entity public input now requires its canonical prefix. Native UUIDs are
+      retained only by reviewed SQL, advisory-lock, Redis, runner/protobuf, telemetry, object-storage,
+      and third-party physical adapters.
 
 ## P0 — Replace Outdated Tests
 
@@ -170,8 +176,8 @@ response parsers, and fixtures moved together; SQL/Redis/protobuf adapters remai
       correct concrete ID classes, not merely values that compare or serialize.
 - [x] Add service tests whose mocks/specs require `AgentId`, `SessionId`, and
       `TaskId`; prevent mocks typed as `Any` from hiding regressions.
-- [x] Keep new bare UUID acceptance coverage only in dedicated boundary compatibility
-      tests (`EntityId`/`EntityIdType`), and use typed IDs everywhere else.
+- [x] Keep bare UUID coverage only for explicit physical-boundary adapters such as `EntityIdType`;
+      the earlier direct-constructor acceptance coverage is superseded.
 - [x] Add negative tests for cross-entity misuse (`SessionId` passed as AgentId)
       at request, service, and persistence boundaries.
 - [x] Add an architecture guard that fails on new domain annotations such as
@@ -198,13 +204,14 @@ response parsers, and fixtures moved together; SQL/Redis/protobuf adapters remai
       `apiResourceId()` and migrated request builders. Canonical core IDs now pass
       unchanged through paths, query parameters, and bodies.
 - [x] Rewrite `api-paths.test.ts` so it asserts canonical core-ID preservation
-      while documenting the temporary legacy behavior for unmigrated entities.
+      while documenting the temporary legacy behavior for unmigrated entities. **Superseded:** the
+      temporary behavior has been removed and all registered entity IDs are strict.
 - [x] Type Agent models, AgentVersion, SessionAgent, Trigger, analytics filters,
       mutation inputs, migrated response fields, Skill response/mutation chains, core route params, SSE inputs,
       and React Query keys at their boundaries.
-- [x] Restrict prefix helpers to display formatting only for Agent/Session/Task/Trigger/Environment/Secret/Vault/Credential/Sandbox/Skill/File/SessionResource. They must not mutate
-      core identity before API calls, equality checks, cache keys, or routing;
-      unmigrated entity request paths still use the transitional helper.
+- [x] ~~Restrict prefix helpers to display formatting and retain a transitional request helper.~~
+      **Superseded:** production `stripIdPrefix` and `withIdPrefix` imports/calls are removed; equality,
+      cache keys, routing, and API requests use branded IDs directly.
 - [x] Replace core fixtures such as `agent_a`, `agent_123`, `sess_123`, and stale
       Trigger IDs with canonical UUID-backed factories and add a regression guard.
 - [x] Replace remaining Event fixtures; all audited entity fixtures are canonical UUID-backed IDs.
@@ -217,8 +224,9 @@ response parsers, and fixtures moved together; SQL/Redis/protobuf adapters remai
 
 - [x] Make an explicit architecture decision: Rust kernel code adopts
       entity newtypes, or the orchestrator is formally treated as a raw-UUID
-      boundary. SQLx/Serde remain transparent bare-UUID physical boundaries, while
-      public formatting retains entity prefixes.
+      boundary. ~~SQLx/Serde remain transparent bare-UUID physical boundaries.~~
+      **Superseded:** SQLx remains the transparent UUID storage boundary; serde uses canonical
+      prefixed public IDs and rejects bare UUID strings.
 - [x] Add transparent `AgentId`, `SessionId`, `TaskId`, `EnvironmentId`, `VaultId`, `CredentialId`,
       `SandboxId`, `MemoryStoreId`, `MemoryId`, `MemoryVersionId`, `SkillId`, `SkillFileId`,
       `SkillSecurityScanId`, `SkillVersionId`, `SkillVersionFileId`, `SkillUsageId`, `FileId`,

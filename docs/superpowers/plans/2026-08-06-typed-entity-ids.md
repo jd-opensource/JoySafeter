@@ -1,6 +1,14 @@
 # Typed Entity ID Value Objects — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** Superseded historical implementation plan — non-executable
+**Superseded by:** `../specs/2026-08-07-strict-entity-id-boundaries-design.md`
+
+> Preserve this file only as implementation history. Do not execute its commands, recipes, tests, or
+> commits. In particular, tolerant string constructors, bare-string acceptance, string SQL binds,
+> bare cursors, and compatibility tests below conflict with the strict-boundary design.
+
+> **Historical agent instruction — non-executable:** The original plan required a task-by-task
+> execution workflow. Do not resume it; follow the superseding strict-boundary design instead.
 
 **Goal:** Replace bare-`uuid.UUID` identifiers and their scattered
 prefix/format/parse/`same_id` helpers with typed `EntityId` value objects that
@@ -87,6 +95,10 @@ When a file's **last** `same_id` use is removed, delete the `same_id` import.
 
 **R5. Inline prefix sites** (each entry in `<inline_sites>`): replace hand-rolled
 `removeprefix`/`startswith`/f-string prefixing with the value object:
+
+> **Historical/non-executable compatibility recipe:** The constructor examples below tolerated public
+> and bare strings. Current code must declare `from_public` versus `from_uuid` explicitly.
+
 ```python
 # before:  uuid.UUID(req.agent.removeprefix("agent_"))
 # after:   <Class>(req.agent).uuid            # tolerant of prefixed or bare
@@ -127,6 +139,9 @@ entity's existing tests.
   core schema. Consumed by every later task.
 
 - [ ] **Step 1: Write failing tests**
+
+> **Historical/non-executable compatibility tests:** Bare-string constructor acceptance shown below is
+> superseded. Public strings require the entity prefix; physical input must be a native UUID.
 
 ```python
 # backend/tests/test_entity_ids.py
@@ -320,6 +335,9 @@ git commit -m "feat(ids): add EntityId value objects with pydantic schema"
   `process_result_value(uuid|None) -> EntityId|None`. Consumed by all model tasks.
 
 - [ ] **Step 1: Write failing tests**
+
+> **Historical/non-executable compatibility tests:** String/native fallback binds shown below are
+> superseded. SQL bind/result conversion accepts the concrete typed ID or native UUID only.
 
 ```python
 # backend/tests/test_entity_id_type.py
@@ -676,8 +694,9 @@ Apply the recipe with:
   already a `TaskId` (e.g. `task.id`), use `str(task.id)`; if it is a bare uuid
   (a function parameter), use `str(TaskId(task_id))`.
 - **Cursor:** `id_helpers.parse_task_after_id` must keep accepting `task_<uuid>`,
-  bare uuid, and `None`. Implement as: `return None if raw is None else TaskId(raw).uuid`
-  (`TaskId` already tolerates both). Keep its own test (`:60-65`) green.
+- **Historical/non-executable cursor compatibility:** The former step accepted `task_<uuid>`, a bare
+  UUID, and `None`. It is superseded: public cursors accept only canonical `task_<uuid>` values (or
+  `None`) through strict public parsing.
 
 **Steps:** write failing task-response test (`JoySafeterCreateTaskResponse` dumps
 `task_<uuid>`) → verify fail → apply R1/R3/R6 + cursor → update task
@@ -864,9 +883,10 @@ route params directly as `<x>_id: <Class>`, or keep thin one-liners
 request validation (or `app_error_for_id_validation`) rather than calling the
 deleted `parse_*` functions directly. Keep every asserted payload byte-identical
 to the current file (codes, messages, `data`, `user_action`). Keep the
-positive-path tests (`parse_task_after_id` bare+prefixed+None; serialized
-`agent_`/`sess_`/`task_` prefixes in `analytics`, `SandboxResponse`,
-`NetworkPolicyStatusResponse`, `FileResponse`) — rephrased against the typed API.
+  historical compatibility tests (`parse_task_after_id` bare+prefixed+None; serialized
+  `agent_`/`sess_`/`task_` prefixes in `analytics`, `SandboxResponse`,
+  `NetworkPolicyStatusResponse`, `FileResponse`) are non-executable as written; strict tests replace
+  the bare-cursor case with rejection and retain canonical serialization coverage.
 
 - [ ] **Step 5: Run the full suite**
 

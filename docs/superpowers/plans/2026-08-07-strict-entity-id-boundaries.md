@@ -385,7 +385,7 @@ Keep physical adapters on an explicit reviewed list rather than attempting to ba
 
 - [ ] **Step 2: Update architecture documentation and superseded records**
 
-Document these retained physical categories in `ARCHITECTURE.md`: SQL UUID bind/result, advisory locks, Redis queue/channel names and payloads, runner/protobuf fields, OpenTelemetry identities, object-storage keys, and third-party UUID contracts. Remove the statement that legacy bare Vault JSONB rows remain readable.
+Document these retained physical categories in `ARCHITECTURE.md`: SQL UUID bind/result, advisory locks, Redis queue/channel names and payloads, runner/protobuf fields, OpenTelemetry identities, object-storage keys, physical resource naming, and independently documented third-party UUID contracts. Separately classify scanner-only codec, strict-rejection-probe, and derived-non-identity conversions that do not create a bare-string contract. Remove the statement that legacy bare Vault JSONB rows remain readable.
 
 Mark the 2026-08-06 design and completion audit as superseded by the 2026-08-07 strict-boundary design wherever they describe temporary bare-string compatibility. Do not rewrite unrelated historical implementation detail.
 

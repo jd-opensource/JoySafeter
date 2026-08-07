@@ -70,15 +70,16 @@ Model configuration lives in the agent's `model` JSONB field plus a `secret_ref`
 ## ID formats
 
 Managed-resource responses serialize IDs with a type prefix, such as `agent_<uuid>`, `sess_<uuid>`,
-`task_<uuid>`, `trig_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, `secret_<uuid>`, `sbx_<uuid>`,
+`task_<uuid>`, `trig_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, `cred_<uuid>`, `secret_<uuid>`, `sbx_<uuid>`,
 `memstore_<uuid>`, `mem_<uuid>`, `memver_<uuid>`, `sklfile_<uuid>`, `sklscan_<uuid>`, `sklver_<uuid>`,
-`sklvfile_<uuid>`, `skluse_<uuid>`, `file_<uuid>`, `sesrsc_<uuid>`, and `evt_<uuid>`. Typed Agent, Session, Task, Trigger, Environment,
+`sklvfile_<uuid>`, `skluse_<uuid>`, `file_<uuid>`, `sesrsc_<uuid>`, `evt_<uuid>`, `vol_<uuid>`,
+`stgrant_<uuid>`, and `staudit_<uuid>`. Typed Agent, Session, Task, Trigger, Environment,
 Secret, Vault, Credential, Sandbox, Memory Store, Memory, Memory Version, Skill, Skill File,
-Skill Security Scan, Skill Version, Skill Version File, Skill Usage, File, Session Resource, and Event request fields, path parameters, and cursors require
+Skill Security Scan, Skill Version, Skill Version File, Skill Usage, File, Session Resource, Event,
+Storage Volume, Storage Grant, and Storage Mount Audit request fields, path parameters, and cursors require
 their canonical prefixed form. Bare UUIDs are reserved for database, Redis, protobuf, and explicit
-internal adapters. `environment_ref` is the documented exception because it may contain either an
-environment name or canonical `env_<uuid>`; a bare UUID is not accepted as an Environment ID. Some
-unmigrated entity contracts remain untyped, but clients must not infer bare-UUID compatibility for new integrations.
+physical adapters documented in `ARCHITECTURE.md`; they are not public API alternatives. `environment_ref` is the documented exception because it may contain either an
+environment name or canonical `env_<uuid>`; a bare UUID is not accepted as an Environment ID.
 Agent and Environment `secret_ref` values are secret names rather than Secret IDs; clients must not
 substitute `secret_<uuid>` into those name-based configuration fields.
 Session `vault_ids` values require canonical `vault_<uuid>` strings. Nested Vault credential routes

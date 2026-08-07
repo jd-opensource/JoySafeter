@@ -473,40 +473,57 @@ concepts live inside the agent (JSONB fields) or in `secrets` / `vaults`.
 
 ### 8.1 Typed entity identifiers
 
-Public APIs and logs use canonical prefixed IDs (`agent_<uuid>`, `sess_<uuid>`, `task_<uuid>`,
-`trig_<uuid>`, `env_<uuid>`, `secret_<uuid>`, `vault_<uuid>`, `cred_<uuid>`, `sbx_<uuid>`,
-`memstore_<uuid>`, `mem_<uuid>`, `memver_<uuid>`, `skill_<uuid>`, `sklfile_<uuid>`,
-`sklscan_<uuid>`, `sklver_<uuid>`, `sklvfile_<uuid>`, `skluse_<uuid>`, `file_<uuid>`,
-`sesrsc_<uuid>`, `evt_<uuid>`). The prefix is a semantic discriminator: it makes cross-entity mistakes
-visible and rejectable before a UUID reaches domain logic. Application/domain code uses the matching
-typed ID (`AgentId`, `SessionId`, `TaskId`, `TriggerId`, `EnvironmentId`, `SecretId`, `VaultId`, `CredentialId`, `SandboxId`, `MemoryStoreId`, `MemoryId`, `MemoryVersionId`, `SkillId`, `SkillFileId`, `SkillSecurityScanId`, `SkillVersionId`, `SkillVersionFileId`, `SkillUsageId`, `FileId`, `SessionResourceId`, `EventId`); PostgreSQL, Redis, protobuf,
-and explicitly documented cross-language adapters use the bare UUID. A typed ID therefore does not
-remove the prefix—it centralizes prefix validation and prevents services, routes, clients, and tests
-from rebuilding it. Rust ID newtypes do not implement `Deref<Uuid>`; physical adapters must call
-`.as_uuid()` explicitly so an in-memory identity cannot silently degrade into a storage identity.
-`environment_ref` is an intentional polymorphic boundary: it accepts an
-environment name or canonical `env_<uuid>`, but not a bare UUID as an Environment ID.
-Sandbox provider labels, container/pod names, Envoy resource/socket names, runner environment variables,
-Redis ownership keys/payloads, and protobuf fields are physical boundaries and explicitly unwrap
-`SandboxId` to its bare UUID; public API responses, errors, logs, and frontend state retain `sbx_<uuid>`.
-Memory synchronization follows the same rule: API paths, schemas, logs, and frontend state retain
-canonical Memory IDs, while Redis `memory_update` payloads and runner protobuf mounts explicitly carry
-the bare Memory Store UUID. Rust converts that UUID to `MemoryStoreId` before subscriber lookup.
-File metadata, file routes, Session file/repository resources, logs, and frontend state retain
-`file_<uuid>` / `sesrsc_<uuid>`. PostgreSQL UUID columns and object-storage keys explicitly unwrap
-`FileId`; the storage key must never contain the public `file_` prefix.
-Persisted Session events retain `evt_<uuid>` in REST/SSE payloads, logs, frontend state, and the
-application/Rust event flow. SQL UUID columns and Redis stream fields carry the bare Event UUID and
-must restore `EventId` immediately when entering typed application code.
-Skill CRUD, lifecycle, security scans, versions, version snapshots, usage logs, routes, and frontend
-state retain their six canonical Skill ID families. SQL joins and Rust bundle/storage adapters unwrap
-them to bare UUIDs only at the physical boundary. Draft authoring files are deliberately identity-free
-until persisted; they must not use empty or fabricated `SkillFileId` values.
-Agent/Environment `secret_ref` fields remain name-based configuration references, not Secret IDs;
-Secret CRUD paths, cursors, responses, logs, and ORM identity use canonical `SecretId`.
-Session `vault_ids` is a persisted JSONB reference document and intentionally stores canonical
-`vault_<uuid>` strings. Python validates it as `list[VaultId]`; the Rust harness unwraps each value to a
-bare UUID only at the SQL query adapter. Legacy bare UUID rows remain readable only at that adapter.
+Public APIs, persisted JSON/JSONB references, logs, and frontend state use canonical prefixed IDs. The
+prefix is a semantic discriminator, not decoration: it makes cross-entity mistakes rejectable before a
+UUID reaches domain logic. Application/domain code uses the matching typed ID; it does not strip and
+rebuild prefixes.
+
+This is the authoritative UUID-backed entity inventory:
+
+| Entity type | Public prefix | Entity type | Public prefix |
+|---|---|---|---|
+| `AgentId` | `agent_` | `SessionId` | `sess_` |
+| `TaskId` | `task_` | `TriggerId` | `trig_` |
+| `EnvironmentId` | `env_` | `SecretId` | `secret_` |
+| `VaultId` | `vault_` | `CredentialId` | `cred_` |
+| `SandboxId` | `sbx_` | `MemoryStoreId` | `memstore_` |
+| `MemoryId` | `mem_` | `MemoryVersionId` | `memver_` |
+| `SkillId` | `skill_` | `SkillFileId` | `sklfile_` |
+| `SkillSecurityScanId` | `sklscan_` | `SkillVersionId` | `sklver_` |
+| `SkillVersionFileId` | `sklvfile_` | `SkillUsageId` | `skluse_` |
+| `FileId` | `file_` | `SessionResourceId` | `sesrsc_` |
+| `EventId` | `evt_` | `StorageVolumeId` | `vol_` |
+| `StorageGrantId` | `stgrant_` | `StorageMountAuditId` | `staudit_` |
+
+Bare UUIDs are retained only at these reviewed physical boundaries:
+
+| Physical boundary | Bare UUID contract |
+|---|---|
+| SQL UUID bind/result | SQLAlchemy `EntityIdType` and transparent SQLx wrappers bind native UUID columns and hydrate the concrete typed ID immediately on read. |
+| PostgreSQL advisory locks | Lock-key derivation uses UUID bytes solely to produce the database's signed 64-bit lock key. |
+| Redis queues, channels, and payloads | Queue members, channel/key suffixes, ownership values, and event/runtime payload fields use bare UUID strings when both producer and consumer explicitly restore the concrete ID type. |
+| Runner/protobuf fields | Runner commands and protobuf messages whose schemas define UUID strings unwrap at construction and restore typed IDs when re-entering application code. |
+| OpenTelemetry identities | Trace, span, execution, and observation UUIDs are telemetry/storage identities rather than public JoySafeter entity-ID contracts. |
+| Object-storage keys | File object keys use the bare `FileId` UUID; public file metadata and routes retain `file_<uuid>`. |
+| Physical resource naming | Runner environment variables plus sandbox-provider labels, pod/container names, and Envoy resource names may derive bare UUID text from a typed ID solely for stable infrastructure naming. These are deployment/runtime names, not third-party API schemas. |
+| Third-party UUID contracts | An external API may receive or return a bare UUID only when its independently documented schema requires UUID text; the adapter restores the concrete typed ID before application use. |
+
+The architecture scanner also reviews three explicit native-UUID conversion categories that do not
+create a retained bare-string contract: the typed-ID codec implementation itself, strict validation
+probes that intentionally attempt native UUID parsing to reject bare public input, and deterministic
+non-identity derivations such as advisory hashes or jitter seeds. Their allowlist entries are scoped by
+stable file/function or file/count keys and any new occurrence fails architecture tests until classified.
+
+Rust ID newtypes do not implement `Deref<Uuid>`; a physical adapter must call `.as_uuid()` explicitly.
+`environment_ref` is an intentional polymorphic public boundary: it accepts an environment name or a
+canonical `env_<uuid>`, never a bare Environment UUID. Agent/Environment `secret_ref` fields remain
+name-based configuration references rather than Secret IDs. Session `vault_ids` is persisted in one
+canonical JSONB format, `vault_<uuid>`; no bare-value compatibility query or read path exists.
+
+Memory synchronization, Session events, Skills, Files, Session resources, and storage resources follow
+the same rule: API paths, schemas, JSON, logs, and frontend state retain their canonical prefix, while
+only a listed physical adapter may unwrap to a UUID. Draft Skill authoring files remain identity-free
+until persisted and must not use empty or fabricated `SkillFileId` values.
 
 | Group | Prefix | Highlights |
 |---|---|---|

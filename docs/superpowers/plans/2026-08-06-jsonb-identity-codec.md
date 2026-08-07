@@ -1,9 +1,14 @@
 # JSONB Payload Identity Codec — Initiative Charter
 
 **Date:** 2026-08-06
-**Status:** Chartered (not started) — approved by user ("先立项 JSONB 统一 codec")
+**Status:** Superseded historical charter — non-executable
+**Superseded by:** `../specs/2026-08-07-strict-entity-id-boundaries-design.md`
 **Owner:** TBD
 **Relation:** Follow-on to the typed-EntityId migration (`2026-08-06-typed-entity-ids-completion-audit.md`). This covers the ONE surface the value-object + `EntityIdType` work does NOT reach: entity identities embedded as **strings inside schemaless JSONB** (`joysafeter_session_events.payload`) and analogous ad-hoc JSON.
+
+> The tolerant-read, dual-match, and optional-backfill instructions below are retained only as
+> historical context. They must not be executed. Persisted JSON/JSONB entity references now use one
+> canonical prefixed form, with no bare-value compatibility read or query.
 
 ## Problem (root cause)
 
@@ -17,19 +22,23 @@ Typed `EntityId` value objects + the `EntityIdType` SQLAlchemy codec make identi
 1. **Convention is unenforced.** The distinction "JSONB payload → prefixed" vs "physical wire/Redis/fs → bare" lives only in developers' heads. A future writer that does `payload["task_id"] = id.as_uuid().to_string()` (bare) — or a reader that matches bare — compiles, passes type checks, passes tests written with the same mistake, and silently breaks the paired query. There is no guard.
 2. **Migration-boundary legacy rows.** Both Python (`task.id`) and Rust (`task_id`) flipped bare→prefixed when their respective typed-id migrations landed. Event rows written *before* the migration hold a **bare** `payload.task_id`; the post-migration prefixed-needle readers silently miss them. Benign on greenfield v2 (single initial migration, disposable data) but real if any pre-migration `session_events` data survives a deploy.
 
-## Decision (proposed canonical rule)
+## Historical Decision (Superseded)
 
 **Identities embedded in JSONB event payloads use the canonical PUBLIC prefixed form** (`task_<uuid>`, `sess_<uuid>`, `agent_<uuid>`). Rationale: payloads flow to clients over SSE and into logs, so they belong to the *public* boundary, same as API responses; and this matches what every current writer already does (zero migration of the write path). Physical boundaries (Redis keys/queues, container paths, protobuf wire) stay BARE and are out of scope.
 
-**Reads are tolerant.** A payload-id read helper accepts prefixed OR bare and normalizes, so legacy bare rows keep matching without a data backfill and without reintroducing dual-format `IN` hacks at call sites.
+**Historical/non-executable:** Reads were proposed to be tolerant of prefixed or bare values. The
+strict-boundary design rejects this approach; readers and queries now use only the canonical prefixed
+form.
 
 ## Scope / Deliverables
 
-- [ ] **Python codec helper** in `joysafeter_shared` (e.g. `payload_id_write(id) -> str` = `str(id)`; `payload_id_match(col_json, id)` building the tolerant predicate, or a `payload_id_read(value) -> XId` tolerant parser). Replace the two raw `payload->>'task_id' = :tid` readers in `joysafeter_session_service.py` with the tolerant helper (matches prefixed AND bare → also closes the legacy-row gap without a backfill).
+- [ ] **HISTORICAL — DO NOT EXECUTE: tolerant Python reads.** The proposed `payload_id_match` /
+  `payload_id_read` dual-format behavior is superseded; use only canonical prefixed JSONB values.
 - [ ] **Rust codec helper** — a single `payload_id(id) -> String` (= `id.to_string()`, prefixed) used by every `"task_id"/"session_id"/"agent_id"` JSON insertion, so the choice is centralized, not per-call-site. Audit scheduler.rs / sandbox_controller.rs / grpc/server.rs / events/* to route through it.
 - [ ] **Guard tests (both languages)** analogous to `test_typed_id_architecture.py`: flag `as_uuid().to_string()` (or bare-uuid) feeding a known payload-id JSON key, and flag payload-id readers using raw exact-match on `payload->>'..._id'` without the tolerant helper. Whitelist the physical-boundary sites explicitly.
 - [ ] **Inventory confirmation** of every JSONB payload id key beyond `task_id` (e.g. any `session_id`/`agent_id`/`sandbox_id` in payloads) and every reader, so the rule is applied uniformly (this charter enumerated the `task_id` writers; a full sweep is task #1 of execution).
-- [ ] **Optional JSONB backfill migration** — only if pre-migration `session_events` rows must survive: `UPDATE joysafeter_session_events SET payload = jsonb_set(payload,'{task_id}', to_jsonb('task_' || (payload->>'task_id'))) WHERE payload->>'task_id' ~* '^[0-9a-f-]{36}$'`. Skip on greenfield. Prefer the tolerant reader over the backfill.
+- [ ] **HISTORICAL — DO NOT EXECUTE: optional JSONB backfill.** No Alembic migration or compatibility
+  read path is permitted for this pre-release reset; rebuild data in canonical form.
 
 ## Non-goals
 - Physical-boundary formats (Redis, fs, protobuf) — those are correctly bare and stay bare.
@@ -37,5 +46,6 @@ Typed `EntityId` value objects + the `EntityIdType` SQLAlchemy codec make identi
 
 ## Completion gates
 - [ ] One helper per language is the ONLY way identities enter/leave JSONB payloads; guard tests enforce it and fail on the anti-pattern.
-- [ ] The two `session_service` payload readers match both prefixed and legacy-bare rows (unit test with both formats).
+- [ ] **HISTORICAL — DO NOT EXECUTE:** dual prefixed/legacy-bare reader tests are superseded by
+  canonical-prefixed-only persistence and query tests.
 - [ ] `uv run pytest`, `cargo test`, ruff/fmt green.

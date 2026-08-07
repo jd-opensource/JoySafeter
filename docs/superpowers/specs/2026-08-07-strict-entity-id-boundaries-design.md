@@ -1,8 +1,8 @@
 # Strict Entity ID Boundaries — Design Spec
 
 **Date:** 2026-08-07
-**Status:** Approved
-**Supersedes:** The bare UUID string compatibility described in `2026-08-06-typed-entity-id-value-objects-design.md`
+**Status:** Approved and authoritative
+**Supersedes:** Bare UUID string compatibility in `2026-08-06-typed-entity-id-value-objects-design.md`, `2026-08-06-typed-entity-ids-completion-audit.md`, `2026-08-06-typed-entity-ids.md`, and `2026-08-06-jsonb-identity-codec.md`
 **Scope:** Backend Python, Rust orchestrator, frontend managed UI, persistence adapters, Redis, and cross-language protocols
 
 ## Goal
@@ -23,6 +23,23 @@ representation at each boundary.
 | PostgreSQL UUID columns | Native UUID | Conversion occurs only in the SQLAlchemy/sqlx adapter |
 | JSON/JSONB persisted entity references | Typed prefixed string | No dual-format reads or queries |
 | Redis and cross-language protocol fields documented as physical UUIDs | Bare UUID string | Conversion is explicit at the producer and consumer boundary |
+
+## Authoritative Entity ID Inventory
+
+| Public prefix | Python/frontend type | Public prefix | Python/frontend type |
+|---|---|---|---|
+| `agent_` | `AgentId` | `sess_` | `SessionId` |
+| `task_` | `TaskId` | `trig_` | `TriggerId` |
+| `env_` | `EnvironmentId` | `secret_` | `SecretId` |
+| `vault_` | `VaultId` | `cred_` | `CredentialId` |
+| `sbx_` | `SandboxId` | `memstore_` | `MemoryStoreId` |
+| `mem_` | `MemoryId` | `memver_` | `MemoryVersionId` |
+| `skill_` | `SkillId` | `sklfile_` | `SkillFileId` |
+| `sklscan_` | `SkillSecurityScanId` | `sklver_` | `SkillVersionId` |
+| `sklvfile_` | `SkillVersionFileId` | `skluse_` | `SkillUsageId` |
+| `file_` | `FileId` | `sesrsc_` | `SessionResourceId` |
+| `evt_` | `EventId` | `vol_` | `StorageVolumeId` |
+| `stgrant_` | `StorageGrantId` | `staudit_` | `StorageMountAuditId` |
 
 ## Strict Construction Rules
 
@@ -62,13 +79,13 @@ The audit must remove or replace all behavior in these categories:
 This is a semantic audit, not a larger regex replacement. Each match must be
 classified by boundary before modification.
 
-## Allowed Bare UUID Boundaries
+## Retained Physical Boundary Inventory
 
 Bare UUIDs remain valid only where the contract is physical rather than
 public. Every retained occurrence must have a local comment or type signature
 that identifies the boundary and must use an explicit adapter.
 
-Expected categories include:
+The complete reviewed categories are:
 
 - PostgreSQL UUID bind/result conversion.
 - Advisory-lock keys derived from physical UUIDs.
@@ -76,12 +93,22 @@ Expected categories include:
 - Runner/orchestrator protocol fields whose schema explicitly defines a bare
   UUID.
 - OpenTelemetry trace/observation storage that is not an entity public ID.
+- Object-storage keys whose physical naming contract uses the bare File UUID.
+- Physical resource names such as runner environment variables, sandbox-provider
+  labels, pod/container names, and Envoy resource names. These are internal
+  runtime naming contracts, not third-party API schemas.
 - Third-party APIs whose documented identifier format is a UUID rather than a
   JoySafeter entity ID.
 
 A UUID-backed value is not automatically an exception. If it identifies a
 JoySafeter entity in a public or persisted JSON contract, it uses its typed
 prefix.
+
+The architecture scanner separately classifies explicit conversions inside the
+typed-ID codec, strict rejection probes, and deterministic non-identity
+derivations. Those occurrences do not establish a bare-string boundary; they
+remain allowlisted by stable file/function or file/count keys so any new native
+UUID degradation or entity-relevant parse requires review.
 
 ## Persistence And Reset Policy
 

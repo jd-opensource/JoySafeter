@@ -1,8 +1,13 @@
 # Typed Entity ID Value Objects — Design Spec
 
 **Date:** 2026-08-06
-**Status:** Approved (design), pending implementation plan
+**Status:** Superseded for string compatibility by `2026-08-07-strict-entity-id-boundaries-design.md`
 **Scope:** Full-chain (请求体 → 路径参数 → 响应体 → domain service → ORM)
+
+> **Supersession note:** This document remains a historical record of the value-object design. Any
+> statement below that permits a bare UUID string, optional prefix, dual-format read, or transitional
+> frontend helper is superseded. Current public and persisted-JSON entity IDs require canonical prefixes;
+> bare UUIDs remain only at the reviewed physical boundaries in the 2026-08-07 strict-boundary design.
 
 ## Problem / Root Cause
 
@@ -54,6 +59,10 @@ the base-class + subclass shape gives both.)
 
 New module `backend/app/joysafeter_shared/ids.py`:
 
+> **Superseded compatibility detail:** The broad string-coercing constructor shown below was the original
+> proposal. The implemented strict design separates `from_public(str)` from `from_uuid(uuid.UUID)` and
+> rejects all strings in direct construction.
+
 ```python
 class EntityId:
     prefix: ClassVar[str]              # the only thing subclasses declare
@@ -94,7 +103,8 @@ runtime, and comparing the two is a static type error under strict-equality.
 ## Integration point 1 — Pydantic (request + response)
 
 `EntityId` implements `__get_pydantic_core_schema__` **once** on the base:
-- validation: accept `agent_<uuid>` **or** a bare uuid, produce the typed id;
+- validation: ~~accept `agent_<uuid>` **or** a bare uuid~~ **superseded** — public strings require
+  `agent_<uuid>`; only trusted native `uuid.UUID` values may enter through physical hydration;
 - serialization: emit `str(self)` → `agent_<uuid>`.
 
 Consequences:
@@ -130,15 +140,17 @@ The **externally visible error shape is unchanged** — only its producer moves
 from hand-written per-function helpers to one uniform handler.
 
 ### Preserved special cases
-- **`parse_task_after_id`** (cursor): must keep tolerating both `task_<uuid>`
-  and a bare uuid, and `None → None`. Implemented as a dedicated cursor parser
-  (or `TaskId` construction, which already tolerates both) — not via the strict
-  path-param route.
+- **`parse_task_after_id`** (cursor): ~~must keep tolerating both `task_<uuid>` and a bare uuid~~
+  **superseded** — entity cursors require canonical prefixed IDs; `None → None` remains valid.
 - **Removed/renamed prefixes** (e.g. `sesn_`) must still be rejected
   (`test_id_helper_error_contract.py:131`). `_coerce` rejects them because they
   don't match `cls.prefix` and the remainder isn't a valid uuid.
 
 ## Integration point 3 — SQLAlchemy TypeDecorator (ORM boundary)
+
+> **Superseded compatibility detail:** SQL UUID bind/result conversion remains valid, but the example's
+> fallback string construction is not. The strict adapter accepts the concrete ID type or native UUID and
+> rejects strings and cross-entity IDs.
 
 ```python
 class EntityIdType(TypeDecorator):
@@ -181,9 +193,11 @@ class JoySafeterTask(JoySafeterBaseModel):
 - Absorb every **inline** prefix site into the appropriate `EntityId` subclass
   (see Inventory). No prefix literal survives outside `ids.py`.
 
-## Authoritative prefix inventory
+## Historical prefix inventory (superseded)
 
-`ids.py` is the single source of truth. Registered UUID entities:
+This inventory records the original proposal and is not authoritative. The complete current inventory,
+including later Storage IDs, is in `2026-08-07-strict-entity-id-boundaries-design.md` and
+`docs/ARCHITECTURE.md`.
 
 | Prefix       | Class                   | Current source(s) |
 |--------------|-------------------------|-------------------|
@@ -217,8 +231,9 @@ finalizing (grep `removeprefix(`, `startswith("..._")`, `f"..._{`).
   (`code`/`message`/`data`/`source`/`retryable`/`user_action`) is unchanged.
 - New unit tests on `EntityId`: prefix round-trip (`str(AgentId(u))`),
   cross-type inequality (`AgentId(u) != SessionId(u)`), cross-entity
-  construction raises `TypeError`, bare-uuid and prefixed-string coercion,
-  rejection of wrong/removed prefixes.
+  construction raises `TypeError`, explicit `from_uuid`/`from_public` conversion,
+  rejection of direct string construction and wrong/removed prefixes. The earlier broad coercion
+  guidance is superseded.
 - New tests on `EntityIdType`: bind (typed → uuid) and result (uuid → typed)
   round-trip.
 - Existing contract tests that assert canonical serialized prefixes
