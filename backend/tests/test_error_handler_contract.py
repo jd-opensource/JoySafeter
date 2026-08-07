@@ -1,11 +1,15 @@
 import json
+from contextlib import asynccontextmanager
 
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
+from starlette.testclient import TestClient
 
 from app.joysafeter_shared.common.app_errors import ServiceUnavailableError
 from app.joysafeter_shared.common.exceptions import app_error_handler, http_exception_handler
+from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.runtime.app_factory import create_app
 
 pytestmark = pytest.mark.no_db
 
@@ -67,3 +71,35 @@ async def test_semantic_app_error_matches_exception_handler_contract():
         "retryable": True,
         "user_action": "retry",
     }
+
+
+@asynccontextmanager
+async def _noop_lifespan(app):
+    yield
+
+
+def test_unhandled_exception_500_keeps_cors_header():
+    """A raw unhandled exception must still yield a CORS-headed 500.
+
+    Regression guard: Starlette routes the catch-all Exception handler through
+    ServerErrorMiddleware (outermost, above CORSMiddleware), so without the
+    inner ExceptionHandlingMiddleware the 500 response has no
+    Access-Control-Allow-Origin header and the browser reports a misleading
+    CORS / net::ERR_FAILED error that hides the real backend failure.
+    """
+    origin = "http://localhost:3000"
+    assert origin in settings.cors_origins
+
+    app = create_app(lifespan=_noop_lifespan)
+
+    @app.get("/boom")
+    async def boom():
+        raise RuntimeError("kaboom")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/boom", headers={"Origin": origin})
+
+    assert response.status_code == 500
+    assert response.headers.get("access-control-allow-origin") == origin
+    payload = response.json()
+    assert payload["code"] == "INTERNAL_ERROR"

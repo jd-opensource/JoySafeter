@@ -9,6 +9,7 @@ from app.joysafeter_domain.llm.catalog import (
     ProviderProtocolBinding,
     get_llm_catalog,
 )
+from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 
 
@@ -139,7 +140,7 @@ def validate_secret_for_engine(
     provider_id: str | None,
     protocol_id: str | None,
 ) -> ProviderProtocolBinding:
-    if kind != "llm" or not provider_id or not protocol_id:
+    if kind != SecretKind.LLM.value or not provider_id or not protocol_id:
         raise LlmCompatibilityError(
             code="LLM_SECRET_IDENTITY_INVALID",
             message="Agent model configuration must be an LLM secret with Provider and Protocol",

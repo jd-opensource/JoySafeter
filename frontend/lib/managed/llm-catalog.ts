@@ -225,19 +225,15 @@ export function findCredentialProfileForBinding(
   )
 }
 
-export function getProviderProtocolOptions(
+function buildProviderProtocolOptions(
   catalog: LlmCatalog,
-  engineId: string,
+  includeProtocol?: (protocolId: string) => boolean,
 ): LlmProviderProtocolOption[] {
-  const engine = getEngine(catalog, engineId)
-  if (!engine.enabled) return []
-  const supported = new Set(engine.supported_protocol_ids)
   const options: LlmProviderProtocolOption[] = []
-
   for (const provider of catalog.providers) {
     if (!provider.enabled) continue
     for (const binding of provider.protocol_bindings) {
-      if (!supported.has(binding.protocol_id)) continue
+      if (includeProtocol && !includeProtocol(binding.protocol_id)) continue
       options.push({
         providerId: provider.id,
         protocolId: binding.protocol_id,
@@ -255,26 +251,18 @@ export function getProviderProtocolOptions(
   return options
 }
 
+export function getProviderProtocolOptions(
+  catalog: LlmCatalog,
+  engineId: string,
+): LlmProviderProtocolOption[] {
+  const engine = getEngine(catalog, engineId)
+  if (!engine.enabled) return []
+  const supported = new Set(engine.supported_protocol_ids)
+  return buildProviderProtocolOptions(catalog, (protocolId) => supported.has(protocolId))
+}
+
 export function getAllProviderProtocolOptions(catalog: LlmCatalog): LlmProviderProtocolOption[] {
-  const options: LlmProviderProtocolOption[] = []
-  for (const provider of catalog.providers) {
-    if (!provider.enabled) continue
-    for (const binding of provider.protocol_bindings) {
-      options.push({
-        providerId: provider.id,
-        protocolId: binding.protocol_id,
-        provider,
-        protocol: getProtocol(catalog, binding.protocol_id),
-        binding,
-        credentialProfile: getCredentialProfileForBinding(
-          catalog,
-          provider.id,
-          binding.protocol_id,
-        ),
-      })
-    }
-  }
-  return options
+  return buildProviderProtocolOptions(catalog)
 }
 
 export function stableConnectionFingerprint({

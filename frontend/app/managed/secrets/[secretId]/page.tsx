@@ -204,7 +204,10 @@ export default function SecretDetailPage({ params }: { params: Promise<{ secretI
             <p className="mb-2 text-xs text-muted-foreground">
               {t('managed.llm.compatibleEngines')}
             </p>
-            <CompatibleEngineBadges engineIds={secret.compatible_engine_ids} />
+            <CompatibleEngineBadges
+              engineIds={secret.compatible_engine_ids}
+              catalog={catalogQuery.data}
+            />
           </div>
         ) : null}
       </section>

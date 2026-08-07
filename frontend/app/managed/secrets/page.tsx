@@ -180,7 +180,12 @@ export default function SecretListPage() {
     {
       key: 'engines',
       header: t('managed.llm.compatibleEngines'),
-      render: (secret) => <CompatibleEngineBadges engineIds={secret.compatible_engine_ids} />,
+      render: (secret) => (
+        <CompatibleEngineBadges
+          engineIds={secret.compatible_engine_ids}
+          catalog={catalogQuery.data}
+        />
+      ),
     },
     {
       key: 'created_at',

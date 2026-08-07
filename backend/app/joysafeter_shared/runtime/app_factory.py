@@ -5,7 +5,10 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.joysafeter_shared.common.exceptions import register_exception_handlers
+from app.joysafeter_shared.common.exceptions import (
+    ExceptionHandlingMiddleware,
+    register_exception_handlers,
+)
 from app.joysafeter_shared.common.logging import TracingMiddleware
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import settings
@@ -32,6 +35,10 @@ def create_app(*, lifespan, title_suffix: str = "", expose_docs: bool = True) ->
     )
 
     register_exception_handlers(app)
+    # Middleware execution order (outermost first): CORS -> Tracing ->
+    # ExceptionHandling -> routes. ExceptionHandling must sit *inside* CORS —
+    # see ExceptionHandlingMiddleware for why.
+    app.add_middleware(ExceptionHandlingMiddleware)
     app.add_middleware(TracingMiddleware)
     app.add_middleware(
         CORSMiddleware,

@@ -1,19 +1,19 @@
 import { Badge } from '@/components/ui/badge'
+import type { LlmCatalog } from '@/types/llm'
 
-const ENGINE_LABELS: Record<string, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  native: 'Native',
-  pi: 'Pi',
-}
-
-export function CompatibleEngineBadges({ engineIds }: { engineIds: string[] }) {
+export function CompatibleEngineBadges({
+  engineIds,
+  catalog,
+}: {
+  engineIds: string[]
+  catalog?: LlmCatalog | null
+}) {
   if (engineIds.length === 0) return null
   return (
     <div className="flex flex-wrap gap-1.5">
       {engineIds.map((engineId) => (
         <Badge key={engineId} variant="outline">
-          {ENGINE_LABELS[engineId] ?? engineId}
+          {catalog?.engines.find((engine) => engine.id === engineId)?.display_name ?? engineId}
         </Badge>
       ))}
     </div>

@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
@@ -219,6 +220,53 @@ def register_exception_handlers(app: Any) -> None:
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     app.add_exception_handler(PydanticValidationError, request_validation_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)
+
+
+class ExceptionHandlingMiddleware:
+    """Turn unhandled exceptions into AppError responses *inside* the CORS layer.
+
+    Starlette routes the catch-all ``Exception`` (500) handler through
+    ``ServerErrorMiddleware``, which is always the OUTERMOST middleware — above
+    ``CORSMiddleware``. So a raw unhandled exception (e.g. a DB
+    ``ProgrammingError``) yields a 500 whose response never passes through the
+    CORS middleware and therefore has no ``Access-Control-Allow-Origin`` header.
+    In a browser that surfaces as a misleading ``CORS policy: No
+    'Access-Control-Allow-Origin' header`` / ``net::ERR_FAILED`` error that hides
+    the real 500.
+
+    Installed as the innermost user middleware (inside ``CORSMiddleware``), this
+    catches those exceptions and emits the same response ``general_exception_handler``
+    would, so it flows back out through the CORS middleware and gets its headers.
+    Handlers registered via :func:`register_exception_handlers` still cover
+    ``AppError`` / ``HTTPException`` / validation errors (Starlette's inner
+    ``ExceptionMiddleware``); this only intercepts the otherwise-unhandled ones.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception as exc:
+            if response_started:
+                # The response has already begun streaming; we can no longer
+                # replace it with an error body, so let it propagate.
+                raise
+            response = await general_exception_handler(Request(scope, receive), exc)
+            await response(scope, receive, send)
 
 
 def normalize_exception(exc: Exception) -> AppError:

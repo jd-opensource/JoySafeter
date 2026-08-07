@@ -36,6 +36,33 @@ interface UseProtocolSecretsOptions {
 
 const PAGE_SIZE = 100
 
+async function fetchAllLlmSecrets(
+  managedScope: ReturnType<typeof useManagedRequestScope>,
+  filter: Record<string, string>,
+  errorLabel: string,
+): Promise<Secret[]> {
+  const secrets: Secret[] = []
+  let afterId: string | undefined
+
+  for (;;) {
+    const page = await managedGet<SecretPage>(
+      apiCollectionPath('secrets', {
+        limit: PAGE_SIZE,
+        after_id: afterId,
+        kind: 'llm',
+        ...filter,
+      }),
+      managedRequestOptions(managedScope),
+    )
+    secrets.push(...parseSecretListResponse(page.data))
+    if (!page.has_more) return secrets
+    if (!page.last_id || page.last_id === afterId) {
+      throw new Error(`${errorLabel} pagination returned an invalid cursor`)
+    }
+    afterId = page.last_id
+  }
+}
+
 export function compatibleSecretsQueryPrefix(scopeKey: string, engineId: string) {
   return ['compatible-secrets', scopeKey, engineId] as const
 }
@@ -65,28 +92,8 @@ export function useCompatibleSecrets({ engineId, enabled = true }: UseCompatible
 
   return useQuery<Secret[]>({
     queryKey: compatibleSecretsQueryKey(managedScope.key, engineId, catalogVersion),
-    queryFn: async () => {
-      const secrets: Secret[] = []
-      let afterId: string | undefined
-
-      for (;;) {
-        const page = await managedGet<SecretPage>(
-          apiCollectionPath('secrets', {
-            limit: PAGE_SIZE,
-            after_id: afterId,
-            kind: 'llm',
-            compatible_engine: engineId,
-          }),
-          managedRequestOptions(managedScope),
-        )
-        secrets.push(...parseSecretListResponse(page.data))
-        if (!page.has_more) return secrets
-        if (!page.last_id || page.last_id === afterId) {
-          throw new Error('Compatible Secret pagination returned an invalid cursor')
-        }
-        afterId = page.last_id
-      }
-    },
+    queryFn: () =>
+      fetchAllLlmSecrets(managedScope, { compatible_engine: engineId }, 'Compatible Secret'),
     enabled: queryEnabled,
     staleTime: 30_000,
   })
@@ -131,28 +138,7 @@ export function useProtocolSecrets({ protocolId, enabled = true }: UseProtocolSe
 
   return useQuery<Secret[]>({
     queryKey: protocolSecretsQueryKey(managedScope.key, protocolId, catalogVersion),
-    queryFn: async () => {
-      const secrets: Secret[] = []
-      let afterId: string | undefined
-
-      for (;;) {
-        const page = await managedGet<SecretPage>(
-          apiCollectionPath('secrets', {
-            limit: PAGE_SIZE,
-            after_id: afterId,
-            kind: 'llm',
-            protocol: protocolId,
-          }),
-          managedRequestOptions(managedScope),
-        )
-        secrets.push(...parseSecretListResponse(page.data))
-        if (!page.has_more) return secrets
-        if (!page.last_id || page.last_id === afterId) {
-          throw new Error('Protocol Secret pagination returned an invalid cursor')
-        }
-        afterId = page.last_id
-      }
-    },
+    queryFn: () => fetchAllLlmSecrets(managedScope, { protocol: protocolId }, 'Protocol Secret'),
     enabled: queryEnabled,
     staleTime: 30_000,
   })

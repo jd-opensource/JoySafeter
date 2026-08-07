@@ -670,7 +670,6 @@ export function useQuickstartChat(agentSecretRef: string) {
       })
       setConfig((prev) => ({ ...prev, agent: template.agent }))
       setPendingConfirmation({ step: 3, curl: '' })
-      setCurrentStep(3)
     },
     [t],
   )

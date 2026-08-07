@@ -233,6 +233,25 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.messages).toEqual([])
   })
 
+  it('keeps template users on engine selection until prerequisites are complete', () => {
+    const { result } = renderTestingHook(() => useQuickstartChat(''))
+
+    act(() => {
+      result.current.applyTemplate({
+        message: 'Create a research agent',
+        agent: { name: 'Research Agent', system: 'Research carefully.' },
+      })
+    })
+
+    expect(result.current.currentStep).toBe(1)
+    expect(result.current.completedSteps.has(1)).toBe(false)
+    expect(result.current.config.agent).toEqual({
+      name: 'Research Agent',
+      system: 'Research carefully.',
+    })
+    expect(result.current.pendingConfirmation).toEqual({ step: 3, curl: '' })
+  })
+
   it('does not start quickstart generation or create resources when the current project is archived', async () => {
     setCurrentProject('2026-07-10T00:00:00Z')
     const fetchMock = vi.fn()

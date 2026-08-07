@@ -106,11 +106,13 @@ class SecretService:
             return {}
         return self.decrypt_data(secret.data or {})
 
-    def get_masked_secret_data(self, secret: JoySafeterSecret | None) -> dict[str, str]:
-        data = self.get_secret_data(secret)
+    def mask_data(self, data: dict[str, str]) -> dict[str, str]:
         return {
             key: value if _is_display_safe_secret_key(key) else _mask_secret_value(value) for key, value in data.items()
         }
+
+    def get_masked_secret_data(self, secret: JoySafeterSecret | None) -> dict[str, str]:
+        return self.mask_data(self.get_secret_data(secret))
 
     async def merge_secret_refs_into_env(
         self,

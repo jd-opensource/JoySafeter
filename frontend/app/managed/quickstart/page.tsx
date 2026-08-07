@@ -289,7 +289,7 @@ function Stepper({
   ]
 
   return (
-    <div className="mb-4 flex items-center justify-center gap-2 py-3">
+    <div className="mb-2 flex items-center justify-center gap-2 py-2">
       {steps.map((step, i) => {
         const isDone = completedSteps.has(step.num)
         const isActive = step.num === currentStep
@@ -526,11 +526,13 @@ function TemplateCard({
 
 function NumberedChoiceList({
   question,
+  hint,
   choices,
   onSelect,
   onSkip,
 }: {
   question: string
+  hint?: string
   choices: { num: number; label: string; arrow?: boolean }[]
   onSelect: (num: number) => void
   onSkip?: () => void
@@ -539,6 +541,7 @@ function NumberedChoiceList({
   return (
     <div className="rounded-xl border border-border bg-background p-4">
       <p className="mb-1 text-[14px] font-semibold text-foreground">{question}</p>
+      {hint ? <p className="text-xs leading-5 text-muted-foreground">{hint}</p> : null}
       <div className="mt-2 space-y-0.5">
         {choices.map((c) => (
           <button
@@ -1565,7 +1568,7 @@ export default function QuickstartPage() {
 
       <Stepper currentStep={currentStep} completedSteps={completedSteps} />
 
-      {!isLanding && (
+      {!isLanding && (isSessionActive || Boolean(resourceIds[3])) && (
         <div className="flex items-center justify-end gap-2 px-1 pb-3">
           {isSessionActive && isSessionRunning ? (
             <Button
@@ -1729,6 +1732,7 @@ export default function QuickstartPage() {
                   ) : enabledEngines.length > 0 ? (
                     <NumberedChoiceList
                       question={t('managed.quickstart.engineQuestion')}
+                      hint={t('managed.quickstart.engineHint')}
                       choices={enabledEngines.map((engine, index) => ({
                         num: index + 1,
                         label: engine.display_name,
@@ -1749,6 +1753,9 @@ export default function QuickstartPage() {
                   <div className="space-y-3 rounded-xl border border-border bg-background p-4">
                     <p className="text-sm font-semibold text-foreground">
                       {t('managed.quickstart.secretQuestion')}
+                    </p>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t('managed.quickstart.secretHint')}
                     </p>
                     <QuickstartLlmStep
                       key={selectedEngine}

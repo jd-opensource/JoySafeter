@@ -1226,9 +1226,8 @@ impl SandboxResolver {
     /// boundary. After this, the container env holds no LLM API key — the key is
     /// injected by Envoy at the egress boundary instead.
     ///
-    /// Credential handling is selected by the Catalog-resolved profile. Provider
-    /// defaults come from the validated Provider/Protocol binding rather than
-    /// being inferred from environment variable names.
+    /// Credential handling is selected by the Catalog-resolved profile, and
+    /// provider defaults come from the validated Provider/Protocol binding.
     fn extract_llm_egress(
         env: &mut HashMap<String, String>,
         binding: Option<&RuntimeSecretBinding>,

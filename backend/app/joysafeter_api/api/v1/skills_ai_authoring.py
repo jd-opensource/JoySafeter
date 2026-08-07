@@ -34,6 +34,7 @@ from app.joysafeter_domain.llm.compatibility import (
     validate_credential_data,
     validate_provider_protocol,
 )
+from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_domain.services.joysafeter_skill_authoring import (
     stream_authoring_chat,
@@ -244,7 +245,7 @@ async def authoring_chat(
             data={"secret_ref": req.secret_ref},
             user_action="fix_input",
         )
-    if secret.kind != "llm" or not secret.provider or secret.protocol != "openai_responses":
+    if secret.kind != SecretKind.LLM.value or not secret.provider or secret.protocol != "openai_responses":
         raise InvalidRequestError(
             code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
             message="Skill authoring requires an OpenAI Responses compatible model configuration.",

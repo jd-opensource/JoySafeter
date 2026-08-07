@@ -300,6 +300,24 @@ def _secret_model(secret, service: SecretService, model_key: str | None) -> str 
     return value or None
 
 
+def _secret_response(secret, svc: SecretService, *, include_secret_data: bool) -> SecretResponse:
+    model_key, engine_ids = _catalog_identity(secret)
+    decrypted = svc.get_secret_data(secret) if (model_key or include_secret_data) else {}
+    return SecretResponse(
+        id=secret.id,
+        name=secret.name,
+        kind=secret.kind,
+        provider=secret.provider,
+        protocol=secret.protocol,
+        model=(decrypted.get(model_key) or None) if model_key else None,
+        compatible_engine_ids=engine_ids,
+        is_default=secret.is_default,
+        secret_data=svc.mask_data(decrypted) if include_secret_data else {},
+        created_at=secret.created_at,
+        updated_at=secret.updated_at,
+    )
+
+
 def _validate_list_filters(provider: str | None, protocol: str | None) -> None:
     catalog = get_llm_catalog()
     if provider is not None:
@@ -352,19 +370,7 @@ async def create_secret(
             "keys": sorted((secret.data or {}).keys()),
         },
     )
-    return SecretResponse(
-        id=secret.id,
-        name=secret.name,
-        kind=secret.kind,
-        provider=secret.provider,
-        protocol=secret.protocol,
-        model=_secret_model(secret, svc, _catalog_identity(secret)[0]),
-        compatible_engine_ids=_catalog_identity(secret)[1],
-        is_default=secret.is_default,
-        secret_data=svc.get_masked_secret_data(secret),
-        created_at=secret.created_at,
-        updated_at=secret.updated_at,
-    )
+    return _secret_response(secret, svc, include_secret_data=True)
 
 
 @router.post("/test")
@@ -435,20 +441,7 @@ async def get_secret(
     secret = await svc.get_secret(secret_id, project_id=auth_ctx.project_id)
     if not secret:
         raise _secret_not_found_error(secret_id)
-    model_key, engine_ids = _catalog_identity(secret)
-    return SecretResponse(
-        id=secret.id,
-        name=secret.name,
-        kind=secret.kind,
-        provider=secret.provider,
-        protocol=secret.protocol,
-        model=_secret_model(secret, svc, model_key),
-        compatible_engine_ids=engine_ids,
-        is_default=secret.is_default,
-        secret_data=svc.get_masked_secret_data(secret),
-        created_at=secret.created_at,
-        updated_at=secret.updated_at,
-    )
+    return _secret_response(secret, svc, include_secret_data=True)
 
 
 @router.put("/{secret_id}")
@@ -493,19 +486,7 @@ async def update_secret(
             "keys": sorted((secret.data or {}).keys()),
         },
     )
-    return SecretResponse(
-        id=secret.id,
-        name=secret.name,
-        kind=secret.kind,
-        provider=secret.provider,
-        protocol=secret.protocol,
-        model=_secret_model(secret, svc, _catalog_identity(secret)[0]),
-        compatible_engine_ids=_catalog_identity(secret)[1],
-        is_default=secret.is_default,
-        secret_data=svc.get_masked_secret_data(secret),
-        created_at=secret.created_at,
-        updated_at=secret.updated_at,
-    )
+    return _secret_response(secret, svc, include_secret_data=True)
 
 
 @router.post("/{secret_id}/default")
@@ -528,19 +509,7 @@ async def set_default_secret(
         target_id=str(secret.id),
         details={"name": secret.name, "provider": secret.provider, "protocol": secret.protocol},
     )
-    return SecretResponse(
-        id=secret.id,
-        name=secret.name,
-        kind=secret.kind,
-        provider=secret.provider,
-        protocol=secret.protocol,
-        model=_secret_model(secret, svc, _catalog_identity(secret)[0]),
-        compatible_engine_ids=_catalog_identity(secret)[1],
-        is_default=secret.is_default,
-        secret_data={},
-        created_at=secret.created_at,
-        updated_at=secret.updated_at,
-    )
+    return _secret_response(secret, svc, include_secret_data=False)
 
 
 @router.delete("/{secret_id}", status_code=204)

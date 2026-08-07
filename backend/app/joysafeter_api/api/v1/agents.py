@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
     validate_engine,
@@ -25,6 +25,7 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterUpdateAgentRequest as UpdateAgentRequest,
 )
+from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
 from app.joysafeter_domain.schemas.joysafeter_session import SessionResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
@@ -155,7 +156,7 @@ async def _validate_secret_ref_for_engine(
         "provider": getattr(secret, "provider", None),
         "protocol": getattr(secret, "protocol", None),
     }
-    if secret.kind != "llm" or not secret.provider or not secret.protocol:
+    if secret.kind != SecretKind.LLM.value or not secret.provider or not secret.protocol:
         raise _agent_config_error(
             code="AGENT_SECRET_INCOMPATIBLE",
             message=f"Secret '{secret_ref}' is not compatible with engine_kind '{engine_kind}'",
@@ -200,13 +201,28 @@ async def _validate_environment_ref(
 def _model_from_secret_data(secret, secret_data: dict[str, Any] | None) -> Optional[dict[str, str]]:
     if (
         not secret_data
-        or getattr(secret, "kind", None) != "llm"
+        or getattr(secret, "kind", None) != SecretKind.LLM.value
         or not getattr(secret, "provider", None)
         or not getattr(secret, "protocol", None)
     ):
         return None
-    binding = validate_provider_protocol(secret.provider, secret.protocol)
-    profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+    # A secret whose provider/protocol is no longer known to the catalog (e.g.
+    # legacy data predating a compatibility guard) must not break listing agents.
+    # Mirror the secrets endpoint's _catalog_identity: degrade to "unresolved
+    # model" instead of propagating the error.
+    try:
+        binding = validate_provider_protocol(secret.provider, secret.protocol)
+        profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+    except (LlmCompatibilityError, LlmCatalogError) as exc:
+        logger.warning(
+            "Skipping model resolution for secret %r: incompatible provider/protocol "
+            "(provider=%r, protocol=%r): %s",
+            getattr(secret, "name", None),
+            getattr(secret, "provider", None),
+            getattr(secret, "protocol", None),
+            exc,
+        )
+        return None
     model_id = secret_data.get(profile.model_key) if profile.model_key else None
     return {"id": str(model_id)} if model_id else None
 

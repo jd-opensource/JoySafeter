@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
 
-from app.joysafeter_api.api.v1.agents import create_agent, update_agent
+from app.joysafeter_api.api.v1.agents import _model_from_secret_data, create_agent, update_agent
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
@@ -190,3 +191,35 @@ async def test_agent_clear_normalizes_secret_ref_to_null(db_session) -> None:
     )
 
     assert updated.secret_ref is None
+
+
+@pytest.mark.no_db
+def test_model_from_secret_data_tolerates_incompatible_provider():
+    """A secret whose provider is no longer valid (e.g. legacy data where the
+    provider equals an engine id like 'pi') must NOT raise — listing agents
+    would otherwise 400 on a single misconfigured agent. It degrades to None.
+    """
+    bad_secret = SimpleNamespace(
+        name="pi",
+        kind="llm",
+        provider="pi",  # 'pi' is an engine id, never a valid LLM provider
+        protocol="chat_completions",
+    )
+
+    result = _model_from_secret_data(bad_secret, {"OPENAI_MODEL": "whatever"})
+
+    assert result is None
+
+
+@pytest.mark.no_db
+def test_model_from_secret_data_resolves_valid_provider():
+    good_secret = SimpleNamespace(
+        name="ds",
+        kind="llm",
+        provider="deepseek",
+        protocol="chat_completions",
+    )
+
+    result = _model_from_secret_data(good_secret, {"OPENAI_MODEL": "deepseek-chat"})
+
+    assert result == {"id": "deepseek-chat"}

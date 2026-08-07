@@ -1335,11 +1335,11 @@ const en = {
         subtitle:
           'Describe your agent or pick a template to get started. We will guide you through the configuration step by step.',
         describeAgent: 'Describe your agent...',
-        selectEngineFirst: 'Choose an engine to continue',
+        selectEngineFirst: 'Complete Step 1 above: choose a runtime engine',
         noApiKey: 'No model configuration selected...',
-        chooseSecret: 'Choose a model configuration',
+        chooseSecret: 'Complete Step 2 above: choose or create a model configuration',
         noCompatibleSecret: 'No compatible model configuration for this engine',
-        secretQuestion: 'Which model configuration should this agent use?',
+        secretQuestion: 'Step 2: Choose a model configuration',
         browseTemplates: 'Browse Templates',
         templateBrowseHint:
           'Pick a common scenario to prefill the agent role, tools, and follow-up configuration suggestions.',
@@ -1350,7 +1350,7 @@ const en = {
         useTemplate: 'Use template →',
         templateApplyMessage: 'Create an agent from the "{{name}}" template',
         templateAppliedMessage:
-          'Structured template applied. Review the configuration on the right, then create this agent.',
+          'Template ready. First, choose a runtime engine below. Then choose a model configuration before creating the agent.',
         templateCategory: {
           basic: 'Basic setup',
           research: 'Research & analysis',
@@ -1375,7 +1375,11 @@ const en = {
         config: 'Config',
         preview: 'Preview',
         createThisAgent: 'Create this Agent',
-        engineQuestion: 'Choose the agent runtime engine',
+        engineQuestion: 'Step 1: Choose a runtime engine',
+        engineHint:
+          'The runtime engine determines how the agent runs. Choosing one opens model configuration next.',
+        secretHint:
+          'A model configuration contains the model and its credentials. Create one here if no compatible configuration exists.',
         createThisEnvironment: 'Create this Environment',
         createThisVault: 'Create this Vault',
         keepRefining: 'Keep Refining',
