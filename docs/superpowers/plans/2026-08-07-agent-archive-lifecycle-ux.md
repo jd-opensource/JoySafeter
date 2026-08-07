@@ -182,7 +182,9 @@ git commit -m "feat(triggers): recompute agent cron slots on restore"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `backend/tests/test_agent_restore.py`:
+Append to `backend/tests/test_agent_restore.py`. NOTE: this file already exists from Task 1 (it has `import`s and the `_project_and_agent` / `_paused_cron_trigger` helpers). Merge the new imports below into the file's existing import block at the top, add the `_write_ctx` helper, and append the three test functions — do NOT duplicate `_project_and_agent`/`_paused_cron_trigger`.
+
+New imports to add:
 
 ```python
 from app.joysafeter_api.api.v1.agents import unarchive_agent
@@ -190,8 +192,11 @@ from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAg
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import as_uuid
+```
 
+Helper + tests:
 
+```python
 def _write_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
         user_id="admin-user",
@@ -205,22 +210,27 @@ def _write_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
 async def test_unarchive_clears_archived_at_and_rearms_triggers(db_session):
     project, agent = await _project_and_agent(db_session, name="RestoreE2E")
     trigger = await _paused_cron_trigger(db_session, project=project, agent=agent)
+    # Capture PKs before any expire_all(): reading an expired ORM attribute
+    # triggers a synchronous reload inside async -> MissingGreenlet.
+    agent_id = agent.id
+    trigger_id = trigger.id
+    ctx = _write_ctx(project.id, project.org_id)
     svc = JoySafeterAgentService(db_session)
 
-    archived, _ = await svc.archive_agent_with_sessions(agent.id, project_id=project.id)
+    archived, _ = await svc.archive_agent_with_sessions(agent_id, project_id=ctx.project_id)
     assert archived is True
     db_session.expire_all()
-    archived_row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent.id))).scalar_one()
+    archived_row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     assert archived_row.archived_at is not None
-    paused = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger.id))).scalar_one()
+    paused = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert paused.next_run_at is None
 
-    result = await unarchive_agent(agent.id, db_session, _write_ctx(project.id, project.org_id))
+    result = await unarchive_agent(agent_id, db_session, ctx)
     assert result == {"status": "active"}
 
     db_session.expire_all()
-    restored = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent.id))).scalar_one()
-    rearmed = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger.id))).scalar_one()
+    restored = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    rearmed = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
     assert restored.archived_at is None
     assert rearmed.next_run_at is not None
 
@@ -228,21 +238,24 @@ async def test_unarchive_clears_archived_at_and_rearms_triggers(db_session):
 @pytest.mark.asyncio
 async def test_unarchive_is_idempotent_on_active_agent(db_session):
     project, agent = await _project_and_agent(db_session, name="RestoreIdempotent")
+    agent_id = agent.id
+    ctx = _write_ctx(project.id, project.org_id)
 
-    result = await unarchive_agent(agent.id, db_session, _write_ctx(project.id, project.org_id))
+    result = await unarchive_agent(agent_id, db_session, ctx)
     assert result == {"status": "active"}
     db_session.expire_all()
-    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent.id))).scalar_one()
+    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     assert row.archived_at is None
 
 
 @pytest.mark.asyncio
 async def test_unarchive_missing_agent_raises_404(db_session):
     project, _agent = await _project_and_agent(db_session, name="RestoreMissing")
+    ctx = _write_ctx(project.id, project.org_id)
     missing_id = as_uuid(uuid.uuid4())
 
     with pytest.raises(AppError) as exc_info:
-        await unarchive_agent(missing_id, db_session, _write_ctx(project.id, project.org_id))  # type: ignore[arg-type]
+        await unarchive_agent(missing_id, db_session, ctx)  # type: ignore[arg-type]
 
     assert exc_info.value.code == "AGENT_NOT_FOUND"
 ```
